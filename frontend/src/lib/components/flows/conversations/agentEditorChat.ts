@@ -13,9 +13,34 @@ export function agentChatPath(agentPath: string): string {
 	return `${agentPath}.chat`
 }
 
+/** The agent a conversation's path files it under, or undefined for a flow's own chat. */
+export function agentOfChatPath(chatPath: string): string | undefined {
+	return chatPath.endsWith('.chat') ? chatPath.slice(0, -'.chat'.length) : undefined
+}
+
 /** The id of the one step a saved agent's run is made of, as the server names it too: job-read
  *  scoping and the run's agent detection match on it, so it is only ever relabeled for display. */
 export const AGENT_STEP_ID = '__wm_agent_root'
+
+/**
+ * Where a run's path links when the run is an agent's, which is a flow preview filed under no flow:
+ * a test run (`.chat`) to the agent's editor, a run of the deployed agent to its page. Undefined
+ * for any other run.
+ */
+export function agentRunHref(
+	job: { job_kind?: string; script_path?: string; raw_flow?: { modules?: { id: string }[] } },
+	workspace: string | undefined
+): string | undefined {
+	const path = job.script_path
+	if (job.job_kind !== 'flowpreview' || !path) return undefined
+	const query = workspace ? `?workspace=${workspace}` : ''
+	if (path.endsWith('.chat')) return `/agents/edit/${path.slice(0, -'.chat'.length)}${query}`
+	const modules = job.raw_flow?.modules
+	if (modules?.length === 1 && modules[0].id === AGENT_STEP_ID) {
+		return `/agents/get/${path}${query}`
+	}
+	return undefined
+}
 
 /** What a run shows for that step: the agent it ran, read off the run's path. */
 export function agentStepLabel(runPath: string | undefined): string {

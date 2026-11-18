@@ -196,7 +196,8 @@ services:
       - DEBUGGER_PORT=3003 # Debugger service port
       - ENABLE_NSJAIL=false # Set to true for nsjail sandboxing (requires privileged: true)
       - REQUIRE_SIGNED_DEBUG_REQUESTS=true # Require backend-signed JWT tokens for debug sessions. Do NOT set to false on any internet-reachable deployment: it exposes an unauthenticated code-execution debugger.
-      - WINDMILL_BASE_URL=http://windmill_server:8000
+      - WINDMILL_BASE_URL=http://windmill_server:8000 # Needed to verify the backend-signed tokens the LSP, debugger and multiplayer require
+      # - REQUIRE_SIGNED_LSP_REQUESTS=false # Only for a windmill_server older than this image, which cannot sign LSP sessions
       # - DEBUG_ALLOWED_ORIGINS=https://your-windmill-host # Optional CSWSH hardening: comma-separated allowlist of browser Origins permitted to open debug WebSockets
     volumes:
       - lsp_cache:/pyls/.cache

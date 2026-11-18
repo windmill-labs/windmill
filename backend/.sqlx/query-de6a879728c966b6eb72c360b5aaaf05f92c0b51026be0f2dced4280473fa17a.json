@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO account (workspace_id, client, expires_at, refresh_token, is_workspace_integration, scopes)\n         VALUES ($1, $2, now() + ($3 || ' seconds')::interval, $4, true, $5)\n         RETURNING id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Text",
+        "Varchar",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "de6a879728c966b6eb72c360b5aaaf05f92c0b51026be0f2dced4280473fa17a"
+}

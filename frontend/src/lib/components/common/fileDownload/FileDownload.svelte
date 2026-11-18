@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { Download } from 'lucide-svelte'
-	import { base } from '$lib/base'
 	import { downloadViaClient, shouldDownloadViaClient } from '$lib/utils/downloadFile'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
@@ -26,7 +25,7 @@
 			s3object?.storage ? `&storage=${s3object.storage}` : ''
 		}${appPath && s3object?.presigned ? `&${s3object?.presigned}` : ''}`
 	)
-	let href = $derived(`${base}/api${apiPath}`)
+	let href = $derived(`/api${apiPath}`)
 
 	const sharedClass = `relative center-center flex w-full text-center font-normal text-primary text-sm
 border border-dashed border-gray-400 hover:border-blue-500

@@ -2,13 +2,13 @@
 	import { UserService, type GlobalUserInfo, type ExternalJwtToken, SettingService } from '$lib/gen'
 	import type { GuestList } from '$lib/gen'
 	import { Tab, Tabs } from '$lib/components/common'
+	import { isNewTabClick } from '$lib/navigation'
 	import DataTable from '$lib/components/table/DataTable.svelte'
 	import Head from '$lib/components/table/Head.svelte'
 	import Cell from '$lib/components/table/Cell.svelte'
 	import InviteGlobalUser from '$lib/components/InviteGlobalUser.svelte'
 	import { Button } from '$lib/components/common'
 	import { sendUserToast } from '$lib/toast'
-	import { base } from '$lib/base'
 	import SearchItems from './SearchItems.svelte'
 	import { page } from '$app/state'
 	import { replaceState } from '$app/navigation'
@@ -18,7 +18,7 @@
 	import { truncate } from '$lib/utils'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import {
 		ArrowRightLeft,
 		Ban,
@@ -47,6 +47,8 @@
 		tabToAuthSubTab,
 		categoryToTabMap,
 		buildSearchableSettingItems,
+		listedNavigationGroups,
+		usesExternalOidcSigner,
 		type SearchableSettingItem
 	} from './instanceSettings'
 	import TextInput from './text_input/TextInput.svelte'
@@ -62,7 +64,6 @@
 	let {
 		closeDrawer,
 		showHeaderInfo = true,
-		disableChatOffset = false,
 		yamlMode = $bindable(false),
 		hasUnsavedChanges = $bindable(false),
 		hasAnyInvalid = $bindable(false)
@@ -228,7 +229,14 @@
 		return instanceSettings?.buildFullDiff() ?? { original: '', modified: '' }
 	}
 	// --- Settings search ---
-	const searchableItems = buildSearchableSettingItems()
+	let externalOidcSigner = $state(false)
+	$effect(() => {
+		if ($enterpriseLicense) usesExternalOidcSigner().then((v) => (externalOidcSigner = v))
+	})
+	const navigationGroups = $derived(
+		listedNavigationGroups(instanceSettingsNavigationGroups, externalOidcSigner)
+	)
+	const searchableItems = $derived(buildSearchableSettingItems(navigationGroups))
 
 	let scrollTimeout: ReturnType<typeof setTimeout> | undefined
 	let highlightTimeout: ReturnType<typeof setTimeout> | undefined
@@ -288,7 +296,7 @@
 				<Button
 					variant="default"
 					target="_blank"
-					href="{base}/?workspace=admins"
+					href="/?workspace=admins"
 					endIcon={{ icon: ExternalLink }}
 				>
 					Admins workspace
@@ -301,15 +309,11 @@
 			<!-- Sidebar Navigation -->
 			<div class="w-52 shrink-0 h-full overflow-auto p-4 bg-surface flex flex-col">
 				<SettingsSearchInput {searchableItems} onSelect={handleSearchSelect} class="mb-3" />
-				<SidebarNavigation
-					groups={instanceSettingsNavigationGroups}
-					selectedId={tab}
-					onNavigate={handleNavigate}
-				/>
+				<SidebarNavigation groups={navigationGroups} selectedId={tab} onNavigate={handleNavigate} />
 				{#if $workspaceStore !== 'admins'}
 					<div class="mt-4 pt-2 border-t border-surface-hover">
 						<a
-							href="{base}/?workspace=admins"
+							href="/?workspace=admins"
 							target="_blank"
 							class="flex items-center gap-2 px-2 py-1.5 text-xs text-secondary hover:text-primary transition-colors"
 						>
@@ -329,7 +333,7 @@
 				     scrollbar in view rather than under hundreds of rows. -->
 				<div class={usersListShown ? 'h-full flex flex-col px-8 py-4' : 'h-fit px-8 py-4'}>
 					{#if tab === 'ai' && !yamlMode}
-						<InstanceAISettings {disableChatOffset} />
+						<InstanceAISettings />
 					{:else if tab === 'users' && !yamlMode}
 						<div class="flex-1 min-h-0 flex flex-col">
 							{#if !automateUsernameCreation && !isCloudHosted()}
@@ -623,11 +627,12 @@
 																		in
 																		{#if workspace_id}
 																			<a
-																				href="{base}/workspace_settings?tab=users&workspace={workspace_id}"
+																				href="/workspace_settings?tab=users&workspace={workspace_id}"
 																				class="hover:underline"
 																				title={workspace_id}
-																				onclick={() => closeDrawer?.()}
-																				>{truncate(workspace_id, 20)}</a
+																				onclick={(e) => {
+																					if (!isNewTabClick(e)) closeDrawer?.()
+																				}}>{truncate(workspace_id, 20)}</a
 																			>
 																		{:else}
 																			its workspace
@@ -635,10 +640,12 @@
 																	</span>
 																{:else if groupRole}
 																	<a
-																		href="{base}/groups"
+																		href="/groups"
 																		class="text-2xs text-tertiary mt-0.5 ml-1 hover:underline"
 																		title={groupRoleTooltip}
-																		onclick={() => closeDrawer?.()}
+																		onclick={(e) => {
+																			if (!isNewTabClick(e)) closeDrawer?.()
+																		}}
 																	>
 																		Set by instance group
 																	</a>
@@ -654,8 +661,10 @@
 																				{
 																					displayName: 'Manage in workspace',
 																					icon: Settings,
-																					action: () => closeDrawer?.(),
-																					href: `${base}/workspace_settings?tab=users&workspace=${workspace_id}`
+																					action: (e) => {
+																						if (!isNewTabClick(e)) closeDrawer?.()
+																					},
+																					href: `/workspace_settings?tab=users&workspace=${workspace_id}`
 																				}
 																			]}
 																		/>
@@ -809,7 +818,6 @@
 									loading={guestLoading}
 									onLoadMore={() =>
 										loadGuestPage(Math.floor((guestList?.guests.length ?? 0) / guestPerPage) + 1)}
-									onInstanceSwitch={() => loadGuestPage(1)}
 								/>
 							{/if}
 						</div>

@@ -17,12 +17,11 @@
 	import { fetchDeployedValueForDiff } from '$lib/components/otherUserDraftDiff'
 	import { OtherUserDraftLoad } from '$lib/components/otherUserDraftLoad.svelte'
 	import { displayDate } from '$lib/utils'
-	import { userStore } from '$lib/stores'
+	import { useActingUser } from '$lib/actingUser.svelte'
 	import { armRestartOnFirstInteraction } from '$lib/userDraftToast'
 	import { UserDraft } from '$lib/userDraft.svelte'
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 	import { goto } from '$app/navigation'
-	import { base } from '$app/paths'
 
 	export type OtherDraftUser = { username?: string | null; draft_saved_at?: string }
 
@@ -66,7 +65,8 @@
 
 	// Legacy (no-owner) drafts can only be resolved by workspace admins / superadmins,
 	// and only they can delete a draft that belongs to someone else.
-	const isAdmin = $derived(!!$userStore?.is_admin || !!$userStore?.is_super_admin)
+	const actingUser = useActingUser(() => workspace)
+	const isAdmin = $derived(!!actingUser.current?.is_admin || !!actingUser.current?.is_super_admin)
 
 	async function deleteDraft(target: OtherDraftUser | 'all') {
 		const username = target === 'all' ? undefined : target.username
@@ -115,7 +115,7 @@
 			target === 'all' ||
 			(!hasOwnDraft && otherDraftsUsers.every((o) => ownerKey(o) === ownerKey(target)))
 		if (draftOnly && lastDraftGone) {
-			await goto(`${base}/`)
+			await goto('/')
 			return
 		}
 		try {

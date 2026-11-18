@@ -22,16 +22,17 @@
 //!     sent as a POST, gets through.
 //!
 //! No runnable exists and no Hub is contacted. A request that gets past the guard fails as
-//! not-found on a workspace path, and on the non-numeric version in `hub/x/...` for a Hub
-//! path, which is rejected while resolving the runnable, before any call to the Hub.
+//! not-found on a workspace path, and for a Hub path on fetching it from a Hub pointed at a
+//! closed port. Its id is above `PRIVATE_HUB_MIN_VERSION`, so the fetch does not fall back to
+//! the public Hub.
 
 use reqwest::StatusCode;
 use sqlx::{Pool, Postgres};
 use windmill_test_utils::*;
 
 const HUB_GETS: [&str; 2] = [
-    "run_wait_result/p/hub/x/absent",
-    "run_and_stream/p/hub/x/absent",
+    "run_wait_result/p/hub/10000001/absent",
+    "run_and_stream/p/hub/10000001/absent",
 ];
 const WORKSPACE_GETS: [&str; 2] = [
     "run_wait_result/p/u/test-user/absent",
@@ -49,6 +50,7 @@ async fn test_cross_site_get_cannot_run_hub_scripts(db: Pool<Postgres>) -> anyho
     initialize_tracing().await;
 
     let server = ApiServer::start(db.clone()).await?;
+    windmill_common::HUB_BASE_URL.store(std::sync::Arc::new("http://127.0.0.1:1".to_string()));
     let base = format!(
         "http://localhost:{}/api/w/test-workspace/jobs",
         server.addr.port()
@@ -91,6 +93,16 @@ async fn test_cross_site_get_cannot_run_hub_scripts(db: Pool<Postgres>) -> anyho
         }
     }
 
+    // Two leading `/` are refused before the guard. Stripped one at a time, the guard would read
+    // `/hub/…` as a workspace path and the queue, stripping the next, would run the Hub script.
+    let path = "run_and_stream/p///hub/10000001/absent?skip_preprocessor=true";
+    let (status, body) = send(cookie_get(path).header("Sec-Fetch-Site", "cross-site")).await?;
+    assert_eq!(
+        status,
+        StatusCode::BAD_REQUEST,
+        "{path} must be refused: {body}"
+    );
+
     // ---- Scope: the same request to a workspace script is not refused.
     for path in WORKSPACE_GETS {
         let (status, body) = send(cookie_get(path).header("Sec-Fetch-Site", "cross-site")).await?;
@@ -129,8 +141,8 @@ async fn test_cross_site_get_cannot_run_hub_scripts(db: Pool<Postgres>) -> anyho
     for (name, req) in allowed {
         let (status, body) = send(req).await?;
         assert!(
-            body.contains("Invalid hub script version"),
-            "{name} must get past the guard to runnable resolution (got {status}): {body}"
+            body.contains("127.0.0.1:1"),
+            "{name} must get past the guard to the Hub fetch (got {status}): {body}"
         );
     }
 

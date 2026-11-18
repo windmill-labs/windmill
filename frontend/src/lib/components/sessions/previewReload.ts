@@ -5,13 +5,14 @@ import {
 	pageItemUrl,
 	parsePageItemRoute,
 	parsePreviewItemRoute,
-	stripBase,
+	barePath,
+	agentPagePath,
 	TRIGGER_PAGES,
 	type PageItemRef,
 	type TriggerKind
 } from './previewPaths'
 
-// Which list pages a completed chat tool can change, as base-stripped paths
+// Which list pages a completed chat tool can change, as paths
 // (e.g. `/schedules`). This allowlist is the single source of truth for "does
 // this tool change a list page a preview tab might show". A new mutating tool
 // that surfaces on one of these pages must be added here or that tab silently
@@ -33,7 +34,15 @@ import {
 // the chat, so a tool that changes what is deployed at a path has to name it here
 // or that tab keeps showing the previous deployment. Only tools that change the
 // deployed item belong in `deployed`; a draft write does not.
-export type ToolReloadEffect = { pages: string[]; items: PageItemRef[]; deployed: string[] }
+//
+// `live` names items whose open editor follows this tool's write on its own, so naming them
+// reloads their list page but leaves their tab alone.
+export type ToolReloadEffect = {
+	pages: string[]
+	items: PageItemRef[]
+	deployed: string[]
+	live?: PageItemRef[]
+}
 const NO_RELOAD: ToolReloadEffect = { pages: [], items: [], deployed: [] }
 
 export function toolReloadEffect(name: string, args: any): ToolReloadEffect {
@@ -43,12 +52,19 @@ export function toolReloadEffect(name: string, args: any): ToolReloadEffect {
 		case 'write_trigger':
 			// Its path sits in the trigger's own config, not beside `kind`.
 			return withItem(triggerPages(args?.kind), itemRef('trigger', args?.config, args?.kind))
-		case 'write_resource':
-			return withItem(['/resources'], itemRef('resource', args))
+		case 'write_resource': {
+			const item = itemRef('resource', args)
+			const effect = withItem(['/resources'], item)
+			// An agent's editor follows the chat's writes through the draft cell they share, so
+			// reloading its tab would only throw away where the reader was in it, a test chat included.
+			return args?.resource_type === 'ai_agent' && item ? { ...effect, live: [item] } : effect
+		}
 		case 'write_variable':
 			return withItem(['/variables'], itemRef('variable', args))
 		case 'create_folder':
 			return { pages: ['/folders'], items: [], deployed: [] }
+		case 'create_resource_type':
+			return { pages: ['/resources'], items: [], deployed: [] }
 		// These two change what is deployed at a path, so a tab on that item's View side
 		// is showing a version that no longer exists.
 		case 'delete_workspace_item':
@@ -75,7 +91,8 @@ export function toolReloadEffect(name: string, args: any): ToolReloadEffect {
 // show the deployed side of. Other types (schedule, resource, …) have list pages instead.
 function deployedItems(args: any): string[] {
 	const type = args?.type
-	if (type !== 'script' && type !== 'flow' && type !== 'app') return []
+	// A resource has no deployed page, except an agent's, which `viewerTabsToReload` matches.
+	if (type !== 'script' && type !== 'flow' && type !== 'app' && type !== 'resource') return []
 	return typeof args?.path === 'string' && args.path ? [args.path] : []
 }
 
@@ -123,12 +140,14 @@ function triggerPages(kind: unknown): string[] {
 export function tabsToReload(
 	tabs: SessionPreviewTab[],
 	pages: ReadonlySet<string>,
-	items: ReadonlySet<string> = new Set()
+	items: ReadonlySet<string> = new Set(),
+	live: ReadonlySet<string> = new Set()
 ): SessionPreviewTab[] {
 	if (pages.size === 0) return []
 	return tabs.filter((t) => {
+		if (live.has(t.url)) return false
 		const pageItem = parsePageItemRoute(t.url)
-		if (!pageItem) return pages.has(stripBase(whereIs(t)))
+		if (!pageItem) return pages.has(barePath(whereIs(t)))
 		const listPath = pageItemListPath(pageItem)
 		if (!pages.has(listPath)) return false
 		const named = [...items].some((u) => pageItemListPath(parsePageItemRoute(u)!) === listPath)
@@ -145,7 +164,10 @@ export function viewerTabsToReload(
 ): SessionPreviewTab[] {
 	if (items.size === 0) return []
 	return tabs.filter((t) => {
-		const route = parsePreviewItemRoute(whereIs(t))
+		const loc = whereIs(t)
+		const agent = agentPagePath(loc)
+		if (agent !== undefined) return items.has(agent)
+		const route = parsePreviewItemRoute(loc)
 		return route?.mode === 'view' && items.has(route.itemPath)
 	})
 }

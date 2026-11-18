@@ -51,6 +51,13 @@ export function getResourcePrompt(): string {
   ].filter(Boolean).join('\n\n');
 }
 
+// Helper for AI agent authoring
+export function getAgentPrompt(): string {
+  return [
+    prompts.AGENT_BASE
+  ].filter(Boolean).join('\n\n');
+}
+
 // Helper for raw app authoring (chat consumers). Inline backend runnables are
 // ordinary Windmill jobs, so the reference has to carry the SDK the runnable
 // calls — without it an agent invents client functions and hand-rolls HTTP.
@@ -70,6 +77,35 @@ export function getRawAppPrompt(language?: string): string {
 export function getPipelinePrompt(): string {
   return [
     prompts.PIPELINE_BASE
+  ].filter(Boolean).join('\n\n');
+}
+
+// Helper for rich results: tables, charts and the other shapes a return value renders as
+export function getDisplayPrompt(): string {
+  return [
+    prompts.DISPLAY_RESULTS_BASE,
+    prompts.DISPLAY_CATALOG
+  ].filter(Boolean).join('\n\n');
+}
+
+// Helper for answering a task with code run as a preview, then saved and reused
+export function getCodeModePrompt(): string {
+  return [
+    prompts.CODE_MODE_BASE
+  ].filter(Boolean).join('\n\n');
+}
+
+// Helper for data table schema changes, migrations and permissions (chat consumers)
+export function getDatatablePrompt(): string {
+  return [
+    prompts.DATATABLE_BASE
+  ].filter(Boolean).join('\n\n');
+}
+
+// Helper for the workspace settings document (chat consumers)
+export function getWorkspaceSettingsPrompt(): string {
+  return [
+    prompts.WORKSPACE_SETTINGS_BASE
   ].filter(Boolean).join('\n\n');
 }
 

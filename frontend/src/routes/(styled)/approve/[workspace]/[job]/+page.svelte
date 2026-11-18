@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { type Job, JobService } from '$lib/gen'
-	import { base } from '$lib/base'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import { sendUserToast } from '$lib/toast'
@@ -15,6 +14,7 @@
 	import { mergeSchema } from '$lib/common'
 	import { emptyString } from '$lib/utils'
 	import { Alert } from '$lib/components/common'
+	import DenyReason from '$lib/components/approvals/DenyReason.svelte'
 	import { getUserExt } from '$lib/user'
 	import { setLicense } from '$lib/enterpriseUtils'
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
@@ -125,13 +125,14 @@
 		}
 	}
 
-	async function cancel() {
+	async function cancel(reason: string | undefined) {
 		loading = true
 		try {
 			await JobService.resumeSuspended({
 				workspace: page.params.workspace ?? '',
 				jobId: page.params.job ?? '',
 				requestBody: {
+					payload: reason ? { reason } : undefined,
 					approval_token: token,
 					approved: false
 				}
@@ -157,7 +158,7 @@
 	// approver this link serves, leaving `job` undefined — and `page.params.job` is the
 	// flow id the token is minted for anyway.
 	let runDetailsHref = $derived.by(() => {
-		let url = `${base}/run/${page.params.job}?workspace=${page.params.workspace}`
+		let url = `/run/${page.params.job}?workspace=${page.params.workspace}`
 		if (approvalInfo?.view_token) {
 			url += `&view_token=${encodeURIComponent(approvalInfo.view_token)}`
 		}
@@ -348,9 +349,13 @@
 			{#if !completed && !actionTaken && approvalInfo.can_approve}
 				<div class="w-max-md flex flex-row gap-x-4 gap-y-4 justify-between w-full flex-wrap">
 					{#if approvalInfo.hide_cancel !== true}
-						<Button variant="accent" destructive onclick={cancel} size="lg" disabled={loading}>
-							Deny
-						</Button>
+						<DenyReason confirmLabel="Deny" disabled={loading} onDeny={cancel}>
+							{#snippet button()}
+								<Button variant="accent" destructive size="lg" disabled={loading} nonCaptureEvent>
+									Deny
+								</Button>
+							{/snippet}
+						</DenyReason>
 					{:else}
 						<div></div>
 					{/if}

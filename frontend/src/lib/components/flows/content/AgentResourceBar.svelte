@@ -8,8 +8,7 @@
 	import ResourcePathHint from '$lib/components/ResourcePathHint.svelte'
 	import { ResourceService, type InputTransform, type Resource } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
-	import { userStore } from '$lib/stores'
-	import { canWrite } from '$lib/utils'
+	import { useEditRights } from '$lib/operatorWriteRights'
 	import { Bot, ChevronDown, ChevronUp, Save, Unlink, Pencil } from 'lucide-svelte'
 	import {
 		AGENT_BRAIN_KEYS,
@@ -18,6 +17,7 @@
 		flowLocalInputs,
 		inputTransformsToAgentConfig,
 		nonStaticBrainKeys,
+		providerWithOverrides,
 		summarizeAgentBrain,
 		type AIAgentConfig,
 		type AgentTool
@@ -61,7 +61,7 @@
 		flowPath = '',
 		fromAgentEditor = false,
 		chatInputEnabled = false,
-		linkedMemory = $bindable()
+		linkedAgent = $bindable()
 	}: {
 		agent: string | undefined
 		inputTransforms: Record<string, InputTransform>
@@ -80,11 +80,13 @@
 		// is the wrong way in.
 		fromAgentEditor?: boolean
 		chatInputEnabled?: boolean
-		// The linked agent's memory once its config has loaded, for the step's history inputs.
-		linkedMemory?: { memory: unknown } | undefined
+		// The linked agent's memory and provider once its config has loaded, for the step's history
+		// inputs and its overrides.
+		linkedAgent?: { memory: unknown; provider?: unknown } | undefined
 	} = $props()
 
 	let ws = $derived(opWorkspace ?? $operatingWorkspace)
+	const editRights = useEditRights(() => ws)
 
 	// How many times the linked agent has been written, from anywhere: this card's own save, or a
 	// deploy from the agent editor mounted alongside it. Both reads below key on it, so neither
@@ -226,7 +228,9 @@
 		loadedInfo?.ws === ws && loadedInfo?.path === agent ? loadedInfo : undefined
 	)
 	$effect(() => {
-		linkedMemory = linkedInfo ? { memory: linkedInfo.config?.memory } : undefined
+		linkedAgent = linkedInfo
+			? { memory: linkedInfo.config?.memory, provider: linkedInfo.config?.provider }
+			: undefined
 	})
 	let inheritedTools = $derived(linkedInfo?.tools ?? [])
 	let brainParams = $derived(summarizeAgentBrain(linkedInfo?.config))
@@ -234,9 +238,7 @@
 	let providerOk = $derived(linkedInfo?.providerOk ?? true)
 	let unavailable = $derived(linkedInfo?.unavailable ?? false)
 	let canEditAgent = $derived(
-		!!agent &&
-			!$userStore?.operator &&
-			canWrite(agent, linkedInfo?.extraPerms ?? {}, $userStore ?? undefined)
+		!!agent && editRights.canEditItem('agent', agent, linkedInfo?.extraPerms)
 	)
 	// The hint flips on the first keystroke in the agent editor, so the badge does not wait for the
 	// debounced autosave and the refetch behind it; the fetched answer covers a draft written
@@ -507,7 +509,13 @@
 				local[key] = inputTransforms[key]
 			}
 		}
-		const forkedInputs = { ...agentConfigToInputTransforms(cfg), ...local }
+		// An unlinked step sets model and effort inside `provider`, so its overrides move there.
+		const provider = providerWithOverrides(cfg.provider, inputTransforms)
+		const forkedInputs = {
+			...agentConfigToInputTransforms(cfg),
+			...(provider ? { provider } : {}),
+			...local
+		}
 		const forkedTools = cfg.tools ?? []
 		inputTransforms = forkedInputs
 		for (const tool of forkedTools) {

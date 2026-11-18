@@ -71,6 +71,22 @@ fn next_worker_name() -> String {
     format!("{id}/worker-{thread_name}")
 }
 
+/// The migration only creates audit partitions for the day it ran and the next three, and the
+/// monitor that rolls new ones does not run in tests. A test database cloned from an older
+/// template therefore has no partition for today, and a failed audit insert fails the request.
+pub async fn ensure_today_audit_partition(db: &Pool<Postgres>) {
+    let today = chrono::Utc::now().date_naive();
+    let next = today + chrono::Duration::days(1);
+    let partition = format!("audit_{}", today.format("%Y%m%d"));
+    sqlx::query(&format!(
+        "CREATE TABLE IF NOT EXISTS \"{partition}\" PARTITION OF audit_partitioned \
+         FOR VALUES FROM ('{today}') TO ('{next}')"
+    ))
+    .execute(db)
+    .await
+    .expect("creating today's audit partition");
+}
+
 pub struct ApiServer {
     pub addr: std::net::SocketAddr,
     #[allow(unused)]
@@ -104,6 +120,7 @@ impl ApiServer {
         server_mode: bool,
         mcp_mode: bool,
     ) -> anyhow::Result<Self> {
+        ensure_today_audit_partition(&db).await;
         let (tx, rx) = tokio::sync::broadcast::channel::<()>(1);
 
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
@@ -212,6 +229,7 @@ impl RunJob {
     }
 
     pub async fn push(self, db: &Pool<Postgres>) -> Uuid {
+        ensure_today_audit_partition(db).await;
         let RunJob { payload, args, scheduled_for_o, username, email, job_id, workspace_id } = self;
         let mut hm_args = std::collections::HashMap::new();
         for (k, v) in args {
@@ -260,6 +278,7 @@ impl RunJob {
 
     /// Push the job as a specific user (for testing permissions)
     pub async fn push_as(self, db: &Pool<Postgres>, username: &str, email: &str) -> Uuid {
+        ensure_today_audit_partition(db).await;
         let RunJob { payload, args, scheduled_for_o, job_id, workspace_id, .. } = self;
         let mut hm_args = std::collections::HashMap::new();
         for (k, v) in args {

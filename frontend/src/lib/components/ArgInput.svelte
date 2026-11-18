@@ -12,7 +12,7 @@
 		getSchemaFromProperties,
 		type DynamicInput as DynamicInputTypes
 	} from '$lib/utils'
-	import { DollarSign, Plus, X, Check, Loader2, ExternalLink } from 'lucide-svelte'
+	import { DollarSign, Plus, X, Check, Loader2, ExternalLink, AlertTriangle } from 'lucide-svelte'
 	import { createEventDispatcher, onDestroy, onMount, tick, untrack } from 'svelte'
 	import { fade } from 'svelte/transition'
 	import { Alert, Button, SecondsInput } from './common'
@@ -41,7 +41,6 @@
 	import MultiSelect from './select/MultiSelect.svelte'
 	import { safeSelectItems } from './select/utils.svelte'
 	import S3ArgInput from './common/fileUpload/S3ArgInput.svelte'
-	import { base } from '$lib/base'
 	import { getJsonSchemaFromResource } from './schema/jsonSchemaResource.svelte'
 	import AIProviderPicker from './AIProviderPicker.svelte'
 	import AiDecisionQuestionsEditor from './AiDecisionQuestionsEditor.svelte'
@@ -94,6 +93,8 @@
 		disablePortal?: boolean
 		showSchemaExplorer?: boolean
 		simpleTooltip?: string | undefined
+		/** Show `simpleTooltip` behind a warning icon rather than an info icon. */
+		simpleTooltipWarning?: boolean
 		customErrorMessage?: string | undefined
 		onlyMaskPassword?: boolean
 		nullable?: boolean
@@ -166,6 +167,7 @@
 		disablePortal = false,
 		showSchemaExplorer = false,
 		simpleTooltip = undefined,
+		simpleTooltipWarning = false,
 		customErrorMessage = undefined,
 		onlyMaskPassword = false,
 		nullable = false,
@@ -609,7 +611,7 @@
 			{#if value && typeof value == 'string' && value?.startsWith('$res:')}
 				Linked to resource <a
 					target="_blank"
-					href="{base}/resources#/resource/{value.slice(5)}"
+					href="/resources#/resource/{value.slice(5)}"
 					class="text-blue-500 underline"
 					>{value.slice(5)} <span class="inline-block -mb-0.5"><ExternalLink size={14} /></span></a
 				>
@@ -672,6 +674,8 @@
 				{contentEncoding}
 				{format}
 				{simpleTooltip}
+				SimpleTooltipIcon={simpleTooltipWarning ? AlertTriangle : undefined}
+				simpleTooltipIconClass={simpleTooltipWarning ? 'text-yellow-500' : undefined}
 				{lightHeader}
 				{displayType}
 				labelClass={twMerge(lightHeaderFont ? '!font-normal text-primary' : '', css?.label?.class)}

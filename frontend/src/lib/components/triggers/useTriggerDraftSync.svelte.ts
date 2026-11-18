@@ -47,8 +47,13 @@ export interface TriggerDraftSyncOptions {
 	/**
 	 * The deployed baseline the editor's dirty check compares against —
 	 * `originalConfig` for TriggerCrud editors, `initialConfig` for Schedule.
+	 * Must read `$state`: the baseline is cached, so a plain `let` set by a later
+	 * open stays stale and the "unsaved changes" banner never shows.
 	 */
 	deployed: () => Cfg | undefined
+	/** Subject autosaves to the auto-save toggle, as the full-page editors are. Only for an editor
+	 *  that shows the toggle and saves on Ctrl/Cmd+S: anywhere else an edit would park unseen. */
+	canBeDisabled?: boolean
 }
 
 export interface TriggerDraftSync {
@@ -61,8 +66,8 @@ export interface TriggerDraftSync {
 	 */
 	readonly hasDraft: boolean
 	/**
-	 * Whether a deployed baseline exists (banner can appear). Reactive, unlike
-	 * reading `deployed` directly (a plain `let`), so callers can reserve its slot.
+	 * Whether a deployed baseline exists (banner can appear), so callers can
+	 * reserve its slot.
 	 */
 	readonly hasBaseline: boolean
 	/** The deployed baseline the dirty check compares against. */
@@ -116,7 +121,9 @@ export function useTriggerDraftSync(opts: TriggerDraftSyncOptions): TriggerDraft
 	const handles = UserDraft.useMany<Cfg>(() => {
 		const p = opts.path()
 		const ws = opts.workspace()
-		return p && ws ? [{ itemKind: opts.itemKind, path: p, workspace: ws }] : []
+		return p && ws
+			? [{ itemKind: opts.itemKind, path: p, workspace: ws, canBeDisabled: opts.canBeDisabled }]
+			: []
 	})
 	const handle = $derived(handles[0])
 
@@ -172,8 +179,7 @@ export function useTriggerDraftSync(opts: TriggerDraftSyncOptions): TriggerDraft
 		!opts.drawerLoading() && baseline != null && cfgDiffers(opts.getCfg() as Cfg, baseline as Cfg)
 	)
 
-	// Reactive "banner is possible" — depends on `drawerLoading()` so it
-	// re-evaluates (and re-reads the plain-`let` baseline) once the load settles.
+	// "Banner is possible" — false until the load settles.
 	const hasBaseline = $derived(!opts.drawerLoading() && opts.deployed() != null)
 
 	/** `auto: true` marks a discard from the reactive persist-effect (not an
@@ -313,8 +319,7 @@ export function useTriggerDraftSync(opts: TriggerDraftSyncOptions): TriggerDraft
 			const deployed = opts.deployed()
 			if (deployed == null) return
 			// The deployed object too, so `resetToDeployed` restores the new value;
-			// `settledBaseline` because it shadows the deployed object and is the
-			// reactive side (an editor's `deployed` may be a plain `let`).
+			// `settledBaseline` because it shadows the deployed object.
 			Object.assign(deployed, patch)
 			settledBaseline = { ...snapshotCfg(settledBaseline ?? deployed), ...patch }
 		}

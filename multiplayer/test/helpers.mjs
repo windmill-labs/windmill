@@ -21,7 +21,7 @@ export function base64url(buffer) {
  * the port up and the server.mjs child binding it, so `startMultiplayerServer`
  * retries on EADDRINUSE; servers started in-process bind port 0 directly instead.
  */
-async function freePort() {
+export async function freePort() {
   return new Promise((resolve, reject) => {
     const probe = net.createServer()
     probe.on('error', reject)
@@ -37,7 +37,7 @@ async function freePort() {
  * `sign_multiplayer` (backend/windmill-api-debug/src/lib.rs): an EdDSA JWT with
  * claims workspace_id, email, iat, exp, purpose.
  */
-export function mintToken(privateKey, { workspaceId, email = 'test@windmill.dev', ttlSecs = 300 } = {}) {
+export function mintToken(privateKey, { workspaceId, email = 'test@windmill.dev', ttlSecs = 300, purpose = 'multiplayer' } = {}) {
   const now = Math.floor(Date.now() / 1000)
   const header = base64url(JSON.stringify({ alg: 'EdDSA', typ: 'JWT' }))
   const claims = base64url(
@@ -46,7 +46,7 @@ export function mintToken(privateKey, { workspaceId, email = 'test@windmill.dev'
       email,
       iat: now,
       exp: now + ttlSecs,
-      purpose: 'multiplayer'
+      purpose
     })
   )
   const message = `${header}.${claims}`
@@ -65,11 +65,14 @@ export function mintToken(privateKey, { workspaceId, email = 'test@windmill.dev'
  * could overrun.
  */
 export async function startJwksServer({ hold = false } = {}) {
-  const { publicKey, privateKey } = crypto.generateKeyPairSync('ed25519')
-  const jwk = publicKey.export({ format: 'jwk' })
-  const body = JSON.stringify({
-    keys: [{ kty: jwk.kty, crv: jwk.crv, x: jwk.x, kid: 'test', use: 'sig', alg: 'EdDSA' }]
-  })
+  let { publicKey, privateKey } = crypto.generateKeyPairSync('ed25519')
+  const jwksBody = (key) => {
+    const jwk = key.export({ format: 'jwk' })
+    return JSON.stringify({
+      keys: [{ kty: jwk.kty, crv: jwk.crv, x: jwk.x, kid: 'test', use: 'sig', alg: 'EdDSA' }]
+    })
+  }
+  let body = jwksBody(publicKey)
   let requests = 0
   let released = !hold
   const held = new Set()
@@ -100,7 +103,14 @@ export async function startJwksServer({ hold = false } = {}) {
   const { port } = server.address()
 
   return {
-    privateKey,
+    get privateKey() {
+      return privateKey
+    },
+    /** Serve a new key pair from now on, as the backend does when its JWT secret changes. */
+    rotate() {
+      ;({ publicKey, privateKey } = crypto.generateKeyPairSync('ed25519'))
+      body = jwksBody(publicKey)
+    },
     baseUrl: `http://127.0.0.1:${port}`,
     get requests() {
       return requests

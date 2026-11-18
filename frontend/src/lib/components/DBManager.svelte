@@ -45,7 +45,12 @@
 	import { favoriteManager } from './sidebar/FavoriteMenu.svelte'
 	import DatatableRoleBadge from './DatatableRoleBadge.svelte'
 	import type { AclTarget, Asset, DataTableTables } from '$lib/gen'
-	import { ADMIN_DATATABLE_ROLE, datatableNameTakesRole, type DatatableRowAction } from './dbTypes'
+	import {
+		ADMIN_DATATABLE_ROLE,
+		datatableNameTakesRole,
+		namedDefaultRole,
+		type DatatableRowAction
+	} from './dbTypes'
 	import TextInput from './text_input/TextInput.svelte'
 	import Checkbox from './common/checkbox/Checkbox.svelte'
 	import DbSchemaDiagram from './dbdiagram/DbSchemaDiagram.svelte'
@@ -417,7 +422,10 @@
 		if (!entry?.permissioned || !datatableNameTakesRole(datatable)) return undefined
 		const roles = entry.usable_roles
 		if (roles.length === 0) return { kind: 'none' }
-		const role = (datatable === currentDatatable ? currentRole : undefined) ?? entry.default_role
+		const role =
+			(datatable === currentDatatable ? currentRole : undefined) ??
+			namedDefaultRole(entry.default_role) ??
+			roles[0]
 		if (roles.length === 1 && roles[0] === ADMIN_DATATABLE_ROLE && role === ADMIN_DATATABLE_ROLE) {
 			return undefined
 		}

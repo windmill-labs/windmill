@@ -2,18 +2,14 @@
 	import { getContext, onMount } from 'svelte'
 	import DarkModeObserver from '../DarkModeObserver.svelte'
 	import { AppService, type ListableApp } from '$lib/gen'
-	import { canWrite } from '$lib/utils'
+	import { useEditRights } from '$lib/operatorWriteRights'
 	import type { AppViewerContext } from '../apps/types'
 	import Alert from '../common/alert/Alert.svelte'
 	import Select from '../select/Select.svelte'
-	import {
-		useOperatingUser,
-		useOperatingWorkspace
-	} from '$lib/components/operatingWorkspace.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
 	const operatingWorkspace = useOperatingWorkspace()
-	const operatingUser = useOperatingUser()
-	const actingUser = $derived(operatingUser.current)
+	const editRights = useEditRights()
 
 	interface Props {
 		value?: string
@@ -32,9 +28,8 @@
 		).map((app: ListableApp) => {
 			return {
 				canWrite:
-					canWrite(app.path!, app.extra_perms!, actingUser) &&
-					app.workspace_id == $operatingWorkspace &&
-					!actingUser?.operator,
+					editRights.canEditItem('app', app.path!, app.extra_perms) &&
+					app.workspace_id == $operatingWorkspace,
 				...app
 			}
 		})

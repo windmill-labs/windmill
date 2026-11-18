@@ -23,13 +23,16 @@
 	import DetailPageLayout from '$lib/components/details/DetailPageLayout.svelte'
 	import OnBehalfOfBadge from '$lib/components/details/OnBehalfOfBadge.svelte'
 	import { goto } from '$lib/navigation'
-	import { base } from '$lib/base'
 	import { Badge as HeaderBadge, Alert } from '$lib/components/common'
 	import MoveDrawer from '$lib/components/MoveDrawer.svelte'
 	import RunForm from '$lib/components/RunForm.svelte'
+	import type { PendingRun } from '$lib/components/details/pendingRun'
+	import { processSecretArgs } from '$lib/components/secretArgUtils'
+	import type { Schema } from '$lib/common'
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import { enterpriseLicense, userStore, userWorkspaces, workspaceStore } from '$lib/stores'
-	import { useOperatorBuilderFlows } from '$lib/operatorWriteRights'
+	import { useEditRights } from '$lib/operatorWriteRights'
+	import { PLAN_MODE_MESSAGES } from '$lib/components/copilot/chat/planModeMessages'
 	import { sendUserToast } from '$lib/toast'
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 	import SavedInputsV2 from '$lib/components/SavedInputsV2.svelte'
@@ -39,7 +42,6 @@
 		Archive,
 		Trash,
 		ChevronUpSquare,
-		Shield,
 		Loader2,
 		GitFork,
 		Play,
@@ -52,7 +54,11 @@
 
 	import DetailPageHeader from '$lib/components/details/DetailPageHeader.svelte'
 	import FlowGraphViewer from '$lib/components/FlowGraphViewer.svelte'
-	import { createRawAppFromFlow } from '$lib/components/details/createRawAppFromScript'
+	import {
+		createChatRawApp,
+		createRawAppFromFlow
+	} from '$lib/components/details/createRawAppFromScript'
+	import BuildChatAppCard from '$lib/components/details/BuildChatAppCard.svelte'
 	import TimeAgo from '$lib/components/TimeAgo.svelte'
 	import FlowGraphViewerStep from '$lib/components/FlowGraphViewerStep.svelte'
 	import GfmMarkdown from '$lib/components/GfmMarkdown.svelte'
@@ -76,9 +82,11 @@
 	import {
 		setOperatingWorkspace,
 		useOperatingUser,
+		useReadOnlyWorkspace,
 		useOperatingWorkspaceHref
 	} from '$lib/components/operatingWorkspace.svelte'
 	import FlowChat from '$lib/components/flows/conversations/FlowChat.svelte'
+	import { page } from '$app/state'
 	import { slide } from 'svelte/transition'
 	import { twMerge } from 'tailwind-merge'
 	import CiTestResults from '$lib/components/CiTestResults.svelte'
@@ -92,6 +100,7 @@
 		openEditInFork
 	} from '$lib/utils/editInFork'
 	import { isCloudHosted } from '$lib/cloud'
+	import { recentItems } from '$lib/components/home/recentItems.svelte'
 
 	let {
 		path: routePath,
@@ -101,6 +110,7 @@
 		onNavigate = goto,
 		active = true,
 		embedded = false,
+		pendingRun,
 		onLoadState
 	}: {
 		/** The `[...path]` route segment: the flow's path. */
@@ -116,6 +126,8 @@
 		/** Rendered inside a page that is not the flow's own (an AI session preview tab), whose
 		 * URL this must leave alone and which a cross-workspace link must not navigate away. */
 		embedded?: boolean
+		/** A chat tool call confirmed here rather than on its card. See {@link PendingRun}. */
+		pendingRun?: PendingRun
 		/** How the load ended, for a host that renders its own state around this page. */
 		onLoadState?: (state: 'loaded' | 'not_found') => void
 	} = $props()
@@ -131,14 +143,17 @@
 	// A ⌘-click opens these in a new tab, which only the query names the workspace for.
 	const operatingHref = useOperatingWorkspaceHref()
 	const actingUser = $derived(operatingUser.current)
-	const operatorBuilderFlows = useOperatorBuilderFlows()
+	const editRights = useEditRights()
+	const readOnly = useReadOnlyWorkspace()
 
 	let flow: Flow | undefined = $state()
 	// Derived, not assigned during the load: in a fork the acting user is looked up
 	// asynchronously, and a value read after `getFlowByPath` resolves can land before that
 	// lookup does. Assigned once, that leaves the page permanently read-only — `canWrite`
 	// refuses an unknown user — with nothing to recompute it.
-	const can_write = $derived(!!flow && canWrite(flow.path, flow.extra_perms!, actingUser))
+	const can_write = $derived(
+		!!flow && !readOnly(workspace) && canWrite(flow.path, flow.extra_perms!, actingUser)
+	)
 	const promptForAi = $derived((flow?.schema?.prompt_for_ai as string | undefined) ?? '')
 	let shareModal: ShareModal | undefined = $state()
 
@@ -210,7 +225,7 @@
 	}
 
 	async function loadTriggers(): Promise<void> {
-		await triggersState.fetchTriggers(triggersCount, workspace, path, true, undefined, actingUser)
+		await triggersState.fetchTriggers(triggersCount, workspace, path, true)
 	}
 
 	let pinnedVersion: number | undefined = $state(undefined)
@@ -257,6 +272,15 @@
 		if (!flow.path.startsWith(`u/${actingUser?.username}`) && flow.path.split('/').length > 2) {
 			invisible_to_owner = flow.visible_to_runner_only
 		}
+		// Opened from a session's preview tab, it was the session's doing, not a visit.
+		if (!embedded) {
+			recentItems.record(workspace!, {
+				kind: 'flow',
+				path: flow.path,
+				summary: flow.summary,
+				via: 'view'
+			})
+		}
 		intervalId && clearInterval(intervalId)
 		deploymentInProgress = flow.lock_error_logs == ''
 		if (deploymentInProgress) {
@@ -290,21 +314,31 @@
 		invisibleToOwner: boolean | undefined,
 		overrideTag: string | undefined
 	) {
+		// Taken before the round trip below: the call this press answers is the one it was
+		// pressed under, and a call settled meanwhile — declined, then another proposed for
+		// this same flow — must not be answered with a job it never asked for.
+		const call = pendingRun
 		loading = true
 		const scheduledFor = scheduledForStr ? new Date(scheduledForStr).toISOString() : undefined
 		try {
-			let run = await JobService.runFlowByPath({
+			const params = {
 				workspace: workspace!,
-				path,
 				invisibleToOwner,
 				requestBody: args,
 				scheduledFor,
 				tag: overrideTag,
 				skipPreprocessor: true
-			})
-			await onNavigate('/run/' + run + '?workspace=' + workspace)
-		} catch (e) {
-			throw e
+			}
+			// A pinned version runs as shown, not the latest deployed one.
+			let run =
+				pinnedVersion !== undefined
+					? await JobService.runFlowByVersion({ ...params, version: pinnedVersion })
+					: await JobService.runFlowByPath({ ...params, path })
+			// The call asked for this run; it follows the job rather than starting one, and
+			// shows it in place of this page — so navigating here as well would leave two
+			// surfaces open on the same job.
+			if (!call?.adopt(run, args, flow?.schema ?? {}))
+				await onNavigate('/run/' + run + '?workspace=' + workspace)
 		} finally {
 			loading = false
 		}
@@ -315,11 +349,21 @@
 		conversationId: string,
 		additionalInputs?: Record<string, any>
 	): Promise<string> {
+		// A chat flow's inputs reach the job straight from the composer, with no RunForm in
+		// between to mint a secret as it is typed — so this is the only place a value the
+		// schema marks `password` can become a reference. Without it the literal is stored in
+		// the job's arguments, where anyone who can read the run can read it. Idempotent, so a
+		// reference that was already minted costs a walk and no round trip.
+		const requestBody = await processSecretArgs(
+			{ user_message: userMessage, ...(additionalInputs ?? {}) },
+			flow?.schema as Schema | undefined,
+			workspace
+		)
 		const run = await JobService.runFlowByPath({
 			workspace: workspace!,
 			path,
 			memoryId: conversationId,
-			requestBody: { user_message: userMessage, ...(additionalInputs ?? {}) },
+			requestBody,
 			skipPreprocessor: true
 		})
 		return run
@@ -344,10 +388,13 @@
 			console.error('Was not able to transform hash as args', e)
 		}
 	}
+	// A chat call confirmed here opens its form on what the chat proposed. Read at init like
+	// the hash above, and for the same reason; the host remounts this page when the call
+	// changes, so a tab already open on this flow still builds its form from the new one.
+	if (pendingRun) args = { ...untrack(() => pendingRun.proposedArgs) }
 
-	// Operators with the builder right author flows out of deployed runnables; every other
-	// operator is read-only here.
-	let canAuthorFlow = $derived(!actingUser?.operator || $operatorBuilderFlows)
+	let canAuthorFlow = $derived(editRights.roleCanAuthor('flow'))
+	const caps = $derived(editRights.capabilities)
 
 	let moveDrawer: MoveDrawer | undefined = $state()
 	let deploymentDrawer: DeployWorkspaceDrawer | undefined = $state()
@@ -372,9 +419,9 @@
 			buttons.push({
 				label: 'Fork',
 				description: `Start a new flow from a copy of this one`,
-				narrow: { dropdownOf: 'Edit' },
+				placement: { dropdownOf: 'Edit' },
 				buttonProps: {
-					href: operatingHref(`${base}/flows/add?template=${flow.path}`),
+					href: operatingHref(`/flows/add?template=${flow.path}`),
 					onClick: interceptNav(onNavigate, `/flows/add?template=${flow.path}`),
 					variant: 'subtle',
 					unifiedSize: 'md',
@@ -384,16 +431,11 @@
 			})
 		}
 
-		if (
-			flow &&
-			!actingUser?.operator &&
-			!isCloudHosted() &&
-			editInForkAllowed(workspace, $userWorkspaces)
-		) {
+		if (flow && caps.code && !isCloudHosted() && editInForkAllowed(workspace, $userWorkspaces)) {
 			buttons.push({
 				label: editInForkLabel(workspace, $userWorkspaces),
 				description: editInForkDescription('flow', workspace, $userWorkspaces),
-				narrow: { dropdownOf: 'Edit' },
+				placement: { dropdownOf: 'Edit' },
 				buttonProps: {
 					href: buildForkEditUrl('flow', flow.path, workspace),
 					onClick: (e: Event | undefined) => editInFork(e, flow.path),
@@ -411,7 +453,7 @@
 		buttons.push({
 			label: `Runs`,
 			buttonProps: {
-				href: operatingHref(`${base}/runs/${flow.path}`),
+				href: operatingHref(`/runs/${flow.path}`),
 				onClick: interceptNav(onNavigate, `/runs/${flow.path}`),
 				unifiedSize: 'md',
 				variant: 'subtle',
@@ -421,7 +463,7 @@
 
 		buttons.push({
 			label: `History`,
-			narrow: 'menu',
+			placement: 'menu',
 			buttonProps: {
 				onClick: () => flowHistory?.open(),
 				unifiedSize: 'md',
@@ -430,18 +472,28 @@
 			}
 		})
 
-		if (!flow || !canAuthorFlow || !can_write) {
-			return buttons
-		}
-
-		// The builder right covers flows only; building an app is still refused to operators.
-		if (!actingUser?.operator) {
+		// A chat-mode flow gets the chat template rather than a form over its inputs. It holds no
+		// inline code, so authoring raw apps is enough, as on the sidebar card. The form app starts
+		// from the full template, not the builder one a compose-only role deploys.
+		const chat = !!flow?.value?.chat_input_enabled
+		const canBuildApp = chat
+			? editRights.roleCanAuthor('raw_app')
+			: canAuthorFlow && can_write && caps.apps === 'full'
+		if (flow && canBuildApp) {
 			buttons.push({
-				label: 'Build app',
-				narrow: 'menu',
+				label: chat ? 'Build chat app' : 'Build app',
+				placement: 'menu',
+				alwaysPlaced: true,
 				buttonProps: {
 					onClick: async () => {
-						const app = createRawAppFromFlow(flow.path, flow.summary, flow.schema)
+						const app = chat
+							? createChatRawApp({
+									path: flow.path,
+									runType: 'flow',
+									summary: flow.summary,
+									schema: flow.schema
+								})
+							: createRawAppFromFlow(flow.path, flow.summary, flow.schema)
 						// The raw app editor reads the payload from sessionStorage on mount.
 						sessionStorage.setItem('rawAppImport', JSON.stringify(app))
 						await onNavigate('/apps_raw/add')
@@ -454,10 +506,14 @@
 			})
 		}
 
+		if (!flow || !canAuthorFlow || !can_write) {
+			return buttons
+		}
+
 		buttons.push({
 			label: 'Edit',
 			buttonProps: {
-				href: operatingHref(`${base}/flows/edit/${path}`),
+				href: operatingHref(`/flows/edit/${path}`),
 				onClick: interceptNav(onNavigate, `/flows/edit/${path}`),
 				variant: 'accent',
 				unifiedSize: 'md',
@@ -488,13 +544,6 @@
 
 		const menuItems: any = []
 
-		menuItems.push({
-			label: 'Permissions',
-			onclick: () => shareModal?.openDrawer(flow?.path ?? '', 'flow'),
-			Icon: Shield,
-			disabled: !can_write
-		})
-
 		if (showEditButtons) {
 			menuItems.push({
 				label: 'Move/Rename',
@@ -503,21 +552,17 @@
 			})
 		}
 
-		// The builder right opens this menu to operators; audit logs stay behind their own setting.
-		if (
-			!actingUser?.operator ||
-			$userWorkspaces.find((w) => w.id === workspace)?.operator_settings?.audit_logs
-		) {
+		// A flow-composing role opens this menu; audit logs stay behind their own visibility flag.
+		if (caps.visibility.audit_logs) {
 			menuItems.push({
 				label: 'Audit logs',
 				Icon: Eye,
-				onclick: () => {
-					onNavigate(`/audit_logs?resource=${flow?.path}`)
-				}
+				href: operatingHref(`/audit_logs?resource=${flow.path}`),
+				onclick: interceptNav(onNavigate, `/audit_logs?resource=${flow.path}`)
 			})
 		}
 
-		if (isDeployable('flow', flow?.path ?? '', deployUiSettings) && !actingUser?.operator) {
+		if (isDeployable('flow', flow?.path ?? '', deployUiSettings) && caps.flows === 'full') {
 			menuItems.push({
 				label: 'Deploy to staging/prod',
 				onclick: () => deploymentDrawer?.openDrawer(flow?.path ?? '', 'flow'),
@@ -628,7 +673,7 @@
 
 <svelte:window onkeydown={onKeyDown} />
 <DeployWorkspaceDrawer bind:this={deploymentDrawer} />
-<ShareModal bind:this={shareModal} />
+<ShareModal bind:this={shareModal} source="detail" />
 <MoveDrawer
 	bind:this={moveDrawer}
 	on:update={async (e) => {
@@ -643,7 +688,7 @@
 <DetailPageLayout
 	bind:this={detailLayout}
 	bind:selected={rightPaneSelected}
-	isOperator={actingUser?.operator}
+	isOperator={!caps.code}
 	forceSmallScreen={chatInputEnabled}
 	isChatMode={chatInputEnabled}
 	flow_json={{
@@ -662,6 +707,9 @@
 			}}
 			{mainButtons}
 			menuItems={getMenuItems(flow, deployUiSettings)}
+			onShare={flow && canAuthorFlow
+				? () => shareModal?.openDrawer(flow?.path ?? '', 'flow')
+				: undefined}
 			bind:errorHandlerMuted={
 				() => flow?.ws_error_handler_muted ?? false,
 				(v) => {
@@ -669,7 +717,8 @@
 				}
 			}
 			scriptOrFlowPath={flow?.path ?? ''}
-			errorHandlerKind="flow"
+			itemKind="flow"
+			errorHandlerKind={readOnly(workspace) ? undefined : 'flow'}
 			tag={flow?.tag ?? ''}
 			labels={flow?.labels}
 			inheritedLabels={flow?.inherited_labels}
@@ -685,6 +734,12 @@
 					}
 				: undefined}
 		>
+			{#snippet name_marks()}
+				<!-- Favorites are the sidebar's, which lists the navigation workspace only. -->
+				{#if workspace && flow && workspace === $workspaceStore}
+					<Star kind="flow" path={flow.path} summary={flow.summary} />
+				{/if}
+			{/snippet}
 			{#snippet trigger_badges()}
 				<TriggersBadge
 					showOnlyWithCount={true}
@@ -701,12 +756,6 @@
 					small={false}
 				/>
 			{/snippet}
-			{#if workspace && flow}
-				<!-- Favorites are the sidebar's, which lists the navigation workspace only. -->
-				{#if workspace === $workspaceStore}
-					<Star kind="flow" path={flow.path} summary={flow.summary} />
-				{/if}
-			{/if}
 			<OnBehalfOfBadge
 				onBehalfOf={flow?.on_behalf_of}
 				onBehalfOfEmail={flow?.on_behalf_of_email}
@@ -822,25 +871,52 @@
 								flowModules={flow?.value?.modules}
 								wideLayout
 								frame="none"
-							/>
+								openConversation={page.url.searchParams.get('conversation') ?? undefined}
+							>
+								{#snippet sidebarFooter({ expanded })}
+									{#if workspace && flow}
+										<BuildChatAppCard
+											kind="flow"
+											path={flow.path}
+											{workspace}
+											{expanded}
+											summary={flow.summary}
+											schema={flow.schema}
+											{onNavigate}
+										/>
+									{/if}
+								{/snippet}
+							</FlowChat>
 						{:else}
 							{@const hasSchema =
 								flow.schema && Object.keys(flow.schema.properties ?? {}).length > 0}
 							<!-- Normal Mode: Form Layout -->
 							<div class="flex flex-col align-left">
-								{#if hasSchema || inputSelected}
+								{#if hasSchema || inputSelected || pendingRun}
 									<div
 										class="flex flex-row justify-between min-h-12"
 										transition:slide={{ duration: 150 }}
 									>
-										<InputSelectedBadge
-											onReject={() => {
-												savedInputsV2?.resetSelected()
-											}}
-											{inputSelected}
-										/>
+										<div class="flex flex-row items-start gap-2">
+											{#if pendingRun}
+												<InputSelectedBadge
+													inputSelected="pending_run"
+													onReject={() => pendingRun.decline()}
+												/>
+											{/if}
+											<InputSelectedBadge
+												onReject={() => {
+													savedInputsV2?.resetSelected()
+												}}
+												{inputSelected}
+											/>
+										</div>
 
-										{#if hasSchema}
+										<!-- Not offered while the form refuses writes: each side of this
+										     toggle mounts what the other unmounts, and a `password` field
+										     mints a variable from the literal it opens on. The form stays on
+										     whichever side it is already showing, read-only. -->
+										{#if hasSchema && !pendingRun?.planModeActive}
 											<Toggle
 												bind:checked={jsonView}
 												size="xs"
@@ -883,7 +959,11 @@
 									bind:isValid
 									runnable={flow}
 									runAction={runFlow}
+									runRefusal={pendingRun?.planModeActive
+										? PLAN_MODE_MESSAGES.runFormRefused
+										: undefined}
 									bind:args
+									schedulable={!pendingRun}
 									bind:this={runForm}
 									{jsonView}
 									actions={promptForAi ? undefined : aiAssistant}
@@ -965,6 +1045,7 @@
 				isDeployed={true}
 				noCapture={true}
 				isEditor={false}
+				chatMode={chatInputEnabled}
 			/>
 		{/if}
 	{/snippet}

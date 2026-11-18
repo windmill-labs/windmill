@@ -5,7 +5,6 @@ import { mintDraftPath } from '$lib/mintDraftPath'
 import { userStore, workspaceStore } from '$lib/stores'
 import { copilotInfo, copilotWorkspace } from '$lib/aiStore'
 import { loadCopilot } from '$lib/components/copilot/loadCopilot'
-import { prefersSessionHandoff } from '$lib/components/copilot/chat/global/gate'
 import { editorSessionHref } from '$lib/components/sessions/sessionSwitch.svelte'
 import { importStore } from '$lib/components/apps/store'
 import type { PageLoad } from './$types'
@@ -26,13 +25,16 @@ async function newAppSessionHref(url: URL): Promise<string | undefined> {
 	const user = get(userStore)
 	const workspace = get(workspaceStore)
 	// Neither is known yet on a cold load of this URL, which then opens the editor.
-	if (!user || !workspace || !prefersSessionHandoff(user.operator)) return undefined
+	if (!user || !workspace) return undefined
 	if ((url.searchParams.get('workspace') ?? workspace) !== workspace) return undefined
 	if (get(copilotWorkspace) !== workspace) await loadCopilot(workspace)
 	if (get(copilotWorkspace) !== workspace || !get(copilotInfo).enabled) return undefined
-	return editorSessionHref({ kind: 'raw_app', path: mintDraftPath() }, workspace, {
-		new_draft: 'true'
-	})
+	return editorSessionHref(
+		{ kind: 'raw_app', path: mintDraftPath() },
+		workspace,
+		{ new_draft: 'true' },
+		{ untilStarted: true }
+	)
 }
 
 export const load: PageLoad = async (event) => {

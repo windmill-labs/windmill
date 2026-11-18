@@ -437,3 +437,609 @@ async fn multi_file_importer_relock_is_a_no_op_too(db: Pool<Postgres>) -> anyhow
 
     Ok(())
 }
+
+/// Plants raw app `f/rel/app` with python runnables of the given contents, one of which imports
+/// `f/rel/a`, as a version deployed before runnables were keyed by name: recorded under the
+/// empty node id and each holding a lock already. Returns its published version.
+async fn plant_raw_app_with(
+    db: &Pool<Postgres>,
+    runnables: &[(&str, &str)],
+) -> anyhow::Result<i64> {
+    let runnables: serde_json::Map<String, serde_json::Value> = runnables
+        .iter()
+        .map(|(id, content)| {
+            let runnable = serde_json::json!({ "type": "inline", "inlineScript": {
+                "content": content, "language": "python3", "lock": "# py: 3.12\n"
+            }});
+            (id.to_string(), runnable)
+        })
+        .collect();
+    let app_id: i64 = sqlx::query_scalar(
+        "INSERT INTO app (workspace_id, path, summary, policy, versions, extra_perms)
+         VALUES ($1, 'f/rel/app', '', '{}'::jsonb, '{}', '{}'::jsonb) RETURNING id",
+    )
+    .bind(W)
+    .fetch_one(db)
+    .await?;
+    let published: i64 = sqlx::query_scalar(
+        "INSERT INTO app_version (app_id, value, created_by, raw_app)
+         VALUES ($1, $2, 'test-user', true) RETURNING id",
+    )
+    .bind(app_id)
+    .bind(serde_json::json!({ "runnables": runnables }))
+    .fetch_one(db)
+    .await?;
+    sqlx::query("UPDATE app SET versions = ARRAY[$1::bigint] WHERE id = $2")
+        .bind(published)
+        .bind(app_id)
+        .execute(db)
+        .await?;
+    sqlx::query(
+        "INSERT INTO dependency_map (workspace_id, importer_path, importer_kind, imported_path, importer_node_id)
+         VALUES ($1, 'f/rel/app', 'app', 'f/rel/a', '')",
+    )
+    .bind(W)
+    .execute(db)
+    .await?;
+    Ok(published)
+}
+
+/// [`plant_raw_app_with`] a single runnable `a` importing `f/rel/a`.
+async fn plant_raw_app(db: &Pool<Postgres>) -> anyhow::Result<i64> {
+    plant_raw_app_with(db, &[("a", B)]).await
+}
+
+async fn app_lock(db: &Pool<Postgres>, version: i64) -> Option<String> {
+    runnable_lock(db, version, "a").await
+}
+
+async fn runnable_lock(db: &Pool<Postgres>, version: i64, runnable: &str) -> Option<String> {
+    sqlx::query_scalar(
+        "SELECT value->'runnables'->$2->'inlineScript'->>'lock' FROM app_version WHERE id = $1",
+    )
+    .bind(version)
+    .bind(runnable)
+    .fetch_one(db)
+    .await
+    .unwrap()
+}
+
+const WRITTEN_MEANWHILE: &str = "# py: 3.12\n# written meanwhile\n";
+
+/// Once an app dependency job waits on the version row `writer` holds, rewrites that row's
+/// lock of runnable `a` to [`WRITTEN_MEANWHILE`] and commits.
+async fn write_once_waited_on(
+    db: &Pool<Postgres>,
+    mut writer: sqlx::Transaction<'_, Postgres>,
+    version: i64,
+) {
+    wait_until_blocked(db, "SELECT value FROM app_version%").await;
+    sqlx::query(
+        "UPDATE app_version SET value = jsonb_set(value::jsonb,
+         '{runnables,a,inlineScript,lock}', to_jsonb($2::text))::json WHERE id = $1",
+    )
+    .bind(version)
+    .bind(WRITTEN_MEANWHILE)
+    .execute(&mut *writer)
+    .await
+    .unwrap();
+    writer.commit().await.unwrap();
+}
+
+/// Waits until a statement of this test's database matching `query` waits on a row lock.
+async fn wait_until_blocked(db: &Pool<Postgres>, query: &str) {
+    let deadline = tokio::time::Instant::now() + WAIT_BUDGET;
+    loop {
+        let waiting: bool = sqlx::query_scalar(
+            "SELECT EXISTS (SELECT 1 FROM pg_stat_activity
+             WHERE datname = current_database() AND wait_event_type = 'Lock' AND query LIKE $1)",
+        )
+        .bind(query)
+        .fetch_one(db)
+        .await
+        .unwrap();
+        if waiting {
+            return;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "nothing ever waited on a row lock for {query}"
+        );
+        tokio::time::sleep(POLL).await;
+    }
+}
+
+/// Queues a dependency job of `f/rel/app` at `version`: the deploy's own when `components` is
+/// `None`, else a relative-import relock of those components.
+async fn push_app_dependency_job(db: &Pool<Postgres>, version: i64, components: Option<&[&str]>) {
+    let payload = windmill_common::jobs::JobPayload::AppDependencies {
+        path: "f/rel/app".to_string(),
+        version,
+        debouncing_settings: Default::default(),
+    };
+    let mut args = std::collections::HashMap::new();
+    if let Some(components) = components {
+        args.insert(
+            "triggered_by_relative_import".to_string(),
+            serde_json::value::to_raw_value(&true).unwrap(),
+        );
+        args.insert(
+            "components_to_relock".to_string(),
+            serde_json::value::to_raw_value(components).unwrap(),
+        );
+    }
+    let (_, tx) = windmill_queue::push(
+        db,
+        windmill_queue::PushIsolationLevel::IsolatedRoot(db.clone()),
+        W,
+        payload,
+        windmill_queue::PushArgs { args: &args, extra: None },
+        "test-user",
+        "test@windmill.dev",
+        "u/test-user".to_string(),
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        false,
+        false,
+        None,
+        true,
+        None,
+        None,
+        None,
+        None,
+        None,
+        false,
+        None,
+        None,
+        None,
+        None,
+    )
+    .await
+    .unwrap();
+    tx.commit().await.unwrap();
+}
+
+/// Logs of every dependency job of `f/rel/app` created after `since`, oldest first.
+async fn app_dependency_logs(
+    db: &Pool<Postgres>,
+    since: chrono::DateTime<chrono::Utc>,
+) -> Vec<String> {
+    sqlx::query_scalar(
+        "SELECT COALESCE(l.logs, '') FROM v2_job j
+         LEFT JOIN job_logs l ON l.job_id = j.id
+         WHERE j.kind = 'appdependencies' AND j.runnable_path = 'f/rel/app' AND j.created_at > $1
+         ORDER BY j.created_at",
+    )
+    .bind(since)
+    .fetch_all(db)
+    .await
+    .unwrap()
+}
+
+/// A raw app runnable importing a script is relocked when that script's dependencies change,
+/// and the relock lands in the version the app is served from rather than in a new one: a raw
+/// app's bundle is stored under its version id.
+#[sqlx::test(fixtures("base"))]
+async fn raw_app_relock_rewrites_the_published_version(db: Pool<Postgres>) -> anyhow::Result<()> {
+    std::env::set_var("DEPENDENCY_JOB_DEBOUNCE_DELAY", "0");
+    let (client, port, _s) = init_client(db.clone()).await;
+    let mut completed = listen_for_completed_jobs(&db).await;
+    let published = plant_raw_app(&db).await?;
+
+    in_test_worker(
+        &db,
+        async {
+            client
+                .create_script(W, &py_script("f/rel/a", A, None))
+                .await
+                .unwrap();
+            wait_for_jobs(&db, &mut completed, 1).await;
+
+            let a_hash = live(&versions(&db, "f/rel/a").await).hash;
+            client
+                .create_script(
+                    W,
+                    &py_script("f/rel/a", A_WITH_TINY, Some(format!("{a_hash:016x}"))),
+                )
+                .await
+                .unwrap();
+            wait_for_jobs(&db, &mut completed, 2).await;
+
+            let (versions, version_rows): (Vec<i64>, i64) = sqlx::query_as(
+                "SELECT versions, (SELECT count(*) FROM app_version WHERE app_id = app.id)
+                 FROM app WHERE workspace_id = $1 AND path = 'f/rel/app'",
+            )
+            .bind(W)
+            .fetch_one(&db)
+            .await
+            .unwrap();
+            assert_eq!(versions, [published], "the relock publishes no other version");
+            assert_eq!(version_rows, 1, "the relock mints no version");
+
+            let lock = app_lock(&db, published).await;
+            assert!(
+                lock.as_deref().unwrap_or("").contains("tiny"),
+                "the published version carries the new lock: {lock:?}"
+            );
+
+            let node_ids: Vec<String> = sqlx::query_scalar(
+                "SELECT importer_node_id FROM dependency_map
+                 WHERE workspace_id = $1 AND importer_path = 'f/rel/app' AND imported_path = 'f/rel/a'",
+            )
+            .bind(W)
+            .fetch_all(&db)
+            .await
+            .unwrap();
+            assert_eq!(node_ids, ["a"], "the runnable is recorded under its name");
+        },
+        port,
+    )
+    .await;
+
+    Ok(())
+}
+
+/// A relock rewrites the one row every other relock of the app, and the dependency job of the
+/// deploy that published it, write too. When that row changed after the relock read it, the
+/// relock is discarded and queued again on what is there now, rather than overwriting it.
+#[sqlx::test(fixtures("base"))]
+async fn raw_app_relock_racing_a_write_requeues(db: Pool<Postgres>) -> anyhow::Result<()> {
+    std::env::set_var("DEPENDENCY_JOB_DEBOUNCE_DELAY", "0");
+    let (client, port, _s) = init_client(db.clone()).await;
+    let mut completed = listen_for_completed_jobs(&db).await;
+    let published = plant_raw_app(&db).await?;
+
+    in_test_worker(
+        &db,
+        async {
+            client
+                .create_script(W, &py_script("f/rel/a", A, None))
+                .await
+                .unwrap();
+            wait_for_jobs(&db, &mut completed, 1).await;
+
+            let mut writer = db.begin().await.unwrap();
+            sqlx::query("SELECT 1 FROM app_version WHERE id = $1 FOR NO KEY UPDATE")
+                .bind(published)
+                .execute(&mut *writer)
+                .await
+                .unwrap();
+
+            let since = chrono::Utc::now();
+            let a_hash = live(&versions(&db, "f/rel/a").await).hash;
+            client
+                .create_script(
+                    W,
+                    &py_script("f/rel/a", A_WITH_TINY, Some(format!("{a_hash:016x}"))),
+                )
+                .await
+                .unwrap();
+
+            write_once_waited_on(&db, writer, published).await;
+
+            // The leaf's own job, the discarded relock and the one it queued.
+            wait_for_jobs(&db, &mut completed, 3).await;
+
+            let logs = app_dependency_logs(&db, since).await;
+            assert_eq!(logs.len(), 2, "one relock and its requeue: {logs:?}");
+            assert!(
+                logs[0].contains("discarding them"),
+                "the first relock was discarded: {}",
+                logs[0]
+            );
+            let lock = app_lock(&db, published).await;
+            assert!(
+                lock.as_deref().unwrap_or("").contains("tiny"),
+                "the queued relock regenerated the lock over the concurrent write: {lock:?}"
+            );
+        },
+        port,
+    )
+    .await;
+
+    Ok(())
+}
+
+/// The dependency job of the deploy that published a version writes the row relocks write
+/// too, so it backs off the same way when that row changed after it read it.
+#[sqlx::test(fixtures("base"))]
+async fn app_deploy_dependency_job_racing_a_write_requeues(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    let (_client, port, _s) = init_client(db.clone()).await;
+    let mut completed = listen_for_completed_jobs(&db).await;
+    let published = plant_raw_app(&db).await?;
+
+    in_test_worker(
+        &db,
+        async {
+            let mut writer = db.begin().await.unwrap();
+            sqlx::query("SELECT 1 FROM app_version WHERE id = $1 FOR NO KEY UPDATE")
+                .bind(published)
+                .execute(&mut *writer)
+                .await
+                .unwrap();
+
+            let since = chrono::Utc::now();
+            push_app_dependency_job(&db, published, None).await;
+
+            write_once_waited_on(&db, writer, published).await;
+
+            // The deploy's job, and the relock it queued on backing off.
+            wait_for_jobs(&db, &mut completed, 2).await;
+
+            let logs = app_dependency_logs(&db, since).await;
+            assert_eq!(logs.len(), 2, "the deploy's job and its requeue: {logs:?}");
+            assert!(
+                logs[0].contains("discarding them"),
+                "the deploy's job backed off: {}",
+                logs[0]
+            );
+        },
+        port,
+    )
+    .await;
+
+    Ok(())
+}
+
+/// A raw app runnable ships the runnables it imports as modules, and its lock covers what they
+/// import, so a change to a script one of them imports relocks the importer too.
+#[sqlx::test(fixtures("base"))]
+async fn raw_app_relock_follows_imports_of_imported_runnables(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    std::env::set_var("DEPENDENCY_JOB_DEBOUNCE_DELAY", "0");
+    let (client, port, _s) = init_client(db.clone()).await;
+    let mut completed = listen_for_completed_jobs(&db).await;
+    let published = plant_raw_app_with(
+        &db,
+        &[
+            ("a", "from .b import g\n\ndef main():\n    return g()\n"),
+            ("b", "from f.rel.a import main as a\n\ndef g():\n    return a()\n\ndef main():\n    return g()\n"),
+        ],
+    )
+    .await?;
+
+    in_test_worker(
+        &db,
+        async {
+            // Its relock of the app records what each runnable depends on.
+            client
+                .create_script(W, &py_script("f/rel/a", A, None))
+                .await
+                .unwrap();
+            wait_for_jobs(&db, &mut completed, 1).await;
+
+            let a_hash = live(&versions(&db, "f/rel/a").await).hash;
+            client
+                .create_script(
+                    W,
+                    &py_script("f/rel/a", A_WITH_TINY, Some(format!("{a_hash:016x}"))),
+                )
+                .await
+                .unwrap();
+            wait_for_jobs(&db, &mut completed, 2).await;
+
+            for runnable in ["a", "b"] {
+                let lock = runnable_lock(&db, published, runnable).await;
+                assert!(
+                    lock.as_deref().unwrap_or("").contains("tiny"),
+                    "{runnable} carries the new lock: {lock:?}"
+                );
+            }
+
+            // A rebuilt dependency map records the same dependencies.
+            async fn app_edges(db: &Pool<Postgres>) -> Vec<(String, String)> {
+                sqlx::query_as(
+                    "SELECT importer_node_id, imported_path FROM dependency_map
+                     WHERE workspace_id = $1 AND importer_path = 'f/rel/app' ORDER BY 1, 2",
+                )
+                .bind(W)
+                .fetch_all(db)
+                .await
+                .unwrap()
+            }
+            let recorded = app_edges(&db).await;
+            assert!(rebuild_dmap(&client).await);
+            assert_eq!(app_edges(&db).await, recorded);
+        },
+        port,
+    )
+    .await;
+
+    Ok(())
+}
+
+/// A relock superseded by a deploy relocks the version that deploy published, every component
+/// of it: the deploy may rename the component the relock was for, keeping its stale lock.
+#[sqlx::test(fixtures("base"))]
+async fn superseded_app_relock_relocks_the_renamed_component(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    std::env::set_var("DEPENDENCY_JOB_DEBOUNCE_DELAY", "0");
+    let (client, port, _s) = init_client(db.clone()).await;
+    let mut completed = listen_for_completed_jobs(&db).await;
+    plant_raw_app(&db).await?;
+
+    in_test_worker(
+        &db,
+        async {
+            client
+                .create_script(W, &py_script("f/rel/a", A, None))
+                .await
+                .unwrap();
+            wait_for_jobs(&db, &mut completed, 1).await;
+
+            let mut deploy = db.begin().await.unwrap();
+            sqlx::query(
+                "SELECT 1 FROM app WHERE workspace_id = $1 AND path = 'f/rel/app' FOR NO KEY UPDATE",
+            )
+            .bind(W)
+            .execute(&mut *deploy)
+            .await
+            .unwrap();
+
+            let a_hash = live(&versions(&db, "f/rel/a").await).hash;
+            client
+                .create_script(
+                    W,
+                    &py_script("f/rel/a", A_WITH_TINY, Some(format!("{a_hash:016x}"))),
+                )
+                .await
+                .unwrap();
+
+            // The relock has generated its lock for `a` and waits on the app this deploy holds,
+            // which publishes `a` renamed to `b` with its old lock.
+            wait_until_blocked(&db, "SELECT versions[array_upper(versions, 1)] FROM app%").await;
+            let renamed: i64 = sqlx::query_scalar(
+                "INSERT INTO app_version (app_id, value, created_by, raw_app)
+                 SELECT app_id, json_build_object('runnables',
+                     json_build_object('b', value->'runnables'->'a')), created_by, true
+                 FROM app_version WHERE id = (SELECT versions[array_upper(versions, 1)] FROM app
+                     WHERE workspace_id = $1 AND path = 'f/rel/app')
+                 RETURNING id",
+            )
+            .bind(W)
+            .fetch_one(&mut *deploy)
+            .await
+            .unwrap();
+            sqlx::query(
+                "UPDATE app SET versions = array_append(versions, $2)
+                 WHERE workspace_id = $1 AND path = 'f/rel/app'",
+            )
+            .bind(W)
+            .bind(renamed)
+            .execute(&mut *deploy)
+            .await
+            .unwrap();
+            deploy.commit().await.unwrap();
+
+            // The leaf's own job, the superseded relock and the one it queued.
+            wait_for_jobs(&db, &mut completed, 3).await;
+
+            let lock = runnable_lock(&db, renamed, "b").await;
+            assert!(
+                lock.as_deref().unwrap_or("").contains("tiny"),
+                "the renamed component carries the new lock: {lock:?}"
+            );
+        },
+        port,
+    )
+    .await;
+
+    Ok(())
+}
+
+/// A relock queued before a deploy runs on the version that deploy published, every component
+/// of it: the deploy may rename the component the relock was queued for, keeping its stale lock.
+#[sqlx::test(fixtures("base"))]
+async fn app_relock_queued_before_a_deploy_relocks_the_renamed_component(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    std::env::set_var("DEPENDENCY_JOB_DEBOUNCE_DELAY", "0");
+    let (client, port, _s) = init_client(db.clone()).await;
+    let mut completed = listen_for_completed_jobs(&db).await;
+    let queued_for = plant_raw_app(&db).await?;
+
+    in_test_worker(
+        &db,
+        async {
+            client
+                .create_script(W, &py_script("f/rel/a", A_WITH_TINY, None))
+                .await
+                .unwrap();
+            wait_for_jobs(&db, &mut completed, 1).await;
+
+            let renamed: i64 = sqlx::query_scalar(
+                "INSERT INTO app_version (app_id, value, created_by, raw_app)
+                 SELECT app_id, $2, created_by, true FROM app_version WHERE id = $1
+                 RETURNING id",
+            )
+            .bind(queued_for)
+            .bind(
+                serde_json::json!({ "runnables": { "c": { "type": "inline", "inlineScript": {
+                    "content": B, "language": "python3", "lock": "# py: 3.12\n"
+                }}}}),
+            )
+            .fetch_one(&db)
+            .await
+            .unwrap();
+            sqlx::query(
+                "UPDATE app SET versions = array_append(versions, $2)
+                 WHERE workspace_id = $1 AND path = 'f/rel/app'",
+            )
+            .bind(W)
+            .bind(renamed)
+            .execute(&db)
+            .await
+            .unwrap();
+
+            push_app_dependency_job(&db, queued_for, Some(&["a"])).await;
+            wait_for_jobs(&db, &mut completed, 1).await;
+
+            let lock = runnable_lock(&db, renamed, "c").await;
+            assert!(
+                lock.as_deref().unwrap_or("").contains("tiny"),
+                "the renamed component carries the new lock: {lock:?}"
+            );
+        },
+        port,
+    )
+    .await;
+
+    Ok(())
+}
+
+/// A relock of every component regenerates each lock. A deploy that kept its editor's stale
+/// lock still records the imports' current lock hashes, so the skip check would keep it.
+#[sqlx::test(fixtures("base"))]
+async fn app_relock_of_every_component_regenerates_a_kept_stale_lock(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    std::env::set_var("DEPENDENCY_JOB_DEBOUNCE_DELAY", "0");
+    let (client, port, _s) = init_client(db.clone()).await;
+    let mut completed = listen_for_completed_jobs(&db).await;
+    let published = plant_raw_app(&db).await?;
+
+    in_test_worker(
+        &db,
+        async {
+            client
+                .create_script(W, &py_script("f/rel/a", A_WITH_TINY, None))
+                .await
+                .unwrap();
+            wait_for_jobs(&db, &mut completed, 1).await;
+
+            // The stale lock a deploy kept, under the hashes it recorded.
+            sqlx::query(
+                "UPDATE app_version SET value = jsonb_set(value::jsonb,
+                 '{runnables,a,inlineScript,lock}', '\"# py: 3.12\\n\"')::json WHERE id = $1",
+            )
+            .bind(published)
+            .execute(&db)
+            .await
+            .unwrap();
+
+            let every = windmill_dep_map::trigger_dependents::RELOCK_ALL_APP_COMPONENTS;
+            push_app_dependency_job(&db, published, Some(&[every])).await;
+            wait_for_jobs(&db, &mut completed, 1).await;
+
+            let lock = app_lock(&db, published).await;
+            assert!(
+                lock.as_deref().unwrap_or("").contains("tiny"),
+                "the kept stale lock is regenerated: {lock:?}"
+            );
+        },
+        port,
+    )
+    .await;
+
+    Ok(())
+}

@@ -18,6 +18,7 @@
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
 	import { untrack } from 'svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
+	import { Badge } from '$lib/components/common'
 	import { usePromise } from '$lib/svelte5Utils.svelte'
 	import type { DbType } from '$lib/components/dbTypes'
 
@@ -180,13 +181,16 @@
 		dbType?: DbType
 		columnDefs?: Array<ColumnDef & ColumnMetadata>
 		isInsertable?: boolean
+		/** Fields the last insert error points at, flagged next to their input. */
+		blamedFields?: string[]
 	}
 
 	let {
 		args = $bindable({}),
 		dbType = 'postgresql',
 		columnDefs = [],
-		isInsertable = $bindable(false)
+		isInsertable = $bindable(false),
+		blamedFields = []
 	}: Props = $props()
 
 	let fields = $derived(
@@ -236,6 +240,9 @@
 	<SchemaForm onlyMaskPassword {schema} bind:args>
 		{#snippet actions({ item })}
 			{@const disabled = fields?.[fields?.findIndex((f) => f.name === item.id)]?.nullable != 'YES'}
+			{#if blamedFields.includes(item.id)}
+				<Badge color="red" small>Check this value</Badge>
+			{/if}
 			{#if !disabled}
 				<Toggle
 					options={{ right: 'NULL' }}

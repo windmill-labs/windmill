@@ -1,5 +1,17 @@
 import type { Snippet } from 'svelte'
 import type { WorkspaceItemKind } from './workspacePicker'
+import type { OpenInSessionSource } from './sessions/OpenInSessionButton.svelte'
+
+/** One pane of a page with several, such as a workspace settings section. */
+export type PageHeaderSubpage = {
+	label: string
+	/** Absolute, keeping the query the page needs (an embed's `nomenubar`). */
+	href: string
+	/** Header the pane is listed under. */
+	group?: string
+	current?: boolean
+	disabled?: boolean
+}
 
 /** An item the page is working on: the breadcrumb walks its path and ends with its summary. */
 export type PageHeaderItem = {
@@ -27,10 +39,27 @@ export type PageHeaderSection = {
 	/** The page the section belongs to, when the section is one pane of it — a settings page's
 	 *  active tab. Drawn as a lead segment before `label`. */
 	parent?: string
+	/** Makes `parent` a link, for a page whose panes have an index of their own to return to. */
+	parentHref?: string
+	/** The panes of the page `parent` names. The chevron's picker lists them under that page in
+	 *  Pages and opens on them; in an embed, where the picker must not lead out of the host's
+	 *  workspace, it lists them alone. */
+	subpages?: PageHeaderSubpage[]
 	/** Rendered in place of `label` when the name is itself a control, such as an editable title. */
 	content?: Snippet
 	/** Scopes the segment's picker, when the section maps to a kind of item. */
 	kind?: WorkspaceItemKind
+	/** No chevron after the name: the page's siblings are not the workspace's pages and items,
+	 *  which is all that picker offers. A session is one. */
+	noNavPicker?: boolean
+	/** Artifacts the section is one of — a shared artifact's page. The nav picker lists them in
+	 *  its Artifacts branch, opens on that branch with `currentId` highlighted, and navigates to
+	 *  `href(id)` when one is picked. */
+	navArtifacts?: {
+		items: { id: string; name: string }[]
+		currentId?: string
+		href: (id: string) => string
+	}
 }
 
 export type PageHeaderContent = {
@@ -38,6 +67,10 @@ export type PageHeaderContent = {
 	section?: PageHeaderSection
 	/** Rendered at the right end of the bar — the page's own buttons. */
 	actions?: Snippet
+	/** What the "Open in AI session" button in `actions` takes this page to. The page draws that
+	 *  button itself, right before its main action (Deploy, Edit), since only the page knows which
+	 *  that is; naming it here lets in-page buttons to the same destination stand down. */
+	sessionSource?: OpenInSessionSource
 	/** Orders these buttons among the other registrations', ascending; registration order breaks a
 	 *  tie. For a menu that must stay at the far end however many pages register before it. */
 	actionsOrder?: number
@@ -52,6 +85,26 @@ export type PageHeaderContent = {
 	 *  controls share one shape that opens into the page below. The bar gives up its right padding
 	 *  to it, since the surface is what meets the edge. */
 	actionsFill?: boolean
+	/** How many levels past the full row these actions can fold through, each a narrower row than
+	 *  the last. The bar picks the level from the room its breadcrumb leaves once it has dropped
+	 *  all it can, and the page reads it back as `pageHeader.actionFold`. Without it the actions
+	 *  never fold and the breadcrumb gives up width around them. */
+	actionFolds?: number
+	/** How many of the `actionFolds` levels come before the breadcrumb drops anything: buttons
+	 *  that are there only while the bar has room for everything. */
+	earlyActionFolds?: number
+	/** Changes whenever the actions may have changed width at a level that is not on screen — a
+	 *  run's Cancel, folded into a menu, going once the job completes. The bar keeps what it
+	 *  measured per version, so a new one is measured afresh rather than judged by stale widths. */
+	actionsVersion?: string
+	/** A second row of the band, under the breadcrumb and the actions: where a control too wide
+	 *  for one row goes at a fold that has no room for it beside them, rather than being squeezed
+	 *  until it is useless. The band is taller while it is there. */
+	belowBar?: Snippet
+	/** The fold from which the bar shows `belowBar`. The bar decides rather than the page passing
+	 *  the row in only at that fold: the fold is derived from this registration, so a registration
+	 *  that read it would be a cycle. */
+	belowBarFold?: number
 	/** Rendered right after the page's name in the breadcrumb: a mark that belongs to the name,
 	 *  like a documentation tooltip, or a control that acts on the thing named — an app's Edit,
 	 *  which at the far end of the bar would be a journey away from what it edits. */
@@ -60,6 +113,9 @@ export type PageHeaderContent = {
 	 *  running in a fork. The breadcrumb then names that workspace, and its fork part shows only
 	 *  when it really is a fork. */
 	actingWorkspaceId?: string
+	/** Offered a workspace picked in the breadcrumb before the app switches to it; true means
+	 *  the page took the pick over and no switch happens. */
+	onPickWorkspace?: (id: string, landOnHome: boolean) => boolean
 	/** Width in px, at the right of the viewport, that this page owns from the top down — a
 	 *  session's side panel. The band stops there instead of running over it, and the band floats
 	 *  above the page rather than pushing it down, so that column starts at the top. */
@@ -91,10 +147,9 @@ let entries = $state<{ id: number; get: () => PageHeaderContent }[]>([])
 let nextId = 0
 
 /**
- * Below this bar width a page keeps one button — the thing the page is for — and folds the rest
- * into the menu it already shows when compact. A phone in portrait is ~390px of bar and a tablet
- * in portrait ~720; the breadcrumb with its workspace disc takes ~150 of either, which is why the
- * line sits above the tablet rather than between the two.
+ * A phone's bar: a tighter gutter, and the width below which controls that cannot fold through
+ * `actionFolds` — a flexible filter row, a banner — slim down. A phone in portrait is ~390px of
+ * bar and a tablet in portrait ~720, which is why the line sits above the tablet.
  */
 export const PHONE_BAR = 800
 
@@ -112,6 +167,9 @@ export const BAR_HEIGHT_PX = 48
 // share that row with the breadcrumb, so it is the width they crowd against — not the window's,
 // which the sidebar and a page's side panel both take from.
 let barWidth = $state(0)
+// The bar owns the fold level: it is derived from the bar's own measurements, so the bar hands
+// over a getter rather than writing a copy that an effect would have to keep in step.
+let actionFoldSource = $state<(() => number) | undefined>(undefined)
 
 /**
  * One registration's content, or undefined while it cannot answer.
@@ -148,9 +206,15 @@ export const pageHeader = {
 			if (c.afterName !== undefined) merged.afterName = c.afterName
 			if (c.contexts !== undefined) merged.contexts = c.contexts
 			if (c.actingWorkspaceId !== undefined) merged.actingWorkspaceId = c.actingWorkspaceId
+			if (c.onPickWorkspace !== undefined) merged.onPickWorkspace = c.onPickWorkspace
 			if (c.barRightInset !== undefined) merged.barRightInset = c.barRightInset
 			if (c.actionsFlexible !== undefined) merged.actionsFlexible = c.actionsFlexible
 			if (c.actionsFill !== undefined) merged.actionsFill = c.actionsFill
+			if (c.actionFolds !== undefined) merged.actionFolds = c.actionFolds
+			if (c.earlyActionFolds !== undefined) merged.earlyActionFolds = c.earlyActionFolds
+			if (c.actionsVersion !== undefined) merged.actionsVersion = c.actionsVersion
+			if (c.belowBar !== undefined) merged.belowBar = c.belowBar
+			if (c.belowBarFold !== undefined) merged.belowBarFold = c.belowBarFold
 			if (c.separator !== undefined) merged.separator = c.separator
 		}
 		return merged
@@ -169,12 +233,31 @@ export const pageHeader = {
 			})
 			.sort((a, b) => a.order - b.order || a.i - b.i)
 	},
+	/** The innermost registration's session source: the hand-off the header offers. */
+	get sessionSource(): OpenInSessionSource | undefined {
+		for (let i = entries.length - 1; i >= 0; i--) {
+			const c = read(entries[i])
+			if (c?.sessionSource) return c.sessionSource
+		}
+		return undefined
+	},
 	/** Width of the bar in px, or 0 before it has been measured. */
 	get barWidth(): number {
 		return barWidth
 	},
 	setBarWidth(w: number) {
 		barWidth = w
+	},
+	/** How far the page's actions are folded: 0 for the full row, up to its `actionFolds`. */
+	get actionFold(): number {
+		return actionFoldSource?.() ?? 0
+	},
+	/** Called by the bar once; returns the release to call when the bar goes away. */
+	provideActionFold(get: () => number): () => void {
+		actionFoldSource = get
+		return () => {
+			if (actionFoldSource === get) actionFoldSource = undefined
+		}
 	},
 	/** Registers on mount and returns the id to release on destroy. */
 	register(get: () => PageHeaderContent): number {

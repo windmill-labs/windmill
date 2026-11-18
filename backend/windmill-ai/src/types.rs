@@ -1,3 +1,4 @@
+use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use std::collections::HashMap;
@@ -15,10 +16,11 @@ pub struct McpToolSource {
     pub resource_path: String,
 }
 
+use crate::vertex_workload_identity::VertexWorkloadIdentity;
 use crate::{
     ai_google::sanitize_schema_for_google,
     ai_providers::{empty_string_as_none, AIProvider},
-    credentials::ProviderCredentials,
+    credentials::{AnthropicFederation, ProviderCredentials},
 };
 use windmill_common::{db::DB, error::Error, flow_status::AgentAction, flows::FlowModule};
 use windmill_parser::Typ;
@@ -59,6 +61,14 @@ pub struct Tool {
     pub module: Option<FlowModule>,
     pub def: ToolDef,
     pub mcp_source: Option<McpToolSource>,
+    /// Each call waits for a person to approve it, without the agent holding a worker.
+    pub requires_approval: bool,
+    /// Set on the built-in question tool, which the worker answers by parking the agent until
+    /// someone answers or this many seconds pass.
+    pub question_timeout_secs: Option<u32>,
+    /// A flow module tool whose call is answered once its job is queued (`Some(0)`) or, unfinished,
+    /// this many seconds after; see `AgentTool::background`.
+    pub background_after_secs: Option<u32>,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq)]
@@ -269,6 +279,24 @@ pub struct ProviderResource {
     /// credentials exchange this crate does not perform.
     #[serde(default, deserialize_with = "empty_string_as_none")]
     pub token_url: Option<String>,
+    /// Set only by `anthropic_federated` resources, which authenticate through
+    /// Workload Identity Federation with an OIDC token minted for the job.
+    #[serde(default, deserialize_with = "empty_string_as_none")]
+    pub federation_rule_id: Option<String>,
+    #[serde(default, deserialize_with = "empty_string_as_none")]
+    pub organization_id: Option<String>,
+    #[serde(default, deserialize_with = "empty_string_as_none")]
+    pub service_account_id: Option<String>,
+    #[serde(default, deserialize_with = "empty_string_as_none")]
+    pub workspace_id: Option<String>,
+    /// Set only by `vertex_ai_federated` resources, which authenticate to Vertex AI
+    /// through Google Cloud Workload Identity Federation.
+    #[serde(default, deserialize_with = "empty_string_as_none")]
+    pub workload_identity_provider: Option<String>,
+    #[serde(default, deserialize_with = "empty_string_as_none")]
+    pub service_account_email: Option<String>,
+    #[serde(default, deserialize_with = "empty_string_as_none")]
+    pub workload_identity_audience: Option<String>,
     /// The API token of a `cloudflare` resource, which names it `token` rather than `api_key`.
     #[serde(default, deserialize_with = "empty_string_as_none")]
     pub token: Option<String>,
@@ -322,8 +350,24 @@ impl ProviderWithResource {
     /// Callers must only pass resources that were already authorized for the
     /// current job/workspace; this helper does not perform access checks.
     pub async fn to_provider_credentials(&self, db: &DB) -> Result<ProviderCredentials, Error> {
+        let anthropic_federation = self.anthropic_federation()?;
+        let vertex_workload_identity = VertexWorkloadIdentity::from_resource(
+            &self.kind,
+            self.resource.workload_identity_provider.as_deref(),
+            self.resource.service_account_email.as_deref(),
+            self.resource.workload_identity_audience.as_deref(),
+        )?;
+        let platform = if vertex_workload_identity.is_some() {
+            AIPlatform::GoogleVertexAi
+        } else {
+            self.resource.platform.clone()
+        };
         let base_url = if self.kind == AIProvider::AWSBedrock {
             String::new()
+        } else if anthropic_federation.is_some() {
+            // The exchanged token is the job's identity, so it only ever goes to
+            // Anthropic: a resource cannot point it at another host.
+            crate::providers::anthropic::ANTHROPIC_API_BASE_URL.to_string()
         } else {
             self.get_base_url(db).await?
         };
@@ -347,9 +391,39 @@ impl ProviderWithResource {
             aws_secret_access_key: self.resource.aws_secret_access_key.clone(),
             aws_session_token: self.resource.aws_session_token.clone(),
             oidc_role_arn: self.resource.oidc_role_arn.clone(),
-            platform: self.resource.platform.clone(),
+            anthropic_federation,
+            vertex_workload_identity,
+            platform,
             custom_headers: self.resource.headers.clone(),
         })
+    }
+
+    /// The federation settings of an `anthropic_federated` resource, which only
+    /// `federation_rule_id` identifies; the other required fields are checked here.
+    fn anthropic_federation(&self) -> Result<Option<AnthropicFederation>, Error> {
+        let resource = &self.resource;
+        let Some(federation_rule_id) = resource.federation_rule_id.clone() else {
+            return Ok(None);
+        };
+        if self.kind != AIProvider::Anthropic {
+            return Err(Error::ExecutionErr(format!(
+                "An anthropic_federated resource can only be used with the Anthropic provider, not {:?}",
+                self.kind
+            )));
+        }
+        let required = |value: &Option<String>, name: &str| {
+            value.clone().ok_or_else(|| {
+                Error::ExecutionErr(format!(
+                    "The anthropic_federated resource needs {name} to be set"
+                ))
+            })
+        };
+        Ok(Some(AnthropicFederation {
+            federation_rule_id,
+            organization_id: required(&resource.organization_id, "organization_id")?,
+            service_account_id: required(&resource.service_account_id, "service_account_id")?,
+            workspace_id: resource.workspace_id.clone(),
+        }))
     }
 
     #[cfg(feature = "bedrock")]
@@ -503,6 +577,9 @@ pub enum StreamingEvent {
     ToolExecution { call_id: String, function_name: String },
     /// Tool execution result
     ToolResult { call_id: String, function_name: String, result: String, success: bool },
+    /// The agent has answered and waits, without a worker, on tools still running in the
+    /// background: nothing more streams until one of them finishes and wakes it.
+    BackgroundWait,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -533,7 +610,7 @@ pub struct OpenAPISchema {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub items: Option<Box<OpenAPISchema>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub properties: Option<HashMap<String, Box<OpenAPISchema>>>,
+    pub properties: Option<IndexMap<String, Box<OpenAPISchema>>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub required: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none", rename = "oneOf")]
@@ -560,9 +637,9 @@ pub struct OpenAPISchema {
     #[serde(skip_serializing_if = "Option::is_none", rename = "$ref")]
     pub ref_path: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", rename = "$defs")]
-    pub defs: Option<HashMap<String, Box<OpenAPISchema>>>,
+    pub defs: Option<IndexMap<String, Box<OpenAPISchema>>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub definitions: Option<HashMap<String, Box<OpenAPISchema>>>,
+    pub definitions: Option<IndexMap<String, Box<OpenAPISchema>>>,
 
     // Schema composition
     #[serde(skip_serializing_if = "Option::is_none", rename = "allOf")]
@@ -829,7 +906,7 @@ impl OpenAPISchema {
 
         // Merge properties (other's properties are added if key doesn't exist)
         if let Some(ref other_props) = other.properties {
-            let props = self.properties.get_or_insert_with(HashMap::new);
+            let props = self.properties.get_or_insert_with(IndexMap::new);
             for (key, value) in other_props {
                 props.entry(key.clone()).or_insert_with(|| value.clone());
             }
@@ -880,13 +957,13 @@ impl OpenAPISchema {
 
         // Merge $defs and definitions
         if let Some(ref other_defs) = other.defs {
-            let defs = self.defs.get_or_insert_with(HashMap::new);
+            let defs = self.defs.get_or_insert_with(IndexMap::new);
             for (key, value) in other_defs {
                 defs.entry(key.clone()).or_insert_with(|| value.clone());
             }
         }
         if let Some(ref other_definitions) = other.definitions {
-            let definitions = self.definitions.get_or_insert_with(HashMap::new);
+            let definitions = self.definitions.get_or_insert_with(IndexMap::new);
             for (key, value) in other_definitions {
                 definitions
                     .entry(key.clone())
@@ -981,7 +1058,70 @@ pub struct S3ObjectWithType {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
+
+    #[test]
+    fn a_federated_resource_resolves_its_federation_and_names_a_missing_field() {
+        let provider = |kind: &str, resource: &str| -> ProviderWithResource {
+            serde_json::from_str(&format!(
+                r#"{{"kind":"{kind}","model":"m","resource":{resource}}}"#
+            ))
+            .unwrap()
+        };
+        let federated = r#"{"federation_rule_id":"fdrl_x","organization_id":"org","service_account_id":"svac_x","workspace_id":""}"#;
+
+        assert_eq!(
+            provider("anthropic", federated)
+                .anthropic_federation()
+                .unwrap(),
+            Some(AnthropicFederation {
+                federation_rule_id: "fdrl_x".to_string(),
+                organization_id: "org".to_string(),
+                service_account_id: "svac_x".to_string(),
+                workspace_id: None,
+            })
+        );
+        let incomplete = provider(
+            "anthropic",
+            r#"{"federation_rule_id":"fdrl_x","organization_id":"org"}"#,
+        );
+        assert!(incomplete
+            .anthropic_federation()
+            .unwrap_err()
+            .to_string()
+            .contains("service_account_id"));
+        assert!(provider("openai", federated)
+            .anthropic_federation()
+            .is_err());
+        assert_eq!(
+            provider("anthropic", r#"{"api_key":"k","organization_id":"org"}"#)
+                .anthropic_federation()
+                .unwrap(),
+            None
+        );
+    }
+
+    /// The schema is part of the prompt prefix the provider caches on, so its keys must
+    /// serialize in the same order on every request.
+    #[test]
+    fn strict_schema_keeps_the_defined_property_order() {
+        let keys = [
+            "zeta", "alpha", "mid", "beta", "omega", "gamma", "delta", "kappa",
+        ];
+        let props = keys
+            .iter()
+            .map(|k| format!(r#""{k}":{{"type":"string"}}"#))
+            .collect::<Vec<_>>()
+            .join(",");
+        let mut schema: OpenAPISchema =
+            serde_json::from_str(&format!(r#"{{"type":"object","properties":{{{props}}}}}"#))
+                .unwrap();
+        schema.make_strict();
+
+        let value = serde_json::to_value(&schema).unwrap();
+        let serialized: Vec<&String> = value["properties"].as_object().unwrap().keys().collect();
+        assert_eq!(serialized, keys);
+        assert_eq!(value["required"], serde_json::json!(keys));
+    }
 
     /// Whichever provider served the request, `input_tokens` has to end up meaning the
     /// whole prompt. Leaving the Anthropic shape as reported under-states it by the
@@ -1248,7 +1388,7 @@ mod tests {
     #[test]
     fn test_make_strict_defs() {
         let def_schema = object_schema(vec![("prop", string_schema())]);
-        let mut defs = HashMap::new();
+        let mut defs = IndexMap::new();
         defs.insert("MyType".to_string(), Box::new(def_schema));
 
         let mut schema = OpenAPISchema { defs: Some(defs), ..Default::default() };
@@ -1274,7 +1414,7 @@ mod tests {
     #[test]
     fn test_make_strict_definitions() {
         let def_schema = object_schema(vec![("prop", string_schema())]);
-        let mut definitions = HashMap::new();
+        let mut definitions = IndexMap::new();
         definitions.insert("MyType".to_string(), Box::new(def_schema));
 
         let mut schema = OpenAPISchema { definitions: Some(definitions), ..Default::default() };
@@ -1528,7 +1668,7 @@ mod tests {
     #[test]
     fn test_flatten_all_of_preserves_defs() {
         let def_schema = object_schema(vec![("field", string_schema())]);
-        let mut defs = HashMap::new();
+        let mut defs = IndexMap::new();
         defs.insert("MyType".to_string(), Box::new(def_schema));
 
         let schema_with_defs = OpenAPISchema { defs: Some(defs), ..Default::default() };
@@ -1642,7 +1782,7 @@ mod tests {
             schema_url: Some("http://json-schema.org/draft-07/schema#".to_string()),
             ..Default::default()
         };
-        let mut defs = HashMap::new();
+        let mut defs = IndexMap::new();
         defs.insert("MyType".to_string(), Box::new(def_schema));
 
         let mut schema = OpenAPISchema {

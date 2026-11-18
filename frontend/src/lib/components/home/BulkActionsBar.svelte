@@ -12,7 +12,19 @@
 	import { sendUserToast } from '$lib/toast'
 	import { useReducedMotion } from '$lib/svelte5Utils.svelte'
 	import { invalidateWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
-	import { Archive, ArchiveRestore, FolderInput, MoreHorizontal, Trash, X } from 'lucide-svelte'
+	import {
+		Archive,
+		ArchiveRestore,
+		FolderInput,
+		MoreHorizontal,
+		Trash,
+		WandSparkles,
+		X
+	} from 'lucide-svelte'
+	import {
+		homeComposerContext,
+		itemContextElement
+	} from '$lib/components/sessions/homeComposerContext.svelte'
 	import { fly } from 'svelte/transition'
 	import {
 		blockedReason,
@@ -25,6 +37,7 @@
 		type BulkOutcome
 	} from './bulkActions'
 	import type { BulkItem, HomeSelection } from './homeSelection.svelte'
+	import { roleCapabilities } from '$lib/stores'
 
 	interface Props {
 		selection: HomeSelection
@@ -38,7 +51,7 @@
 
 	let { selection, workspace, isAdmin, moveTargets, onDone }: Props = $props()
 
-	let ctx: BulkContext = $derived({ workspace, isAdmin })
+	let ctx: BulkContext = $derived({ workspace, isAdmin, caps: $roleCapabilities })
 	// The bar is still on screen while it flies out, and unticking the last row is
 	// what starts that — by then the live selection is empty. Rendering the last
 	// non-empty one keeps the count and the action states from blinking on the way
@@ -48,6 +61,17 @@
 		if (selection.items.length > 0) lastNonEmpty = selection.items
 	})
 	let items = $derived(selection.items.length > 0 ? selection.items : lastNonEmpty)
+
+	// What of the selection the composer can take as context; the rest has no context element.
+	let askAiElements = $derived(
+		items.flatMap((i) => itemContextElement({ ...i, summary: i.summary || undefined }) ?? [])
+	)
+	// The selection was the way to gather them; once they are in the composer it is done.
+	async function askAi() {
+		const elements = askAiElements
+		selection.exit()
+		for (const element of elements) await homeComposerContext.attach(element)
+	}
 
 	let reducedMotion = useReducedMotion()
 
@@ -184,6 +208,20 @@
 			{items.length} selected
 		</span>
 		<div class="h-4 border-l"></div>
+		{#if homeComposerContext.available && askAiElements.length > 0}
+			<Button
+				variant="subtle"
+				unifiedSize="sm"
+				btnClasses="!text-ai"
+				startIcon={{ icon: WandSparkles }}
+				title={askAiElements.length < items.length
+					? `Add the ${askAiElements.length} scripts, flows and code apps of the selection to the chat above`
+					: 'Add the selection to the chat above'}
+				on:click={askAi}
+			>
+				Ask AI{askAiElements.length < items.length ? ` (${askAiElements.length})` : ''}
+			</Button>
+		{/if}
 		<Button
 			variant="subtle"
 			unifiedSize="sm"

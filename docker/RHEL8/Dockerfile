@@ -93,7 +93,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     CARGO_NET_GIT_FETCH_WITH_CLI=true cargo build --release
 
 RUN mkdir -p /usr/src/app && \
-    cp windmill-duckdb-ffi-internal/target/release/libwindmill_duckdb_ffi_internal.so /usr/src/app/
+    cp windmill-duckdb-ffi-internal/target/release/windmill_duckdb_runner /usr/src/app/
 
 # Runtime Kerberos packages (installed separately from build deps)
 RUN yum install -y krb5-workstation cyrus-sasl-gssapi

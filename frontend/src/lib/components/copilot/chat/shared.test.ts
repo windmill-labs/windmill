@@ -224,7 +224,8 @@ describe('processToolCall', () => {
 				{ path: 'f/other/AGENTS', scope: 'f/other/' },
 				{ path: 'g/ops/AGENTS', scope: 'g/ops/' }
 			],
-			deliveredBy: new Map<string, { workspace: string; paths: readonly string[] }>()
+			deliveredBy: new Map<string, { workspace: string; paths: readonly string[] }>(),
+			inPrompt: undefined as (() => string[]) | undefined
 		}
 		const messages: any[] = []
 		const call = async (
@@ -307,6 +308,59 @@ describe('processToolCall', () => {
 		messages.push({ role: 'tool', tool_call_id: 'stopped', content: 'Interrupted' })
 		turn()
 		expect(await call('c7', 'read_item', 'f/billing/y')).toContain('body of f/billing/AGENTS')
+
+		// The scoped folder's instructions are in the system prompt: never delivered on touch.
+		messages.splice(0)
+		turn()
+		folderInstructions.inPrompt = () => ['f/other/AGENTS']
+		expect(await call('p1', 'write_item', 'f/other/x')).toBe('write ok')
+	})
+
+	it('stops a change outside the scope on the user, whatever YOLO says, and never a run', async () => {
+		const { createToolDef, processToolCall } = await import('./shared')
+		const { WorkingScope, scopeAllowedNote, scopeStoppedResult } = await import('./workingScope')
+		const write = vi.fn(async () => 'write ok')
+		const run = vi.fn(async () => 'run ok')
+		const tools = [
+			{ def: createToolDef(z.object({}), 'write_item', 'Write'), fn: write },
+			{ def: createToolDef(z.object({}), 'run_script', 'Run'), fn: run }
+		]
+		let decision: 'once' | 'add' | undefined = undefined
+		const requestDecision = vi.fn(async () => decision)
+		const add = vi.fn()
+		const scope = new WorkingScope(['f/crm'], { username: 'alice', folders: ['analytics'] })
+		const call = (path: string, name = 'write_item') =>
+			processToolCall({
+				tools,
+				toolCall: {
+					id: `${name}:${path}`,
+					type: 'function',
+					function: { name, arguments: JSON.stringify({ path }) }
+				},
+				helpers: {},
+				workspace: 'test-workspace',
+				toolCallbacks: {
+					setToolStatus: vi.fn(),
+					removeToolStatus: vi.fn(),
+					shouldAutoAcceptToolConfirmations: () => true,
+					workingScope: { scope: () => scope, requestDecision, add, recordWrite: vi.fn() }
+				}
+			}).then((m) => m.content)
+
+		expect(await call('f/crm/x')).toBe('write ok')
+		expect(await call('f/analytics/x', 'run_script')).toBe('run ok')
+		expect(requestDecision).not.toHaveBeenCalled()
+
+		expect(await call('f/analytics/x')).toBe(scopeStoppedResult('f/analytics/x', 'f/crm'))
+		expect(write).toHaveBeenCalledTimes(1)
+
+		decision = 'once'
+		expect(await call('f/analytics/y')).toBe(
+			`write ok\n\n${scopeAllowedNote('f/analytics/y', 'f/analytics', 'f/crm', 'once')}`
+		)
+		decision = 'add'
+		await call('f/analytics/z')
+		expect(add).toHaveBeenCalledWith('f/analytics')
 	})
 
 	it('returns pre-confirmation validation errors without asking for confirmation', async () => {
@@ -2196,152 +2250,6 @@ describe('getHubIntegrationTool', () => {
 		const { getHubIntegrationTool, createSearchHubScriptsTool } = await import('./shared')
 		expect(getHubIntegrationTool.planModeSafe).toBe(true)
 		expect(createSearchHubScriptsTool().planModeSafe).toBe(true)
-	})
-
-	const doc = {
-		app: 'confluence',
-		display_name: 'Confluence',
-		// Authored knowledge, but nobody has asserted whether the script set was pruned.
-		curated: null,
-		metadata_source: 'curated',
-		meta: { gotchas: ['Auth is Basic with an API token, not the password'] },
-		derived: {
-			api_hosts: [{ host: 'api.atlassian.com', count: 12 }],
-			style: 'fetch',
-			languages: { bun: 14 },
-			script_counts: { total: 14, by_kind: { script: 13 } },
-			top_scripts: [
-				{ path: 'hub/1/confluence/create_page', summary: 'Create page', language: 'bun' }
-			]
-		},
-		resource_types: [{ name: 'confluence', schema: { type: 'object' } }]
-	}
-
-	// Hand-validated provider knowledge and facts inferred from script bodies must
-	// stay under separate keys, or the model will report guesses as verified.
-	it('keeps authored notes apart from what was inferred from the scripts', async () => {
-		const { IntegrationService } = await import('$lib/gen')
-		Object.assign(IntegrationService, { getHubIntegrationMeta: vi.fn(async () => doc) })
-
-		const { getHubIntegrationTool } = await import('./shared')
-		const parsed = JSON.parse(
-			await getHubIntegrationTool.fn({
-				args: { integration: 'confluence' },
-				toolId: 't1',
-				toolCallbacks: { setToolStatus: vi.fn() }
-			} as any)
-		)
-
-		expect(parsed.verified_provider_notes).toEqual(doc.meta)
-		expect(parsed.scripts_note).toBeUndefined()
-		expect(parsed.observed_from_scripts).toEqual({
-			api_hosts: ['api.atlassian.com'],
-			style: 'fetch',
-			languages: ['bun'],
-			script_counts: { total: 14, by_kind: { script: 13 } }
-		})
-	})
-
-	// The hub repo owns this payload, so a hub older than this client can send a
-	// subset. Reading it must degrade to less content, never to a tool error.
-	it('returns what an older hub sent instead of failing on the missing sections', async () => {
-		const { IntegrationService } = await import('$lib/gen')
-		Object.assign(IntegrationService, {
-			getHubIntegrationMeta: vi.fn(async () => ({
-				app: 'stripe',
-				display_name: 'Stripe',
-				curated: false
-			}))
-		})
-
-		const { getHubIntegrationTool } = await import('./shared')
-		const parsed = JSON.parse(
-			await getHubIntegrationTool.fn({
-				args: { integration: 'stripe' },
-				toolId: 't1',
-				toolCallbacks: { setToolStatus: vi.fn() }
-			} as any)
-		)
-
-		expect(parsed.integration).toBe('stripe')
-		expect(parsed.observed_from_scripts).toBeUndefined()
-		expect(parsed.resource_types).toEqual([])
-		expect(parsed.example_scripts).toEqual([])
-	})
-
-	// `curated` has three states and only `true` is a licence to call the scripts good
-	// examples. `false` and the unassessed `null` must both stay silent, or the 212
-	// integrations nobody has looked at get characterised anyway.
-	it.each([
-		[true, true],
-		[false, false],
-		[null, false]
-	])('speaks about the script set only when curated is true (%s)', async (curated, expected) => {
-		const { IntegrationService } = await import('$lib/gen')
-		Object.assign(IntegrationService, {
-			getHubIntegrationMeta: vi.fn(async () => ({ ...doc, curated }))
-		})
-
-		const { getHubIntegrationTool } = await import('./shared')
-		const parsed = JSON.parse(
-			await getHubIntegrationTool.fn({
-				args: { integration: 'confluence' },
-				toolId: 't1',
-				toolCallbacks: { setToolStatus: vi.fn() }
-			} as any)
-		)
-
-		expect(!!parsed.scripts_note).toBe(expected)
-	})
-
-	// A hub that times out has said nothing about whether the integration exists, and
-	// reporting it as absent would stick for the rest of the conversation.
-	it('does not report a transient hub failure as a missing integration', async () => {
-		const { IntegrationService } = await import('$lib/gen')
-		Object.assign(IntegrationService, {
-			getHubIntegrationMeta: vi.fn(async () => {
-				throw Object.assign(new Error('Service Unavailable'), { status: 503 })
-			}),
-			listHubIntegrations: vi.fn(async () => [{ name: 'confluence' }])
-		})
-
-		const { getHubIntegrationTool, clearHubIntegrationsCache } = await import('./shared')
-		clearHubIntegrationsCache()
-		const parsed = JSON.parse(
-			await getHubIntegrationTool.fn({
-				args: { integration: 'confluence' },
-				toolId: 't1',
-				toolCallbacks: { setToolStatus: vi.fn() }
-			} as any)
-		)
-
-		expect(parsed.error).toContain('Could not reach the hub')
-		expect(parsed.error).not.toContain('No hub metadata')
-	})
-
-	// A hub with no such integration and one too old to serve the endpoint both 404;
-	// neither may surface as a tool error, since the model can still read scripts.
-	it('suggests real slugs instead of failing when the integration is unknown', async () => {
-		const { IntegrationService } = await import('$lib/gen')
-		Object.assign(IntegrationService, {
-			getHubIntegrationMeta: vi.fn(async () => {
-				throw Object.assign(new Error('Not Found'), { status: 404 })
-			}),
-			listHubIntegrations: vi.fn(async () => [{ name: 'stripe' }, { name: 'slack' }])
-		})
-
-		const { getHubIntegrationTool, clearHubIntegrationsCache } = await import('./shared')
-		clearHubIntegrationsCache()
-		const parsed = JSON.parse(
-			await getHubIntegrationTool.fn({
-				args: { integration: 'stripe_billing' },
-				toolId: 't1',
-				toolCallbacks: { setToolStatus: vi.fn() }
-			} as any)
-		)
-
-		expect(parsed.error).toContain('stripe_billing')
-		expect(parsed.suggested_integrations).toEqual(['stripe'])
 	})
 })
 

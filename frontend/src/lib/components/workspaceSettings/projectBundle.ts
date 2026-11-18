@@ -148,6 +148,8 @@ function runnableRef(node: Record<string, any>): Ref | undefined {
 	if (!isRunnableByPath(node as any) || typeof node.path !== 'string') return undefined
 	if (node.runType === 'flow') return { kind: 'flow', path: node.path }
 	if (node.runType === 'script') return { kind: 'script', path: node.path }
+	// A saved agent is an `ai_agent` resource.
+	if (node.runType === 'agent') return { kind: 'resource', path: node.path }
 	return undefined // hubscript -> external hub, ignored
 }
 
@@ -172,18 +174,25 @@ export function extractAppRefs(value: any): Ref[] {
 }
 
 /**
- * Build the relocation map. Internal paths (`f/<slug>/...`) map to themselves
- * and are reserved first; external paths relocate to `f/<slug>/<name>` (`_2`/`_3`…
- * on collision). Input is sorted so suffix assignment is deterministic.
+ * Build the relocation map. Paths under the source folder (`f/<sourceFolder>/...`,
+ * possibly nested like `hub/billing`) keep their sub-path under `f/<slug>/` and are
+ * reserved first; other paths relocate to `f/<slug>/<name>` (`_2`/`_3`… on
+ * collision). Input is sorted so suffix assignment is deterministic.
  */
-export function buildPathMap(paths: Iterable<string>, slug: string): Map<string, string> {
+export function buildPathMap(
+	paths: Iterable<string>,
+	slug: string,
+	sourceFolder: string = slug
+): Map<string, string> {
 	const map = new Map<string, string>()
 	const used = new Set<string>()
 	const sorted = [...new Set(paths)].sort()
+	const sourcePrefix = `f/${sourceFolder}/`
 	for (const p of sorted) {
-		if (classifyPath(p, slug) === 'internal') {
-			map.set(p, p)
-			used.add(p)
+		if (p.startsWith(sourcePrefix)) {
+			const kept = `f/${slug}/${p.slice(sourcePrefix.length)}`
+			map.set(p, kept)
+			used.add(kept)
 		}
 	}
 	for (const old of sorted) {
@@ -638,7 +647,8 @@ export async function buildProjectBundle(
 	slug: string,
 	deps: BundleDeps,
 	extraResourcePaths: string[] = [],
-	extraVarPaths: string[] = []
+	extraVarPaths: string[] = [],
+	sourceFolder: string = slug
 ): Promise<ProjectBundle> {
 	const fetched = new Map<string, FetchedItem>()
 	const queued = new Set<string>()
@@ -699,7 +709,7 @@ export async function buildProjectBundle(
 
 	const fetchedItems = [...fetched.values()]
 	const itemPaths = fetchedItems.map((it) => it.path)
-	const map = buildPathMap([...itemPaths, ...resourcePaths, ...varPaths], slug)
+	const map = buildPathMap([...itemPaths, ...resourcePaths, ...varPaths], slug, sourceFolder)
 
 	const items: BundledItem[] = fetchedItems.map((it) => {
 		const rewritten: BundledItem = { ...it, newPath: map.get(it.path) ?? it.path }

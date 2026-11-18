@@ -28,9 +28,8 @@ import { enterpriseLicense } from '$lib/stores'
 import { getLightConfig, sortTriggers, updateTriggersCount, type Trigger } from './utils'
 import { get, type Writable } from 'svelte/store'
 import type { TriggerType } from './utils'
-import type { UserExt } from '$lib/stores'
 import type { ScheduleTrigger } from '../triggers'
-import { canWrite, formatCron, generateRandomString } from '$lib/utils'
+import { formatCron, generateRandomString } from '$lib/utils'
 
 export class Triggers {
 	#triggers = $state<Trigger[]>([])
@@ -127,11 +126,7 @@ export class Triggers {
 		updateTriggersCount(triggersCountStore, type, 'remove')
 	}
 
-	updateTriggers(
-		remoteTriggers: any[],
-		type: TriggerType,
-		user: UserExt | undefined = undefined
-	): number {
+	updateTriggers(remoteTriggers: any[], type: TriggerType): number {
 		const currentTriggers = this.#triggers
 		// Identify triggers with draftConfig to preserve
 		const configuredTriggers = currentTriggers.filter(
@@ -151,7 +146,6 @@ export class Triggers {
 				path: trigger.path,
 				isPrimary: type === 'schedule' && trigger.path === trigger.script_path,
 				isDraft: false,
-				canWrite: canWrite(trigger.path, trigger.extra_perms, user),
 				draftConfig: draftConfig,
 				lightConfig: getLightConfig(type, trigger)
 			}
@@ -169,8 +163,7 @@ export class Triggers {
 		workspaceId: string | undefined,
 		path: string,
 		isFlow: boolean,
-		primarySchedule?: ScheduleTrigger | undefined | false,
-		user: UserExt | undefined = undefined
+		primarySchedule?: ScheduleTrigger | undefined | false
 	): Promise<void> {
 		if (!workspaceId) return
 		try {
@@ -199,7 +192,7 @@ export class Triggers {
 				isFlow
 			})
 
-			const scheduleCount = this.updateTriggers(allDeployedSchedules, 'schedule', user)
+			const scheduleCount = this.updateTriggers(allDeployedSchedules, 'schedule')
 			const updatedPrimarySchedule = this.#triggers.find((s) => s.isPrimary)
 			triggersCountStore.update((triggersCount) => {
 				return {
@@ -224,8 +217,7 @@ export class Triggers {
 		triggersCountStore: Writable<TriggersCount | undefined>,
 		workspaceId: string | undefined,
 		path: string,
-		isFlow: boolean,
-		user: UserExt | undefined = undefined
+		isFlow: boolean
 	): Promise<void> {
 		if (!workspaceId) return
 		try {
@@ -234,7 +226,7 @@ export class Triggers {
 				path,
 				isFlow
 			})
-			const wsCount = this.updateTriggers(wsTriggers, 'websocket', user)
+			const wsCount = this.updateTriggers(wsTriggers, 'websocket')
 			triggersCountStore.update((triggersCount) => {
 				return {
 					...(triggersCount ?? {}),
@@ -250,8 +242,7 @@ export class Triggers {
 		triggersCountStore: Writable<TriggersCount | undefined>,
 		workspaceId: string | undefined,
 		path: string,
-		isFlow: boolean,
-		user: UserExt | undefined = undefined
+		isFlow: boolean
 	): Promise<void> {
 		if (!workspaceId) return
 		try {
@@ -260,7 +251,7 @@ export class Triggers {
 				path,
 				isFlow
 			})
-			const pgCount = this.updateTriggers(pgTriggers, 'postgres', user)
+			const pgCount = this.updateTriggers(pgTriggers, 'postgres')
 			triggersCountStore.update((triggersCount) => {
 				return {
 					...(triggersCount ?? {}),
@@ -276,8 +267,7 @@ export class Triggers {
 		triggersCountStore: Writable<TriggersCount | undefined>,
 		workspaceId: string | undefined,
 		path: string,
-		isFlow: boolean,
-		user: UserExt | undefined = undefined
+		isFlow: boolean
 	): Promise<void> {
 		if (!workspaceId) return
 		try {
@@ -286,7 +276,7 @@ export class Triggers {
 				path,
 				isFlow
 			})
-			const kafkaCount = this.updateTriggers(kafkaTriggers, 'kafka', user)
+			const kafkaCount = this.updateTriggers(kafkaTriggers, 'kafka')
 			triggersCountStore.update((triggersCount) => {
 				return {
 					...(triggersCount ?? {}),
@@ -302,8 +292,7 @@ export class Triggers {
 		triggersCountStore: Writable<TriggersCount | undefined>,
 		workspaceId: string | undefined,
 		path: string,
-		isFlow: boolean,
-		user: UserExt | undefined = undefined
+		isFlow: boolean
 	): Promise<void> {
 		if (!workspaceId) return
 		try {
@@ -312,7 +301,7 @@ export class Triggers {
 				path,
 				isFlow
 			})
-			const natsCount = this.updateTriggers(natsTriggers, 'nats', user)
+			const natsCount = this.updateTriggers(natsTriggers, 'nats')
 			triggersCountStore.update((triggersCount) => {
 				return {
 					...(triggersCount ?? {}),
@@ -328,8 +317,7 @@ export class Triggers {
 		triggersCountStore: Writable<TriggersCount | undefined>,
 		workspaceId: string | undefined,
 		path: string,
-		isFlow: boolean,
-		user: UserExt | undefined = undefined
+		isFlow: boolean
 	): Promise<void> {
 		if (!workspaceId) return
 		try {
@@ -338,7 +326,7 @@ export class Triggers {
 				path,
 				isFlow
 			})
-			const mqttCount = this.updateTriggers(mqttTriggers, 'mqtt', user)
+			const mqttCount = this.updateTriggers(mqttTriggers, 'mqtt')
 			triggersCountStore.update((triggersCount) => {
 				return {
 					...(triggersCount ?? {}),
@@ -354,8 +342,7 @@ export class Triggers {
 		triggersCountStore: Writable<TriggersCount | undefined>,
 		workspaceId: string | undefined,
 		path: string,
-		isFlow: boolean,
-		user: UserExt | undefined = undefined
+		isFlow: boolean
 	): Promise<void> {
 		if (!workspaceId) return
 		try {
@@ -364,7 +351,7 @@ export class Triggers {
 				path,
 				isFlow
 			})
-			const amqpCount = this.updateTriggers(amqpTriggers, 'amqp', user)
+			const amqpCount = this.updateTriggers(amqpTriggers, 'amqp')
 			triggersCountStore.update((triggersCount) => {
 				return {
 					...(triggersCount ?? {}),
@@ -380,8 +367,7 @@ export class Triggers {
 		triggersCountStore: Writable<TriggersCount | undefined>,
 		workspaceId: string | undefined,
 		path: string,
-		isFlow: boolean,
-		user: UserExt | undefined = undefined
+		isFlow: boolean
 	): Promise<void> {
 		if (!workspaceId) return
 		try {
@@ -390,7 +376,7 @@ export class Triggers {
 				path,
 				isFlow
 			})
-			const sqsCount = this.updateTriggers(sqsTriggers, 'sqs', user)
+			const sqsCount = this.updateTriggers(sqsTriggers, 'sqs')
 			triggersCountStore.update((triggersCount) => {
 				return {
 					...(triggersCount ?? {}),
@@ -406,8 +392,7 @@ export class Triggers {
 		triggersCountStore: Writable<TriggersCount | undefined>,
 		workspaceId: string | undefined,
 		path: string,
-		isFlow: boolean,
-		user: UserExt | undefined = undefined
+		isFlow: boolean
 	): Promise<void> {
 		if (!workspaceId) return
 		try {
@@ -416,7 +401,7 @@ export class Triggers {
 				path,
 				isFlow
 			})
-			const gcpCount = this.updateTriggers(gcpTriggers, 'gcp', user)
+			const gcpCount = this.updateTriggers(gcpTriggers, 'gcp')
 			triggersCountStore.update((triggersCount) => {
 				return {
 					...(triggersCount ?? {}),
@@ -432,8 +417,7 @@ export class Triggers {
 		triggersCountStore: Writable<TriggersCount | undefined>,
 		workspaceId: string | undefined,
 		path: string,
-		isFlow: boolean,
-		user: UserExt | undefined = undefined
+		isFlow: boolean
 	): Promise<void> {
 		if (!workspaceId) return
 		try {
@@ -442,7 +426,7 @@ export class Triggers {
 				path,
 				isFlow
 			})
-			const azureCount = this.updateTriggers(azureTriggers, 'azure', user)
+			const azureCount = this.updateTriggers(azureTriggers, 'azure')
 			triggersCountStore.update((triggersCount) => {
 				return {
 					...(triggersCount ?? {}),
@@ -458,8 +442,7 @@ export class Triggers {
 		triggersCountStore: Writable<TriggersCount | undefined>,
 		workspaceId: string | undefined,
 		path: string,
-		isFlow: boolean,
-		user: UserExt | undefined = undefined
+		isFlow: boolean
 	): Promise<void> {
 		if (!workspaceId) return
 		try {
@@ -468,7 +451,7 @@ export class Triggers {
 				path,
 				isFlow
 			})
-			const httpCount = this.updateTriggers(httpTriggers, 'http', user)
+			const httpCount = this.updateTriggers(httpTriggers, 'http')
 			triggersCountStore.update((triggersCount) => {
 				return {
 					...(triggersCount ?? {}),
@@ -484,8 +467,7 @@ export class Triggers {
 		triggersCountStore: Writable<TriggersCount | undefined>,
 		workspaceId: string | undefined,
 		path: string,
-		isFlow: boolean,
-		user: UserExt | undefined = undefined
+		isFlow: boolean
 	): Promise<void> {
 		if (!workspaceId) return
 		try {
@@ -494,7 +476,7 @@ export class Triggers {
 				path,
 				isFlow
 			})
-			const emailCount = this.updateTriggers(emailTriggers, 'email', user)
+			const emailCount = this.updateTriggers(emailTriggers, 'email')
 			triggersCountStore.update((triggersCount) => {
 				return {
 					...(triggersCount ?? {}),
@@ -511,8 +493,7 @@ export class Triggers {
 		serviceName: NativeServiceName,
 		workspaceId: string | undefined,
 		path: string,
-		isFlow: boolean,
-		user: UserExt | undefined = undefined
+		isFlow: boolean
 	): Promise<void> {
 		if (!workspaceId) return
 		try {
@@ -527,10 +508,9 @@ export class Triggers {
 				path: t.external_id,
 				script_path: t.script_path,
 				is_flow: t.is_flow,
-				extra_perms: {},
 				service_config: t.service_config
 			}))
-			const count = this.updateTriggers(triggerData, serviceName, user)
+			const count = this.updateTriggers(triggerData, serviceName)
 			const countProperty = `${serviceName}_count`
 			triggersCountStore.update((triggersCount) => {
 				return {
@@ -548,30 +528,29 @@ export class Triggers {
 		workspaceId: string | undefined,
 		path: string,
 		isFlow: boolean,
-		primarySchedule: ScheduleTrigger | undefined | false = undefined,
-		user: UserExt | undefined = undefined
+		primarySchedule: ScheduleTrigger | undefined | false = undefined
 	): Promise<void> {
 		if (!workspaceId) return
 
 		// Fetch each type of trigger
 		await Promise.all([
-			this.fetchSchedules(triggersCountStore, workspaceId, path, isFlow, primarySchedule, user),
-			this.fetchHttpTriggers(triggersCountStore, workspaceId, path, isFlow, user),
-			this.fetchWebsocketTriggers(triggersCountStore, workspaceId, path, isFlow, user),
-			this.fetchPostgresTriggers(triggersCountStore, workspaceId, path, isFlow, user),
-			this.fetchMqttTriggers(triggersCountStore, workspaceId, path, isFlow, user),
-			this.fetchAmqpTriggers(triggersCountStore, workspaceId, path, isFlow, user),
-			this.fetchNativeTriggers(triggersCountStore, 'nextcloud', workspaceId, path, isFlow, user),
-			this.fetchNativeTriggers(triggersCountStore, 'google', workspaceId, path, isFlow, user),
-			this.fetchNativeTriggers(triggersCountStore, 'github', workspaceId, path, isFlow, user),
+			this.fetchSchedules(triggersCountStore, workspaceId, path, isFlow, primarySchedule),
+			this.fetchHttpTriggers(triggersCountStore, workspaceId, path, isFlow),
+			this.fetchWebsocketTriggers(triggersCountStore, workspaceId, path, isFlow),
+			this.fetchPostgresTriggers(triggersCountStore, workspaceId, path, isFlow),
+			this.fetchMqttTriggers(triggersCountStore, workspaceId, path, isFlow),
+			this.fetchAmqpTriggers(triggersCountStore, workspaceId, path, isFlow),
+			this.fetchNativeTriggers(triggersCountStore, 'nextcloud', workspaceId, path, isFlow),
+			this.fetchNativeTriggers(triggersCountStore, 'google', workspaceId, path, isFlow),
+			this.fetchNativeTriggers(triggersCountStore, 'github', workspaceId, path, isFlow),
 			...(get(enterpriseLicense)
 				? [
-						this.fetchKafkaTriggers(triggersCountStore, workspaceId, path, isFlow, user),
-						this.fetchSqsTriggers(triggersCountStore, workspaceId, path, isFlow, user),
-						this.fetchGcpTriggers(triggersCountStore, workspaceId, path, isFlow, user),
-						this.fetchAzureTriggers(triggersCountStore, workspaceId, path, isFlow, user),
-						this.fetchEmailTriggers(triggersCountStore, workspaceId, path, isFlow, user),
-						this.fetchNatsTriggers(triggersCountStore, workspaceId, path, isFlow, user)
+						this.fetchKafkaTriggers(triggersCountStore, workspaceId, path, isFlow),
+						this.fetchSqsTriggers(triggersCountStore, workspaceId, path, isFlow),
+						this.fetchGcpTriggers(triggersCountStore, workspaceId, path, isFlow),
+						this.fetchAzureTriggers(triggersCountStore, workspaceId, path, isFlow),
+						this.fetchEmailTriggers(triggersCountStore, workspaceId, path, isFlow),
+						this.fetchNatsTriggers(triggersCountStore, workspaceId, path, isFlow)
 					]
 				: [])
 		])

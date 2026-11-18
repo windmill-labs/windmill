@@ -31,6 +31,8 @@ export type {
   Conversation,
   FetchLike,
   HistoryMode,
+  RawAppWmill,
+  TypedChatOptions,
   SendMessageOptions,
   StorageLike,
   TokenSource,

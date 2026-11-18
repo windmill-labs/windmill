@@ -11,14 +11,10 @@
 
 	import { sendUserToast } from '$lib/toast'
 	import { displayDate } from '$lib/utils'
-	import {
-		userStore,
-		workspaceStore,
-		userWorkspaces,
-		superadmin,
-		devopsRole,
-		enterpriseLicense
-	} from '$lib/stores'
+	import { superadmin, devopsRole, enterpriseLicense } from '$lib/stores'
+	import { useHostedPage } from '$lib/components/hostedPage'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import { useRoleCapabilities } from '$lib/operatorWriteRights'
 	import { Button, Drawer, DrawerContent, Skeleton, Tab, Tabs } from '$lib/components/common'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import RunChart from '$lib/components/RunChart.svelte'
@@ -35,11 +31,12 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import RunsQueue from '$lib/components/runs/RunsQueue.svelte'
-	import OpenInSessionButton from '$lib/components/sessions/OpenInSessionButton.svelte'
 	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
-	import { pageHeader, PHONE_BAR } from '$lib/components/pageHeaderRegistry.svelte'
-	import { pageHref, RUNS_PATH } from '$lib/components/sessions/previewPaths'
-	import { twMerge } from 'tailwind-merge'
+	import { pageHeader } from '$lib/components/pageHeaderRegistry.svelte'
+	import { RUNS_PATH } from '$lib/components/sessions/previewPaths'
+	import OpenInSessionButton, {
+		type OpenInSessionSource
+	} from '$lib/components/sessions/OpenInSessionButton.svelte'
 	import { computeJobKinds, useJobsLoader } from '$lib/components/runs/useJobsLoader.svelte'
 	import ConcurrentJobsChart from '$lib/components/ConcurrentJobsChart.svelte'
 	import BatchLoadProgress from '$lib/components/BatchLoadProgress.svelte'
@@ -60,8 +57,19 @@
 		Hourglass,
 		TriangleAlertIcon,
 		ArrowLeft,
-		Loader2
+		Loader2,
+		SlidersHorizontal,
+		Columns3,
+		Download
 	} from 'lucide-svelte'
+	import {
+		RUNS_COLUMNS,
+		DEFAULT_RUNS_COLUMNS,
+		normalizeRunsColumns,
+		type RunsColumnId
+	} from '$lib/components/runs/runsColumns'
+	import { exportRuns, type RunsExportFormat } from '$lib/components/runs/runsExport'
+	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import DropdownV2 from './DropdownV2.svelte'
 	import TimeframeSelect, {
 		buildManualTimeframe,
@@ -73,6 +81,14 @@
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonMore from './common/toggleButton-v2/ToggleButtonMore.svelte'
+	import ChartResizeHandle from './runs/ChartResizeHandle.svelte'
+	import {
+		DURATION_SCALES,
+		DURATION_UNITS,
+		type DurationScale,
+		type DurationUnit
+	} from './runs/durationAxis'
+	import { useResizeObserver } from 'runed'
 
 	interface Props {
 		/** Initial path from route params (e.g., /runs/u/user/script) */
@@ -80,6 +96,13 @@
 	}
 
 	let { initialPath }: Props = $props()
+
+	// Under a host — an AI session's preview tab — the document URL, the page header band and
+	// the navigation workspace all belong to the host: the filters live where it keeps them,
+	// the filter row renders in the page, and requests go to the workspace it names.
+	const hosted = useHostedPage()
+	const operatingWorkspace = useOperatingWorkspace()
+	const roleCaps = useRoleCapabilities()
 
 	let paths: string[] = $state([])
 	let usernames: string[] = $state([])
@@ -91,12 +114,92 @@
 			folders,
 			jobTriggerKinds,
 			isSuperAdminOrDevops: !!$superadmin || !!$devopsRole,
-			isAdminsWorkspace: $workspaceStore === 'admins'
+			isAdminsWorkspace: $operatingWorkspace === 'admins'
 		})
 	)
 	let perPage = useLocalStorageValue('runs_per_page', 1000, 'number')
+	let columnsStorage = useLocalStorageValue<RunsColumnId[]>(
+		'runs_table_columns',
+		DEFAULT_RUNS_COLUMNS
+	)
+	let runsColumns = $derived(normalizeRunsColumns(columnsStorage.val))
+	function setColumnShown(id: RunsColumnId, shown: boolean) {
+		columnsStorage.val = shown ? [...runsColumns, id] : runsColumns.filter((c) => c !== id)
+	}
+
+	let exporting = $state(false)
+	async function onExport(format: RunsExportFormat) {
+		exporting = true
+		try {
+			// Obscured runs of other workspaces carry placeholder fields, not their real outcome.
+			await exportRuns(jobs ?? [], format)
+		} catch (e) {
+			sendUserToast(`Could not export runs: ${e}`, true)
+		} finally {
+			exporting = false
+		}
+	}
 	let showSchedulesStorage = useLocalStorageValue('runs_show_schedules', true, 'boolean')
 	let showFutureJobsStorage = useLocalStorageValue('runs_show_future_jobs', true, 'boolean')
+
+	const CHART_DEFAULT_HEIGHT = 176
+	const CHART_MIN_HEIGHT = 120
+	// The chart grows into the runs list, which keeps at least this much height.
+	const RUNS_LIST_MIN_HEIGHT = 200
+	const DURATION_UNIT_ITEMS: { label: string; value: DurationUnit }[] = [
+		{ label: 'Auto', value: 'auto' },
+		{ label: 'ms', value: 'ms' },
+		{ label: 's', value: 's' },
+		{ label: 'min', value: 'min' },
+		{ label: 'h', value: 'h' }
+	]
+	let durationUnitStorage = useLocalStorageValue<DurationUnit>(
+		'runs_chart_duration_unit',
+		'auto',
+		'string'
+	)
+	let durationScaleStorage = useLocalStorageValue<DurationScale>(
+		'runs_chart_duration_scale',
+		'log',
+		'string'
+	)
+	let chartHeightStorage = useLocalStorageValue(
+		'runs_chart_height',
+		CHART_DEFAULT_HEIGHT,
+		'number',
+		{ debounce: 300 }
+	)
+	const durationUnit = $derived(
+		DURATION_UNITS.includes(durationUnitStorage.val) ? durationUnitStorage.val : 'auto'
+	)
+	const durationScale = $derived(
+		DURATION_SCALES.includes(durationScaleStorage.val) ? durationScaleStorage.val : 'log'
+	)
+	let chartBoxEl: HTMLDivElement | undefined = $state(undefined)
+	let runsListEl: HTMLDivElement | undefined = $state(undefined)
+	// Both heights are read in the same callback. With a `bind:clientHeight` on each, the list's
+	// height lands a frame after the chart's, and the clamp below oscillates instead of settling.
+	let chartAndListHeight: number | undefined = $state(undefined)
+	useResizeObserver(
+		() => [chartBoxEl, runsListEl].filter((el): el is HTMLDivElement => el !== undefined),
+		() => {
+			if (chartBoxEl && runsListEl) {
+				chartAndListHeight = chartBoxEl.clientHeight + runsListEl.clientHeight
+			}
+		}
+	)
+	// Unbounded until the first layout is measured.
+	const chartMaxHeight = $derived(
+		chartAndListHeight === undefined
+			? Infinity
+			: Math.max(CHART_MIN_HEIGHT, chartAndListHeight - RUNS_LIST_MIN_HEIGHT)
+	)
+	const chartHeight = $derived(
+		Math.min(
+			Math.max(chartHeightStorage.val || CHART_DEFAULT_HEIGHT, CHART_MIN_HEIGHT),
+			chartMaxHeight
+		)
+	)
 	function filterSeeds() {
 		return {
 			path: initialPath || undefined,
@@ -115,6 +218,8 @@
 	// what was seeded at mount is gone. Re-apply it. Editing a filter writes with `replaceState`,
 	// which never reaches `page.url`, so a filter the user clears stays cleared.
 	$effect(() => {
+		// A host remounts the page when it re-points it, and its document URL is not this page's.
+		if (hosted) return
 		page.url.href
 		untrack(() => filters.seed(filterSeeds()))
 	})
@@ -146,6 +251,7 @@
 				title: string
 				confirmBtnText: string
 				loading?: boolean
+				description?: string
 				preContent?: string
 				onConfirm?: (forceCancel: boolean) => void
 				type?: ConfirmationModal['$$prop_def']['type']
@@ -171,7 +277,7 @@
 	let manualTimeframe = $derived(timeframe.type === 'manual' ? timeframe : undefined)
 
 	let graph: 'RunChart' | 'ConcurrencyChart' = $state(
-		typeOfChart(page.url.searchParams.get('graph'))
+		typeOfChart((hosted ? new URLSearchParams(hosted.search) : page.url.searchParams).get('graph'))
 	)
 	let innerWidth = $state(window.innerWidth)
 	let jobsLoader = useJobsLoader(() => ({
@@ -183,7 +289,7 @@
 		resultError,
 		perPage: perPage.val,
 		lookback: graph === 'RunChart' ? 0 : lookback,
-		currentWorkspace: $workspaceStore ?? ''
+		currentWorkspace: $operatingWorkspace ?? ''
 	}))
 	let batchProgress = $derived(jobsLoader.batchProgress)
 	let currentBatchSize = $derived(jobsLoader.currentBatchSize)
@@ -211,18 +317,20 @@
 	}
 
 	async function loadUsernames(): Promise<void> {
-		usernames = await UserService.listUsernames({ workspace: $workspaceStore! })
+		usernames = await UserService.listUsernames({ workspace: $operatingWorkspace! })
 	}
 
 	async function loadFolders(): Promise<void> {
 		folders = await FolderService.listFolders({
-			workspace: $workspaceStore!
+			workspace: $operatingWorkspace!
 		}).then((x) => x.map((y) => y.name))
 	}
 
 	async function loadPaths() {
-		const npaths_scripts = await ScriptService.listScriptPaths({ workspace: $workspaceStore ?? '' })
-		const npaths_flows = await FlowService.listFlowPaths({ workspace: $workspaceStore ?? '' })
+		const npaths_scripts = await ScriptService.listScriptPaths({
+			workspace: $operatingWorkspace ?? ''
+		})
+		const npaths_flows = await FlowService.listFlowPaths({ workspace: $operatingWorkspace ?? '' })
 		paths = npaths_scripts.concat(npaths_flows).sort()
 	}
 
@@ -236,6 +344,8 @@
 			delete filters.val.tag
 			delete filters.val.worker
 			delete filters.val.schedule_path
+			// `!schedule` is the persisted "hide schedules" preference, not a row filter.
+			if (filters.val.job_trigger_kind !== '!schedule') delete filters.val.job_trigger_kind
 			setter(e.detail)
 		}
 	}
@@ -248,6 +358,7 @@
 	const filterByTag = resetAndFilterBy((s) => (filters.val.tag = s))
 	const filterBySchedule = resetAndFilterBy((s) => (filters.val.schedule_path = s))
 	const filterByWorker = resetAndFilterBy((s) => (filters.val.worker = s))
+	const filterByTriggerKind = resetAndFilterBy((s) => (filters.val.job_trigger_kind = s))
 
 	function typeOfChart(s: string | null): 'RunChart' | 'ConcurrencyChart' {
 		switch (s) {
@@ -265,7 +376,7 @@
 		const resultFilter = filters.val.result && JSON.parse(filters.val.result)
 		const { minTs, maxTs } = timeframe.computeMinMax()
 		return {
-			workspace: $workspaceStore ?? '',
+			workspace: $operatingWorkspace ?? '',
 			startedBefore: maxTs ?? undefined,
 			startedAfter: minTs ?? undefined,
 			schedulePath: filters.val.schedule_path ?? undefined,
@@ -294,9 +405,7 @@
 						: undefined,
 			// isFlowStep: jobKindsCat != 'all' ? false : undefined,
 			hasNullParent:
-				filters.val.path != undefined ||
-				filters.val.path != undefined ||
-				filters.val.job_kinds != 'all'
+				filters.val.path != undefined || filters.val.folder || filters.val.job_kinds != 'all'
 					? true
 					: undefined,
 			label: filters.val.label || undefined,
@@ -323,7 +432,7 @@
 	}
 	async function cancelJobs(uuidsToCancel: string[], forceCancel: boolean = false) {
 		const uuids = await JobService.cancelSelection({
-			workspace: $workspaceStore ?? '',
+			workspace: $operatingWorkspace ?? '',
 			requestBody: uuidsToCancel,
 			forceCancel: forceCancel,
 			allWorkspaces: filters.val.all_workspaces || undefined
@@ -350,7 +459,7 @@
 		for (const j of jobs ?? []) if (j.workspace_id) workspaceById.set(j.id, j.workspace_id)
 		const byWorkspace = new Map<string, string[]>()
 		for (const id of jobIds) {
-			const ws = workspaceById.get(id) ?? $workspaceStore ?? ''
+			const ws = workspaceById.get(id) ?? $operatingWorkspace ?? ''
 			const bucket = byWorkspace.get(ws)
 			if (bucket) bucket.push(id)
 			else byWorkspace.set(ws, [id])
@@ -428,7 +537,8 @@
 	}
 
 	async function reRunJobs(jobIdsToReRun: string[], batchReRunOptions: BatchReRunOptions) {
-		if (!$workspaceStore) return
+		if (!$operatingWorkspace) return
+		const batching = filterMatchedIds !== undefined
 
 		if (askingForConfirmation) {
 			askingForConfirmation.loading = true
@@ -442,12 +552,15 @@
 
 		// workaround because EventSource does not support POST requests
 		// https://medium.com/@david.richards.tech/sse-server-sent-events-using-a-post-request-without-eventsource-1c0bd6f14425
-		const response = await fetch(`${OpenAPI.BASE}/w/${$workspaceStore}/jobs/run/batch_rerun_jobs`, {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify(body)
-		})
-		await new Promise(async (resolve) => {
+		const response = await fetch(
+			`${OpenAPI.BASE}/w/${$operatingWorkspace}/jobs/run/batch_rerun_jobs`,
+			{
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify(body)
+			}
+		)
+		{
 			const reader = response?.body?.pipeThrough(new TextDecoderStream()).getReader()
 			let reRanUuids: string[] = []
 			if (reader) {
@@ -478,7 +591,11 @@
 						}
 						if (reRanUuids.length !== jobIdsToReRun.length) {
 							sendUserToast(
-								`Failed to re-run ${jobIdsToReRun.length - reRanUuids.length} jobs. Check console for details`,
+								`Failed to re-run ${jobIdsToReRun.length - reRanUuids.length} jobs. Check console for details` +
+									// Only a re-run resolves its source, so these stay first in line.
+									(batching
+										? '. They stay unresolved and the next batch will try them again: resolve them to skip them'
+										: ''),
 								true
 							)
 							// We do not get explicit error from backend if the job script don't exist
@@ -491,8 +608,7 @@
 					}
 				}
 			}
-			resolve(undefined)
-		})
+		}
 
 		selectedIds = []
 		// Opened from the table's "Run again", the options are done; left open, the next selection
@@ -501,13 +617,31 @@
 		jobsLoader?.loadJobs(true, true)
 	}
 
+	// Every failed or canceled job "Re-run all jobs matching filters" found, oldest first, so a
+	// batch limit takes the oldest ones. Re-running resolves them, so under "Hide resolved runs"
+	// the next click picks up where the previous batch stopped.
+	let filterMatchedIds: string[] | undefined = $state()
+	let rerunLimit: number | undefined = $state()
+	// The pane closes from several places, the table included; a stale match list would then
+	// offer its limit over a selection it no longer describes.
+	$effect(() => {
+		if (!batchRerunOptionsIsOpen) untrack(() => (filterMatchedIds = undefined))
+	})
+
+	function setRerunLimit(limit: number | undefined) {
+		if (!filterMatchedIds) return
+		rerunLimit = limit && limit > 0 ? limit : undefined
+		selectedIds = filterMatchedIds.slice(0, rerunLimit ?? filterMatchedIds.length)
+	}
+
 	async function onRerunAllJobsMatchingFilters() {
 		const selectedFilters = getSelectedFilters()
 		selectedIds = []
 
 		const loadingToast = sendUserToast('Loading job ids', 'info')
 
-		if (filters.val.job_kinds !== 'runs') {
+		// Selecting "runs" deletes the key, since it is the default.
+		if ((filters.val.job_kinds ?? 'runs') !== 'runs') {
 			sendUserToast('Batch re-run is only supported for scripts and flows', true)
 			loadingToast.destroy()
 			return
@@ -516,11 +650,21 @@
 		// workspace. started_at >= minTs implies completed_at >= minTs, so completedAfter adds a
 		// lossless indexed lower bound ((workspace_id, completed_at DESC)); started_at stays the
 		// exact recheck. (completedBefore is omitted: it would drop jobs that finish after maxTs.)
-		selectedIds = await JobService.listFilteredJobsUuids({
+		const ids = await JobService.listFilteredJobsUuids({
 			...selectedFilters,
 			completedAfter: selectedFilters.startedAfter,
-			jobKinds: 'script,flow'
+			orderDesc: false
 		})
+		// Batching needs both halves of its promise: only failed or canceled sources are resolved
+		// by a re-run, and only a status filter keeps the queue out of the lookup, whose union
+		// drops the ordering. Anything else re-runs every match, as one batch.
+		if (selectedFilters.status === 'failure' || selectedFilters.status === 'canceled') {
+			filterMatchedIds = ids
+			setRerunLimit(rerunLimit)
+		} else {
+			filterMatchedIds = undefined
+			selectedIds = ids
+		}
 		loadingToast.destroy()
 		batchRerunOptionsIsOpen = true
 	}
@@ -530,6 +674,10 @@
 		askingForConfirmation = {
 			title: `Confirm re-running the selected jobs`,
 			confirmBtnText: `Re-run ${jobIdsToReRun.length} jobs`,
+			// The server skips resolution for a role without `code`, which cannot resolve.
+			description: !$roleCaps.code
+				? undefined
+				: "Failed or canceled jobs among them will be marked resolved, with the new run's id as the note.",
 			type: 'reload',
 			onConfirm: async () => {
 				await reRunJobs(jobIdsToReRun, batchReRunOptions)
@@ -555,7 +703,7 @@
 	}
 
 	$effect(() => {
-		if ($workspaceStore) {
+		if ($operatingWorkspace) {
 			untrack(() => {
 				loadUsernames()
 				loadFolders()
@@ -603,7 +751,20 @@
 		openedRunId = undefined
 	}
 	let resolutionNote = $state('')
-	const phone = $derived(pageHeader.barWidth > 0 && pageHeader.barWidth < PHONE_BAR)
+	// The bar folds this row (`actionFolds` below) once its breadcrumb has given all it can: first
+	// the counters, which are a glance and repeat the chart below; then the filter field moves to a
+	// row of its own rather than shrinking past usable. Hosted, the row is the page's own and wraps
+	// instead.
+	const fold = $derived(hosted ? 0 : pageHeader.actionFold)
+	const filterBelow = $derived(fold >= 2)
+
+	const sessionSource: OpenInSessionSource = $derived({
+		// The filters are shallow-routed, so the search has to come off `window.location` at click
+		// time — `page.url` never sees them. Always the canonical `/runs`: only that is a recognized
+		// preview page, and the `/runs/<path>` route mirrors its path into `?path=` anyway.
+		page: () => RUNS_PATH + window.location.search,
+		workspaceId: $operatingWorkspace ?? undefined
+	})
 </script>
 
 {#snippet runsHint()}
@@ -615,18 +776,34 @@
 	</Tooltip>
 {/snippet}
 
+{#snippet runsFilter(cls: string)}
+	<FilterSearchbar
+		class={cls}
+		schema={runsFilterSearchbarSchema}
+		presets={buildRunsFilterPresets({
+			isSuperAdminOrDevops: !!$superadmin || !!$devopsRole,
+			isAdminsWorkspace: $operatingWorkspace === 'admins'
+		})}
+		bind:value={filters.val}
+		placeholder="Filter runs..."
+		size="sm"
+		autofocus={!hosted}
+	/>
+{/snippet}
+
+{#snippet filterRow()}
+	{@render runsFilter('relative w-full min-w-0')}
+{/snippet}
+
 {#snippet headerActions()}
 	<!-- The page's own row inside the band's actions box: these controls are denser than a page's
-	     two or three buttons, so they take a wider gap than the band's own. `flex-1 min-w-0` passes
-	     the band's flexibility down to the search field, the one control here that gives width
-	     back; the rest keep theirs or drop out of the row entirely at a width. -->
-	<div class="flex items-center gap-3 flex-1 min-w-0">
+	     two or three buttons, so they take a wider gap than the band's own. Every control keeps its
+	     width: the bar measures the row and folds it rather than squeezing it. -->
+	<div class="flex items-center gap-3 {hosted ? 'flex-wrap justify-end' : ''}">
 		<!-- Always the icon form: the bar has room for two counters, never for the two labelled
 		     blocks. pr-2 on top of the row's own gap because the counts hang outside their icons,
-		     so without it the badge butts against the first filter.
-		     A phone's bar has room for the filter field and the timeframe and nothing else: the
-		     counters are a glance, and the same numbers are on the chart below. -->
-		<div class="flex items-center pr-2 {phone ? 'hidden' : ''}">
+		     so without it the badge butts against the first filter. -->
+		<div class="flex items-center pr-2 {fold >= 1 ? 'hidden' : ''}">
 			<RunsQueue
 				success={filters.val.status ?? null}
 				{queue_count}
@@ -797,32 +974,10 @@
 			</div>
 		</div>
 
-		<!-- The one control in the band that gives way: everything else keeps the width it asked
-		     for, or drops out of the row at a width, and this takes what is left. -->
-		<FilterSearchbar
-			class={twMerge(
-				// A width of its own, and only ever less. As `flex-1` the field was whatever the row
-				// had left over, so a chip appearing or a filter committing resized it under the
-				// cursor and the last pixels came off the breadcrumb. 18rem is its width whenever the
-				// row fits, and it still shrinks when the row runs short, which is what keeps the row
-				// inside a box the bar lets shrink (`actionsFlexible`). `min-w-0` is what makes that
-				// shrink unconditional: a flex item's floor is its min-content width, which the chips
-				// inside the field raise, so without it a typed filter would push the field wider
-				// again exactly when the row has no room to give.
-				'relative w-[18rem] min-w-0 max-w-full',
-				// A phone's bar cannot spare that much before the timeframe beside it.
-				phone && 'w-[10rem]'
-			)}
-			schema={runsFilterSearchbarSchema}
-			presets={buildRunsFilterPresets({
-				isSuperAdminOrDevops: !!$superadmin || !!$devopsRole,
-				isAdminsWorkspace: $workspaceStore === 'admins'
-			})}
-			bind:value={filters.val}
-			placeholder="Filter runs..."
-			size="sm"
-			autofocus
-		/>
+		<!-- A width of its own, never what the row has left over: as `flex-1` a chip appearing or a
+		     filter committing resized it under the cursor. `shrink-0` keeps it at that width, which
+		     is the row's width the bar measures and folds. -->
+		{#if !filterBelow}{@render runsFilter('relative w-[18rem] shrink-0')}{/if}
 		<TimeframeSelect
 			unifiedSize="sm"
 			onClick={() => jobsLoader?.loadJobs(true)}
@@ -830,19 +985,11 @@
 			items={runsTimeframes}
 			bind:value={_timeframe.val}
 		/>
-		<!-- The filters are shallow-routed, so the search has to come off `window.location` at click
-		     time — `page.url` never sees them. Always the canonical `/runs`: only that is a recognized
-		     preview page, and the `/runs/<path>` route mirrors its path into `?path=` anyway. -->
-		<div class={phone ? 'hidden' : 'contents'}>
-			<OpenInSessionButton
-				source={{
-					page: () => pageHref(RUNS_PATH) + window.location.search,
-					workspaceId: $workspaceStore ?? undefined
-				}}
-				btnProps={{ unifiedSize: 'sm' }}
-			/>
-		</div>
 	</div>
+	{#if !hosted}
+		<!-- No main action on this page: the session button ends the row. -->
+		<OpenInSessionButton source={sessionSource} />
+	{/if}
 {/snippet}
 
 <ConfirmationModal
@@ -860,6 +1007,9 @@
 		askingForConfirmation = undefined
 	}}
 >
+	{#if askingForConfirmation?.description}
+		<p class="text-xs text-secondary">{askingForConfirmation.description}</p>
+	{/if}
 	{#if askingForConfirmation?.preContent}
 		<pre>{askingForConfirmation.preContent}</pre>
 		<Toggle
@@ -900,26 +1050,38 @@
 	</DrawerContent>
 </Drawer>
 
+<!-- The document's history is the host's: its Back is not a move on this page. -->
 <svelte:window
 	onpopstate={() => {
-		reset()
+		if (!hosted) reset()
 	}}
 />
 
-{#if $userStore?.operator && $workspaceStore && !$userWorkspaces.find((_) => _.id === $workspaceStore)?.operator_settings?.runs}
+{#if $operatingWorkspace && !$roleCaps.visibility.runs}
 	<div class="bg-red-100 border-l-4 border-red-600 text-orange-700 p-4 m-4 mt-12" role="alert">
 		<p class="font-bold">Unauthorized</p>
-		<p>Page not available for operators</p>
+		<p>Page not available for your role</p>
 	</div>
 {:else}
 	<div class="w-full h-full flex flex-col" bind:clientWidth={innerWidth}>
-		<!-- `actionsFlexible`: the filter row holds a search field that can give width back, so the
-		     bar lets this box shrink on a phone instead of holding its content width. -->
-		<PageHeaderContent afterName={runsHint} actions={headerActions} actionsFlexible />
+		{#if hosted}
+			<div class="flex px-4 pt-3 pb-2">
+				{@render headerActions()}
+			</div>
+		{:else}
+			<PageHeaderContent
+				afterName={runsHint}
+				actions={headerActions}
+				{sessionSource}
+				actionFolds={2}
+				belowBar={filterRow}
+				belowBarFold={2}
+			/>
+		{/if}
 
 		<!-- Graph -->
 		<div id="runs-chart" class="p-2 px-4 bg-surface-tertiary mx-4 border rounded-md">
-			<div class="relative z-10 mb-2 flex gap-2">
+			<div class="relative z-10 mb-2 flex flex-wrap gap-2">
 				<Tabs bind:selected={graph}>
 					<Tab value="RunChart" label="Duration" id="runs-chart-duration-tab" />
 					<Tab value="ConcurrencyChart" label="Concurrency" id="runs-chart-concurrency-tab">
@@ -955,38 +1117,111 @@
 						<Tooltip>There are more jobs to load</Tooltip>
 					</Button>
 				{/if}
+				{#if graph === 'RunChart'}
+					<Popover
+						class="ml-auto self-start -mr-2"
+						placement="bottom-end"
+						contentClasses="p-3 flex flex-col gap-3"
+					>
+						{#snippet trigger()}
+							<Button
+								id="runs-chart-settings"
+								variant="subtle"
+								unifiedSize="sm"
+								iconOnly
+								nonCaptureEvent
+								title="Chart settings"
+								startIcon={{ icon: SlidersHorizontal }}
+							/>
+						{/snippet}
+						{#snippet content()}
+							<div class="flex flex-col gap-1">
+								<span class="text-xs font-semibold text-emphasis">Unit</span>
+								<ToggleButtonGroup
+									id="runs-chart-duration-unit"
+									noWFull
+									bind:selected={
+										() => durationUnit,
+										(v) => {
+											if (DURATION_UNITS.includes(v as DurationUnit) && v !== durationUnit) {
+												durationUnitStorage.val = v
+											}
+										}
+									}
+								>
+									{#snippet children({ item })}
+										{#each DURATION_UNIT_ITEMS as unit (unit.value)}
+											<ToggleButton value={unit.value} label={unit.label} size="sm" {item} />
+										{/each}
+									{/snippet}
+								</ToggleButtonGroup>
+							</div>
+							<div class="flex flex-col gap-1">
+								<span class="text-xs font-semibold text-emphasis">Scale</span>
+								<ToggleButtonGroup
+									id="runs-chart-duration-scale"
+									noWFull
+									bind:selected={
+										() => durationScale,
+										(v) => {
+											if ((v === 'log' || v === 'linear') && v !== durationScale) {
+												durationScaleStorage.val = v
+											}
+										}
+									}
+								>
+									{#snippet children({ item })}
+										<ToggleButton value="log" label="Log" size="sm" {item} />
+										<ToggleButton value="linear" label="Linear" size="sm" {item} />
+									{/snippet}
+								</ToggleButtonGroup>
+							</div>
+						{/snippet}
+					</Popover>
+				{/if}
 			</div>
-			{#if graph === 'RunChart'}
-				{@const manualTimeframe = timeframe.type === 'manual' ? timeframe : undefined}
-				<RunChart
-					bind:selectedIds
-					canSelect
-					minTimeSet={manualTimeframe?.minTs}
-					maxTimeSet={manualTimeframe?.maxTs}
-					maxIsNow={manualTimeframe?.maxTs == undefined}
-					jobs={completedJobs}
-					onZoom={(zoom) => {
-						_timeframe.val = buildManualTimeframe(zoom.min.toISOString(), zoom.max.toISOString())
-					}}
-					onPointClicked={(ids) => {
-						openedRunId = ids.length === 1 ? ids[0] : undefined
-						runsTable?.scrollToRun(ids)
-					}}
-				/>
-			{:else if graph === 'ConcurrencyChart'}
-				<ConcurrentJobsChart
-					minTimeSet={manualTimeframe?.minTs}
-					maxTimeSet={manualTimeframe?.maxTs}
-					maxIsNow={manualTimeframe?.maxTs == undefined}
-					{extendedJobs}
-					onZoom={(zoom) => {
-						_timeframe.val = buildManualTimeframe(zoom.min.toISOString(), zoom.max.toISOString())
-					}}
-				/>
-			{/if}
+			<div style:height="{chartHeight}px" bind:this={chartBoxEl}>
+				{#if graph === 'RunChart'}
+					{@const manualTimeframe = timeframe.type === 'manual' ? timeframe : undefined}
+					<RunChart
+						bind:selectedIds
+						canSelect
+						minTimeSet={manualTimeframe?.minTs}
+						maxTimeSet={manualTimeframe?.maxTs}
+						maxIsNow={manualTimeframe?.maxTs == undefined}
+						jobs={completedJobs}
+						unit={durationUnit}
+						scale={durationScale}
+						onZoom={(zoom) => {
+							_timeframe.val = buildManualTimeframe(zoom.min.toISOString(), zoom.max.toISOString())
+						}}
+						onPointClicked={(ids) => {
+							openedRunId = ids.length === 1 ? ids[0] : undefined
+							runsTable?.scrollToRun(ids)
+						}}
+					/>
+				{:else if graph === 'ConcurrencyChart'}
+					<ConcurrentJobsChart
+						minTimeSet={manualTimeframe?.minTs}
+						maxTimeSet={manualTimeframe?.maxTs}
+						maxIsNow={manualTimeframe?.maxTs == undefined}
+						{extendedJobs}
+						onZoom={(zoom) => {
+							_timeframe.val = buildManualTimeframe(zoom.min.toISOString(), zoom.max.toISOString())
+						}}
+					/>
+				{/if}
+			</div>
+			<ChartResizeHandle
+				class="-mb-2"
+				bind:height={() => chartHeight, (v) => (chartHeightStorage.val = v)}
+				min={CHART_MIN_HEIGHT}
+				max={chartMaxHeight}
+				defaultHeight={CHART_DEFAULT_HEIGHT}
+			/>
 		</div>
 
-		<div class="grow min-h-0 bottom-splitpane-wrapper">
+		<div class="grow min-h-0 bottom-splitpane-wrapper" bind:this={runsListEl}>
 			{#if pagedLayout}
 				<!-- No `onNavigate`: its arrow keys are read at `window`, where they would take
 				     ArrowRight from the table's horizontal scroll and ArrowLeft from a modal or drawer
@@ -1071,6 +1306,8 @@
 						on:filterByTag={filterByTag}
 						on:filterBySchedule={filterBySchedule}
 						on:filterByWorker={filterByWorker}
+						on:filterByTriggerKind={filterByTriggerKind}
+						columns={runsColumns}
 						bind:this={runsTable}
 						perPage={perPage.val}
 						bind:batchRerunOptionsIsOpen
@@ -1098,19 +1335,24 @@
 								displayName: 'Cancel jobs',
 								action: () => ((manualSelectionMode = 'cancel'), (selectedIds = []))
 							},
-							{
-								displayName: 'Re-run jobs',
-								action: () => {
-									manualSelectionMode = 'rerun'
-									selectedIds = []
-									batchRerunOptionsIsOpen = true
-								}
-							},
-							...(!$userStore?.operator
+							...($roleCaps.run
 								? [
 										{
-											// Operators are rejected by the endpoint, so offering it would only 403.
-											displayName: 'Resolve failed jobs',
+											displayName: 'Re-run jobs',
+											action: () => {
+												manualSelectionMode = 'rerun'
+												selectedIds = []
+												filterMatchedIds = undefined
+												batchRerunOptionsIsOpen = true
+											}
+										}
+									]
+								: []),
+							...($roleCaps.code
+								? [
+										{
+											// A role without `code` is rejected by the endpoint, so offering it would only 403.
+											displayName: 'Resolve failed or canceled jobs',
 											action: () => (
 												(manualSelectionMode = 'resolve'),
 												(selectedIds = []),
@@ -1123,10 +1365,14 @@
 								displayName: 'Cancel all jobs matching filters',
 								action: () => onCancelAllJobsMatchingFilters()
 							},
-							{
-								displayName: 'Re-run all jobs matching filters',
-								action: () => onRerunAllJobsMatchingFilters()
-							}
+							...($roleCaps.run
+								? [
+										{
+											displayName: 'Re-run all jobs matching filters',
+											action: () => onRerunAllJobsMatchingFilters()
+										}
+									]
+								: [])
 						]}
 					/>
 				{:else}
@@ -1141,6 +1387,59 @@
 						Exit selection mode
 					</Button>
 				{/if}
+				<Popover placement="top-start" contentClasses="p-3 flex flex-col gap-2 w-64">
+					{#snippet trigger()}
+						<Button
+							variant="subtle"
+							unifiedSize="sm"
+							nonCaptureEvent
+							startIcon={{ icon: Columns3 }}
+						>
+							Columns
+						</Button>
+					{/snippet}
+					{#snippet content()}
+						<span class="text-xs font-semibold text-emphasis">Visible columns</span>
+						{#each RUNS_COLUMNS as column (column.id)}
+							<Toggle
+								size="xs"
+								checked={runsColumns.includes(column.id)}
+								disabled={column.required}
+								on:change={(e) => setColumnShown(column.id, e.detail)}
+								options={{ right: column.label, rightTooltip: column.description }}
+							/>
+						{/each}
+						<Button
+							variant="subtle"
+							unifiedSize="xs"
+							onClick={() => (columnsStorage.val = DEFAULT_RUNS_COLUMNS)}
+						>
+							Reset to default
+						</Button>
+					{/snippet}
+				</Popover>
+				<DropdownV2
+					disabled={exporting || !jobs?.length}
+					items={[
+						{ displayName: 'Export as CSV', action: () => onExport('csv') },
+						{ displayName: 'Export as JSON', action: () => onExport('json') },
+						{ displayName: 'Export as XLSX', action: () => onExport('xlsx') }
+					]}
+				>
+					{#snippet buttonReplacement()}
+						<Button
+							variant="subtle"
+							unifiedSize="sm"
+							nonCaptureEvent
+							disabled={exporting || !jobs?.length}
+							loading={exporting}
+							startIcon={{ icon: Download }}
+							title="Export the loaded runs"
+						>
+							Export
+						</Button>
+					{/snippet}
+				</DropdownV2>
 				<div class="flex-1"></div>
 				<Toggle
 					size="xs"
@@ -1192,7 +1491,7 @@
 				class="rounded-md bg-surface-tertiary border absolute inset-0 mb-4 flex flex-col items-center justify-center gap-3 p-4"
 			>
 				<p class="text-xs text-secondary text-center max-w-xs">
-					Resolving keeps the run a failure but stops it showing as one in the runs list.
+					Resolving keeps the run's status but marks it as handled in the runs list.
 				</p>
 				<TextInput
 					bind:value={resolutionNote}
@@ -1285,15 +1584,59 @@
 {/snippet}
 
 {#snippet batchRerunOptions()}
-	{#await import('$lib/components/runs/BatchReRunOptionsPane.svelte') then BatchReRunOptionsPane}
-		<BatchReRunOptionsPane.default
-			{selectedIds}
-			onCancel={() => ((batchRerunOptionsIsOpen = false), (manualSelectionMode = undefined))}
-			onConfirm={async (options) => {
-				await onReRunSelectedJobs(options)
-			}}
-		/>
-	{/await}
+	<div class="flex flex-col h-full">
+		{#if filterMatchedIds}
+			<div class="flex flex-col gap-1 pb-2 text-xs text-secondary">
+				<div class="flex flex-row items-center gap-2">
+					<span>{filterMatchedIds.length} jobs match the filters, re-run at most</span>
+					<TextInput
+						inputProps={{ type: 'number', min: 1, placeholder: 'All' }}
+						size="sm"
+						class="w-24"
+						bind:value={
+							() => rerunLimit?.toString() ?? '',
+							(v) => setRerunLimit(v ? parseInt(v.toString()) : undefined)
+						}
+					/>
+				</div>
+				{#if filters.val.resolved === 'unresolved'}
+					<span class="text-hint">
+						Oldest first. Re-run jobs are marked resolved, so the next batch starts where this one
+						stops.
+					</span>
+				{:else}
+					<div class="flex flex-row items-center gap-2 text-orange-600 dark:text-orange-400">
+						<TriangleAlertIcon size={14} class="shrink-0" />
+						<span>
+							Resolved runs are included, so the next batch will pick these same jobs again.
+						</span>
+						<Button
+							variant="default"
+							unifiedSize="xs"
+							btnClasses="shrink-0"
+							onClick={() => {
+								filters.val.resolved = 'unresolved'
+								onRerunAllJobsMatchingFilters()
+							}}
+						>
+							Hide resolved runs
+						</Button>
+					</div>
+				{/if}
+			</div>
+		{/if}
+		<div class="flex-1 min-h-0 flex flex-col">
+			{#await import('$lib/components/runs/BatchReRunOptionsPane.svelte') then BatchReRunOptionsPane}
+				<BatchReRunOptionsPane.default
+					{selectedIds}
+					onCancel={() => ((batchRerunOptionsIsOpen = false), (manualSelectionMode = undefined))}
+					onConfirm={async (options) => {
+						await onReRunSelectedJobs(options)
+					}}
+				/>
+			{/await}
+		</div>
+	</div>
 {/snippet}
 
 {#snippet jobPreview(pending?: Snippet)}

@@ -9,7 +9,6 @@
 		type Preview,
 		type WorkflowStatus
 	} from '$lib/gen'
-	import { base } from '$lib/base'
 	import { displayDate } from '$lib/utils'
 	import Tabs from '../common/tabs/Tabs.svelte'
 	import Tab from '../common/tabs/Tab.svelte'
@@ -270,7 +269,7 @@
 										<Cell first>
 											<a
 												class="pr-3"
-												href="{base}/run/{id}?workspace={workspace ?? $operatingWorkspace}"
+												href="/run/{id}?workspace={workspace ?? $operatingWorkspace}"
 												target="_blank">{id.substring(30)}</a
 											>
 										</Cell>

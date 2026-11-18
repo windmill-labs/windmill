@@ -29,7 +29,7 @@
 <script lang="ts">
 	import type { Schema } from '$lib/common'
 	import { deepEqual } from 'fast-equals'
-	import { type InputTransform } from '$lib/gen'
+	import { type AIProvider, type InputTransform } from '$lib/gen'
 	import { allTrue, type DynamicInput as DynamicInputTypes } from '$lib/utils'
 	import { getContext, untrack, type Snippet } from 'svelte'
 	import { SvelteSet } from 'svelte/reactivity'
@@ -46,6 +46,12 @@
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import { AlertTriangle, Plus, X } from 'lucide-svelte'
+	import { resource } from 'runed'
+	import { aiProviderDetails, fetchAvailableModels } from '$lib/components/copilot/lib'
+	import {
+		explicitOffToken,
+		getReasoningCapability
+	} from '$lib/components/copilot/reasoningRegistry'
 	import type { PickableProperties } from '../previousResults'
 	import type { FlowCopilotContext } from '$lib/components/copilot/flow'
 	import { enabledToolNames, type AgentTool } from '../agentToolUtils'
@@ -53,6 +59,7 @@
 		AGENT_FIELDS,
 		AGENT_FIELD_BY_KEY,
 		AGENT_HISTORY_KEYS,
+		AGENT_UNSEEDED_KEYS,
 		AGENT_MEMORY_DOCS_URL,
 		AGENT_TOOLS_ROW,
 		AGENT_FIELD_GROUPS,
@@ -114,9 +121,10 @@
 		onDeleteTool?: (toolId: string) => void
 		/** Where the tool picker's popover belongs, for a surface that is not the flow editor. */
 		toolPickerPortal?: string
-		/** A linked agent's memory, once its config has loaded: whether it keeps managed memory decides
-		 *  which history inputs the step offers. */
-		linkedMemory?: { memory: unknown } | undefined
+		/** A linked agent's saved config, once it has loaded: whether it keeps managed memory decides
+		 *  which history inputs the step offers, and its provider is what the step's overrides
+		 *  replace. */
+		linkedAgent?: { memory: unknown; provider?: unknown } | undefined
 		/** Set when this agent's config lives in a resource, so `tools` arrives with it rather than
 		 *  with the step. */
 		agentLinked?: boolean
@@ -150,7 +158,7 @@
 		onAddTool = undefined,
 		onDeleteTool = undefined,
 		toolPickerPortal = undefined,
-		linkedMemory = undefined,
+		linkedAgent = undefined,
 		agentLinked = false
 	}: Props = $props()
 
@@ -195,7 +203,7 @@
 				? agentMemoryMode(transform?.value)
 				: undefined
 		}
-		return linkedMemory ? agentMemoryMode(linkedMemory.memory) : undefined
+		return linkedAgent ? agentMemoryMode(linkedAgent.memory) : undefined
 	})
 
 	// The one-of field rewrites a value that matches none of its options, so a legacy kind the step
@@ -210,6 +218,92 @@
 
 	function isHistoryKey(key: string): key is AgentHistoryKey {
 		return (AGENT_HISTORY_KEYS as readonly string[]).includes(key)
+	}
+
+	let savedProvider = $derived(
+		linkedAgent?.provider as
+			| { kind?: AIProvider; resource?: string; model?: string; reasoning_effort?: string }
+			| undefined
+	)
+
+	// The models the agent's own provider resource serves, since an override keeps that resource.
+	const savedProviderModels = resource(
+		() => ({
+			ws,
+			kind: savedProvider?.kind,
+			path: savedProvider?.resource?.replace(/^\$res:/, ''),
+			shown: args?.model != undefined
+		}),
+		async ({ ws, kind, path, shown }, _prev, { onCleanup }) => {
+			if (!shown || !ws || !kind || !path) return []
+			const controller = new AbortController()
+			onCleanup(() => controller.abort())
+			try {
+				return await fetchAvailableModels(path, ws, kind, controller.signal)
+			} catch {
+				return aiProviderDetails(kind).defaultModels
+			}
+		}
+	)
+
+	// The model the effort is placed on: the step's own where it names one, else the agent's. An
+	// expression is only known once the run is under way, so the agent's model stands in for it:
+	// its levels are suggestions, and any other value stays typeable.
+	let modelIsExpression = $derived(args?.model?.type === 'javascript')
+	let effortModel = $derived.by(() => {
+		const transform = args?.model
+		const own = transform?.type === 'static' ? transform.value : undefined
+		return (typeof own === 'string' && own.trim()) || savedProvider?.model
+	})
+	let effortCapability = $derived(
+		savedProvider?.kind && effortModel
+			? getReasoningCapability(savedProvider.kind, effortModel)
+			: undefined
+	)
+	let effortChoices = $derived.by(() => {
+		if (!savedProvider?.kind || !effortModel || !effortCapability?.supported) return undefined
+		const off = explicitOffToken(savedProvider.kind, effortModel)
+		return [...(effortCapability.canDisable && off ? [off] : []), ...effortCapability.levels]
+	})
+
+	// The override rows offer what the agent's provider has, where that is known. Custom values stay
+	// typeable: a resource may serve a model its listing omits. Always an enum, even an empty one, so
+	// the row keeps one shape whatever is known. Held in state of their own, since the field binds
+	// into the property it renders.
+	let overrideProperties: Record<string, any> = $state({ model: {}, reasoning_effort: {} })
+	$effect(() => {
+		const model = {
+			...schemaProperties.model,
+			enum: savedProviderModels.current ?? []
+		}
+		const effort = { ...schemaProperties.reasoning_effort, enum: effortChoices ?? [] }
+		untrack(() => {
+			if (!deepEqual($state.snapshot(overrideProperties.model), model)) {
+				overrideProperties.model = model
+			}
+			if (!deepEqual($state.snapshot(overrideProperties.reasoning_effort), effort)) {
+				overrideProperties.reasoning_effort = effort
+			}
+		})
+	})
+	let overrideFieldSchema = $derived({
+		...schema,
+		properties: { ...schemaProperties, ...overrideProperties }
+	})
+
+	function overrideHint(spec: AgentFieldSpec): string | undefined {
+		if (spec.group !== 'overrides' || !savedProvider) return undefined
+		if (spec.key !== 'reasoning_effort')
+			return `Saved on the agent: ${savedProvider.model || 'none'}`
+		if (!modelIsExpression && effortCapability?.known && !effortCapability.supported) {
+			return `${effortModel} does not take a reasoning effort`
+		}
+		return `Saved on the agent: ${savedProvider.reasoning_effort || 'none'}`
+	}
+
+	function fieldSchema(key: string) {
+		if (key === 'memory') return memoryFieldSchema
+		return key === 'model' || key === 'reasoning_effort' ? overrideFieldSchema : schema
 	}
 
 	// Offer the agent's own tools as the choices for `enabled_tools`, rather than asking for names
@@ -260,7 +354,7 @@
 				? args?.memory?.type === 'static'
 					? args.memory.value
 					: undefined
-				: linkedMemory?.memory
+				: linkedAgent?.memory
 		)
 		return onThisForm
 			? `Ignored while memory is set to ${label}.`
@@ -272,10 +366,11 @@
 			scopedFields.some((spec) => spec.key === 'memory_id')
 	)
 
-	// A history input's row follows its key: the remembered `visible` set can outlive a key that a
-	// save, an undo or the AI chat removed, and a row with no value renders no field.
+	// A history input's or an override's row follows its key: the remembered `visible` set can
+	// outlive a key that a save, an undo or the AI chat removed, and a row with no value renders no
+	// field.
 	function isShown(key: string): boolean {
-		if (isHistoryKey(key)) {
+		if (AGENT_UNSEEDED_KEYS.includes(key)) {
 			return args?.[key] != undefined || (key === 'memory_id' && memoryIdOffered)
 		}
 		return visible.has(key)
@@ -330,12 +425,13 @@
 		})
 	})
 
-	// A history input's row follows its key rather than `visible`, so the run form is told about one
-	// only while the step holds the key: an inherited memory id has nothing a test run could inherit.
+	// A history input's or an override's row follows its key rather than `visible`, so the run form
+	// is told about one only while the step holds the key: an inherited memory id has nothing a test
+	// run could inherit.
 	$effect(() => {
 		const keys = [
-			...[...visible].filter((key) => !isHistoryKey(key)),
-			...AGENT_HISTORY_KEYS.filter((key) => args?.[key] != undefined)
+			...[...visible].filter((key) => !AGENT_UNSEEDED_KEYS.includes(key)),
+			...AGENT_UNSEEDED_KEYS.filter((key) => args?.[key] != undefined)
 		]
 		untrack(() => rememberOpenFields(visibilityKey, keys))
 	})
@@ -372,7 +468,7 @@
 	function removeField(spec: AgentFieldSpec) {
 		visible.delete(spec.key)
 		if (args) {
-			if (isHistoryKey(spec.key)) {
+			if (AGENT_UNSEEDED_KEYS.includes(spec.key)) {
 				delete args[spec.key]
 			} else {
 				// Back to exactly what `flowInfers` seeds, so removing a field leaves no diff behind.
@@ -449,27 +545,29 @@
 	tooltip: string | undefined,
 	removable: AgentFieldSpec | undefined,
 	header: Snippet | undefined = undefined,
-	collapsed: boolean = false
+	collapsed: boolean = false,
+	hint: string | undefined = undefined
 )}
 	<InputTransformForm
 		{previousModuleId}
 		bind:arg={args[key]}
 		bind:schema={
-			() => (key === 'memory' ? memoryFieldSchema : schema),
+			() => fieldSchema(key),
 			(value) => {
-				if (key !== 'memory') schema = value
+				if (fieldSchema(key) === schema) schema = value
 			}
 		}
 		argName={key}
 		{label}
 		headerTooltip={tooltip}
+		{hint}
 		hideDescription
 		subtleControls
 		{header}
 		indentUnderHeader={false}
 		{collapsed}
 		animateAppear={header != undefined}
-		argExtra={schemaProperties[key] ?? {}}
+		argExtra={fieldSchema(key)?.properties?.[key] ?? {}}
 		bind:inputCheck={() => inputCheck[key] ?? false, (value) => (inputCheck[key] = value)}
 		bind:extraLib={() => extraLib ?? 'missing extraLib', (v) => (extraLib = v)}
 		{variableEditor}
@@ -558,6 +656,9 @@
 			{#if rows.length > 0}
 				<div class="w-full flex flex-col">
 					<h2 class="mb-1 text-2xs font-normal uppercase text-secondary">{group.label}</h2>
+					{#if group.caption}
+						<p class="mb-2 text-xs text-secondary">{group.caption}</p>
+					{/if}
 					<div class="flex flex-col gap-6">
 						{#each rows as spec (spec.key)}
 							<ResizeTransitionWrapper innerClass="w-full" vertical>
@@ -604,7 +705,15 @@
 												</p>
 											{/if}
 										{:else}
-											{@render transformField(spec.key, spec.label, spec.tooltip, spec)}
+											{@render transformField(
+												spec.key,
+												spec.label,
+												spec.tooltip,
+												spec,
+												undefined,
+												false,
+												overrideHint(spec)
+											)}
 											{#if isHistoryKey(spec.key) && !historyInputApplies(spec.key, memoryMode)}
 												<p class="mt-1 text-2xs text-hint">
 													{memoryMode === 'legacy'

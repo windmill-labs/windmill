@@ -63,11 +63,11 @@ mod suspend_resume {
                             "op": { "type": "javascript", "expr": "flow_input.op ?? 'resume'", },
                         },
                         "type": "rawscript",
-                        "language": "deno",
+                        "language": "bun",
                         "content": "\
                             export async function main(n, port, op) {\
-                                const job = Deno.env.get('WM_JOB_ID');
-                                const token = Deno.env.get('WM_TOKEN');
+                                const job = process.env.WM_JOB_ID;
+                                const token = process.env.WM_TOKEN;
                                 const r = await fetch(
                                     `http://localhost:${port}/api/w/test-workspace/jobs/job_signature/${job}/0?token=${token}&approver=ruben`,\
                                     {\
@@ -102,7 +102,7 @@ mod suspend_resume {
                             "resumes": { "type": "javascript", "expr": "resumes", },
                         },
                         "type": "rawscript",
-                        "language": "deno",
+                        "language": "bun",
                         "content": "export function main(n, resume, resumes) { return { n: n + 1, resume, resumes } }"
                     },
                     "suspend": {
@@ -116,7 +116,7 @@ mod suspend_resume {
                             "resumes": { "type": "javascript", "expr": "resumes", },
                         },
                         "type": "rawscript",
-                        "language": "deno",
+                        "language": "bun",
                         "content": "export function main(last, resume, resumes) { return { last, resume, resumes } }"
                     },
                 }],
@@ -256,11 +256,11 @@ mod suspend_resume {
                         "port": { "type": "javascript", "expr": "flow_input.port" },
                     },
                     "type": "rawscript",
-                    "language": "deno",
+                    "language": "bun",
                     "content": "\
                         export async function main(port) {\
-                            const job = Deno.env.get('WM_JOB_ID');\
-                            const token = Deno.env.get('WM_TOKEN');\
+                            const job = process.env.WM_JOB_ID;\
+                            const token = process.env.WM_TOKEN;\
                             const secret = await (await fetch(\
                                 `http://localhost:${port}/api/w/test-workspace/jobs/job_signature/${job}/0?token=${token}&approver=ruben`,\
                                 { headers: { 'Authorization': `Bearer ${token}` } }\
@@ -278,7 +278,7 @@ mod suspend_resume {
                 "value": {
                     "input_transforms": {},
                     "type": "rawscript",
-                    "language": "deno",
+                    "language": "bun",
                     "content": "export function main() { return 'b ran' }",
                 },
                 // The gate holds `b` back, so `b` never runs and its error policy describes
@@ -290,7 +290,7 @@ mod suspend_resume {
                 "value": {
                     "input_transforms": {},
                     "type": "rawscript",
-                    "language": "deno",
+                    "language": "bun",
                     "content": "export function main() { return 'handled' }",
                 },
             },
@@ -313,6 +313,76 @@ mod suspend_resume {
         .fetch_one(&db)
         .await?;
         assert_eq!(Some(true), same_worker);
+
+        Ok(())
+    }
+
+    /// A rejection is audited once, under the approver, by the API. The worker's own row is
+    /// for a timeout, which no one else records.
+    #[cfg(all(feature = "deno_core", feature = "enterprise", feature = "private"))]
+    #[sqlx::test(fixtures("base"))]
+    async fn rejected_suspend_that_continues_is_audited_once(
+        db: Pool<Postgres>,
+    ) -> anyhow::Result<()> {
+        initialize_tracing().await;
+
+        let server = ApiServer::start(db.clone()).await?;
+        let port = server.addr.port();
+
+        let value: FlowValue = serde_json::from_value(json!({
+            "modules": [{
+                "id": "a",
+                "value": {
+                    "input_transforms": {
+                        "port": { "type": "javascript", "expr": "flow_input.port" },
+                    },
+                    "type": "rawscript",
+                    "language": "bun",
+                    "content": "\
+                        export async function main(port) {\
+                            const job = process.env.WM_JOB_ID;\
+                            const token = process.env.WM_TOKEN;\
+                            const secret = await (await fetch(\
+                                `http://localhost:${port}/api/w/test-workspace/jobs/job_signature/${job}/0?token=${token}&approver=ruben`,\
+                                { headers: { 'Authorization': `Bearer ${token}` } }\
+                            )).text();\
+                            await fetch(\
+                                `http://localhost:${port}/api/w/test-workspace/jobs_u/cancel/${job}/0/${secret}?approver=ruben`,\
+                                { method: 'POST', body: JSON.stringify('from job'), headers: { 'content-type': 'application/json' } }\
+                            );\
+                            return 'a ran';\
+                        }",
+                },
+                "suspend": { "required_events": 1, "continue_on_disapprove_timeout": true },
+            }, {
+                "id": "b",
+                "value": {
+                    "input_transforms": {},
+                    "type": "rawscript",
+                    "language": "bun",
+                    "content": "export function main() { return 'b ran' }",
+                },
+            }],
+        }))?;
+
+        let completed =
+            RunJob::from(JobPayload::RawFlow { value, path: None, restarted_from: None })
+                .arg("port", json!(port))
+                .run_until_complete(&db, false, port)
+                .await;
+
+        server.close().await.unwrap();
+
+        assert_eq!(json!("b ran"), completed.json_result().unwrap());
+
+        let rows: Vec<(String, Option<String>)> = sqlx::query_as(
+            "SELECT username, parameters->>'approved' FROM audit_partitioned
+             WHERE operation = 'jobs.suspend_resume' AND parameters->>'job_id' = $1",
+        )
+        .bind(completed.id.to_string())
+        .fetch_all(&db)
+        .await?;
+        assert_eq!(vec![("ruben".to_string(), Some("false".to_string()))], rows);
 
         Ok(())
     }
@@ -343,7 +413,7 @@ mod suspend_resume {
                 "id": "a",
                 "value": {
                     "type": "rawscript",
-                    "language": "deno",
+                    "language": "bun",
                     "content": "export function main() { return 'step1'; }"
                 },
                 "suspend": {
@@ -355,7 +425,7 @@ mod suspend_resume {
                 "id": "b",
                 "value": {
                     "type": "rawscript",
-                    "language": "deno",
+                    "language": "bun",
                     "content": "export function main() { return 'step2 - after approval'; }"
                 }
             }]
@@ -454,7 +524,7 @@ mod suspend_resume {
                 "id": "a",
                 "value": {
                     "type": "rawscript",
-                    "language": "deno",
+                    "language": "bun",
                     "content": "export function main() { return 'step1'; }"
                 },
                 "suspend": {
@@ -466,7 +536,7 @@ mod suspend_resume {
                 "id": "b",
                 "value": {
                     "type": "rawscript",
-                    "language": "deno",
+                    "language": "bun",
                     "content": "export function main() { return 'step2 - after approval'; }"
                 }
             }]
@@ -556,7 +626,7 @@ mod suspend_resume {
                 "id": "a",
                 "value": {
                     "type": "rawscript",
-                    "language": "deno",
+                    "language": "bun",
                     "content": "export function main() { return 'step1'; }"
                 },
                 "suspend": {
@@ -567,7 +637,7 @@ mod suspend_resume {
                 "id": "b",
                 "value": {
                     "type": "rawscript",
-                    "language": "deno",
+                    "language": "bun",
                     "content": "export function main() { return 'step2 - after approval'; }"
                 }
             }]
@@ -658,7 +728,7 @@ mod suspend_resume {
                 "id": "a",
                 "value": {
                     "type": "rawscript",
-                    "language": "deno",
+                    "language": "bun",
                     "content": "export function main() { return 'step1'; }"
                 },
                 "suspend": {
@@ -670,7 +740,7 @@ mod suspend_resume {
                 "id": "b",
                 "value": {
                     "type": "rawscript",
-                    "language": "deno",
+                    "language": "bun",
                     "content": "export function main() { return 'step2 - after approval'; }"
                 }
             }]
@@ -764,7 +834,7 @@ mod suspend_resume {
                 "id": "a",
                 "value": {
                     "type": "rawscript",
-                    "language": "deno",
+                    "language": "bun",
                     "content": "export function main() { return 'step1'; }"
                 },
                 "suspend": {
@@ -776,7 +846,7 @@ mod suspend_resume {
                 "id": "b",
                 "value": {
                     "type": "rawscript",
-                    "language": "deno",
+                    "language": "bun",
                     "content": "export function main() { return 'step2 - after approval'; }"
                 }
             }]
@@ -933,7 +1003,7 @@ mod suspend_resume {
                     "suspend": { "required_events": 1, "timeout": 86400 },
                     "value": {
                         "type": "rawscript",
-                        "language": "deno",
+                        "language": "bun",
                         "content": "export async function main() { return 1 }",
                         "input_transforms": {},
                     },
@@ -942,7 +1012,7 @@ mod suspend_resume {
                     "id": "b",
                     "value": {
                         "type": "rawscript",
-                        "language": "deno",
+                        "language": "bun",
                         "content": "export async function main() { return 42 }",
                         "input_transforms": {},
                     },
@@ -980,7 +1050,7 @@ mod suspend_resume {
                     "suspend": { "required_events": APPROVALS, "timeout": 86400 },
                     "value": {
                         "type": "rawscript",
-                        "language": "deno",
+                        "language": "bun",
                         "content": "export async function main() { return 1 }",
                         "input_transforms": {},
                     },
@@ -989,7 +1059,7 @@ mod suspend_resume {
                     "id": "b",
                     "value": {
                         "type": "rawscript",
-                        "language": "deno",
+                        "language": "bun",
                         "content": "export function main(resumes) { return resumes.length }",
                         "input_transforms": {
                             "resumes": { "type": "javascript", "expr": "resumes" },

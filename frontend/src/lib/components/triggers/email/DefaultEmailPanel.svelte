@@ -84,7 +84,7 @@
 		{:else}
 			<div>
 				<Alert title="Email triggers are disabled" size="xs" type="warning">
-					Ask an instance superadmin to setup the instance for email triggering (<a
+					Ask an instance superadmin to set up the instance for email triggering (<a
 						target="_blank"
 						href="https://windmill.dev/docs/advanced/email_triggers">docs</a
 					>) and to set the email domain in the instance settings.

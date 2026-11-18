@@ -13,6 +13,8 @@
 	import { page } from '$app/state'
 
 	import { installDevPollingDormancy } from '$lib/utils/devPollingDormancy'
+	import { noteClientNavigation, releaseHomeSnapshot } from '$lib/homeSnapshot'
+	import { onNavigate } from '$app/navigation'
 	interface Props {
 		children?: import('svelte').Snippet
 	}
@@ -32,6 +34,13 @@
 	}
 
 	document.getElementById('svelte-global-loader')?.remove()
+
+	// Home replaces the snapshot `app.html` painted when it mounts; a load that lands elsewhere
+	// (a redirect to login, to the workspace picker) replaces it here.
+	$effect(() => {
+		if (page.route.id !== '/(root)/(logged)') releaseHomeSnapshot()
+	})
+	onNavigate(noteClientNavigation)
 
 	installDevPollingDormancy()
 

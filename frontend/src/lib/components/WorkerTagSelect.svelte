@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { workerTags, workspaceStore } from '$lib/stores'
+	import { userWorkspaces, workerTags, workspaceStore } from '$lib/stores'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 	import { WorkerService } from '$lib/gen'
 
@@ -10,6 +10,13 @@
 	import { RotateCw } from 'lucide-svelte'
 	import { sendUserToast } from '$lib/toast'
 	import Popover from './Popover.svelte'
+	import {
+		devWorkspaceTagSuffix,
+		devWorkspaceSkipNonDevForks,
+		isIsolatedWorkspaceId,
+		loadDevWorkspaceTagSuffix,
+		withDevSuffix
+	} from '$lib/devWorkspaceTags'
 
 	let {
 		tag = $bindable(),
@@ -113,10 +120,16 @@
 			return
 		}
 		if (open) {
-			tagsToWorkerExists = await WorkerService.existsWorkersWithTags({
-				tags: items.filter((t) => !dynamicTagRegex.test(t)).join(','),
+			// Probed as jobs of this workspace land: suffixed in a dev workspace.
+			const probed = items.filter((t) => !dynamicTagRegex.test(t))
+			const asRun = (t: string) => (devSuffix ? withDevSuffix(t, devSuffix) : t)
+			const exists = await WorkerService.existsWorkersWithTags({
+				tags: probed.map(asRun).join(','),
 				workspace: effectiveWorkspace
 			})
+			tagsToWorkerExists = Object.fromEntries(
+				probed.filter((t) => asRun(t) in exists).map((t) => [t, exists[asRun(t)]])
+			)
 			lastCheck = Date.now()
 			if (visible) {
 				timeout = setTimeout(loadTagsToWorkerExists, 5000)
@@ -145,6 +158,14 @@
 	})
 
 	let open = $state(false)
+
+	loadDevWorkspaceTagSuffix()
+	let devSuffix = $derived(
+		$devWorkspaceTagSuffix &&
+			isIsolatedWorkspaceId(effectiveWorkspace, $userWorkspaces, $devWorkspaceSkipNonDevForks)
+			? $devWorkspaceTagSuffix
+			: undefined
+	)
 </script>
 
 {#snippet startSnippet({ item })}
@@ -186,13 +207,29 @@
 		{startSnippet}
 		bottomSnippet={refreshAll}
 	/>
+	{#if devSuffix && tag}
+		<Popover>
+			{#snippet text()}
+				This workspace is a dev workspace or a fork, so its jobs run on worker groups serving dev
+				workspaces, with every tag suffixed with <code>{devSuffix}</code>.
+			{/snippet}
+			<span class="text-2xs text-hint whitespace-nowrap">
+				runs as <code>{withDevSuffix(tag, devSuffix)}</code> here
+			</span>
+		</Popover>
+	{/if}
 </div>
 
 {#snippet refreshAll()}
 	<div class="flex items-center justify-between gap-2 border-t border-border-light">
 		<span class="max-w-64 px-4 py-1 text-2xs text-secondary">
-			<code>$workspace</code>, <code>$args[…]</code> and <code>$flow_expr[…]</code> are filled in when
-			the job runs, and must land on an allowed tag
+			<code>$workspace</code>, <code>$args[…]</code> and <code>$flow_expr[…]</code> are filled in
+			when the job runs, and must land on an allowed tag
+			{#if devSuffix}
+				<br />In this dev workspace every tag runs suffixed with <code>{devSuffix}</code>, the
+				default one included: <code>gpu</code> runs as
+				<code>{withDevSuffix('gpu', devSuffix)}</code>
+			{/if}
 		</span>
 		<Button
 			iconOnly

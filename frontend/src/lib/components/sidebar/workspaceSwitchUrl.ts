@@ -5,8 +5,7 @@ import { goto } from '$lib/navigation'
 // Item-scoped pages would show a wrong-workspace (or missing) item after a
 // switch — go home instead. Otherwise, really rewrite the params in the address
 // bar that name a workspace (mutating page.url is a no-op there): left stale,
-// they get re-applied on reload or when exiting session mode restores the route,
-// silently switching the workspace back.
+// they get re-applied on reload, silently switching the workspace back.
 //
 // `workspace_id` names the workspace a page acts on (the compare page's pair) and
 // `workspace` the one the app is pointed at; a switch moves both. `target`, the

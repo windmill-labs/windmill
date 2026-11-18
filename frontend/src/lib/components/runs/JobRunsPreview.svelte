@@ -7,7 +7,7 @@
 	import { Skeleton, Tab, Tabs } from '../common'
 	import HighlightCode from '../HighlightCode.svelte'
 	import FlowStatusViewer from '../FlowStatusViewer.svelte'
-	import { workspaceStore } from '$lib/stores'
+	import { useOperatingWorkspace } from '../operatingWorkspace.svelte'
 	import WorkflowTimeline from '../WorkflowTimeline.svelte'
 	import { isFlowPreview, isScriptPreview, type StateStore } from '$lib/utils'
 	import { setContext, untrack, createEventDispatcher } from 'svelte'
@@ -26,6 +26,7 @@
 	let { id, workspace, onResolutionChanged }: Props = $props()
 
 	const dispatch = createEventDispatcher()
+	const operatingWorkspace = useOperatingWorkspace()
 
 	let job: (Job & { result_stream?: string }) | undefined = $state(undefined)
 
@@ -185,7 +186,7 @@
 				<div class="text-xs text-emphasis font-semibold mb-1">Inputs</div>
 				<JobArgs
 					id={job?.id}
-					workspace={job?.workspace_id ?? $workspaceStore ?? 'no_w'}
+					workspace={job?.workspace_id ?? $operatingWorkspace ?? 'no_w'}
 					args={job?.args}
 				/>
 			</div>

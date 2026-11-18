@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { base } from '$app/paths'
 	import { goto } from '$lib/navigation'
 	import { page } from '$app/state'
 
@@ -9,7 +8,8 @@
 		workspaceStore,
 		userStore,
 		enterpriseLicense,
-		whitelabelNameStore
+		whitelabelNameStore,
+		roleCapabilities
 	} from '$lib/stores'
 	import { emptyString, parseQueryParams } from '$lib/utils'
 	import { getUserExt } from '$lib/user'
@@ -97,7 +97,7 @@
 				workspaceStore.set(allWorkspaces[0].id)
 				$userStore = await getUserExt($workspaceStore!)
 
-				if (!$userStore?.is_super_admin && $userStore?.operator) {
+				if (!$roleCapabilities.code) {
 					let defaultApp = await WorkspaceService.getWorkspaceDefaultApp({
 						workspace: $workspaceStore!
 					})
@@ -111,7 +111,7 @@
 					goto(rd ?? '/')
 				}
 				// See (root)/+layout.svelte for why /projects/import skips the picker.
-			} else if (rd?.startsWith('/user/workspaces') || rd?.startsWith(`${base}/projects/import`)) {
+			} else if (rd?.startsWith('/user/workspaces') || rd?.startsWith('/projects/import')) {
 				goto(rd)
 			} else if (rd == '/#user-settings') {
 				goto(`/user/workspaces#user-settings`)

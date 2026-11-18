@@ -14,19 +14,20 @@ pub mod git_sync_oss;
 
 #[cfg(feature = "private")]
 pub use git_sync_ee::{
-    clear_auto_pull_failure, enqueue_git_pull_dry_run, enqueue_git_pull_job,
-    handle_deployment_metadata, handle_deployment_metadata_batch, handle_fork_branch_creation,
-    persist_auto_pull_state, reconcile_and_enqueue_pull, reconcile_fork_branch_pull,
-    record_auto_pull_failure, record_synced_head, sweep_ci_test_checks,
+    advance_synced_sha_past_own_push, clear_auto_pull_failure, enqueue_git_pull_dry_run,
+    enqueue_git_pull_job, handle_deployment_metadata, handle_deployment_metadata_batch,
+    handle_fork_branch_creation, persist_auto_pull_state, reconcile_and_enqueue_pull,
+    reconcile_fork_branch_pull, record_auto_pull_failure, record_synced_head, sweep_ci_test_checks,
     tally_deployed_object_changes,
 };
 
-// The CI-test check exists only on enterprise builds; `private` alone (the CE image)
+// The CI-test check and the pull request review exist only on enterprise builds; `private` alone (the CE image)
 // compiles git_sync_ee without them.
 #[cfg(all(feature = "private", feature = "enterprise"))]
 pub use git_sync_ee::{
-    ensure_ci_test_check_for_pr, evaluate_and_conclude_ci_test_checks,
-    post_ci_test_check_not_applicable, resolve_pr_head_workspace,
+    enqueue_git_pr_review, ensure_ci_test_check_for_pr, evaluate_and_conclude_ci_test_checks,
+    post_ci_test_check_not_applicable, post_git_pr_review_result, resolve_pr_head_workspace,
+    GitPrReviewMarker,
 };
 
 #[cfg(not(feature = "private"))]

@@ -78,6 +78,7 @@ export type AppDraftValue = {
 	data?: any
 	policy?: Policy
 	custom_path?: string
+	labels?: string[]
 	// Fork base: the deployed app version this draft was started from, pinned at
 	// fork. The app analog of a script's parent_hash / a flow's version_id.
 	parent_version?: number
@@ -108,6 +109,7 @@ export type VariableDraftState = {
 	account?: number
 	is_oauth?: boolean
 	expires_at?: string
+	value_valid_until?: string
 }
 
 export type WorkspaceItem = {
@@ -151,6 +153,10 @@ export type WorkspaceItem = {
 	 * app, not in listings — a listing carrying it would make absence read as
 	 * proof of no exposure. */
 	executionMode?: string
+	/** Who a deployed item is shared with beyond its path owner, as `u/<user>` /
+	 * `g/<group>` → true for write, false for read-only. A draft has no permissions of
+	 * its own, so a draft read leaves it unset rather than reporting the item unshared. */
+	extraPerms?: Record<string, boolean>
 	isDraft: boolean
 	isLiveDraft?: boolean
 }

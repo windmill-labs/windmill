@@ -3,13 +3,17 @@
 	import { Loader2 } from 'lucide-svelte'
 	import type { WorkspaceItem } from '$lib/components/workspacePicker'
 	import { UserDraft } from '$lib/userDraft.svelte'
+	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
+	import { armRestartOnFirstInteraction } from '$lib/userDraftToast'
 	import type { SessionRuntime, SessionTargetKind } from './sessionRuntime.svelte'
 	import { useUserDraftSync, type DraftSyncCodec } from './useUserDraftSync.svelte'
+	import { recordHandEdit } from './sessionHandEdits.svelte'
 	import { makeFlowCodec, makeScriptCodec, makeRawAppCodec } from './sessionDraftCodecs'
 	import { itemDisplayName } from './previewRouter'
 	import SessionItemNotFound from './SessionItemNotFound.svelte'
 	import { setEditorStoragePath } from '../editorStoragePathContext'
 	import { setOperatingWorkspace } from '../operatingWorkspace.svelte'
+	import DraftSyncConflictModal from '../common/confirmationModal/DraftSyncConflictModal.svelte'
 
 	let {
 		runtime,
@@ -75,10 +79,24 @@
 	)
 	const slot = $derived(cell.slot)
 
-	function triggerLoad(): Promise<void> {
-		if (kind === 'flow') return runtime.loadFlow(workspaceId, path)
-		if (kind === 'script') return runtime.loadScript(workspaceId, path)
-		return runtime.loadRawApp(workspaceId, path, false, false, newRawApp)
+	function triggerLoad(force = false): Promise<void> {
+		if (kind === 'flow') return runtime.loadFlow(workspaceId, path, force)
+		if (kind === 'script') return runtime.loadScript(workspaceId, path, force)
+		return runtime.loadRawApp(workspaceId, path, force, false, newRawApp)
+	}
+
+	// The loaders prefer a local draft to the server's, so the refused edit goes first. Sync stays
+	// off through the reload: saving what was just loaded would bump the draft's timestamp and
+	// get the other writer's next autosave refused.
+	async function loadFromServer(): Promise<void> {
+		UserDraft.stopSync(kind, path, { workspace: workspaceId })
+		UserDraftDbSyncer.dropPending({ workspace: workspaceId, itemKind: kind, path })
+		UserDraft.forgetLocal(kind, path, { workspace: workspaceId })
+		try {
+			await triggerLoad(true)
+		} finally {
+			armRestartOnFirstInteraction(workspaceId, kind, path)
+		}
 	}
 
 	function buildCodec(): DraftSyncCodec<any> {
@@ -136,7 +154,9 @@
 		path: () => path,
 		workspace: () => workspaceId,
 		ready: () => slot.loadedPath === path,
-		codec: () => codec
+		codec: () => codec,
+		// A hand edit is the session's change as much as a chat edit is, so its changes bar lists it.
+		onSaved: (itemKind, p) => recordHandEdit(runtime.sessionId, itemKind, p)
 	})
 
 	// Stamp the tab's friendly label once this editor's cell knows how to name the
@@ -186,6 +206,18 @@
 		<Loader2 size={20} class="animate-spin" />
 	</div>
 {/snippet}
+
+{#if isActiveSession}
+	<!-- Not only the visible tab: a conflict in a hidden one also refuses a move of the session. -->
+	<DraftSyncConflictModal
+		query={{ workspace: workspaceId, itemKind: kind, path }}
+		onLoadFromServer={loadFromServer}
+		getLocalDraft={() =>
+			$state.snapshot(
+				codec.storeToDraft(UserDraft.get(kind, path, { workspace: workspaceId }) as any)
+			)}
+	/>
+{/if}
 
 {#if slot.notFound && slot.loadedPath !== path}
 	<!-- notFound-on-mismatch: the requested target 404'd. Covers first load and a

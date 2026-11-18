@@ -9,7 +9,6 @@
 	 * untrusted markup/JS must not run with the member's full session — hence the
 	 * scoped embed token / opaque isolation.
 	 */
-	import { base } from '$lib/base'
 	import { sendUserToast } from '$lib/toast'
 	import PublicApp from '$lib/components/apps/editor/PublicApp.svelte'
 	import PublicAppFrame from '$lib/components/apps/editor/PublicAppFrame.svelte'
@@ -19,23 +18,23 @@
 	import type { Item } from '$lib/utils'
 	import { Button } from '$lib/components/common'
 	import { AppService, OpenAPI } from '$lib/gen'
-	import { userStore, type UserExt } from '$lib/stores'
-	import { canWrite } from '$lib/utils'
+	import { userStore, workspaceStore, type UserExt } from '$lib/stores'
 	import { getUserExt } from '$lib/user'
-	import { ExternalLink, Pen } from 'lucide-svelte'
+	import { ExternalLink, Pen, UserPlus } from 'lucide-svelte'
+	import ShareModal from '$lib/components/ShareModal.svelte'
+	import ShareButton from '$lib/components/itemSettings/ShareButton.svelte'
 	import { page } from '$app/state'
 	import { isMenuHidden } from '$lib/components/sessions/sessionMode.svelte'
-	import {
-		setOperatingWorkspace,
-		useOperatingUser
-	} from '$lib/components/operatingWorkspace.svelte'
+	import { setOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import { useEditRights } from '$lib/operatorWriteRights'
+	import { recentItems } from '$lib/components/home/recentItems.svelte'
 
 	let {
 		workspace,
 		path,
 		onEdit,
 		onLoadState,
-		syncHashToUrl = true,
+		ownsPageUrl = true,
 		ownsPageHeader = false
 	}: {
 		workspace: string
@@ -51,14 +50,13 @@
 		/** How the load ended, for a host that renders its own state around this viewer.
 		 * A 403 is deliberately neither: the app exists, this member just cannot open it. */
 		onLoadState?: (state: 'loaded' | 'not_found') => void
-		/** Whether a raw app's route lives in the page URL's hash; see `RawAppPreview`. */
-		syncHashToUrl?: boolean
+		/** Whether a raw app owns the page's address and title; see `RawAppPreview`. */
+		ownsPageUrl?: boolean
 	} = $props()
 
 	// The app, its permission check and everything this viewer renders belong to `workspace`,
 	// which on a session preview tab is the session's and not the one the nav points at.
 	setOperatingWorkspace(() => workspace)
-	const operatingUser = useOperatingUser()
 
 	/** This workspace's membership for the viewer, which is what the app's `ctx.username` /
 	 * `ctx.groups` must describe — they sit beside `ctx.workspace` in the same object. */
@@ -72,21 +70,25 @@
 	let appPerms = $state<{ path: string; extraPerms: Record<string, boolean> } | undefined>(
 		undefined
 	)
-	const canWriteApp = $derived(
-		!!appPerms && canWrite(appPerms.path, appPerms.extraPerms, operatingUser.current)
-	)
 	/** Raw vs low-code, read from the app itself rather than from the route:
 	 * both kinds render here and either route serves either kind (links to a raw
 	 * app point at /apps/get all over the app), so only the app can say which
 	 * editor the Edit button must open. */
 	let isRawApp = $state(false)
+	const editRights = useEditRights()
+	const canWriteApp = $derived(
+		!!appPerms &&
+			editRights.canEditItem(isRawApp ? 'raw_app' : 'app', appPerms.path, appPerms.extraPerms)
+	)
 	/** The app's execution mode, from the same lite read as the permissions and for the same
 	 * reason: a sandboxed low-code app loads inside the opaque iframe, so `app` here stays
 	 * undefined and cannot say whether the app answers at a public url. `policy.execution_mode` is
 	 * where the lite payload carries it; the flat field beside it is the apps *list* row's
 	 * spelling (ListableApp, which is what AppRow reads). */
 	let executionMode = $state<string | undefined>(undefined)
-	let editHref = $derived(`${base}/${isRawApp ? 'apps_raw' : 'apps'}/edit/${path}?nodraft=true`)
+	/** From the lite read too: a sandboxed low-code app never fills `app`. */
+	let summary = $state<string | undefined>(undefined)
+	let editHref = $derived(`/${isRawApp ? 'apps_raw' : 'apps'}/edit/${path}?nodraft=true`)
 	let refresh: (() => void) | undefined
 
 	// The opaque iframe loads the dedicated cookieless, chrome-less viewer route.
@@ -96,12 +98,21 @@
 	// page's URL (wm_embed_hash relay), and re-deriving the iframe src from them
 	// would reload the app on its every navigation.
 	const initialSearchHash = page.url.search + page.url.hash
-	let viewerUrl = $derived(`${base}/app_embed/${workspace}/${path}${initialSearchHash}`)
+	let viewerUrl = $derived(`/app_embed/${workspace}/${path}${initialSearchHash}`)
 
 	const hideEditBtn = page.url.searchParams.get('hideEditBtn') === 'true'
 	const hideRefreshBar = page.url.searchParams.get('hideRefreshBar') === 'true'
 
 	const showEdit = $derived(canWriteApp && !hideEditBtn)
+	// Share sits beside Edit in this page's own header, for anyone whose role builds apps; the
+	// dialog decides what each of them may change there.
+	const showShare = $derived(
+		ownsPageHeader && !!appPerms && editRights.roleCanAuthor(isRawApp ? 'raw_app' : 'app')
+	)
+	let shareModal: ShareModal | undefined = $state()
+	function openShare() {
+		shareModal?.openDrawer(appPerms?.path ?? path, isRawApp ? 'raw_app' : 'app')
+	}
 	// Decides where Edit goes, not whether it appears: without the workspace navigation there is
 	// no band to put it in. Same rule the layout hides the sidebar by.
 	const menuHidden = $derived(isMenuHidden(page.url))
@@ -117,6 +128,9 @@
 			headers
 		})
 		if (!res.ok) {
+			// Minted for the deployed app under the caller's RLS: a 404 is "nothing deployed here" or
+			// "not visible to this member", the same reading as `getAppLiteByPath`'s 404 below.
+			if (res.status == 404) onLoadState?.('not_found')
 			const err: any = new Error('Failed to fetch embed token')
 			err.status = res.status
 			throw err
@@ -126,8 +140,8 @@
 
 	// Viewer side — used for the inline renderings (raw, and unsandboxed low-code);
 	// the sandboxed low-code case loads inside the opaque /app_embed iframe instead.
-	// getAppByPath returns bundle_secret + runnables for raw apps, which
-	// PublicApp -> RawAppPreview needs.
+	// getAppLiteByPath returns the runnables (with their ids) that
+	// PublicApp -> RawAppPreview needs for raw apps.
 	async function loadApp() {
 		// Kept local and handed to PublicApp rather than written to `userStore`: this is the
 		// membership in `workspace`, and a session preview tab shows a workspace the rest of
@@ -137,8 +151,10 @@
 		// populated `userStore` for the workspace the page *is* on.
 		appUser = await getUserExt(workspace)
 		try {
-			const loaded: any = await AppService.getAppByPath({ workspace, path })
-			// Raw apps need the bundle secret to load their bundle. getAppByPath
+			// The lite value: its inline scripts carry the ids of their deployed rows, the only
+			// code a deployed app runs (with its lock, and a raw app's imported runnables).
+			const loaded: any = await AppService.getAppLiteByPath({ workspace, path })
+			// Raw apps need the bundle secret to load their bundle. getAppLiteByPath
 			// doesn't compute it (unlike the public handlers), so fetch it here — the
 			// same call the previous raw viewer used — and hand it to PublicApp ->
 			// RawAppPreview via bundle_secret.
@@ -171,14 +187,25 @@
 	// Edit button: determine write access and which editor to open on this
 	// real-origin page (cookie). The sandboxed low-code app never loads on this
 	// page (it loads inside the opaque iframe), so `app` can't be the source.
-	async function loadPerms() {
+	async function loadPerms(recordVisit = true) {
 		try {
 			const lite: any = await AppService.getAppLiteByPath({ workspace, path })
 			appPerms = { path: lite?.path ?? path, extraPerms: lite?.extra_perms ?? {} }
 			isRawApp = !!lite?.raw_app
 			executionMode = lite?.policy?.execution_mode ?? lite?.execution_mode
+			summary = lite?.summary || undefined
+			// Only the route's own page is a visit; a session's preview tab opens it on its own.
+			if (ownsPageHeader && recordVisit) {
+				recentItems.record(workspace, {
+					kind: isRawApp ? 'raw_app' : 'app',
+					path: appPerms.path,
+					summary,
+					via: 'view'
+				})
+			}
 		} catch (_) {
 			appPerms = undefined
+			summary = undefined
 		}
 	}
 
@@ -202,7 +229,7 @@
 			}
 			// Built from this viewer's workspace rather than the navigation one, like everything
 			// else here: the two differ inside a session's preview panel.
-			const url = `${window.location.origin}${base}/public/${workspace}/${secret}`
+			const url = `${window.location.origin}/public/${workspace}/${secret}`
 			if (tab) tab.location.href = url
 			else sendUserToast('Allow pop-ups for this site to open the app’s public url', true)
 		} catch (e: any) {
@@ -215,27 +242,34 @@
 		if (workspace && path) loadPerms()
 	})
 
-	// Both of this page's buttons carry a label, and a phone's bar has room for neither beside the
-	// app's path — so below that width they become one menu. Unmeasured (0) counts as wide: the bar
+	// This page's buttons all carry a label, and a phone's bar has room for none beside the app's
+	// path — so below that width they become one menu. Unmeasured (0) counts as wide: the bar
 	// measures itself on mount, and starting compact would pop them out a frame later.
 	const compact = $derived(pageHeader.barWidth > 0 && pageHeader.barWidth < PHONE_BAR)
-	const compactItems: Item[] = $derived([
-		...(hasPublicUrl
-			? [
-					{
-						displayName: 'Public url',
-						icon: ExternalLink,
-						action: () => openPublicUrl()
-					}
-				]
-			: []),
-		{
-			displayName: 'Edit',
-			icon: Pen,
-			href: onEdit ? undefined : editHref,
-			action: onEdit ? () => onEdit() : undefined
-		}
-	])
+	function compactItems(share: boolean): Item[] {
+		return [
+			...(hasPublicUrl
+				? [
+						{
+							displayName: 'Public url',
+							icon: ExternalLink,
+							action: () => openPublicUrl()
+						}
+					]
+				: []),
+			...(share ? [{ displayName: 'Share', icon: UserPlus, action: openShare }] : []),
+			...(showEdit
+				? [
+						{
+							displayName: 'Edit',
+							icon: Pen,
+							href: onEdit ? undefined : editHref,
+							action: onEdit ? () => onEdit() : undefined
+						}
+					]
+				: [])
+		]
+	}
 </script>
 
 <div class="h-full">
@@ -251,13 +285,13 @@
 			<PublicApp
 				{app}
 				{workspace}
-				user={appUser ?? $userStore}
+				user={appUser ?? (workspace === $workspaceStore ? $userStore : undefined)}
 				{notExists}
 				{noPermission}
 				jwtError={false}
 				inWorkspace
 				{hideRefreshBar}
-				{syncHashToUrl}
+				{ownsPageUrl}
 				onLoginSuccess={() => loadApp()}
 			></PublicApp>
 		{/snippet}
@@ -268,10 +302,12 @@
      no item, and the breadcrumb would fall back to the section name "Apps". -->
 {#if ownsPageHeader}
 	<PageHeaderContent
-		item={{ kind: 'app', path }}
-		actions={showEdit && !menuHidden ? editAction : undefined}
+		item={{ kind: 'app', path, summary }}
+		actions={(showEdit || showShare) && !menuHidden ? headerActions : undefined}
 		separator="always"
 	/>
+	<!-- Share can change who opens the app, which decides whether it has a public url. -->
+	<ShareModal bind:this={shareModal} source="detail" on:change={() => loadPerms(false)} />
 {/if}
 
 <!-- Edit is the bar's action when this viewer owns the bar, and floats over the canvas otherwise:
@@ -280,15 +316,19 @@
      sit beside the session's name and act on the panel below it. -->
 {#if showEdit && (menuHidden || !ownsPageHeader)}
 	<div class="absolute bottom-4 right-4 z-50">
-		{@render editAction()}
+		{@render appActions(false)}
 	</div>
 {/if}
 
-{#snippet editAction()}
+{#snippet headerActions()}
+	{@render appActions(showShare)}
+{/snippet}
+
+{#snippet appActions(share: boolean)}
 	{#if compact}
-		<!-- Too little bar to seat both: they fold into one menu rather than losing their labels,
+		<!-- Too little bar to seat them: they fold into one menu rather than losing their labels,
 		     which are what say where each one goes. -->
-		<DropdownV2 items={compactItems} placement="bottom-end" size="sm" />
+		<DropdownV2 items={compactItems(share)} placement="bottom-end" size="sm" />
 	{:else}
 		{#if hasPublicUrl}
 			<!-- The app on its own, at the url anyone it is shared with uses. A new tab rather than
@@ -302,16 +342,21 @@
 				title="Open the app's public url in a new tab">Public url</Button
 			>
 		{/if}
-		<!-- `onEdit` wins over the href: a host that embeds this viewer opens its own editor rather
-		     than navigating the frame to one. -->
-		<Button
-			unifiedSize="sm"
-			startIcon={{ icon: Pen }}
-			variant="default"
-			href={onEdit ? undefined : editHref}
-			on:click={() => onEdit?.()}
-			title="Edit this app"
-			id="app-edit-btn">Edit</Button
-		>
+		{#if share}
+			<ShareButton deployed unifiedSize="sm" onclick={openShare} />
+		{/if}
+		{#if showEdit}
+			<!-- `onEdit` wins over the href: a host that embeds this viewer opens its own editor
+			     rather than navigating the frame to one. -->
+			<Button
+				unifiedSize="sm"
+				startIcon={{ icon: Pen }}
+				variant="default"
+				href={onEdit ? undefined : editHref}
+				on:click={() => onEdit?.()}
+				title="Edit this app"
+				id="app-edit-btn">Edit</Button
+			>
+		{/if}
 	{/if}
 {/snippet}

@@ -121,6 +121,60 @@ async function testLspWebSocket(): Promise<void> {
 	})
 }
 
+async function testLspShellDiagnostics(): Promise<void> {
+	return new Promise((resolve, reject) => {
+		const timeout = setTimeout(() => {
+			ws.close()
+			reject(new Error('no shellcheck diagnostics within 10s'))
+		}, 10000)
+
+		const ws = new WebSocket(`ws://${HOST}:${LSP_PORT}/ws/diagnostic`)
+		const send = (msg: object) => ws.send(JSON.stringify({ jsonrpc: '2.0', ...msg }))
+
+		ws.onopen = () => {
+			// Editors still send a linter definition; the server's own configuration
+			// applies, so the diagnostics below have to come from shellcheck.
+			send({
+				id: 1,
+				method: 'initialize',
+				params: {
+					capabilities: {},
+					initializationOptions: {
+						linters: { shellcheck: { command: 'true', sourceName: 'shellcheck' } },
+						filetypes: { shell: 'shellcheck' }
+					}
+				}
+			})
+			send({
+				method: 'textDocument/didOpen',
+				params: {
+					textDocument: {
+						uri: 'file:///tmp/monaco/test.sh',
+						languageId: 'shell',
+						version: 1,
+						text: '#!/bin/bash\necho "$unassigned"\n'
+					}
+				}
+			})
+		}
+
+		ws.onmessage = (event) => {
+			const msg = JSON.parse(event.data.toString())
+			if (msg.method !== 'textDocument/publishDiagnostics') return
+			clearTimeout(timeout)
+			ws.close()
+			const codes = msg.params.diagnostics.map((d: { code: string }) => d.code)
+			if (codes.includes('SC2154')) resolve()
+			else reject(new Error(`expected SC2154, got ${JSON.stringify(msg.params.diagnostics)}`))
+		}
+
+		ws.onerror = () => {
+			clearTimeout(timeout)
+			reject(new Error('LSP WebSocket connection failed'))
+		}
+	})
+}
+
 async function runLspTests(): Promise<boolean> {
 	log('\n=== LSP Service Tests (Port ' + LSP_PORT + ') ===')
 
@@ -132,6 +186,7 @@ async function runLspTests(): Promise<boolean> {
 	let passed = true
 	passed = (await runTest('LSP health check', testLspHealth)) && passed
 	passed = (await runTest('LSP WebSocket connection (pyright)', testLspWebSocket)) && passed
+	passed = (await runTest('LSP shell diagnostics', testLspShellDiagnostics)) && passed
 
 	return passed
 }

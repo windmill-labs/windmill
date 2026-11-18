@@ -10,7 +10,6 @@
 	import Disposable from './Disposable.svelte'
 	import { setTopmostSurface } from '$lib/components/common/overlayHost.svelte'
 	import ConditionalPortal from './ConditionalPortal.svelte'
-	import { chatState } from '$lib/components/copilot/chat/sharedChatState.svelte'
 	import { useReducedMotion } from '$lib/svelte5Utils.svelte'
 	import { getOverlayHost } from '../overlayHost.svelte'
 
@@ -23,7 +22,6 @@
 		shouldUsePortal?: boolean
 		offset?: number
 		preventEscape?: boolean
-		disableChatOffset?: boolean
 		class?: string | undefined
 		positionClass?: string | undefined
 		name?: string
@@ -41,7 +39,6 @@
 		shouldUsePortal = true,
 		offset = 0,
 		preventEscape = false,
-		disableChatOffset = false,
 		class: clazz = '',
 		positionClass = undefined,
 		name = undefined,
@@ -135,8 +132,6 @@
 	)
 
 	let style = $derived(`--duration: ${duration}s; --size: ${size}; --min-size: ${floor};`)
-
-	const aiChatOpen = $derived(chatState.size > 0 && !host)
 </script>
 
 <!-- `contents` keeps the portal's wrapper from becoming a stray flex item of the
@@ -154,11 +149,10 @@
 		{#snippet children({ handleClickAway, zIndex, isTop })}
 			<aside
 				class="drawer windmill-app windmill-drawer {name ? `windmill-drawer-${name}` : ''} {clazz ??
-					''} {posClass ?? ''} {aiChatOpen ? 'respect-global-chat' : ''}"
+					''} {posClass ?? ''}"
 				class:open
 				class:close={!open && timeout}
-				class:global-chat-open={aiChatOpen}
-				style={`${style}; --zIndex: ${zIndex}; --adjusted-offset: calc(${aiChatOpen && (placement === 'right' || placement === 'center') && !disableChatOffset ? chatState.size : 0}% + 4px)`}
+				style={`${style}; --zIndex: ${zIndex}; --adjusted-offset: 4px`}
 			>
 				<!-- svelte-ignore a11y_click_events_have_key_events -->
 				<!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -207,12 +201,6 @@
 		transition: opacity var(--duration) ease;
 	}
 
-	.drawer.respect-global-chat.global-chat-open > .overlay {
-		width: 100%;
-		right: var(--adjusted-offset);
-		left: auto;
-	}
-
 	.drawer.open > .overlay {
 		opacity: 1;
 	}
@@ -244,11 +232,6 @@
 	.panel.right {
 		right: 0;
 		transform: translate(100%, 0);
-	}
-
-	.drawer.respect-global-chat.global-chat-open > .panel.right {
-		right: var(--adjusted-offset);
-		width: calc(100vw - var(--adjusted-offset));
 	}
 
 	.panel.top {
@@ -290,10 +273,6 @@
 		transition:
 			opacity var(--duration) ease,
 			transform var(--duration) ease;
-	}
-
-	.drawer.respect-global-chat.global-chat-open > .panel.center {
-		right: calc(var(--adjusted-offset) + 2rem);
 	}
 
 	.drawer.open > .panel.center {

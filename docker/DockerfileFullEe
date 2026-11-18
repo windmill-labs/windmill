@@ -21,6 +21,9 @@ RUN if [ "$TARGETPLATFORM" = "linux/arm64" ]; then \
 
 FROM ${BASE_IMAGE}
 
+# Deno
+COPY --from=denoland/deno:2.2.1 --chmod=755 /usr/bin/deno /usr/bin/deno
+
 # Rust
 COPY --from=rust:1.97.0 /usr/local/cargo /usr/local/cargo
 COPY --from=rust:1.97.0 /usr/local/rustup /usr/local/rustup
@@ -32,7 +35,9 @@ RUN RUSTUP_HOME=/usr/local/rustup CARGO_HOME=/usr/local/cargo /usr/local/cargo/b
 # ansible there leaves its venv interpreter as a dangling symlink at runtime, so every
 # ansible-* executable fails with ENOENT ("ansible-galaxy not found"). Pin the tool's
 # interpreter to a persistent image path so the install stays self-contained.
-RUN UV_PYTHON_INSTALL_DIR=/usr/local/uv/py uv tool install ansible && [ -d "$(uv tool dir)/ansible/bin/" ] && find "$(uv tool dir)/ansible/bin/" -mindepth 1 -maxdepth 1 -type f -executable -regextype posix-extended -regex '^((.+/)?)[^.]+' -print0 | xargs -0 ln -sf -t "$UV_TOOL_BIN_DIR/" || true
+# The version is explicit because uv otherwise downloads its newest stable Python, which
+# ansible-core may not support yet: the install succeeds and every executable fails on import.
+RUN UV_PYTHON_INSTALL_DIR=/usr/local/uv/py uv tool install --python 3.14 ansible && [ -d "$(uv tool dir)/ansible/bin/" ] && find "$(uv tool dir)/ansible/bin/" -mindepth 1 -maxdepth 1 -type f -executable -regextype posix-extended -regex '^((.+/)?)[^.]+' -print0 | xargs -0 ln -sf -t "$UV_TOOL_BIN_DIR/" || true
 # dotnet SDK
 RUN wget https://dot.net/v1/dotnet-install.sh -O dotnet-install.sh \
     && chmod +x dotnet-install.sh \
@@ -47,6 +52,10 @@ RUN apt-get -y update && apt-get install -y libaio1t64 \
     && libaio="$(find /usr/lib -name 'libaio.so.1t64' -print -quit)" \
     && ln -s "$(basename "$libaio")" "$(dirname "$libaio")/libaio.so.1"
 RUN echo /opt/oracle/23/lib > /etc/ld.so.conf.d/oracle-instantclient.conf && ldconfig
+
+# PHP
+COPY --from=php:8.3.36-cli-trixie /usr/local/bin/php /usr/bin/php
+COPY --from=composer:2.9.5 /usr/bin/composer /usr/bin/composer
 
 # Nushell
 COPY --from=ghcr.io/nushell/nushell:0.101.0-bookworm /usr/bin/nu /usr/bin/nu
@@ -95,5 +104,7 @@ RUN apt-get install -y libsasl2-modules-gssapi-mit krb5-user
 
 # Fix UV cache permissions for non-root user support (uid 1000, etc.)
 # The uv tool install ansible command populates the UV cache with root-owned files
-RUN chmod -R a+rw /tmp/windmill/cache/uv && \
-    find /tmp/windmill/cache/uv -type d -exec chmod 777 {} +
+# Only paths missing the bits are touched: a chmod on a file from an earlier layer
+# copies it into this layer, so a blanket chmod -R costs minutes per arch.
+RUN find /tmp/windmill/cache/uv \( -type d ! -perm 777 -exec chmod 777 {} + \) \
+    -o \( ! -type d ! -type l ! -perm -a+rw -exec chmod a+rw {} + \)

@@ -1,4 +1,15 @@
-import { SettingService } from '$lib/gen'
+import { SettingService, WorkspaceService } from '$lib/gen'
+
+/** Every live workspace of the instance, for a superadmin granting an MCP token their rights. */
+export async function listEveryWorkspace(): Promise<{ id: string; name: string }[]> {
+	const all: { id: string; name: string; deleted?: boolean }[] = []
+	for (let page = 1; ; page++) {
+		const batch = await WorkspaceService.listWorkspacesAsSuperAdmin({ page, perPage: 100 })
+		all.push(...batch)
+		if (batch.length < 100) break
+	}
+	return all.filter((w) => !w.deleted)
+}
 
 /**
  * Whether the instance refuses `?token=` on the MCP endpoints. When it does, an MCP URL is

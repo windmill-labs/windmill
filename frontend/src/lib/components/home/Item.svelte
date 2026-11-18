@@ -1,3 +1,12 @@
+<script lang="ts" module>
+	import { lazyModule, type LazyModule } from '$lib/lazyModule.svelte'
+
+	// Mounted only once a row's menu opens, and reached from one of its items.
+	const shareModalModule = lazyModule(() => import('../ShareModal.svelte'))
+	const deployDrawerModule = lazyModule(() => import('../DeployWorkspaceDrawer.svelte'))
+	const moveDrawerModule = lazyModule(() => import('../MoveDrawer.svelte'))
+</script>
+
 <script lang="ts">
 	import AppRow from '../common/table/AppRow.svelte'
 	import FlowRow from '../common/table/FlowRow.svelte'
@@ -6,23 +15,42 @@
 	import ScriptRow from '../common/table/ScriptRow.svelte'
 	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
 	import { Alert } from '$lib/components/common'
-	import DeployWorkspaceDrawer from '../DeployWorkspaceDrawer.svelte'
-	import MoveDrawer from '../MoveDrawer.svelte'
-	import ShareModal from '../ShareModal.svelte'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, tick } from 'svelte'
 	import { ArrowBigUp } from 'lucide-svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { getHomeSelection, toBulkItem } from './homeSelection.svelte'
+	import { getSharedEditRights } from '$lib/operatorWriteRights'
 	import type { RowSelection } from '../common/table/rowSelection'
 
 	const dispatch = createEventDispatcher()
 
 	let deleteConfirmedCallback: (() => void) | undefined = $state(undefined)
-	let shareModal: any | undefined = $state()
-	let moveDrawer: any | undefined = $state()
-	let deploymentDrawer: any | undefined = $state()
+	let shareModalInstance: any | undefined = $state()
+	let moveDrawerInstance: any | undefined = $state()
+	let deploymentDrawerInstance: any | undefined = $state()
+
+	// The rows call `openDrawer` on these from a menu item, which can be clicked before the
+	// drawer's module has loaded and mounted.
+	function lazyDrawerHandle(module: LazyModule<unknown>, instance: () => any): any {
+		return {
+			openDrawer: async (...args: any[]) => {
+				await module.load()
+				await tick()
+				instance()?.openDrawer(...args)
+			}
+		}
+	}
+	const shareModal = lazyDrawerHandle(shareModalModule, () => shareModalInstance)
+	const moveDrawer = lazyDrawerHandle(moveDrawerModule, () => moveDrawerInstance)
+	const deploymentDrawer = lazyDrawerHandle(deployDrawerModule, () => deploymentDrawerInstance)
 
 	let menuOpen: boolean = $state(false)
+	$effect(() => {
+		if (!menuOpen) return
+		void shareModalModule.load()
+		void deployDrawerModule.load()
+		void moveDrawerModule.load()
+	})
 	interface Props {
 		item: any
 		depth?: number
@@ -39,6 +67,20 @@
 		keyboardSelected = false
 	}: Props = $props()
 
+	const editRights = getSharedEditRights()
+	// Worked out per row rather than when the listing loads, so the rights follow the acting
+	// user as it resolves and the listing never has to reload for it.
+	let row = $derived({
+		...item,
+		canWrite:
+			editRights.canEditItem(
+				item.type === 'app' && item.raw_app ? 'raw_app' : item.type,
+				item.path,
+				item.extra_perms ?? {}
+			) &&
+			(item.type === 'script' || item.workspace_id == $workspaceStore)
+	})
+
 	// Read from context rather than threaded down: the tree renders items through
 	// several nested levels that have no other reason to know about selection.
 	const homeSelection = getHomeSelection()
@@ -48,7 +90,7 @@
 	// so it must not enter the selection either.
 	let bulkItem = $derived(
 		homeSelection?.available && item.type !== 'raw_app'
-			? toBulkItem(item, $userStore, $workspaceStore)
+			? toBulkItem(row, $userStore, $workspaceStore)
 			: undefined
 	)
 	$effect(() => {
@@ -63,7 +105,8 @@
 					key: bulkItem.key,
 					selected: homeSelection.has(bulkItem.key),
 					active: homeSelection.active,
-					onToggle: (e) => bulkItem && homeSelection.toggle(bulkItem, 'shiftKey' in e && e.shiftKey)
+					onToggle: (e) =>
+						bulkItem && homeSelection.toggle(bulkItem.key, 'shiftKey' in e && e.shiftKey)
 				}
 			: undefined
 	)
@@ -74,7 +117,7 @@
 		bind:deleteConfirmedCallback
 		marked={item.marked}
 		on:change={() => dispatch('scriptChanged')}
-		script={item}
+		script={row}
 		errorHandlerMuted={item.ws_error_handler_muted === undefined ||
 		item.ws_error_handler_muted === null
 			? false
@@ -94,7 +137,8 @@
 		bind:deleteConfirmedCallback
 		marked={item.marked}
 		on:change={() => dispatch('flowChanged')}
-		flow={item}
+		flow={row}
+		canAuthor={editRights.roleCanAuthor('flow')}
 		errorHandlerMuted={item.ws_error_handler_muted === undefined ||
 		item.ws_error_handler_muted === null
 			? false
@@ -113,7 +157,7 @@
 		bind:deleteConfirmedCallback
 		marked={item.marked}
 		on:change={() => dispatch('appChanged')}
-		app={item}
+		app={row}
 		{moveDrawer}
 		{shareModal}
 		{deploymentDrawer}
@@ -126,7 +170,7 @@
 {:else if item.type == 'raw_app'}
 	<RawAppRow
 		marked={item.marked}
-		app={item}
+		app={row}
 		{shareModal}
 		{deploymentDrawer}
 		{depth}
@@ -138,7 +182,7 @@
 		bind:deleteConfirmedCallback
 		marked={item.marked}
 		on:change={() => dispatch('reload')}
-		agent={item}
+		agent={row}
 		{shareModal}
 		{deploymentDrawer}
 		{depth}
@@ -180,18 +224,26 @@
 		</div>
 	</ConfirmationModal>
 
-	<ShareModal
-		bind:this={shareModal}
-		on:change={() => {
-			dispatch('reload')
-		}}
-	/>
-
-	<DeployWorkspaceDrawer bind:this={deploymentDrawer} />
-	<MoveDrawer
-		bind:this={moveDrawer}
-		on:update={() => {
-			dispatch('reload')
-		}}
-	/>
+	{#if shareModalModule.current}
+		{@const ShareModal = shareModalModule.current.default}
+		<ShareModal
+			bind:this={shareModalInstance}
+			on:change={() => {
+				dispatch('reload')
+			}}
+		/>
+	{/if}
+	{#if deployDrawerModule.current}
+		{@const DeployWorkspaceDrawer = deployDrawerModule.current.default}
+		<DeployWorkspaceDrawer bind:this={deploymentDrawerInstance} />
+	{/if}
+	{#if moveDrawerModule.current}
+		{@const MoveDrawer = moveDrawerModule.current.default}
+		<MoveDrawer
+			bind:this={moveDrawerInstance}
+			on:update={() => {
+				dispatch('reload')
+			}}
+		/>
+	{/if}
 {/if}

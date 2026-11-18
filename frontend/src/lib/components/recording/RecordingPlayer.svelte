@@ -27,9 +27,9 @@
 
 	let { loaded, onreset, hideHeader = false, class: className = '' }: Props = $props()
 
-	// The pipeline and app players fill the viewport (steps left, detail right,
-	// like their editors); the flow/script players keep a centered scrolling page.
-	let fillsViewport = $derived(loaded.kind === 'pipeline' || loaded.kind === 'app')
+	// The pipeline, app and flow players fill the viewport (steps left, detail right,
+	// like their editors); the script player keeps a centered scrolling page.
+	let fillsViewport = $derived(loaded.kind !== 'script')
 
 	function reset() {
 		setActiveReplay(undefined)

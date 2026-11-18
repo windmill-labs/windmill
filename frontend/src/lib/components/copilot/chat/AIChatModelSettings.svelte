@@ -17,12 +17,12 @@
 		copilotInfo,
 		copilotSessionModel,
 		getUserCustomPrompts,
+		invalidateWorkspaceCopilotInfo,
 		setCopilotInfo,
 		setUserCustomPrompts
 	} from '$lib/aiStore'
 	import { WorkspaceService, type AIProvider, type AIProviderModel } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
-	import { base } from '$lib/base'
 	import { getAiChatManager } from './aiChatManagerContext'
 	import { thinkingPreferences } from './thinkingPreferences.svelte'
 	import {
@@ -47,7 +47,7 @@
 	}: { promptSettings?: boolean } = $props()
 
 	const aiChatManager = getAiChatManager()
-	const AI_SETTINGS_HREF = `${base}/workspace_settings?tab=ai`
+	const AI_SETTINGS_HREF = '/workspace_settings?tab=ai'
 
 	let providerModel = $derived(
 		($copilotSessionModel ??
@@ -193,6 +193,7 @@
 				requestBody: { ...config, custom_prompts }
 			})
 			setCopilotInfo(response.effective_ai_config)
+			invalidateWorkspaceCopilotInfo(workspace)
 			initialPrompt = value
 			customPrompts = { [activeMode]: value }
 			sendUserToast('Workspace AI prompt saved')
@@ -241,6 +242,9 @@
 
 	const config = $derived<ChatModelSettingsConfig>({
 		label: providerModel.model,
+		// "claude-sonnet-4-6" → "sonnet": the family is what tells Claude models apart at a
+		// glance. Other providers' names have no such word, so they stay whole.
+		shortLabel: /^claude-([a-z]+)-/.exec(providerModel.model)?.[1],
 		title: 'Model & reasoning settings',
 		badge: freeTier && !freeTier.exhausted ? { text: 'Free', warn: freeRunningLow } : undefined,
 		// Off in a session: the assistant settings modal's Instructions section owns the

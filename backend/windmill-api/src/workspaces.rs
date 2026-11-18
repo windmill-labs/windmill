@@ -61,6 +61,11 @@ pub fn workspaced_service() -> Router {
         )
         .route("/tarball", get(crate::workspaces_export::tarball_workspace))
         .route("/edit_copilot_config", post(edit_copilot_config))
+        .route(
+            "/settings_document",
+            get(crate::workspace_settings_document::get_settings_document)
+                .post(crate::workspace_settings_document::apply_settings_document),
+        )
         .route("/get_copilot_info", get(get_copilot_info))
         .route("/critical_alerts", get(get_critical_alerts))
         .route(
@@ -85,14 +90,13 @@ pub fn workspaced_service() -> Router {
     router
 }
 
-async fn edit_copilot_config(
+pub(crate) async fn edit_copilot_config(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
-    ApiAuthed { is_admin, username, .. }: ApiAuthed,
     Json(ai_config): Json<AIConfig>,
 ) -> JsonResult<EditCopilotConfigResponse> {
-    require_admin(is_admin, &username)?;
+    require_admin(authed.is_admin, &authed.username)?;
 
     if let Some(ref custom_prompts) = ai_config.custom_prompts {
         for (mode, prompt) in custom_prompts.iter() {
@@ -151,6 +155,7 @@ async fn edit_copilot_config(
     let copilot_disabled = ai_config.copilot_disabled;
     let sessions_storage_disabled = ai_config.sessions_storage_disabled;
     let sessions_retention_days = ai_config.sessions_retention_days;
+    let web_search = ai_config.web_search.clone();
     let instance_ai_config =
         sqlx::query_scalar!("SELECT value FROM global_settings WHERE name = 'ai_config'")
             .fetch_optional(&db)
@@ -180,6 +185,7 @@ async fn edit_copilot_config(
     effective_ai_config.copilot_disabled = copilot_disabled;
     effective_ai_config.sessions_storage_disabled = sessions_storage_disabled;
     effective_ai_config.sessions_retention_days = sessions_retention_days;
+    effective_ai_config.web_search = web_search;
 
     Ok(Json(EditCopilotConfigResponse {
         effective_ai_config,
@@ -190,7 +196,7 @@ async fn edit_copilot_config(
 }
 
 #[derive(Serialize)]
-struct EditCopilotConfigResponse {
+pub(crate) struct EditCopilotConfigResponse {
     effective_ai_config: AIConfig,
     has_instance_ai_config: bool,
     uses_instance_ai_config: bool,
@@ -224,6 +230,9 @@ async fn get_copilot_info(
     let sessions_retention_days = workspace_ai_config
         .as_ref()
         .and_then(|c| c.0.sessions_retention_days);
+    let web_search = workspace_ai_config
+        .as_ref()
+        .and_then(|c| c.0.web_search.clone());
     let instance_config =
         sqlx::query_scalar!("SELECT value FROM global_settings WHERE name = 'ai_config'")
             .fetch_optional(&db)
@@ -250,6 +259,7 @@ async fn get_copilot_info(
     effective.copilot_disabled = copilot_disabled;
     effective.sessions_storage_disabled = sessions_storage_disabled;
     effective.sessions_retention_days = sessions_retention_days;
+    effective.web_search = web_search;
     Ok(Json(effective))
 }
 
@@ -321,7 +331,7 @@ pub struct MuteCriticalAlertRequest {
 }
 
 #[cfg(feature = "enterprise")]
-async fn mute_critical_alerts(
+pub(crate) async fn mute_critical_alerts(
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
     authed: ApiAuthed,

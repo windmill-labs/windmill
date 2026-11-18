@@ -14,6 +14,37 @@ use crate::utils::truncate_with_ellipsis;
 /// Changing it detaches every memory stored under a string memory id.
 const MEMORY_ID_NAMESPACE: Uuid = Uuid::from_u128(0x6f1c2d4e_8a3b_5c7d_9e0f_1a2b3c4d5e6f);
 
+/// Owns anonymous app visitors' agent conversations, as `created_by` names an anonymous app run.
+/// It is also a valid username, so listing conversations leaves these out: a user of that name
+/// would otherwise list every anonymous visitor's.
+pub const ANONYMOUS_CONVERSATION_OWNER: &str = "anonymous";
+
+/// Cancels the background jobs a turn was handed (`ai_memory_turn.handed_jobs`) and ended before
+/// its agent adopted, with every job under them: a nested agent among them may have background
+/// jobs of its own, and nothing else cancels any of them once their old agent has ended.
+pub async fn cancel_unadopted_handed_jobs<'e, E: sqlx::PgExecutor<'e>>(
+    executor: E,
+    handed_jobs: &serde_json::Value,
+) -> Result<u64> {
+    let cancelled = sqlx::query!(
+        "WITH RECURSIVE tree AS (
+             SELECT (b->>'job_id')::uuid AS id
+             FROM jsonb_each($1::jsonb) s, jsonb_array_elements(s.value) b
+             UNION
+             SELECT j.id FROM v2_job j JOIN tree t ON j.parent_job = t.id
+         )
+         UPDATE v2_job_queue q
+         SET canceled_by = 'monitor', scheduled_for = now(), suspend = 0,
+             canceled_reason = 'the turn its AI agent was handed to ended before taking it'
+         FROM tree WHERE q.id = tree.id AND q.canceled_by IS NULL",
+        handed_jobs
+    )
+    .execute(executor)
+    .await?
+    .rows_affected();
+    Ok(cancelled)
+}
+
 /// Memory is stored and carried in `flow_status.memory_id` as a uuid, which names the same memory
 /// wherever it is passed, as a chat conversation id must. Any other string names a memory through a
 /// name-based (v5) uuid scoped to its workspace and flow, so the same key in two flows or two
@@ -64,12 +95,13 @@ pub async fn get_or_create_conversation_with_id(
     w_id: &str,
     flow_path: &str,
     username: &str,
+    is_admin: bool,
     title: &str,
     conversation_id: Uuid,
     is_test: bool,
 ) -> Result<FlowConversation> {
     if let Some(existing) = lock_conversation(tx, w_id, conversation_id).await? {
-        let existing = same_kind(existing, is_test)?;
+        let existing = same_kind(owned(existing, username, is_admin)?, is_test)?;
         refuse_running_turn(tx, conversation_id).await?;
         return Ok(existing);
     }
@@ -106,7 +138,7 @@ pub async fn get_or_create_conversation_with_id(
                 "conversation {conversation_id} belongs to another workspace"
             ))
         })?;
-    let existing = same_kind(existing, is_test)?;
+    let existing = same_kind(owned(existing, username, is_admin)?, is_test)?;
     refuse_running_turn(tx, conversation_id).await?;
     Ok(existing)
 }
@@ -133,6 +165,23 @@ async fn refuse_running_turn(
     else {
         return Ok(());
     };
+    // A turn whose agent parked as its run's last step hands over to this one when the run
+    // claims the memory id (`hand_over_parked_turn`, which holds the same condition).
+    let parked = sqlx::query_scalar!(
+        r#"SELECT EXISTS (SELECT 1 FROM ai_agent_checkpoint c
+             JOIN v2_job_queue q ON q.id = c.job_id JOIN v2_job j ON j.id = c.job_id
+             JOIN v2_job_status s ON s.id = $1
+             WHERE j.parent_job = $1
+               AND (s.flow_status->>'step')::int = jsonb_array_length(s.flow_status->'modules') - 1
+               AND s.flow_status->'modules'->-1->>'job' = c.job_id::text
+               AND q.suspend > 0 AND q.suspend_until IS NOT NULL) AS "parked!""#,
+        turn.job_id
+    )
+    .fetch_one(&mut **tx)
+    .await?;
+    if parked {
+        return Ok(());
+    }
     // A JSON body, so a chat client can follow the running turn instead of failing.
     Err(crate::error::Error::Generic(
         axum::http::StatusCode::CONFLICT,
@@ -174,6 +223,19 @@ pub async fn running_turns<'e, E: sqlx::PgExecutor<'e>>(
         .into_iter()
         .map(|r| (r.id, RunningTurn { job_id: r.job_id, user_seq: r.user_seq }))
         .collect())
+}
+
+/// The `see_own` policy on `flow_conversation`, for a turn whose transaction bypasses it: a run
+/// as a flow's or agent's `on_behalf_of` takes the conversation in a root transaction, and must
+/// not continue, or read the memory of, another user's conversation.
+fn owned(existing: FlowConversation, username: &str, is_admin: bool) -> Result<FlowConversation> {
+    if is_admin || existing.created_by == username {
+        return Ok(existing);
+    }
+    Err(crate::error::Error::BadRequest(format!(
+        "conversation {} belongs to another user; start a new conversation",
+        existing.id
+    )))
 }
 
 /// `memory_id` is the caller's to choose, so a preview run could name a deployed

@@ -106,6 +106,12 @@ fn build_standard_scope_domains() -> Vec<ScopeDomain> {
             false,
         ),
         (
+            "slack_agents",
+            "Slack Agents",
+            "AI agents answering in Slack channels",
+            false,
+        ),
+        (
             "agent_workers",
             "Agent Workers",
             "Agent worker management",
@@ -213,6 +219,11 @@ lazy_static! {
                 ScopeOption {
                     value: "jobs:run:flows".to_string(),
                     label: "Run flows".to_string(),
+                    requires_resource_path: true,
+                },
+                ScopeOption {
+                    value: "jobs:run:dependencies".to_string(),
+                    label: "Generate dependency locks".to_string(),
                     requires_resource_path: true,
                 },
             ],

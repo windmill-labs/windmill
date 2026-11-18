@@ -1,7 +1,9 @@
 use std::collections::HashMap;
 
 use crate::db::{ApiAuthed, OptJobAuthed};
-use crate::secret_backend_ext::rename_vault_secrets_with_prefix;
+use crate::secret_backend_ext::{
+    reject_http_store_refs_under_prefix, rename_vault_secrets_with_prefix,
+};
 use axum::{
     extract::{Extension, Path},
     Json,
@@ -128,15 +130,9 @@ struct WorkspaceReassignment {
 
 // ---- Preview helpers ----
 
-/// The principal a departing member's runnables run as, or `None` when none of them are theirs
-/// to hand over. `usr.username` is constrained to `[\w-]+`, so a member is `u/{username}`, except
-/// a legacy `group-*` username, which canonicalizes to the group it names: what runs under that
-/// principal runs as the group, which outlives the member. `None` binds NULL, which the
-/// `on_behalf_of = $n` queries then match nowhere.
+/// `None` binds NULL, which the `on_behalf_of = $n` queries then match nowhere.
 fn departing_principal(username: &str) -> Option<String> {
-    use windmill_common::users::{username_to_permissioned_as, PERMISSIONED_AS_GROUP_PREFIX};
-    let principal = username_to_permissioned_as(username);
-    (!principal.starts_with(PERMISSIONED_AS_GROUP_PREFIX)).then_some(principal)
+    windmill_common::users::username_to_own_permissioned_as(username)
 }
 
 async fn get_offboard_preview(
@@ -204,19 +200,7 @@ async fn get_offboard_preview(
     .fetch_all(db)
     .await?;
 
-    let trigger_tables = [
-        "http_trigger",
-        "websocket_trigger",
-        "kafka_trigger",
-        "postgres_trigger",
-        "mqtt_trigger",
-        "amqp_trigger",
-        "nats_trigger",
-        "sqs_trigger",
-        "gcp_trigger",
-        "azure_trigger",
-        "email_trigger",
-    ];
+    let trigger_tables = crate::users::TRIGGER_TABLES;
     let mut triggers = HashMap::new();
     for table in &trigger_tables {
         // SAFETY: `table` comes from a hardcoded allowlist `trigger_tables`, not user input.
@@ -265,6 +249,17 @@ async fn get_offboard_preview(
         "SELECT path FROM app WHERE policy->>'on_behalf_of' = $1 AND NOT path LIKE $2 AND workspace_id = $3",
         departing.as_deref(), &user_prefix, w_id
     ).fetch_all(db).await?;
+
+    // An agent's identity sits in its value, under any path, the user's own included: those
+    // move with the path but keep running as the departing user until re-pointed.
+    let obo_agents: Vec<String> = sqlx::query_scalar(
+        "SELECT path FROM resource WHERE resource_type = 'ai_agent'
+         AND value->>'on_behalf_of' = $1 AND workspace_id = $2",
+    )
+    .bind(departing.as_deref())
+    .bind(w_id)
+    .fetch_all(db)
+    .await?;
 
     let obo_schedules = sqlx::query_scalar!(
         "SELECT path FROM schedule WHERE permissioned_as = $1 AND NOT path LIKE $2 AND workspace_id = $3",
@@ -354,6 +349,7 @@ async fn get_offboard_preview(
             scripts: obo_scripts,
             flows: obo_flows,
             apps: obo_apps,
+            resources: obo_agents,
             schedules: obo_schedules,
             triggers: obo_triggers,
             ..Default::default()
@@ -621,6 +617,7 @@ pub(crate) async fn offboard_global_user(
     }
 
     if req.delete_user {
+        windmill_api_users::users::revoke_mcp_oauth_grants(&mut *tx, &email, None).await?;
         sqlx::query!("DELETE FROM token WHERE email = $1", &email)
             .execute(&mut *tx)
             .await?;
@@ -906,7 +903,7 @@ async fn offboard_user_from_workspace<'c>(
     ).execute(&mut **tx).await?;
 
     sqlx::query!(
-        r#"UPDATE flow_node SET path = REGEXP_REPLACE(path, 'u/' || $2 || '/(.*)', $1 || '/\1') WHERE path LIKE ('u/' || $2 || '/%') AND workspace_id = $3"#,
+        r#"UPDATE flow_node SET path = REGEXP_REPLACE(path, 'u/' || $2 || '/(.*)', $1 || '/\1') WHERE path LIKE ('u/' || $2 || '/%') AND workspace_id = $3 AND NOT EXISTS (SELECT 1 FROM flow_node d WHERE d.workspace_id = $3 AND d.hash_v2 = flow_node.hash_v2 AND d.path = REGEXP_REPLACE(flow_node.path, 'u/' || $2 || '/(.*)', $1 || '/\1'))"#,
         &new_prefix, username, w_id
     ).execute(&mut **tx).await?;
 
@@ -1007,6 +1004,16 @@ async fn offboard_user_from_workspace<'c>(
     .await?
     .unwrap_or(0);
 
+    sqlx::query(
+        "UPDATE resource SET value = jsonb_set(value, '{on_behalf_of}', to_jsonb($1::text))
+         WHERE resource_type = 'ai_agent' AND value->>'on_behalf_of' = $2 AND workspace_id = $3",
+    )
+    .bind(new_permissioned_as)
+    .bind(departing.as_deref())
+    .bind(w_id)
+    .execute(&mut **tx)
+    .await?;
+
     // ---- eval datasets ----
     // The foreign keys cascade the rename onto cases and experiments; the paths held inside JSONB
     // (an experiment's subject, a dataset's scorers) are rewritten separately since the cascade
@@ -1051,9 +1058,10 @@ async fn offboard_user_from_workspace<'c>(
     // ---- variables (with Vault secret handling) ----
     let old_var_prefix = format!("u/{}/", username);
     let new_var_prefix = format!("{}/", reassign_to);
+    reject_http_store_refs_under_prefix(&mut **tx, w_id, &old_var_prefix).await?;
 
     let vault_secrets: Vec<(String, String)> = sqlx::query!(
-        r#"SELECT path, value FROM variable
+        r#"SELECT path, value::text AS "value!" FROM variable
            WHERE path LIKE ('u/' || $1 || '/%')
            AND workspace_id = $2
            AND is_secret = true
@@ -1127,19 +1135,7 @@ async fn offboard_user_from_workspace<'c>(
     ).execute(&mut **tx).await?;
 
     // ---- triggers (all 10 types with path/permissioned_as) ----
-    let trigger_tables = [
-        "http_trigger",
-        "websocket_trigger",
-        "kafka_trigger",
-        "postgres_trigger",
-        "mqtt_trigger",
-        "amqp_trigger",
-        "nats_trigger",
-        "sqs_trigger",
-        "gcp_trigger",
-        "azure_trigger",
-        "email_trigger",
-    ];
+    let trigger_tables = crate::users::TRIGGER_TABLES;
 
     let mut triggers_reassigned: i64 = 0;
     // SAFETY: `table` comes from a hardcoded allowlist `trigger_tables`, not user input.
@@ -1182,11 +1178,24 @@ async fn offboard_user_from_workspace<'c>(
         .await?;
     }
 
+    crate::users::move_handler_paths(
+        tx,
+        w_id,
+        &format!("u/{username}/"),
+        &format!("{new_prefix}/"),
+    )
+    .await?;
+
     // NOTE: extra_perms cleanup, folder owners, favorites, inputs, captures,
     // and token deletion are handled by delete_workspace_user_internal when delete_user=true.
     // They are NOT done here for reassign-only (delete_user=false) since the user stays.
 
     // ---- Related path tables ----
+    sqlx::query!(
+        r#"UPDATE native_trigger SET connection_path = REGEXP_REPLACE(connection_path, 'u/' || $2 || '/(.*)', $1 || '/\1') WHERE connection_path LIKE ('u/' || $2 || '/%') AND workspace_id = $3"#,
+        &new_prefix, username, w_id
+    ).execute(&mut **tx).await?;
+
     sqlx::query!(
         r#"UPDATE workspace_integrations SET resource_path = REGEXP_REPLACE(resource_path, 'u/' || $2 || '/(.*)', $1 || '/\1') WHERE resource_path LIKE ('u/' || $2 || '/%') AND workspace_id = $3"#,
         &new_prefix, username, w_id

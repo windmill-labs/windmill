@@ -16,7 +16,6 @@
 	import { Button } from '$lib/components/common'
 	import { Loader2, RefreshCw } from 'lucide-svelte'
 	import { displayDate } from '$lib/utils'
-	import { base } from '$lib/base'
 	import AssetGraphCanvas from '$lib/components/assets/AssetGraph/AssetGraphCanvas.svelte'
 	import type { DbtPreviewBuffer } from './previewRows'
 	import type {
@@ -477,7 +476,7 @@
 			worker tag nothing serves waits here indefinitely.
 			<a
 				class="text-blue-500 hover:underline"
-				href="{base}/run/{refreshPending}?workspace={workspace}"
+				href="/run/{refreshPending}?workspace={workspace}"
 				target="_blank"
 				rel="noreferrer">Open the parse job</a
 			>
@@ -491,7 +490,7 @@
 			{#if refreshError.job}
 				<a
 					class="text-blue-500 hover:underline"
-					href="{base}/run/{refreshError.job}?workspace={workspace}"
+					href="/run/{refreshError.job}?workspace={workspace}"
 					target="_blank"
 					rel="noreferrer">Open the parse job</a
 				>

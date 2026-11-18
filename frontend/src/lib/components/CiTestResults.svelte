@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { ScriptService, type CiTestResult } from '$lib/gen'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
-	import { base } from '$lib/base'
 	import { CircleCheck, CircleX, Loader2, FlaskConical } from 'lucide-svelte'
 	import { resource } from 'runed'
 
@@ -57,14 +56,14 @@
 						<div class="w-3.5 h-3.5 rounded-full border border-tertiary"></div>
 					{/if}
 					<a
-						href="{base}/scripts/get/{test.test_script_path}?workspace={$operatingWorkspace}"
+						href="/scripts/get/{test.test_script_path}?workspace={$operatingWorkspace}"
 						class="text-secondary hover:text-primary truncate"
 					>
 						{test.test_script_path}
 					</a>
 					{#if test.job_id}
 						<a
-							href="{base}/run/{test.job_id}?workspace={$operatingWorkspace}"
+							href="/run/{test.job_id}?workspace={$operatingWorkspace}"
 							class="text-tertiary hover:text-secondary text-2xs"
 						>
 							view run

@@ -7,6 +7,7 @@
 		RAW_APP_SANDBOX_FLAGS,
 		applyRawAppStorageOp,
 		rawAppStorageKey,
+		rawAppCtx,
 		readRawAppStorage,
 		unsandboxedRawAppHtml
 	} from './utils'
@@ -27,14 +28,17 @@
 		 * (publish flow) needs it to read the app's DOM, which is only possible on
 		 * the unsandboxed path. */
 		oniframe?: (iframe: HTMLIFrameElement | undefined) => void
-		/** Mirror the app's own route into the page URL's hash, and start from it. Off where
-		 * the app is embedded in a page that is not its own — an AI session preview tab —
-		 * since there the hash belongs to that page and to whichever app was opened first. */
-		syncHashToUrl?: boolean
+		/** Mirror the app's own route into the page URL's hash, and start from it, its
+		 * `document.title` into the page's, and hand it the page's query. Off where the app is
+		 * embedded in a page that is not its own (an AI session preview tab, the demo
+		 * recorder), since there the address and title belong to that page. */
+		ownsPageUrl?: boolean
 	}
 
-	let { workspace, user, secret, path, runnables, oniframe, syncHashToUrl = true }: Props = $props()
-	const pageHash = () => (syncHashToUrl ? window.location.hash : '')
+	let { workspace, user, secret, path, runnables, oniframe, ownsPageUrl = true }: Props = $props()
+	const pageHash = () => (ownsPageUrl ? window.location.hash : '')
+	const appCtx = (u: UserExt | undefined) =>
+		rawAppCtx(u, workspace, path, ownsPageUrl ? window.location.search : '')
 
 	$effect(() => {
 		const el = unsandboxed ? iframe : undefined
@@ -133,7 +137,7 @@
 			const html = unsandboxedRawAppHtml(
 				workspace,
 				secret,
-				{ ctx: u, workspace },
+				appCtx(u),
 				window.location.origin,
 				pageHash()
 			)
@@ -206,7 +210,7 @@
 			// Same shape as the unsandboxed wrapper: always the object, so
 			// `window.ctx.workspace` works for anonymous viewers too. Snapshotted: a
 			// caller's `$state` user is a proxy, which postMessage cannot clone.
-			ctx: { ctx: $state.snapshot(user), workspace },
+			ctx: appCtx($state.snapshot(user)),
 			initialHash,
 			storage: { local: bundleStorage ?? {}, session: {} },
 			// The wrapper turns this into `window.process.env` before it injects the
@@ -239,6 +243,19 @@
 			}, 750)
 			return () => clearTimeout(fallback)
 		}
+	})
+
+	// The page's own title, put back when the app clears its title or unmounts. Only
+	// while the tab still shows the app's: anything else is the page's newer title.
+	let pageTitle = ''
+	let appTitle: string | undefined = undefined
+	function setAppTitle(title: string) {
+		if (document.title !== appTitle) pageTitle = document.title
+		appTitle = title.trim().slice(0, 200) || pageTitle
+		document.title = appTitle
+	}
+	onMount(() => () => {
+		if (appTitle !== undefined && document.title === appTitle) document.title = pageTitle
 	})
 
 	$effect(() => {
@@ -284,9 +301,11 @@
 			} else if (data?.type === 'windmill:hashchange') {
 				// Keep the parent URL hash in sync for shareable URLs.
 				const newHash = data.hash || ''
-				if (syncHashToUrl && window.location.hash !== newHash) {
-					history.replaceState(null, '', newHash || window.location.pathname)
+				if (ownsPageUrl && window.location.hash !== newHash) {
+					history.replaceState(null, '', newHash || window.location.pathname + window.location.search)
 				}
+			} else if (data?.type === 'windmill:title') {
+				if (ownsPageUrl) setAppTitle(typeof data.title === 'string' ? data.title : '')
 			} else if (runnerFailed) {
 				refuseRequest(event)
 			} else if (!runner) {
@@ -335,6 +354,7 @@
 		title="raw-app"
 		src={iframeSrc}
 		sandbox={sandboxAttr}
+		allow="clipboard-read; clipboard-write; fullscreen"
 		referrerpolicy={unsandboxed ? undefined : 'no-referrer'}
 		onload={() => (loadedSrc = iframeSrc)}
 		style="display: block; width: 100%; height: 100%; border: none"

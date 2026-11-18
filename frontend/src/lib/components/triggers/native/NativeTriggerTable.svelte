@@ -3,9 +3,8 @@
 	import type { NativeServiceName, TriggerMode } from '$lib/gen/types.gen'
 	import type { ExtendedNativeTrigger } from './utils'
 	import { getServiceConfig } from './utils'
-	import { canWrite, sendUserToast } from '$lib/utils'
-	import { useTriggerLock } from '$lib/operatorWriteRights'
-	import { userStore } from '$lib/stores'
+	import { sendUserToast } from '$lib/utils'
+	import { useEditRights, useTriggerLock } from '$lib/operatorWriteRights'
 	import TriggerModeToggle from '$lib/components/triggers/TriggerModeToggle.svelte'
 	import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
@@ -13,12 +12,13 @@
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import { Eye, Pen, RefreshCw, Trash } from 'lucide-svelte'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
-	import { goto } from '$lib/navigation'
+	import { isNewTabClick } from '$lib/navigation'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import GoogleDriveIcon from '$lib/components/icons/GoogleDriveIcon.svelte'
 	import GoogleCalendarIcon from '$lib/components/icons/GoogleCalendarIcon.svelte'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 	const triggerLock = useTriggerLock()
+	const editRights = useEditRights()
 
 	const operatingWorkspace = useOperatingWorkspace()
 
@@ -111,7 +111,7 @@
 			{#each triggers as trigger (trigger.external_id)}
 				{@const isFlow = trigger.is_flow}
 				{@const href = `${isFlow ? '/flows/get' : '/scripts/get'}/${trigger.script_path}`}
-				{@const canEdit = canWrite(trigger.script_path, {}, $userStore) && !$triggerLock}
+				{@const canEdit = editRights.canEditItem('trigger', trigger.script_path, {})}
 				<div
 					class="hover:bg-surface-hover w-full items-center px-4 py-2 gap-4 first-of-type:!border-t-0 first-of-type:rounded-t-md last-of-type:rounded-b-md flex flex-col"
 				>
@@ -119,8 +119,11 @@
 						<RowIcon kind={isFlow ? 'flow' : 'script'} />
 
 						<a
-							href="#{trigger.external_id}"
-							onclick={() => onEdit?.(trigger)}
+							href="#{encodeURIComponent(trigger.external_id)}"
+							onclick={(e) => {
+								if (isNewTabClick(e)) return
+								onEdit?.(trigger)
+							}}
 							class="min-w-0 grow hover:underline decoration-gray-400"
 						>
 							<div class="text-emphasis flex-wrap text-left text-xs font-semibold mb-1 truncate">
@@ -185,9 +188,7 @@
 									{
 										displayName: `View ${isFlow ? 'Flow' : 'Script'}`,
 										icon: Eye,
-										action: () => {
-											goto(href)
-										}
+										href
 									},
 									{
 										displayName: 'Delete',

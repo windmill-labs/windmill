@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE flow_node n SET path = $1 WHERE path = $2 AND workspace_id = $3\n            AND NOT EXISTS (\n                SELECT 1 FROM flow_node d\n                WHERE d.path = $1 AND d.workspace_id = $3 AND d.hash_v2 = n.hash_v2\n            )",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "72597c62d560fcb8604eb5307bbc0442e976e96f13721ffdd63f0739fce516cd"
+}

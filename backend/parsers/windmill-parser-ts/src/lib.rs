@@ -189,7 +189,20 @@ pub fn parse_expr_for_imports(code: &str, skip_type_only: bool) -> anyhow::Resul
 /// // Returns: ["f/utils"]
 /// ```
 pub fn parse_relative_imports(code: &str, path: &str) -> anyhow::Result<Vec<String>> {
-    let imports = parse_expr_for_imports(code, false)?;
+    resolve_relative_imports(code, path, false)
+}
+
+/// [`parse_relative_imports`] without type-only imports, which are erased before the code runs.
+pub fn parse_runtime_relative_imports(code: &str, path: &str) -> anyhow::Result<Vec<String>> {
+    resolve_relative_imports(code, path, true)
+}
+
+fn resolve_relative_imports(
+    code: &str,
+    path: &str,
+    skip_type_only: bool,
+) -> anyhow::Result<Vec<String>> {
+    let imports = parse_expr_for_imports(code, skip_type_only)?;
     let script_dir = path.rsplit_once('/').map(|(dir, _)| dir).unwrap_or("");
 
     let mut resolved: Vec<String> = imports

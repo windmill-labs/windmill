@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { base } from '$lib/base'
 	import { Button } from '$lib/components/common'
 	import Select from '$lib/components/select/Select.svelte'
 	import DataTable from '$lib/components/table/DataTable.svelte'
@@ -768,7 +767,7 @@
 		{#if experiment?.run_job_id}
 			<a
 				class="text-xs text-accent hover:underline inline-flex items-center gap-1 shrink-0 pb-2"
-				href={`${base}/run/${experiment.run_job_id}?workspace=${ws}`}
+				href={`/run/${experiment.run_job_id}?workspace=${ws}`}
 				target="_blank"
 			>
 				Open the job
@@ -962,7 +961,7 @@
 								{#if openRow.job_id}
 									<a
 										class="text-2xs text-accent hover:underline inline-flex items-center gap-1"
-										href={`${base}/run/${openRow.job_id}?workspace=${ws}`}
+										href={`/run/${openRow.job_id}?workspace=${ws}`}
 										target="_blank"
 									>
 										Open the case job

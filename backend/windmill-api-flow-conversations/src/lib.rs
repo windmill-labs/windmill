@@ -14,7 +14,7 @@ pub use windmill_common::flow_conversations::FlowConversation;
 use windmill_common::{
     db::{UserDB, DB},
     error::{JsonResult, Result},
-    flow_conversations::{running_turns, MessageType, RunningTurn},
+    flow_conversations::{running_turns, MessageType, RunningTurn, ANONYMOUS_CONVERSATION_OWNER},
     utils::{not_found_if_none, paginate, truncate_with_ellipsis, Pagination},
 };
 
@@ -68,6 +68,8 @@ pub enum ConversationKind {
 pub struct ListConversationsQuery {
     pub flow_path: Option<String>,
     pub kind: Option<ConversationKind>,
+    /// Only the caller's own chats: an admin otherwise lists every user's.
+    pub mine: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -96,10 +98,15 @@ async fn list_conversations(
         "created_by",
         "is_test",
     ])
-    .and_where_eq("workspace_id", "?".bind(&w_id));
+    .and_where_eq("workspace_id", "?".bind(&w_id))
+    .and_where_ne("created_by", "?".bind(&ANONYMOUS_CONVERSATION_OWNER));
 
     if let Some(flow_path) = &query.flow_path {
         sqlb.and_where_eq("flow_path", "?".bind(flow_path));
+    }
+
+    if query.mine.unwrap_or(false) {
+        sqlb.and_where_eq("created_by", "?".bind(&authed.username));
     }
 
     match query.kind.unwrap_or_default() {

@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { base } from '$lib/base'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import ConfirmationModal from '../confirmationModal/ConfirmationModal.svelte'
 	import {
@@ -7,7 +6,7 @@
 		planPipelineDelete,
 		type PipelineDeletePlan
 	} from '$lib/components/assets/AssetGraph/pipelineDelete'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { roleCapabilities, userStore, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { Loader2, Trash } from 'lucide-svelte'
 	import Row from './Row.svelte'
@@ -71,7 +70,7 @@
 <Row
 	kind="data_pipeline"
 	marked={undefined}
-	href="{base}/pipeline/{encodeURIComponent(folder)}"
+	href="/pipeline/{encodeURIComponent(folder)}"
 	workspaceId={$workspaceStore ?? ''}
 	path={`f/${folder}`}
 	summary={label ?? `Pipeline · ${folder}`}
@@ -79,8 +78,9 @@
 	{depth}
 >
 	{#snippet actions()}
-		{#if !$userStore?.operator}
+		{#if $roleCapabilities.code}
 			<Dropdown
+				size="sm"
 				items={[
 					{
 						displayName: 'Delete',

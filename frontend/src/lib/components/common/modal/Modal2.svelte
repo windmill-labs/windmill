@@ -8,8 +8,6 @@
 	import { X } from 'lucide-svelte'
 	import List from '$lib/components/common/layout/List.svelte'
 	import { fade } from 'svelte/transition'
-	import { zIndexes } from '$lib/zIndexes'
-	import { chatState } from '$lib/components/copilot/chat/sharedChatState.svelte'
 	import Disposable from '../drawer/Disposable.svelte'
 	import { overlayHostActive, setTopmostSurface } from '../overlayHost.svelte'
 	import { untrack } from 'svelte'
@@ -125,9 +123,6 @@
 	function fadeFast(node: HTMLElement) {
 		return fade(node, { duration: 200 })
 	}
-
-	// Elevate above the AI chat panel while chat is open so the dialog isn't hidden behind it.
-	const minZIndex = $derived(chatState.size > 0 ? zIndexes.aiChat + 1 : 0)
 </script>
 
 <svelte:window
@@ -140,7 +135,7 @@
 	}}
 />
 
-<Disposable bind:open={isOpen} bind:this={disposable} preventEscape {minZIndex}>
+<Disposable bind:open={isOpen} bind:this={disposable} preventEscape>
 	{#snippet children({ zIndex })}
 		{#if isOpen}
 			<Portal name="always-mounted" {target}>

@@ -65,7 +65,8 @@
 		['dark-indigo']: 'bg-indigo-500 text-indigo-100 dark:bg-indigo-600 dark:text-indigo-200',
 		['dark-orange']: 'bg-orange-500 text-orange-100 dark:bg-orange-600 dark:text-orange-200',
 		['dark-violet']: 'bg-violet-500 text-violet-100 dark:bg-violet-600 dark:text-violet-200',
-		transparent: 'bg-transparent border'
+		transparent: 'bg-transparent border',
+		subtle: 'bg-transparent'
 	}
 
 	const selectedColors: Record<BadgeColor, string> = {
@@ -86,7 +87,8 @@
 		['dark-orange']: 'bg-orange-700 text-orange-100 dark:bg-orange-800 dark:text-orange-200',
 		['dark-violet']: 'bg-violet-700 text-violet-100 dark:bg-violet-800 dark:text-violet-200',
 		// Keeps the unselected chip's border, so selecting one does not change its height.
-		transparent: 'bg-surface-accent-selected text-accent border border-surface-accent-selected'
+		transparent: 'bg-surface-accent-selected text-accent border border-surface-accent-selected',
+		subtle: 'bg-surface-accent-selected text-accent'
 	}
 
 	const hovers: Partial<Record<BadgeColor, string>> = {
@@ -106,7 +108,8 @@
 		['dark-indigo']: 'hover:bg-indigo-600 dark:hover:bg-indigo-700',
 		['dark-orange']: 'hover:bg-orange-600 dark:hover:bg-orange-700',
 		['dark-violet']: 'hover:bg-violet-600 dark:hover:bg-violet-700',
-		transparent: 'hover:bg-surface-hover dark:hover:border-gray-500'
+		transparent: 'hover:bg-surface-hover dark:hover:border-gray-500',
+		subtle: 'hover:bg-surface-hover'
 	}
 
 	let badgeClass = $derived(

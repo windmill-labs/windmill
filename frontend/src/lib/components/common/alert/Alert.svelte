@@ -90,7 +90,7 @@
 				/>
 			</div>
 		{/if}
-		<div class={twMerge(!hideIcon && 'ml-1', 'w-full')}>
+		<div class={twMerge(!hideIcon && 'ml-1', 'w-full min-w-0')}>
 			{#if hasTitleRow}
 				<div class={twMerge('w-full flex flex-row items-center justify-between')}>
 					<span

@@ -15,7 +15,7 @@ use windmill_common::{
     db::{UserDB, DB},
     error::{self, Error, Result},
     feature_usage::log_feature_usage,
-    jobs::{delete_jobs, JobTriggerKind},
+    jobs::{delete_jobs, ChosenBy, JobTriggerKind},
     triggers::TriggerMetadata,
 };
 
@@ -220,9 +220,12 @@ pub async fn resume_suspended_trigger_jobs(
                     Some(tx),
                     Some(user_db.clone()),
                     authed.clone(),
+                    ChosenBy::Deployed,
                     &w_id,
-                    &trigger.script_path,
-                    trigger.is_flow,
+                    &windmill_common::runnable_ref::RunnableRef::from_path(
+                        &trigger.script_path,
+                        trigger.is_flow,
+                    )?,
                     windmill_queue::PushArgsOwned {
                         extra: None,
                         args: job.args.map(|a| a.0).unwrap_or_default(),

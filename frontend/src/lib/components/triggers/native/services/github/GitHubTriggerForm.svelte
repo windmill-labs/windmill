@@ -7,8 +7,10 @@
 	import { sendUserToast } from '$lib/toast'
 	import { Loader2 } from 'lucide-svelte'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import { useNativeConnection } from '../../utils'
 
 	const operatingWorkspace = useOperatingWorkspace()
+	const connectionPath = useNativeConnection()
 
 	interface Props {
 		serviceConfig: Record<string, any>
@@ -66,7 +68,8 @@
 		loading = true
 		try {
 			repos = await NativeTriggerService.listGithubRepos({
-				workspace: $operatingWorkspace
+				workspace: $operatingWorkspace,
+				connectionPath: connectionPath()
 			})
 		} catch (err: any) {
 			console.error('Failed to load GitHub repositories:', err)

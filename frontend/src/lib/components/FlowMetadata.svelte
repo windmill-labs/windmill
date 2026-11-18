@@ -1,9 +1,10 @@
 <script lang="ts">
 	import { type Job } from '$lib/gen'
-	import { base } from '$lib/base'
 	import JobStatus from '$lib/components/JobStatus.svelte'
 	import { flowPathToHref } from '$lib/scripts'
+	import { agentRunHref } from '$lib/components/flows/conversations/agentEditorChat'
 	import { displayDate, truncateRev } from '$lib/utils'
+	import { isNewTabClick } from '$lib/navigation'
 	import ScheduleEditor from '$lib/components/triggers/schedules/ScheduleEditor.svelte'
 	import TimeAgo from './TimeAgo.svelte'
 	import { workspaceStore } from '$lib/stores'
@@ -18,6 +19,8 @@
 	}
 
 	let { job, scheduleEditor }: Props = $props()
+	// An agent's run is a flow preview, linked to the agent it ran.
+	const agentHref = $derived(job ? agentRunHref(job, $workspaceStore) : undefined)
 </script>
 
 <div
@@ -58,7 +61,7 @@
 					<BarsStaggered size={SMALL_ICON_SIZE} class="min-w-3.5" />
 					<span class="whitespace-nowrap">
 						Step of flow
-						<a href={`${base}/run/${job.parent_job}?workspace=${$workspaceStore}`}>
+						<a href={`/run/${job.parent_job}?workspace=${$workspaceStore}`}>
 							{truncateRev(job.parent_job, 18)}
 						</a>
 					</span>
@@ -68,9 +71,7 @@
 					<Bot size={SMALL_ICON_SIZE} class="min-w-3.5" />
 					<span class="whitespace-nowrap">
 						Triggered by parent
-						<a href={`${base}/run/${job.parent_job}?workspace=${$workspaceStore}`}>
-							{job.parent_job}</a
-						>
+						<a href={`/run/${job.parent_job}?workspace=${$workspaceStore}`}> {job.parent_job}</a>
 					</span>
 				</div>
 			{/if}
@@ -79,12 +80,14 @@
 				<Calendar size={SMALL_ICON_SIZE} class="min-w-3.5" />
 				<span class="whitespace-nowrap">
 					Schedule:
-					<!-- svelte-ignore a11y_invalid_attribute -->
 					<a
-						href="#"
+						href={`/schedules?workspace=${$workspaceStore}#${job.schedule_path}`}
 						class="break-words text-blue-600 font-normal"
-						onclick={() =>
-							scheduleEditor?.openEdit(job.schedule_path ?? '', job.job_kind == 'flow')}
+						onclick={(e) => {
+							if (isNewTabClick(e)) return
+							e.preventDefault()
+							scheduleEditor?.openEdit(job.schedule_path ?? '', job.job_kind == 'flow')
+						}}
 					>
 						{truncateRev(job.schedule_path, 40)}
 					</a>
@@ -92,12 +95,12 @@
 			</div>
 		{/if}
 
-		{#if (job && job.job_kind == 'flow') || job?.job_kind == 'script'}
+		{#if (job && job.job_kind == 'flow') || job?.job_kind == 'script' || agentHref}
 			{@const stem = `${job?.job_kind}s`}
 			{@const isScript = job?.job_kind === 'script'}
 			{@const viewHref = isScript
-				? `${base}/${stem}/get/${job?.script_hash}`
-				: flowPathToHref(job?.script_path ?? '')}
+				? `/${stem}/get/${job?.script_hash}`
+				: (agentHref ?? flowPathToHref(job?.script_path ?? ''))}
 			<div class="flex flex-row gap-2 items-center">
 				{#if isScript}
 					<Code2 size={SMALL_ICON_SIZE} class="min-w-3.5" />
@@ -128,6 +131,6 @@
 	</div>
 	<div class="text-secondary text-2xs pt-2 whitespace-nowrap">
 		run id:
-		<a href={`${base}/run/${job.id}?workspace=${job.workspace_id}`}> {job.id} </a>
+		<a href={`/run/${job.id}?workspace=${job.workspace_id}`}> {job.id} </a>
 	</div>
 </div>

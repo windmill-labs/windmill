@@ -1,87 +1,56 @@
 <script lang="ts" module>
-	import { handlerFullPath } from '$lib/components/ErrorOrRecoveryHandler.svelte'
-	import { SettingService, type ErrorHandler, type Retry } from '$lib/gen'
+	import { SettingService, type Retry } from '$lib/gen'
+	import {
+		handlerDraftFromStored,
+		handlerDraftToStored,
+		type HandlerDraft,
+		type HandlerMode
+	} from '$lib/components/handlerDraft.svelte'
 
 	export type ScheduleAdvancedState = {
-		errorHandlerSelected: ErrorHandler
-		errorHandlerPath: string | undefined
-		errorHandleritemKind: 'flow' | 'script'
-		errorHandlerExtraArgs: Record<string, any>
+		errorHandler: HandlerDraft
 		wsErrorHandlerMuted: boolean
 		failedTimes: number
 		failedExact: boolean
-		recoveryHandlerSelected: ErrorHandler
-		recoveryHandlerPath: string | undefined
-		recoveryHandlerItemKind: 'flow' | 'script'
-		recoveryHandlerExtraArgs: Record<string, any>
+		recoveryHandler: HandlerDraft
 		recoveredTimes: number
-		successHandlerSelected: ErrorHandler
-		successHandlerPath: string | undefined
-		successHandlerItemKind: 'flow' | 'script'
-		successHandlerExtraArgs: Record<string, any>
+		successHandler: HandlerDraft
 		retry: Retry | undefined
 		dynamicSkipPath: string | undefined
 		tag: string | undefined
 	}
 
+	/** A schedule handler stored as `<script|flow>/<path>`, or none (shown on the Slack tab). */
+	export function scheduleHandlerDraft(
+		mode: HandlerMode,
+		fullPath?: string | null,
+		args?: Record<string, any> | null
+	): HandlerDraft {
+		const [kind, ...path] = (fullPath ?? '').split('/')
+		return handlerDraftFromStored(mode, path.join('/'), kind === 'flow' ? 'flow' : 'script', args, {
+			emptySelected: 'slack'
+		})
+	}
+
+	/** The `<script|flow>/<path>` a schedule stores, with its extra args. */
+	export function scheduleHandlerStored(draft: HandlerDraft) {
+		const { path, kind, args } = handlerDraftToStored(draft)
+		return { path: path ? `${kind}/${path}` : undefined, args }
+	}
+
 	export function emptyScheduleAdvanced(): ScheduleAdvancedState {
 		return {
-			errorHandlerSelected: 'slack',
-			errorHandlerPath: undefined,
-			errorHandleritemKind: 'script',
-			errorHandlerExtraArgs: {},
+			errorHandler: scheduleHandlerDraft('error'),
 			wsErrorHandlerMuted: false,
 			failedTimes: 1,
 			failedExact: false,
-			recoveryHandlerSelected: 'slack',
-			recoveryHandlerPath: undefined,
-			recoveryHandlerItemKind: 'script',
-			recoveryHandlerExtraArgs: {},
+			recoveryHandler: scheduleHandlerDraft('recovery'),
 			recoveredTimes: 1,
-			successHandlerSelected: 'slack',
-			successHandlerPath: undefined,
-			successHandlerItemKind: 'script',
-			successHandlerExtraArgs: {},
+			successHandler: scheduleHandlerDraft('success'),
 			retry: undefined,
 			dynamicSkipPath: undefined,
 			tag: undefined
 		}
-	}
-
-	/** Which built-in handler a hub path is, or `custom`. */
-	export function getHandlerType(
-		isHandler: 'error' | 'recovery' | 'success',
-		scriptPath: string
-	): ErrorHandler {
-		const handlerMap = {
-			error: {
-				teams: '/workspace-or-schedule-error-handler-teams',
-				slack: '/workspace-or-schedule-error-handler-slack',
-				email: '/workspace-or-error-handler-email'
-			},
-			recovery: {
-				teams: '/schedule-recovery-handler-teams',
-				slack: '/schedule-recovery-handler-slack',
-				email: '/workspace-or-error-handler-email'
-			},
-			success: {
-				teams: '/schedule-success-handler-teams',
-				slack: '/schedule-success-handler-slack',
-				email: '/workspace-or-error-handler-email'
-			}
-		}
-
-		for (const [type, suffix] of Object.entries(handlerMap[isHandler])) {
-			if (scriptPath.startsWith('hub/') && scriptPath.endsWith(suffix)) {
-				return type as ErrorHandler
-			}
-		}
-		return 'custom'
-	}
-
-	const splitHandler = (path: string) => {
-		const [kind, ...rest] = path.split('/')
-		return { kind: kind as 'flow' | 'script', path: rest.join('/') }
 	}
 
 	/** The Advanced tabs of a new schedule: the workspace's default error, recovery
@@ -94,55 +63,48 @@
 			)
 		)) as any[]
 		if (err) {
-			const h = splitHandler(err.errorHandlerPath)
 			a.wsErrorHandlerMuted = err.wsErrorHandlerMuted
-			a.errorHandleritemKind = h.kind
-			a.errorHandlerPath = h.path
-			a.errorHandlerExtraArgs = err.errorHandlerExtraArgs
-			a.errorHandlerSelected = getHandlerType('error', h.path)
+			a.errorHandler = scheduleHandlerDraft(
+				'error',
+				err.errorHandlerPath,
+				err.errorHandlerExtraArgs
+			)
 			a.failedTimes = err.failedTimes
 			a.failedExact = err.failedExact
 		}
 		if (rec) {
-			const h = splitHandler(rec.recoveryHandlerPath)
-			a.recoveryHandlerItemKind = h.kind
-			a.recoveryHandlerPath = h.path
-			a.recoveryHandlerExtraArgs = rec.recoveryHandlerExtraArgs
-			a.recoveryHandlerSelected = getHandlerType('recovery', h.path)
+			a.recoveryHandler = scheduleHandlerDraft(
+				'recovery',
+				rec.recoveryHandlerPath,
+				rec.recoveryHandlerExtraArgs
+			)
 			a.recoveredTimes = rec.recoveredTimes
 		}
 		if (suc) {
-			const h = splitHandler(suc.successHandlerPath)
-			a.successHandlerItemKind = h.kind
-			a.successHandlerPath = h.path
-			a.successHandlerExtraArgs = suc.successHandlerExtraArgs
-			a.successHandlerSelected = getHandlerType('success', h.path)
+			a.successHandler = scheduleHandlerDraft(
+				'success',
+				suc.successHandlerPath,
+				suc.successHandlerExtraArgs
+			)
 		}
 		return a
 	}
 
 	/** The schedule fields the Advanced tabs own, as the schedule API takes them. */
 	export function scheduleAdvancedCfg(a: ScheduleAdvancedState) {
+		const error = scheduleHandlerStored(a.errorHandler)
+		const recovery = scheduleHandlerStored(a.recoveryHandler)
+		const success = scheduleHandlerStored(a.successHandler)
 		return {
-			on_failure: a.errorHandlerPath
-				? handlerFullPath(a.errorHandlerSelected, a.errorHandleritemKind, a.errorHandlerPath)
-				: undefined,
+			on_failure: error.path,
 			on_failure_times: a.failedTimes,
 			on_failure_exact: a.failedExact,
-			on_failure_extra_args: a.errorHandlerPath ? a.errorHandlerExtraArgs : undefined,
-			on_recovery: a.recoveryHandlerPath
-				? handlerFullPath(
-						a.recoveryHandlerSelected,
-						a.recoveryHandlerItemKind,
-						a.recoveryHandlerPath
-					)
-				: undefined,
+			on_failure_extra_args: error.path ? error.args : undefined,
+			on_recovery: recovery.path,
 			on_recovery_times: a.recoveredTimes,
-			on_recovery_extra_args: a.recoveryHandlerPath ? a.recoveryHandlerExtraArgs : {},
-			on_success: a.successHandlerPath
-				? handlerFullPath(a.successHandlerSelected, a.successHandlerItemKind, a.successHandlerPath)
-				: undefined,
-			on_success_extra_args: a.successHandlerPath ? a.successHandlerExtraArgs : {},
+			on_recovery_extra_args: recovery.args,
+			on_success: success.path,
+			on_success_extra_args: success.args,
 			ws_error_handler_muted: a.wsErrorHandlerMuted,
 			retry: a.retry,
 			tag: a.tag,
@@ -174,22 +136,13 @@
 		itemKind: 'flow' | 'script'
 		canWrite: boolean
 		loading?: boolean
-		errorHandlerSelected: ErrorHandler
-		errorHandlerPath: string | undefined
-		errorHandleritemKind: 'flow' | 'script'
-		errorHandlerExtraArgs: Record<string, any>
+		errorHandler: HandlerDraft
 		wsErrorHandlerMuted: boolean
 		failedTimes: number
 		failedExact: boolean
-		recoveryHandlerSelected: ErrorHandler
-		recoveryHandlerPath: string | undefined
-		recoveryHandlerItemKind: 'flow' | 'script'
-		recoveryHandlerExtraArgs: Record<string, any>
+		recoveryHandler: HandlerDraft
 		recoveredTimes: number
-		successHandlerSelected: ErrorHandler
-		successHandlerPath: string | undefined
-		successHandlerItemKind: 'flow' | 'script'
-		successHandlerExtraArgs: Record<string, any>
+		successHandler: HandlerDraft
 		retry: Retry | undefined
 		dynamicSkipPath: string | undefined
 		tag: string | undefined
@@ -200,22 +153,13 @@
 		itemKind,
 		canWrite,
 		loading = false,
-		errorHandlerSelected = $bindable(),
-		errorHandlerPath = $bindable(),
-		errorHandleritemKind = $bindable(),
-		errorHandlerExtraArgs = $bindable(),
+		errorHandler = $bindable(),
 		wsErrorHandlerMuted = $bindable(),
 		failedTimes = $bindable(),
 		failedExact = $bindable(),
-		recoveryHandlerSelected = $bindable(),
-		recoveryHandlerPath = $bindable(),
-		recoveryHandlerItemKind = $bindable(),
-		recoveryHandlerExtraArgs = $bindable(),
+		recoveryHandler = $bindable(),
 		recoveredTimes = $bindable(),
-		successHandlerSelected = $bindable(),
-		successHandlerPath = $bindable(),
-		successHandlerItemKind = $bindable(),
-		successHandlerExtraArgs = $bindable(),
+		successHandler = $bindable(),
 		retry = $bindable(),
 		dynamicSkipPath = $bindable(),
 		tag = $bindable()
@@ -233,29 +177,30 @@
 	// in the workspace this schedule lives in.
 	const wsParam = $derived(wsId ? `&workspace=${encodeURIComponent(wsId)}` : '')
 
+	const errorHandlerPath = $derived(scheduleHandlerStored(errorHandler).path)
+	const recoveryHandlerPath = $derived(scheduleHandlerStored(recoveryHandler).path)
+
 	async function saveAsDefaultErrorHandler(overrideExisting: boolean) {
 		if (!$enterpriseLicense) {
 			sendUserToast(`Setting default error handler is an enterprise edition feature`, true)
 			return
 		}
 		if (wsId) {
+			const handler = scheduleHandlerStored(errorHandler)
 			await ScheduleService.setDefaultErrorOrRecoveryHandler({
 				workspace: wsId!,
 				requestBody: {
 					handler_type: 'error',
 					override_existing: overrideExisting,
-					path:
-						errorHandlerPath == undefined
-							? undefined
-							: handlerFullPath(errorHandlerSelected, errorHandleritemKind, errorHandlerPath),
-					extra_args: errorHandlerExtraArgs,
+					path: handler.path,
+					extra_args: handler.args,
 					number_of_occurence: failedTimes,
 					number_of_occurence_exact: failedExact,
 					workspace_handler_muted: wsErrorHandlerMuted
 				}
 			})
-			if (errorHandlerPath !== undefined) {
-				sendUserToast(`Default error handler saved to ${errorHandlerPath}`, false)
+			if (handler.path !== undefined) {
+				sendUserToast(`Default error handler saved to ${handler.path}`, false)
 			} else {
 				sendUserToast(`Default error handler reset`, false)
 			}
@@ -268,25 +213,19 @@
 			return
 		}
 		if (wsId) {
+			const handler = scheduleHandlerStored(recoveryHandler)
 			await ScheduleService.setDefaultErrorOrRecoveryHandler({
 				workspace: wsId!,
 				requestBody: {
 					handler_type: 'recovery',
 					override_existing: overrideExisting,
-					path:
-						recoveryHandlerPath === undefined
-							? undefined
-							: handlerFullPath(
-									recoveryHandlerSelected,
-									recoveryHandlerItemKind,
-									recoveryHandlerPath
-								),
-					extra_args: recoveryHandlerExtraArgs,
+					path: handler.path,
+					extra_args: handler.args,
 					number_of_occurence: recoveredTimes
 				}
 			})
-			if (recoveryHandlerPath !== undefined) {
-				sendUserToast(`Default recovery handler saved to ${recoveryHandlerPath}`, false)
+			if (handler.path !== undefined) {
+				sendUserToast(`Default recovery handler saved to ${handler.path}`, false)
 			} else {
 				sendUserToast(`Default recovery handler reset`, false)
 			}
@@ -299,21 +238,19 @@
 			return
 		}
 		if (wsId) {
+			const handler = scheduleHandlerStored(successHandler)
 			await ScheduleService.setDefaultErrorOrRecoveryHandler({
 				workspace: wsId!,
 				requestBody: {
 					handler_type: 'success',
 					override_existing: overrideExisting,
-					path:
-						successHandlerPath === undefined
-							? undefined
-							: handlerFullPath(successHandlerSelected, successHandlerItemKind, successHandlerPath),
-					extra_args: successHandlerExtraArgs,
+					path: handler.path,
+					extra_args: handler.args,
 					number_of_occurence: recoveredTimes
 				}
 			})
-			if (successHandlerPath !== undefined) {
-				sendUserToast(`Default success handler saved to ${successHandlerPath}`, false)
+			if (handler.path !== undefined) {
+				sendUserToast(`Default success handler saved to ${handler.path}`, false)
 			} else {
 				sendUserToast(`Default success handler reset`, false)
 			}
@@ -377,12 +314,9 @@
 					isEditable={canWrite}
 					errorOrRecovery="error"
 					showScriptHelpText={true}
-					bind:handlerSelected={errorHandlerSelected}
-					bind:handlerPath={errorHandlerPath}
+					bind:draft={errorHandler}
 					toggleText="Alert channel on error"
 					customScriptTemplate="/scripts/add?hub=hub%2F19743%2Fwindmill%2Fschedule_error_handler_template"
-					bind:customHandlerKind={errorHandleritemKind}
-					bind:handlerExtraArgs={errorHandlerExtraArgs}
 				>
 					{#snippet customTabTooltip()}
 						<Tooltip>
@@ -471,12 +405,9 @@
 					workspace={wsId}
 					isEditable={!disabled}
 					errorOrRecovery="recovery"
-					bind:handlerSelected={recoveryHandlerSelected}
-					bind:handlerPath={recoveryHandlerPath}
+					bind:draft={recoveryHandler}
 					toggleText="Alert channel when error recovered"
 					customScriptTemplate="/scripts/add?hub=hub%2F9082%2Fwindmill%2Fschedule_recovery_handler_template"
-					bind:customHandlerKind={recoveryHandlerItemKind}
-					bind:handlerExtraArgs={recoveryHandlerExtraArgs}
 				>
 					{#snippet customTabTooltip()}
 						<Tooltip>
@@ -560,12 +491,9 @@
 					workspace={wsId}
 					isEditable={!disabled}
 					errorOrRecovery="success"
-					bind:handlerSelected={successHandlerSelected}
-					bind:handlerPath={successHandlerPath}
+					bind:draft={successHandler}
 					toggleText="Alert channel when successful"
 					customScriptTemplate="/scripts/add?hub=hub%2F9071%2Fwindmill%2Fschedule_success_handler_template"
-					bind:customHandlerKind={successHandlerItemKind}
-					bind:handlerExtraArgs={successHandlerExtraArgs}
 				>
 					{#snippet customTabTooltip()}
 						<Tooltip>

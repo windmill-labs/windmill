@@ -14,7 +14,6 @@ The menu adding a pipeline script downstream of an asset: opened from the asset'
 		language: ScriptLang,
 		scriptPath: string,
 		outputKind: PipelineOutputKind,
-		aiPrompt?: string,
 		options?: PipelineInsertOptions
 	) => void
 </script>
@@ -48,7 +47,6 @@ The menu adding a pipeline script downstream of an asset: opened from the asset'
 				pick.language as ScriptLang,
 				pick.path,
 				(pick.outputKind ?? 'none') as PipelineOutputKind,
-				pick.aiPrompt,
 				{ outputAsset: pick.outputAsset }
 			)
 		}

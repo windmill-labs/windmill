@@ -2,7 +2,7 @@
 	import { Button } from '$lib/components/common'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { ShieldCheck } from 'lucide-svelte'
-	import { sdkScopeDescription, sdkScopeLabel } from './sdkScopes'
+	import { sdkScopeDescription, sdkScopeLabel, sdkScopesToConfirm } from './sdkScopes'
 
 	let {
 		scopes,
@@ -35,7 +35,7 @@
 			The app's code will be able to call the Windmill API on your behalf, restricted to:
 		</p>
 		<ul class="flex flex-col gap-2">
-			{#each scopes as scope (scope)}
+			{#each sdkScopesToConfirm(scopes) as scope (scope)}
 				<li class="text-sm">
 					<span class="font-medium">{sdkScopeLabel(scope)}</span
 					>{#if sdkScopeDescription(scope)}<span class="text-tertiary"

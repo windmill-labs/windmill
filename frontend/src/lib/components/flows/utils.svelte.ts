@@ -207,7 +207,8 @@ export async function runFlowPreview(
 	tempScriptRefs?: Record<string, string>,
 	// The session's acting workspace when previewing inside an AI-session flow
 	// editor; falls back to the navigation workspace for full-page previews.
-	workspace?: string
+	workspace?: string,
+	onBehalfOf?: string
 ) {
 	const ws = workspace ?? get(workspaceStore) ?? ''
 	const value = await withAgentDrafts(flow.value, ws)
@@ -219,7 +220,8 @@ export async function runFlowPreview(
 			path: path,
 			tag: flow.tag,
 			restarted_from: restartedFrom,
-			temp_script_refs: tempScriptRefs
+			temp_script_refs: tempScriptRefs,
+			on_behalf_of: onBehalfOf
 		},
 		memoryId: conversationId
 	})

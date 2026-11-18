@@ -258,6 +258,8 @@ async fn restore_flow(tx: &mut sqlx::PgConnection, item: &TrashItemWithData) -> 
         .execute(&mut *tx)
         .await?;
 
+    trashbin::restore_flow_versions(&mut *tx, &item.workspace_id, &item.item_path, item.id).await?;
+
     // Restore flow_versions
     if let Some(versions) = data.get("flow_versions").and_then(|v| v.as_array()) {
         for version in versions {

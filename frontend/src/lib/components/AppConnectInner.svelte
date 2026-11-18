@@ -25,7 +25,7 @@
 	import { registryEntryFor, registryCcCapableFor, stripSandboxSuffix } from './oauthRegistry'
 	import { createEventDispatcher, onDestroy, tick } from 'svelte'
 	import Path from './Path.svelte'
-	import { ListRow, RadioCard, Skeleton } from './common'
+	import { Badge, ListRow, RadioCard, Skeleton } from './common'
 	import { useListHighlight } from './common/listRow/listHighlight.svelte'
 	import ApiConnectForm from './ApiConnectForm.svelte'
 	import SearchItems from './SearchItems.svelte'
@@ -33,7 +33,6 @@
 	import { sendUserToast } from '$lib/toast'
 	import OauthScopes from './OauthScopes.svelte'
 	import autosize from '$lib/autosize'
-	import { base } from '$lib/base'
 	import Required from './Required.svelte'
 	import Toggle from './Toggle.svelte'
 	import { Pen, Search } from 'lucide-svelte'
@@ -54,6 +53,8 @@
 	import ResourcePathHint from './ResourcePathHint.svelte'
 	import SchemaForm from './SchemaForm.svelte'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import type { NativeConnect } from './triggers/native/utils'
+	import { aiResourceTypeAlternative } from './copilot/aiResourceProvider'
 
 	const operatingWorkspace = useOperatingWorkspace()
 
@@ -74,6 +75,11 @@
 		 * Opt-in: without it this flow still refuses to write over anything.
 		 */
 		fillPath?: string
+		/**
+		 * Connect a native trigger account: only the path is asked, and `connect` runs the
+		 * popup through the trigger service's OAuth app, whose callback saves the connection.
+		 */
+		native?: NativeConnect
 	}
 
 	let {
@@ -84,7 +90,8 @@
 		manual = $bindable(true),
 		express = false,
 		workspace = undefined,
-		fillPath = undefined
+		fillPath = undefined,
+		native = undefined
 	}: Props = $props()
 
 	let effectiveWorkspace = $derived(workspace ?? $operatingWorkspace!)
@@ -179,7 +186,6 @@
 	 * toggling back from client-credentials can restore them. */
 	let instanceScopes: string[] = $state([])
 	let extra_params: [string, string][] = []
-	let responseExtra: Record<string, string> = $state({})
 	let path: string = $state('')
 	let description = $state('')
 	let labels: string[] | undefined = $state(undefined)
@@ -213,6 +219,7 @@
 			: undefined
 	)
 	let defaultName = $derived(tokenKind ? `${resourceType}_${tokenKind}` : resourceType)
+	let providerName = $derived(resourceTypeDisplayName(resourceType))
 	/** Last description filled in from `tokenKind`, replaced on reconnect unless the user edited it. */
 	let generatedDescription = ''
 
@@ -251,6 +258,23 @@
 	// decide whether to open this dialog at all, so the two cannot disagree.
 	function registryEntry(): any {
 		return registryEntryFor(connectClient, resourceType)
+	}
+
+	let resourceTypeAlternative = $derived(aiResourceTypeAlternative(resourceType, args))
+
+	async function switchToResourceType(rt: string, carry: string[] = []) {
+		const carried = Object.fromEntries(
+			carry.filter((key) => args?.[key] !== undefined).map((key) => [key, args[key]])
+		)
+		connectClient = rt
+		resourceType = rt
+		linkedSecrets = []
+		args = {}
+		await getResourceTypeInfo()
+		// The form remounts on the new type's schema and starts from empty arguments, so the
+		// fields worth keeping go in after it has.
+		await tick()
+		args = { ...args, ...carried }
 	}
 
 	/** The static registry declares this provider supports client credentials */
@@ -321,6 +345,15 @@
 		() =>
 			authCodeUnavailable ||
 			(registryCcCapable() && connectClient != '' && !(connects?.includes(connectClient) ?? false))
+	)
+
+	/** The provider also has a browser sign-in, unavailable here only because the
+	 * instance holds no OAuth client for it */
+	let signInNeedsInstanceClient = $derived.by(
+		() =>
+			(registryEntry()?.grant_types?.includes('authorization_code') ?? false) &&
+			connectClient != '' &&
+			!(connects?.includes(connectClient) ?? false)
 	)
 
 	/** Clear CC inputs and scopes so a previous selection never leaks into a new one */
@@ -411,6 +444,13 @@
 	let pathError = $state('')
 
 	export async function open(rt?: string) {
+		if (native) {
+			resourceType = rt ?? ''
+			manual = false
+			path = ''
+			step = 4
+			return
+		}
 		if (!rt) {
 			loadResourceTypes()
 			loadPopularity()
@@ -499,7 +539,7 @@
 	// authorize endpoint counts; `google` itself is a login provider, not a registry entry.
 	run(() => {
 		isGoogleSignin =
-			step == 2 &&
+			(step == 2 || (!!native && step == 4)) &&
 			!manual &&
 			(resourceType == 'google' ||
 				(registryEntryFor(resourceType)?.auth_url?.startsWith('https://accounts.google.com/') ??
@@ -524,7 +564,7 @@
 							clientSecret.trim() == '' ||
 							(!!ccInstanceMeta && ccInstance.trim() == '')))) ||
 			step == 3 ||
-			(step == 4 && pathError != '') ||
+			(step == 4 && (pathError != '' || (!!native && !path))) ||
 			!isValid
 	})
 
@@ -650,7 +690,7 @@
 			resourceType = stripSandboxSuffix(connectClient)
 			value = data.res.access_token!
 			valueToken = data.res
-			responseExtra = data.extra ?? {}
+			Object.assign(args, data.res.resource_fields ?? {})
 			fillGeneratedDescription()
 			step = 4
 			// `fillPath` decides the path as surely as express does, so neither stops here.
@@ -721,6 +761,16 @@
 		}
 	}
 	export async function next() {
+		if (native) {
+			step = 3
+			try {
+				await native.connect(path)
+				dispatch('close')
+			} catch {
+				step = 4
+			}
+			return
+		}
 		if (step == 1) {
 			linkedSecrets = []
 			// Both branches: the OAuth one fills `resourceFields` into the same map, and fields
@@ -927,13 +977,10 @@
 					}
 				}
 			}
-			if (resourceType === 'quickbooks' && responseExtra['realmId']) {
-				args['realmId'] = responseExtra['realmId']
-			}
 
-			let account: number | undefined = undefined
+			let accountData: any = undefined
 			if (valueToken?.expires_in != undefined) {
-				const accountData: any = {
+				accountData = {
 					refresh_token: valueToken.refresh_token ?? '',
 					expires_in: valueToken.expires_in,
 					client: connectClient,
@@ -962,13 +1009,6 @@
 						accountData.cc_token_url = tokenUrl.trim()
 					}
 				}
-
-				account = Number(
-					await OauthService.createAccount({
-						workspace: effectiveWorkspace,
-						requestBody: accountData
-					})
-				)
 			}
 
 			// A copy: the form is still mounted and bound to `args` across the awaits below, and
@@ -987,21 +1027,27 @@
 				// OAuth flow: single secret variable for the token
 				if (typeof value == 'string' && value != '' && !value.startsWith('$var:')) {
 					savedVariableCount++
-					await VariableService.createVariable({
-						workspace: effectiveWorkspace,
-						requestBody: {
-							path,
-							value: value,
-							is_secret: true,
-							description: emptyString(description)
-								? `OAuth token for ${resourceType}`
-								: description,
-							is_oauth: true,
-							account: account,
-							ws_specific: wsSpecific
-						}
-					})
-					resourceValue['token'] = `$var:${path}`
+					const tokenVariable = {
+						path,
+						value: value,
+						is_secret: true,
+						description: emptyString(description) ? `OAuth token for ${resourceType}` : description,
+						is_oauth: true,
+						ws_specific: wsSpecific
+					}
+					if (accountData) {
+						// Creates the variable with the account it refreshes through, in one transaction.
+						await OauthService.createAccount({
+							workspace: effectiveWorkspace,
+							requestBody: { ...accountData, variable: tokenVariable }
+						})
+					} else {
+						await VariableService.createVariable({
+							workspace: effectiveWorkspace,
+							requestBody: tokenVariable
+						})
+					}
+					resourceValue['token'] = `$var:${tokenVariable.path}`
 				}
 			} else if (linkedSecrets.length === 1) {
 				// Single secret: use the resource path as variable name (original behavior)
@@ -1400,11 +1446,7 @@
 				</div>
 				{#if apiTokenApps[resourceType].img}
 					<div class="mt-4 w-full overflow-hidden">
-						<img
-							class="m-auto max-h-60"
-							alt="connect"
-							src={base + apiTokenApps[resourceType].img}
-						/>
+						<img class="m-auto max-h-60" alt="connect" src={apiTokenApps[resourceType].img} />
 					</div>
 				{/if}
 			{/if}
@@ -1451,7 +1493,19 @@
 					onclick={() => enableClientCredentials()}
 					class="text-xs font-normal text-accent w-fit -mt-4"
 				>
-					Acquire the token automatically via client credentials instead
+					Connect as an app with a client ID and secret instead
+				</button>
+			{/if}
+			{#if resourceTypeAlternative}
+				<button
+					onclick={() =>
+						switchToResourceType(
+							resourceTypeAlternative.resourceType,
+							resourceTypeAlternative.carry
+						)}
+					class="text-xs font-normal text-accent w-fit -mt-4"
+				>
+					{resourceTypeAlternative.label}
 				</button>
 			{/if}
 			<!-- The form is a section of its own, not just the next field: it needs more of a break
@@ -1489,16 +1543,11 @@
 						>Create a resource backed by an OAuth connection, whose token is fetched from the
 						external services and refreshed automatically if needed before expiration.</div
 					>
-					{#if ccBringYourOwn}
-						<button
-							onclick={() => {
-								manual = true
-								useClientCredentials = false
-							}}
-							class="text-xs font-normal text-accent w-fit mt-2"
-						>
-							Create resource manually instead
-						</button>
+					<!-- With client credentials, the Authentication section says whose identity applies. -->
+					{#if !supportsClientCredentials && !registryEntry()?.user_scopes}
+						<div class="text-xs text-secondary font-normal mt-1">
+							The connection acts as you, with your {providerName} account's access.
+						</div>
 					{/if}
 				</div>
 
@@ -1515,14 +1564,14 @@
 				{#if supportsClientCredentials}
 					<div class="flex flex-col gap-1">
 						<h3 class="text-sm font-semibold text-emphasis mb-1">Authentication</h3>
-						{#if ccOnly || ccBringYourOwn}
+						{#if (ccOnly || ccBringYourOwn) && !signInNeedsInstanceClient}
 							<div class="text-xs text-secondary font-normal mb-2">
 								{#if useSharedInstanceCreds}
-									{resourceType} connects server-to-server using the credentials configured for this
-									instance. The token is acquired and refreshed automatically.
+									{providerName} connects as the app your admin set up for this instance, not as you.
+									No input needed.
 								{:else}
-									{resourceType} connects server-to-server. Enter a client ID and secret; the token is
-									acquired and refreshed automatically.
+									{providerName} connects as an app, not as you. Enter the client ID and secret of an
+									app registered in {providerName}.
 								{/if}
 							</div>
 						{:else}
@@ -1534,23 +1583,46 @@
 								aria-label="How to authenticate"
 							>
 								<RadioCard
-									label={`Sign in through ${resourceType}`}
-									description="Opens a browser window to log in and authorize. Connects as you."
+									label={`Log in with your ${providerName} account`}
+									description={signInNeedsInstanceClient
+										? `Needs an OAuth client for ${providerName} in the instance settings, added by a superadmin.`
+										: 'Opens a browser window to authorize. The connection acts as you.'}
 									selected={!useClientCredentials}
 									onSelect={selectAuthCodeGrant}
+									disabled={signInNeedsInstanceClient}
+									badge={authCodeBadge}
 								/>
+								{#snippet authCodeBadge()}
+									<span class="text-2xs text-secondary font-normal">Authorization code</span>
+									{#if signInNeedsInstanceClient}
+										<Badge verySmall class="px-2">Instance setup needed</Badge>
+									{/if}
+								{/snippet}
 								<RadioCard
 									label={useSharedInstanceCreds
-										? 'Use the configured instance credentials'
-										: 'Use a client ID and secret'}
+										? "Connect as this instance's app"
+										: 'Connect as an app'}
 									description={useSharedInstanceCreds
-										? "Runs server-to-server with this instance's credentials. No input needed."
-										: 'Runs server-to-server. Best for automation or service accounts.'}
+										? 'Uses the app your admin set up. No input needed. The connection acts as that app, not as you.'
+										: `Enter the client ID and secret of an app registered in ${providerName}. The connection acts as that app, not as you.`}
 									selected={useClientCredentials}
 									onSelect={() => enableClientCredentials()}
+									badge={clientCredentialsBadge}
 								/>
+								{#snippet clientCredentialsBadge()}
+									<span class="text-2xs text-secondary font-normal">Client credentials</span>
+								{/snippet}
 							</div>
 						{/if}
+						<button
+							onclick={() => {
+								manual = true
+								useClientCredentials = false
+							}}
+							class="text-xs font-normal text-accent w-fit mb-2"
+						>
+							Create resource manually instead
+						</button>
 
 						{#if useClientCredentials && !useSharedInstanceCreds}
 							<form class="flex flex-col gap-6">
@@ -1643,47 +1715,56 @@
 		<Label label="Path">
 			<Path
 				initialPath=""
-				namePlaceholder={defaultName}
+				namePlaceholder={native?.defaultName ?? defaultName}
+				fullNamePlaceholder={native?.defaultName}
 				bind:error={pathError}
 				bind:path
 				kind="resource"
 			/>
 		</Label>
-		<LabelsInput bind:labels class="-mt-5" />
-		{#if deployTo}
-			<Label
-				label="Workspace specific"
-				tooltip="Prevents this resource from being deployed to prod/staging"
-			>
-				<Toggle bind:checked={wsSpecific} />
-			</Label>
-		{/if}
-		<!-- Not for express or `fillPath`, which save as soon as the token arrives: the fields
+		{#if native}
+			<p class="text-xs text-secondary">
+				The account is saved as a resource and its token as a variable at this path. Anyone who can
+				read them can create triggers that act as this account.
+			</p>
+		{:else}
+			<LabelsInput bind:labels class="-mt-5" />
+			{#if deployTo}
+				<Label
+					label="Workspace specific"
+					tooltip="Prevents this resource from being deployed to prod/staging"
+				>
+					<Toggle bind:checked={wsSpecific} />
+				</Label>
+			{/if}
+			<!-- Not for express or `fillPath`, which save as soon as the token arrives: the fields
 		     are then filled by editing the resource. -->
-		{#if step == 4 && !manual && !express && !fillPath && resourceFields.length > 0}
-			<Label
-				label="Connection details"
-				tooltip="Saved on the resource with the token, and editable later"
-				class="mt-6"
-			>
-				<SchemaForm onlyMaskPassword noDelete schema={resourceFieldsSchema} bind:args />
-			</Label>
-		{/if}
-		{#if apiTokenApps[resourceType] || !manual}
-			<ul class="mt-6">
-				<li class="text-xs text-primary font-normal">
-					1. A secret variable containing the {apiTokenApps[resourceType]?.linkedSecret ?? 'token'}
-					<span class="font-semibold text-emphasis">{truncateRev(value, 5, '*****')}</span>
-					will be stored a
-					<span class="font-mono whitespace-nowrap text-emphasis">{path}</span>.
-				</li>
-				<li class="mt-2 text-xs text-primary font-normal">
-					2. The resource containing that token will be stored at the same path <span
-						class="font-mono whitespace-nowrap text-emphasis">{path}</span
-					>. The Variable and Resource will be "linked together", they will be deleted and renamed
-					together.
-				</li></ul
-			>
+			{#if step == 4 && !manual && !express && !fillPath && resourceFields.length > 0}
+				<Label
+					label="Connection details"
+					tooltip="Saved on the resource with the token, and editable later"
+					class="mt-6"
+				>
+					<SchemaForm onlyMaskPassword noDelete schema={resourceFieldsSchema} bind:args />
+				</Label>
+			{/if}
+			{#if apiTokenApps[resourceType] || !manual}
+				<ul class="mt-6">
+					<li class="text-xs text-primary font-normal">
+						1. A secret variable containing the {apiTokenApps[resourceType]?.linkedSecret ??
+							'token'}
+						<span class="font-semibold text-emphasis">{truncateRev(value, 5, '*****')}</span>
+						will be stored a
+						<span class="font-mono whitespace-nowrap text-emphasis">{path}</span>.
+					</li>
+					<li class="mt-2 text-xs text-primary font-normal">
+						2. The resource containing that token will be stored at the same path <span
+							class="font-mono whitespace-nowrap text-emphasis">{path}</span
+						>. The Variable and Resource will be "linked together", they will be deleted and renamed
+						together.
+					</li></ul
+				>
+			{/if}
 		{/if}
 	{/if}
 {/if}

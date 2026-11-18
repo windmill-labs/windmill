@@ -49,7 +49,7 @@ export async function main(url: string) {
 
 ## Pure computation: `//no_network`
 
-A native script that only transforms its inputs can declare `//no_network` in its leading comment block (right after `//native`). The runtime then refuses every connection the script attempts: `fetch` to any host, the Windmill API (so `windmill-client` calls fail too), raw sockets and unix sockets, and `WM_TOKEN` is not set. It only takes effect on native scripts: without `//native` it is ignored. Use it only when the script needs no external data beyond its arguments:
+A native script that only transforms its inputs can declare `//no_network` in its leading comment block (right after `//native`). The runtime then refuses every connection the script attempts: `fetch` to any host, the Windmill API (so `windmill-client` calls fail too), raw sockets and unix sockets, and `WM_TOKEN` is not set. Without `//native` it means something else: the script must run in an nsjail sandbox (`//sandbox`, or instance-wide sandboxing), which then loses its network, and it fails to run otherwise. Use it only when the script needs no external data beyond its arguments:
 
 ```typescript
 //native

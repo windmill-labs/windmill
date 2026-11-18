@@ -1,5 +1,7 @@
 import { getContext, setContext } from 'svelte'
 import type { AIMode, AIAutonomyMode } from './AIChatManager.svelte'
+import type { AIWorkMode } from './workMode'
+import type { ReasoningProviderModel } from '../reasoningRegistry'
 import { getAiChatManager } from './aiChatManagerContext'
 import type { DisplayMessage, Tool } from './shared'
 import type { ContextElement } from './context'
@@ -7,6 +9,7 @@ import type { AttachedBlob } from './blobUtils'
 import type { AttachedImage } from './imageUtils'
 import type { AttachedTextFile } from './textFileUtils'
 import type { PasteAttachment } from './pasteTokens'
+import type { ScopeDecision } from './workingScope'
 import type { AttachedFilesStore } from './files/attachedFiles.svelte'
 import type { SessionArtifactsStore } from './artifacts/artifactsState.svelte'
 import type { ArtifactVersionTarget } from '$lib/components/sessions/previewRouter'
@@ -52,6 +55,9 @@ export interface ChatViewHost {
 	 * pins away from the navigated one. */
 	readonly operatingWorkspace: string | undefined
 	loading: boolean
+	/** The turn has answered and waits on work running in the background: still `loading`, so
+	 * Stop stays, but nothing is being written. */
+	readonly backgroundWait?: boolean
 	/** A send waiting for the chat's transcript to be restored; queue behind it. */
 	sendPending: boolean
 	/** A turn this tab can neither follow nor stop, held by another tab on the same chat. */
@@ -72,7 +78,11 @@ export interface ChatViewHost {
 	/** Resolves to whether the draft was consumed as a turn. */
 	sendRequest: (options?: ChatSendRequestOptions) => Promise<boolean | undefined>
 	cancel: (reason?: string) => void
-	setAiChatInput: (aiChatInput: AIChatInput | null) => void
+	setAiChatInput: (aiChatInput: AIChatInput) => void
+	/** Unregisters `aiChatInput` if it is still the registered one. A host's chat can remount
+	 * elsewhere (Home hands its session to /sessions), and the new composer may register before
+	 * the old one's teardown runs. */
+	releaseAiChatInput: (aiChatInput: AIChatInput) => void
 	readonly queuedMessage: string
 	queuedContext: ContextElement[] | undefined
 	readonly queuedImages: AttachedImage[]
@@ -86,6 +96,17 @@ export interface ChatViewHost {
 		blobs?: AttachedBlob[]
 	) => void
 	dequeueMessage: () => void
+	/** Whether a user stop (Esc, Stop) sends the queued message right away. Where it is
+	 * false the stop hands the queue back to the composer, and the queued chip must not
+	 * advertise Esc as "send now". */
+	readonly stopSendsQueuedMessage: boolean
+	/** Whether the queued message can go into the running turn once its running tool calls
+	 * finish, instead of after the turn (Ctrl+Enter). Off where the turn runs as one job on
+	 * the server, which leaves no point to add a message at. */
+	readonly supportsMidTurnMessages: boolean
+	/** The queued message is marked to go into the running turn. */
+	readonly queuedSendsMidTurn: boolean
+	sendQueuedMidTurn: () => void
 	setComposerStaged: (key: string, editingIndex: number | null, bytes: number) => void
 	/** Whether this composer holds anything unsent (text, pastes, attachments, reads in flight). */
 	setComposerHasDraft: (key: string, hasDraft: boolean) => void
@@ -105,6 +126,7 @@ export interface ChatViewHost {
 	) => void | Promise<void>
 	handleUserQuestionAnswer: (toolId: string, choices: string[]) => boolean
 	handleToolConfirmation: (toolId: string, confirmed: boolean) => void
+	handleScopeDecision: (toolId: string, decision: ScopeDecision) => void
 	/** A tool is waiting on a run form the user is filling in. Escape belongs to that form
 	 * then, not to the turn — see AIChatDisplay's window handler. */
 	readonly hasPendingRunForm: boolean
@@ -114,8 +136,14 @@ export interface ChatViewHost {
 	// of their own; the chrome they drive hides itself.
 	mode?: AIMode
 	isSessionChat: boolean
+	/** Someone else's transcript, replayed for a reader who did not write it: markup that
+	 * would execute or render beyond plain text (mermaid diagrams) stays off. */
+	untrustedTranscript?: boolean
 	/** Model + reasoning picker. Off where the model is configured elsewhere. */
 	supportsModelSettings: boolean
+	/** The model the host's next turn sends, where `supportsModelSettings` is on. */
+	readonly currentModel?: ReasoningProviderModel
+
 	/** Click a user message to edit and resend it. Needs a host that can rewind
 	 * its own transcript, which a host replaying a server-side run cannot. */
 	supportsMessageEditing: boolean
@@ -153,6 +181,10 @@ export interface ChatViewHost {
 	readonly tools: readonly Tool<any>[]
 	autonomyMode: AIAutonomyMode
 	setAutonomyMode: (mode: AIAutonomyMode) => void
+	/** Use, Plan or Build: offered by a session chat only. */
+	readonly workModesAvailable: boolean
+	workMode: AIWorkMode
+	setWorkMode: (mode: AIWorkMode) => void
 	readonly autoAcceptEditsActive: boolean
 	readonly autoAcceptEditsAvailable: boolean
 	readonly autoAcceptToolConfirmationsAvailable: boolean

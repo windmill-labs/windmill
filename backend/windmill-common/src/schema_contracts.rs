@@ -545,11 +545,10 @@ pub async fn check_schema_contracts(
         let producer_specs: HashMap<String, Option<MaterializeSpec>> = producer_rows
             .into_iter()
             .map(|r| {
-                (
-                    r.path,
-                    windmill_parser::asset_parser::parse_pipeline_annotations(&r.content)
-                        .materialize,
-                )
+                let spec = windmill_parser::asset_parser::parse_pipeline_annotations(&r.content)
+                    .for_script(&r.path)
+                    .materialize;
+                (r.path, spec)
             })
             .collect();
 

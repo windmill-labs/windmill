@@ -145,3 +145,16 @@ test("an app is listed once however many of its files changed", async () => {
 
   expect(message).toContain("2 item(s)");
 });
+
+// An agent has an identity only while `run_on_behalf_of` is on, so only then
+// can a push take it over.
+test("an agent warns only while it runs on behalf of someone", async () => {
+  const agent = (run: boolean) => ({
+    name: "edited" as const,
+    path: "f/test/bot.resource.yaml",
+    before: `resource_type: ai_agent\nvalue:\n  system_prompt: hi\n  run_on_behalf_of: ${run}\n`,
+  });
+
+  expect(await precheck([agent(true)])).toContain("f/test/bot.resource.yaml");
+  expect(await precheck([agent(false)])).toBeUndefined();
+});

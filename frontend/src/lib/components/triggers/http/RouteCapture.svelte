@@ -3,7 +3,6 @@
 	import CopyableCodeBlock from '$lib/components/details/CopyableCodeBlock.svelte'
 	import { bash } from 'svelte-highlight/languages'
 	// import { page } from '$app/state'
-	import { base } from '$lib/base'
 	import type { CaptureInfo } from '../CaptureSection.svelte'
 	import CaptureSection from '../CaptureSection.svelte'
 	import { isObject } from '$lib/utils'
@@ -36,7 +35,7 @@
 	const wsId = $derived($operatingWorkspace)
 
 	let captureURL = $derived(
-		`${location.origin}${base}/api/w/${wsId}/capture_u/http/${
+		`${location.origin}/api/w/${wsId}/capture_u/http/${
 			captureInfo?.isFlow ? 'flow' : 'script'
 		}/${captureInfo?.path.replaceAll('/', '.')}/${route_path ?? ''}`
 	)

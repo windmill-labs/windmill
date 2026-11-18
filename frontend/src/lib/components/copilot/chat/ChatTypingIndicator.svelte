@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { Hourglass } from 'lucide-svelte'
+	import { formatElapsed } from './liveElapsed'
 
 	let {
 		loading,
@@ -33,17 +34,6 @@
 			clearInterval(interval)
 		}
 	})
-
-	function formatElapsed(ms: number): string {
-		const total = Math.max(0, Math.floor(ms / 1000))
-		if (total < 60) return `${total}s`
-		const m = Math.floor(total / 60)
-		const s = total % 60
-		if (m < 60) return s === 0 ? `${m}m` : `${m}m ${s}s`
-		const h = Math.floor(m / 60)
-		const rm = m % 60
-		return rm === 0 ? `${h}h` : `${h}h ${rm}m`
-	}
 </script>
 
 {#if paused}

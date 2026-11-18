@@ -7,9 +7,8 @@
 		WorkspaceService
 	} from '$lib/gen'
 	import { canWrite, displayDate, getLocalSetting, pluralize, storeLocalSetting } from '$lib/utils'
-	import { useScheduleLock } from '$lib/operatorWriteRights'
+	import { useEditRights, useScheduleLock } from '$lib/operatorWriteRights'
 	import { withForkConflictRetry } from '$lib/utils/forkConflict'
-	import { base } from '$app/paths'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import { Badge, Button, EmptyState, Skeleton } from '$lib/components/common'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
@@ -22,7 +21,7 @@
 	import InheritedLabels from '$lib/components/InheritedLabels.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
-	import { userWorkspaces, enterpriseLicense } from '$lib/stores'
+	import { enterpriseLicense } from '$lib/stores'
 	import {
 		Calendar,
 		Circle,
@@ -35,11 +34,11 @@
 		Play,
 		Plus,
 		SearchX,
-		Shield,
 		Trash,
-		TriangleAlert
+		TriangleAlert,
+		UserPlus
 	} from 'lucide-svelte'
-	import { goto } from '$lib/navigation'
+	import { isNewTabClick } from '$lib/navigation'
 	import { sendUserToast } from '$lib/toast'
 	import FilterSearchbar, {
 		hasActiveFilters,
@@ -68,6 +67,7 @@
 		useOperatingUser
 	} from '$lib/components/operatingWorkspace.svelte'
 	const scheduleLock = useScheduleLock()
+	const editRights = useEditRights()
 
 	const operatingWorkspace = useOperatingWorkspace()
 	const operatingUser = useOperatingUser()
@@ -78,11 +78,9 @@
 		else scheduleEditor?.openEdit(path, isFlow)
 	}
 
-	type ScheduleW = ScheduleWJobs & { canWrite: boolean }
-
 	const MISSED_VISIBLE_MS = 7 * 24 * 60 * 60 * 1000
 
-	let schedules: ScheduleW[] = $state([])
+	let schedules: ScheduleWJobs[] = $state([])
 	let shareModal: ShareModal | undefined = $state()
 	let loading = $state(true)
 	let loadingSchedulesWithJobStats = $state(true)
@@ -144,9 +142,7 @@
 			apiParams.label = currentFilters.label
 		}
 
-		const result = (await ScheduleService.listSchedules(apiParams)).map((x) => {
-			return { canWrite: canWrite(x.path, x.extra_perms!, operatingUser.current), ...x }
-		})
+		const result: ScheduleWJobs[] = await ScheduleService.listSchedules(apiParams)
 		if (generation !== loadGeneration) return
 
 		// Extract unique values for autocomplete
@@ -164,20 +160,16 @@
 		loadSchedulesWithJobStats(generation)
 	}
 
-	// One effect for every reason to reload (filters, workspace, user), so that mounting
-	// issues a single load rather than one per reason. Waits for the user lookup to settle,
-	// not for a user: a failed lookup still lists, read-only.
 	$effect(() => {
 		filters.val
-		operatingUser.current
-		if ($operatingWorkspace && operatingUser.resolved($operatingWorkspace)) {
+		if ($operatingWorkspace) {
 			untrack(() => loadSchedules())
 		}
 	})
 
 	async function loadSchedulesWithJobStats(generation: number): Promise<void> {
 		loadingSchedulesWithJobStats = true
-		let schedulesWithJobsByPath = new Map<string, ScheduleW>()
+		let schedulesWithJobsByPath = new Map<string, ScheduleWJobs>()
 		let schedulesWithJobsList = await ScheduleService.listSchedulesWithJobs({
 			workspace: $operatingWorkspace!
 		})
@@ -288,8 +280,8 @@
 	)
 	let filters = useUrlSyncedFilterInstance(untrack(() => schedulesFilterSchema))
 	// A link can carry the user folders filter to someone it is not offered to, where it would sit
-	// set with no chip to clear it. Dropped only once a user is actually known: `resolved` holds for
-	// the navigation workspace even while its user is still loading.
+	// set with no chip to clear it. Dropped only once a user is actually known: `resolved` also
+	// holds for a lookup that came back with nobody.
 	$effect(() => {
 		if (!operatingUser.resolved($operatingWorkspace) || !operatingUser.current) return
 		if (userFoldersFilterType !== undefined) return
@@ -343,7 +335,7 @@
 	})
 
 	function filterItemsPathsBaseOnUserFilters(
-		item: ScheduleW,
+		item: ScheduleWJobs,
 		selectedFilterKind: 'schedule' | 'script_flow',
 		userFoldersOnly: boolean
 	) {
@@ -365,7 +357,7 @@
 	}
 
 	function filterItemsBasedOnEnabledDisabled(
-		item: ScheduleW,
+		item: ScheduleWJobs,
 		filterEnabledDisabled: 'all' | 'enabled' | 'disabled'
 	) {
 		// Draft-only rows have nothing deployed, so they read as disabled here
@@ -391,7 +383,7 @@
 	let items = $derived(filteredItems)
 </script>
 
-{#snippet scheduleRow(s: ScheduleW, inTree: boolean, depth: number)}
+{#snippet scheduleRow(s: ScheduleWJobs, inTree: boolean, depth: number)}
 	{@const {
 		path,
 		error,
@@ -404,7 +396,6 @@
 		script_path,
 		is_flow,
 		extra_perms,
-		canWrite,
 		jobs,
 		late_run_streak,
 		missed_occurrences,
@@ -416,7 +407,7 @@
 		is_draft
 	} = s}
 	{@const hasDraft = getLocalDraftHint($operatingWorkspace, 'trigger_schedule', path) ?? is_draft}
-	{@const canEdit = canWrite && !$scheduleLock}
+	{@const canEdit = editRights.canEditItem('schedule', path, extra_perms)}
 	{@const href = `${is_flow ? '/flows/get' : '/scripts/get'}/${script_path}`}
 	{@const avg_s = jobs ? jobs.reduce((acc, x) => acc + x.duration_ms, 0) / jobs.length : undefined}
 
@@ -434,7 +425,8 @@
 
 			<a
 				href="#{path}"
-				onclick={() => {
+				onclick={(e) => {
+					if (!hosted && isNewTabClick(e)) return
 					handledHash = `#${path}`
 					editSchedule(path, is_flow)
 				}}
@@ -493,7 +485,10 @@
 			</div>
 
 			<div class="hidden lg:flex flex-row gap-1 items-center">
-				<SharedBadge {canWrite} extraPerms={extra_perms} />
+				<SharedBadge
+					canWrite={canWrite(path, extra_perms!, operatingUser.current)}
+					extraPerms={extra_perms}
+				/>
 			</div>
 
 			<div class="w-10">
@@ -551,7 +546,7 @@
 						}}
 						checked={!draft_only && enabled}
 						on:change={(e) => {
-							if (canWrite) {
+							if (canEdit) {
 								setScheduleEnabled(path, e.detail)
 							} else {
 								sendUserToast('not enough permission', true)
@@ -568,7 +563,7 @@
 			</div>
 			<div class="flex gap-2 items-center justify-end">
 				<Button
-					href={`${base}/runs/?schedule_path=${path}&job_trigger_kind=schedule&show_future_jobs=true`}
+					href={`/runs/?schedule_path=${path}&job_trigger_kind=schedule&show_future_jobs=true`}
 					disabled={draft_only}
 					unifiedSize="md"
 					startIcon={{ icon: List }}
@@ -590,10 +585,7 @@
 						{
 							displayName: `View ${is_flow ? 'Flow' : 'Script'}`,
 							icon: Eye,
-							action: () => {
-								if (hosted) hosted.openLink(`${base}${href}`)
-								else goto(href)
-							}
+							...(hosted ? { action: () => hosted.openLink(href) } : { href })
 						},
 						{
 							displayName: `Duplicate schedule`,
@@ -643,12 +635,12 @@
 						{
 							displayName: 'View runs',
 							icon: List,
-							href: `${base}/runs/?schedule_path=${path}&job_trigger_kind=schedule&show_future_jobs=true`
+							href: `/runs/?schedule_path=${path}&job_trigger_kind=schedule&show_future_jobs=true`
 						},
 						{
 							displayName: 'Audit logs',
 							icon: Eye,
-							href: `${base}/audit_logs?resource=${path}`
+							href: `/audit_logs?resource=${path}`
 						},
 						{
 							displayName: 'Run now',
@@ -658,8 +650,8 @@
 							}
 						},
 						{
-							displayName: 'Permissions',
-							icon: Shield,
+							displayName: 'Share',
+							icon: UserPlus,
 							action: () => {
 								shareModal?.openDrawer(path, 'schedule')
 							}
@@ -681,7 +673,7 @@
 					{/if}
 					{#each jobs ?? [] as job}
 						{@const h = (avg_s ? job.duration_ms / avg_s : 1) * 7 + 3}
-						<a href="{base}/run/{job.id}?workspace={$operatingWorkspace}">
+						<a href="/run/{job.id}?workspace={$operatingWorkspace}">
 							<JobPreview id={job.id} class="p-4">
 								<div>
 									<div
@@ -708,16 +700,16 @@
 {/snippet}
 
 {#snippet treeLeaf(item: ItemType, depth: number)}
-	{@render scheduleRow(item as unknown as ScheduleW, true, depth)}
+	{@render scheduleRow(item as unknown as ScheduleWJobs, true, depth)}
 {/snippet}
 
 <DeployWorkspaceDrawer bind:this={deploymentDrawer} />
 <ScheduleEditor onUpdate={loadSchedules} bind:this={scheduleEditor} />
 
-{#if operatingUser.current?.operator && $operatingWorkspace && !$userWorkspaces.find((_) => _.id === $operatingWorkspace)?.operator_settings?.schedules}
+{#if $operatingWorkspace && !editRights.capabilities.visibility.schedules}
 	<div class="bg-red-100 border-l-4 border-red-600 text-orange-700 p-4 m-4 mt-12" role="alert">
 		<p class="font-bold">Unauthorized</p>
-		<p>Page not available for operators</p>
+		<p>Page not available for your role</p>
 	</div>
 {:else}
 	<CenteredPage>

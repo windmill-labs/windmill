@@ -6,14 +6,26 @@ export interface WorkspaceHierarchyItem {
 	isForked: boolean
 	parentName?: string
 	hasChildren: boolean
+	/** First fork after the caller's own forks among its siblings; pickers draw a divider above it. */
+	separatorBefore?: boolean
 }
+
+/** Sibling forks below this count stay undivided: a divider in a short list is noise. */
+const OWNED_FORKS_SEPARATOR_MIN_SIBLINGS = 5
 
 /**
  * Builds a hierarchical structure from a flat array of workspaces.
  * Supports unlimited nesting levels (fork of fork of fork...).
  * Returns a flattened array with hierarchy metadata for easy rendering.
+ *
+ * With `currentUserEmail`, the forks that user created lead each sibling group (after the dev
+ * workspace). When every admin and developer is added to new forks, a family lists everyone's forks,
+ * and without this the user's own are scattered alphabetically among them.
  */
-export function buildWorkspaceHierarchy(workspaces: UserWorkspace[]): WorkspaceHierarchyItem[] {
+export function buildWorkspaceHierarchy(
+	workspaces: UserWorkspace[],
+	currentUserEmail?: string | null
+): WorkspaceHierarchyItem[] {
 	if (!workspaces || workspaces.length === 0) {
 		return []
 	}
@@ -45,12 +57,15 @@ export function buildWorkspaceHierarchy(workspaces: UserWorkspace[]): WorkspaceH
 
 	const result: WorkspaceHierarchyItem[] = []
 
+	const isOwnedFork = (w: UserWorkspace) => !w.is_dev_workspace && isForkOwner(w, currentUserEmail)
+
 	// Recursively build the hierarchy
 	function addWorkspaceAndChildren(
 		workspace: UserWorkspace,
 		depth: number,
 		isForked: boolean,
-		parentName?: string
+		parentName?: string,
+		separatorBefore?: boolean
 	) {
 		// Add the current workspace
 		result.push({
@@ -58,19 +73,31 @@ export function buildWorkspaceHierarchy(workspaces: UserWorkspace[]): WorkspaceH
 			depth,
 			isForked,
 			parentName,
-			hasChildren: hasChildrenSet.has(workspace.id)
+			hasChildren: hasChildrenSet.has(workspace.id),
+			separatorBefore
 		})
 
-		// Add its children: the canonical dev workspace first, then throwaway forks by name.
-		const children = childrenMap.get(workspace.id) || []
-		children
-			.sort((a, b) => {
-				if (!!a.is_dev_workspace !== !!b.is_dev_workspace) return a.is_dev_workspace ? -1 : 1
-				return a.name.localeCompare(b.name)
-			})
-			.forEach((child) => {
-				addWorkspaceAndChildren(child, depth + 1, true, workspace.name)
-			})
+		// Add its children: the canonical dev workspace first, then the user's own forks, then the
+		// other forks, each by name.
+		const children = (childrenMap.get(workspace.id) || []).sort((a, b) => {
+			if (!!a.is_dev_workspace !== !!b.is_dev_workspace) return a.is_dev_workspace ? -1 : 1
+			if (isOwnedFork(a) !== isOwnedFork(b)) return isOwnedFork(a) ? -1 : 1
+			return a.name.localeCompare(b.name)
+		})
+		const forkCount = children.filter((c) => !c.is_dev_workspace).length
+		const firstOtherFork =
+			forkCount >= OWNED_FORKS_SEPARATOR_MIN_SIBLINGS && children.some(isOwnedFork)
+				? children.find((c) => !c.is_dev_workspace && !isOwnedFork(c))
+				: undefined
+		children.forEach((child) => {
+			addWorkspaceAndChildren(
+				child,
+				depth + 1,
+				true,
+				workspace.name,
+				child === firstOtherFork || undefined
+			)
+		})
 	}
 
 	// Process root workspaces (sorted by name for consistency)
@@ -87,6 +114,21 @@ export function buildWorkspaceHierarchy(workspaces: UserWorkspace[]): WorkspaceH
 		})
 
 	return result
+}
+
+/**
+ * The hierarchy rows below `rootId` (the root itself excluded), in the order and with the depths
+ * `buildWorkspaceHierarchy` gives them.
+ */
+export function workspaceSubtreeRows(
+	rootId: string,
+	hierarchy: WorkspaceHierarchyItem[]
+): WorkspaceHierarchyItem[] {
+	const at = hierarchy.findIndex((h) => h.workspace.id === rootId)
+	if (at < 0) return []
+	const rootDepth = hierarchy[at].depth
+	const end = hierarchy.findIndex((h, i) => i > at && h.depth <= rootDepth)
+	return hierarchy.slice(at + 1, end < 0 ? undefined : end)
 }
 
 /**

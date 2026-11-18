@@ -1,17 +1,24 @@
 <script lang="ts">
-	import { Check, Copy, Download } from 'lucide-svelte'
+	import { Check, Copy, Download, FileCode, FileDown } from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
 	import { copyToClipboard, download } from '$lib/utils'
 	import { artifactFilename, artifactMimeType, type ArtifactKind } from './artifactsDB'
+	import { artifactHtmlFile } from './artifactExport'
+	import { printArtifact } from './printArtifact'
+	import { hasUntrustedImages } from '../untrustedImages'
 
 	interface Props {
 		name: string
 		kind: ArtifactKind
 		content: string
 		disabled?: boolean
+		/** The icon alone, for a bar too narrow for the label. */
+		iconOnly?: boolean
 	}
 
-	let { name, kind, content, disabled = false }: Props = $props()
+	let { name, kind, content, disabled = false, iconOnly = false }: Props = $props()
+
+	const untrustedImages = hasUntrustedImages()
 
 	let copied = $state(false)
 	async function copyRaw() {
@@ -26,16 +33,46 @@
 	unifiedSize="sm"
 	variant="default"
 	{disabled}
+	{iconOnly}
 	startIcon={{ icon: copied ? Check : Copy }}
 	onClick={copyRaw}
 	title="Copy raw markdown"
 	dropdownItems={[
 		{
-			label: 'Download as .md',
+			label: `Download as .${kind}`,
 			icon: Download,
 			onClick: () => download(artifactFilename({ name, kind }), content, artifactMimeType(kind)),
 			disabled
-		}
+		},
+		// Markdown only: an html artifact already downloads as .html, and printing it would run its
+		// scripts in this origin.
+		// No .html for someone else's artifact: the file draws its mermaid here and keeps its
+		// images' outside URLs, which the shared viewer blocks.
+		...(kind === 'md' && !untrustedImages
+			? [
+					{
+						label: 'Download as .html',
+						icon: FileCode,
+						onClick: async () =>
+							download(
+								artifactFilename({ name, kind: 'html' }),
+								await artifactHtmlFile(name, content),
+								artifactMimeType('html')
+							),
+						disabled
+					}
+				]
+			: []),
+		...(kind === 'md'
+			? [
+					{
+						label: 'Download as PDF',
+						icon: FileDown,
+						onClick: () => printArtifact(name, content, { untrustedImages }),
+						disabled
+					}
+				]
+			: [])
 	]}
 >
 	{copied ? 'Copied' : 'Copy'}

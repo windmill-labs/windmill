@@ -1,4 +1,3 @@
-import { base } from '$lib/base'
 import { randomUUID } from '$lib/utils/uuid'
 import { editPathFor, viewPathFor, type WorkspaceItem } from '$lib/components/workspacePicker'
 import { normalizePipelineFolder } from '$lib/utils/pipelineFolder'
@@ -20,7 +19,7 @@ import {
 	previewLocationLabel,
 	resolvePreviewTab,
 	runFormUrl,
-	stripBase,
+	barePath,
 	type ArtifactVersionTarget,
 	type PreviewItemMode,
 	type PreviewTarget
@@ -113,11 +112,17 @@ function targetUrl(target: PreviewTarget, onto?: SessionPreviewTab): string {
 	// A re-point with no mode keeps the side the tab is already on, so an AI write to
 	// an item the user left on View does not yank them back to the editor.
 	const mode = target.mode ?? (onto ? (parsePreviewItemRoute(onto.url)?.mode ?? 'edit') : 'edit')
-	if (mode !== 'view') return `${base}${editPathFor(target.item)}`
-	// Not carried over from `onto`: a version pin is something the reader asked for
-	// once, so every other re-point of this tab lands on the current deployed version.
-	const pin = target.version ? `?version=${encodeURIComponent(target.version)}` : ''
-	return `${base}${viewPathFor(target.item)}${pin}`
+	if (mode !== 'view') return editPathFor(target.item)
+	// Neither is carried over from `onto`. A version pin is something the reader asked for
+	// once, so every other re-point of this tab lands on the current deployed version — and a
+	// chat tool call is carried by the tab that was opened for it, so re-pointing that tab
+	// anywhere else, a version included, hands the call back rather than running it against
+	// something it was not confirmed for.
+	const params = new URLSearchParams()
+	if (target.version) params.set('version', target.version)
+	if (target.pendingRunId) params.set('pending_run', target.pendingRunId)
+	const query = params.size > 0 ? `?${params}` : ''
+	return `${viewPathFor(target.item)}${query}`
 }
 
 // Point a tab at a new destination. Clears `friendlyLabel`/`friendlyPath`
@@ -131,6 +136,7 @@ function retargetTab(tab: SessionPreviewTab, url: string): void {
 		tab.friendlyLabel = undefined
 		tab.friendlyPath = undefined
 		tab.editorNamed = undefined
+		tab.agentEditor = undefined
 	}
 	tab.url = url
 	tab.loc = url
@@ -175,7 +181,7 @@ export function previewTargetForSessionTarget(
 ): PreviewTarget | undefined {
 	if (kind === 'pipeline') {
 		const folder = normalizePipelineFolder(path)
-		return { type: 'page', href: `${base}/pipeline/${encodeURIComponent(folder)}`, label: folder }
+		return { type: 'page', href: `/pipeline/${encodeURIComponent(folder)}`, label: folder }
 	}
 	const item: WorkspaceItem =
 		kind === 'raw_app'
@@ -643,6 +649,27 @@ export class SessionPreviewTabs {
 		this.#flush()
 	}
 
+	/** Name a tab after what the page in it shows, for a page that is not one of the live editors
+	 * (an agent's deployed page); undefined falls back to the location's label. */
+	setTabFriendlyLabel(tabId: string, label: string | undefined): void {
+		const tab = this.#tabs.find((t) => t.id === tabId)
+		if (!tab || (tab.editorNamed && tab.friendlyLabel === label)) return
+		tab.friendlyLabel = label
+		tab.editorNamed = true
+		this.#flush()
+	}
+
+	/** Mark a resource tab as an agent's editor, named after its summary as `setEditorFriendlyLabel`
+	 * names the live editors' tabs; an undefined summary falls back to the path. */
+	stampAgentTab(ref: PageItemRef, summary: string | undefined): void {
+		const tab = this.#tabs.find((t) => t.url === pageItemUrl(ref))
+		if (!tab || (tab.agentEditor && tab.editorNamed && tab.friendlyLabel === summary)) return
+		tab.agentEditor = true
+		tab.friendlyLabel = summary
+		tab.editorNamed = true
+		this.#flush()
+	}
+
 	/** Follow an item its editor deployed under a new path, in place: the editor is keyed
 	 * on the path, and nothing is left to edit at the old one. */
 	retargetEditor(from: SessionTarget, to: SessionTarget): void {
@@ -682,6 +709,15 @@ export class SessionPreviewTabs {
 	 * send the tab to the end of the strip, which is not what following a call looks like. */
 	retargetRunForm(toolCallId: string, url: string): void {
 		const tab = this.#tabs.find((t) => parseRunFormRoute(t.url)?.toolCallId === toolCallId)
+		if (!tab) return
+		retargetTab(tab, url)
+		this.#flush()
+	}
+
+	/** Point one known tab at `url`. For a caller that found the tab itself — the deployed
+	 * page that confirmed a run becomes that run, and only the caller knows which page. */
+	retargetById(id: string, url: string): void {
+		const tab = this.#tabs.find((t) => t.id === id)
 		if (!tab) return
 		retargetTab(tab, url)
 		this.#flush()
@@ -794,7 +830,7 @@ export function selectPreviewTabsToClose(
 // whose hash is app state, and any page can carry a filter value the user typed.
 function previewLocationDetail(where: string): string {
 	const { location, open } = previewLocationContext(where)
-	const detail = [location === stripBase(where) ? undefined : location, open && `open: ${open}`]
+	const detail = [location === barePath(where) ? undefined : location, open && `open: ${open}`]
 		.filter(Boolean)
 		.join(', ')
 	return detail ? ` (${detail})` : ''
@@ -830,7 +866,7 @@ export function describePreview(
 							? `${route.raw_app ? 'raw_app' : route.kind} "${route.itemPath}"`
 							: // Trigger list pages land here (they're outside PREVIEW_PAGES), and
 								// their `#<path>` is the trigger the drawer has open.
-								`${stripBase(where)}${previewLocationDetail(where)}`
+								`${barePath(where)}${previewLocationDetail(where)}`
 		const slotKind = resolvePreviewTab(t.url).kind
 		const live =
 			slotKind === 'editor' || slotKind === 'pageitem'

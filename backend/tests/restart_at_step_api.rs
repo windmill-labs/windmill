@@ -217,7 +217,7 @@ async fn test_api_restart_at_step_rejects_parallel_loop(db: Pool<Postgres>) -> a
                     "id": "inner",
                     "value": {
                         "type": "rawscript",
-                        "language": "deno",
+                        "language": "bun",
                         "input_transforms": {},
                         "content": "export function main() { return 'ok' }"
                     }

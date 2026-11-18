@@ -4,7 +4,6 @@
 	import { JobService } from '$lib/gen/index.js'
 	import { createEventDispatcher, untrack } from 'svelte'
 	import { ExternalLink } from 'lucide-svelte'
-	import { base } from '$lib/base'
 	import { Cell, Row } from '$lib/components/table'
 	import { twMerge } from 'tailwind-merge'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
@@ -74,7 +73,7 @@
 				<div class="center-center {hovering ? '' : '!hidden'}">
 					<a
 						target="_blank"
-						href="{base}/run/{job.id}?workspace={$operatingWorkspace}"
+						href="/run/{job.id}?workspace={$operatingWorkspace}"
 						class="text-right float-right text-secondary"
 						title="See run detail in a new tab"
 					>

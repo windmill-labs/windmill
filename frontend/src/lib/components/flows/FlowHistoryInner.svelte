@@ -205,11 +205,8 @@
 										<Button
 											size="sm"
 											variant="accent"
-											on:click={() =>
-												window.open(
-													`/flows/add?template_id=${selectedVersion?.id}&template=${path}&workspace=${$operatingWorkspace}`,
-													'_blank'
-												)}
+											href={`/flows/add?template_id=${selectedVersion?.id}&template=${path}&workspace=${$operatingWorkspace}`}
+											target="_blank"
 										>
 											Restore as fork
 										</Button>

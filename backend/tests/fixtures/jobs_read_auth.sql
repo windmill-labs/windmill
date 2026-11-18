@@ -98,6 +98,32 @@ INSERT INTO public.v2_job_completed (id, workspace_id, duration_ms, status, resu
     ('18181818-1818-1818-1818-181818181818', 'test-workspace', 1000, 'success'::job_status,
      '{"agent": "AGENT_CHAT_RESULT"}');
 
+-- A lock job for flow `f/shared/flow1`, as `wmill generate-metadata` queues it, and the
+-- token CI would lock with.
+INSERT INTO token(token_hash, token_prefix, token, email, label, super_admin, scopes) VALUES (
+    encode(sha256('RUN_SCOPED_DEPS_TOKEN'::bytea), 'hex'), 'RUN_DEPS_', 'RUN_SCOPED_DEPS_TOKEN',
+    'test2@windmill.dev', 'lock token', false,
+    ARRAY['jobs:run:dependencies:f/shared/*']
+);
+INSERT INTO public.v2_job (
+    id, workspace_id, created_by, created_at, permissioned_as, permissioned_as_email,
+    kind, runnable_path, tag, visible_to_owner
+) VALUES (
+    '19191919-1919-1919-1919-191919191919', 'test-workspace', 'test-user-2',
+    '2023-01-01 00:00:00', 'u/test-user-2', 'test2@windmill.dev',
+    'flowdependencies', 'f/shared/flow1', 'dependency', true
+), (
+    -- Queued by a broader token with `*` as its path, which the request body allows.
+    '20202020-2020-2020-2020-202020202020', 'test-workspace', 'test-user-2',
+    '2023-01-01 00:00:00', 'u/test-user-2', 'test2@windmill.dev',
+    'dependencies', '*', 'dependency', true
+);
+INSERT INTO public.v2_job_completed (id, workspace_id, duration_ms, status, result) VALUES
+    ('19191919-1919-1919-1919-191919191919', 'test-workspace', 1000, 'success'::job_status,
+     '{"lock": "DEPS_RESULT"}'),
+    ('20202020-2020-2020-2020-202020202020', 'test-workspace', 1000, 'success'::job_status,
+     '{"lock": "WILDCARD_DEPS_RESULT"}');
+
 -- A token pairing an app scope with a run scope, as someone driving an app's components
 -- programmatically would build. `APP_INLINE_JOB` is an inline-script component run: no
 -- `jobs:run` scope can name its kind, so only the `apps:run` half puts it in reach.

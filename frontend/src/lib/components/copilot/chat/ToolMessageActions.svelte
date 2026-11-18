@@ -2,6 +2,7 @@
 	import { Button } from '$lib/components/common'
 	import {
 		ArrowRight,
+		Bot,
 		Boxes,
 		Calendar,
 		Database,
@@ -38,7 +39,7 @@
 		actions: ToolDisplayAction[]
 	}
 
-	type ActionCardKey = 'schedule' | 'resource' | 'variable' | CreatedResourceTriggerKind
+	type ActionCardKey = 'schedule' | 'resource' | 'agent' | 'variable' | CreatedResourceTriggerKind
 	type ActionCardConfig = {
 		title: string
 		icon: any
@@ -51,6 +52,7 @@
 	const actionCardConfigs: Record<ActionCardKey, ActionCardConfig> = {
 		schedule: { title: 'Schedule', icon: Calendar },
 		resource: { title: 'Resource', icon: Package },
+		agent: { title: 'Agent', icon: Bot },
 		variable: { title: 'Variable', icon: KeyRound },
 		http: { title: 'HTTP trigger', icon: Route },
 		websocket: { title: 'WebSocket trigger', icon: Unplug },
@@ -125,9 +127,8 @@
 					<div class="truncate text-xs font-semibold text-primary">{card.title}</div>
 					<div class="truncate text-2xs text-secondary">{card.subtitle}</div>
 				</div>
-				<!-- open_created_resource is serviced only by the docked chat's drawers and the
-				     sessions page's tabs, so elsewhere the card stands alone as a record of what the
-				     tool created. -->
+				<!-- open_created_resource is serviced only by the sessions page's tabs, so elsewhere
+				     the card stands alone as a record of what the tool created. -->
 				{#if hasToolDisplayActionHandler(action.type)}
 					<Button
 						unifiedSize="sm"

@@ -1,6 +1,6 @@
 use sqlx::{Acquire, PgConnection, PgExecutor, Pool, Postgres, Transaction};
 
-use crate::audit::AuditAuthor;
+use crate::{audit::AuditAuthor, roles::RoleCapabilities};
 
 pub type DB = Pool<Postgres>;
 
@@ -20,6 +20,10 @@ pub struct Authed {
     pub folders: Vec<(String, bool, bool)>,
     pub scopes: Option<Vec<String>>,
     pub token_prefix: Option<String>,
+    /// See `ApiAuthed::mcp_client`.
+    pub mcp_client: Option<String>,
+    /// See `ApiAuthed::capabilities`.
+    pub capabilities: Option<RoleCapabilities>,
 }
 
 impl Authed {
@@ -33,6 +37,7 @@ impl Authed {
             folders: &self.folders,
             scopes: &self.scopes,
             token_prefix: &self.token_prefix,
+            capabilities: self.capabilities,
         }
     }
 }
@@ -48,6 +53,7 @@ pub struct AuthedRef<'a> {
     pub folders: &'a Vec<(String, bool, bool)>,
     pub scopes: &'a Option<Vec<String>>,
     pub token_prefix: &'a Option<String>,
+    pub capabilities: Option<RoleCapabilities>,
 }
 
 impl Authable for AuthedRef<'_> {
@@ -62,6 +68,9 @@ impl Authable for AuthedRef<'_> {
     }
     fn is_operator(&self) -> bool {
         *self.is_operator
+    }
+    fn capabilities(&self) -> Option<RoleCapabilities> {
+        self.capabilities
     }
     fn groups(&self) -> &[String] {
         self.groups
@@ -84,6 +93,9 @@ pub trait Authable {
     fn username(&self) -> &str;
     fn is_admin(&self) -> bool;
     fn is_operator(&self) -> bool;
+    /// The role's capabilities as read for the request, `None` if they were not read. Read them
+    /// through `roles::caller_capabilities`, never directly.
+    fn capabilities(&self) -> Option<RoleCapabilities>;
     fn groups(&self) -> &[String];
     fn folders(&self) -> &[(String, bool, bool)];
     fn scopes(&self) -> Option<&[String]>;
@@ -96,6 +108,10 @@ impl Authable for Authed {
 
     fn is_operator(&self) -> bool {
         self.is_operator
+    }
+
+    fn capabilities(&self) -> Option<RoleCapabilities> {
+        self.capabilities
     }
 
     fn groups(&self) -> &[String] {
@@ -289,4 +305,63 @@ impl<'b> DbExecutor<'b> for &'b mut PgConnection {
     fn populate<'a>(&'a mut self) -> impl DbExecutor<'a> {
         &mut **self
     }
+}
+
+lazy_static::lazy_static! {
+    static ref PROCESS_START: std::time::Instant = std::time::Instant::now();
+}
+
+/// Milliseconds after [`PROCESS_START`] before which every pooled connection is retired;
+/// 0 retires none.
+static RETIRE_CONNECTIONS_OPENED_BEFORE_MS: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
+
+/// Postgres refuses a statement prepared before its result columns changed type (even a
+/// varchar length) with this error, on every execution, for as long as the connection lives.
+/// The routine is matched as well as the message, which `lc_messages` may translate.
+pub fn is_stale_cached_plan(e: &sqlx::Error) -> bool {
+    let sqlx::Error::Database(d) = e else {
+        return false;
+    };
+    d.code().as_deref() == Some("0A000")
+        && (d
+            .try_downcast_ref::<sqlx::postgres::PgDatabaseError>()
+            .is_some_and(|pg| pg.routine() == Some("RevalidateCachedQuery"))
+            || d.message()
+                .contains("cached plan must not change result type"))
+}
+
+/// Retire every pooled connection opened up to now, so a schema change that poisoned their
+/// prepared statements costs one failed query instead of failing until they expire.
+pub fn retire_connections_opened_before_now() {
+    let now = PROCESS_START.elapsed().as_millis() as u64 + 1;
+    RETIRE_CONNECTIONS_OPENED_BEFORE_MS.fetch_max(now, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// For the pool's `before_acquire`: whether a connection of this age must be closed.
+pub fn connection_is_retired(age: std::time::Duration) -> bool {
+    let cutoff = RETIRE_CONNECTIONS_OPENED_BEFORE_MS.load(std::sync::atomic::Ordering::Relaxed);
+    cutoff != 0 && (PROCESS_START.elapsed().saturating_sub(age).as_millis() as u64) < cutoff
+}
+
+/// Servers report no version, so the worker version gate alone cannot see a server of the
+/// previous release; its rollout is assumed done once this server has been up this long.
+pub const PREVIOUS_RELEASE_ROLLOUT_UPTIME: std::time::Duration =
+    std::time::Duration::from_secs(30 * 60);
+
+static PROCESS_UPTIME_OFFSET_SECS: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
+
+/// Time since this process first used its database pool.
+pub fn process_uptime() -> std::time::Duration {
+    PROCESS_START.elapsed()
+        + std::time::Duration::from_secs(
+            PROCESS_UPTIME_OFFSET_SECS.load(std::sync::atomic::Ordering::Relaxed),
+        )
+}
+
+/// For tests of what waits on [`process_uptime`]: adds `offset` to it.
+#[doc(hidden)]
+pub fn set_process_uptime_offset(offset: std::time::Duration) {
+    PROCESS_UPTIME_OFFSET_SECS.store(offset.as_secs(), std::sync::atomic::Ordering::Relaxed);
 }

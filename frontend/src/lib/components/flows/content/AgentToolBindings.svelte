@@ -4,6 +4,7 @@
 	import type { InputTransform, ScriptLang } from '$lib/gen'
 	import InputTransformSchemaForm from '$lib/components/InputTransformSchemaForm.svelte'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
+	import InputTransformsViewer from '$lib/components/InputTransformsViewer.svelte'
 	import { Button } from '$lib/components/common'
 	import { ChevronDown, ChevronRight, Wrench } from 'lucide-svelte'
 	import type { PickableProperties } from '../previousResults'
@@ -16,6 +17,7 @@
 	} from '../agentToolUtils'
 	import { flowLocalAgentSchema, toolInputOverrides } from '../agentResourceUtils'
 	import { loadSchemaFromModule } from '../flowInfers'
+	import { useRoleCapabilities } from '$lib/operatorWriteRights'
 
 	let {
 		tools,
@@ -35,6 +37,42 @@
 	} = $props()
 
 	let flowTools = $derived(tools.filter(isFlowModuleTool))
+	const roleCaps = useRoleCapabilities()
+	// The server checks bindings only below `full` (`check_operator_can_build`).
+	const composeOnlyFlows = $derived($roleCaps.flows === 'compose')
+
+	/** Mirrors the backend's `InputTransform::is_completed`: an input the agent fills is hidden from
+	 *  the model, and the server refuses a builder's binding of it. */
+	function isSetByAgent(transform: InputTransform | undefined): boolean {
+		if (transform?.type === 'static') {
+			return transform.value !== undefined && transform.value !== null
+		}
+		return transform?.type === 'javascript' && !!transform.expr?.trim()
+	}
+
+	/** A builder binds only the inputs the agent leaves to the model. */
+	function shownSchema(tool: FlowModuleTool): any {
+		const schema = schemas[tool.id]
+		if (!composeOnlyFlows || !schema?.properties) return schema
+		const base = baseInputs(tool)
+		const keep = Object.keys(schema.properties).filter((k) => !isSetByAgent(base[k]))
+		return {
+			...schema,
+			properties: Object.fromEntries(keep.map((k) => [k, schema.properties[k]])),
+			required: (schema.required ?? []).filter((k: string) => keep.includes(k))
+		}
+	}
+
+	/** The inputs `shownSchema` hides, shown read-only so the tool code reads in context. */
+	function agentSetInputs(tool: FlowModuleTool): Record<string, InputTransform> {
+		if (!composeOnlyFlows) return {}
+		const base = baseInputs(tool)
+		return Object.fromEntries(
+			Object.keys(schemas[tool.id]?.properties ?? {})
+				.filter((k) => isSetByAgent(base[k]))
+				.map((k) => [k, base[k]])
+		)
+	}
 
 	function baseInputs(tool: FlowModuleTool): Record<string, InputTransform> {
 		return ((tool.value as { input_transforms?: Record<string, InputTransform> })
@@ -182,7 +220,7 @@
 				{:else if schemas[tool.id] !== undefined && localArgs[tool.id] !== undefined}
 					<InputTransformSchemaForm
 						class="px-3 pt-1"
-						schema={schemas[tool.id]}
+						schema={shownSchema(tool)}
 						{pickableProperties}
 						{extraLib}
 						{workspace}
@@ -197,6 +235,13 @@
 							}
 						}
 					/>
+					{@const setInputs = agentSetInputs(tool)}
+					{#if Object.keys(setInputs).length > 0}
+						<div class="flex flex-col gap-1 px-3 pb-2">
+							<span class="text-xs font-semibold text-emphasis">Static inputs</span>
+							<InputTransformsViewer inputTransforms={setInputs} />
+						</div>
+					{/if}
 				{:else}
 					<div class="px-3 py-2 text-2xs text-tertiary">Loading inputs...</div>
 				{/if}

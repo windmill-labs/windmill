@@ -87,7 +87,7 @@ function judgesByAliasedNavigationUser(code: string): boolean {
 }
 
 const PERMISSION_READ =
-	/canWrite\((?:[^()]|\([^()]*\))*?\$userStore|isOwner\((?:[^()]|\([^()]*\))*?\$userStore|\$userStore(?:\?|!)?\.(?:is_admin|is_super_admin|operator|folders|groups)\b/
+	/(?:canWrite|can(?:Edit|Draft)Item)\((?:[^()]|\([^()]*\))*?\$userStore|isOwner\((?:[^()]|\([^()]*\))*?\$userStore|\$userStore(?:\?|!)?\.(?:is_admin|is_super_admin|operator|folders|groups)\b/
 
 // Components that judge by the navigation user on purpose, with why.
 const NAVIGATION_JUDGES: Record<string, string> = {

@@ -44,15 +44,31 @@ function nextMigrationTimestamp(dir: string): string {
   return String(max >= now ? max + 1 : now);
 }
 
+// Matches `is_annotatable_schema_name` on the server.
+const SCHEMA_NAME_RE = /^[A-Za-z0-9_$-]{1,63}$/;
+
 /**
  * Scaffold a new migration under migrations/datatable/<datatable>/ as empty
  * `<timestamp>_<name>.up.sql` and `.down.sql` files. Purely local — no network.
+ * `schemas` becomes the up file's leading `-- schemas` annotation, which the
+ * server reads as the migration's scope.
  */
-export function createMigration(datatable: string, name: string): void {
+export function createMigration(
+  datatable: string,
+  name: string,
+  schemas: string[] = [],
+): void {
   if (!MIGRATION_NAME_RE.test(name)) {
     throw new Error(
       `Invalid migration name '${name}': use only letters, digits, '_' and '-'`,
     );
+  }
+  for (const s of schemas) {
+    if (!SCHEMA_NAME_RE.test(s)) {
+      throw new Error(
+        `Invalid schema name '${s}': use only letters, digits, '_', '$' and '-'`,
+      );
+    }
   }
   const dir = path.join(process.cwd(), MIGRATIONS_DIR, datatable);
   fs.mkdirSync(dir, { recursive: true });
@@ -65,7 +81,9 @@ export function createMigration(datatable: string, name: string): void {
   // the template the UI's "New migration" modal seeds.
   const template = (direction: string) =>
     `-- ${direction} migration: ${name}\nBEGIN;\n\n-- Add your migration here\n\nEND;\n`;
-  fs.writeFileSync(up, template("up"), "utf-8");
+  const scope =
+    schemas.length > 0 ? `-- schemas ${schemas.join(", ")}\n` : "";
+  fs.writeFileSync(up, scope + template("up"), "utf-8");
   fs.writeFileSync(down, template("down"), "utf-8");
 
   log.info(
@@ -73,6 +91,13 @@ export function createMigration(datatable: string, name: string): void {
   );
   for (const f of [up, down]) {
     log.info(colors.gray(`  ${path.relative(process.cwd(), f)}`));
+  }
+  if (schemas.length === 0) {
+    log.warn(
+      "It declares no schemas, so it applies to the whole database and every later migration " +
+        "waits for it. Pass --schemas, or add a `-- schemas <name>, <name>` line at the top of " +
+        "the up file.",
+    );
   }
 }
 
@@ -83,14 +108,20 @@ export function createMigration(datatable: string, name: string): void {
 export async function runMigrations(
   workspace: string,
   datatableName: string,
+  schema?: string,
 ): Promise<void> {
   const result = await wmill.runDatatableMigrations({
     workspace,
     datatableName,
+    schema,
   });
   const applied = result.applied ?? [];
   if (applied.length === 0) {
-    log.info(colors.gray(`No pending migrations to run on '${datatableName}'`));
+    log.info(
+      colors.gray(
+        `No pending migrations to run on '${datatableName}'${schema ? ` for schema '${schema}'` : ""}`,
+      ),
+    );
     return;
   }
   log.info(

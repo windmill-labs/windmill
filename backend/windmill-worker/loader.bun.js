@@ -41,7 +41,10 @@ const p = {
               imp.path.startsWith("/f/")) &&
             !imp.path.endsWith(".ts")
           ) {
-            code = code.replaceAll(imp.path, imp.path + ".ts");
+            // Whole quoted specifiers only: `./util` is also a substring of `../util_ws`.
+            for (const q of ['"', "'"]) {
+              code = code.replaceAll(q + imp.path + q, q + imp.path + ".ts" + q);
+            }
           }
         }
       }
@@ -51,6 +54,17 @@ const p = {
     }
 
     build.onLoad({ filter: filterLoad }, async (args) => {
+      const code = readFileSync(args.path, "utf8");
+      return replaceRelativeImports(code);
+    });
+
+    // Module files (written by write_module_files next to main.ts) need the same `.ts`
+    // rewrite: an extensionless relative import misses the resolve filter below, and the
+    // lockfile builder then treats it as an external package named ".".
+    const filterLoadModule = new RegExp(
+      `^${cdir}\/(?!node_modules\/)(?!_wm_)(?!main\\.ts$).*\\.ts$`
+    );
+    build.onLoad({ filter: filterLoadModule }, async (args) => {
       const code = readFileSync(args.path, "utf8");
       return replaceRelativeImports(code);
     });
@@ -109,18 +123,32 @@ const p = {
       // Check if the import resolves to a local module file (written by write_module_files).
       // Only check relative paths — absolute/bare specifiers should fall through to the
       // remote resolver, matching the Windows loader pattern.
-      if (args.path.startsWith(".")) {
-        const localPath = resolve(cdir, args.path);
+      // Only for local importers (main.ts or a module, both `.ts` in the job dir): a fetched
+      // workspace script (`.url`) resolves within its own workspace folder, where a module
+      // file of the same name would shadow its real neighbour.
+      const importer = args.importer ? resolve(args.importer) : "";
+      if (
+        args.path.startsWith(".") &&
+        importer.endsWith(".ts") &&
+        importer.startsWith(cdir + "/")
+      ) {
+        // From the importing module's own folder: a module may sit in a subfolder (`lib/a.ts`).
+        const localPath = resolve(dirname(importer), args.path);
         try {
           readFileSync(localPath);
           return { path: localPath };
         } catch {}
       }
 
+      const importerRel = args.importer.replace(cdir + "/", "");
+      // A module file stands in the job dir for a script in the entrypoint's folder, so its
+      // own relative imports resolve from that folder's workspace path, not from the job dir.
       const file_path =
         args.importer == "./main.ts" || args.importer == resolve("./main.ts")
           ? current_path
-          : args.importer.replace(cdir + "/", "");
+          : importerRel.endsWith(".ts")
+          ? join(dirname(current_path), importerRel.replace(/\.ts$/, ""))
+          : importerRel;
 
       const isRelative = !args.path.startsWith("/");
       const endExt = args.path.endsWith(".ts") ? "" : ".ts";

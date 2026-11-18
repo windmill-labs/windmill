@@ -1,7 +1,8 @@
+use crate::ai::pause::{start_approval, start_question, PendingPause};
 use crate::ai::stream_event_processor::StreamEventProcessor;
 use crate::ai::utils::{
     add_message_to_conversation, execute_mcp_tool, get_step_name_from_flow,
-    is_completed_input_transform, update_flow_status_module_with_actions,
+    set_flow_status_module_action_success_at, update_flow_status_module_with_actions,
     update_flow_status_module_with_actions_success, FlowContext,
 };
 use crate::common::{get_root_job_id, OccupancyMetrics};
@@ -13,12 +14,18 @@ use crate::worker_flow::{
 use crate::{create_job_dir, handle_queued_job, JobCompletedSender};
 use anyhow::Context;
 use mappable_rc::Marc;
+use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use sqlx::types::Json;
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{
+    collections::HashMap,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 use uuid::Uuid;
 use windmill_ai::{ai_types::OpenAIToolCall, query_builder::StreamEventSink, types::*};
 use windmill_common::jobs::JobPayload;
+use windmill_common::variables::untrusted_arg_interpolates;
 
 #[cfg(feature = "mcp")]
 use windmill_mcp::McpClient;
@@ -96,12 +103,36 @@ pub async fn execute_tool_calls(
     actions: &mut Vec<AgentAction>,
     final_events_str: &mut String,
     structured_output_tool_name: &Option<String>,
-) -> Result<(Vec<OpenAIMessage>, Option<OpenAIContent>, bool), Error> {
+    gate: ApprovalGate<'_>,
+) -> Result<ToolCallsOutcome, Error> {
     let mut messages = Vec::new();
     let mut used_structured_output_tool = false;
     let mut final_content = None;
 
-    let mut calls = tool_calls.iter().peekable();
+    let CallPlan { to_run, refusals, deferred, pause } = plan_calls(
+        tool_calls,
+        tools,
+        &gate,
+        structured_output_tool_name.as_deref(),
+    );
+
+    // Answered calls were streamed as running when the agent parked.
+    let announced = matches!(gate, ApprovalGate::Ask);
+    for call in deferred.iter().chain(refusals.iter().map(|(call, _)| call)) {
+        if let Some(stream_event_processor) = ctx.stream_event_processor.filter(|_| announced) {
+            let event = StreamingEvent::ToolExecution {
+                call_id: call.id.clone(),
+                function_name: call.function.name.clone(),
+            };
+            stream_event_processor.send(event, final_events_str).await?;
+        }
+    }
+    for (call, refusal) in refusals {
+        refuse_tool_call(&mut ctx, call, &refusal, &mut messages, final_events_str).await?;
+    }
+
+    let mut started = Vec::new();
+    let mut calls = to_run.into_iter().peekable();
     while let Some(tool_call) = calls.next() {
         // Stream tool call progress
         if let Some(stream_event_processor) = ctx.stream_event_processor {
@@ -126,6 +157,25 @@ pub async fn execute_tool_calls(
                 tool_call_id: Some(tool_call.id.clone()),
                 ..Default::default()
             });
+            // The answer ends the turn, but the history can be sent again after a background
+            // result, and a provider refuses a call left unanswered.
+            for skipped in calls.by_ref() {
+                messages.push(OpenAIMessage {
+                    role: "tool".to_string(),
+                    content: Some(OpenAIContent::Text(
+                        "Not run: the structured answer ended this turn.".to_string(),
+                    )),
+                    tool_call_id: Some(skipped.id.clone()),
+                    ..Default::default()
+                });
+            }
+            // An action like a text answer's: the run page matches tagged messages to actions by
+            // position, and with background tools a run can go on after this answer.
+            actions.push(AgentAction::Message {});
+            if let Some(parent_job) = ctx.parent_job {
+                update_flow_status_module_with_actions(ctx.db, parent_job, actions).await?;
+                update_flow_status_module_with_actions_success(ctx.db, parent_job, true).await?;
+            }
             messages.push(OpenAIMessage {
                 role: "assistant".to_string(),
                 content: Some(OpenAIContent::Text(tool_call.function.arguments.clone())),
@@ -141,7 +191,6 @@ pub async fn execute_tool_calls(
             .find(|t| t.def.function.name == tool_call.function.name);
 
         if let Some(tool) = tool {
-            // Check if this is an MCP tool
             if let Some(mcp_source) = &tool.mcp_source {
                 execute_mcp_tool_call(
                     &mut ctx,
@@ -153,6 +202,23 @@ pub async fn execute_tool_calls(
                     final_events_str,
                 )
                 .await?;
+            } else if tool.module.is_some() && interpolating_args(tool_call) {
+                let error_msg = "Tool call refused: its arguments could not be read, or reference \
+                                 variables, resources or reserved names ($var:, $jsonvar:, \
+                                 $res:, $encrypted:, $WM_)";
+                refuse_tool_call(
+                    &mut ctx,
+                    tool_call,
+                    error_msg,
+                    &mut messages,
+                    final_events_str,
+                )
+                .await?;
+            } else if tool.module.is_some() && tool.background_after_secs == Some(0) {
+                started.push(
+                    start_background_tool(&mut ctx, tool_call, tool, actions, &mut messages)
+                        .await?,
+                );
             } else if tool.module.is_some() {
                 let mut batch = vec![(tool_call, tool)];
                 while let Some(next_call) = calls.peek() {
@@ -165,13 +231,24 @@ pub async fn execute_tool_calls(
                         t.def.function.name == next_call.function.name
                             && t.mcp_source.is_none()
                             && t.module.is_some()
+                            && t.background_after_secs != Some(0)
                     }) else {
                         break;
                     };
+                    if interpolating_args(next_call) {
+                        break;
+                    }
                     batch.push((calls.next().unwrap(), next_tool));
                 }
-                execute_windmill_tools(&mut ctx, &batch, actions, &mut messages, final_events_str)
-                    .await?;
+                execute_windmill_tools(
+                    &mut ctx,
+                    &batch,
+                    actions,
+                    &mut messages,
+                    &mut started,
+                    final_events_str,
+                )
+                .await?;
             } else {
                 return Err(Error::internal_err(format!(
                     "Tool type not supported: {}",
@@ -186,7 +263,332 @@ pub async fn execute_tool_calls(
         }
     }
 
-    Ok((messages, final_content, used_structured_output_tool))
+    Ok(ToolCallsOutcome { messages, final_content, used_structured_output_tool, pause, started })
+}
+
+/// A turn's calls: run now, refused with a message, or held for a person's answer.
+struct CallPlan<'a> {
+    to_run: Vec<&'a OpenAIToolCall>,
+    refusals: Vec<(&'a OpenAIToolCall, String)>,
+    deferred: Vec<&'a OpenAIToolCall>,
+    pause: Option<PendingPause>,
+}
+
+fn plan_calls<'a>(
+    tool_calls: &'a [OpenAIToolCall],
+    tools: &[Tool],
+    gate: &ApprovalGate<'_>,
+    structured_output_tool_name: Option<&str>,
+) -> CallPlan<'a> {
+    let tool_of = |call: &OpenAIToolCall| {
+        tools
+            .iter()
+            .find(|t| t.def.function.name == call.function.name)
+    };
+    let mut plan = CallPlan { to_run: vec![], refusals: vec![], deferred: vec![], pause: None };
+    match gate {
+        ApprovalGate::Answered(Some(refusal)) => plan
+            .refusals
+            .extend(tool_calls.iter().map(|call| (call, refusal.to_string()))),
+        ApprovalGate::Answered(None) => {
+            for call in tool_calls {
+                match tool_of(call) {
+                    Some(_) => plan.to_run.push(call),
+                    None => plan
+                        .refusals
+                        .push((call, "Not run: this tool is no longer available.".into())),
+                }
+            }
+        }
+        // Calls that need a person wait for the answer; every other call runs now.
+        ApprovalGate::Ask => {
+            // A call the run would refuse anyway is refused now rather than shown to the approver.
+            let held = |call: &OpenAIToolCall| {
+                tool_of(call).is_some_and(|t| {
+                    t.requires_approval && !(t.module.is_some() && interpolating_args(call))
+                })
+            };
+            let approval_calls: Vec<_> = tool_calls.iter().filter(|call| held(call)).collect();
+            for call in tool_calls {
+                match tool_of(call) {
+                    _ if held(call) => {}
+                    Some(Tool { question_timeout_secs: Some(timeout_secs), .. }) => {
+                        let refusal = if !approval_calls.is_empty() {
+                            "Not run: ask it again once the pending approval is answered."
+                        } else if plan.pause.is_some() {
+                            "Not run: ask one question at a time."
+                        } else {
+                            match start_question(*timeout_secs, call) {
+                                Ok(question) => {
+                                    plan.pause = Some(question);
+                                    plan.deferred.push(call);
+                                    continue;
+                                }
+                                Err(e) => {
+                                    plan.refusals.push((call, e));
+                                    continue;
+                                }
+                            }
+                        };
+                        plan.refusals.push((call, refusal.to_string()));
+                    }
+                    _ => plan.to_run.push(call),
+                }
+            }
+            if !approval_calls.is_empty() {
+                plan.deferred.extend(approval_calls.iter().copied());
+                plan.pause = Some(start_approval(approval_calls));
+            }
+            // The structured answer ends the run, so it cannot come before the answer it waits on.
+            if plan.pause.is_some() {
+                if let Some(at) = plan
+                    .to_run
+                    .iter()
+                    .position(|c| Some(c.function.name.as_str()) == structured_output_tool_name)
+                {
+                    plan.refusals.push((
+                        plan.to_run.remove(at),
+                        "Not run: give your answer once the pending request is answered.".into(),
+                    ));
+                }
+            }
+        }
+    }
+    plan
+}
+
+pub struct ToolCallsOutcome {
+    pub messages: Vec<OpenAIMessage>,
+    pub final_content: Option<OpenAIContent>,
+    pub used_structured_output_tool: bool,
+    /// The turn asked a person something: the agent parks, those calls unanswered.
+    pub pause: Option<PendingPause>,
+    /// Background tool calls this turn started.
+    pub started: Vec<BackgroundJob>,
+}
+
+/// A background tool call, answered when its job started and still owed its result.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub(crate) struct BackgroundJob {
+    pub call_id: String,
+    pub function_name: String,
+    pub arguments: String,
+    pub module_id: String,
+    pub job_id: Uuid,
+    /// Its position in the run's actions, which is where its outcome is recorded.
+    pub action_index: usize,
+    /// A nested agent's result is an envelope; the model gets its `output`.
+    pub is_agent: bool,
+    /// Started by an earlier turn this run took over: `action_index` is that turn's, so this run
+    /// records no outcome for it.
+    #[serde(default)]
+    pub adopted: bool,
+}
+
+/// A background job that finished: whether it succeeded, and what the model is told it returned.
+pub(crate) struct FinishedBackgroundJob {
+    pub job: BackgroundJob,
+    pub success: bool,
+    pub content: String,
+}
+
+impl FinishedBackgroundJob {
+    /// What the model reads. Its call was answered when the job started, so the result comes as a
+    /// message of its own, tagged with the call's action for the run's trace.
+    pub fn message(&self) -> OpenAIMessage {
+        let job = &self.job;
+        let outcome = if self.success { "finished" } else { "failed" };
+        OpenAIMessage {
+            role: "user".to_string(),
+            content: Some(OpenAIContent::Text(format!(
+                "Background tool `{}` (call {}, job {}) {outcome}. Result:\n{}",
+                job.function_name, job.call_id, job.job_id, self.content
+            ))),
+            agent_action: Some(AgentAction::ToolCall {
+                job_id: job.job_id,
+                function_name: job.function_name.clone(),
+                module_id: job.module_id.clone(),
+            }),
+            ..Default::default()
+        }
+    }
+
+    /// The chat transcript row, shaped like a foreground tool's.
+    pub fn chat_row(&self) -> (String, MessageExtras) {
+        let job = &self.job;
+        let content = if self.success {
+            format!("Used {} tool", job.function_name)
+        } else {
+            format!("Error executing {}", job.function_name)
+        };
+        let extras = MessageExtras {
+            tool_arguments: Some(job.arguments.clone()),
+            tool_result: Some(self.content.clone()),
+            ..Default::default()
+        };
+        (content, extras)
+    }
+}
+
+/// Take the background jobs that have finished out of `running`.
+pub(crate) async fn take_finished_background_jobs(
+    db: &DB,
+    workspace_id: &str,
+    running: &mut Vec<BackgroundJob>,
+) -> Result<Vec<FinishedBackgroundJob>, Error> {
+    let ids: Vec<Uuid> = running.iter().map(|b| b.job_id).collect();
+    let completed = sqlx::query!(
+        "SELECT id, status = 'success' AS \"success!\", result AS \"result: Json<Box<RawValue>>\"
+                FROM v2_job_completed WHERE workspace_id = $1 AND id = ANY($2)",
+        workspace_id,
+        &ids,
+    )
+    .fetch_all(db)
+    .await?;
+    let mut finished = Vec::with_capacity(completed.len());
+    for (id, success, result) in completed.into_iter().map(|c| (c.id, c.success, c.result)) {
+        let Some(index) = running.iter().position(|b| b.job_id == id) else {
+            continue;
+        };
+        let job = running.remove(index);
+        let result = result
+            .map(|r| r.0)
+            .unwrap_or_else(|| to_raw_value(&serde_json::Value::Null));
+        let content = if job.is_agent && success {
+            extract_ai_agent_output(&result).unwrap_or_else(|| result.get().to_string())
+        } else {
+            result.get().to_string()
+        };
+        finished.push(FinishedBackgroundJob { job, success, content });
+    }
+    // Call order, so a run reads the same however the completions raced.
+    finished.sort_by_key(|f| f.job.action_index);
+    Ok(finished)
+}
+
+async fn start_background_tool(
+    ctx: &mut ToolExecutionContext<'_>,
+    tool_call: &OpenAIToolCall,
+    tool: &Tool,
+    actions: &mut Vec<AgentAction>,
+    messages: &mut Vec<OpenAIMessage>,
+) -> Result<BackgroundJob, Error> {
+    let job_id = ulid::Ulid::new().into();
+    // Never reserved for this worker: it is busy with the agent, which may park before the job
+    // is pulled.
+    enqueue_windmill_tool(ctx, tool_call, tool, actions, job_id, false).await?;
+    let action_index = actions.len() - 1;
+    let content = format!(
+        "Started in the background as job {job_id}. Its result arrives in a later message: keep \
+         working meanwhile, or finish your answer and you will continue once it is in."
+    );
+    let row = format!("Started {} in the background", tool_call.function.name);
+    answer_in_background(
+        ctx,
+        tool_call,
+        tool,
+        actions,
+        messages,
+        job_id,
+        action_index,
+        content,
+        row,
+    )
+    .await
+}
+
+/// Answer a call whose job keeps running, and hand the job to the agent's background list.
+async fn answer_in_background(
+    ctx: &mut ToolExecutionContext<'_>,
+    tool_call: &OpenAIToolCall,
+    tool: &Tool,
+    actions: &[AgentAction],
+    messages: &mut Vec<OpenAIMessage>,
+    job_id: Uuid,
+    action_index: usize,
+    content: String,
+    row: String,
+) -> Result<BackgroundJob, Error> {
+    if let Some(parent_job) = ctx.parent_job {
+        set_flow_status_module_action_success_at(ctx.db, parent_job, action_index, None).await?;
+    }
+    messages.push(OpenAIMessage {
+        role: "tool".to_string(),
+        content: Some(OpenAIContent::Text(content.clone())),
+        tool_call_id: Some(tool_call.id.clone()),
+        agent_action: actions.get(action_index).cloned(),
+        ..Default::default()
+    });
+    let extras = MessageExtras {
+        tool_arguments: Some(tool_call.function.arguments.clone()),
+        tool_result: Some(content),
+        ..Default::default()
+    };
+    add_tool_message_to_chat(ctx, Some(job_id), &row, true, Some(extras)).await;
+    Ok(BackgroundJob {
+        call_id: tool_call.id.clone(),
+        function_name: tool_call.function.name.clone(),
+        arguments: tool_call.function.arguments.clone(),
+        module_id: tool
+            .module
+            .as_ref()
+            .map(|m| m.id.clone())
+            .unwrap_or_default(),
+        job_id,
+        action_index,
+        is_agent: tool.module.as_ref().is_some_and(|module| {
+            matches!(
+                module.get_value(),
+                Ok(FlowModuleValue::AIAgent { .. } | FlowModuleValue::AIDecision { .. })
+            )
+        }),
+        adopted: false,
+    })
+}
+
+pub enum ApprovalGate<'a> {
+    /// Park on calls of tools that require approval, and on a question.
+    Ask,
+    /// A person answered an approval request for these calls: run them, or refuse each with
+    /// this message.
+    Answered(Option<&'a str>),
+}
+
+/// Whether the model wrote an argument the tool's job would interpolate with the agent's token,
+/// which may be an identity it runs on behalf of. Only the step's own input transforms may name
+/// variables and resources; the model's arguments are text from whoever talks to it.
+fn interpolating_args(tool_call: &OpenAIToolCall) -> bool {
+    // Empty for a tool called without arguments, which runs as `{}`.
+    let args = &tool_call.function.arguments;
+    !args.is_empty() && untrusted_arg_interpolates(args)
+}
+
+async fn refuse_tool_call(
+    ctx: &mut ToolExecutionContext<'_>,
+    tool_call: &OpenAIToolCall,
+    error_msg: &str,
+    messages: &mut Vec<OpenAIMessage>,
+    final_events_str: &mut String,
+) -> Result<(), Error> {
+    messages.push(OpenAIMessage {
+        role: "tool".to_string(),
+        content: Some(OpenAIContent::Text(error_msg.to_string())),
+        tool_call_id: Some(tool_call.id.clone()),
+        ..Default::default()
+    });
+    if let Some(stream_event_processor) = ctx.stream_event_processor {
+        let event = StreamingEvent::ToolResult {
+            call_id: tool_call.id.clone(),
+            function_name: tool_call.function.name.clone(),
+            result: error_msg.to_string(),
+            success: false,
+        };
+        stream_event_processor.send(event, final_events_str).await?;
+    }
+    let (content, extras) = windmill_tool_row(tool_call, false, error_msg);
+    let agent_job_id = ctx.job.id;
+    add_tool_message_to_chat(ctx, Some(agent_job_id), &content, false, Some(extras)).await;
+    Ok(())
 }
 
 /// Execute an MCP tool call
@@ -331,6 +733,7 @@ async fn enqueue_windmill_tool(
     tool_call: &OpenAIToolCall,
     tool: &Tool,
     actions: &mut Vec<AgentAction>,
+    job_id: Uuid,
     reserved: bool,
 ) -> Result<(Uuid, bool), Error> {
     // Regular Windmill tools must have a module
@@ -338,7 +741,6 @@ async fn enqueue_windmill_tool(
         Error::internal_err(format!("Tool {} has no module", tool_call.function.name))
     })?;
 
-    let job_id = ulid::Ulid::new().into();
     actions.push(AgentAction::ToolCall {
         job_id,
         function_name: tool_call.function.name.clone(),
@@ -399,7 +801,7 @@ async fn enqueue_windmill_tool(
     // Evaluate each input transform and merge with AI-provided args
     for (key, transform) in input_transforms.iter() {
         // We skip static empty / null values, those are the one the AI will fill in
-        if !is_completed_input_transform(transform) {
+        if !transform.is_completed() {
             continue;
         }
         let result = evaluate_input_transform::<Box<RawValue>>(
@@ -533,6 +935,9 @@ async fn enqueue_windmill_tool(
         &ctx.job.workspace_id,
         ctx.preserve_step_tags,
         job_payload.tag.as_deref(),
+        windmill_queue::tags::dev_flow_tag_suffix(&ctx.job.workspace_id, &ctx.job.tag, ctx.db)
+            .await?
+            .as_deref(),
     );
     if tool_tag.as_deref().is_some_and(tag_reads_flow_expr) {
         append_logs(
@@ -581,7 +986,9 @@ async fn enqueue_windmill_tool(
             .await?
             .map(|x| x.into());
 
-    let job_priority = tool_module.priority.or(ctx.job.priority);
+    let job_priority = tool_module
+        .priority
+        .or(windmill_common::queue::passed_on_priority(ctx.job.priority));
 
     let tx = PushIsolationLevel::Transaction(tx);
     let (uuid, tx) = push(
@@ -618,10 +1025,8 @@ async fn enqueue_windmill_tool(
         // narrows that further.
         windmill_common::scopes::intersect_job_token_scopes(
             ctx.job.job_token_scopes.as_deref(),
-            windmill_common::scopes::step_job_token_scopes(
-                tool_module.job_token_scopes.as_deref(),
-            )
-            .as_deref(),
+            windmill_common::scopes::step_job_token_scopes(tool_module.job_token_scopes.as_deref())
+                .as_deref(),
         )
         .as_deref(),
     )
@@ -783,9 +1188,14 @@ async fn execute_windmill_tools(
     batch: &[(&OpenAIToolCall, &Tool)],
     actions: &mut Vec<AgentAction>,
     messages: &mut Vec<OpenAIMessage>,
+    started: &mut Vec<BackgroundJob>,
     final_events_str: &mut String,
 ) -> Result<(), Error> {
     let mut job_ids = Vec::with_capacity(batch.len());
+    let mut action_indexes = Vec::with_capacity(batch.len());
+    // When a call still running is answered as a background one. Such a job never runs in this
+    // worker's process, which could not release the worker while it runs: the agent may park.
+    let mut detach_at = Vec::with_capacity(batch.len());
     let mut local = None;
     for (index, (call, tool)) in batch.iter().enumerate() {
         if index > 0 {
@@ -801,8 +1211,21 @@ async fn execute_windmill_tools(
                     .await?;
             }
         }
-        let (id, reserved) = enqueue_windmill_tool(ctx, call, tool, actions, index == 0).await?;
+        let job_id = ulid::Ulid::new().into();
+        let detach_after = tool.background_after_secs;
+        let (id, reserved) = enqueue_windmill_tool(
+            ctx,
+            call,
+            tool,
+            actions,
+            job_id,
+            index == 0 && detach_after.is_none(),
+        )
+        .await?;
         job_ids.push(id);
+        action_indexes.push(actions.len() - 1);
+        detach_at
+            .push(detach_after.map(|secs| Instant::now() + Duration::from_secs(u64::from(secs))));
         if reserved {
             let job = get_mini_pulled_job(ctx.db, &id)
                 .await?
@@ -834,7 +1257,7 @@ async fn execute_windmill_tools(
             .collect();
         if !pending.is_empty() {
             let completed = sqlx::query!(
-                "SELECT id, status = 'success' AS \"success!\", result AS \"result: Json<Box<RawValue>>\"
+                "SELECT id, status IN ('success', 'skipped') AS \"success!\", result AS \"result: Json<Box<RawValue>>\"
                 FROM v2_job_completed WHERE workspace_id = $1 AND id = ANY($2)",
                 ctx.job.workspace_id,
                 &pending,
@@ -881,10 +1304,39 @@ async fn execute_windmill_tools(
         // Transcript rows, model messages, and positional action statuses share call order.
         while next_result < batch.len() {
             let job_id = job_ids[next_result];
-            let Some((success, content)) = results.remove(&job_id) else {
-                break;
-            };
             let (call, tool) = batch[next_result];
+            let Some((success, content)) = results.remove(&job_id) else {
+                if !detach_at[next_result].is_some_and(|at| Instant::now() >= at) {
+                    break;
+                }
+                let secs = tool.background_after_secs.unwrap_or_default();
+                let content = format!(
+                    "Not finished after {secs}s, so it continues in the background as job \
+                     {job_id}. Its result arrives in a later message: keep working meanwhile, or \
+                     finish your answer and you will continue once it is in."
+                );
+                let row = format!(
+                    "Moved {} to the background after {secs}s",
+                    call.function.name
+                );
+                let action_index = action_indexes[next_result];
+                started.push(
+                    answer_in_background(
+                        ctx,
+                        call,
+                        tool,
+                        actions,
+                        messages,
+                        job_id,
+                        action_index,
+                        content,
+                        row,
+                    )
+                    .await?,
+                );
+                next_result += 1;
+                continue;
+            };
             let module = tool
                 .module
                 .as_ref()
@@ -909,10 +1361,9 @@ async fn execute_windmill_tools(
         }
 
         if local.is_none() && next_result < batch.len() {
-            let pending: Vec<Uuid> = job_ids[next_result..]
-                .iter()
-                .filter(|id| !results.contains_key(id))
-                .copied()
+            let pending: Vec<Uuid> = (next_result..batch.len())
+                .filter(|&i| detach_at[i].is_none() && !results.contains_key(&job_ids[i]))
+                .map(|i| job_ids[i])
                 .collect();
             if !pending.is_empty() {
                 local = claim_local_tool(ctx, &pending).await?;
@@ -942,7 +1393,7 @@ async fn claim_local_tool(
     )
     .await?;
     if let Err(err) = pulled.maybe_apply_debouncing(ctx.db).await {
-        pulled.error_while_preprocessing = Some(err.to_string());
+        pulled.error_while_preprocessing = Some(err.to_string().into());
     }
     match pulled.to_pulled_job() {
         Ok(job) => Ok(job.map(|job| spawn_local_tool(ctx, job.job, false))),
@@ -1009,14 +1460,14 @@ async fn add_tool_message_to_chat(
 
     let chat_enabled = ctx
         .flow_context
-        .flow_status
+        .run_status
         .as_ref()
         .and_then(|fs| fs.chat_input_enabled)
         .unwrap_or(false);
     if chat_enabled {
         if let Some(memory_id) = ctx
             .flow_context
-            .flow_status
+            .run_status
             .as_ref()
             .and_then(|fs| fs.memory_id)
         {
@@ -1051,7 +1502,7 @@ async fn add_tool_message_to_chat(
 
 #[cfg(test)]
 mod tests {
-    use super::{extract_ai_agent_output, windmill_tool_row};
+    use super::{extract_ai_agent_output, interpolating_args, windmill_tool_row};
     use serde_json::value::RawValue;
     use windmill_ai::ai_types::{OpenAIFunction, OpenAIToolCall};
 
@@ -1086,6 +1537,98 @@ mod tests {
             extras.tool_result.as_deref(),
             Some("Error running tool: ExecutionErr: boom")
         );
+    }
+
+    #[test]
+    fn only_calls_that_need_a_person_wait_for_one() {
+        use super::{plan_calls, ApprovalGate};
+        use crate::ai::pause::PendingRequest;
+        use windmill_ai::types::{Tool, ToolDef, ToolDefFunction};
+        let tool = |name: &str, requires_approval: bool, question: bool| Tool {
+            module: None,
+            def: ToolDef {
+                r#type: "function".to_string(),
+                function: ToolDefFunction {
+                    name: name.to_string(),
+                    description: None,
+                    parameters: RawValue::from_string("{}".to_string()).unwrap(),
+                },
+            },
+            mcp_source: None,
+            requires_approval,
+            question_timeout_secs: question.then_some(60),
+            background_after_secs: None,
+        };
+        let call = |id: &str, name: &str| OpenAIToolCall {
+            id: id.to_string(),
+            function: OpenAIFunction {
+                name: name.to_string(),
+                arguments: r#"{"question":"which one?"}"#.to_string(),
+            },
+            r#type: "function".to_string(),
+            extra_content: None,
+        };
+        let tools = [
+            tool("list", false, false),
+            tool("delete", true, false),
+            tool("ask", false, true),
+        ];
+        let ids =
+            |calls: &[&OpenAIToolCall]| calls.iter().map(|c| c.id.clone()).collect::<Vec<_>>();
+
+        let calls = [
+            call("1", "list"),
+            call("2", "delete"),
+            call("3", "ask"),
+            call("4", "delete"),
+            call("5", "answer"),
+        ];
+        let plan = plan_calls(&calls, &tools, &ApprovalGate::Ask, Some("answer"));
+        assert_eq!(ids(&plan.to_run), ["1"]);
+        assert_eq!(ids(&plan.deferred), ["2", "4"]);
+        assert_eq!(
+            plan.refusals
+                .iter()
+                .map(|(c, _)| c.id.as_str())
+                .collect::<Vec<_>>(),
+            ["3", "5"]
+        );
+        let pause = plan.pause.unwrap();
+        assert_eq!(pause.call_id, "2");
+        assert!(matches!(pause.request, PendingRequest::Approval { calls } if calls.len() == 2));
+
+        let calls = [call("1", "ask"), call("2", "list"), call("3", "ask")];
+        let plan = plan_calls(&calls, &tools, &ApprovalGate::Ask, Some("answer"));
+        assert_eq!(ids(&plan.to_run), ["2"]);
+        assert_eq!(ids(&plan.deferred), ["1"]);
+        assert_eq!(plan.refusals.len(), 1);
+
+        let calls = [call("1", "delete"), call("2", "gone")];
+        let plan = plan_calls(&calls, &tools, &ApprovalGate::Answered(None), None);
+        assert_eq!(ids(&plan.to_run), ["1"]);
+        assert_eq!(plan.refusals[0].0.id, "2");
+        let plan = plan_calls(
+            &calls,
+            &tools,
+            &ApprovalGate::Answered(Some("rejected")),
+            None,
+        );
+        assert!(plan.to_run.is_empty() && plan.refusals.len() == 2);
+    }
+
+    #[test]
+    fn a_model_written_reference_is_caught_however_it_is_spelled() {
+        let call = |arguments: &str| OpenAIToolCall {
+            id: "call_1".to_string(),
+            function: OpenAIFunction { name: "t".to_string(), arguments: arguments.to_string() },
+            r#type: "function".to_string(),
+            extra_content: None,
+        };
+        assert!(interpolating_args(&call(r#"{"x":"$var:u/a/s"}"#)));
+        assert!(interpolating_args(&call(
+            r#"{"x":{"y":["\u0024res:u/a/r"]}}"#
+        )));
+        assert!(!interpolating_args(&call(r#"{"x":"$5 and var: 3"}"#)));
     }
 
     #[test]

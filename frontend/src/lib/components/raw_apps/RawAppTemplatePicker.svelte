@@ -14,7 +14,6 @@
 	import MissingWorkerTagAlert from '$lib/components/jobs/MissingWorkerTagAlert.svelte'
 	import { hasWorkerForTag, queuedWithoutWorkerMessage } from '$lib/components/jobs/missingWorker'
 	import { superadmin, userStore } from '$lib/stores'
-	import { base } from '$lib/base'
 	import { sendUserToast } from '$lib/toast'
 	import Modal from '$lib/components/common/modal/Modal.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
@@ -25,7 +24,8 @@
 	import { Alert, Badge } from '$lib/components/common'
 	import { copilotInfo, copilotWorkspace } from '$lib/aiStore'
 	import { loadCopilot } from '$lib/components/copilot/loadCopilot'
-	import { react18Template, react19Template, svelte5Template } from './templates'
+	import { BUILDER_FRAMEWORK_TEMPLATES, FRAMEWORK_TEMPLATES } from './templates'
+	import { conformBuilderAppPolicy } from './builderAppPolicy'
 	import type { Runnable } from './rawAppPolicy'
 	import {
 		type DataTableRef,
@@ -45,7 +45,12 @@
 	import RawAppDataTableList from './RawAppDataTableList.svelte'
 	import RawAppDataTableDrawer from './RawAppDataTableDrawer.svelte'
 	import FileEditorIcon from './FileEditorIcon.svelte'
-	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import {
+		useOperatingUser,
+		useOperatingWorkspace,
+		useOperatingWorkspaceHref
+	} from '$lib/components/operatingWorkspace.svelte'
+	import { useRoleCapabilities } from '$lib/operatorWriteRights'
 
 	export type RawAppTemplatePickerResult = {
 		files: Record<string, string>
@@ -65,11 +70,14 @@
 		onStart: (result: RawAppTemplatePickerResult, mode: RawAppBuildMode) => void
 	} = $props()
 
-	const templates = [
-		{ name: 'React 19', icon: 'tsx', files: react19Template, recommended: true },
-		{ name: 'React 18', icon: 'tsx', files: react18Template },
-		{ name: 'Svelte 5', icon: 'svelte', files: svelte5Template }
-	]
+	const templates = $derived.by(() => {
+		const files = composeOnlyApps ? BUILDER_FRAMEWORK_TEMPLATES : FRAMEWORK_TEMPLATES
+		return [
+			{ name: 'React 19', icon: 'tsx', files: files.react19, recommended: true },
+			{ name: 'React 18', icon: 'tsx', files: files.react18 },
+			{ name: 'Svelte 5', icon: 'svelte', files: files.svelte5 }
+		]
+	})
 
 	let selectedTemplateIndex = $state(0)
 	let selectedDatatable = $state<string | undefined>(undefined)
@@ -82,6 +90,10 @@
 	let dataTableDrawer: RawAppDataTableDrawer | undefined = $state()
 
 	const operatingWorkspace = useOperatingWorkspace()
+	const operatingUser = useOperatingUser()
+	const operatingHref = useOperatingWorkspaceHref()
+	const roleCaps = useRoleCapabilities()
+	const composeOnlyApps = $derived($roleCaps.apps === 'compose')
 	let opWs = $derived($operatingWorkspace)
 
 	const datatables = createDatatablesResource(() => opWs)
@@ -283,13 +295,13 @@
 	)
 
 	function appPolicy(): Policy {
-		return {
-			on_behalf_of: $userStore?.username.includes('@')
-				? $userStore?.username
-				: `u/${$userStore?.username}`,
-			on_behalf_of_email: $userStore?.email,
-			execution_mode: 'publisher'
+		// No run-as user: the deploy dialog resolves it, the folder's default first.
+		const policy: Policy = {
+			execution_mode: 'publisher',
+			sandbox: true
 		}
+		if (composeOnlyApps) conformBuilderAppPolicy(policy, $userStore)
+		return policy
 	}
 
 	const startCardClasses =
@@ -455,10 +467,10 @@
 						You can still create an app, but for data storage you won't be able to use data tables
 						which are <b>highly recommended</b>.
 						<br />
-						{#if $userStore?.is_admin}
+						{#if operatingUser.current?.is_admin}
 							Configure datatables in
 							<a
-								href="/workspace_settings?tab=windmill_data_tables"
+								href={operatingHref('/workspace_settings?tab=windmill_data_tables')}
 								target="_blank"
 								class="inline-flex items-center gap-1"
 								>workspace settings <ExternalLinkIcon size={16} />
@@ -618,10 +630,10 @@
 				<Alert type="info" title="AI is not configured.">
 					You can still create an app manually but using AI is highly recommended.
 					<br />
-					{#if $userStore?.is_admin}
+					{#if operatingUser.current?.is_admin}
 						Configure AI in
 						<a
-							href="{base}/workspace_settings?tab=ai"
+							href={operatingHref('/workspace_settings?tab=ai')}
 							target="_blank"
 							class="inline-flex items-center gap-1 font-semibold"
 							>workspace settings <ExternalLinkIcon size={16} />
@@ -629,7 +641,7 @@
 						{#if $superadmin}
 							or
 							<a
-								href="{base}/?workspace=admins#superadmin-settings"
+								href="/?workspace=admins#superadmin-settings"
 								target="_blank"
 								class="inline-flex items-center gap-1 font-semibold"
 								>instance settings <ExternalLinkIcon size={16} />
@@ -638,7 +650,7 @@
 					{:else if $superadmin}
 						Configure AI in
 						<a
-							href="{base}/?workspace=admins#superadmin-settings"
+							href="/?workspace=admins#superadmin-settings"
 							target="_blank"
 							class="inline-flex items-center gap-1 font-semibold"
 							>instance settings <ExternalLinkIcon size={16} />

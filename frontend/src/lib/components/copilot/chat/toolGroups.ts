@@ -114,6 +114,7 @@ function groupableCall(message: DisplayMessage): ToolDisplayMessage | undefined 
 	// row with its own card (run, question, diff, image, sources) is the content itself; a call
 	// held for folder instructions never ran, so it is not a change or a lookup.
 	if (message.needsConfirmation || message.blockedByPlanMode) return undefined
+	if (message.outOfScope && !message.outOfScope.decision) return undefined
 	if (message.heldForFolderInstructions) return undefined
 	if (message.runForm || message.inspectedRun || message.userQuestion) return undefined
 	// An app edit's diff covers one file of many, so it stays a row inside the app's group.
@@ -295,6 +296,49 @@ export function groupToolRuns(messages: DisplayMessage[]): ChatItem[] {
 	return items
 }
 
+function sameChatItem(a: ChatItem, b: ChatItem): boolean {
+	if (a.kind === 'message') {
+		return b.kind === 'message' && a.message === b.message && a.index === b.index
+	}
+	return (
+		b.kind === 'group' &&
+		a.groupKind === b.groupKind &&
+		a.key === b.key &&
+		a.target === b.target &&
+		a.entries.length === b.entries.length &&
+		a.entries.every((e, i) => e.message === b.entries[i].message && e.index === b.entries[i].index)
+	)
+}
+
+/** `groupToolRuns` for a transcript that is re-sent whole on every streamed chunk and on every
+ * tool status change: a row whose messages did not change keeps its previous item object. A
+ * fresh item per row re-renders the whole history each time (every answer re-parsing its
+ * markdown, every tool row its result), which freezes the tab on long sessions.
+ *
+ * A changed message is told apart by identity alone, so a row must be replaced, never mutated
+ * in place, for its grouping to update. */
+export function createChatItemGrouper(): (messages: DisplayMessage[]) => ChatItem[] {
+	let settled: DisplayMessage[] = []
+	let settledItems: ChatItem[] = []
+	return (messages) => {
+		// The live answer only ever comes last, and it can neither join nor end a group
+		// differently than the end of the transcript does, so it is grouped on its own and the
+		// rows before it are not regrouped while it streams.
+		const last = messages.at(-1)
+		const live = last?.role === 'assistant' && last.streaming ? last : undefined
+		const n = live ? messages.length - 1 : messages.length
+		if (n !== settled.length || settled.some((m, i) => m !== messages[i])) {
+			const previous = new Map(settledItems.map((item) => [chatItemKey(item), item]))
+			settled = messages.slice(0, n)
+			settledItems = groupToolRuns(settled).map((item) => {
+				const before = previous.get(chatItemKey(item))
+				return before && sameChatItem(before, item) ? before : item
+			})
+		}
+		return live ? [...settledItems, { kind: 'message', message: live, index: n }] : settledItems
+	}
+}
+
 // The server's full resource path: two servers can share a last segment (u/alice/github,
 // f/team/github), so only the display shortens it.
 function mcpServerPath(call: ToolDisplayMessage): string | undefined {
@@ -304,6 +348,7 @@ function mcpServerPath(call: ToolDisplayMessage): string | undefined {
 }
 
 function callName(call: ToolDisplayMessage): string {
+	if (call.readsAgent) return 'read agent'
 	const mcpTool = call.parameters?.tool
 	const name =
 		call.toolName === 'call_mcp_read_tool' && typeof mcpTool === 'string'
@@ -331,6 +376,7 @@ const COUNTED_VERBS = new Set(['read', 'inspect'])
 function repeated(name: string, n: number): string {
 	if (n === 1) return name
 	const [verb, ...rest] = name.split(' ')
+	if (name === 'read agent') return `read ${n} agents`
 	return COUNTED_VERBS.has(verb) && rest.length > 0
 		? `${verb} ${n} ${rest.join(' ')}`
 		: `${name} ${n} times`
@@ -341,21 +387,27 @@ function repeated(name: string, n: number): string {
  * says what will happen rather than what did. */
 export type GroupState = 'queued' | 'running' | 'settled'
 
+// Past this many kinds of call the header names the rest only as a count, so a long read run
+// keeps its first kinds legible instead of being cut off by the row's ellipsis.
+const LISTED_KINDS = 3
+
 /** The group's header, e.g. `Edited` + `f/a/flow · 3 changes`,
- * `search workspace 2 times, read 2 workspace item`, `github` + `list issues, get issue 2 times`. */
+ * `search workspace 2 times, read 2 workspace item`, `github` + `list issues, get issue 2 times`.
+ * `more` holds the kinds left out of `label`. */
 export function groupHeader(
 	group: ToolGroup,
 	state: GroupState
-): { prefix: string; label: string } {
+): { prefix: string; label: string; more: string[] } {
 	const calls = group.entries
 		.map((e) => e.message)
 		.filter((m): m is ToolDisplayMessage => m.role === 'tool')
 	if (group.groupKind === 'waiting') {
 		// A queued row's content is its imperative label, e.g. `Execute SQL on "main"`.
-		const names = [...new Set(calls.map((m) => m.content))].join(', ')
+		const names = [...new Set(calls.map((m) => m.content))]
 		return {
 			prefix: `${plural(calls.length, 'more call')} waiting:`,
-			label: names
+			label: names.slice(0, LISTED_KINDS).join(', '),
+			more: names.slice(LISTED_KINDS)
 		}
 	}
 	if (group.groupKind === 'edit') {
@@ -364,18 +416,21 @@ export function groupHeader(
 		).length
 		return {
 			prefix: { queued: 'Edit', running: 'Editing', settled: 'Edited' }[state],
-			label: `${group.target || 'the flow'} · ${plural(edits, 'change')}`
+			label: `${group.target || 'the flow'} · ${plural(edits, 'change')}`,
+			more: []
 		}
 	}
 	const counts = new Map<string, number>()
 	for (const call of calls) counts.set(callName(call), (counts.get(callName(call)) ?? 0) + 1)
-	const list = [...counts].map(([name, n]) => repeated(name, n)).join(', ')
+	const kinds = [...counts].map(([name, n]) => repeated(name, n))
+	const list = kinds.slice(0, LISTED_KINDS).join(', ')
+	const more = kinds.slice(LISTED_KINDS)
 	// A tool search spans every server and usually comes right before the calls it found, so it
 	// does not stop the group from reading as one server's.
 	const servers = new Set(
 		calls.filter((call) => call.toolName !== 'search_mcp_tools').map(mcpServerPath)
 	)
 	const [server] = servers
-	if (servers.size === 1 && server) return { prefix: server.split('/').at(-1)!, label: list }
-	return { prefix: '', label: list.charAt(0).toUpperCase() + list.slice(1) }
+	if (servers.size === 1 && server) return { prefix: server.split('/').at(-1)!, label: list, more }
+	return { prefix: '', label: list.charAt(0).toUpperCase() + list.slice(1), more }
 }

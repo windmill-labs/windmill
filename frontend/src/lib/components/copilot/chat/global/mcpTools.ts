@@ -365,7 +365,10 @@ function createCallTool(servers: McpServer[], mode: 'read' | 'write'): SessionTo
 		...(isRead
 			? { planModeSafe: true }
 			: {
+					// Changes the external system, never the workspace, like a deployed run does.
+					readOnlySafe: true,
 					requiresConfirmation: true,
+					confirmAction: 'run',
 					confirmationMessage: (args: any) => `Call ${args?.tool ?? ''} on ${args?.server ?? ''}`
 				}),
 		fn: async ({ args, workspace, toolId, toolCallbacks }) => {

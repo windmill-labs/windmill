@@ -1,9 +1,16 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { createHash } from "node:crypto";
 import * as log from "../core/log.ts";
 import { colors } from "@cliffy/ansi/colors";
 import * as wmill from "../../gen/services.gen.ts";
 import { readTextFile, readTextFileSync } from "../utils/utils.ts";
+import {
+  extractFolderPath,
+  extractResourceName,
+  isRawAppFolderMetadataFile,
+} from "../utils/resource_folders.ts";
+import { APP_BACKEND_FOLDER } from "./app/app_metadata.ts";
 
 const SHARED_UI_DIR = "ui";
 
@@ -24,6 +31,77 @@ async function readDirRecursive(
     }
   }
   return out;
+}
+
+/**
+ * Whether an app's own files import from the shared `/ui/` folder. The `(`
+ * covers CSS's unquoted `@import url(/ui/theme.css)`.
+ */
+export function importsSharedUi(files: Record<string, string>): boolean {
+  return Object.values(files).some((c) => /["'`(]\s*\/ui\//.test(c));
+}
+
+/**
+ * A digest of the local <cwd>/ui/ folder, or undefined without one. An app
+ * bundles ui/ into itself, so this is what tells a push that the deployed
+ * bundle was built against other ui/ content than the local one.
+ */
+export async function sharedUiHash(): Promise<string | undefined> {
+  const localDir = path.join(process.cwd(), SHARED_UI_DIR);
+  if (!fs.existsSync(localDir)) return undefined;
+  const files = await readDirRecursive(localDir);
+  const entries = Object.entries(files).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+  return createHash("sha256").update(JSON.stringify(entries)).digest("hex");
+}
+
+/**
+ * The `raw_app.yaml` keys of the local raw apps that import ui/ and whose
+ * deployed bundle was built from other ui/ content: no file of theirs changed,
+ * so the file diff never queues them. Apps in `skip` are already being pushed.
+ */
+export async function rawAppsStaleOnSharedUi(
+  workspace: string,
+  localMap: Record<string, string>,
+  skip: Set<string>,
+): Promise<string[]> {
+  const hash = await sharedUiHash();
+  if (!hash) return [];
+  const apps = new Map<
+    string,
+    { metaPath?: string; files: Record<string, string> }
+  >();
+  for (const [key, content] of Object.entries(localMap)) {
+    const name = extractResourceName(key, "raw_app");
+    if (!name || skip.has(name)) continue;
+    if (!apps.has(name)) apps.set(name, { files: {} });
+    const app = apps.get(name)!;
+    const posix = key.replaceAll("\\", "/");
+    const rel = posix.slice(extractFolderPath(key, "raw_app")!.length);
+    if (isRawAppFolderMetadataFile(posix)) {
+      app.metaPath = key;
+    } else if (!rel.startsWith(APP_BACKEND_FOLDER + "/")) {
+      app.files[key] = content;
+    }
+  }
+  const stale = await Promise.all(
+    [...apps].map(async ([name, { metaPath, files }]) => {
+      if (!metaPath || !importsSharedUi(files)) return undefined;
+      try {
+        const app = await wmill.getAppByPath({
+          workspace,
+          path: name.replaceAll(path.sep, "/"),
+        });
+        return (app.value as any)?.shared_ui_hash === hash
+          ? undefined
+          : metaPath;
+      } catch (e: any) {
+        // Not deployed yet: the file diff already queues it as added.
+        if (e?.status === 404) return undefined;
+        throw e;
+      }
+    }),
+  );
+  return stale.filter((p): p is string => !!p);
 }
 
 /** The workspace's shared UI store, or undefined when it cannot be read. */

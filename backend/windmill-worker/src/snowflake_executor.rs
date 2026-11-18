@@ -873,7 +873,8 @@ fn convert_typ_val(arg_t: String, arg_v: Value) -> Value {
             let mut v = arg_v;
 
             if !v.is_string() {
-                // if not string, convert to string for api request
+                // The SQL API has no ARRAY/VARIANT binding type: a list or object
+                // is bound as its JSON text, which the query reads with PARSE_JSON(?).
                 v = json!(v.to_string());
             }
 
@@ -933,5 +934,18 @@ fn parse_val(value: &Value, typ: &str) -> Value {
             "ERR: Could not parse {} argument with value {}",
             typ, str_value
         ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn list_arg_binds_as_json_text() {
+        assert_eq!(
+            convert_typ_val("varchar[]".to_string(), json!(["sales", "g/ops"])),
+            json!({ "type": "TEXT", "value": r#"["sales","g/ops"]"# })
+        );
     }
 }

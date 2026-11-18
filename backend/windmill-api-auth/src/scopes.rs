@@ -73,7 +73,12 @@ pub fn check_route_access(
                         .to_string(),
                 ));
             }
-            if required_domain == ScopeDomain::Users && suffix != "users/whoami" {
+            if required_domain == ScopeDomain::Users {
+                // Whoami returns what the bundle already has in `window.ctx`, so it
+                // needs no declared scope.
+                if suffix == "users/whoami" {
+                    return Ok(());
+                }
                 return Err(Error::PermissionDenied(
                     "Access denied. A raw app frontend SDK token can only read the viewer's own identity."
                         .to_string(),
@@ -98,6 +103,26 @@ pub fn check_route_access(
         return Err(Error::PermissionDenied(
             "Access denied. Required scope: mcp:*".to_string(),
         ));
+    }
+
+    // A CI test batch names flows and resources as well as scripts, and its handler checks
+    // each item against its own `<kind>:write` scope: the route needs write on one of them.
+    if route_suffix.as_deref() == Some("scripts/trigger_ci_tests_batch")
+        && token_scopes.iter().any(|s| {
+            ScopeDefinition::from_scope_string(s).is_ok_and(|scope| {
+                [
+                    ScopeDomain::Scripts,
+                    ScopeDomain::Flows,
+                    ScopeDomain::Resources,
+                ]
+                .into_iter()
+                .any(|d| {
+                    scope_grants_access(&scope, d, ScopeAction::Write, None, None).unwrap_or(false)
+                })
+            })
+        })
+    {
+        return Ok(());
     }
 
     // tracing::error!("Checking route access {:?} {:?} {:?} {:?}", required_action, required_domain, required_kind, route_suffix);
@@ -170,10 +195,16 @@ const FLOW_JOBS: [&'static str; 6] = [
 /// scoped by the agent's path like a deployed runnable's, as `jobs:run:agents:<path>`.
 const AGENT_JOBS: [&'static str; 1] = ["jobs/run/agent"];
 
+/// Lock resolution for scripts, apps and flows, scoped as `jobs:run:dependencies:<path>`.
+/// Resolving a package can run its build or install scripts on the worker, so this is
+/// still code execution: the scope only takes away the direct ways to run code.
+const DEPENDENCY_JOBS: [&'static str; 2] = ["jobs/run/dependencies", "jobs/run/flow_dependencies"];
+
 lazy_static::lazy_static! {
     static ref RUN_PATH_ACTIONS: Vec<&'static str> = {
-        let mut v = vec!["jobs/resume/", "jobs/run/batch_rerun_jobs", "jobs/run/workflow_as_code", "jobs/run/dependencies","jobs/run/flow_dependencies", "apps_u/execute_component", "apps_u/upload_s3_file"];
+        let mut v = vec!["jobs/resume/", "jobs/run/batch_rerun_jobs", "jobs/run/workflow_as_code", "apps_u/execute_component", "apps_u/upload_s3_file"];
 
+        v.extend(DEPENDENCY_JOBS);
         v.extend(SCRIPT_JOBS);
         v.extend(FLOW_JOBS);
         v.extend(AGENT_JOBS);
@@ -227,11 +258,13 @@ fn map_http_method_to_action(method: &str, route_path: &str) -> ScopeAction {
     }
 }
 
-/// Checks the route path to determine the runnable kind ("agents", "flows" or "scripts").
+/// Checks the route path to determine the runnable kind ("dependencies", "agents", "flows"
+/// or "scripts").
 ///
 /// The order of checks is important:
-/// - Flow-related paths are checked first to avoid false positives, as some flow paths
-///   (e.g., `/run_preview_flow`) share prefixes with script paths (e.g., `/run_preview`).
+/// - Dependency paths are checked before flow paths: `flow_dependencies` starts with `f`.
+/// - Flow-related paths are checked before script paths to avoid false positives, as some
+///   flow paths (e.g., `/run_preview_flow`) share prefixes with script paths (e.g., `/run_preview`).
 ///
 /// Returns the kind based on the match, or `None` if no match is found.
 fn determine_kind_from_route(route_path: &str) -> Option<String> {
@@ -246,6 +279,12 @@ fn determine_kind_from_route(route_path: &str) -> Option<String> {
             || route_path.starts_with("jobs/run_wait_result/preview")
         {
             return None;
+        }
+        if DEPENDENCY_JOBS
+            .iter()
+            .any(|path| route_path.starts_with(path))
+        {
+            return Some("dependencies".to_string());
         }
         if AGENT_JOBS.iter().any(|path| route_path.starts_with(path)) {
             return Some("agents".to_string());
@@ -308,7 +347,7 @@ fn extract_domain_from_route(
 /// exports) and credential minting (`job_view_token`) are deliberately absent — those are
 /// `jobs:read`. Keep by-id read routes here in sync as they are added, or a run token
 /// loses the ability to follow its own run through them.
-const RUN_WHITELISTED_GET_PATHS: [&'static str; 32] = [
+const RUN_WHITELISTED_GET_PATHS: [&'static str; 33] = [
     "jobs_u/get_flow/",
     "jobs_u/get_root_job_id/",
     "jobs_u/get/",
@@ -336,6 +375,7 @@ const RUN_WHITELISTED_GET_PATHS: [&'static str; 32] = [
     "jobs/flow/user_states/",
     "jobs/job_signature/",
     "jobs/wac_approval_urls/",
+    "jobs/flow/approval_step_detail/",
     "jobs/completed/get/",
     "jobs/completed/get_result/",
     "jobs/completed/get_result_maybe/",
@@ -404,8 +444,9 @@ pub fn guest_session_scopes(app_path: &str) -> windmill_common::error::Result<Ve
     ])
 }
 
-/// Sentinel in raw-app SDK tokens. Grants nothing; `check_route_access` uses it
-/// to narrow the declared scopes to what the viewer's prompt promised.
+/// Sentinel in raw-app SDK tokens. `check_route_access` uses it to narrow the
+/// declared scopes to what the viewer's prompt promised; the only thing it grants
+/// is the bearer's own `users/whoami`.
 pub const RAW_APP_SDK_SENTINEL: &str = "raw_app_sdk";
 
 pub fn has_raw_app_sdk_sentinel(scopes: Option<&[String]>) -> bool {
@@ -448,8 +489,9 @@ fn app_embed_route_denied(domain: ScopeDomain, suffix: &str) -> bool {
     }
 }
 
-/// App routes a running app uses: its own definition (`apps/get/p/<path>`, further
-/// path-scoped by `apps:read:<path>`) and the public app-serving endpoints
+/// App routes a running app uses: its own definition (`apps/get/p/<path>`, or
+/// `apps/get/lite/<path>` that the viewer runs from, both further path-scoped by
+/// `apps:read:<path>`) and the public app-serving endpoints
 /// (`apps_u/*`: public_app, public_resource, get_data, and the path-taking
 /// `execute_component` / `download_s3_file`, which re-check `apps:run|read:<path>`
 /// in their handlers so they stay confined to this app). Everything else in the
@@ -463,7 +505,9 @@ fn app_embed_apps_route_allowed(suffix: &str) -> bool {
     if suffix.starts_with("apps_u/embed_token") {
         return false;
     }
-    suffix.starts_with("apps/get/p/") || suffix.starts_with("apps_u/")
+    suffix.starts_with("apps/get/p/")
+        || suffix.starts_with("apps/get/lite/")
+        || suffix.starts_with("apps_u/")
 }
 
 /// Routes a guest session is denied: the app-embed allowlist, plus the embed-token
@@ -529,7 +573,7 @@ fn resource_metadata_route_allowed(suffix: &str) -> bool {
 /// a direct `require_job_within_read_scope`. `jobs/result_by_id/` is absent because it
 /// resolves a node up through the enclosing flows, past the job the check admitted.
 /// A route added here without that check serves a path-scoped token every job.
-const READ_PATH_SCOPED_BY_ID_PATHS: [&'static str; 25] = [
+const READ_PATH_SCOPED_BY_ID_PATHS: [&'static str; 26] = [
     "jobs_u/get/",
     "jobs_u/get_logs/",
     "jobs_u/get_completed_logs_tail/",
@@ -548,6 +592,7 @@ const READ_PATH_SCOPED_BY_ID_PATHS: [&'static str; 25] = [
     "jobs_u/get_log_file/",
     "jobs_u/get_flow/",
     "jobs_u/flow/approval_info/",
+    "jobs/flow/approval_step_detail/",
     "jobs/run_progress/",
     "jobs/flow/user_states/",
     "jobs/completed/get/",
@@ -586,17 +631,23 @@ pub struct JobReadConfinement {
 }
 
 impl JobReadConfinement {
-    /// Whether a job that ran `runnable_path` as `kind` (`scripts`, `flows` or `agents`)
-    /// is inside the confinement. A read path admits every kind; a run scope only its own.
+    /// Whether a job that ran `runnable_path` as `kind` (`scripts`, `flows`, `agents` or
+    /// `dependencies`) is inside the confinement. A read path admits every kind; a run
+    /// scope only its own.
     pub fn admits(&self, kind: &str, runnable_path: &str) -> bool {
         if self.read_paths.allows(runnable_path) {
             return true;
         }
+        // Lock jobs and previews store the path their caller sent. The matcher reads `*`
+        // in it as a pattern, and `,`/`:` are scope syntax: such a path needs a grant
+        // covering every path, as enqueuing it did.
+        let resource = windmill_common::auth::is_scope_literal_path(runnable_path)
+            .then(|| vec![runnable_path.to_string()]);
         let required = ScopeDefinition::new(
             ScopeDomain::Jobs.as_str(),
             ScopeAction::Run.as_str(),
             Some(kind),
-            Some(vec![runnable_path.to_string()]),
+            resource,
         );
         self.run.iter().any(|scope| scope.includes(&required))
     }
@@ -862,7 +913,8 @@ fn scope_grants_access(
 /// from its own super-admin gate, these among them, so each is already readable by every
 /// authenticated user; each is here because the CLI reads it from a job:
 /// `automate_username_creation` before creating a user during a git-sync push, `uid` and
-/// `hub_base_url` when `u/admin/hub_sync` pulls resource types from the Hub. The other
+/// `hub_base_url` when a job runs `wmill hub pull`, as an edited copy of the retired
+/// `u/admin/hub_sync` still does (servers sync resource types themselves). The other
 /// ungated keys have no such caller, so they stay confined — being ungated earns a key
 /// nothing on its own. Listing a gated key earns it nothing either: `require_super_admin`
 /// refuses every job token, so `hub_api_secret`, which that pull reads for a private Hub,
@@ -916,11 +968,15 @@ fn is_global_read_open_to_job_token(route_path: &str) -> bool {
 ///   not send.
 /// - tutorial progress upserts a UI bitfield keyed on the caller's own email. Its path
 ///   serves a `GET` too, which the read list above carries.
-const GLOBAL_WRITES_OPEN_TO_JOB_TOKEN: [&str; 4] = [
+/// - a Teams message from a job (the Teams error, recovery and success handlers) posts as
+///   the instance-wide bot. The handler refuses a job token whose conversation is not a
+///   channel of the team connected to the job's workspace.
+const GLOBAL_WRITES_OPEN_TO_JOB_TOKEN: [&str; 5] = [
     "/api/settings/test_object_storage_config",
     "/api/workspaces/exists",
     "/api/schedules/preview",
     "/api/users/tutorial_progress",
+    "/api/teams/activities",
 ];
 
 /// Confines a job token (`$WM_TOKEN`) to routes that name a workspace. It is minted
@@ -1222,6 +1278,26 @@ mod tests {
     }
 
     #[test]
+    fn ci_test_batch_route_takes_any_tested_kind_write_scope() {
+        let route = "/api/w/test/scripts/trigger_ci_tests_batch";
+        for scope in ["flows:write:f/a/b", "resources:write", "scripts:write"] {
+            assert!(
+                check_route_access(&[scope.to_string()], route, "POST").is_ok(),
+                "{scope}"
+            );
+        }
+        for scope in ["flows:read", "jobs:run", "apps:write"] {
+            assert!(
+                check_route_access(&[scope.to_string()], route, "POST").is_err(),
+                "{scope}"
+            );
+        }
+        // The exemption is this route's alone.
+        let flows = vec!["flows:write".to_string()];
+        assert!(check_route_access(&flows, "/api/w/test/scripts/create", "POST").is_err());
+    }
+
+    #[test]
     fn data_metrics_is_its_own_domain_not_a_scripts_alias() {
         // `data_metrics` must be a distinct domain: a token scoped to it must reach
         // only the data_metrics route, never the broader /scripts routes (some of
@@ -1437,6 +1513,19 @@ mod tests {
             ScopeDomain::FlowConversations.as_str(),
             "flow_conversations"
         );
+    }
+
+    #[test]
+    fn test_shared_ui_routes_use_apps_scopes() {
+        let scopes = |s: &[&str]| s.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        for route in ["shared_ui/get", "shared_ui/list", "shared_ui/version"] {
+            let route = format!("/api/w/ws/{route}");
+            assert!(check_route_access(&scopes(&["apps:read"]), &route, "GET").is_ok());
+            assert!(check_route_access(&scopes(&["scripts:read"]), &route, "GET").is_err());
+        }
+        let put = "/api/w/ws/shared_ui";
+        assert!(check_route_access(&scopes(&["apps:write"]), put, "PUT").is_ok());
+        assert!(check_route_access(&scopes(&["apps:read"]), put, "PUT").is_err());
     }
 
     #[test]
@@ -1714,6 +1803,24 @@ mod tests {
             scope_for_route("POST", "/api/w/ws/jobs/run/agent/u/x/y").as_deref(),
             Some("jobs:run:agents")
         );
+        for path in [
+            "/api/w/ws/jobs/run/dependencies",
+            "/api/w/ws/jobs/run/dependencies_async",
+            "/api/w/ws/jobs/run/flow_dependencies",
+            "/api/w/ws/jobs/run/flow_dependencies_async",
+        ] {
+            assert_eq!(
+                scope_for_route("POST", path).as_deref(),
+                Some("jobs:run:dependencies"),
+                "{path}"
+            );
+            assert!(check_route_access(&["jobs:run:dependencies".into()], path, "POST").is_ok());
+            assert!(check_route_access(&["jobs:run:flows".into()], path, "POST").is_err());
+        }
+        // A dependencies grant reaches no other run route.
+        for path in ["/api/w/ws/jobs/run/preview", "/api/w/ws/jobs/run/p/u/x/y"] {
+            assert!(check_route_access(&["jobs:run:dependencies".into()], path, "POST").is_err());
+        }
 
         // Preview/bundle runs have no deployed path and their handlers require the
         // broad `jobs:run` scope, so the derived scope must not carry a kind.

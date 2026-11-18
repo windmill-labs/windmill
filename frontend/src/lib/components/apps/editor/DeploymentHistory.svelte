@@ -276,10 +276,8 @@
 						<div class="flex p-1 gap-2">
 							<Button
 								size="xs"
-								on:click={() =>
-									window.open(
-										`${selected?.raw_app ? '/apps_raw' : '/apps'}/add?template_id=${selectedVersion?.version}`
-									)}
+								href={`${selected?.raw_app ? '/apps_raw' : '/apps'}/add?template_id=${selectedVersion?.version}`}
+								target="_blank"
 							>
 								Restore as fork
 							</Button>

@@ -25,11 +25,11 @@ use axum::{
 };
 use chrono::{DateTime, Utc};
 use lazy_static::lazy_static;
-use magic_crypt::MagicCrypt256;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use windmill_api_auth::{is_effectively_unscoped, ApiAuthed, Tokened};
 use windmill_audit::{audit_oss::audit_log, ActionKind};
+use windmill_common::variables::WorkspaceCrypt;
 use windmill_common::{
     auth::hash_token,
     error::{error_source_chain, Error, Result},
@@ -462,9 +462,9 @@ async fn connect(
     // No lock against removals, target changes or key rotations: `load_connection` voids a row
     // that lands after one of them. A disconnect or a newer connect stamps the row itself, which
     // this one then leaves alone. Without a membership to bind to, the row is bound to the account
-    // through the credential making this request, which deleting the account removes (except
-    // through `leave_instance`, which leaves its tokens): the address could otherwise be deleted
-    // and taken by a new account while the remote call runs, and the foreign key would accept it.
+    // through the credential making this request, which deleting or leaving the account removes:
+    // the address could otherwise be deleted and taken by a new account while the remote call
+    // runs, and the foreign key would accept it.
     let mut tx = db.begin().await?;
     let connected_at = sqlx::query_scalar!(
         "INSERT INTO remote_deploy_token
@@ -676,8 +676,8 @@ async fn proxy(
 pub(crate) async fn reencrypt_tokens(
     conn: &mut sqlx::PgConnection,
     w_id: &str,
-    old: &MagicCrypt256,
-    new: &MagicCrypt256,
+    old: &WorkspaceCrypt,
+    new: &WorkspaceCrypt,
 ) -> Result<()> {
     let rows = sqlx::query!(
         "SELECT email, token FROM remote_deploy_token

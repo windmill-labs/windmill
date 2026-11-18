@@ -1,6 +1,5 @@
 use serde_json::json;
 use sqlx::{Pool, Postgres};
-use windmill_common::workspaces::invalidate_operator_rights_cache;
 use windmill_test_utils::*;
 
 const WS: &str = "test-workspace";
@@ -19,14 +18,17 @@ fn operator_client() -> reqwest::Client {
 
 async fn set_builder(db: &Pool<Postgres>, flows: bool) -> anyhow::Result<()> {
     sqlx::query(
-        "UPDATE workspace_settings SET operator_settings = $1::text::jsonb WHERE workspace_id = $2",
+        "UPDATE workspace_settings SET role_overrides = $1::text::jsonb WHERE workspace_id = $2",
     )
-    .bind(format!(r#"{{"builder_flows": {flows}}}"#))
+    .bind(format!(
+        r#"{{"operator": {{"capabilities": {{"flows": "{}"}}}}}}"#,
+        if flows { "compose" } else { "none" }
+    ))
     .bind(WS)
     .execute(db)
     .await?;
     // The right is read through a process-global 60s cache keyed by workspace id.
-    invalidate_operator_rights_cache(WS);
+    windmill_common::roles::invalidate_all_roles_cache();
     Ok(())
 }
 
@@ -115,6 +117,16 @@ async fn test_operator_builder_flows_boundary(db: Pool<Postgres>) -> anyhow::Res
         .send()
         .await?;
     assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+    let notified: Vec<String> =
+        sqlx::query_scalar("SELECT payload FROM notify_event WHERE channel = $1")
+            .bind(windmill_common::roles::ROLE_OVERRIDES_CHANGE_CHANNEL)
+            .fetch_all(&db)
+            .await?;
+    assert_eq!(
+        notified,
+        vec![WS.to_string()],
+        "other replicas drop their cached roles only through this event"
+    );
 
     let resp = c
         .post(format!("{api}/flows/create"))
@@ -311,6 +323,156 @@ async fn test_operator_builder_flows_boundary(db: Pool<Postgres>) -> anyhow::Res
         resp.status().is_success(),
         "a builder must be able to pin the real version of a readable script: {}",
         resp.text().await?
+    );
+
+    check_builder_agents(&db, &api, &c).await
+}
+
+/// An agent is a resource an operator may otherwise write, and its stored tools run as they are,
+/// so only the flow right opens it, and every write of one, drafts included, is checked like a
+/// composed flow. Part of the boundary test: the right is read through a process-global cache
+/// keyed by workspace id, which a second test in this binary would race.
+async fn check_builder_agents(
+    db: &Pool<Postgres>,
+    api: &str,
+    c: &reqwest::Client,
+) -> anyhow::Result<()> {
+    let tool = |mut value: serde_json::Value| {
+        value["tool_type"] = json!("flowmodule");
+        value["input_transforms"] = json!({});
+        json!({"tools": [{"id": "t", "summary": "t", "value": value}]})
+    };
+    let composed = tool(json!({"type": "script", "path": "u/operator/some_script"}));
+    let inline = tool(json!({"type": "rawscript", "content": "echo x", "language": "bash"}));
+    let agent = |path: &str, value: &serde_json::Value| json!({"path": path, "resource_type": "ai_agent", "value": value});
+
+    set_builder(db, false).await?;
+    let resp = c
+        .post(format!("{api}/resources/create"))
+        .json(&agent("u/operator/a1", &composed))
+        .send()
+        .await?;
+    assert_eq!(
+        resp.status(),
+        403,
+        "an operator without the builder right must not write an agent"
+    );
+
+    set_builder(db, true).await?;
+    let resp = c
+        .post(format!("{api}/resources/create"))
+        .json(&agent("u/operator/a1", &inline))
+        .send()
+        .await?;
+    assert_eq!(
+        resp.status(),
+        403,
+        "a builder must not save an agent with an inline tool"
+    );
+    let resp = c
+        .post(format!("{api}/resources/create"))
+        .json(&agent("u/operator/a1", &composed))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 201, "{}", resp.text().await?);
+    let resp = c
+        .post(format!("{api}/resources/update_value/u/operator/a1"))
+        .json(&json!({"value": inline}))
+        .send()
+        .await?;
+    assert_eq!(
+        resp.status(),
+        403,
+        "a builder must not swap an agent's tools for inline code"
+    );
+    // A draft of a deployed agent may leave its type to the deployed row.
+    let resp = c
+        .post(format!("{api}/drafts/update/resource/u/operator/a1"))
+        .json(&json!({"value": {"args": inline, "description": ""}, "force": true}))
+        .send()
+        .await?;
+    assert_eq!(
+        resp.status(),
+        403,
+        "a builder must not draft an agent with an inline tool"
+    );
+    // Deploying a draft over an agent keeps the row's type, whatever type the draft names.
+    let resp = c
+        .post(format!("{api}/drafts/update/resource/u/operator/a1"))
+        .json(&json!({"value": {"args": inline, "description": "", "resource_type": "object"},
+            "force": true}))
+        .send()
+        .await?;
+    assert_eq!(
+        resp.status(),
+        403,
+        "a builder must not draft inline tools over an agent under another type"
+    );
+
+    let linking = |path: &str, agent: &str| {
+        json!({"path": path, "summary": "", "description": "", "schema": {},
+            "value": {"modules": [{"id": "a", "value": {"type": "aiagent",
+                "input_transforms": {}, "tools": [], "agent": format!("$res:{agent}")}}]}})
+    };
+    let resp = c
+        .post(format!("{api}/flows/create"))
+        .json(&linking("u/operator/agent_f1", "u/operator/a1"))
+        .send()
+        .await?;
+    assert!(
+        resp.status().is_success(),
+        "a builder must be able to link a readable agent: {}",
+        resp.text().await?
+    );
+    let resp = c
+        .post(format!("{api}/flows/create"))
+        .json(&linking("u/operator/agent_f2", "u/alice/agent"))
+        .send()
+        .await?;
+    assert_eq!(
+        resp.status(),
+        403,
+        "a builder must not link an agent it cannot read"
+    );
+
+    // A developer's agent may run inline code, and linking it runs it as authored. A step may bind
+    // the inputs the agent leaves to the model, never one its author set.
+    let mut dev_agent = inline.clone();
+    dev_agent["tools"][0]["value"]["input_transforms"] = json!({
+        "set": {"type": "static", "value": "fixed"}, "open": {"type": "ai"}});
+    sqlx::query(
+        "INSERT INTO resource (workspace_id, path, value, resource_type, created_by)
+         VALUES ($1, 'u/operator/dev_agent', $2, 'ai_agent', 'alice')",
+    )
+    .bind(WS)
+    .bind(&dev_agent)
+    .execute(db)
+    .await?;
+    let binding = |path: &str, input: &str| {
+        let mut flow = linking(path, "u/operator/dev_agent");
+        flow["value"]["modules"][0]["value"]["tool_inputs"] =
+            json!({"t": {input: {"type": "static", "value": "bound"}}});
+        flow
+    };
+    let resp = c
+        .post(format!("{api}/flows/create"))
+        .json(&binding("u/operator/agent_f4", "open"))
+        .send()
+        .await?;
+    assert!(
+        resp.status().is_success(),
+        "a builder must be able to bind an input the agent leaves open: {}",
+        resp.text().await?
+    );
+    let resp = c
+        .post(format!("{api}/flows/create"))
+        .json(&binding("u/operator/agent_f3", "set"))
+        .send()
+        .await?;
+    assert_eq!(
+        resp.status(),
+        403,
+        "a builder must not override an input the agent's author set"
     );
 
     Ok(())

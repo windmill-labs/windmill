@@ -28,7 +28,16 @@ import { pipelineTools } from '../pipeline/core'
 import { assembleGlobalSystemMessage, assembleGlobalTools } from './globalAssembly'
 import { filterSessionTools, sessionToolAllowed } from './sessionToolset'
 import { capabilitiesForRole, fullSessionAccess } from './sessionAccess'
-import type { SessionAccess, SessionCapability, SessionTool } from '../sessionCapabilities'
+import {
+	canBuild,
+	USE_MODE_ACCESS,
+	type SessionAccess,
+	type SessionCapability,
+	type SessionTool
+} from '../sessionCapabilities'
+import { FULL_CAPABILITIES, legacyOperatorCapabilities } from '$lib/roleCapabilities'
+import { buildsAnything } from '$lib/editRights'
+import type { AuthorLevel, OperatorSettings, RoleCapabilities } from '$lib/gen'
 
 const ASSEMBLY_OPTS = {
 	previewTools: true,
@@ -54,9 +63,13 @@ function sessionReachableTools(): SessionTool<any>[] {
 }
 
 function withheldNames(access: SessionAccess): string[] {
+	// Shipped, not merely allowed: a kind-taking tool left with no kind is dropped too.
+	const shipped = new Set(
+		filterSessionTools(sessionReachableTools(), access).map((t) => t.def.function.name)
+	)
 	return sessionReachableTools()
-		.filter((t) => !sessionToolAllowed(t, access))
 		.map((t) => t.def.function.name)
+		.filter((n) => !shipped.has(n))
 }
 
 /** The tools a session actually ships, through the same assembly production uses. */
@@ -64,24 +77,49 @@ function shippedSessionTools(access: SessionAccess) {
 	return filterSessionTools(assembleGlobalTools(ASSEMBLY_OPTS), access)
 }
 
+/** A session that can change the workspace, holding `capabilities` besides. */
 function accessWith(capabilities: SessionCapability[]): SessionAccess {
-	return new Set(capabilities)
+	return new Set<SessionCapability>(['modify_workspace', ...capabilities])
 }
 
+const LEVELS: AuthorLevel[] = ['none', 'compose', 'full']
+
+/** Every role a workspace can define, over the capabilities `capabilitiesForRole` reads: `full`
+ * flows or apps require `code`, as `RoleCapabilities::validate` refuses otherwise. */
+const ROLES: RoleCapabilities[] = [false, true]
+	.flatMap((code) =>
+		LEVELS.flatMap((flows) =>
+			LEVELS.flatMap((apps) =>
+				[false, true].flatMap((manage_schedules) =>
+					[false, true].map((manage_triggers) => ({
+						...FULL_CAPABILITIES,
+						code,
+						flows,
+						apps,
+						manage_schedules,
+						manage_triggers
+					}))
+				)
+			)
+		)
+	)
+	.filter((c) => c.code || (c.flows !== 'full' && c.apps !== 'full'))
+
 /** The profiles a real session can hold, keyed for the test name, over every combination
- * of the role facts `capabilitiesForRole` reads. */
-const REACHABLE_PROFILES = [
+ * of the role facts `capabilitiesForRole` reads, and the read-only one. */
+const REACHABLE_PROFILES: [string, SessionAccess][] = [
 	...new Map(
 		[false, true].flatMap((isAdmin) =>
-			[false, true].flatMap((operator) =>
-				// `checkDeployRules` bypasses on admin, so an admin has only the one outcome.
-				(isAdmin ? [true] : [false, true]).map((deployRulesPass) => {
-					const access = capabilitiesForRole({ isAdmin, operator, deployRulesPass })
+			// `checkDeployRules` bypasses on admin, so an admin has only the one outcome.
+			(isAdmin ? [true] : [false, true]).flatMap((deployRulesPass) =>
+				ROLES.map((capabilities) => {
+					const access = capabilitiesForRole({ isAdmin, deployRulesPass, capabilities })
 					return [[...access].sort().join(',') || 'none', access] as const
 				})
 			)
 		)
-	).entries()
+	).entries(),
+	['read-only', USE_MODE_ACCESS]
 ]
 
 /** One per branch of getSessionContextPromptSection — each words the deploy target
@@ -105,6 +143,15 @@ describe('session tool policies', () => {
 		filtered.forEach((tool, i) => expect(tool).toBe(tools[i]))
 	})
 
+	// The mode picker reads the role and the toolset reads the access built from it: if they
+	// disagree, the picker offers Build while the chat holds only Use's tools, or the reverse.
+	it('agrees with the role on whether the session can build', () => {
+		for (const capabilities of ROLES) {
+			const access = capabilitiesForRole({ isAdmin: false, deployRulesPass: true, capabilities })
+			expect(canBuild(access)).toBe(buildsAnything(capabilities))
+		}
+	})
+
 	it('withholds a tool that arrives without a policy', () => {
 		expect(sessionToolAllowed({ def: globalTools[0].def }, fullSessionAccess())).toBe(false)
 	})
@@ -122,13 +169,26 @@ describe('session tool policies', () => {
 		const kindsOf = (name: string, access: SessionAccess) =>
 			(shipped(name, access).def.function.parameters as any).properties.type.enum
 
+		const developerCaps: SessionCapability[] = [
+			'write_draft',
+			'write_flow_draft',
+			'write_app_draft',
+			'run_preview',
+			'run_flow_preview',
+			'manage_code',
+			'manage_flows',
+			'manage_apps',
+			'manage_schedules',
+			'manage_triggers'
+		]
+
 		// A developer a protection rule refuses keeps the two kinds no rule reaches.
-		const refused = accessWith(['write_draft', 'run_preview', 'manage_code'])
+		const refused = accessWith(developerCaps)
 		expect(kindsOf('deploy_workspace_item', refused)).toEqual(['schedule', 'trigger'])
 		expect(kindsOf('delete_workspace_item', refused)).toEqual(['schedule', 'trigger'])
 
 		// An operator where no rule applies: only the code handlers refuse them.
-		const operator = accessWith(['deploy'])
+		const operator = accessWith(['deploy', 'manage_schedules', 'manage_triggers'])
 		expect(kindsOf('deploy_workspace_item', operator)).toEqual([
 			'schedule',
 			'trigger',
@@ -136,8 +196,28 @@ describe('session tool policies', () => {
 			'variable'
 		])
 
+		// A workspace that withdrew schedule writes from operators: `gate_operator_writes`.
+		const locked = accessWith(['deploy', 'manage_triggers'])
+		expect(kindsOf('delete_workspace_item', locked)).toEqual(['trigger', 'resource', 'variable'])
+
+		// A builder operator deploys flows too, and still no script or app.
+		const builder = accessWith(['deploy', 'manage_flows', 'manage_schedules', 'manage_triggers'])
+		expect(kindsOf('deploy_workspace_item', builder)).toContain('flow')
+		expect(kindsOf('deploy_workspace_item', builder)).not.toContain('script')
+		expect(kindsOf('deploy_workspace_item', builder)).not.toContain('app')
+
+		// An app builder gets the app kind alone, and rebases its own stale app drafts.
+		const appBuilder = accessWith(['deploy', 'manage_apps', 'write_app_draft'])
+		expect(kindsOf('deploy_workspace_item', appBuilder)).toContain('app')
+		expect(kindsOf('deploy_workspace_item', appBuilder)).not.toContain('flow')
+		expect(kindsOf('rebase_draft', appBuilder)).toEqual(['app'])
+		// A session left with no kind must not be offered an empty enum.
+		expect(shippedSessionTools(operator).map((t) => t.def.function.name)).not.toContain(
+			'rebase_draft'
+		)
+
 		// Deleting a script is admin-only, where deploying one is not.
-		const developer = accessWith(['write_draft', 'run_preview', 'manage_code', 'deploy'])
+		const developer = accessWith([...developerCaps, 'deploy'])
 		expect(kindsOf('deploy_workspace_item', developer)).toContain('script')
 		expect(kindsOf('delete_workspace_item', developer)).not.toContain('script')
 
@@ -148,6 +228,26 @@ describe('session tool policies', () => {
 		// And narrowing never writes through to it: the def is shared by every session, so a
 		// mutation here would strip one user's kinds from everyone else's schema.
 		expect((original.def.function.parameters as any).properties.type.enum).toContain('script')
+	})
+
+	// Keyed on the tags, so a tool added untagged stays out of a production workspace.
+	it('ships a read-only session the reads and the deployed runs, and nothing that writes', () => {
+		const shipped = shippedSessionTools(USE_MODE_ACCESS)
+		expect(shipped.filter((t) => !t.planModeSafe && !t.readOnlySafe)).toEqual([])
+		const names = shipped.map((t) => t.def.function.name)
+		expect(names).toEqual(expect.arrayContaining(['read_workspace_item', 'list_runs', 'run_flow']))
+		for (const write of ['write_script', 'test_run_script', 'deploy_workspace_item']) {
+			expect(names).not.toContain(write)
+		}
+	})
+
+	it('offers the workspace settings tools to admins only', () => {
+		const settingsTools = ['get_workspace_settings', 'set_workspace_settings']
+		for (const [, access] of REACHABLE_PROFILES) {
+			const names = shippedSessionTools(access).map((t) => t.def.function.name)
+			const offered = settingsTools.filter((n) => names.includes(n))
+			expect(offered).toEqual(access.has('admin') ? settingsTools : [])
+		}
 	})
 
 	// Naming a tool the model was not given produces invented calls. Asserted over the
@@ -184,9 +284,9 @@ describe('session tool policies', () => {
 	// ships to every profile with guidance written around the draft tools by name.
 	it('does not hand authoring guidance naming withheld tools to a session that cannot draft', async () => {
 		const tool = globalTools.find((t) => t.def.function.name === 'get_instructions')!
-		const call = (access: SessionAccess) =>
+		const call = (access: SessionAccess, subject = 'script') =>
 			tool.fn({
-				args: { subject: 'script', language: 'bun' },
+				args: { subject, language: 'bun' },
 				workspace: 'ws',
 				helpers: { access },
 				toolId: 't1',
@@ -199,6 +299,69 @@ describe('session tool policies', () => {
 		expect(withheld.filter((n) => restricted.includes(n))).toEqual([])
 		// The gate is the whole test, so pin that it is not simply refusing everyone.
 		expect(await call(fullSessionAccess())).toContain('write_script')
+
+		// A builder gets the guide for their kind, rewritten without the inline-code tools.
+		for (const [capability, subject, used] of [
+			['write_flow_draft', 'flow', 'patch_flow_json'],
+			['write_app_draft', 'app', 'write_app_runnable']
+		] as const) {
+			const builder = accessWith(['deploy', capability])
+			const guide = await call(builder, subject)
+			expect(guide).toContain(used)
+			// The shared reference below still teaches inline code, so the guide must say to skip it.
+			expect(guide).toContain('skip what it says')
+			expect(withheldNames(builder).filter((n) => guide.includes(n))).toEqual([])
+		}
+	})
+
+	it('tells a composing role hub scripts are refused only when it lacks code', async () => {
+		const tool = globalTools.find((t) => t.def.function.name === 'get_instructions')!
+		const texts = async (code: boolean) => {
+			const access = capabilitiesForRole({
+				isAdmin: false,
+				deployRulesPass: true,
+				capabilities: { ...FULL_CAPABILITIES, code, flows: 'compose', apps: 'compose' }
+			})
+			const guide = (subject: string) =>
+				tool.fn({
+					args: { subject },
+					workspace: 'ws',
+					helpers: { access },
+					toolId: 't1',
+					toolCallbacks: { setToolStatus: () => {} }
+				} as any) as Promise<string>
+			return {
+				flow: await guide('flow'),
+				app: await guide('app'),
+				agent: await guide('agent'),
+				prompt: prepareGlobalSystemMessage(undefined, { user: { username: 'u' }, access })
+					.content as string
+			}
+		}
+		const refusesHub = /refuse[sd]? [^.]*hub|hub [^.]*(are|is) refused/i
+		const without = await texts(false)
+		const withCode = await texts(true)
+		for (const subject of ['flow', 'app'] as const) {
+			expect(without[subject]).toMatch(refusesHub)
+			expect(withCode[subject]).not.toMatch(refusesHub)
+		}
+		expect(withCode.flow).toContain('deployed in the workspace or hub scripts')
+		// Without `code` the agent guide names only deployed scripts, so it never mentions hub scripts.
+		expect(without.agent).not.toContain('hub script')
+		expect(withCode.agent).toContain('hub script')
+		expect(without.prompt).toContain('the server refuses inline code and hub scripts')
+		expect(withCode.prompt).not.toMatch(refusesHub)
+	})
+
+	// A data setup needs SQL and inline runnables, neither of which a builder has.
+	it('offers a builder no init_app data setup', async () => {
+		const tool = globalTools.find((t) => t.def.function.name === 'init_app')!
+		const properties = async (access: SessionAccess) =>
+			((await tool.schemaFor!({ access })).function.parameters as any).properties
+		const builder = await properties(accessWith(['deploy', 'write_app_draft']))
+		const full = await properties(fullSessionAccess())
+		expect(builder.data).toBeUndefined()
+		expect(full.data).toBeDefined()
 	})
 
 	// A full-access profile must gate nothing at all: the text has to match the ungated
@@ -215,5 +378,27 @@ describe('session tool policies', () => {
 			}).content
 			expect(full).toBe(ungated)
 		}
+	})
+
+	// The operator's own rights outrun the chat's tools: what they schedule in the UI must not
+	// be sent to an admin.
+	it("sends an operator to the UI for what their role allows and the chat's tools do not", () => {
+		const prompt = (operatorSettings: Partial<OperatorSettings>): string =>
+			prepareGlobalSystemMessage(undefined, {
+				user: { username: 'op' },
+				access: capabilitiesForRole({
+					isAdmin: false,
+					deployRulesPass: true,
+					capabilities: legacyOperatorCapabilities(operatorSettings as OperatorSettings)
+				})
+			}).content as string
+
+		// None of these is sent to the UI: the chat drafts them itself.
+		expect(prompt({})).not.toContain('they can still edit themselves on their pages')
+		expect(prompt({})).toContain(
+			'lets them create and edit resources, variables, schedules, and triggers'
+		)
+		expect(prompt({})).toContain('schedule a deployed script or flow themselves')
+		expect(prompt({ manage_schedules: false })).not.toContain('schedule a deployed script')
 	})
 })

@@ -15,6 +15,16 @@ function sortedUnique(arr: readonly string[]): string[] {
   return [...new Set(arr)].sort();
 }
 
+// Absent when empty, so a file written before the field existed stays in sync.
+function sortedMapping(
+  m: Record<string, string> | undefined,
+): Record<string, string> | undefined {
+  const keys = Object.keys(m ?? {}).sort();
+  return keys.length > 0
+    ? Object.fromEntries(keys.map((k) => [k, m![k]]))
+    : undefined;
+}
+
 export class ProtectionRulesConverter {
   // Canonicalize a single rule so comparisons are insensitive to array order
   // and duplicates.
@@ -24,6 +34,9 @@ export class ProtectionRulesConverter {
       rules: sortedUnique(entry.rules ?? []) as ProtectionRuleEntry["rules"],
       bypass_groups: sortedUnique(entry.bypass_groups ?? []),
       bypass_users: sortedUnique(entry.bypass_users ?? []),
+      ...(sortedMapping(entry.fork_role_mapping)
+        ? { fork_role_mapping: sortedMapping(entry.fork_role_mapping) }
+        : {}),
     };
   }
 
@@ -45,6 +58,7 @@ export class ProtectionRulesConverter {
         rules: [...(r.rules ?? [])],
         bypass_groups: [...(r.bypass_groups ?? [])],
         bypass_users: [...(r.bypass_users ?? [])],
+        fork_role_mapping: { ...(r.fork_role_mapping ?? {}) },
       })),
     );
   }
@@ -62,7 +76,9 @@ export class ProtectionRulesConverter {
       na.bypass_groups.length === nb.bypass_groups.length &&
       na.bypass_groups.every((v, i) => v === nb.bypass_groups[i]) &&
       na.bypass_users.length === nb.bypass_users.length &&
-      na.bypass_users.every((v, i) => v === nb.bypass_users[i])
+      na.bypass_users.every((v, i) => v === nb.bypass_users[i]) &&
+      JSON.stringify(na.fork_role_mapping ?? {}) ===
+        JSON.stringify(nb.fork_role_mapping ?? {})
     );
   }
 

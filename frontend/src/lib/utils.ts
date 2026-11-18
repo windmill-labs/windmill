@@ -83,13 +83,13 @@ export function isJobReRunnable(j: Job): boolean {
 	return (j.job_kind === 'script' || j.job_kind === 'flow') && j.parent_job === undefined
 }
 
-// Only a top-level failure can carry a resolution: cancellations and skipped steps are not
-// failures, and a flow step resolved on its own would render orange inside a flow whose status
-// is still red. The resolve endpoint enforces the same three conditions.
+// Only a top-level failed or canceled run can carry a resolution: successes and skipped steps
+// have nothing to handle, and a flow step resolved on its own would render orange inside a flow
+// whose status is still red. The resolve endpoint enforces the same conditions.
 // Runs obscured from another workspace stand in with `id: '-'`; they look like failures but
 // address nothing, and one reaching the endpoint fails the whole batch on UUID parsing.
 export function isJobResolvable(j: Job): j is CompletedJob {
-	return j.type === 'CompletedJob' && !j.success && !j.canceled && !j.is_flow_step && j.id !== '-'
+	return j.type === 'CompletedJob' && !j.success && !j.is_flow_step && j.id !== '-'
 }
 
 // Mirror the caps enforced by /jobs/completed/resolve, so the UI can chunk and validate
@@ -109,8 +109,8 @@ export function escapeHtml(unsafe: string) {
 }
 
 export function validateUsername(username: string): string {
-	if (username != '' && !/^[a-zA-Z]\w+$/.test(username)) {
-		return 'username can only contain letters and numbers and must start with a letter'
+	if (username != '' && !/^\w{1,50}$/.test(username)) {
+		return 'Username can only contain letters, numbers and underscores (at most 50)'
 	} else {
 		return ''
 	}
@@ -250,6 +250,29 @@ export function msToReadableTime(ms: number | undefined, maximumFractionDigits?:
 	} else {
 		return `${msToSec(ms, maximumFractionDigits)}s`
 	}
+}
+
+/** A duration in its two largest units (`12.3s`, `4m 5s`, `3h 12m`, `2d 3h`), short enough for a
+ * label beside a bar; use msToReadableTime where the exact value is wanted. */
+export function msToCompactDuration(
+	ms: number | undefined,
+	maximumFractionDigits?: number
+): string {
+	if (ms === undefined) return '?'
+	if (ms < 60_000) return `${msToSec(ms, maximumFractionDigits)}s`
+
+	const seconds = Math.floor(ms / 1000)
+	const minutes = Math.floor(seconds / 60)
+	const hours = Math.floor(minutes / 60)
+	const days = Math.floor(hours / 24)
+
+	const [major, minor] =
+		days > 0
+			? [`${days}d`, hours % 24 ? `${hours % 24}h` : '']
+			: hours > 0
+				? [`${hours}h`, minutes % 60 ? `${minutes % 60}m` : '']
+				: [`${minutes}m`, seconds % 60 ? `${seconds % 60}s` : '']
+	return minor ? `${major} ${minor}` : major
 }
 
 export function msToReadableTimeShort(
@@ -582,7 +605,9 @@ export function groupBy<K, V>(
 }
 
 export function removeMarkdown(text: string): string {
-	return text.replace(/[[\*|\-|#\_]/g, '')
+	// `_` and `-` only where they are markup, not inside a word: `ai_instruction` and
+	// `read-only` in a description must stay as written.
+	return text.replace(/[[*|#]|(?<![\p{L}\p{N}])[-_]+|[-_]+(?![\p{L}\p{N}])/gu, '')
 }
 export function truncate(s: string, n: number, suffix: string = '...'): string {
 	if (!s) {
@@ -1162,14 +1187,16 @@ export function isObviousOwner(path: string, user?: UserExt): boolean {
 	if (user.is_admin || user.is_super_admin) {
 		return true
 	}
-	let userOwner = `u/${user.username}`
+	// The trailing slash keeps folder `fin` from matching `f/finance/...`, and user
+	// `dev` from matching `u/devops/...`.
+	let userOwner = `u/${user.username}/`
 	if (path.startsWith(userOwner)) {
 		return true
 	}
-	if (user.pgroups.findIndex((x) => path.startsWith(x)) != -1) {
+	if (user.pgroups.findIndex((x) => path.startsWith(x + '/')) != -1) {
 		return true
 	}
-	if (user.folders.findIndex((x) => path.startsWith('f/' + x)) != -1) {
+	if (user.folders.findIndex((x) => path.startsWith('f/' + x + '/')) != -1) {
 		return true
 	}
 	return false
@@ -1422,7 +1449,8 @@ function replaceFalseWithUndefinedRec(obj: any) {
 // `hash` is the deployed version's identity, `assets` is re-derived from the
 // script content by the editor, and `inherited_labels` is computed at read time
 // from the parent folder — none is editable content, so all three are noise in a
-// fork/workspace or version diff.
+// fork/workspace or version diff. `starred` is the viewer's own favorite flag, and a
+// starred item's `starred: true` survives `replaceFalseWithUndefined`.
 //
 // `lock` and `extra_perms` are deliberately NOT in this set: both are legitimate,
 // user-meaningful fields in some diff contexts (lockfile changes in version-to-version
@@ -1447,7 +1475,8 @@ const CLEANED_VALUE_KEYS = new Set([
 	'edited_by',
 	'workspace_id',
 	'parent_hashes',
-	'lock_error_logs'
+	'lock_error_logs',
+	'starred'
 ])
 
 export function cleanValueProperties(obj: Value) {
@@ -1657,16 +1686,22 @@ export type Item = {
 	href?: string
 	hrefTarget?: '_blank' | '_self' | '_parent' | '_top'
 	disabled?: boolean
-	type?: 'action' | 'delete'
+	/** `ai` sets the row in the AI colour, for an action that hands something to the assistant. */
+	type?: 'action' | 'delete' | 'ai'
 	hide?: boolean | undefined
 	extra?: Snippet
 	id?: string
 	tooltip?: string
 	separatorTop?: boolean
+	/** A heading above the row, opening a section of the menu. */
+	sectionTitle?: string
 	/** Renders an on/off switch at the end of the row, so `icon` keeps the leading
 	 * slot. Presentational: the row's own click is what flips it, so `action` must
 	 * apply the change. */
 	toggle?: boolean
+	/** The menu stays open after the row is picked, for a setting whose effect shows in it.
+	 * Rows of a `DropdownSubmenuItem` only. */
+	keepOpen?: boolean
 	submenuItems?: Item[]
 	shortcut?: string
 	// Renders a trailing check on the right of the label to mark the

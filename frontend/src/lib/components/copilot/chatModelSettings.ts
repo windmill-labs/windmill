@@ -41,6 +41,8 @@ export type ChoiceSection = {
 export type ChatModelSettingsConfig = {
 	/** The trigger's main text: the chosen model, or an invitation to choose one. */
 	label: string
+	/** Shown instead of `label` on windows narrower than 1280px. */
+	shortLabel?: string
 	title?: string
 	/** Trailing pill on the trigger, e.g. the free-tier grant this chat is spending. */
 	badge?: { text: string; warn?: boolean }

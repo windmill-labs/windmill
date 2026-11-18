@@ -36,6 +36,12 @@ describe("parseDatatableMigrationPath", () => {
     ).toEqual({ datatable: "my-dt", timestamp: 42, name: "x", kind: "down" });
   });
 
+  test("parses Windows-separated paths", () => {
+    expect(
+      parseDatatableMigrationPath("migrations\\datatable\\mydt\\1_x.up.sql"),
+    ).toEqual({ datatable: "mydt", timestamp: 1, name: "x", kind: "up" });
+  });
+
   test("rejects unrelated, legacy and malformed paths", () => {
     for (
       const p of [
@@ -146,6 +152,13 @@ describe("untrackedDatatableMigrationDeletions", () => {
   test("trusts a deletion the repository has committed before", () => {
     expect(
       untrackedDatatableMigrationDeletions(changes, { kind: "known", paths: new Set([A_UP, A_DOWN]) }),
+    ).toEqual([]);
+  });
+
+  test("matches Windows-separated diff paths against git's paths", () => {
+    const win = changes.map((c) => ({ ...c, path: c.path.replaceAll("/", "\\") }));
+    expect(
+      untrackedDatatableMigrationDeletions(win, { kind: "known", paths: new Set([A_UP, A_DOWN]) }),
     ).toEqual([]);
   });
 

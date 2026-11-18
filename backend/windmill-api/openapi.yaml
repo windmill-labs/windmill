@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.829.0
+  version: 1.876.1
   title: Windmill API
 
   contact:
@@ -271,17 +271,35 @@ paths:
         - name: before_id
           in: query
           description: >
-            only return logs with an id strictly lower than this one. Logs are ordered by
-            descending id, so this is a keyset cursor to stream a page in several batches
-            without paying a growing offset.
+            the id half of a keyset cursor. Logs are ordered by descending timestamp then
+            id: pass the last row's id here and its timestamp as before_id_timestamp to
+            stream a page in several batches without paying a growing offset. Alone, it
+            only filters on id < before_id, which can skip or repeat rows across pages.
           schema:
             type: integer
             format: int64
+        - name: before_id_timestamp
+          in: query
+          description: >
+            the timestamp of the row whose id is before_id: with it, only logs strictly
+            before that row in (timestamp, id) order are returned
+          schema:
+            type: string
+            format: date-time
         - name: all_workspaces
           in: query
           description: get audit logs for all workspaces
           schema:
             type: boolean
+        - name: job_id
+          in: query
+          description: >
+            only the entries about this run and the jobs under it (steps, loop iterations
+            and subflows at any depth): who started, viewed, cancelled, approved, resumed
+            or deleted each
+          schema:
+            type: string
+            format: uuid
 
       responses:
         "200":
@@ -1928,7 +1946,7 @@ paths:
         - setting
       responses:
         "200":
-          description: the instance_banner, accent_color and api_base_url settings
+          description: the instance_banner, accent_color, api_base_url and api_base_url_applies_to settings
           content:
             application/json:
               schema:
@@ -1937,6 +1955,7 @@ paths:
                   instance_banner: {}
                   accent_color: {}
                   api_base_url: {}
+                  api_base_url_applies_to: {}
 
   /settings_u/ruff_config:
     get:
@@ -1970,6 +1989,24 @@ paths:
           content:
             application/json:
               schema: {}
+
+  /settings/smtp_configured:
+    get:
+      summary: whether instance SMTP is configured
+      description: |
+        Readable by any authenticated user. True when this build can send email
+        and SMTP is set, either in the smtp_settings instance setting or through
+        the SMTP_* environment variables.
+      operationId: getSmtpConfigured
+      tags:
+        - setting
+      responses:
+        "200":
+          description: whether email notifications can be sent
+          content:
+            application/json:
+              schema:
+                type: boolean
 
   /settings/test_smtp:
     post:
@@ -2974,6 +3011,59 @@ paths:
               schema:
                 $ref: "#/components/schemas/SecretMigrationReport"
 
+  /settings/test_http_store_backend:
+    post:
+      summary: test the HTTP secret store by reading one secret
+      operationId: testHttpStoreBackend
+      tags:
+        - setting
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - settings
+                - workspace_id
+                - path
+              properties:
+                settings:
+                  $ref: "#/components/schemas/HttpStoreSettings"
+                workspace_id:
+                  type: string
+                  description: workspace of a variable whose secret exists in the store
+                path:
+                  type: string
+                  description: path of a variable whose secret exists in the store
+      responses:
+        "200":
+          description: connection test result
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /settings/migrate_secrets_from_http_store:
+    post:
+      summary: copy the values of HTTP secret store references into the database
+      operationId: migrateSecretsFromHttpStore
+      tags:
+        - setting
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/HttpStoreSettings"
+      responses:
+        "200":
+          description: migration report
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SecretMigrationReport"
+
   /users/email:
     get:
       summary: get current user email (if logged in)
@@ -3678,13 +3768,16 @@ paths:
                   type: boolean
                 operator:
                   type: boolean
+                  description: Legacy role selector, true for the `operator` role.
+                role:
+                  type: string
+                  description: The workspace role to give, one of the workspace's roles. Wins over `operator`.
                 parent_workspace_id:
                   type: string
                   nullable: true
               required:
                 - email
                 - is_admin
-                - operator
       responses:
         "200":
           description: status
@@ -3717,10 +3810,13 @@ paths:
                   type: string
                 operator:
                   type: boolean
+                  description: Legacy role selector, true for the `operator` role.
+                role:
+                  type: string
+                  description: The workspace role to give, one of the workspace's roles. Wins over `operator`.
               required:
                 - email
                 - is_admin
-                - operator
       responses:
         "200":
           description: status
@@ -4060,6 +4156,46 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/workspaces/roles:
+    get:
+      operationId: listWorkspaceRoles
+      summary: List the workspace's roles
+      description: The roles members of this workspace can hold, as they apply here (instance definition with the workspace's override applied, then workspace-only roles), the stored overrides, and the caller's own role and capabilities.
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: workspace roles
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkspaceRoles"
+
+  /w/{workspace}/workspaces/role_overrides:
+    post:
+      operationId: updateWorkspaceRoleOverrides
+      summary: Replace the workspace's role overrides
+      description: Replaces the workspace's overrides of instance roles, and its workspace-only roles (EE). Refuses removing a workspace-only role still held or referenced, and a change exceeding an offline license's seat cap. Requires workspace admin privileges.
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RoleOverrides"
+      responses:
+        "200":
+          description: role overrides updated
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/workspaces/compare/{target_workspace_id}:
     get:
       operationId: compareWorkspaces
@@ -4239,15 +4375,11 @@ paths:
                     $ref: "#/components/schemas/WorkspaceDeployUISettings"
                   mute_critical_alerts:
                     type: boolean
-                  guest_access_enabled:
-                    type: boolean
-                    description: Whether this workspace admits guest sessions. An app's own `guest` execution mode is inert while this is false.
                   add_admins_and_developers_to_forks:
                     type: boolean
                     description: Whether every new fork of this workspace starts with its admins and developers as members, keeping their role.
                 required:
                   - workspace_id
-                  - guest_access_enabled
                   - add_admins_and_developers_to_forks
 
   /w/{workspace}/workspaces/get_settings:
@@ -4296,12 +4428,19 @@ paths:
                     type: string
                   webhook:
                     type: string
+                  webhook_events:
+                    type: array
+                    description: event types the webhook is sent; absent sends every event
+                    items:
+                      $ref: "#/components/schemas/WorkspaceWebhookEventType"
                   ai_config:
                     $ref: "#/components/schemas/AIConfig"
                   error_handler:
                     $ref: "#/components/schemas/ErrorHandlerConfig"
                   success_handler:
                     $ref: "#/components/schemas/SuccessHandlerConfig"
+                  variable_expiration_handler:
+                    $ref: "#/components/schemas/VariableExpirationHandlerConfig"
                   large_file_storage:
                     $ref: "#/components/schemas/LargeFileStorage"
                   ducklake:
@@ -4330,9 +4469,6 @@ paths:
                   error_handler_fallback_to_instance_alerts:
                     type: boolean
                     description: Report failed jobs to the instance critical alert channels when no workspace error handler is set.
-                  guest_access_enabled:
-                    type: boolean
-                    description: Whether this workspace admits guest sessions. An app's own `guest` execution mode is inert while this is false.
                   guest_jwt_public_key:
                     type: string
                     description: PEM public key a guest JWT (`jwt_guest_`) is verified against for this workspace. Mutually exclusive with `guest_jwt_jwks_url`.
@@ -4760,6 +4896,10 @@ paths:
                     type: string
                     nullable: true
                     description: Masked with *** if set
+                  slack_signing_secret:
+                    type: string
+                    nullable: true
+                    description: Masked with *** if set
     post:
       summary: set workspace slack oauth config
       operationId: setWorkspaceSlackOauthConfig
@@ -4796,6 +4936,33 @@ paths:
         - workspace
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/workspaces/slack_signing_secret:
+    post:
+      summary: set the signing secret of the workspace's own slack app
+      operationId: setWorkspaceSlackSigningSecret
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: The Slack app's signing secret, null or empty to remove it
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                slack_signing_secret:
+                  type: string
+                  nullable: true
       responses:
         "200":
           description: status
@@ -5057,6 +5224,9 @@ paths:
               properties:
                 operator:
                   type: boolean
+                role:
+                  type: string
+                  description: The workspace role to give, one of the workspace's roles. Wins over `operator`.
                 invite_all:
                   type: boolean
                 auto_add:
@@ -5121,6 +5291,15 @@ paths:
               properties:
                 webhook:
                   type: string
+                  description: the URL to POST events to. Omitted or empty removes the webhook.
+                events:
+                  type: array
+                  nullable: true
+                  description: >
+                    event types to send, at least one. Omitted keeps the stored filter, null
+                    sends every event.
+                  items:
+                    $ref: "#/components/schemas/WorkspaceWebhookEventType"
 
       responses:
         "200":
@@ -5165,6 +5344,107 @@ paths:
                   - effective_ai_config
                   - has_instance_ai_config
                   - uses_instance_ai_config
+
+  /w/{workspace}/workspaces/settings_document:
+    get:
+      summary: get the workspace settings document
+      description: >-
+        The workspace's settings in the layout of the settings.yaml that `wmill sync` writes.
+        Admin only.
+      operationId: getWorkspaceSettingsDocument
+      x-mcp-tool: true
+      x-mcp-tool-include-query-params: []
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: secrets
+          description: >-
+            How secrets are written: `redacted` (the default) replaces each set secret with
+            `__SENSITIVE_AND_UNCHANGED__`; `encrypted` writes it encrypted with the workspace key,
+            prefixed with `$encrypted:`.
+          in: query
+          schema:
+            type: string
+            enum: [redacted, encrypted]
+      responses:
+        "200":
+          description: the settings document
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+    post:
+      summary: apply a workspace settings document
+      description: >-
+        Applies a settings document, each setting through the endpoint that owns it. Admin only.
+      operationId: applyWorkspaceSettingsDocument
+      x-mcp-tool: true
+      x-mcp-instructions: "Send only the top-level keys to change, each whole as getWorkspaceSettingsDocument returns it: a key the document omits is left as it is, and a key set to null clears it. Keep `__SENSITIVE_AND_UNCHANGED__` for a secret you were not given. Call with dry_run true first, show the user the changes and apply only once they agree."
+      x-mcp-tool-include-fields:
+        - document
+        - dry_run
+      x-mcp-tool-opaque-fields:
+        - document
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                document:
+                  description: >-
+                    The settings to apply, in the layout of the document. A secret given as
+                    `__SENSITIVE_AND_UNCHANGED__` keeps its stored value; one prefixed with
+                    `$encrypted:` is decrypted with the workspace key.
+                  type: object
+                  additionalProperties: true
+                replace:
+                  description: >-
+                    Clear the settings `wmill sync push` clears when settings.yaml omits them.
+                    Otherwise a setting the document omits is left as it is.
+                  type: boolean
+                dry_run:
+                  description: Only compute the changes, without applying them.
+                  type: boolean
+              required:
+                - document
+      responses:
+        "200":
+          description: the changes, applied unless dry_run
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  changes:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        key:
+                          type: string
+                        before: {}
+                        after: {}
+                      required:
+                        - key
+                        - before
+                        - after
+                  applied:
+                    type: boolean
+                  warnings:
+                    type: array
+                    items:
+                      type: string
+                required:
+                  - changes
+                  - applied
 
   /w/{workspace}/workspaces/get_copilot_settings_state:
     get:
@@ -5225,6 +5505,29 @@ paths:
           application/json:
             schema:
               $ref: "#/components/schemas/EditErrorHandler"
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/workspaces/edit_variable_expiration_handler:
+    post:
+      summary: edit variable expiration handler
+      operationId: editVariableExpirationHandler
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: WorkspaceVariableExpirationHandler
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EditVariableExpirationHandler"
       responses:
         "200":
           description: status
@@ -5521,6 +5824,9 @@ paths:
                       type: string
                     governing_workspace_id:
                       type: string
+                    database_workspace_id:
+                      type: string
+                      description: The workspace owning the database this entry points at, when it is not this workspace.
                     permissioned:
                       type: boolean
 
@@ -5568,6 +5874,9 @@ paths:
                   type: boolean
                 default_role:
                   type: string
+                  description: >-
+                    The id of one of `roles`, `admin` (the default), or `$none` for no default
+                    role: a connection that names no role then holds its viewer's roles only.
                 roles:
                   type: array
                   items:
@@ -5946,6 +6255,12 @@ paths:
           schema:
             type: integer
             format: int64
+        - name: schema
+          in: query
+          required: false
+          description: apply only the pending migrations whose `-- schemas` annotation declares this schema
+          schema:
+            type: string
       responses:
         "200":
           description: applied migrations
@@ -6651,41 +6966,6 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/workspaces/edit_guest_access:
-    post:
-      summary: enable or disable guest sessions for this workspace
-      description: >-
-        Guests are people the identity provider authenticates who have no Windmill
-        account; the `guest` app execution mode admits them. Off by default. Re-read
-        where a guest session is minted and at the auth door on every guest request, so
-        turning it off takes effect immediately, for sessions already issued and for
-        apps whose policy already says `guest`. Turning it *on* is refused with a 400
-        where guests are unavailable (the shared cloud); turning it off always works.
-      operationId: editGuestAccess
-      tags:
-        - workspace
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-      requestBody:
-        description: Whether guest sessions are admitted
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                guest_access_enabled:
-                  type: boolean
-              required:
-                - guest_access_enabled
-      responses:
-        "200":
-          description: status
-          content:
-            text/plain:
-              schema:
-                type: string
-
   /w/{workspace}/workspaces/edit_add_admins_and_developers_to_forks:
     post:
       summary: choose whether new forks of this workspace start with its admins and developers
@@ -6727,7 +7007,7 @@ paths:
         verified against this key: a PEM public key (RS/ES family, HS* refused) or a JWKS
         URL, at most one. Both empty clears the workspace key; off cloud, verification then
         falls back to the instance issuer (`JWT_EXT_JWKS_URL`) if one is set, else no guest
-        JWT is accepted (`guest_access_enabled` is the on/off switch). Workspace-admin gated.
+        JWT is accepted. Workspace-admin gated.
         The key is validated before it is stored. Setting a key is refused with a 400 where
         guests are unavailable (the shared cloud); clearing one always works.
       operationId: editGuestJwtKey
@@ -7436,6 +7716,72 @@ paths:
                 items:
                   $ref: "#/components/schemas/TruncatedToken"
 
+  /oidc/signing_status:
+    get:
+      summary: what signs OIDC tokens and the keys the JWKS serves (ee only, superadmin)
+      operationId: getOidcSigningStatus
+      tags:
+        - oidc
+      responses:
+        "200":
+          description: OIDC signing status
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - mode
+                  - keys
+                properties:
+                  mode:
+                    type: string
+                    enum: [database, file, external]
+                  keys:
+                    type: array
+                    items:
+                      type: object
+                      required:
+                        - alg
+                        - state
+                        - source
+                      properties:
+                        kid:
+                          type: string
+                        alg:
+                          type: string
+                        state:
+                          type: string
+                          enum: [pending, active, retired, published]
+                        source:
+                          type: string
+                          enum: [signer, database, file, publish_dir]
+                  signer:
+                    type: object
+                    description: set when an external signer is configured
+                    required:
+                      - breaker
+                      - max_rps
+                      - current_rps
+                    properties:
+                      last_refresh_success:
+                        type: string
+                        format: date-time
+                      last_refresh_error:
+                        type: string
+                      breaker:
+                        type: string
+                        enum: [closed, open, half_open]
+                      max_rps:
+                        type: number
+                      current_rps:
+                        type: number
+                      keys_from_store:
+                        type: boolean
+                        description: the keys served are those stored by the last accepted listing, the signer has not answered this server yet
+                      tls_files_error:
+                        type: string
+                        description: why the mTLS files on disk are not the ones in use
+
   /w/{workspace}/oidc/token/{audience}:
     post:
       summary: get OIDC token (ee only)
@@ -7513,6 +7859,24 @@ paths:
             text/plain:
               schema:
                 type: string
+
+  /w/{workspace}/variables/external_secret_prefixes:
+    get:
+      summary: list the external secret prefixes allowed for this workspace (admin only)
+      operationId: listExternalSecretPrefixes
+      tags:
+        - variable
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: allowed prefixes, such as vault://secret/team
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
 
   /w/{workspace}/variables/delete/{path}:
     delete:
@@ -7936,6 +8300,8 @@ paths:
                   $ref: "#/components/schemas/RuleBypasserGroups"
                 bypass_users:
                   $ref: "#/components/schemas/RuleBypasserUsers"
+                fork_role_mapping:
+                  $ref: "#/components/schemas/ForkRoleMapping"
       responses:
         "200":
           description: protection rule created successfully
@@ -7984,6 +8350,8 @@ paths:
                   $ref: "#/components/schemas/RuleBypasserGroups"
                 bypass_users:
                   $ref: "#/components/schemas/RuleBypasserUsers"
+                fork_role_mapping:
+                  $ref: "#/components/schemas/ForkRoleMapping"
       responses:
         "200":
           description: protection rule updated successfully
@@ -8560,6 +8928,11 @@ paths:
                   type: string
                 state:
                   type: string
+                params:
+                  type: object
+                  description: The callback URL's other query params, which the provider's `connect_fields` may read (QuickBooks' `realmId`)
+                  additionalProperties:
+                    type: string
               required:
                 - code
                 - state
@@ -8617,6 +8990,9 @@ paths:
                   items:
                     type: string
                   description: "OAuth scopes to use for token refresh. Overrides instance-level scopes."
+                variable:
+                  $ref: "#/components/schemas/CreateVariable"
+                  description: "The variable holding this account's access token. It is created with the account, in one transaction and with the same checks as createVariable, and linked to it so it refreshes through it."
               required:
                 - refresh_token
                 - expires_in
@@ -8808,6 +9184,7 @@ paths:
                       type: boolean
                     has_shared_credentials:
                       type: boolean
+                      description: The instance entry holds a client id and secret users can connect with, for sign-in or as a shared service account. Whether client credentials are shared is get_connect's client_credentials_configured.
                   required:
                     - name
                     - supports_client_credentials
@@ -8847,6 +9224,37 @@ paths:
                   client_credentials_configured:
                     type: boolean
                     description: "The instance OAuth entry carries shared client-credentials, so the connect dialog can skip the bring-your-own form and run the exchange server-side"
+
+  /oauth/test_client_credentials:
+    post:
+      summary: test an instance OAuth entry's client credentials
+      description: Runs the client-credentials token exchange with an instance OAuth entry, saved or not. Superadmin only.
+      operationId: testOAuthClientCredentials
+      tags:
+        - oauth
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  description: client name, the key of the entry in the instance OAuth setting
+                entry:
+                  type: object
+                  description: the entry as stored in the instance OAuth setting
+              required:
+                - name
+                - entry
+      responses:
+        "200":
+          description: the exchange returned a token
+          content:
+            text/plain:
+              schema:
+                type: string
 
   /teams/activities:
     post:
@@ -8888,6 +9296,7 @@ paths:
       summary: create resource
       operationId: createResource
       x-mcp-tool: true
+      x-mcp-tool-include-query-params: [update_if_exists]
       tags:
         - resource
       parameters:
@@ -8897,6 +9306,7 @@ paths:
           in: query
           schema:
             type: boolean
+        - $ref: "#/components/parameters/SkipCiTests"
       requestBody:
         description: new resource
         required: true
@@ -8967,11 +9377,13 @@ paths:
       summary: update resource
       operationId: updateResource
       x-mcp-tool: true
+      x-mcp-tool-include-query-params: []
       tags:
         - resource
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/Path"
+        - $ref: "#/components/parameters/SkipCiTests"
       requestBody:
         description: updated resource
         required: true
@@ -9276,6 +9688,12 @@ paths:
             When true, append per-user draft resources whose path has
             no deployed resource. Synthesized rows carry
             `draft_only: true`.
+          in: query
+          required: false
+          schema:
+            type: boolean
+        - name: starred_only
+          description: Only the `ai_agent` resources the caller starred
           in: query
           required: false
           schema:
@@ -10263,9 +10681,8 @@ paths:
       summary: whether the app behind a custom path admits guests
       description: >-
         The custom-path counterpart of `getGuestEntry`. Unauthenticated; 404 unless
-        the app's execution mode is `guest` AND its workspace has
-        `guest_access_enabled` AND the instance has not set `guest_access_disabled`,
-        and never on a deployment where guests are unavailable (the shared cloud).
+        the app's execution mode is `guest`, and never on a deployment where guests
+        are unavailable (the shared cloud).
         Returns the workspace too, since a custom URL may not carry it.
       operationId: getGuestEntryByCustomPath
       tags:
@@ -10767,10 +11184,13 @@ paths:
                       type: string
                     summary:
                       type: string
-                      description: Best-effort, read from the draft JSON's `summary` field when the editor shape carries one.
+                      description: Best-effort, read from the draft JSON's `summary` field when the editor shape carries one, or its `description` for an agent's draft.
                     draft_path:
                       type: string
                       description: User-typed friendly path from the draft JSON's `draft_path`, when set and different from the storage path (e.g. a never-deployed item parked at `u/{user}/draft_{uuid}`).
+                    resource_type:
+                      type: string
+                      description: A `resource` draft's type, the deployed row's when there is one, else the one the draft names. `ai_agent` marks an agent's draft.
                     draft_only:
                       type: boolean
                       description: No deployed counterpart exists at this path — the draft is the whole item.
@@ -10994,6 +11414,56 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/drafts/transfer:
+    post:
+      summary: copy the current user's drafts into another workspace of the family and/or remove them here
+      description: In one transaction, copies the authed user's own drafts of `items` into `target_workspace` (another workspace of this one's family, with the same root through `parent_workspace_id`) and, with `remove_from_source`, deletes them here. Without `target_workspace` it only removes. If the user already has a draft of any item in the target, nothing is written and the items are returned in `conflicts`, unless `replace_existing` is set. A user who can only compose flows or apps in the target is held to the same rules as a direct draft save there.
+      operationId: transferDrafts
+      tags:
+        - draft
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                target_workspace:
+                  type: string
+                items:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/DraftItemRef"
+                remove_from_source:
+                  type: boolean
+                replace_existing:
+                  type: boolean
+                  description: Overwrite the user's own drafts of `items` already in the target instead of returning them as conflicts.
+              required: [items]
+      responses:
+        "200":
+          description: transfer result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  copied:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/DraftItemRef"
+                  removed:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/DraftItemRef"
+                  conflicts:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/DraftItemRef"
+                required: [copied, removed, conflicts]
+
   /w/{workspace}/drafts/migrate_legacy/{kind}/{path}:
     post:
       summary: resolve a legacy (workspace-level) draft (admin only)
@@ -11052,10 +11522,12 @@ paths:
         - schema
       x-mcp-tool-opaque-fields:
         - schema
+      x-mcp-tool-include-query-params: []
       tags:
         - script
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/SkipCiTests"
       requestBody:
         description: Partially filled script
         required: true
@@ -11094,11 +11566,13 @@ paths:
         - schema
       x-mcp-tool-opaque-fields:
         - schema
+      x-mcp-tool-include-query-params: []
       tags:
         - script
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/ScriptPath"
+        - $ref: "#/components/parameters/SkipCiTests"
       requestBody:
         description: The new version of the script, whose `path` is where it should end up.
         required: true
@@ -11212,6 +11686,34 @@ paths:
             application/json:
               schema:
                 type: boolean
+
+  /workers/dev_workspace_isolation:
+    get:
+      summary: get whether the jobs of dev workspaces and forks run on their own worker groups
+      operationId: getDevWorkspaceIsolation
+      tags:
+        - worker
+      responses:
+        "200":
+          description: dev workspace isolation
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  enabled:
+                    type: boolean
+                    description: whether new jobs of dev workspaces and forks are queued on suffixed tags
+                  suffix:
+                    type: string
+                    description: the suffix of those tags, which worker groups serving dev workspaces listen with
+                  skip_non_dev_forks:
+                    type: boolean
+                    description: whether forks of a workspace that is not a dev workspace, nor under one, run on their parent's workers instead
+                required:
+                  - enabled
+                  - suffix
+                  - skip_non_dev_forks
 
   /w/{workspace}/workspace_dependencies/create:
     post:
@@ -11834,6 +12336,59 @@ paths:
                   items:
                     $ref: "#/components/schemas/CiTestResult"
 
+  /w/{workspace}/scripts/trigger_ci_tests_batch:
+    post:
+      summary: queue the CI tests of a batch of deploys
+      description: |
+        Queues the CI tests of items deployed with `skip_ci_tests`, plus those of the scripts
+        importing them, once nothing those tests read (the tested items, the test scripts and
+        their imports) still has a dependency job queued or running. While one does, nothing is
+        queued and `pending` lists those paths: call again later, or pass `ignore_pending` to
+        queue them anyway. The tests run as the caller, who must be able to deploy each item.
+      operationId: triggerCiTestsBatch
+      tags:
+        - script
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                items:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      path:
+                        type: string
+                      kind:
+                        type: string
+                        enum: [script, flow, resource]
+                    required: [path, kind]
+                ignore_pending:
+                  type: boolean
+              required: [items]
+      responses:
+        "200":
+          description: the paths still pending, and the CI test jobs queued
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  pending:
+                    type: array
+                    items:
+                      type: string
+                  job_ids:
+                    type: array
+                    items:
+                      type: string
+                      format: uuid
+                required: [pending, job_ids]
   /w/{workspace}/scripts/check_schema_contracts:
     post:
       summary: check a script's asset references against captured producer schemas
@@ -11863,6 +12418,11 @@ paths:
                   $ref: "#/components/schemas/ScriptLang"
                 content:
                   type: string
+                path:
+                  type: string
+                  description: |
+                    The script's path. A `// materialize` that names no table writes the
+                    table named after the script, so without it such a target is not checked.
       responses:
         "200":
           description: contract warnings (empty when all references match)
@@ -12141,6 +12701,11 @@ paths:
           in: query
           schema:
             type: string
+        - name: take_over
+          description: Stop the run that holds `memory_id`, if any, and run this one instead of being refused with a 409. Only who started that run, or an admin, can stop it; a restricted token also needs an unconfined `jobs:cancel` scope.
+          in: query
+          schema:
+            type: boolean
 
       requestBody:
         description: script args
@@ -12158,9 +12723,10 @@ paths:
               schema: {}
         "409":
           description: >-
-            Chat-enabled flow only: the conversation named by `memory_id` is still answering
-            a message. The body is JSON: `{ "error": string, "running_turn": { "job_id",
-            "user_seq" } }`.
+            Another run with this `memory_id` is still running (for a chat-enabled flow, the
+            conversation is still answering a message). The body is JSON: `{ "error": string,
+            "running_turn": { "job_id", "user_seq"? } }`, `user_seq` for a chat conversation.
+            Pass `take_over=true` to stop it instead.
 
   /w/{workspace}/jobs/run_wait_result/fv/{version}:
     post:
@@ -12186,6 +12752,11 @@ paths:
           in: query
           schema:
             type: string
+        - name: take_over
+          description: Stop the run that holds `memory_id`, if any, and run this one instead of being refused with a 409. Only who started that run, or an admin, can stop it; a restricted token also needs an unconfined `jobs:cancel` scope.
+          in: query
+          schema:
+            type: boolean
 
       requestBody:
         description: script args
@@ -12203,9 +12774,10 @@ paths:
               schema: {}
         "409":
           description: >-
-            Chat-enabled flow only: the conversation named by `memory_id` is still answering
-            a message. The body is JSON: `{ "error": string, "running_turn": { "job_id",
-            "user_seq" } }`.
+            Another run with this `memory_id` is still running (for a chat-enabled flow, the
+            conversation is still answering a message). The body is JSON: `{ "error": string,
+            "running_turn": { "job_id", "user_seq"? } }`, `user_seq` for a chat conversation.
+            Pass `take_over=true` to stop it instead.
 
     get:
       summary: run flow by version with GET and wait until completion
@@ -12231,6 +12803,11 @@ paths:
           in: query
           schema:
             type: string
+        - name: take_over
+          description: Stop the run that holds `memory_id`, if any, and run this one instead of being refused with a 409. Only who started that run, or an admin, can stop it; a restricted token also needs an unconfined `jobs:cancel` scope.
+          in: query
+          schema:
+            type: boolean
 
       responses:
         "200":
@@ -12240,9 +12817,10 @@ paths:
               schema: {}
         "409":
           description: >-
-            Chat-enabled flow only: the conversation named by `memory_id` is still answering
-            a message. The body is JSON: `{ "error": string, "running_turn": { "job_id",
-            "user_seq" } }`.
+            Another run with this `memory_id` is still running (for a chat-enabled flow, the
+            conversation is still answering a message). The body is JSON: `{ "error": string,
+            "running_turn": { "job_id", "user_seq"? } }`, `user_seq` for a chat conversation.
+            Pass `take_over=true` to stop it instead.
 
   /w/{workspace}/jobs/run_and_stream/f/{path}:
     post:
@@ -12262,6 +12840,11 @@ paths:
           in: query
           schema:
             type: string
+        - name: take_over
+          description: Stop the run that holds `memory_id`, if any, and run this one instead of being refused with a 409. Only who started that run, or an admin, can stop it; a restricted token also needs an unconfined `jobs:cancel` scope.
+          in: query
+          schema:
+            type: boolean
         - name: poll_delay_ms
           description: delay between polling for job updates in milliseconds
           in: query
@@ -12286,9 +12869,10 @@ paths:
                 type: string
         "409":
           description: >-
-            Chat-enabled flow only: the conversation named by `memory_id` is still answering
-            a message. The body is JSON: `{ "error": string, "running_turn": { "job_id",
-            "user_seq" } }`.
+            Another run with this `memory_id` is still running (for a chat-enabled flow, the
+            conversation is still answering a message). The body is JSON: `{ "error": string,
+            "running_turn": { "job_id", "user_seq"? } }`, `user_seq` for a chat conversation.
+            Pass `take_over=true` to stop it instead.
 
     get:
       summary: run flow by path with GET and stream updates via SSE
@@ -12308,6 +12892,11 @@ paths:
           in: query
           schema:
             type: string
+        - name: take_over
+          description: Stop the run that holds `memory_id`, if any, and run this one instead of being refused with a 409. Only who started that run, or an admin, can stop it; a restricted token also needs an unconfined `jobs:cancel` scope.
+          in: query
+          schema:
+            type: boolean
         - name: poll_delay_ms
           description: delay between polling for job updates in milliseconds
           in: query
@@ -12324,9 +12913,10 @@ paths:
                 type: string
         "409":
           description: >-
-            Chat-enabled flow only: the conversation named by `memory_id` is still answering
-            a message. The body is JSON: `{ "error": string, "running_turn": { "job_id",
-            "user_seq" } }`.
+            Another run with this `memory_id` is still running (for a chat-enabled flow, the
+            conversation is still answering a message). The body is JSON: `{ "error": string,
+            "running_turn": { "job_id", "user_seq"? } }`, `user_seq` for a chat conversation.
+            Pass `take_over=true` to stop it instead.
 
   /w/{workspace}/jobs/run_and_stream/fv/{version}:
     post:
@@ -12352,6 +12942,11 @@ paths:
           in: query
           schema:
             type: string
+        - name: take_over
+          description: Stop the run that holds `memory_id`, if any, and run this one instead of being refused with a 409. Only who started that run, or an admin, can stop it; a restricted token also needs an unconfined `jobs:cancel` scope.
+          in: query
+          schema:
+            type: boolean
         - name: poll_delay_ms
           description: delay between polling for job updates in milliseconds
           in: query
@@ -12376,9 +12971,10 @@ paths:
                 type: string
         "409":
           description: >-
-            Chat-enabled flow only: the conversation named by `memory_id` is still answering
-            a message. The body is JSON: `{ "error": string, "running_turn": { "job_id",
-            "user_seq" } }`.
+            Another run with this `memory_id` is still running (for a chat-enabled flow, the
+            conversation is still answering a message). The body is JSON: `{ "error": string,
+            "running_turn": { "job_id", "user_seq"? } }`, `user_seq` for a chat conversation.
+            Pass `take_over=true` to stop it instead.
 
     get:
       summary: run flow by version with GET and stream updates via SSE
@@ -12404,6 +13000,11 @@ paths:
           in: query
           schema:
             type: string
+        - name: take_over
+          description: Stop the run that holds `memory_id`, if any, and run this one instead of being refused with a 409. Only who started that run, or an admin, can stop it; a restricted token also needs an unconfined `jobs:cancel` scope.
+          in: query
+          schema:
+            type: boolean
         - name: poll_delay_ms
           description: delay between polling for job updates in milliseconds
           in: query
@@ -12420,9 +13021,10 @@ paths:
                 type: string
         "409":
           description: >-
-            Chat-enabled flow only: the conversation named by `memory_id` is still answering
-            a message. The body is JSON: `{ "error": string, "running_turn": { "job_id",
-            "user_seq" } }`.
+            Another run with this `memory_id` is still running (for a chat-enabled flow, the
+            conversation is still answering a message). The body is JSON: `{ "error": string,
+            "running_turn": { "job_id", "user_seq"? } }`, `user_seq` for a chat conversation.
+            Pass `take_over=true` to stop it instead.
 
   /w/{workspace}/jobs/run_and_stream/p/{path}:
     post:
@@ -12597,6 +13199,137 @@ paths:
             application/json:
               schema: {}
 
+  /w/{workspace}/jobs/flow/approval_step_detail/{job_id}/{step_id}:
+    get:
+      summary: get the approval detail of one step of a flow run
+      description: >
+        Get the approval state of an approval (suspend) step of a flow run, by the
+        flow run id and the step id, in a single query: where the step stands, its
+        approval settings, the approvals received and, while it waits, whether the
+        caller can approve. Only the run's own steps are searched: for a step inside
+        a branch or loop, pass the id of the branch's or iteration's run.
+      operationId: getApprovalStepDetail
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: job_id
+          in: path
+          required: true
+          description: id of the flow run
+          schema:
+            type: string
+            format: uuid
+        - name: step_id
+          in: path
+          required: true
+          description: id of the approval step in the flow
+          schema:
+            type: string
+      responses:
+        "200":
+          description: approval step detail
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - flow_id
+                  - step_id
+                  - status
+                  - required_events
+                  - hide_cancel
+                  - continue_on_disapprove_timeout
+                  - skin
+                  - approvals
+                properties:
+                  flow_id:
+                    type: string
+                    format: uuid
+                  step_id:
+                    type: string
+                  status:
+                    type: string
+                    enum: [not_reached, skipped, failed, waiting, resumed, not_resumed]
+                    description: >
+                      not_reached: the step's own script has not finished yet.
+                      failed: the step failed before asking for approval.
+                      waiting: the run is suspended on this step.
+                      resumed: the run moved past this step.
+                      not_resumed: the run ended while waiting (denied, timed out or cancelled).
+                  step_job:
+                    type: string
+                    format: uuid
+                    description: the job of the approval step, once it ran
+                  step_summary:
+                    type: string
+                  required_events:
+                    type: integer
+                    description: number of approvals required to resume
+                  timeout:
+                    type: integer
+                    description: seconds the run waits for approvals
+                  suspended_until:
+                    type: string
+                    format: date-time
+                    description: when the wait times out, while waiting
+                  form_schema:
+                    description: form schema for the approval step
+                  hide_cancel:
+                    type: boolean
+                  continue_on_disapprove_timeout:
+                    type: boolean
+                  skin:
+                    type: string
+                    enum: [detailed, minimal]
+                  approval_conditions:
+                    type: object
+                    properties:
+                      user_auth_required:
+                        type: boolean
+                      user_groups_required:
+                        type: array
+                        items:
+                          type: string
+                      self_approval_disabled:
+                        type: boolean
+                    required:
+                      - user_auth_required
+                      - user_groups_required
+                      - self_approval_disabled
+                  can_approve:
+                    type: boolean
+                    description: whether the caller can approve, set only while waiting
+                  description:
+                    description: description returned by the approval step's script
+                  default_args:
+                    description: default form values returned by the approval step's script
+                  enums:
+                    description: form enums returned by the approval step's script
+                  approvals:
+                    type: array
+                    description: >
+                      approvals received. approved, value and created_at are known only
+                      while the run is live; a finished run keeps approver names alone.
+                    items:
+                      type: object
+                      required:
+                        - resume_id
+                        - approver
+                      properties:
+                        resume_id:
+                          type: integer
+                        approver:
+                          type: string
+                        approved:
+                          type: boolean
+                        value: {}
+                        created_at:
+                          type: string
+                          format: date-time
+                  error:
+                    description: the run's error, when status is not_resumed
+
   /w/{workspace}/jobs/job_view_token/{id}:
     get:
       summary: mint a read-only share token for a job
@@ -12696,7 +13429,7 @@ paths:
 
   /w/{workspace}/runnables/list:
     get:
-      summary: list runnables (scripts, flows, apps) merged, ordered and keyset-paginated
+      summary: list runnables (scripts, flows, apps, agents) merged, ordered and keyset-paginated
       operationId: listRunnables
       tags:
         - script
@@ -12713,7 +13446,7 @@ paths:
         - $ref: "#/components/parameters/OrderDesc"
         - name: kinds
           in: query
-          description: comma-separated subset of script,flow,app (default all)
+          description: comma-separated subset of script,flow,app,agent (default all)
           schema:
             type: string
         - name: show_archived
@@ -12728,6 +13461,11 @@ paths:
         - name: path_start
           in: query
           description: restrict to paths under this prefix
+          schema:
+            type: string
+        - name: paths
+          in: query
+          description: comma-separated exact paths, to list only the rows at one of them
           schema:
             type: string
         - name: label
@@ -12747,6 +13485,14 @@ paths:
             homepage, whose matcher discards those queries too.
           schema:
             type: string
+        - name: search_any_order
+          in: query
+          description: >-
+            when true, each search term must appear anywhere in "summary (path)", in any
+            order, rather than in the order given, and terms are split on anything but
+            letters, digits and apostrophes in any script, not only ASCII ones.
+          schema:
+            type: boolean
         - $ref: "#/components/parameters/PerPage"
         - name: cursor
           in: query
@@ -12787,7 +13533,7 @@ paths:
         - $ref: "#/components/parameters/WorkspaceId"
         - name: kinds
           in: query
-          description: comma-separated subset of script,flow,app (default all)
+          description: comma-separated subset of script,flow,app,agent (default all)
           schema:
             type: string
         - name: include_without_main
@@ -13227,10 +13973,12 @@ paths:
       x-mcp-tool-opaque-fields:
         - value
         - schema
+      x-mcp-tool-include-query-params: []
       tags:
         - flow
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/SkipCiTests"
       requestBody:
         description: Partially filled flow
         required: true
@@ -13270,11 +14018,13 @@ paths:
       x-mcp-tool-opaque-fields:
         - value
         - schema
+      x-mcp-tool-include-query-params: []
       tags:
         - flow
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/ScriptPath"
+        - $ref: "#/components/parameters/SkipCiTests"
       requestBody:
         description: Partially filled flow
         required: true
@@ -13373,6 +14123,11 @@ paths:
               - test
               - deployed
               - all
+        - name: mine
+          description: only list the caller's own conversations (an admin otherwise lists every user's)
+          in: query
+          schema:
+            type: boolean
       responses:
         "200":
           description: flow conversations list
@@ -13382,6 +14137,188 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/FlowConversation"
+
+  /w/{workspace}/slack_agents/channels:
+    get:
+      summary: list the Slack channels this workspace's agents are shared in
+      operationId: listSlackAgentChannels
+      tags:
+        - slack_agents
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: each agent shared in a channel, with whether it is the channel's default
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SlackAgentChannel"
+
+  /w/{workspace}/slack_agents/available_channels:
+    get:
+      summary: list the connected Slack workspace's public channels
+      operationId: listAvailableSlackChannels
+      tags:
+        - slack_agents
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: cursor
+          description: the next_cursor of the previous page
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: a page of public channels
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  channels:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        name:
+                          type: string
+                      required:
+                        - id
+                        - name
+                  next_cursor:
+                    type: string
+                required:
+                  - channels
+
+  /w/{workspace}/slack_agents/status:
+    get:
+      summary: whether agents can answer in Slack on this instance
+      operationId: getSlackAgentsStatus
+      tags:
+        - slack_agents
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: the instance's readiness for agents in Slack
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  signing_secret_set:
+                    type: boolean
+                    description: agents answer in Slack only when the server has the Slack app's signing secret (SLACK_SIGNING_SECRET)
+                required:
+                  - signing_secret_set
+
+  /w/{workspace}/slack_agents/agent_channels/{path}:
+    get:
+      summary: the Slack channels an agent is shared in, and whether the caller can share it
+      operationId: getAgentSlackChannels
+      tags:
+        - slack_agents
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: the agent's Slack channels
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  slack_team_name:
+                    type: string
+                    description: the connected Slack workspace; absent when Slack is not connected
+                  signing_secret_set:
+                    type: boolean
+                    description: agents answer in Slack only when the server has the Slack app's signing secret (SLACK_SIGNING_SECRET)
+                  bot_name:
+                    type: string
+                    description: the bot's Slack handle; absent when Slack can't be reached
+                  missing_scopes:
+                    type: array
+                    items:
+                      type: string
+                    description: agent scopes the workspace's Slack connection lacks, so it must be reconnected with AI agents enabled
+                  runs_as:
+                    type: string
+                    description: who the agent runs as (its on_behalf_of); absent unless it runs on behalf of someone
+                  anyone:
+                    type: boolean
+                    description: whether anyone in its channels can ask it (its slack_anyone, kept only while it runs on behalf of someone), rather than workspace members only
+                  can_share:
+                    type: boolean
+                    description: whether the caller can change the agent's channels, as anyone who can edit it can
+                  channels:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/SlackAgentChannel"
+                required:
+                  - channels
+                  - signing_secret_set
+                  - missing_scopes
+                  - anyone
+                  - can_share
+    post:
+      summary: share an agent in a Slack channel, or change how it answers there
+      description: the workspace members in the channel whose Slack email matches and who can read the agent can then ask it, or anyone there when its settings say so (slack_anyone, with run_on_behalf_of). Needs edit access to the agent; making it the channel's default takes an admin.
+      operationId: shareAgentInSlackChannel
+      tags:
+        - slack_agents
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                channel_id:
+                  type: string
+                channel_name:
+                  type: string
+                is_default:
+                  type: boolean
+                  description: whether the agent answers bot mentions in the channel that name no agent
+              required:
+                - channel_id
+                - channel_name
+      responses:
+        "200":
+          description: agent shared
+          content:
+            text/plain:
+              schema:
+                type: string
+    delete:
+      summary: stop sharing an agent in a Slack channel
+      operationId: unshareAgentFromSlackChannel
+      tags:
+        - slack_agents
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+        - name: channel_id
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: agent no longer shared there
+          content:
+            text/plain:
+              schema:
+                type: string
 
   /w/{workspace}/flow_conversations/update/{conversation_id}:
     post:
@@ -13473,6 +14410,153 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/FlowConversationMessage"
+
+  /w/{workspace}/ai/complete:
+    post:
+      summary: one text completion with the workspace's AI config
+      description: >
+        Sends a system and a user message to the configured provider and returns the text of
+        the answer, with no tools and no streaming. For callers that do not speak a provider's
+        own API through the proxy, such as the CLI and jobs.
+      operationId: completeAi
+      tags:
+        - ai
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                system:
+                  type: string
+                user:
+                  type: string
+                model:
+                  description: >
+                    defaults to the AI config's default model. Must be enabled in the AI
+                    settings, or be the default, metadata or code-completion model.
+                  $ref: "#/components/schemas/AIProviderModel"
+                max_tokens:
+                  type: integer
+              required:
+                - system
+                - user
+      responses:
+        "200":
+          description: the answer, and the model that wrote it
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  text:
+                    type: string
+                  model:
+                    $ref: "#/components/schemas/AIProviderModel"
+                required:
+                  - text
+                  - model
+
+  /w/{workspace}/ai/web_search:
+    post:
+      summary: search the web through the workspace's web search API
+      description: >
+        Runs a query against the search API (Exa, Tavily, Linkup or DeepSeek) set in the workspace's AI
+        settings, with the key of its resource. The AI chat uses it when the model's provider
+        has no built-in web search.
+      operationId: aiWebSearch
+      tags:
+        - ai
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                query:
+                  type: string
+                max_results:
+                  type: integer
+                  minimum: 1
+                  maximum: 10
+              required:
+                - query
+      responses:
+        "200":
+          description: the results, each with an excerpt of its page
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  results:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        title:
+                          type: string
+                        url:
+                          type: string
+                        published_date:
+                          type: string
+                        content:
+                          type: string
+                      required:
+                        - title
+                        - url
+                        - content
+                required:
+                  - results
+
+  /w/{workspace}/ai/web_fetch:
+    post:
+      summary: read a web page through the workspace's web search API
+      description: >
+        Has the search API set in the workspace's AI settings fetch a page and returns its
+        text as markdown. The page is fetched from the search API's servers, not Windmill's.
+      operationId: aiWebFetch
+      tags:
+        - ai
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                url:
+                  type: string
+              required:
+                - url
+      responses:
+        "200":
+          description: the page's text
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  url:
+                    type: string
+                  title:
+                    type: string
+                  content:
+                    type: string
+                  truncated:
+                    type: boolean
+                required:
+                  - url
+                  - content
+                  - truncated
 
   /w/{workspace}/ai_evals/datasets/list:
     get:
@@ -14195,6 +15279,84 @@ paths:
                     type: boolean
                     description: more buckets matched than were returned, so summing them under-reports
 
+  /w/{workspace}/ai_session_tools/{name}:
+    post:
+      summary: run one of the AI session's tools as the calling user
+      description: The in-app chat's entry to the session toolset the MCP server also serves. Refused for job tokens and scoped tokens.
+      operationId: callAiSessionTool
+      tags:
+        - ai
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                args:
+                  description: the tool's arguments, as the model sent them
+                context:
+                  type: object
+                  description: browser-held state the tool reads
+                  additionalProperties: true
+                  properties:
+                    live_editors:
+                      type: array
+                      items:
+                        type: object
+                        required:
+                          - kind
+                          - storage_path
+                        properties:
+                          kind:
+                            type: string
+                          storage_path:
+                            type: string
+                          effective_path:
+                            type: string
+                    cells:
+                      type: array
+                      items:
+                        type: object
+                        required:
+                          - kind
+                          - storage_path
+                          - value
+                        properties:
+                          kind:
+                            type: string
+                          storage_path:
+                            type: string
+                          value: {}
+      responses:
+        "200":
+          description: what the model reads, and what the chat applies
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - text
+                  - is_error
+                  - effects
+                properties:
+                  text:
+                    type: string
+                  is_error:
+                    type: boolean
+                  effects:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: true
+
   /w/{workspace}/ai/sessions/list:
     get:
       summary: list the calling user's AI session backups in the workspace object storage
@@ -14422,6 +15584,27 @@ paths:
                   share:
                     $ref: "#/components/schemas/SharedAiArtifactInfo"
 
+  /w/{workspace}/ai/shared_artifacts/list:
+    get:
+      summary: list the workspace's live shared AI session artifacts
+      description: >
+        Every share still inside its retention window, newest first, without its content.
+        Capped at 500.
+      operationId: listSharedAiArtifacts
+      tags:
+        - ai
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: the live shares
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SharedAiArtifactInfo"
+
   /w/{workspace}/ai/shared_artifacts/get/{id}:
     get:
       summary: get a shared AI session artifact
@@ -14459,6 +15642,231 @@ paths:
     delete:
       summary: stop sharing an AI session artifact
       operationId: unshareAiArtifact
+      tags:
+        - ai
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: share deleted
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/ai/shared_sessions/share:
+    post:
+      summary: share an AI session transcript by link
+      description: >
+        Stores a read-only snapshot of the session that members of the workspace can open by
+        id, or anyone with the link once it is public. Sharing the same session again updates
+        that snapshot and keeps its id.
+      operationId: shareAiSession
+      tags:
+        - ai
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - session_id
+                - name
+                - message_count
+                - snapshot
+              properties:
+                session_id:
+                  type: string
+                  description: the session's id in the author's browser
+                name:
+                  type: string
+                is_public:
+                  type: boolean
+                  description: left as it is on an existing share when absent; a new share starts private
+                message_count:
+                  type: integer
+                  minimum: 0
+                snapshot:
+                  type: object
+                  additionalProperties: true
+      responses:
+        "200":
+          description: the shared snapshot
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SharedAiSessionInfo"
+
+  /w/{workspace}/ai/shared_sessions/status:
+    get:
+      summary: get the calling user's share of one of their AI sessions
+      operationId: getAiSessionShareStatus
+      tags:
+        - ai
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: session_id
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: the share, if any
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  share:
+                    $ref: "#/components/schemas/SharedAiSessionInfo"
+
+  /w/{workspace}/ai/shared_sessions/list:
+    get:
+      summary: list the caller's shared AI sessions
+      description: >
+        The caller's own shares and the ones they opened by link, most recently shared or opened
+        first, without their snapshot. Capped at 500. `session_id` is set on the caller's own
+        shares only, `opened_at` on the others.
+      operationId: listSharedAiSessions
+      tags:
+        - ai
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: the shares
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  allOf:
+                    - $ref: "#/components/schemas/SharedAiSessionInfo"
+                    - type: object
+                      properties:
+                        mine:
+                          type: boolean
+                        session_id:
+                          type: string
+                        opened_at:
+                          type: string
+                          format: date-time
+                          description: when the caller last opened this share by link
+                      required:
+                        - mine
+
+  /w/{workspace}/ai/shared_sessions/set_public/{id}:
+    post:
+      summary: make a shared AI session public, or reserve it to workspace members
+      operationId: setAiSessionSharePublic
+      tags:
+        - ai
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - is_public
+              properties:
+                is_public:
+                  type: boolean
+      responses:
+        "200":
+          description: the updated share
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SharedAiSessionInfo"
+
+  /w/{workspace}/ai_u/shared_sessions/get/{id}:
+    get:
+      summary: get a shared AI session
+      description: >
+        A public share is served without authentication; any other one only to a member of
+        the workspace.
+      operationId: getSharedAiSession
+      tags:
+        - ai
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: the shared session
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SharedAiSessionInfo"
+                  - type: object
+                    required:
+                      - snapshot
+                      - can_unshare
+                      - mine
+                    properties:
+                      snapshot:
+                        type: object
+                        additionalProperties: true
+                      can_unshare:
+                        type: boolean
+                        description: whether the caller authored the share or is a workspace admin
+                      mine:
+                        type: boolean
+                        description: whether the caller authored the share
+
+  /w/{workspace}/ai/shared_sessions/opened/{id}:
+    delete:
+      summary: remove a shared AI session from the caller's list
+      description: >
+        The share stays readable by link; opening it again lists it again.
+      operationId: forgetOpenedAiSession
+      tags:
+        - ai
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: removed from the list
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/ai/shared_sessions/delete/{id}:
+    delete:
+      summary: stop sharing an AI session
+      operationId: unshareAiSession
       tags:
         - ai
       parameters:
@@ -14916,11 +16324,9 @@ paths:
       summary: whether the app behind a share secret admits guests
       description: >-
         Unauthenticated: what a signed-out visitor reads to learn that signing in
-        would let them in. 404 unless the app's execution mode is `guest` AND the
-        workspace has `guest_access_enabled` AND the instance has not set the
-        `guest_access_disabled` global setting, and never on a deployment where guests
-        are unavailable (the shared cloud), so it says nothing about apps that are not
-        open to guests. Discloses only the app path, to a caller already
+        would let them in. 404 unless the app's execution mode is `guest`, and never
+        on a deployment where guests are unavailable (the shared cloud), so it says
+        nothing about apps that are not open to guests. Discloses only the app path, to a caller already
         holding the share secret.
       operationId: getGuestEntry
       tags:
@@ -15083,6 +16489,10 @@ paths:
                 value: {}
                 policy:
                   $ref: "#/components/schemas/Policy"
+                execution_mode:
+                  type: string
+                  enum: [viewer, publisher, guest, anonymous]
+                  description: "Changes who may open the app and leaves the rest of the deployed policy, its run-as user included, as it is. Applied under the same lock as a deploy, so neither overwrites the other. Cannot be sent with `policy`, which states its own mode. When the app runs as another user, refused to a caller who is neither an admin nor in 'wm_deployers', and to an operator with builder rights even in 'wm_deployers'; they change the mode by deploying."
                 deployment_message:
                   type: string
                 custom_path:
@@ -15400,6 +16810,12 @@ paths:
                       type: integer
                     tag:
                       type: string
+                    modules:
+                      type: object
+                      nullable: true
+                      description: "Additional modules keyed by relative file path. Honored in preview only: a deployed app runs the modules stored with its runnable."
+                      additionalProperties:
+                        $ref: "#/components/schemas/ScriptModule"
                   required:
                     - content
                     - language
@@ -15428,6 +16844,14 @@ paths:
                   description: "Map of relative-import script path -> temp storage hash. Only honored for inline-script (raw_code) execution so app dev resolves those imports from not-yet-deployed local content."
                   additionalProperties:
                     type: string
+                on_behalf_of:
+                  type: string
+                  nullable: true
+                  description: "Preview mode (force_viewer_static_fields set) only: run as this identity (an email, `u/<username>` or `g/<group>`) instead of the caller. Naming anyone other than yourself requires being an admin or a member of wm_deployers."
+                viewer_data_access:
+                  type: boolean
+                  nullable: true
+                  description: "Preview mode only: the inline runnable's viewer_data_access policy setting (run mode reads it from the deployed policy)."
               required:
                 - args
                 - component
@@ -15817,6 +17241,11 @@ paths:
           in: query
           schema:
             type: string
+        - name: take_over
+          description: Stop the run that holds `memory_id`, if any, and run this one instead of being refused with a 409. Only who started that run, or an admin, can stop it; a restricted token also needs an unconfined `jobs:cancel` scope.
+          in: query
+          schema:
+            type: boolean
       requestBody:
         description: flow args
         required: true
@@ -15834,9 +17263,10 @@ paths:
                 format: uuid
         "409":
           description: >-
-            Chat-enabled flow only: the conversation named by `memory_id` is still answering
-            a message. The body is JSON: `{ "error": string, "running_turn": { "job_id",
-            "user_seq" } }`.
+            Another run with this `memory_id` is still running (for a chat-enabled flow, the
+            conversation is still answering a message). The body is JSON: `{ "error": string,
+            "running_turn": { "job_id", "user_seq"? } }`, `user_seq` for a chat conversation.
+            Pass `take_over=true` to stop it instead.
 
   /w/{workspace}/jobs/run/fv/{version}:
     post:
@@ -15879,6 +17309,11 @@ paths:
           in: query
           schema:
             type: string
+        - name: take_over
+          description: Stop the run that holds `memory_id`, if any, and run this one instead of being refused with a 409. Only who started that run, or an admin, can stop it; a restricted token also needs an unconfined `jobs:cancel` scope.
+          in: query
+          schema:
+            type: boolean
       requestBody:
         description: flow args
         required: true
@@ -15896,13 +17331,17 @@ paths:
                 format: uuid
         "409":
           description: >-
-            Chat-enabled flow only: the conversation named by `memory_id` is still answering
-            a message. The body is JSON: `{ "error": string, "running_turn": { "job_id",
-            "user_seq" } }`.
+            Another run with this `memory_id` is still running (for a chat-enabled flow, the
+            conversation is still answering a message). The body is JSON: `{ "error": string,
+            "running_turn": { "job_id", "user_seq"? } }`, `user_seq` for a chat conversation.
+            Pass `take_over=true` to stop it instead.
 
   /w/{workspace}/jobs/run/batch_rerun_jobs:
     post:
       summary: re-run multiple jobs
+      description: >-
+        Re-runs each job and marks every failed or canceled original that was re-run as
+        resolved, with the new job's id in its note. Operators re-run without resolving.
       operationId: batchReRunJobs
       tags:
         - job
@@ -16376,6 +17815,11 @@ paths:
           in: query
           schema:
             type: string
+        - name: take_over
+          description: Stop the run that holds `memory_id`, if any, and run this one instead of being refused with a 409. Only who started that run, or an admin, can stop it; a restricted token also needs an unconfined `jobs:cancel` scope.
+          in: query
+          schema:
+            type: boolean
 
       requestBody:
         description: preview
@@ -16395,17 +17839,19 @@ paths:
                 format: uuid
         "409":
           description: >-
-            Chat-enabled flow only: the conversation named by `memory_id` is still answering
-            a message. The body is JSON: `{ "error": string, "running_turn": { "job_id",
-            "user_seq" } }`.
+            Another run with this `memory_id` is still running (for a chat-enabled flow, the
+            conversation is still answering a message). The body is JSON: `{ "error": string,
+            "running_turn": { "job_id", "user_seq"? } }`, `user_seq` for a chat conversation.
+            Pass `take_over=true` to stop it instead.
 
   /w/{workspace}/jobs/run/agent/{path}:
     post:
       summary: run a saved AI agent
       description: |
         Runs the `ai_agent` resource at `path` as stored, for any caller who can read it
-        (operators included), as the caller, who needs access to the agent's AI resource and to
-        whatever its tools use. With `memory_id`, the run is a turn
+        (operators included). The run is the caller's, or the agent's `on_behalf_of` when its
+        `run_on_behalf_of` is set; the caller's inputs may then not reference variables or
+        resources. With `memory_id`, the run is a turn
         of the caller's conversation with the agent; without, a single run.
       operationId: runAgent
       tags:
@@ -16418,6 +17864,11 @@ paths:
           in: query
           schema:
             type: string
+        - name: take_over
+          description: Stop the run that holds `memory_id`, if any, and run this one instead of being refused with a 409. Only who started that run, or an admin, can stop it; a restricted token also needs an unconfined `jobs:cancel` scope.
+          in: query
+          schema:
+            type: boolean
       requestBody:
         description: the run's inputs
         required: true
@@ -16429,6 +17880,12 @@ paths:
                 user_message:
                   type: string
                 user_attachments:
+                  type: array
+                  items: {}
+                previous_messages:
+                  description: |
+                    The history to answer from, as chat messages, when the agent's memory is off.
+                    An agent with managed memory reads its conversation instead and ignores this.
                   type: array
                   items: {}
       responses:
@@ -16453,6 +17910,11 @@ paths:
           in: query
           schema:
             type: string
+        - name: take_over
+          description: Stop the run that holds `memory_id`, if any, and run this one instead of being refused with a 409. Only who started that run, or an admin, can stop it; a restricted token also needs an unconfined `jobs:cancel` scope.
+          in: query
+          schema:
+            type: boolean
 
       requestBody:
         description: preview
@@ -16470,9 +17932,10 @@ paths:
               schema: {}
         "409":
           description: >-
-            Chat-enabled flow only: the conversation named by `memory_id` is still answering
-            a message. The body is JSON: `{ "error": string, "running_turn": { "job_id",
-            "user_seq" } }`.
+            Another run with this `memory_id` is still running (for a chat-enabled flow, the
+            conversation is still answering a message). The body is JSON: `{ "error": string,
+            "running_turn": { "job_id", "user_seq"? } }`, `user_seq` for a chat conversation.
+            Pass `take_over=true` to stop it instead.
 
   /w/{workspace}/jobs/run/dynamic_select:
     post:
@@ -16664,6 +18127,7 @@ paths:
         - job
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/OrderDesc"
         - $ref: "#/components/parameters/CreatedBy"
         - $ref: "#/components/parameters/Label"
         - $ref: "#/components/parameters/Worker"
@@ -16696,8 +18160,8 @@ paths:
             type: boolean
         - name: resolved
           description: >-
-            filter on whether a failure has been marked as handled. true keeps only
-            resolved failures, false hides them
+            filter on whether a failed or canceled run has been marked as handled. true
+            keeps only resolved runs, false hides them
           in: query
           schema:
             type: boolean
@@ -16779,6 +18243,11 @@ paths:
           required: false
           schema:
             type: string
+        - name: has_null_parent
+          description: has null parent
+          in: query
+          schema:
+            type: boolean
         - name: all_workspaces
           description: get jobs from all workspaces (only valid if request come from the `admins` workspace)
           in: query
@@ -17008,8 +18477,8 @@ paths:
             type: boolean
         - name: resolved
           description: >-
-            filter on whether a failure has been marked as handled. true keeps only
-            resolved failures, false hides them
+            filter on whether a failed or canceled run has been marked as handled. true
+            keeps only resolved runs, false hides them
           in: query
           schema:
             type: boolean
@@ -17153,6 +18622,101 @@ paths:
                 type: string
                 description: Summary of deleted jobs and rows
 
+  /w/{workspace}/jobs/recent_runs:
+    get:
+      summary: list what ran recently, one entry per script, flow or agent
+      operationId: listRecentRuns
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: folder
+          description: only runs of items in this folder
+          in: query
+          schema:
+            type: string
+        - name: failed_ids_kind
+          description: with failed_ids_path, the item whose unresolved failed run ids to list in failed_run_ids
+          in: query
+          schema:
+            type: string
+            enum: [script, flow, agent]
+        - name: failed_ids_path
+          description: with failed_ids_kind, the path of that item
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: runs that completed in the window or are running, grouped by item, newest run first
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  window_hours:
+                    type: integer
+                  capped:
+                    description: the window holds more runs than were read, so counts cover the newest ones only
+                    type: boolean
+                  total_runs:
+                    type: integer
+                  failed_runs:
+                    type: integer
+                  failing_items:
+                    type: integer
+                  running_items:
+                    type: integer
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        path:
+                          type: string
+                        kind:
+                          type: string
+                          enum: [script, flow, agent]
+                        summary:
+                          type: string
+                        status:
+                          $ref: "#/components/schemas/RecentRunStatus"
+                        failed_runs:
+                          description: unresolved failed runs of the item over the whole window, not only those in runs
+                          type: integer
+                        failed_run_ids:
+                          description: the ids of those failed runs, only for the item named by failed_ids_kind and failed_ids_path
+                          type: array
+                          items:
+                            type: string
+                            format: uuid
+                        runs:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              id:
+                                type: string
+                                format: uuid
+                              status:
+                                $ref: "#/components/schemas/RecentRunStatus"
+                              ran_at:
+                                description: when the run started, or was created for one that has not reported a start
+                                type: string
+                                format: date-time
+                              duration_ms:
+                                type: integer
+                            required: [id, status, ran_at]
+                      required: [path, kind, status, failed_runs, runs]
+                required:
+                  - window_hours
+                  - capped
+                  - total_runs
+                  - failed_runs
+                  - failing_items
+                  - running_items
+                  - items
+
   /w/{workspace}/jobs/list:
     get:
       summary: list all jobs
@@ -17195,8 +18759,8 @@ paths:
             type: boolean
         - name: resolved
           description: >-
-            filter on whether a failure has been marked as handled. true keeps only
-            resolved failures, false hides them
+            filter on whether a failed or canceled run has been marked as handled. true
+            keeps only resolved runs, false hides them
           in: query
           schema:
             type: boolean
@@ -17860,6 +19424,9 @@ paths:
                     type: boolean
                   started:
                     type: boolean
+                  is_skipped:
+                    type: boolean
+                    description: set when the job is completed; true if it ended as skipped (also counted as success)
                 required:
                   - completed
                   - result
@@ -18054,11 +19621,12 @@ paths:
 
   /w/{workspace}/jobs/completed/resolve:
     post:
-      summary: mark failed jobs as resolved
+      summary: mark failed or canceled jobs as resolved
       description: >-
-        Marks failed jobs as handled so triage surfaces stop showing them as failures.
-        The job status itself is unchanged. Returns the ids actually resolved: ids that
-        are not visible to the caller or did not fail are silently skipped.
+        Marks failed or canceled jobs as handled so triage surfaces stop showing them as
+        unhandled. The job status itself is unchanged. Returns the ids actually resolved: ids
+        that are not visible to the caller or neither failed nor were canceled are silently
+        skipped.
       operationId: resolveCompletedJobs
       tags:
         - job
@@ -18509,7 +20077,9 @@ paths:
               type: object
               properties:
                 payload:
-                  description: payload to send to the resumed job
+                  description: >
+                    payload to send to the resumed job. On a denial, a string `reason` in it
+                    is shown in the step's error and the audit log.
                 approval_token:
                   type: string
                   description: approval token for unauthenticated access
@@ -20424,12 +21994,18 @@ paths:
           schema:
             $ref: "#/components/schemas/NativeServiceName"
       requestBody:
-        description: redirect_uri
+        description: >-
+          Where to save the connection (defaults to u/{caller}/native_{resource_type}). Uses
+          the workspace OAuth client, or the instance one when the instance shares it, and the
+          redirect URI registered on that client.
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/RedirectUri"
+              type: object
+              properties:
+                resource_path:
+                  type: string
       responses:
         "200":
           description: native trigger service connect url
@@ -20459,10 +22035,59 @@ paths:
               schema:
                 type: boolean
 
-  /w/{workspace}/native_triggers/integrations/{service_name}/generate_instance_connect_url:
+  /w/{workspace}/native_triggers/integrations/{service_name}/connections:
+    get:
+      summary: list the native trigger connections of a service the caller can use
+      operationId: listNativeTriggerConnections
+      tags:
+        - workspace_integration
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: service_name
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/NativeServiceName"
+      responses:
+        "200":
+          description: connections
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/NativeTriggerConnection"
+
+  /w/{workspace}/native_triggers/integrations/{service_name}/connections/delete:
+    delete:
+      summary: disconnect a native trigger connection and delete the triggers using it
+      operationId: deleteNativeTriggerConnection
+      tags:
+        - workspace_integration
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: service_name
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/NativeServiceName"
+        - name: path
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: connection deleted
+          content:
+            application/json:
+              schema:
+                type: string
+
+  /w/{workspace}/native_triggers/integrations/{service_name}/workspace_connection:
     post:
-      summary: generate connect url using instance-level credentials
-      operationId: generateInstanceConnectUrl
+      summary: share a connection of this service with every member of the workspace (admin only), or stop sharing
+      operationId: setNativeTriggerWorkspaceConnection
       tags:
         - workspace_integration
       parameters:
@@ -20473,15 +22098,19 @@ paths:
           schema:
             $ref: "#/components/schemas/NativeServiceName"
       requestBody:
-        description: redirect_uri
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/RedirectUri"
+              type: object
+              properties:
+                path:
+                  type: string
+                  nullable: true
+                  description: The connection to share, or null to stop sharing
       responses:
         "200":
-          description: authorization URL using instance credentials
+          description: workspace connection updated
           content:
             application/json:
               schema:
@@ -20533,19 +22162,14 @@ paths:
                   type: string
                 state:
                   type: string
-                redirect_uri:
-                  type: string
-                resource_path:
-                  type: string
               required:
                 - code
                 - state
-                - redirect_uri
       responses:
         "200":
-          description: native trigger service oauth completed
+          description: path of the saved connection
           content:
-            text/plain:
+            application/json:
               schema:
                 type: string
 
@@ -20820,6 +22444,12 @@ paths:
           required: true
           schema:
             type: string
+        - name: connection_path
+          in: query
+          description: Connection to browse through; defaults to the caller's only usable one
+          required: false
+          schema:
+            type: string
       responses:
         "200":
           description: list of available NextCloud events
@@ -20842,6 +22472,12 @@ paths:
           required: true
           schema:
             type: string
+        - name: connection_path
+          in: query
+          description: Connection to browse through; defaults to the caller's only usable one
+          required: false
+          schema:
+            type: string
       responses:
         "200":
           description: list of Google Calendars
@@ -20862,6 +22498,12 @@ paths:
         - name: workspace
           in: path
           required: true
+          schema:
+            type: string
+        - name: connection_path
+          in: query
+          description: Connection to browse through; defaults to the caller's only usable one
+          required: false
           schema:
             type: string
         - name: q
@@ -20905,6 +22547,12 @@ paths:
           required: true
           schema:
             type: string
+        - name: connection_path
+          in: query
+          description: Connection to browse through; defaults to the caller's only usable one
+          required: false
+          schema:
+            type: string
       responses:
         "200":
           description: list of shared drives
@@ -20925,6 +22573,12 @@ paths:
         - name: workspace
           in: path
           required: true
+          schema:
+            type: string
+        - name: connection_path
+          in: query
+          description: Connection to browse through; defaults to the caller's only usable one
+          required: false
           schema:
             type: string
       responses:
@@ -22751,6 +24405,9 @@ paths:
                   type: string
                 summary:
                   type: string
+                external_id:
+                  type: string
+                  description: "IdP group the SSO groups claim links this group to: a group id or a full path such as /operators/network-team. Blank or omitted leaves it unlinked."
               required:
                 - name
       responses:
@@ -22783,6 +24440,9 @@ paths:
                   type: string
                   nullable: true
                   description: "Instance-level role for group members. 'superadmin', 'devops', 'user' or empty to clear."
+                external_id:
+                  type: string
+                  description: "IdP group the SSO groups claim links this group to: a group id or a full path such as /operators/network-team. Omitted keeps the current link, blank clears it. Refused on a group SCIM provisioned."
               required:
                 - new_summary
       responses:
@@ -23218,6 +24878,9 @@ paths:
               properties:
                 name:
                   type: string
+                display_name:
+                  type: string
+                  description: Defaults to the name.
                 summary:
                   type: string
                 owners:
@@ -23261,6 +24924,8 @@ paths:
               type: object
               properties:
                 summary:
+                  type: string
+                display_name:
                   type: string
                 owners:
                   type: array
@@ -23874,6 +25539,56 @@ paths:
                 items:
                   $ref: "#/components/schemas/AutoscalingEvent"
 
+  /configs/test_autoscaling/{worker_group}:
+    post:
+      summary: Run an autoscaling integration once for a worker group, without recording an autoscaling event
+      operationId: testAutoscaling
+      tags:
+        - config
+      parameters:
+        - name: worker_group
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                desired_workers:
+                  type: integer
+                  minimum: 0
+                integration:
+                  description: The integration to run, as in the worker group's autoscaling config
+                  type: object
+                  properties:
+                    type:
+                      type: string
+                      enum: [script, kubernetes, dryrun]
+                    path:
+                      type: string
+                    tag:
+                      type: string
+                  required:
+                    - type
+              required:
+                - desired_workers
+                - integration
+      responses:
+        "200":
+          description: The job queued for a script integration
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  job_id:
+                    type: string
+                    nullable: true
+
   /configs/native_kubernetes_autoscaling_healthcheck:
     get:
       summary: Check Kubernetes autoscaling health for a worker group
@@ -24106,6 +25821,31 @@ paths:
               schema:
                 type: string
                 description: Minimum semantic version across all workers (e.g. "1.583.0")
+
+  /w/{workspace}/access/get:
+    get:
+      summary: list what a workspace member or group can reach, and why
+      description: |
+        Workspace admins can query any principal; other members only themselves and the groups
+        they belong to. An admin principal reaches everything, so `items` is empty.
+      operationId: getPrincipalAccess
+      tags:
+        - granular_acl
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: principal
+          description: "`u/<username>` or `g/<group>`"
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: the principal's access
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PrincipalAccess"
 
   /w/{workspace}/acls/get/{kind}/{path}:
     get:
@@ -24454,7 +26194,7 @@ paths:
                   type: string
                 favorite_kind:
                   type: string
-                  enum: [flow, app, script, raw_app, asset]
+                  enum: [flow, app, script, raw_app, asset, agent]
       responses:
         "200":
           description: star item
@@ -24477,7 +26217,7 @@ paths:
                   type: string
                 favorite_kind:
                   type: string
-                  enum: [flow, app, script, raw_app, asset]
+                  enum: [flow, app, script, raw_app, asset, agent]
       responses:
         "200":
           description: unstar item
@@ -24837,6 +26577,31 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/S3Resource"
+
+  /w/{workspace}/job_helpers/v2/s3_proxy_bucket:
+    get:
+      summary: Returns the bucket S3 clients name to reach a workspace storage
+        through the S3 proxy, or null when that storage is not S3
+      operationId: s3ProxyBucket
+      tags:
+        - helpers
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: storage
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The storage's bucket
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  bucket:
+                    type: string
+                    nullable: true
 
   /w/{workspace}/job_helpers/test_connection:
     get:
@@ -25310,9 +27075,12 @@ paths:
           in: query
           schema:
             type: string
+        - $ref: "#/components/parameters/TablePreviewS3ResourcePath"
+        - $ref: "#/components/parameters/TablePreviewFilters"
       responses:
         "200":
-          description: Parquet Preview
+          description: >
+            Parquet Preview: `columns`, `column_types` (Arrow type names) and `rows`.
           content:
             application/json: {}
 
@@ -25337,6 +27105,13 @@ paths:
           in: query
           schema:
             type: string
+        - $ref: "#/components/parameters/TablePreviewS3ResourcePath"
+        - name: csv_separator
+          in: query
+          schema:
+            type: string
+        - $ref: "#/components/parameters/TablePreviewCsvHasHeader"
+        - $ref: "#/components/parameters/TablePreviewFilters"
       responses:
         "200":
           description: Table count
@@ -25385,13 +27160,20 @@ paths:
           in: query
           schema:
             type: string
+        - $ref: "#/components/parameters/TablePreviewS3ResourcePath"
         - name: csv_separator
           in: query
           schema:
             type: string
+        - $ref: "#/components/parameters/TablePreviewCsvHasHeader"
+        - $ref: "#/components/parameters/TablePreviewFilters"
       responses:
         "200":
-          description: Csv Preview
+          description: >
+            Csv Preview: `columns`, `column_types` (Arrow type names), `rows`, and the
+            `csv_separator` the file was read with, guessed from its first bytes when
+            none is given.
+            A `.jsonl` or `.ndjson` file is read as newline-delimited JSON.
           content:
             application/json: {}
 
@@ -25899,8 +27681,8 @@ paths:
             type: boolean
         - name: resolved
           description: >-
-            filter on whether a failure has been marked as handled. true keeps only
-            resolved failures, false hides them
+            filter on whether a failed or canceled run has been marked as handled. true
+            keeps only resolved runs, false hides them
           in: query
           schema:
             type: boolean
@@ -27522,6 +29304,13 @@ paths:
           description: folder scoping the Hub project source (`{workspace}:{folder}`)
           schema:
             type: string
+        - name: version
+          in: query
+          required: false
+          description: id of a reviewed project version to export instead of the current one (see the hub's `/projects/{slug}/versions`)
+          schema:
+            type: integer
+            minimum: 1
       responses:
         "200":
           description: raw Hub response body (status code is passed through from the Hub)
@@ -27749,6 +29538,34 @@ components:
       name: workspace
       in: path
       required: true
+      schema:
+        type: string
+    SkipCiTests:
+      name: skip_ci_tests
+      description: Do not queue the CI tests of this deploy. Set by a caller deploying several items in a row, which queues them with triggerCiTestsBatch once the whole batch has landed.
+      in: query
+      schema:
+        type: boolean
+    TablePreviewS3ResourcePath:
+      name: s3_resource_path
+      description: Read the file from this object storage resource instead of the workspace storage.
+      in: query
+      schema:
+        type: string
+    TablePreviewCsvHasHeader:
+      name: csv_has_header
+      description: Whether the first CSV line names the columns. Defaults to true.
+      in: query
+      schema:
+        type: boolean
+    TablePreviewFilters:
+      name: filters
+      description: >
+        JSON object, column name to filter. A number column takes an optional comparison
+        operator and a number (`>=10`), a boolean column a boolean, and any other column a
+        case-insensitive substring, or `=value` for an exact match. A `search_term` without
+        a `search_col` matches any column, case-insensitively.
+      in: query
       schema:
         type: string
     HubPublishFolder:
@@ -28575,6 +30392,15 @@ components:
                   surfaced in the fork modal as "Last updated".
             required: [draft_saved_at]
       required: [is_draft]
+    DraftItemRef:
+      type: object
+      properties:
+        kind:
+          $ref: "#/components/schemas/UserDraftItemKind"
+        path:
+          type: string
+      required: [kind, path]
+
     UserDraftItemKind:
       type: string
       description: |
@@ -28934,6 +30760,45 @@ components:
           type: boolean
           default: false
 
+    EditVariableExpirationHandler:
+      type: object
+      description: >
+        Request body for editing the workspace variable expiration handler. Omit
+        `path` (or send null) to unset the handler.
+      properties:
+        path:
+          type: string
+          nullable: true
+          description: Path to the variable expiration handler script or flow
+        extra_args:
+          $ref: "#/components/schemas/ScriptArgs"
+        muted_on_user_path:
+          type: boolean
+          description: Do not run the handler for variables on a personal (u/) path
+        notify_before_secs:
+          type: integer
+          minimum: 0
+          description: How long before a variable's value expires the handler runs. 1 day when omitted.
+        remind_every_secs:
+          type: integer
+          minimum: 0
+          description: Run the handler again at this interval until the value expires. No reminders when omitted or 0.
+
+    VariableExpirationHandlerConfig:
+      type: object
+      description: Workspace variable expiration handler configuration
+      properties:
+        path:
+          type: string
+        extra_args:
+          $ref: "#/components/schemas/ScriptArgs"
+        muted_on_user_path:
+          type: boolean
+        notify_before_secs:
+          type: integer
+        remind_every_secs:
+          type: integer
+
     EditSuccessHandler:
       description: Request body for editing the workspace success handler. Accepts both new grouped format and legacy flat format for backward compatibility.
       oneOf:
@@ -28964,14 +30829,13 @@ components:
       type: object
       required:
         - address
-        - mount_path
       properties:
         address:
           type: string
           description: HashiCorp Vault server address (e.g., https://vault.company.com:8200)
         mount_path:
           type: string
-          description: KV v2 secrets engine mount path (e.g., windmill)
+          description: KV v2 secrets engine mount path (e.g., windmill). Empty to test the connection used for `$external:vault://` references, which checks only that Vault accepts Windmill's token.
         kv_secret_path_prefix:
           type: string
           description: Optional path prefix inserted between the KV data/metadata segment and the workspace id (e.g., "apps/windmill"). When set, secrets are stored at `<mount>/data/<prefix>/<workspace>/<secret>`, allowing a Vault policy scoped to exactly `<mount>/data/<prefix>/*`.
@@ -28981,6 +30845,15 @@ components:
         jwt_mount_path:
           type: string
           description: Mount path for the JWT auth method in Vault (optional, defaults to "jwt"). Set this when the JWT auth method is mounted at a non-default path, e.g. via `vault auth enable -path=<mount> jwt`.
+        approle_role_id:
+          type: string
+          description: AppRole role_id (optional). When set and no static token is given, Windmill logs in with AppRole.
+        approle_secret_id:
+          type: string
+          description: AppRole secret_id (optional). When empty, the `VAULT_APPROLE_SECRET_ID` environment variable of servers and workers is used; when that is unset too, no secret_id is sent (a role with `bind_secret_id=false`).
+        approle_mount_path:
+          type: string
+          description: Mount path of the AppRole auth method (optional, defaults to "approle").
         namespace:
           type: string
           description: Vault Enterprise namespace (optional)
@@ -29037,6 +30910,88 @@ components:
         prefix:
           type: string
           description: Prefix for secret names (e.g., windmill/)
+
+    HttpStoreSettings:
+      type: object
+      description: >-
+        Read-only secret backend for any secret store with an HTTP API. A secret variable saved
+        with an empty value references the store key derived from its workspace and path.
+      required:
+        - base_url
+        - read
+        - auth
+      properties:
+        base_url:
+          type: string
+          description: Scheme, host and optional path prefix of the store
+        read:
+          type: object
+          required:
+            - path
+          properties:
+            path:
+              type: string
+              description: >-
+                Path template appended to base_url. {workspace} and {path} must each appear here
+                or in a query value.
+            query:
+              type: object
+              additionalProperties:
+                type: string
+              description: Query parameters; values may use {workspace} and {path}
+            value_pointer:
+              type: string
+              description: JSON pointer to the value in the response; empty means the whole body
+            value_encoding:
+              type: string
+              enum: [plain, base64]
+        path_encoding:
+          type: string
+          enum: [url, double_dash, raw]
+          description: How a variable path becomes a store key (default url)
+        extra_headers:
+          type: object
+          additionalProperties:
+            type: string
+        auth:
+          $ref: "#/components/schemas/HttpStoreAuth"
+        ca_bundle_path:
+          type: string
+          description: PEM bundle of additional CA certificates trusted for the store
+        timeout_secs:
+          type: integer
+        skip_ssl_verify:
+          type: boolean
+
+    HttpStoreAuth:
+      type: object
+      required:
+        - type
+      properties:
+        type:
+          type: string
+          enum: [None, StaticHeader, BearerTokenFile, ClientCertificate]
+        header_name:
+          type: string
+          description: StaticHeader and BearerTokenFile (default Authorization)
+        header_value:
+          type: string
+          description: StaticHeader
+        token_path:
+          type: string
+          description: BearerTokenFile
+        prefix:
+          type: string
+          description: BearerTokenFile (default "Bearer ")
+        cert_path:
+          type: string
+          description: ClientCertificate, PEM certificate optionally followed by its chain
+        key_path:
+          type: string
+          description: ClientCertificate, PEM private key
+        reload_interval_secs:
+          type: integer
+          description: BearerTokenFile (default 60) and ClientCertificate (default 300)
 
     SecretMigrationFailure:
       type: object
@@ -29435,6 +31390,24 @@ components:
         definition_changed:
           type: boolean
 
+    SlackAgentChannel:
+      type: object
+      properties:
+        channel_id:
+          type: string
+        channel_name:
+          type: string
+        agent_path:
+          type: string
+        is_default:
+          type: boolean
+          description: whether the agent answers bot mentions in the channel that name no agent
+      required:
+        - channel_id
+        - channel_name
+        - agent_path
+        - is_default
+
     FlowConversation:
       type: object
       required:
@@ -29725,6 +31698,24 @@ components:
             The server deletes the backup of a session no push has reached for this many
             days. Unset keeps backups until the user deletes the session. Read from the
             workspace's own settings like `copilot_disabled`.
+        web_search:
+          $ref: "#/components/schemas/AIWebSearchConfig"
+
+    AIWebSearchConfig:
+      type: object
+      description: >-
+        The search API the AI chat searches the web and reads pages through when the model's
+        provider has no built-in web search. Read from the workspace's own settings like
+        `copilot_disabled`.
+      properties:
+        provider:
+          type: string
+          enum: [exa, tavily, linkup, deepseek]
+        resource_path:
+          type: string
+      required:
+        - provider
+        - resource_path
 
     AISessionBackupListing:
       type: object
@@ -29998,6 +31989,31 @@ components:
         - shared_at
         - expires_at
 
+    SharedAiSessionInfo:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        is_public:
+          type: boolean
+        message_count:
+          type: integer
+        created_by:
+          type: string
+        shared_at:
+          type: string
+          format: date-time
+      required:
+        - id
+        - name
+        - is_public
+        - message_count
+        - created_by
+        - shared_at
+
     InstanceAIProviderSummary:
       type: object
       properties:
@@ -30110,9 +32126,10 @@ components:
       description: |
         A row in the merged runnables listing. `type` is the discriminator;
         kind-specific fields (hash/language/kind for scripts, execution_mode/
-        version for apps) are present only for that kind. `edited_at` is the
-        unified last-updated time (a script's created_at, a flow/app's edit
-        time).
+        version for apps, agent_memory/ws_specific for agents) are present only
+        for that kind. An agent is an `ai_agent` resource whose description is
+        reported as `summary`. `edited_at` is the unified last-updated time (a
+        script's created_at, a flow/app/agent's edit time).
       properties:
         type:
           type: string
@@ -30120,6 +32137,7 @@ components:
             - script
             - flow
             - app
+            - agent
         path:
           type: string
         summary:
@@ -30187,6 +32205,11 @@ components:
         version:
           type: integer
           format: int64
+        agent_memory:
+          description: agent-only. The agent's `memory` setting.
+        ws_specific:
+          type: boolean
+          description: agent-only. Whether the agent is workspace-specific, which keeps it out of deploys to other workspaces.
       required:
         - type
         - path
@@ -30252,6 +32275,10 @@ components:
           type: integer
         concurrency_time_window_s:
           type: integer
+        on_concurrency_limit:
+          type: string
+          enum: [queue, fail]
+          description: What a run does when its concurrency limit is reached when a worker picks it up. `queue` (default) re-queues it to a later slot, `fail` ends it immediately as failed.
         concurrency_key:
           type: string
         debounce_key:
@@ -30393,6 +32420,10 @@ components:
           type: integer
         concurrency_time_window_s:
           type: integer
+        on_concurrency_limit:
+          type: string
+          enum: [queue, fail]
+          description: What a run does when its concurrency limit is reached when a worker picks it up. `queue` (default) re-queues it to a later slot, `fail` ends it immediately as failed.
         cache_ttl:
           type: number
         cache_ignore_s3_path:
@@ -30665,6 +32696,9 @@ components:
           type: boolean
         trigger_kind:
           $ref: "#/components/schemas/JobTriggerKind"
+        trigger_path:
+          type: string
+          description: Path of the trigger, schedule or app that started the job, if any
         worker:
           type: string
       required:
@@ -30792,7 +32826,7 @@ components:
           type: boolean
         resolved:
           type: boolean
-          description: whether this failure has been marked as handled
+          description: whether this failed or canceled run has been marked as handled
         resolved_by:
           type: string
           description: >-
@@ -30811,6 +32845,9 @@ components:
             resolution outside enterprise
         trigger_kind:
           $ref: "#/components/schemas/JobTriggerKind"
+        trigger_path:
+          type: string
+          description: Path of the trigger, schedule or app that started the job, if any
         worker:
           type: string
       required:
@@ -31175,6 +33212,9 @@ components:
           format: date-time
         operator:
           type: boolean
+        role:
+          type: string
+          description: The member's workspace role by name (`developer`, `operator` or a custom role). Admin is the separate `is_admin` flag.
         disabled:
           type: boolean
         groups:
@@ -31264,6 +33304,10 @@ components:
           type: boolean
         operator:
           type: boolean
+          description: Legacy role selector, true for the `operator` role and false for `developer`.
+        role:
+          type: string
+          description: The member's workspace role, one of the workspace's roles. Wins over `operator`.
         disabled:
           type: boolean
 
@@ -31523,15 +33567,11 @@ components:
         Guests are free up to `free_allowance` distinct emails over the trailing
         `window_days`. Past that an Enterprise plan meters them (`metered`, four guests
         to one seat: `billable_guests`, `guest_seats`); every other plan and build
-        admits no new email until the count drops. `instance_enabled` is the superadmin
-        switch (`guest_access_disabled` global setting) every workspace switch sits under.
-        `available` is whether this deployment can have guests at all: false on the shared
-        cloud, where guest access requires a self-hosted or dedicated deployment, and every
-        other field and switch is then moot.
+        admits no new email until the count drops. `available` is whether this
+        deployment can have guests at all: false on the shared cloud, where guest access
+        requires a self-hosted or dedicated deployment, and every other field is then moot.
       properties:
         available:
-          type: boolean
-        instance_enabled:
           type: boolean
         guest_count:
           type: integer
@@ -31551,7 +33591,6 @@ components:
           format: int64
       required:
         - available
-        - instance_enabled
         - guest_count
         - window_days
         - free_allowance
@@ -31613,6 +33652,12 @@ components:
             If true, the token is restricted to read-only HTTP methods
             (GET/HEAD/OPTIONS). Mutating endpoints and job-run actions are
             rejected with 403, regardless of the scopes attached.
+        super_admin:
+          type: boolean
+          description: |
+            For an MCP token (an `mcp:` scope) owned by a superadmin: carry the owner's
+            superadmin rights, reaching every workspace rather than only their
+            memberships. Ignored for other tokens, which always carry them.
 
     NewTokenImpersonate:
       type: object
@@ -31660,6 +33705,10 @@ components:
           type: boolean
         expires_at:
           type: string
+          format: date-time
+        value_valid_until:
+          type: string
+          nullable: true
           format: date-time
         labels:
           type: array
@@ -31721,7 +33770,13 @@ components:
           description: The path to the variable
         value:
           type: string
-          description: The value of the variable
+          description: >
+            The value of the variable. For a secret, `$external:vault://<path>#<key>`
+            stores a reference to an existing secret in the instance's external
+            HashiCorp Vault (path as `vault kv get` takes it) instead of a value; without
+            `#<key>` it reads the whole secret as a JSON object of its fields. It is
+            resolved on each read, only under the path prefixes a superadmin allowed for
+            the workspace, and is returned as-is when the secret is not decrypted.
         is_secret:
           type: boolean
           description: Whether the variable is a secret
@@ -31730,13 +33785,25 @@ components:
           description: The description of the variable
         account:
           type: integer
-          description: The account identifier
+          deprecated: true
+          description: Ignored. A variable is linked to an OAuth account only when `createAccount` creates both.
         is_oauth:
           type: boolean
           description: Whether the variable is an OAuth variable
         expires_at:
           type: string
-          description: The expiration date of the variable
+          description: >
+            When to garbage-collect the variable. Used for ephemeral secrets;
+            the variable is deleted once this is reached. Not the value's expiry
+            — see value_valid_until.
+          format: date-time
+        value_valid_until:
+          type: string
+          description: >
+            When the value stored in this variable stops working. Triggers the
+            workspace's variable expiration handler ahead of it, by the handler's
+            `notify_before_secs` (1 day by default); never causes the variable
+            to be deleted.
           format: date-time
         labels:
           type: array
@@ -31758,13 +33825,21 @@ components:
           description: The path to the variable
         value:
           type: string
-          description: The new value of the variable
+          description: The new value of the variable. Accepts an `$external:vault://<path>[#<key>]` reference for a secret, as in CreateVariable.
         is_secret:
           type: boolean
           description: Whether the variable is a secret
         description:
           type: string
           description: The new description of the variable
+        value_valid_until:
+          type: string
+          nullable: true
+          description: >
+            When the value stored in this variable stops working. Omit to leave
+            it unchanged; send null to clear it. Changing it re-arms the
+            workspace's variable expiration handler.
+          format: date-time
         labels:
           type: array
           items:
@@ -31811,6 +33886,7 @@ components:
             - "resource_types.create"
             - "resource_types.update"
             - "resource_types.delete"
+            - "resource_types.sync"
             - "schedule.create"
             - "schedule.setenabled"
             - "schedule.edit"
@@ -31871,6 +33947,7 @@ components:
             - "workspaces.edit_webhook"
             - "workspaces.edit_copilot_config"
             - "workspaces.edit_error_handler"
+            - "workspaces.edit_variable_expiration_handler"
             - "workspaces.create"
             - "workspaces.update"
             - "workspaces.archive"
@@ -32071,6 +34148,11 @@ components:
         - auto_kind
         - has_preprocessor
 
+    RecentRunStatus:
+      description: a failure someone or something marked as handled is `resolved`, not `failure`
+      type: string
+      enum: [success, failure, resolved, canceled, running]
+
     ScriptLang:
       type: string
       enum: [
@@ -32158,6 +34240,14 @@ components:
           description: "Map of relative-import script path -> temp storage hash so the preview job resolves those imports from not-yet-deployed local content instead of the deployed script"
           additionalProperties:
             type: string
+        on_behalf_of:
+          type: string
+          nullable: true
+          description: "Run the preview as this identity (an email, `u/<username>` or `g/<group>`) instead of the caller. Naming anyone other than yourself requires being an admin or a member of wm_deployers."
+        viewer_data_access:
+          type: boolean
+          nullable: true
+          description: "Data table and object storage access as the caller rather than as the job's identity, as a full-code app's inline runnable flagged viewer_data_access does for its viewer."
       required:
         - args
 
@@ -32225,6 +34315,9 @@ components:
             type: string
         ws_specific:
           type: boolean
+        preserve_on_behalf_of:
+          type: boolean
+          description: ai_agent only. Keep the identity `value.on_behalf_of` names (`u/<username>`, `g/<group>`) rather than the caller's own. Honoured for admins and members of wm_deployers; otherwise every write of an agent sets it to the caller.
       required:
         - path
         - value
@@ -32249,6 +34342,9 @@ components:
             type: string
         ws_specific:
           type: boolean
+        preserve_on_behalf_of:
+          type: boolean
+          description: ai_agent only. Keep the identity `value.on_behalf_of` names (`u/<username>`, `g/<group>`) rather than the caller's own. Honoured for admins and members of wm_deployers; otherwise every write of an agent sets it to the caller.
 
     Resource:
       type: object
@@ -32340,6 +34436,11 @@ components:
           type: boolean
         account:
           type: number
+        scopes:
+          type: array
+          items:
+            type: string
+          description: OAuth scopes the linked account was connected with
         created_by:
           type: string
         edited_at:
@@ -32380,6 +34481,12 @@ components:
             On a draft-only row, the path its editor has staged when it
             differs from the storage path (e.g. a never-deployed item parked at
             `u/{user}/draft_{uuid}`).
+        grant_type:
+          type: string
+          description: |
+            The grant of the linked OAuth account: `client_credentials`
+            connects as the app, `authorization_code` as the user who
+            connected it.
       required:
         - path
         - resource_type
@@ -33534,6 +35641,10 @@ components:
             - or
           default: and
           description: "Logic to apply when evaluating the top-level filters. 'and' requires all of them to match, 'or' requires any of them to match. Nested `any_of`/`all_of`/`none_of` groups carry their own logic."
+        run_on_filter_error:
+          type: boolean
+          default: false
+          description: "Whether a message the filters cannot read (not UTF-8, or not JSON) still runs the target, as if the trigger had no filters. A preprocessor then finds the reason in `event.filter_error`. When false, such a message is skipped."
         initial_messages:
           type: array
           nullable: true
@@ -33601,6 +35712,10 @@ components:
             - or
           default: and
           description: "Logic to apply when evaluating the top-level filters. 'and' requires all of them to match, 'or' requires any of them to match. Nested `any_of`/`all_of`/`none_of` groups carry their own logic."
+        run_on_filter_error:
+          type: boolean
+          default: false
+          description: "Whether a message the filters cannot read (not UTF-8, or not JSON) still runs the target, as if the trigger had no filters. A preprocessor then finds the reason in `event.filter_error`. When false, such a message is skipped."
         initial_messages:
           type: array
           nullable: true
@@ -33679,6 +35794,10 @@ components:
             - or
           default: and
           description: "Logic to apply when evaluating the top-level filters. 'and' requires all of them to match, 'or' requires any of them to match. Nested `any_of`/`all_of`/`none_of` groups carry their own logic."
+        run_on_filter_error:
+          type: boolean
+          default: false
+          description: "Whether a message the filters cannot read (not UTF-8, or not JSON) still runs the target, as if the trigger had no filters. A preprocessor then finds the reason in `event.filter_error`. When false, such a message is skipped."
         initial_messages:
           type: array
           nullable: true
@@ -34676,6 +36795,7 @@ components:
           type: boolean
         default_role:
           type: string
+          description: A role id, `admin`, or `$none` when the data table has no default role.
         roles:
           type: array
           items:
@@ -35359,6 +37479,10 @@ components:
             - or
           default: and
           description: "Logic to apply when evaluating the top-level filters. 'and' requires all of them to match, 'or' requires any of them to match. Nested `any_of`/`all_of`/`none_of` groups carry their own logic."
+        run_on_filter_error:
+          type: boolean
+          default: false
+          description: "Whether a message the filters cannot read (not UTF-8, or not JSON) still runs the target, as if the trigger had no filters. A preprocessor then finds the reason in `event.filter_error`. When false, such a message is skipped."
         auto_offset_reset:
           type: string
           enum:
@@ -35433,6 +37557,10 @@ components:
             - or
           default: and
           description: "Logic to apply when evaluating the top-level filters. 'and' requires all of them to match, 'or' requires any of them to match. Nested `any_of`/`all_of`/`none_of` groups carry their own logic."
+        run_on_filter_error:
+          type: boolean
+          default: false
+          description: "Whether a message the filters cannot read (not UTF-8, or not JSON) still runs the target, as if the trigger had no filters. A preprocessor then finds the reason in `event.filter_error`. When false, such a message is skipped."
         auto_offset_reset:
           type: string
           enum:
@@ -35503,6 +37631,10 @@ components:
             - or
           default: and
           description: "Logic to apply when evaluating the top-level filters. 'and' requires all of them to match, 'or' requires any of them to match. Nested `any_of`/`all_of`/`none_of` groups carry their own logic."
+        run_on_filter_error:
+          type: boolean
+          default: false
+          description: "Whether a message the filters cannot read (not UTF-8, or not JSON) still runs the target, as if the trigger had no filters. A preprocessor then finds the reason in `event.filter_error`. When false, such a message is skipped."
         auto_offset_reset:
           type: string
           enum:
@@ -35819,6 +37951,66 @@ components:
         - script_path
         - is_flow
 
+    PrincipalAccess:
+      type: object
+      properties:
+        principal:
+          type: string
+        is_admin:
+          type: boolean
+        groups:
+          type: array
+          items:
+            type: string
+        folders:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+              write:
+                type: boolean
+              owner:
+                type: boolean
+              via:
+                description: the `u/<user>` or `g/<group>` grants on the folder that reach the principal
+                type: array
+                items:
+                  type: string
+            required: [name, write, owner, via]
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              kind:
+                type: string
+              path:
+                type: string
+              write:
+                type: boolean
+              reasons:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AccessReason"
+            required: [kind, path, write, reasons]
+      required: [principal, is_admin, groups, folders, items]
+
+    AccessReason:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [own, group_path, user, group, folder]
+        group:
+          type: string
+        folder:
+          type: string
+        write:
+          type: boolean
+      required: [type]
+
     Group:
       type: object
       properties:
@@ -35856,6 +38048,13 @@ components:
           enum:
             - superadmin
             - devops
+        external_id:
+          type: string
+          nullable: true
+          description: IdP group this group is linked to; its membership then follows the SSO groups claim
+        scim_managed:
+          type: boolean
+          description: Provisioned by SCIM, which then owns external_id
 
     InstanceGroupWithWorkspaces:
       type: object
@@ -35876,6 +38075,13 @@ components:
           enum:
             - superadmin
             - devops
+        external_id:
+          type: string
+          nullable: true
+          description: IdP group this group is linked to; its membership then follows the SSO groups claim
+        scim_managed:
+          type: boolean
+          description: Provisioned by SCIM, which then owns external_id
         workspaces:
           type: array
           items:
@@ -35897,6 +38103,8 @@ components:
       type: object
       properties:
         name:
+          type: string
+        display_name:
           type: string
         owners:
           type: array
@@ -36044,6 +38252,24 @@ components:
         draining:
           type: boolean
           description: the worker received its shutdown signal and exits once its current job is done
+        job_stats:
+          type: object
+          description: >-
+            script and flow-step jobs this worker ran and how many of them failed, over its whole
+            life, the last 24 hours and its last 100 jobs. A flow's own outcome is not counted, since
+            its failure is that of a step already counted on the worker that ran it. Canceled jobs
+            count as executed, not failed.
+          properties:
+            total:
+              $ref: "#/components/schemas/WorkerJobCounts"
+            last_24h:
+              $ref: "#/components/schemas/WorkerJobCounts"
+            last_100:
+              $ref: "#/components/schemas/WorkerJobCounts"
+          required:
+            - total
+            - last_24h
+            - last_100
       required:
         - worker
         - worker_instance
@@ -36053,6 +38279,16 @@ components:
         - jobs_executed
         - worker_group
         - wm_version
+    WorkerJobCounts:
+      type: object
+      properties:
+        executed:
+          type: integer
+        failed:
+          type: integer
+      required:
+        - executed
+        - failed
     UserWorkspaceList:
       type: object
       properties:
@@ -36090,6 +38326,11 @@ components:
               is_service_account:
                 type: boolean
                 description: Whether this membership is a service account.
+              role:
+                type: string
+                description: The member's workspace role.
+              capabilities:
+                $ref: "#/components/schemas/RoleCapabilities"
             required:
               - id
               - name
@@ -36097,9 +38338,41 @@ components:
               - color
               - is_dev_workspace
               - disabled
+              - role
+              - capabilities
       required:
         - email
         - workspaces
+
+    WorkspaceWebhookEventType:
+      type: string
+      description: the `type` of a workspace webhook message
+      enum:
+        - CreateApp
+        - DeleteApp
+        - UpdateApp
+        - CreateFlow
+        - UpdateFlow
+        - ArchiveFlow
+        - DeleteFlow
+        - CreateFolder
+        - UpdateFolder
+        - DeleteFolder
+        - DeleteResource
+        - CreateResource
+        - UpdateResource
+        - CreateResourceType
+        - DeleteResourceType
+        - UpdateResourceType
+        - CreateScript
+        - UpdateScript
+        - DeleteScript
+        - DeleteScriptPath
+        - CreateVariable
+        - UpdateVariable
+        - DeleteVariable
+        - TokenExpiringSoon
+        - TokenExpired
 
     CreateWorkspace:
       type: object
@@ -36156,6 +38429,11 @@ components:
           items:
             type: string
           description: "Lake names the fork SHARES with the parent (reads and writes the parent's lake directly). Every lake not listed gets the default isolated fork namespace with read-defer to the parent."
+        shared_storages:
+          type: array
+          items:
+            type: string
+          description: "Workspace storages the fork SHARES with the parent (`_default_` for the primary one): it reads and writes the parent's objects directly. Every storage not listed is isolated: the fork writes under its own prefix and reads through to the parent's objects."
         is_dev_workspace:
           type: boolean
           description: "Create the fork as a persistent dev workspace (id not required to carry the wm-fork- prefix; at most one per parent)"
@@ -36270,6 +38548,9 @@ components:
           type: boolean
         operator:
           type: boolean
+        role:
+          type: string
+          description: The workspace role the invite grants.
         parent_workspace_id:
           type: string
           nullable: true
@@ -36278,6 +38559,7 @@ components:
         - email
         - is_admin
         - operator
+        - role
 
     GlobalUserInfo:
       type: object
@@ -36501,6 +38783,10 @@ components:
           description: "Map of relative-import script path -> temp storage hash, propagated to each flow step so inline-script relative imports resolve from not-yet-deployed local content instead of the deployed script"
           additionalProperties:
             type: string
+        on_behalf_of:
+          type: string
+          nullable: true
+          description: "Run the preview as this identity (an email, `u/<username>` or `g/<group>`) instead of the caller. Naming anyone other than yourself requires being an admin or a member of wm_deployers."
 
       required:
         - value
@@ -36567,9 +38853,8 @@ components:
             requires an authenticated viewer), while updating one keeps the mode
             the app is already deployed under. Neither `anonymous`, which makes
             the app publicly executable, nor `guest`, which opens it to anyone the
-            identity provider authenticates, is ever assumed. A guest is only
-            admitted where the workspace also has `guest_access_enabled`, which is
-            checked when the session is minted and again on every guest request
+            identity provider authenticates, is ever assumed. Widening an app to
+            `guest` is gated by the `RestrictGuestAppDeployment` protection rule
         on_behalf_of:
           type: string
           description: The user or group the app runs as in anonymous or publisher mode (e.g. 'u/admin' or 'g/mygroup'). The authority for the app's identity.
@@ -36597,7 +38882,8 @@ components:
             the app bundle so `windmill-client` calls run as the viewer. Must
             be a subset of the server's curated allowlist (jobs:run, jobs:read,
             users:read, resources:read, variables:read, flow_conversations:read,
-            flow_conversations:write).
+            flow_conversations:write). Every such token can call whoami without
+            consent, whether `users:read` is declared or not.
 
     ListableApp:
       type: object
@@ -36944,6 +39230,13 @@ components:
             type: string
         grant_type:
           type: string
+        resource_fields:
+          type: object
+          additionalProperties: {}
+          description: >
+            Resource fields the provider's `connect_fields` picked on connect
+            (Salesforce's instance_url, Docusign's account_id and base_uri,
+            QuickBooks' realmId), for the connect dialog to prefill.
 
       required:
         - access_token
@@ -37193,6 +39486,15 @@ components:
             - ran
             - not_run
             - unknown
+        schemas:
+          type: array
+          description: the schemas its `-- schemas` annotation declares; absent when it applies to the whole database
+          items:
+            type: string
+        blocked_by:
+          type: integer
+          format: int64
+          description: when not run, the earliest pending migration that must be applied first; when run, the latest applied migration that must be rolled back first
     DataTableSchema:
       type: object
       required: [datatable_name, schemas]
@@ -37226,6 +39528,7 @@ components:
           default_role,
           can_create_schema,
           creatable_schemas,
+          migrations_enabled,
         ]
       properties:
         datatable_name:
@@ -37259,6 +39562,9 @@ components:
           description: the schemas the role the listing connected as may create in
           items:
             type: string
+        migrations_enabled:
+          type: boolean
+          description: whether its schema is kept as versioned migrations, which a change made with plain SQL would bypass
 
     DataTableTableSchema:
       type: object
@@ -37533,6 +39839,9 @@ components:
           type: boolean
         fork_open_prs:
           type: boolean
+        ai_review_prs:
+          type: boolean
+          description: review every pull request against the tracked branch with the workspace's AI
         open_pr_error:
           type: string
           description: server-owned, last failure opening a PR for a deploy branch of this repo
@@ -38006,12 +40315,139 @@ components:
         builder_flows:
           type: boolean
           description: Whether operators can compose flows out of existing runnables (consumes a full seat). Omitting the field leaves the stored value unchanged.
+        builder_apps:
+          type: boolean
+          description: Whether operators can compose full-code apps out of existing runnables (consumes a full seat). Omitting the field leaves the stored value unchanged.
         manage_schedules:
           type: boolean
           description: Whether operators can create, edit and delete schedules. Granted unless withdrawn; omitting the field leaves the stored value unchanged.
         manage_triggers:
           type: boolean
           description: Whether operators can create, edit and delete triggers. Granted unless withdrawn; omitting the field leaves the stored value unchanged.
+
+    AuthorLevel:
+      type: string
+      enum: [none, compose, full]
+      description: How much of a kind of runnable a role may author. `compose` assembles already-deployed runnables with no code of one's own.
+
+    RoleVisibility:
+      type: object
+      description: Pages a role sees. Not enforced.
+      properties:
+        runs: { type: boolean }
+        schedules: { type: boolean }
+        resources: { type: boolean }
+        variables: { type: boolean }
+        assets: { type: boolean }
+        triggers: { type: boolean }
+        audit_logs: { type: boolean }
+        groups: { type: boolean }
+        folders: { type: boolean }
+        workers: { type: boolean }
+      required: [runs, schedules, resources, variables, assets, triggers, audit_logs, groups, folders, workers]
+
+    RoleCapabilities:
+      type: object
+      properties:
+        code:
+          type: boolean
+          description: Author scripts and run code of one's own (previews, dependency jobs, dynamic selects, resolving jobs, data table migrations). Required by `full` flows or apps. Previews also need `run`.
+        flows:
+          $ref: "#/components/schemas/AuthorLevel"
+        apps:
+          $ref: "#/components/schemas/AuthorLevel"
+        manage_schedules:
+          type: boolean
+        manage_triggers:
+          type: boolean
+        run:
+          type: boolean
+          description: Start runs of scripts, flows and AI agents (by path, hash or version, restarts, previews, MCP run tools). Without it a role is view-only. Schedules and triggers keep their own rights; resuming a suspended step is not a run.
+        fork:
+          type: boolean
+          description: Fork the workspace.
+        visibility:
+          $ref: "#/components/schemas/RoleVisibility"
+      required: [code, flows, apps, manage_schedules, manage_triggers, run, fork, visibility]
+
+    RoleCapabilitiesPatch:
+      type: object
+      description: A partial RoleCapabilities; an unset key falls through to the layer below.
+      properties:
+        code: { type: boolean }
+        flows:
+          $ref: "#/components/schemas/AuthorLevel"
+        apps:
+          $ref: "#/components/schemas/AuthorLevel"
+        manage_schedules: { type: boolean }
+        manage_triggers: { type: boolean }
+        run: { type: boolean }
+        fork: { type: boolean }
+        visibility:
+          type: object
+          additionalProperties:
+            type: boolean
+
+    RoleDefinition:
+      type: object
+      description: One entry of the `workspace_roles` instance setting.
+      properties:
+        name:
+          type: string
+        label:
+          type: string
+        capabilities:
+          $ref: "#/components/schemas/RoleCapabilitiesPatch"
+      required: [name]
+
+    RoleOverride:
+      type: object
+      properties:
+        label:
+          type: string
+        capabilities:
+          $ref: "#/components/schemas/RoleCapabilitiesPatch"
+
+    RoleOverrides:
+      type: object
+      description: A workspace's overrides keyed by role name; a name the instance does not define adds a workspace-only role (EE).
+      additionalProperties:
+        $ref: "#/components/schemas/RoleOverride"
+
+    EffectiveRole:
+      type: object
+      properties:
+        name:
+          type: string
+        label:
+          type: string
+        capabilities:
+          $ref: "#/components/schemas/RoleCapabilities"
+        source:
+          type: string
+          enum: [instance, workspace]
+        overridden:
+          type: boolean
+      required: [name, label, capabilities, source, overridden]
+
+    WorkspaceRoles:
+      type: object
+      properties:
+        roles:
+          type: array
+          items:
+            $ref: "#/components/schemas/EffectiveRole"
+        overrides:
+          $ref: "#/components/schemas/RoleOverrides"
+        custom_roles_enabled:
+          type: boolean
+          description: Whether this workspace may add roles of its own.
+        my_role:
+          type: string
+          nullable: true
+        my_capabilities:
+          $ref: "#/components/schemas/RoleCapabilities"
+      required: [roles, overrides, custom_roles_enabled, my_capabilities]
 
     WorkspaceComparison:
       type: object
@@ -38611,6 +41047,16 @@ components:
           $ref: "#/components/schemas/RuleBypasserGroups"
         bypass_users:
           $ref: "#/components/schemas/RuleBypasserUsers"
+        fork_role_mapping:
+          $ref: "#/components/schemas/ForkRoleMapping"
+    ForkRoleMapping:
+      type: object
+      description: >-
+        Role a member of this workspace gets in a fork of it, keyed by the role it holds here.
+        Unmapped roles carry over unchanged; where two rulesets map the same role, the first by
+        name wins. On update, omitting it leaves the stored mapping unchanged.
+      additionalProperties:
+        type: string
     ProtectionRules:
       type: array
       description: Configuration of protection restrictions
@@ -38636,6 +41082,7 @@ components:
         - RestrictAnonymousAppDeployment
         - RestrictPublicRunSharing
         - RestrictGuestAppDeployment
+        - RequireIsolatedForks
     RuleBypasserGroups:
       type: array
       description: Groups that can bypass this ruleset
@@ -38790,6 +41237,10 @@ components:
         enabled:
           type: boolean
           description: Whether the trigger starts a job when it fires
+        connection_path:
+          type: string
+          nullable: true
+          description: Path of the connection the trigger acts through on the external service
       required:
         - external_id
         - workspace_id
@@ -38832,6 +41283,10 @@ components:
         enabled:
           type: boolean
           description: Whether the trigger starts a job when it fires
+        connection_path:
+          type: string
+          nullable: true
+          description: Path of the connection the trigger acts through on the external service
         external_data:
           type: object
           nullable: true
@@ -38863,10 +41318,6 @@ components:
         oauth_data:
           nullable: true
           $ref: "#/components/schemas/WorkspaceOAuthConfig"
-        resource_path:
-          type: string
-          nullable: true
-          description: Path to the resource storing the OAuth token
       required:
         - service_name
 
@@ -38886,12 +41337,13 @@ components:
         redirect_uri:
           type: string
           format: uri
-          description: The OAuth redirect URI
+          description: >-
+            The redirect URI registered on the OAuth app. Absent for an app saved before it was
+            stored, which uses the workspace settings page.
       required:
         - client_id
         - client_secret
         - base_url
-        - redirect_uri
 
     WebhookEvent:
       type: object
@@ -38911,14 +41363,6 @@ components:
       enum:
         - async
         - sync
-
-    RedirectUri:
-      type: object
-      properties:
-        redirect_uri:
-          type: string
-      required:
-        - redirect_uri
 
     NativeTriggerData:
       type: object
@@ -38944,10 +41388,54 @@ components:
             Whether the trigger starts a job when it fires. Honoured on create only, so a
             trigger can be registered already paused; an update ignores it and setenabled is
             the only way to change an existing trigger's state. Defaults to true.
+        connection_path:
+          type: string
+          nullable: true
+          description: >-
+            Path of the connection the trigger acts through. Honoured on create only; an update
+            keeps the trigger's connection. When omitted on create, the caller's only usable
+            connection for the service is used.
       required:
         - script_path
         - is_flow
         - service_config
+
+    NativeTriggerConnection:
+      type: object
+      description: An account connected for native triggers, stored as an OAuth resource
+      properties:
+        path:
+          type: string
+          description: Path of the resource and variable holding the connection
+        owner:
+          type: string
+          nullable: true
+          description: Username of whoever connected the account, when the caller can read its resource
+        workspace:
+          type: boolean
+          description: Whether this is the workspace connection, which every member may use
+        managed:
+          type: boolean
+          description: >-
+            Whether the integration trigger connect flow made it. Any other connection is a
+            resource connected from Resources, which triggers can use but only Resources can
+            replace or delete.
+        scopes:
+          type: array
+          nullable: true
+          items:
+            type: string
+          description: Scopes the account was connected with; absent when unknown
+        missing_scopes:
+          type: array
+          nullable: true
+          items:
+            type: string
+          description: Scopes the service's triggers need that the account lacks; absent when unknown
+      required:
+        - path
+        - workspace
+        - managed
 
     CreateTriggerResponse:
       type: object

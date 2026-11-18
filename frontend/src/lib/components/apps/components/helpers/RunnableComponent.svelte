@@ -32,6 +32,8 @@
 	import { selectId } from '../../editor/appUtils'
 	import { collectOneOfFields } from '../../editor/appUtilsCore'
 	import { userStore } from '$lib/stores'
+	import { useOperatingUser } from '$lib/components/operatingWorkspace.svelte'
+	import { appPreviewOnBehalfOf } from '$lib/utils/previewOnBehalfOf'
 	import { get } from 'svelte/store'
 	import RefreshButton from '$lib/components/apps/components/helpers/RefreshButton.svelte'
 	import { ctxRegex } from '../../utils'
@@ -128,8 +130,10 @@
 		app,
 		connectingInput,
 		bgRuns,
-		recomputeAllContext
+		recomputeAllContext,
+		policy
 	} = getContext<AppViewerContext>('AppViewerContext')
+	const operatingUser = useOperatingUser()
 	const editorContext = getContext<AppEditorContext>('AppEditorContext')
 
 	const iterContext = getContext<ListContext>('ListWrapperContext')
@@ -530,7 +534,8 @@
 			force_viewer_one_of_fields: !isEditor ? undefined : undefinedIfEmpty(oneOfRunnableInputs),
 			force_viewer_allow_user_resources: !isEditor
 				? undefined
-				: undefinedIfEmpty(allowUserResources)
+				: undefinedIfEmpty(allowUserResources),
+			on_behalf_of: isEditor ? appPreviewOnBehalfOf(operatingUser.current, policy) : undefined
 		}
 		return requestBody
 	}

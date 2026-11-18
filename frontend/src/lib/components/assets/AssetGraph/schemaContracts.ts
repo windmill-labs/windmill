@@ -306,16 +306,18 @@ export function buildSchemaContractContext(
 export async function notifyContractWarnings(
 	workspace: string,
 	language: ScriptLang,
-	content: string
+	content: string,
+	path?: string
 ): Promise<void> {
 	// Every checkable ref carries the `ducklake` token (URIs and the bare
-	// default-syntax shorthand alike) — skip the round-trip for the vast
+	// default-syntax shorthand alike), or is a bare `// materialize`, which targets
+	// the default lake without saying so — skip the round-trip for the vast
 	// majority of saves that can't produce a warning.
-	if (!content.includes('ducklake')) return
+	if (!content.includes('ducklake') && !content.includes('materialize')) return
 	try {
 		const { warnings } = await ScriptService.checkSchemaContracts({
 			workspace,
-			requestBody: { language, content }
+			requestBody: { language, content, path }
 		})
 		const real = warnings.filter((w) => w.kind !== 'suppressed')
 		if (real.length === 0) return
@@ -339,9 +341,10 @@ export async function computeContractMarkers(
 	workspace: string,
 	code: string,
 	assets: AssetWithAltAccessType[],
-	context?: SchemaContractGraphContext
+	context?: SchemaContractGraphContext,
+	scriptPath?: string
 ): Promise<ContractMarker[]> {
-	const ann = parsePipelineAnnotations(code)
+	const ann = parsePipelineAnnotations(code, scriptPath)
 	const inputs = {
 		assets,
 		// Annotation-declared lineage only — body-inferred lineage is redundant

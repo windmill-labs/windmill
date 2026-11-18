@@ -6,7 +6,10 @@
 	import { resource } from 'runed'
 	import { canSkipRetryChainQuery } from './scriptRetryChain'
 
-	let { job }: { job: Job } = $props()
+	let {
+		job,
+		onNavigate = goto
+	}: { job: Job; onNavigate?: (url: string) => void | Promise<void> } = $props()
 
 	type AttemptColor = 'green' | 'red' | 'blue' | 'gray'
 	type Attempt = { id: string; color: AttemptColor; current: boolean }
@@ -141,7 +144,7 @@
 					size="xs"
 					color="gray"
 					variant="border"
-					onclick={() => goto(`/run/${self?.handledJob}?workspace=${ws}`)}
+					onclick={() => onNavigate(`/run/${self?.handledJob}?workspace=${ws}`)}
 				>
 					Handled run
 				</Button>
@@ -163,7 +166,7 @@
 						size="xs"
 						color={attempt.color}
 						variant={attempt.current ? 'contained' : 'border'}
-						onclick={() => goto(`/run/${attempt.id}?workspace=${ws}`)}
+						onclick={() => onNavigate(`/run/${attempt.id}?workspace=${ws}`)}
 					>
 						{i === 0 ? 'Original' : `Attempt ${i}`}
 					</Button>
@@ -180,7 +183,7 @@
 						size="xs"
 						color={handler.color}
 						variant="border"
-						onclick={() => goto(`/run/${handler.id}?workspace=${ws}`)}
+						onclick={() => onNavigate(`/run/${handler.id}?workspace=${ws}`)}
 					>
 						{HANDLER_LABEL[handler.kind]}
 					</Button>

@@ -1262,5 +1262,103 @@ async fn test_admin_and_operator_are_exclusive(db: Pool<Postgres>) -> anyhow::Re
         .await?;
     assert_eq!(resp.status(), 400, "{}", resp.text().await?);
 
+    // Rows written before the rule can still carry both flags: the admin wins, and `whoami`
+    // says so, since the frontend hides every gated page from an operator.
+    sqlx::query(
+        "UPDATE usr SET is_admin = true, operator = true
+         WHERE workspace_id = 'test-workspace' AND username = 'operator'",
+    )
+    .execute(&db)
+    .await?;
+    let resp = client()
+        .get(format!("{api}/users/whoami"))
+        .header("Authorization", "Bearer OPERATOR_TOKEN_1")
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 200);
+    let me: serde_json::Value = resp.json().await?;
+    assert_eq!(
+        (me["is_admin"].as_bool(), me["operator"].as_bool()),
+        (Some(true), Some(false))
+    );
+    let resp = client()
+        .post(format!("{api}/scripts/create"))
+        .header("Authorization", "Bearer OPERATOR_TOKEN_1")
+        .json(&json!({
+            "path": "u/operator/legacy_admin", "summary": "", "description": "",
+            "content": "export function main() {}", "language": "deno", "schema": {}
+        }))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 201, "{}", resp.text().await?);
+
+    Ok(())
+}
+
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_create_workspace_validates_chosen_username(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    sqlx::query(
+        "INSERT INTO global_settings (name, value) VALUES ('automate_username_creation', 'false') \
+         ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value",
+    )
+    .execute(&db)
+    .await?;
+    let server = ApiServer::start(db.clone()).await?;
+    let create = format!(
+        "http://localhost:{}/api/workspaces/create",
+        server.addr.port()
+    );
+
+    let resp = authed(client().post(&create))
+        .json(&json!({"id": "ws-hyphen", "name": "ws-hyphen", "username": "jean-luc"}))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 400, "{}", resp.text().await?);
+
+    let resp = authed(client().post(&create))
+        .json(&json!({"id": "ws-ok", "name": "ws-ok", "username": "jean_luc"}))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+
+    Ok(())
+}
+
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn archiving_a_workspace_makes_its_public_apps_private(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    sqlx::query(
+        "INSERT INTO app (workspace_id, path, summary, policy, versions) VALUES
+             ('test-workspace', 'u/test-user/public', '', '{\"execution_mode\": \"anonymous\"}', '{}'),
+             ('test-workspace', 'u/test-user/members', '', '{\"execution_mode\": \"publisher\"}', '{}')",
+    )
+    .execute(&db)
+    .await?;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let resp = authed(client().post(format!(
+        "http://localhost:{port}/api/w/test-workspace/workspaces/archive"
+    )))
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+
+    let modes: Vec<(String, String)> = sqlx::query_as(
+        "SELECT path, policy->>'execution_mode' FROM app
+         WHERE workspace_id = 'test-workspace' ORDER BY path",
+    )
+    .fetch_all(&db)
+    .await?;
+    assert_eq!(
+        modes,
+        [
+            ("u/test-user/members".to_string(), "publisher".to_string()),
+            ("u/test-user/public".to_string(), "publisher".to_string()),
+        ]
+    );
     Ok(())
 }

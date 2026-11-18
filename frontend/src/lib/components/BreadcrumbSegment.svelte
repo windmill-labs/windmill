@@ -30,6 +30,8 @@ close siblings.
 		/** Load the picker's items from this workspace (session editors pass their
 		 * acting workspace); falls back to $workspaceStore inside the picker. */
 		workspaceId?: string
+		/** Where picking an item navigates; see `WorkspaceItemDrillPicker`. */
+		itemHref?: (item: WorkspaceItem) => string
 	}
 
 	let {
@@ -42,7 +44,8 @@ close siblings.
 		isCurrent = false,
 		currentItem,
 		onPick,
-		workspaceId
+		workspaceId,
+		itemHref
 	}: Props = $props()
 
 	let isOpen = $state(false)
@@ -80,6 +83,7 @@ close siblings.
 			{initialHighlight}
 			{currentItem}
 			{workspaceId}
+			{itemHref}
 			onPick={handlePick}
 		/>
 	{/snippet}

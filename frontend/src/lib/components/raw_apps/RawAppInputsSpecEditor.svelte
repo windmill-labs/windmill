@@ -13,6 +13,7 @@
 	import { fieldTypeToTsType } from '../apps/utils'
 	import type { InputType } from '../apps/inputType'
 	import Select from '$lib/components/select/Select.svelte'
+	import { Alert } from '$lib/components/common'
 	import { userStore } from '$lib/stores'
 	import {
 		useOperatingUser,
@@ -67,6 +68,8 @@
 		allowTypeChange?: boolean
 		loading?: boolean
 		documentationLink?: string | undefined
+		/** Warn that this input, left as a frontend input, is open to any value a viewer sends. */
+		suggestCtx?: boolean
 	}
 
 	let {
@@ -85,7 +88,8 @@
 		displayType = false,
 		allowTypeChange = true,
 		loading = false,
-		documentationLink = undefined
+		documentationLink = undefined,
+		suggestCtx = false
 	}: Props = $props()
 
 	run(() => {
@@ -193,6 +197,11 @@
 			</div>
 		{:else if componentInput?.type === 'user' || componentInput?.type == undefined}
 			<span class="text-2xs italic text-primary">Field's value is a frontend input</span>
+			{#if suggestCtx}
+				<Alert type="warning" size="xs" title="A viewer can send any value">
+					If this identifies the viewer, switch it to context so the server fills it.
+				</Alert>
+			{/if}
 		{/if}
 		{#if componentInput?.type === 'user' && ((fieldType == 'object' && format?.startsWith('resource-') && format !== 'resource-s3_object') || fieldType == 'resource')}
 			<div class="flex flex-row items-center">

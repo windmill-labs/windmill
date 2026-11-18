@@ -3,8 +3,14 @@
 	import { Loader2 } from 'lucide-svelte'
 	import { setOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 	import { setHostedPage, type HostedPage } from '$lib/components/hostedPage'
-	import { pageItemForListPath, parsePreviewItemRoute } from './previewPaths'
-	import { previewLocationLabel } from './previewRouter'
+	import {
+		RUNS_PATH,
+		barePath,
+		isRunsListPath,
+		pageItemForListPath,
+		parsePreviewItemRoute
+	} from './previewPaths'
+	import { parseRunRoute, previewLocationLabel } from './previewRouter'
 	import { whereIs } from './sessionPreviewTabs.svelte'
 	import type { SessionPreviewTab } from './sessionState.svelte'
 	import type { SessionRuntime } from './sessionRuntime.svelte'
@@ -19,7 +25,7 @@
 	}: {
 		runtime: SessionRuntime
 		tab: SessionPreviewTab
-		/** The list page, base-stripped. */
+		/** The list page path. */
 		path: string
 		workspaceId: string
 		/** The tab's element, which also holds the list's portalled drawers and menus. */
@@ -44,20 +50,48 @@
 			? { pathname: loc, search: '' }
 			: { pathname: loc.slice(0, at), search: loc.slice(at) }
 	}
+	// The location this page last wrote itself, and the one it was last moved to from outside.
+	let ownLoc: string | undefined
+	let movedTo: string | undefined
+	let moves = 0
+	// Bumped when the location moves other than by the page's own write. Derived rather than
+	// effected: it has to flip in the same flush as the location, before the page's own
+	// effects read the new query and write their defaults back over the stored preferences.
+	const moved = $derived.by(() => {
+		const loc = whereIs(tab)
+		if (loc !== ownLoc && loc !== movedTo) {
+			movedTo = loc
+			moves++
+		}
+		return moves
+	})
 	const host: HostedPage = {
 		get search() {
 			return locationParts().search
 		},
 		setSearch(search) {
-			runtime.previewTabs.observeLocation(tab.id, locationParts().pathname + search)
+			ownLoc = locationParts().pathname + search
+			movedTo = undefined
+			runtime.previewTabs.observeLocation(tab.id, ownLoc)
 		},
 		openItem(itemPath) {
 			const ref = pageItemForListPath(path, itemPath)
 			if (ref) runtime.previewTabs.open({ type: 'pageitem', ref })
 		},
 		openLink(href) {
+			const run = parseRunRoute(href)
+			if (run) {
+				runtime.manager.openRunInPreview?.({
+					jobId: run.jobId,
+					workspace: run.workspace ?? workspaceId,
+					label: previewLocationLabel(`/run/${run.jobId}`)
+				})
+				return
+			}
 			const item = parsePreviewItemRoute(href)
-			if (item) {
+			// A link to one version stays a page tab: opening an item focuses a tab already
+			// on it as it stands, where a page tab's URL is written whole, pin included.
+			if (item && !new URL(href, 'http://_').searchParams.has('version')) {
 				runtime.previewTabs.open({
 					type: 'item',
 					item: { kind: item.kind, raw_app: item.raw_app, path: item.itemPath, summary: '' },
@@ -83,18 +117,32 @@
 			if (e.defaultPrevented || e.button !== 0) return
 			if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
 			const a = (e.target as Element | null)?.closest?.('a[href]') as HTMLAnchorElement | null
-			if (!a || (a.target && a.target !== '_self') || a.hasAttribute('download')) return
+			if (!a || a.hasAttribute('download')) return
 			const url = new URL(a.href, window.location.href)
 			if (url.origin !== window.location.origin) return
+			const href = url.pathname + url.search + url.hash
+			// A run's link asks for a new tab so the list keeps its place: here that tab is a
+			// preview tab, not a browser one that would leave the session.
+			if (a.target && a.target !== '_self' && !parseRunRoute(href)) return
 			e.preventDefault()
 			if (a.getAttribute('href')?.startsWith('#')) return
-			host.openLink(url.pathname + url.search + url.hash)
+			host.openLink(href)
 		}
 		el.addEventListener('click', onClick)
 		return () => el.removeEventListener('click', onClick)
 	})
 
 	const listed = $derived(pageItemForListPath(path, ''))
+	// `/runs/<item path>` lists one item's runs.
+	const runsOf = $derived.by(() => {
+		if (!isRunsListPath(path)) return undefined
+		const itemPath = barePath(path).slice(RUNS_PATH.length + 1)
+		try {
+			return decodeURIComponent(itemPath)
+		} catch {
+			return itemPath
+		}
+	})
 </script>
 
 {#snippet loading()}
@@ -130,6 +178,15 @@
 			{:then Module}
 				<Module.default triggerKind={listed.triggerKind} />
 			{/await}
+		{:else if runsOf !== undefined}
+			<!-- A move from outside remounts it, so it seeds the filters the user keeps stored. -->
+			{#key moved}
+				{#await import('$lib/components/RunsPage.svelte')}
+					{@render loading()}
+				{:then Module}
+					<Module.default initialPath={runsOf} />
+				{/await}
+			{/key}
 		{/if}
 	{/key}
 </div>

@@ -3,10 +3,11 @@
 
 	const bubble = createBubbler()
 	import type { Schema } from '$lib/common'
-	import { VariableService, type ScriptLang } from '$lib/gen'
+	import { type ScriptLang } from '$lib/gen'
 	import { Button } from './common'
-	import ItemPicker from './ItemPicker.svelte'
-	import VariableEditor from './VariableEditor.svelte'
+	import type ItemPicker from './ItemPicker.svelte'
+	import type VariableEditor from './VariableEditor.svelte'
+	import VariablePicker from './VariablePicker.svelte'
 	import { Pen, Plus, X } from 'lucide-svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { twMerge } from 'tailwind-merge'
@@ -14,12 +15,11 @@
 	import PropertyEditor from './schema/PropertyEditor.svelte'
 	import SimpleEditor from './SimpleEditor.svelte'
 	import { createEventDispatcher, untrack } from 'svelte'
-	import { watch } from 'runed'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import Label from './Label.svelte'
 	import { sendUserToast } from '$lib/toast'
-	import { useOperatorBuilderFlows } from '$lib/operatorWriteRights'
+	import { useRoleCapabilities } from '$lib/operatorWriteRights'
 	import Toggle from './Toggle.svelte'
 	import {
 		DynamicInput,
@@ -36,14 +36,12 @@
 	import Section from '$lib/components/Section.svelte'
 	import Editor from './Editor.svelte'
 	import AddPropertyV2 from './schema/AddPropertyV2.svelte'
-	import {
-		useOperatingUser,
-		useOperatingWorkspace
-	} from '$lib/components/operatingWorkspace.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
 	const operatingWorkspace = useOperatingWorkspace()
-	const operatingUser = useOperatingUser()
-	const operatorBuilderFlows = useOperatorBuilderFlows()
+	const roleCaps = useRoleCapabilities()
+	// Dynamic input functions are inline code a compose-only flow role cannot author.
+	const composeOnlyFlows = $derived($roleCaps.flows === 'compose')
 
 	// export let openEditTab: () => void = () => {}
 	const dispatch = createEventDispatcher()
@@ -187,11 +185,6 @@
 	let pickForField: string | undefined
 	let itemPicker: ItemPicker | undefined = $state(undefined)
 	let variableEditor: VariableEditor | undefined = $state(undefined)
-
-	watch(
-		() => ws,
-		() => itemPicker?.reloadItems()
-	)
 
 	let keys: string[] = $state(
 		(Array.isArray(schema?.order)
@@ -482,7 +475,7 @@
 								dynCode,
 								dynLang,
 								deployedFlowPath,
-								operatingUser.current?.operator
+								!$roleCaps.code
 							)}
 							prettifyHeader={isAppInput}
 							disabled={!!previewSchema}
@@ -496,7 +489,7 @@
 
 						{@render runButton?.()}
 
-						{#if dynamicFunctions.length > 0 && !$operatorBuilderFlows}
+						{#if dynamicFunctions.length > 0 && !composeOnlyFlows}
 							<Section
 								label="Dynamic input functions"
 								collapsable={true}
@@ -825,7 +818,7 @@
 																				{#each typeOptions as x}
 																					<ToggleButton value={x[1]} label={x[0]} {item} />
 																				{/each}
-																				{#if showDynOpt && !$operatorBuilderFlows}
+																				{#if showDynOpt && !composeOnlyFlows}
 																					{#each DYNAMIC_OPTIONS as x}
 																						<ToggleButton value={x[1]} label={x[0]} {item} />
 																					{/each}
@@ -925,40 +918,16 @@
 </div>
 
 {#if !noVariablePicker}
-	<ItemPicker
-		bind:this={itemPicker}
-		pickCallback={(path, _) => {
-			if (pickForField) {
-				if (args) {
-					args[pickForField] = '$var:' + path
-				}
+	<VariablePicker
+		bind:itemPicker
+		bind:variableEditor
+		workspace={ws}
+		onPick={(path) => {
+			if (pickForField && args) {
+				args[pickForField] = '$var:' + path
 			}
 		}}
-		itemName="Variable"
-		tooltip="Variables are dynamic values that have a key associated to them and can be retrieved during the execution of a Script or Flow."
-		documentationLink="https://www.windmill.dev/docs/core_concepts/variables_and_secrets"
-		extraField="path"
-		loadItems={async () =>
-			(await VariableService.listVariable({ workspace: ws ?? '' })).map((x) => ({
-				name: x.path,
-				...x
-			}))}
-	>
-		{#snippet submission()}
-			<div>
-				<Button
-					variant="default"
-					size="sm"
-					startIcon={{ icon: Plus }}
-					on:click={() => variableEditor?.initNew?.()}
-				>
-					New variable
-				</Button>
-			</div>
-		{/snippet}
-	</ItemPicker>
-
-	<VariableEditor bind:this={variableEditor} workspace={ws} />
+	/>
 {/if}
 
 <style>

@@ -21,8 +21,8 @@ import { normalizeChangeNote } from './artifacts/artifactLimits'
 import { currentVersion } from './artifacts/artifactsDB'
 import { type SessionArtifactsStore } from './artifacts/artifactsState.svelte'
 
-/** What plan mode needs from the chat it runs in: it reads the autonomy state and asks for
- * the two changes it can cause, rather than owning any of it. */
+/** What plan mode needs from the chat it runs in: it reads the work mode and the autonomy
+ * state and asks for the two changes it can cause, rather than owning any of it. */
 export interface PlanModeHost {
 	/** Offered in this chat *and* selected. */
 	readonly active: boolean
@@ -36,8 +36,8 @@ export interface PlanModeHost {
 	readonly artifacts: SessionArtifactsStore
 	openArtifact(id: string, name: string, version: ArtifactVersionTarget): void
 	enter(): void
-	/** Hand the posture back to whatever preceded plan mode. */
-	restore(): void
+	/** Move to Build, where the approved plan is carried out. */
+	build(): void
 }
 
 /** Read off the write that proposed the plan, so nothing re-reads and races a later one. */
@@ -162,7 +162,7 @@ export class PlanModeController {
 			}
 			// Only to the round this approval belongs to: ending a re-entered round would drop the
 			// user out of a planning posture they just chose.
-			if (this.#host.active && epoch === this.#epoch) this.#host.restore()
+			if (this.#host.active && epoch === this.#epoch) this.#host.build()
 			return PLAN_MODE_MESSAGES.approvedWithDoc
 		}
 	}

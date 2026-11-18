@@ -16,7 +16,7 @@
 	import {
 		userStore,
 		workspaceStore,
-		userWorkspaces,
+		roleCapabilities,
 		globalDbManagerDrawer,
 		superadmin
 	} from '$lib/stores'
@@ -120,7 +120,11 @@
 	// A `dbt://` asset's rows, previewed through the dbt project that writes it.
 	// The producer is the asset's own WRITE usage — a table nobody writes has no
 	// project to ask, and no `ref()` to resolve the relation with.
-	type AssetRow = { path: string; kind: string; usages: { path: string; kind: string; access_type?: string }[] }
+	type AssetRow = {
+		path: string
+		kind: string
+		usages: { path: string; kind: string; access_type?: string }[]
+	}
 	function dbtProducerOf(asset: AssetRow): string | undefined {
 		if (asset.kind !== 'dbt') return undefined
 		// A DEFINITE writer. A bare `dbt://…` literal in a native script is stored
@@ -168,7 +172,9 @@
 				)
 			}
 			if (producer.language !== 'dbt') {
-				return fail(`${script} writes this table but is not a dbt script, so there is no model to preview.`)
+				return fail(
+					`${script} writes this table but is not a dbt script, so there is no model to preview.`
+				)
 			}
 			// A project whose descriptor interpolates `{{ }}` needs those values to
 			// run at all, and this page has nowhere to ask for them. Say so instead
@@ -223,7 +229,6 @@
 		}
 	}
 
-
 	let allS3Storages = resource(
 		() => $workspaceStore,
 		() =>
@@ -263,10 +268,10 @@
 	}
 </script>
 
-{#if $userStore?.operator && $workspaceStore && !$userWorkspaces.find((_) => _.id === $workspaceStore)?.operator_settings?.assets}
+{#if $workspaceStore && !$roleCapabilities.visibility.assets}
 	<div class="bg-red-100 border-l-4 border-red-600 text-orange-700 p-4 m-4 mt-12" role="alert">
 		<p class="font-bold">Unauthorized</p>
-		<p>Page not available for operators</p>
+		<p>Page not available for your role</p>
 	</div>
 {:else}
 	<CenteredPage id="scrollable-container">
@@ -303,7 +308,7 @@
 								>
 									See documentation
 								</Button>
-								{#if !($userStore?.operator || (!$userStore?.is_admin && !$superadmin))}
+								{#if $roleCapabilities.code && ($userStore?.is_admin || $superadmin)}
 									<Button
 										wrapperClasses="h-fit"
 										variant={props.data.current?.length === 0 && !props.data.loading
@@ -496,10 +501,10 @@
 						</a>
 					</Cell>
 					<Cell class="w-24">
-						{#if assetCanBeExplored(asset, asset.metadata) && !$userStore?.operator}
+						{#if assetCanBeExplored(asset, asset.metadata) && $roleCapabilities.code}
 							<ExploreAssetButton {asset} {s3FilePicker} _resourceMetadata={asset.metadata} />
 						{/if}
-						{#if dbtProducerOf(asset) && !$userStore?.operator}
+						{#if dbtProducerOf(asset) && $roleCapabilities.code}
 							<Button
 								size="xs2"
 								color="light"

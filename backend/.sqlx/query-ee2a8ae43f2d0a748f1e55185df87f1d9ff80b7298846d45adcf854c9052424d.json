@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT COUNT(*) FROM workspace_protection_rule WHERE ($1::text IS NULL OR workspace_id = $1)\n            AND (fork_role_mapping ? $2\n                 OR EXISTS (SELECT 1 FROM jsonb_each_text(fork_role_mapping) m WHERE m.value = $2))",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "ee2a8ae43f2d0a748f1e55185df87f1d9ff80b7298846d45adcf854c9052424d"
+}

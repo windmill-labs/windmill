@@ -4,7 +4,7 @@ mod tests {
     use windmill_parser::{Arg, MainArgSignature, ObjectProperty, ObjectType, Typ};
     use windmill_parser_ts::{
         parse_deno_signature, parse_expr_for_imports, parse_relative_imports,
-        remove_pinned_import_specifiers,
+        parse_runtime_relative_imports, remove_pinned_import_specifiers,
     };
 
     /// The server parses defaults natively, where a non-JSON literal cannot be evaluated
@@ -942,6 +942,19 @@ export const label = "pkg@1.2.3";
         "#;
         let result = parse_relative_imports(code, "f/folder/script").unwrap();
         assert_eq!(result, vec!["f/folder/helper"]);
+    }
+
+    #[test]
+    fn test_runtime_relative_imports_skip_type_only() {
+        let code = r#"
+        import type { Shape } from "./types";
+        import { helper } from "./helper";
+        export async function main(s: Shape) { return helper(s); }
+        "#;
+        let result = parse_runtime_relative_imports(code, "f/folder/script").unwrap();
+        assert_eq!(result, vec!["f/folder/helper"]);
+        let all = parse_relative_imports(code, "f/folder/script").unwrap();
+        assert_eq!(all, vec!["f/folder/helper", "f/folder/types"]);
     }
 
     #[test]

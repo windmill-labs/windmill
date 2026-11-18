@@ -2,6 +2,67 @@ use std::collections::HashMap;
 
 use sqlx::{Pool, Postgres};
 
+/// The priority a job is pushed with. Workers pull `ORDER BY priority DESC NULLS LAST`, so a
+/// job without priority is stored as 0 rather than NULL, which leaves negative values (low
+/// priority) below it. Flow steps and dependency jobs run at 1 or above, ahead of jobs without
+/// priority, to drain the queue faster; a low flow keeps its steps low.
+pub fn pushed_job_priority(priority: Option<i16>, flow_step: bool, dependency_job: bool) -> i16 {
+    match priority {
+        _ if dependency_job => 1,
+        Some(p) if p < 0 => p,
+        p if flow_step => p.unwrap_or(0).max(1),
+        p => p.unwrap_or(0),
+    }
+}
+
+/// A job's stored priority, as an override for the jobs it starts. 0 and 1 are what a job
+/// without priority and a flow step (a loop iteration or branch included) are stored as (see
+/// [`pushed_job_priority`]): passing them on would replace the started runnable's own priority,
+/// a Low subflow's included, instead of leaving it in effect.
+pub fn passed_on_priority(priority: Option<i16>) -> Option<i16> {
+    priority.filter(|p| !matches!(p, 0 | 1))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{passed_on_priority, pushed_job_priority};
+
+    #[test]
+    fn low_priority_sorts_after_jobs_without_priority() {
+        // (priority, flow step, dependency job) -> stored priority
+        let cases = [
+            ((None, false, false), 0),
+            ((Some(100), false, false), 100),
+            ((Some(-100), false, false), -100),
+            ((None, true, false), 1),
+            ((Some(0), true, false), 1),
+            ((Some(50), true, false), 50),
+            ((Some(-100), true, false), -100),
+            ((None, false, true), 1),
+        ];
+        for ((p, step, dep), expected) in cases {
+            assert_eq!(
+                pushed_job_priority(p, step, dep),
+                expected,
+                "{p:?} step={step} dep={dep}"
+            );
+        }
+    }
+
+    #[test]
+    fn stored_defaults_are_not_passed_on() {
+        for (stored, passed_on) in [
+            (None, None),
+            (Some(0), None),
+            (Some(1), None),
+            (Some(50), Some(50)),
+            (Some(-100), Some(-100)),
+        ] {
+            assert_eq!(passed_on_priority(stored), passed_on, "{stored:?}");
+        }
+    }
+}
+
 pub async fn get_queue_counts(db: &Pool<Postgres>) -> HashMap<String, u32> {
     sqlx::query!(
         "SELECT tag AS \"tag!\", count(*) AS \"count!\" FROM v2_job_queue WHERE

@@ -1,5 +1,4 @@
 import { redirect } from '@sveltejs/kit'
-import { base } from '$app/paths'
 import type { PageLoad } from './$types'
 
 /**
@@ -9,5 +8,5 @@ import type { PageLoad } from './$types'
  * entry point forwards to the wizard rather than 404ing, query string intact.
  */
 export const load: PageLoad = ({ url }) => {
-	redirect(307, `${base}/projects/import${url.search}`)
+	redirect(307, `/projects/import${url.search}`)
 }

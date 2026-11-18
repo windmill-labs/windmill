@@ -145,9 +145,20 @@ echo "[entrypoint] ENABLE_GATEWAY=${ENABLE_GATEWAY:-true}"
 
 # Start LSP service
 if [ "${ENABLE_LSP:-true}" = "true" ]; then
-    echo "[entrypoint] Starting LSP on port ${LSP_PORT:-3001}..."
     cd /pyls
-    PORT=${LSP_PORT:-3001} python3 pyls_launcher.py &
+    # Only the gateway, which checks the signed tokens, may reach the launcher. The gateway
+    # then also serves LSP_PORT, which proxies set up before it existed still point at.
+    LSP_HOST=0.0.0.0
+    LSP_LAUNCHER_PORT=${LSP_PORT:-3001}
+    if [ "${ENABLE_GATEWAY:-true}" = "true" ]; then
+        LSP_HOST=127.0.0.1
+        LSP_LAUNCHER_PORT=${LSP_INTERNAL_PORT:-3004}
+    else
+        echo "[entrypoint] WARNING: ENABLE_GATEWAY=false: the language servers are served on" \
+            "port ${LSP_PORT:-3001} without the signed-token check the gateway applies" >&2
+    fi
+    echo "[entrypoint] Starting LSP on $LSP_HOST:$LSP_LAUNCHER_PORT..."
+    PORT=$LSP_LAUNCHER_PORT LSP_HOST=$LSP_HOST python3 pyls_launcher.py &
     PIDS+=($!)
     NAMES+=("LSP")
     echo "[entrypoint] LSP started (PID: ${PIDS[-1]})"
@@ -187,7 +198,11 @@ fi
 if [ "${ENABLE_GATEWAY:-true}" = "true" ]; then
     echo "[entrypoint] Starting Gateway on port ${GATEWAY_PORT:-3000}..."
     cd /multiplayer
-    PORT=${GATEWAY_PORT:-3000} node gateway.mjs &
+    GATEWAY_LSP_ARGS=()
+    if [ "${ENABLE_LSP:-true}" = "true" ]; then
+        GATEWAY_LSP_ARGS=(LSP_PORT="$LSP_LAUNCHER_PORT" GATEWAY_LEGACY_LSP_PORT="${LSP_PORT:-3001}")
+    fi
+    env PORT="${GATEWAY_PORT:-3000}" "${GATEWAY_LSP_ARGS[@]}" node gateway.mjs &
     PIDS+=($!)
     NAMES+=("Gateway")
     echo "[entrypoint] Gateway started (PID: ${PIDS[-1]})"

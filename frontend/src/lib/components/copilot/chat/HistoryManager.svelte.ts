@@ -51,6 +51,9 @@ interface ChatSchema extends IDBSchema {
 			// in-flight job's tray row and completion survive a reload. Absent on
 			// chats predating this feature. Persisted out-of-band like modifiedItems.
 			backgroundJobs?: ChatJob[]
+			// Notes queued for the model's next turn (see AIChatManager.queueModelNote),
+			// so one queued before a reload still reaches it. Written by setModelNotes.
+			modelNotes?: string[]
 		}
 		indexes: { 'by-session': string }
 	}
@@ -328,6 +331,7 @@ export default class HistoryManager {
 			contextUsage?: PersistedContextUsage
 			modifiedItems?: string[]
 			backgroundJobs?: ChatJob[]
+			modelNotes?: string[]
 		}
 	> = $state({})
 
@@ -454,6 +458,19 @@ export default class HistoryManager {
 		await this.enqueueDbWrite(async (db) => {
 			await db.put('chats', updated)
 			markSessionDirty(sessionId, chatId, emailOfScopedKey(DB_NAME, db.name))
+		})
+	}
+
+	async setModelNotes(chatId: string, notes: string[]) {
+		const existing = this.savedChats[chatId]
+		if (!existing) return
+		const updated = { ...$state.snapshot(existing), modelNotes: notes }
+		this.savedChats = { ...this.savedChats, [chatId]: updated }
+		await this.enqueueDbWrite(async (db) => {
+			await db.put('chats', updated)
+			if (updated.sessionId) {
+				markSessionDirty(updated.sessionId, chatId, emailOfScopedKey(DB_NAME, db.name))
+			}
 		})
 	}
 
@@ -704,7 +721,11 @@ export default class HistoryManager {
 						? {
 								backgroundJobs: $state.snapshot(this.savedChats[this.currentChatId].backgroundJobs)
 							}
-						: {})
+						: {}),
+				// Only setModelNotes changes this field, so every save keeps what it last wrote.
+				...(this.savedChats[this.currentChatId]?.modelNotes !== undefined
+					? { modelNotes: $state.snapshot(this.savedChats[this.currentChatId].modelNotes) }
+					: {})
 			}
 			// The mirror mirrors what the DB holds (refs — the snapshot is
 			// dehydrated below before either sees it): a reopened chat hydrates

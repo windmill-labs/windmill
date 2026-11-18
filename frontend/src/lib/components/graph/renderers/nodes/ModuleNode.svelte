@@ -10,6 +10,7 @@
 	import { getContext } from 'svelte'
 	import { getGraphContext } from '../../graphContext'
 	import { getFlowRunStatusContext } from '../../flowRunStatus.svelte'
+	import { waitingRequest } from '$lib/components/agentRequest'
 
 	interface Props {
 		data: ModuleN['data']
@@ -22,9 +23,13 @@
 	const flowRunStatus = getFlowRunStatusContext()
 
 	let state = $derived.by(() => {
-		return data.testModuleState
+		const state = data.testModuleState
 			? (jobToGraphModuleState(data.testModuleState) ?? flowRunStatus?.getModuleState(data.id))
 			: flowRunStatus?.getModuleState(data.id)
+		// An agent waiting on a person reads like an approval step, though its job is running.
+		return state?.type === 'InProgress' && waitingRequest(state)
+			? { ...state, type: 'WaitingForEvents' as const }
+			: state
 	})
 
 	// A `message` is the one action with no tool node of its own, so the annotation is the only
@@ -33,6 +38,8 @@
 		{ type: 'tool_call', singular: 'tool call', plural: 'tool calls' },
 		{ type: 'mcp_tool_call', singular: 'MCP call', plural: 'MCP calls' },
 		{ type: 'web_search', singular: 'web search', plural: 'web searches' },
+		{ type: 'approval', singular: 'approval request', plural: 'approval requests' },
+		{ type: 'question', singular: 'question', plural: 'questions' },
 		{ type: 'message', singular: 'message', plural: 'messages' }
 	] as const
 
@@ -53,14 +60,14 @@
 		actions.forEach((action, index) => {
 			const entry = tally.get(action.type) ?? { count: 0, pending: 0 }
 			entry.count++
-			// A missing entry in the parallel success array means the action is still running.
+			// A missing or null entry in the parallel success array means the action is still running.
 			const success = agentState?.agent_actions_success?.[index]
-			if (success === undefined) entry.pending++
+			if (success == null) entry.pending++
 			else if (!success) failed++
 			tally.set(action.type, entry)
 			if (action.type !== 'message') {
 				calls++
-				if (success === undefined) pending++
+				if (success == null) pending++
 			}
 		})
 		const detail: string[] = []
@@ -86,7 +93,8 @@
 					flowJobs: state?.flow_jobs,
 					selected: state?.selectedForloopIndex ?? 0,
 					selectedManually: state?.selectedForLoopSetManually,
-					flowJobsSuccess: state?.flow_jobs_success
+					flowJobsSuccess: state?.flow_jobs_success,
+					flowJobsLabels: state?.flow_jobs_labels
 				}
 			: (undefined as any)
 	)
@@ -170,6 +178,11 @@
 			mod={data.module}
 			insertable={data.insertable}
 			editMode={data.editMode}
+			mockApplied={data.editMode
+				? undefined
+				: flowRunStatus?.showsRun
+					? state?.job_kind === 'identity' && !state.skipped
+					: !data.module?.mock?.preview_only}
 			moduleAction={data.moduleAction}
 			{menuItems}
 			sideAnnotation={agentToolSummary?.short}

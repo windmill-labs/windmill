@@ -19,6 +19,7 @@
 	import { AIBtnClasses } from './chat/AIButtonStyle'
 	import { Check, Wand2 } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
+	import { newFlowInputOf, newFlowInputsInstruction } from './stepInputFlowInputs'
 
 	let generatedContent = $state('')
 	let loading = $state(false)
@@ -40,7 +41,9 @@
 	let abortController = new AbortController()
 	let newFlowInput = $state('')
 
-	const { flowStore, selectionManager } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { flowStore, selectionManager, customUi } =
+		getContext<FlowEditorContext>('FlowEditorContext')
+	const canAddFlowInputs = customUi?.aiFlowInputs != false
 	const { generatedExprs } = getContext<FlowCopilotContext | undefined>('FlowCopilotContext') || {}
 
 	function createFlowInput() {
@@ -105,7 +108,7 @@ ${
 		? 'Favor results and flow_input.iter.value over flow inputs.'
 		: 'Favor results over flow inputs'
 }
-If none of the available results are appropriate, are already used or are more appropriate for other inputs, you can also imagine new flow_input properties which we will create programmatically based on what you provide.
+${newFlowInputsInstruction(canAddFlowInputs, 'reply with nothing')}
 Reply with the most probable answer, do not explain or discuss.
 Use javascript object dot notation to access the properties.
 Only return the expression without any wrapper.`
@@ -119,16 +122,11 @@ Only return the expression without any wrapper.`
 				abortController
 			)
 
-			if (
-				pickableProperties &&
-				generatedContent.startsWith('flow_input.') &&
-				generatedContent.split('.')[1] &&
-				!(generatedContent.split('.')[1] in pickableProperties.flow_input)
-			) {
-				newFlowInput = generatedContent.split('.')[1]
-			} else {
-				newFlowInput = ''
+			const newInput = newFlowInputOf(generatedContent, pickableProperties)
+			if (newInput && !canAddFlowInputs) {
+				generatedContent = ''
 			}
+			newFlowInput = (canAddFlowInputs && newInput) || ''
 		} catch (err) {
 			if (!abortController.signal.aborted) {
 				sendUserToast('Could not generate step input: ' + err, true)

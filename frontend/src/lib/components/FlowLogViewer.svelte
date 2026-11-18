@@ -10,7 +10,6 @@
 		ExternalLink,
 		Keyboard
 	} from 'lucide-svelte'
-	import { base } from '$lib/base'
 	import ObjectViewer from './propertyPicker/ObjectViewer.svelte'
 	import LogViewer from './LogViewer.svelte'
 	import FlowLogViewer from './FlowLogViewer.svelte'
@@ -98,7 +97,7 @@
 
 	function getJobLink(jobId: string | undefined): string {
 		if (!jobId) return ''
-		return `${base}/run/${jobId}?workspace=${workspaceId ?? $operatingWorkspace}`
+		return `/run/${jobId}?workspace=${workspaceId ?? $operatingWorkspace}`
 	}
 
 	function getStatusColor(status: FlowStatusModule['type'] | undefined): string {
@@ -623,6 +622,7 @@
 							noAutoScroll={true}
 							tag={undefined}
 							noPadding
+							noMaxH
 							wrapperClass="w-full mb-2 pr-2"
 						/>
 					{/if}
@@ -739,6 +739,7 @@
 																	id={module.id}
 																	{onSelectedIteration}
 																	flowJobsSuccess={localModuleStates[module.id]?.flow_jobs_success}
+																	flowJobsLabels={localModuleStates[module.id]?.flow_jobs_labels}
 																	flowJobs={localModuleStates[module.id]?.flow_jobs}
 																	selected={localModuleStates[module.id]?.selectedForloopIndex ?? 0}
 																	selectedManually={localModuleStates[module.id]
@@ -748,6 +749,16 @@
 															</button>
 															{#if module.value.type === 'forloopflow'}
 																{`/${localModuleStates[module.id]?.iteration_total ?? 0}`}
+																{@const selectedLabel =
+																	localModuleStates[module.id]?.flow_jobs_labels?.[
+																		localModuleStates[module.id]?.selectedForloopIndex ?? 0
+																	]}
+																{#if selectedLabel}
+																	<span
+																		class="ml-2 font-sans font-normal text-secondary truncate max-w-60"
+																		title={selectedLabel}>{selectedLabel}</span
+																	>
+																{/if}
 															{/if}
 														</span>
 													{/if}
@@ -896,6 +907,7 @@
 															noAutoScroll={true}
 															tag={undefined}
 															noPadding
+															noMaxH
 															wrapperClass={twMerge(
 																'w-full mb-2 px-2',
 																isCurrent(`${module.id}-logs`)

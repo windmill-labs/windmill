@@ -3,31 +3,30 @@
 	import Label from './Label.svelte'
 	import Toggle from './Toggle.svelte'
 	import Tooltip from './Tooltip.svelte'
-	import { userStore, workerTags, workspaceStore } from '$lib/stores'
+	import { roleCapabilities, userStore, workerTags, workspaceStore } from '$lib/stores'
 	import { Button } from './common'
 	import { WorkerService } from '$lib/gen'
 	import DateTimeInput from './DateTimeInput.svelte'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
-
 	interface Props {
-		runnable: 
-		| {
-				summary?: string
-				description?: string
-				path?: string
-				is_template?: boolean
-				hash?: string
-				kind?: string
-				can_write?: boolean
-				created_at?: string
-				created_by?: string
-				extra_perms?: Record<string, boolean>
-		  }
-		| undefined;
-		scheduledForStr: string | undefined;
-		invisible_to_owner: boolean | undefined;
-		overrideTag: string | undefined;
+		runnable:
+			| {
+					summary?: string
+					description?: string
+					path?: string
+					is_template?: boolean
+					hash?: string
+					kind?: string
+					can_write?: boolean
+					created_at?: string
+					created_by?: string
+					extra_perms?: Record<string, boolean>
+			  }
+			| undefined
+		scheduledForStr: string | undefined
+		invisible_to_owner: boolean | undefined
+		overrideTag: string | undefined
 	}
 
 	let {
@@ -35,7 +34,7 @@
 		scheduledForStr = $bindable(),
 		invisible_to_owner = $bindable(),
 		overrideTag = $bindable()
-	}: Props = $props();
+	}: Props = $props()
 	// As in WorkerTagPicker: the shared `workerTags` cache is the navigation workspace's, so
 	// tags of another operating workspace live in a local list rather than overwriting it.
 	const operatingWorkspace = useOperatingWorkspace()
@@ -87,7 +86,7 @@
 			</div>
 		{/if}
 	</div>
-	{#if !$userStore?.operator}
+	{#if $roleCapabilities.code}
 		{#if currentTags && currentTags.length > 0}
 			<div class="w-full">
 				<select

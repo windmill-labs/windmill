@@ -16,7 +16,11 @@ export type AgentTraceEntry =
 			kind: 'tool'
 			name: string
 			args?: string
-			result: string
+			/** Absent while a streamed call is still running. */
+			result?: string
+			running?: boolean
+			/** What a stream reports; a finished trace reads the outcome off the tool's job. */
+			failed?: boolean
 			/** Present for a flow-module tool, which runs as its own job. */
 			jobId?: string
 			/** An MCP tool runs in the worker, so it names its server instead. */
@@ -88,6 +92,15 @@ export function buildAgentTrace(messages: AgentMessage[]): AgentTraceEntry[] {
 		}
 		if (action?.type === 'web_search') {
 			entries.push({ kind: 'search' })
+			continue
+		}
+		if (action?.type === 'question') {
+			entries.push({
+				kind: 'tool',
+				name: 'Ask a question',
+				args: message.tool_call_id ? argsByCallId.get(message.tool_call_id) : undefined,
+				result: contentText(message.content)
+			})
 			continue
 		}
 		// Every message this run produced is tagged, including the agent narrating

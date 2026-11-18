@@ -432,11 +432,8 @@
 								runnableConfig.kind !== mapJobKindToRunnableKind(job.job_kind) ||
 								runnableConfig.path !== job.script_path}
 
-							<Row
-								hoverable
-								on:click={() => window.open(`/run/${job.id}?workspace=${workspace}`, '_blank')}
-							>
-								<Cell class="w-12 sm:pl-3" shouldStopPropagation>
+							<Row>
+								<Cell class="w-12 sm:pl-3">
 									<div class="h-4 w-4">
 										<input
 											type="checkbox"
@@ -448,7 +445,15 @@
 									</div>
 								</Cell>
 
-								<Cell wrap>{displayDate(job.created_at)}</Cell>
+								<Cell wrap>
+									<a
+										href={`/run/${job.id}?workspace=${workspace}`}
+										target="_blank"
+										rel="noopener noreferrer"
+										title="Open run in a new tab"
+										class="text-accent hover:underline">{displayDate(job.created_at)}</a
+									>
+								</Cell>
 
 								<Cell wrap class="flex flex-row gap-2 items-center">
 									{@render runnable({

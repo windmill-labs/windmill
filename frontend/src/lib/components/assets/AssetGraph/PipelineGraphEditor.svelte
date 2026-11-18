@@ -181,7 +181,6 @@
 			language: ScriptLang,
 			scriptPath: string,
 			outputKind: PipelineOutputKind,
-			aiPrompt?: string,
 			options?: import('./PipelineInsertMenu.svelte').PipelineInsertOptions
 		) => void
 		onAddPipelineScript?: (
@@ -189,7 +188,6 @@
 			path: string,
 			source: { kind: NativeTriggerKind; path: string | undefined },
 			outputKind: PipelineOutputKind,
-			aiPrompt?: string,
 			options?: import('./PipelineInsertMenu.svelte').PipelineInsertOptions
 		) => void
 		onRunnableMenuRemove?: (...args: any[]) => void

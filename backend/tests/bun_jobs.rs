@@ -330,7 +330,10 @@ async fn test_bun_job_runtime_error(db: Pool<Postgres>) -> anyhow::Result<()> {
 
     let content = r#"
 export function main() {
-    throw new Error("intentional error");
+    const e = new Error("intentional error");
+    e.Code = "X";
+    e.self = e;
+    throw e;
 }
 "#
     .to_owned();
@@ -361,6 +364,8 @@ export function main() {
         .as_str()
         .unwrap()
         .contains("intentional error"));
+    assert_eq!(error["extra"]["Code"], "X");
+    assert_eq!(error["extra"]["self"], "[unserializable]");
     Ok(())
 }
 
@@ -1705,7 +1710,7 @@ mod dedicated_worker_protocol {
         runtime: &str,
         script: &str,
         jobs: Vec<serde_json::Value>,
-    ) -> Vec<Result<serde_json::Value, String>> {
+    ) -> Vec<Result<serde_json::Value, serde_json::Value>> {
         let temp_dir = tempfile::tempdir().unwrap();
 
         // Create files and get the wrapper path (bundled for node, raw for bun)
@@ -1762,13 +1767,7 @@ mod dedicated_worker_protocol {
 
             match parse_dedicated_worker_line(response.trim()) {
                 DedicatedWorkerResult::Success(value) => results.push(Ok(value)),
-                DedicatedWorkerResult::Error(err) => {
-                    let msg = err["message"]
-                        .as_str()
-                        .unwrap_or("Unknown error")
-                        .to_string();
-                    results.push(Err(msg));
-                }
+                DedicatedWorkerResult::Error(err) => results.push(Err(err)),
                 other => panic!("Unexpected response: {:?}", other),
             }
         }
@@ -1826,8 +1825,7 @@ export function main(msg: string): never {
         );
 
         assert_eq!(results.len(), 1);
-        assert!(results[0].is_err());
-        assert_eq!(results[0], Err("test error".to_string()));
+        assert_eq!(results[0].as_ref().unwrap_err()["message"], "test error");
     }
 
     // ==================== Bun Runtime Tests ====================
@@ -1866,7 +1864,7 @@ export function main(n: number): number {
     fn test_dedicated_worker_bun_error() {
         let script = r#"
 export function main(msg: string): never {
-    throw new Error(msg);
+    throw Object.assign(new Error(msg), { code: 42 });
 }
 "#;
         let results = run_worker_test(
@@ -1876,8 +1874,13 @@ export function main(msg: string): never {
         );
 
         assert_eq!(results.len(), 1);
-        assert!(results[0].is_err());
-        assert_eq!(results[0], Err("test error".to_string()));
+        let err = results[0].as_ref().unwrap_err();
+        assert_eq!(err["message"], "test error");
+        assert_eq!(err["extra"], serde_json::json!({ "code": 42 }));
+        assert!(
+            err.get("line").is_none(),
+            "job args leaked into the error: {err}"
+        );
     }
 
     // ==================== Multi-Script (Runner Group) Tests ====================

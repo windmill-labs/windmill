@@ -1683,6 +1683,12 @@ TOPICS: dict[str, dict] = {
         'chat_helper': 'getResourcePrompt',
         'parts': ['resources.md'],
     },
+    'agent': {
+        'skill': 'agents',
+        'description': 'MUST use when creating or changing an AI agent, the reusable `ai_agent` resource the Agents page lists.',
+        'chat_helper': 'getAgentPrompt',
+        'parts': ['agent.md'],
+    },
     'workflow_as_code': {
         'skill': 'write-workflow-as-code',
         'description': 'MUST use when writing or modifying Windmill Workflow-as-Code scripts using workflow, task, step, sleep, approvals, taskScript, taskFlow, task_script, or task_flow.',
@@ -1695,6 +1701,32 @@ TOPICS: dict[str, dict] = {
         'description': 'MUST use when creating or modifying a data pipeline, a set of scripts marked `pipeline` and wired together by `on` / `materialize` annotations.',
         'chat_helper': 'getPipelinePrompt',
         'parts': ['pipeline-base.md'],
+    },
+    'datatable': {
+        'skill': 'datatables',
+        'description': "MUST use when changing a data table's schema, writing or running its migrations, or working with its roles and permissions.",
+        'chat_helper': 'getDatatablePrompt',
+        'parts': ['datatable.md'],
+    },
+    'workspace_settings': {
+        'skill': 'workspace-settings',
+        'description': 'MUST use when reading or changing workspace settings, or the settings.yaml file `wmill sync` keeps.',
+        'chat_helper': 'getWorkspaceSettingsPrompt',
+        'parts': ['workspace-settings.md'],
+    },
+    'code_mode': {
+        'skill': 'code-mode',
+        'description': 'MUST use when the user asks for something done against the systems the workspace connects to (an API lookup, moving data, checking a status) rather than for building a script, flow or app.',
+        'chat_helper': 'getCodeModePrompt',
+        'parts': ['code-mode.md'],
+    },
+    'display': {
+        'skill': 'rich-results',
+        'description': 'MUST use when a script or flow should return a table, chart, markdown, image, file or map instead of plain JSON.',
+        'chat_helper': 'getDisplayPrompt',
+        # display-catalog.gen.md is generated from the frontend's zod catalog by
+        # `npm run gen:display-catalog`; the chat validates charts against the same schema.
+        'parts': ['display-results.md', 'display-catalog.gen.md'],
     },
     'cli_commands': {
         'skill': 'cli-commands',
@@ -1713,10 +1745,16 @@ CHAT_CONSTANTS = {
     'script-base.md': 'SCRIPT_BASE',
     'flow-base.md': 'FLOW_BASE',
     'resources.md': 'RESOURCES_BASE',
+    'agent.md': 'AGENT_BASE',
     'raw-app.md': 'RAW_APP_BASE',
     'pipeline-base.md': 'PIPELINE_BASE',
+    'datatable.md': 'DATATABLE_BASE',
+    'workspace-settings.md': 'WORKSPACE_SETTINGS_BASE',
     'workflow-as-code.md': 'WORKFLOW_AS_CODE_BASE',
     'flow-chat-special-modules.md': 'FLOW_CHAT_SPECIAL_MODULES',
+    'display-results.md': 'DISPLAY_RESULTS_BASE',
+    'display-catalog.gen.md': 'DISPLAY_CATALOG',
+    'code-mode.md': 'CODE_MODE_BASE',
 }
 
 
@@ -2633,6 +2671,11 @@ export function getResourcePrompt(): string {
   __RETURN_resources__
 }
 
+// Helper for AI agent authoring
+export function getAgentPrompt(): string {
+  __RETURN_agent__
+}
+
 // Helper for raw app authoring (chat consumers). Inline backend runnables are
 // ordinary Windmill jobs, so the reference has to carry the SDK the runnable
 // calls — without it an agent invents client functions and hand-rolls HTTP.
@@ -2648,6 +2691,26 @@ export function getRawAppPrompt(language?: string): string {
 // Helper for data pipeline authoring (chat consumers)
 export function getPipelinePrompt(): string {
   __RETURN_pipeline__
+}
+
+// Helper for rich results: tables, charts and the other shapes a return value renders as
+export function getDisplayPrompt(): string {
+  __RETURN_display__
+}
+
+// Helper for answering a task with code run as a preview, then saved and reused
+export function getCodeModePrompt(): string {
+  __RETURN_code_mode__
+}
+
+// Helper for data table schema changes, migrations and permissions (chat consumers)
+export function getDatatablePrompt(): string {
+  __RETURN_datatable__
+}
+
+// Helper for the workspace settings document (chat consumers)
+export function getWorkspaceSettingsPrompt(): string {
+  __RETURN_workspace_settings__
 }
 
 // Helper to get the datatable SQL SDK reference (wmill.datatable()).
@@ -2709,8 +2772,13 @@ export function getWorkflowAsCodePrompt(language?: string): string {
 export declare function getScriptPrompt(language: string): string;
 export declare function getFlowPrompt(): string;
 export declare function getResourcePrompt(): string;
+export declare function getAgentPrompt(): string;
 export declare function getRawAppPrompt(language?: string): string;
 export declare function getPipelinePrompt(): string;
+export declare function getDisplayPrompt(): string;
+export declare function getCodeModePrompt(): string;
+export declare function getDatatablePrompt(): string;
+export declare function getWorkspaceSettingsPrompt(): string;
 export declare function getDatatableSdkReference(language?: string): string;
 export declare function getWorkflowAsCodePrompt(language?: string): string;
 """

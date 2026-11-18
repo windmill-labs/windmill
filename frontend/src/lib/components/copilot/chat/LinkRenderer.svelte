@@ -34,15 +34,14 @@
 		title
 	}: Props = $props()
 
-	// The drawers ride with the docked chat and the session tabs with the sessions page, so a
-	// surface can render this pill with nothing able to open one.
+	// The session tabs ride with the sessions page, so a surface can render this pill with nothing
+	// able to open one.
 	const available = $derived.by(() => {
 		const action = workspaceItemAction(wmKind, wmPath, wmTargetKind, wmRawApp === 'true')
 		return action && hasToolDisplayActionHandler(action.type) ? action : undefined
 	})
-	// Only the preview panel takes the plain click. A drawer stays in the hover menu beside the
-	// outbound link: the docked chat mounts drawer handlers on nearly every page, so claiming
-	// that click would redirect these pills far outside the sessions page.
+	// Only the preview panel takes the plain click; any other action stays in the hover menu
+	// beside the outbound link.
 	const previewAction = $derived(available?.type === 'open_item_preview' ? available : undefined)
 
 	const allowedHref = $derived(safeHref(href, window.location.href))

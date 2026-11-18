@@ -1,4 +1,4 @@
-import { BookOpen, List, Plus } from 'lucide-svelte'
+import { BookOpen, List, Loader2, Plus } from 'lucide-svelte'
 import { get } from 'svelte/store'
 import { userStore, workspaceStore } from '$lib/stores'
 import { sendUserToast } from '$lib/toast'
@@ -14,6 +14,14 @@ type Row = SkillResource & { enabled: boolean }
 // scannable, so the rest are reached through the settings modal rather than dropped.
 const MAX_MENU_SKILLS = 8
 
+// Not `disabled`: melt stamps that on a row at mount and never clears it, and the
+// unkeyed submenu reuses this row for the first skill once the load lands.
+const loadingItem: Item = {
+	displayName: 'Loading…',
+	icon: Loader2,
+	iconProps: { class: 'animate-spin shrink-0' }
+}
+
 /**
  * The chat "+" menu's Skills submenu: one row per skill, checked when it is on,
  * then the way to manage them. Everything a skill is beyond turning it on and off
@@ -25,7 +33,7 @@ export class SkillsMenu {
 	#seq = 0
 	/** Rows for the workspace named by `#rowsWorkspace`, and meaningless for any other. */
 	#rows = $state<Row[]>([])
-	#rowsWorkspace: string | undefined = undefined
+	#rowsWorkspace = $state<string | undefined>(undefined)
 
 	constructor(manager: AIChatManager, onManage: () => void) {
 		this.#manager = manager
@@ -89,19 +97,21 @@ export class SkillsMenu {
 		await this.#manager.refreshGlobalSkills(ws)
 	}
 
-	/** Loaded on open so the checks are current. */
-	async items(closeMenu?: () => void): Promise<Item[]> {
+	/** Called on open so the checks are current; never awaited, see `items`. */
+	refresh() {
+		const ws = this.#ws
+		if (ws) void this.#load(ws)
+	}
+
+	/**
+	 * Built from the live rows, so call it from a getter: the submenu then fills in
+	 * when a load lands instead of the whole "+" menu waiting on the fetch. Rows for
+	 * another workspace are not shown — same path, different skill.
+	 */
+	items(closeMenu?: () => void): Item[] {
 		const ws = this.#ws
 		if (!ws) return []
-		// The menu opens on what is already known and refreshes behind it: awaited
-		// inline it would stall the whole "+" menu, attachments included. Rows for
-		// another workspace are not "already known" — same path, different skill.
-		if (this.#rowsWorkspace !== ws) {
-			this.#rows = []
-			await this.#load(ws)
-		} else {
-			void this.#load(ws)
-		}
+		if (this.#rowsWorkspace !== ws) return [loadingItem]
 		const ambiguous = ambiguousSkillNames(this.#rows)
 		// By path. Ordering the ones that are on first would put every row in the same
 		// bucket now that skills start that way, and drop the one row it did move — a

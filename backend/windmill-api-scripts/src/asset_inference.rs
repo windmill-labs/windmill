@@ -86,7 +86,7 @@ fn comment_prefix(lang: &ScriptLang) -> Option<&'static str> {
 
 /// Mirror of the frontend `parseVolumeAnnotations` (infer.ts): `<prefix>
 /// volume: <path>` lines in the leading comment block, each an `rw` volume
-/// asset. Scanning stops at the first non-comment line; blank lines and PHP's
+/// asset (`r` for `volume:ro <path>`). Scanning stops at the first non-comment line; blank lines and PHP's
 /// opening tag line are skipped whole (the tag may carry code, so an annotation
 /// must sit on its own line below it), exactly like the frontend.
 fn parse_volume_annotations(content: &str, prefix: &str) -> Vec<AssetWithAltAccessType> {
@@ -105,11 +105,16 @@ fn parse_volume_annotations(content: &str, prefix: &str) -> Vec<AssetWithAltAcce
         };
         let after = after.trim();
         if let Some(rest) = after.strip_prefix("volume:") {
+            // `volume:ro <name>`; with a space after the colon, `ro` is the volume's name
+            let (access_type, rest) = match rest.strip_prefix("ro") {
+                Some(r) if r.starts_with(char::is_whitespace) => (AssetUsageAccessType::R, r),
+                _ => (AssetUsageAccessType::RW, rest),
+            };
             if let Some(path) = rest.trim().split_whitespace().next() {
                 volumes.push(AssetWithAltAccessType {
                     path: path.to_string(),
                     kind: AssetKind::Volume,
-                    access_type: Some(AssetUsageAccessType::RW),
+                    access_type: Some(access_type),
                     alt_access_type: None,
                     columns: None,
                 });
@@ -263,6 +268,24 @@ mod tests {
         assert_eq!(vols.len(), 1);
         assert_eq!(vols[0].path, "my_vol");
         assert_eq!(vols[0].access_type, Some(AssetUsageAccessType::RW));
+    }
+
+    #[test]
+    fn read_only_volume_annotation_is_a_read() {
+        let content = "// volume:ro models /opt/models\n// volume: ro /tmp/ro\nconsole.log(1)\n";
+        let got = effective_script_assets(&ScriptLang::Bun, content, None).unwrap();
+        let vols: Vec<_> = got
+            .iter()
+            .filter(|a| a.kind == AssetKind::Volume)
+            .map(|a| (a.path.as_str(), a.access_type))
+            .collect();
+        assert_eq!(
+            vols,
+            vec![
+                ("models", Some(AssetUsageAccessType::R)),
+                ("ro", Some(AssetUsageAccessType::RW))
+            ]
+        );
     }
 
     #[test]

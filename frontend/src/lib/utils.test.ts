@@ -10,20 +10,31 @@ import {
 	getQueryStmtCountHeuristic,
 	isJobResolvable,
 	parseDbInputFromAssetSyntax,
-	apiErrorMessage
+	removeMarkdown,
+	apiErrorMessage,
+	msToCompactDuration
 } from './utils'
 
-// Mirrors the backend invariant that only `status = 'failure'` rows can carry a
-// resolution; loosening this to `!success` would offer the action on queued and
-// canceled runs the API then silently skips.
+describe('msToCompactDuration', () => {
+	it('keeps the two largest units and drops a zero second unit', () => {
+		expect(msToCompactDuration(12_345, 1)).toBe('12.3s')
+		expect(msToCompactDuration(65_000)).toBe('1m 5s')
+		expect(msToCompactDuration(3 * 3_600_000 + 12 * 60_000 + 59_000)).toBe('3h 12m')
+		expect(msToCompactDuration(2 * 3_600_000)).toBe('2h')
+		expect(msToCompactDuration(26 * 3_600_000 + 5 * 60_000)).toBe('1d 2h')
+	})
+})
+
+// Mirrors the backend invariant that only failed or canceled rows can carry a resolution;
+// offering the action anywhere else would send ids the API then silently skips.
 describe('isJobResolvable', () => {
 	const completed = (o: object) => ({ type: 'CompletedJob', ...o }) as any
-	it('accepts a plain failure', () => {
+	it('accepts a plain failure and a cancellation', () => {
 		expect(isJobResolvable(completed({ success: false, canceled: false }))).toBe(true)
+		expect(isJobResolvable(completed({ success: false, canceled: true }))).toBe(true)
 	})
-	it('rejects success, cancellation, flow steps and jobs still queued', () => {
+	it('rejects success, flow steps and jobs still queued', () => {
 		expect(isJobResolvable(completed({ success: true, canceled: false }))).toBe(false)
-		expect(isJobResolvable(completed({ success: false, canceled: true }))).toBe(false)
 		// a step resolved alone would show orange inside a flow that is still red
 		expect(
 			isJobResolvable(completed({ success: false, canceled: false, is_flow_step: true }))
@@ -368,7 +379,8 @@ describe('cleanValueProperties', () => {
 		'edited_by',
 		'workspace_id',
 		'parent_hashes',
-		'lock_error_logs'
+		'lock_error_logs',
+		'starred'
 	]
 
 	it('strips every server-managed bookkeeping key', () => {
@@ -598,5 +610,14 @@ describe('apiErrorMessage', () => {
 
 	it('handles a plain Error', () => {
 		expect(apiErrorMessage(new Error('boom'))).toBe('boom')
+	})
+})
+
+describe('removeMarkdown', () => {
+	it('strips markup but keeps underscores and hyphens inside words', () => {
+		expect(removeMarkdown('**an** _ai_instruction_ for read-only use')).toBe(
+			'an ai_instruction for read-only use'
+		)
+		expect(removeMarkdown('a*b*c café-au-lait')).toBe('abc café-au-lait')
 	})
 })

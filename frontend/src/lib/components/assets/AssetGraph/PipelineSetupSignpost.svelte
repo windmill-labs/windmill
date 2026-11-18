@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { resource } from 'runed'
 	import { WorkspaceService } from '$lib/gen'
-	import { base } from '$lib/base'
 	import { CircleCheck, CircleAlert, Database, HardDrive, ArrowRight } from 'lucide-svelte'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import { Button } from '$lib/components/common'
@@ -59,7 +58,7 @@
 			title: 'Workspace object storage',
 			description:
 				'Materialized partitions and DuckLake data files are written to S3 / object storage.',
-			href: `${base}/workspace_settings?tab=windmill_lfs`,
+			href: '/workspace_settings?tab=windmill_lfs',
 			cta: 'Configure object storage'
 		},
 		{
@@ -68,7 +67,7 @@
 			title: 'A DuckLake catalog',
 			description:
 				'DuckLake is the table format pipelines materialize into — add at least one catalog.',
-			href: `${base}/workspace_settings?tab=ducklake`,
+			href: '/workspace_settings?tab=ducklake',
 			cta: 'Configure DuckLake'
 		}
 	])

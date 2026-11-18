@@ -1,4 +1,3 @@
-import { base } from '$app/paths'
 import type { SessionTarget } from './sessionState.svelte'
 import { normalizePipelineFolder } from '$lib/utils/pipelineFolder'
 
@@ -6,7 +5,7 @@ import { normalizePipelineFolder } from '$lib/utils/pipelineFolder'
 export function sessionTargetHref(target: SessionTarget | undefined): string | undefined {
 	if (!target) return undefined
 	if (target.kind === 'pipeline') {
-		return `${base}/pipeline/${encodeURIComponent(normalizePipelineFolder(target.path))}`
+		return `/pipeline/${encodeURIComponent(normalizePipelineFolder(target.path))}`
 	}
 	const seg =
 		target.kind === 'script'
@@ -17,12 +16,12 @@ export function sessionTargetHref(target: SessionTarget | undefined): string | u
 					? 'apps_raw/edit'
 					: undefined
 	if (!seg) return undefined
-	return `${base}/${seg}/${target.path}`
+	return `/${seg}/${target.path}`
 }
 
 // Point a preview tab's URL at a place inside the previewed editor (the flow
 // step to select). The params are not part of the item's identity — every tab
-// resolver strips the query (see previewRouter's stripBase) — so they only ever
+// resolver strips the query (see previewRouter's barePath) — so they only ever
 // steer where the editor opens. No-op without params.
 export function withPreviewParams(
 	url: string | undefined,

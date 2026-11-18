@@ -9,12 +9,9 @@ export const PLAN_MODE_MESSAGES = {
 	blockedLabel: 'Blocked in plan mode',
 	blockedResult:
 		'Blocked: plan mode is active. Put this change in your plan; call exit_plan_mode when ready for approval.',
-	/** Sits beside the autonomy picker while plan mode holds. The picker's tooltip carries
-	 * the rest, so this states only the constraint. */
-	modeNote: 'Read-only',
 	/** Refuses a pending run form. Its own string because nothing is settled: the form stays
 	 * live, so this names the way out rather than telling the user their run was blocked. */
-	runFormRefused: 'Plan mode is read-only — switch it off to run this script.',
+	runFormRefused: 'Plan mode runs nothing — switch to Use, or Use & build, to run this script.',
 	// One pair for both artifact tools: the fact and the way forward are the same whether the
 	// model tried to mint the plan or to rewrite it, and the generic refusal above ("put this
 	// change in your plan") reads as nonsense for a call that writes a document.
@@ -46,7 +43,7 @@ export const PLAN_MODE_MESSAGES = {
 		`The plan is too large to save (${bytes} bytes, limit ${MAX_ARTIFACT_BYTES}) and was not shown to the user. Cut it to the decisions and the steps — name the files you will touch instead of quoting them — and call exit_plan_mode again.`,
 	// What the version picker shows for a revision the model did not label.
 	revisionNote: 'Revised the plan',
-	// States the outcome, not a decision: pressing Stop and moving the autonomy picker out of
+	// States the outcome, not a decision: pressing Stop and moving the mode picker out of
 	// plan mode both land here too, and this text persists in the transcript — asserting a
 	// rejection would open the next turn interrogating a user who never made one.
 	exitDeclined:

@@ -36,10 +36,12 @@ switch that decides whether this chat carries its tools.
 	import { getAiChatManager } from './aiChatManagerContext'
 	import { clearMcpToolsCache } from './global/mcpTools'
 	import { forgetMcpServerMarks } from '$lib/components/mcp/serverMark'
+	import { ownerRoot } from './workingScope'
 
 	let {
 		ws,
 		active,
+		focusRoot,
 		count = $bindable(),
 		blocksClose = $bindable()
 	}: {
@@ -49,6 +51,9 @@ switch that decides whether this chat carries its tools.
 		 * costs a read of the instance OAuth connects — not worth paying for on a modal
 		 * opened for one of the other three sections. */
 		active: boolean
+		/** The folder (`f/x` or `u/x`) the modal was opened on: the list shows its servers
+		 * until the user asks for all of them. */
+		focusRoot?: string
 		/** Number of connected servers, for the sidebar badge. */
 		count: number
 		/** True while this section is in the middle of something the modal must not
@@ -149,6 +154,18 @@ switch that decides whether this chat carries its tools.
 	let detailSeq = $state(0)
 
 	let page = $derived(connectOpen ? 'connect' : detailOpen ? 'detail' : 'list')
+
+	let showAll = $state(false)
+	let shown = $derived(
+		focusRoot && !showAll ? servers.filter((s) => ownerRoot(s.path) === focusRoot) : servers
+	)
+
+	/** Back on the list narrowed to `focusRoot`. A connection holding unsaved edits stays
+	 * open, as the Skills editor does. */
+	export function showFolder() {
+		showAll = false
+		if (!editingChanged) detailOpen = false
+	}
 
 	$effect(() => {
 		count = servers.length
@@ -480,14 +497,22 @@ switch that decides whether this chat carries its tools.
 				/>
 			{:else}
 				<div class="flex flex-col gap-0.5">
-					{#each servers as server (server.path)}
+					{#each shown as server (server.path)}
 						{#snippet icon()}
 							<McpServerIcon icon={server.icon} size={16} />
 						{/snippet}
 						{#snippet title()}
 							<span class="truncate leading-5">{server.path}</span>
 						{/snippet}
-						{#snippet subtitle()}{server.description}{/snippet}
+						{@const scopeRoots = aiChatManager.workingScope?.roots}
+						{@const fromRoot = scopeRoots?.find((r) => ownerRoot(server.path) === r)}
+						{@const fromScope = !!fromRoot}
+						{#snippet subtitle()}
+							{#if fromRoot}
+								<span class="text-accent">From {fromRoot}, where this session works.</span>
+							{/if}
+							{server.description}
+						{/snippet}
 						{#snippet trailing()}
 							<Toggle
 								size="xs"
@@ -518,10 +543,21 @@ switch that decides whether this chat carries its tools.
 							{icon}
 							{title}
 							{trailing}
-							subtitle={server.description ? subtitle : undefined}
+							subtitle={server.description || fromScope ? subtitle : undefined}
 							onClick={() => openServer(server)}
 						/>
 					{/each}
+					{#if shown.length < servers.length}
+						<Button
+							variant="subtle"
+							unifiedSize="xs"
+							wrapperClasses="self-start"
+							btnClasses="text-secondary"
+							onClick={() => (showAll = true)}
+						>
+							Show all {servers.length} connections
+						</Button>
+					{/if}
 				</div>
 			{/if}
 		</Section>

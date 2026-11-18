@@ -58,7 +58,8 @@
 			console.warn('Anonymous user')
 		}
 		try {
-			app = await AppService.getAppByPath({ workspace, path })
+			// The lite value, whose inline scripts carry their deployed rows' ids: see InWorkspaceAppViewer.
+			app = await AppService.getAppLiteByPath({ workspace, path })
 			noPermission = false
 			notExists = false
 		} catch (e: any) {

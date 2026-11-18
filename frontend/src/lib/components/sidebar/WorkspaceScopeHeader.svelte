@@ -8,8 +8,7 @@
 	} from '$lib/stores'
 	import { switchWorkspace } from '$lib/storeUtils'
 	import { fixupUrlAfterWorkspaceSwitch } from './workspaceSwitchUrl'
-	import { base } from '$lib/base'
-	import { workspaceAIClients } from '$lib/components/copilot/lib'
+	import { setAiClientWorkspace } from '$lib/components/copilot/aiClientWorkspace'
 	import WorkspaceFamilyPicker from '$lib/components/sessions/WorkspaceFamilyPicker.svelte'
 	import WorkspaceScopeTrigger from '$lib/components/WorkspaceScopeTrigger.svelte'
 	import {
@@ -50,12 +49,12 @@
 	const canManageWorkspace = $derived(
 		$userStore?.is_admin || $superadmin || isForkOwner(currentWs, $userStore?.email)
 	)
-	const settingsHref = $derived(canManageWorkspace ? `${base}/workspace_settings` : undefined)
+	const settingsHref = $derived(canManageWorkspace ? '/workspace_settings' : undefined)
 	const settingsLabel = $derived(`${currentWs?.name ?? effectiveId ?? 'Workspace'} settings`)
 
 	function switchWorkspaceDirect(id: string) {
 		if ($workspaceStore === id) return
-		workspaceAIClients.init(id)
+		setAiClientWorkspace(id)
 		switchWorkspace(id)
 		void fixupUrlAfterWorkspaceSwitch(id)
 	}

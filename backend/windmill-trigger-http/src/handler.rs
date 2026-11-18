@@ -18,7 +18,7 @@ use windmill_common::{
     DB,
 };
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
-use windmill_trigger::{Trigger, TriggerCrud, TriggerData};
+use windmill_trigger::{handler::trigger_save_runnables, Trigger, TriggerCrud, TriggerData};
 
 pub async fn increase_trigger_version(tx: &mut PgConnection) -> Result<()> {
     sqlx::query!("SELECT nextval('http_trigger_version_seq')")
@@ -247,7 +247,7 @@ pub async fn create_many_http_triggers(
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
-    Json(new_http_triggers): Json<Vec<TriggerData<HttpConfigRequest>>>,
+    Json(mut new_http_triggers): Json<Vec<TriggerData<HttpConfigRequest>>>,
 ) -> Result<(StatusCode, String)> {
     // Admin check for instance-wide routes is done per-trigger in insert_new_trigger_into_db
 
@@ -264,7 +264,7 @@ pub async fn create_many_http_triggers(
 
     let mut route_path_keys = Vec::with_capacity(new_http_triggers.len());
 
-    for new_http_trigger in new_http_triggers.iter() {
+    for new_http_trigger in new_http_triggers.iter_mut() {
         // Per-item write scope, matching the single-create handler. The bulk
         // endpoint must not let a path-scoped token create triggers outside it.
         check_scopes(&authed, || {
@@ -280,11 +280,30 @@ pub async fn create_many_http_triggers(
                 new_http_trigger.config.route_path, err
             ))
         })?;
+        new_http_trigger
+            .base
+            .normalize_script_path()
+            .map_err(|err| {
+                Error::BadRequest(format!(
+                    "Error occurred for HTTP route at route path: {}, error: {}",
+                    new_http_trigger.config.route_path, err
+                ))
+            })?;
 
         handler
             .validate_new(&db, &w_id, &new_http_trigger.config)
             .await
             .map_err(|err| error_wrapper(&new_http_trigger.config.route_path, err))?;
+        let new = trigger_save_runnables::<HttpTrigger>(new_http_trigger)?;
+        windmill_api_auth::composed::check_new_hub_paths(&new, &[], &authed, &db, &w_id)
+            .await
+            .map_err(|err| match err {
+                Error::PermissionDenied(msg) => Error::PermissionDenied(format!(
+                    "Error occurred for HTTP route at route path: {}, error: {msg}",
+                    new_http_trigger.config.route_path
+                )),
+                err => err,
+            })?;
 
         let route_path_key =
             check_if_route_exist(&db, &new_http_trigger.config, &w_id, None).await?;

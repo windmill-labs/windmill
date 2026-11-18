@@ -236,7 +236,7 @@ points at the object-storage resource and a DuckLake names its catalog.
 
 **What a warehouse may point at.** Either a Windmill connection resource whose
 type `render_profile` translates (`postgresql`, `redshift`, `mysql`, `snowflake`,
-`snowflake_oauth`, `bigquery`, `gcp_service_account`, `databricks`), or a
+`snowflake_oauth`, `bigquery`, `google_service_account`, `gcp_service_account`, `databricks`), or a
 **`dbt_profile`** resource, whose VALUE IS one entry of that file's `outputs`
 map — `type` included, nothing lifted out or renamed. A block is copied from a
 working `profiles.yml` and pasted in, which is the whole point: a type that asked

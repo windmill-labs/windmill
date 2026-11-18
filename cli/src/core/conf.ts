@@ -89,6 +89,9 @@ export interface SyncOptions {
   includeUsers?: boolean;
   includeGroups?: boolean;
   includeSettings?: boolean;
+  /** With includeSettings: settings.yaml also states who may connect to each data table as which
+   * role. Off by default, since tenants and roles are specific to a workspace and an instance. */
+  includeDatatablePermissions?: boolean;
   includeKey?: boolean;
   skipReencryptOnKeyChange?: boolean;
   skipBranchValidation?: boolean;
@@ -117,6 +120,7 @@ export interface SyncOptions {
 export interface Codebase {
   relative_path: string;
   extra_digest_paths?: string[];
+  per_script_digest?: boolean;
   includes?: string[];
   excludes?: string[];
   assets?: {
@@ -320,12 +324,6 @@ export async function readConfigFile(opts?: { warnIfMissing?: boolean }): Promis
     delete (conf as any)?.environments;
     delete conf?.git_branches;
 
-    if (conf?.defaultTs == undefined) {
-      log.warn(
-        "No defaultTs defined in your wmill.yaml. Using 'bun' as default."
-      );
-    }
-
     // Initialize global nonDottedPaths setting from config
     setNonDottedPaths(conf?.nonDottedPaths ?? false);
 
@@ -376,7 +374,6 @@ export const DEFAULT_SYNC_OPTIONS: Readonly<
   Required<
     Pick<
       SyncOptions,
-      | "defaultTs"
       | "includes"
       | "excludes"
       | "codebases"
@@ -395,13 +392,13 @@ export const DEFAULT_SYNC_OPTIONS: Readonly<
       | "includeUsers"
       | "includeGroups"
       | "includeSettings"
+      | "includeDatatablePermissions"
       | "includeKey"
       | "nonDottedPaths"
       | "syncBehavior"
     >
   >
 > = {
-  defaultTs: "bun",
   includes: ["f/**"],
   excludes: [],
   codebases: [],
@@ -418,6 +415,7 @@ export const DEFAULT_SYNC_OPTIONS: Readonly<
   includeUsers: false,
   includeGroups: false,
   includeSettings: false,
+  includeDatatablePermissions: false,
   includeKey: false,
   skipWorkspaceDependencies: false,
   skipDatatableMigrations: false,

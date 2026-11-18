@@ -9,18 +9,15 @@
 	import GoogleSigninButton from './GoogleSigninButton.svelte'
 	import IconedResourceType from './IconedResourceType.svelte'
 	import { addResourceTitle } from './resourceTypeDisplay'
+	import type { NativeConnect } from './triggers/native/utils'
 
 	interface Props {
 		expressOAuthSetup?: boolean
 		workspace?: string
-		disableChatOffset?: boolean
+		native?: NativeConnect
 	}
 
-	let {
-		expressOAuthSetup = false,
-		workspace = undefined,
-		disableChatOffset = false
-	}: Props = $props()
+	let { expressOAuthSetup = false, workspace = undefined, native = undefined }: Props = $props()
 
 	/** Set by `open(rt, fillPath)`, not by the parent: which resource this run fills is a
 	 *  property of the click, and a prop would go stale between two different rows. */
@@ -79,10 +76,9 @@
 		dispatch('close')
 	}}
 	size="700px"
-	{disableChatOffset}
 >
 	<DrawerContent
-		title={addResourceTitle(step > 1 ? resourceType : undefined)}
+		title={native?.title ?? addResourceTitle(step > 1 ? resourceType : undefined)}
 		id="add-resource-drawer"
 		on:close={drawer?.closeDrawer}
 		tooltip="Resources represent connections to third party systems. Learn more on how to integrate external APIs."
@@ -105,6 +101,7 @@
 			express={expressOAuthSetup}
 			{workspace}
 			{fillPath}
+			{native}
 		/>
 		{#snippet actions()}
 			<div class="flex gap-1">
@@ -124,7 +121,7 @@
 						{disabled}
 						onClick={() => appConnectInner?.next()}
 					>
-						{#if step == 2 && !manual}
+						{#if (step == 2 && !manual) || native}
 							Connect
 						{:else if step == 1}
 							Next

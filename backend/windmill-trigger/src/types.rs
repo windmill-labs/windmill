@@ -105,6 +105,7 @@ impl TriggerErrorHandling {
                  (got '{path}')"
             )));
         }
+        windmill_common::runnable_ref::RunnableRef::from_path(path, false)?;
         Ok(())
     }
 }
@@ -210,6 +211,20 @@ impl BaseTriggerData {
         self.mode = Some(mode);
     }
 
+    /// Stored as parsed: a rename retargets triggers, and a runnable lists its own, by exact
+    /// `script_path`, so one saved with a leading `/` would run but be missed by both. Empty is
+    /// left alone: a static HTTP route has no runnable.
+    pub fn normalize_script_path(&mut self) -> windmill_common::error::Result<()> {
+        if self.script_path.is_empty() {
+            return Ok(());
+        }
+        self.script_path =
+            windmill_common::runnable_ref::RunnableRef::from_path(&self.script_path, self.is_flow)?
+                .path()
+                .to_string();
+        Ok(())
+    }
+
     pub fn resolve_permissioned_as(&self, authed: &impl Authable) -> String {
         if let Some(ref permissioned_as) = self.permissioned_as {
             if self.preserve_permissioned_as.unwrap_or(false)
@@ -313,6 +328,14 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(err.contains("cannot be a flow"), "{err}");
+    }
+
+    #[test]
+    fn test_error_handler_path_rejects_what_does_not_parse() {
+        for path in ["hub/abc", "hub/0", "//u/admin/handler", ""] {
+            assert!(error_handling(Some(path)).validate().is_err(), "{path:?}");
+        }
+        assert!(error_handling(Some("/u/admin/handler")).validate().is_ok());
     }
 
     // --- TriggerMode serde ---

@@ -497,6 +497,72 @@ async fn test_remove_user_from_instance_group_rederives_role(
     Ok(())
 }
 
+/// Clearing an instance group's role, or deleting a group whose role was cleared out from under
+/// its members, must take the instance-level role back from them.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_instance_group_role_revoked_on_clear_and_delete(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let global_base = format!("http://localhost:{port}/api/groups");
+    let email = "test2@windmill.dev";
+
+    let is_super_admin = || async {
+        sqlx::query_scalar::<_, bool>("SELECT super_admin FROM password WHERE email = $1")
+            .bind(email)
+            .fetch_one(&db)
+            .await
+    };
+
+    let resp = authed(client().post(format!("{global_base}/create")))
+        .json(&json!({ "name": "admins_grp" }))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 200, "create: {}", resp.text().await?);
+    let resp = authed(client().post(format!("{global_base}/update/admins_grp")))
+        .json(&json!({ "new_summary": "", "instance_role": "superadmin" }))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 200, "set role: {}", resp.text().await?);
+    let resp = authed(client().post(format!("{global_base}/adduser/admins_grp")))
+        .json(&json!({ "email": email }))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 200, "adduser: {}", resp.text().await?);
+    assert!(is_super_admin().await?, "group should grant superadmin");
+
+    let resp = authed(client().post(format!("{global_base}/update/admins_grp")))
+        .json(&json!({ "new_summary": "", "instance_role": null }))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 200, "update: {}", resp.text().await?);
+    assert!(
+        !is_super_admin().await?,
+        "clearing the group's role must revoke superadmin"
+    );
+
+    // A member left elevated while the group's stored role is already NULL.
+    sqlx::query(
+        "UPDATE password SET super_admin = true, role_source = 'instance_group' WHERE email = $1",
+    )
+    .bind(email)
+    .execute(&db)
+    .await?;
+
+    let resp = authed(client().delete(format!("{global_base}/delete/admins_grp")))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 200, "delete: {}", resp.text().await?);
+    assert!(
+        !is_super_admin().await?,
+        "deleting a role-cleared group must revoke superadmin"
+    );
+
+    Ok(())
+}
+
 /// An overwrite import that moves a member from a dropped group to a retained one must keep
 /// their workspace data.
 ///
@@ -1048,5 +1114,40 @@ async fn test_instance_group_member_that_is_not_an_email_is_skipped(
     after_import.sort();
     assert_eq!(after_import, members, "import must not evict either member");
 
+    Ok(())
+}
+
+/// A non-admin who creates a reserved group first becomes its member and inherits every grant
+/// Windmill later gives it.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_reserved_group_names_admin_only(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let base = format!(
+        "http://localhost:{}/api/w/test-workspace/groups",
+        server.addr.port()
+    );
+
+    for name in windmill_common::RESERVED_GROUP_NAMES {
+        let resp = client()
+            .post(format!("{base}/create"))
+            .header("Authorization", "Bearer SECRET_TOKEN_2")
+            .json(&json!({ "name": name }))
+            .send()
+            .await?;
+        assert_eq!(resp.status(), 400, "non-admin creating {name}");
+        assert!(resp.text().await?.contains("reserved"));
+
+        let resp = authed(client().post(format!("{base}/create")))
+            .json(&json!({ "name": name }))
+            .send()
+            .await?;
+        assert_eq!(
+            resp.status(),
+            200,
+            "admin creating {name}: {}",
+            resp.text().await?
+        );
+    }
     Ok(())
 }

@@ -27,7 +27,6 @@
 	import { page } from '$app/state'
 	import { onDestroy, onMount, setContext, type Snippet } from 'svelte'
 	import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
-	import { base } from '$app/paths'
 	import { goto } from '$app/navigation'
 	import { WINDMILL_RESERVED_QUERY_PARAMS } from '$lib/utils/queryParams'
 	import { EMBED_NAV_CONTEXT_KEY, type EmbedNav } from '../types'
@@ -195,21 +194,38 @@
 	// Top-level navigation relay (WIN-2006): in-app links to other apps (navbar
 	// "app" items) must navigate the top page — navigating inside the opaque
 	// iframe would load the SPA cookieless. Consumed by PublicApp via gotoFn.
-	setContext<EmbedNav | undefined>(
-		EMBED_NAV_CONTEXT_KEY,
-		isViewer
-			? {
-					navigateTop: (href: string) => {
-						try {
-							window.parent.postMessage(
-								{ type: 'wm_embed_navigate', href },
-								expectedEmbedderOrigin ?? '*'
-							)
-						} catch (_) {}
-					}
-				}
-			: undefined
-	)
+	function navigateTop(href: string) {
+		try {
+			window.parent.postMessage({ type: 'wm_embed_navigate', href }, expectedEmbedderOrigin ?? '*')
+		} catch (_) {}
+	}
+	setContext<EmbedNav | undefined>(EMBED_NAV_CONTEXT_KEY, isViewer ? { navigateTop } : undefined)
+
+	// Plain links (markdown, HTML components) would otherwise load inside the
+	// cookieless frame, or put an external site in it. Bound on <body> so the link's own
+	// handlers run first and can cancel it, and before SvelteKit's router on <html>,
+	// which skips a prevented click. A link to this same page only changes ?query/#hash,
+	// which the hash relay mirrors, so it stays in the frame.
+	function relayLinkClick(e: MouseEvent) {
+		if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey)
+			return
+		// Attributes, not properties: on an SVG <a> those are SVGAnimatedString.
+		const a = (e.target as Element | null)?.closest?.('a[href]')
+		const target = a?.getAttribute('target')
+		if (
+			!a ||
+			a.hasAttribute('download') ||
+			(target && !['_self', '_top', '_parent'].includes(target))
+		)
+			return
+		const url = new URL(a.getAttribute('href')!, document.baseURI)
+		// The embedder only relays http(s); mailto:, tel: and the like work in the frame.
+		if (url.protocol !== 'http:' && url.protocol !== 'https:') return
+		const sameOrigin = url.origin === window.location.origin
+		if (sameOrigin && url.pathname === window.location.pathname) return
+		e.preventDefault()
+		navigateTop(sameOrigin ? url.pathname + url.search + url.hash : url.href)
+	}
 	function installHashRelay() {
 		origPushState = history.pushState
 		origReplaceState = history.replaceState
@@ -569,6 +585,7 @@
 			loadAppPreview().catch(() => {})
 			window.addEventListener('message', handleViewerMessage)
 			installHashRelay()
+			document.body.addEventListener('click', relayLinkClick)
 			// Announce readiness so the embedder sends us the token.
 			window.parent.postMessage({ type: 'wm_embed_ready' }, expectedEmbedderOrigin ?? '*')
 			// This page is only ever loaded as the embedder's opaque iframe, which
@@ -590,7 +607,10 @@
 		if (!BROWSER) return
 		window.removeEventListener('message', handleViewerMessage)
 		window.removeEventListener('message', handleEmbedderMessage)
-		if (isViewer) uninstallHashRelay()
+		if (isViewer) {
+			uninstallHashRelay()
+			document.body.removeEventListener('click', relayLinkClick)
+		}
 	})
 </script>
 
@@ -647,7 +667,7 @@
 			<div class="px-4 mt-20">
 				<Alert type="error" title="Not found">
 					There was an error loading the app, is the url correct?
-					<a href={base}>Go to Windmill</a>
+					<a href="/">Go to Windmill</a>
 				</Alert>
 			</div>
 		{:else if status === 'sdkPrompt'}

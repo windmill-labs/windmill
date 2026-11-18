@@ -92,7 +92,7 @@
 	// ducklake inputs, so a partitioned producer's run form swaps the bare
 	// `partition` string for a cadence-aware date picker with missing/upstream
 	// hints (see PartitionArgControl).
-	let annotations = $derived(parsePipelineAnnotations(script.content ?? ''))
+	let annotations = $derived(parsePipelineAnnotations(script.content ?? '', script.path))
 	let partitionSpec = $derived(annotations.partition)
 	let materializeTarget = $derived<{ kind: AssetKind; path: string } | undefined>(
 		annotations.materialize

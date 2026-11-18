@@ -105,6 +105,8 @@
 		pickableProperties?: PickableProperties | undefined
 		enableAi?: boolean
 		hideHelpButton?: boolean
+		/** A footnote under the input, sharing the Help toggle's row when there is one. */
+		hint?: string
 		class?: string
 		editor?: SimpleEditor | undefined
 		otherArgs?: Record<string, InputTransform>
@@ -150,6 +152,7 @@
 		pickableProperties = undefined,
 		enableAi = false,
 		hideHelpButton = false,
+		hint = undefined,
 		class: className = '',
 		editor = $bindable(undefined),
 		otherArgs = {},
@@ -907,7 +910,9 @@
 					     step-input autocompletion (ghost text, accepted with Tab) doesn't
 					     hide the Help dropdown — the two stay independent. -->
 						{#if !hideHelpButton && propertyType === 'javascript' && argKind === 'javascript' && arg.expr != undefined}
-							<DynamicInputHelpBox />
+							<DynamicInputHelpBox {hint} />
+						{:else if hint}
+							<p class="mt-1 text-2xs text-hint">{hint}</p>
 						{/if}
 
 						{#snippet innerInput()}

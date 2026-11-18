@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { ScriptService, FlowService, type Script, AppService } from '$lib/gen'
 
-	import { base } from '$lib/base'
 	import { createEventDispatcher, untrack } from 'svelte'
 
 	import Select from './select/Select.svelte'
@@ -198,7 +197,7 @@
 						target="_blank"
 						variant="default"
 						size="xs"
-						href="{base}/flows/edit/{scriptPath}{wsParam}">Edit</Button
+						href="/flows/edit/{scriptPath}{wsParam}">Edit</Button
 					>
 				{/if}
 				{#if allowView}
@@ -221,7 +220,7 @@
 						target="_blank"
 						variant="default"
 						size="xs"
-						href="{base}/apps/edit/{scriptPath}{wsParam}"
+						href="/apps/edit/{scriptPath}{wsParam}"
 					>
 						Edit
 					</Button>
@@ -232,7 +231,7 @@
 						size="xs"
 						target="_blank"
 						startIcon={{ icon: Code }}
-						href="{base}/apps/get/{scriptPath}{wsParam}"
+						href="/apps/get/{scriptPath}{wsParam}"
 					>
 						View
 					</Button>
@@ -246,7 +245,7 @@
 						target="_blank"
 						variant="default"
 						size="xs"
-						href="{base}/scripts/edit/{scriptPath}{wsParam}"
+						href="/scripts/edit/{scriptPath}{wsParam}"
 					>
 						Edit
 					</Button>

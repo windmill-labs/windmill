@@ -14,7 +14,6 @@
 	import { ClipboardCopy, Download, Expand, Loader2, Timer, Cpu } from 'lucide-svelte'
 	import { Button, Drawer, DrawerContent } from './common'
 	import { copyToClipboard } from '$lib/utils'
-	import { base } from '$lib/base'
 	import { withExternalDomain } from '$lib/externalDomain'
 	import { downloadViaClient, shouldDownloadViaClient } from '$lib/utils/downloadFile'
 	import { appendViewToken } from '$lib/viewToken'
@@ -253,7 +252,7 @@
 		}
 	})
 	let logsApiPath = $derived(appendViewToken(`/w/${$operatingWorkspace}/jobs_u/get_logs/${jobId}`))
-	let downloadHref = $derived(withExternalDomain(`${base}/api${logsApiPath}`))
+	let downloadHref = $derived(withExternalDomain(`/api${logsApiPath}`))
 	let downloadName = $derived(`windmill_logs_${jobId}.txt`)
 	let truncatedContent = $derived(
 		truncateContent(effectiveContent, loadedFromObjectStore, LOG_LIMIT)

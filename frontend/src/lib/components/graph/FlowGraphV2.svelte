@@ -225,6 +225,8 @@
 		markRemovedAsShadowed?: boolean
 		controlsPosition?: 'top' | 'bottom'
 		outerDivClass?: string
+		/** Frame the whole graph when it appears, for a canvas capped below the graph's height. */
+		fitOnLoad?: boolean
 		/** Fires when the computed graph height changes. Diff views can use
 		 * this to equalize heights of side-by-side graphs. */
 		onHeight?: (height: number) => void
@@ -304,6 +306,7 @@
 		movingIds = undefined,
 		controlsPosition = 'top',
 		outerDivClass = '',
+		fitOnLoad = false,
 		onHeight = undefined
 	}: Props = $props()
 
@@ -381,6 +384,9 @@
 	})
 	$effect(() => {
 		flowRunStatus.suspendStatus = suspendStatus
+	})
+	$effect(() => {
+		flowRunStatus.showsRun = flowModuleStates !== undefined
 	})
 	$effect(() => {
 		// Each step's state object is replaced rather than mutated, so reading the top level
@@ -1305,7 +1311,7 @@
 {/if}
 <div
 	style={`height: ${height}px; max-height: ${maxHeight}px;`}
-	class="overflow-clip relative {outerDivClass}"
+	class="overflow-y-auto overflow-x-clip relative {outerDivClass}"
 	bind:clientWidth={debouncedWidth}
 	bind:this={flowContainer}
 >
@@ -1433,7 +1439,12 @@
 						showFitView={false}
 						showLock={false}
 					>
-						<GraphZoomControls fitViewNodes={nodes.filter((n) => n.type !== 'note')} />
+						<GraphZoomControls
+							fitViewNodes={nodes.filter((n) => n.type !== 'note')}
+							{fitOnLoad}
+							canvasWidth={width}
+							canvasHeight={height}
+						/>
 						{#if multiSelectEnabled}
 							<div class="flex items-center gap-2">
 								<Tooltip>

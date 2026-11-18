@@ -158,7 +158,7 @@ export function getHttpRoute(
 	workspaced_route: boolean,
 	workspace_id: string
 ) {
-	return `${apiBaseUrl()}/api/${route_prefix}/${
+	return `${apiBaseUrl('webhooks')}/api/${route_prefix}/${
 		isCloudHosted() || workspaced_route ? workspace_id + '/' : ''
 	}${route_path ?? ''}`
 }

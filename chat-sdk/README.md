@@ -1,21 +1,21 @@
-# windmill-chat
+# @windmill-labs/chat-sdk
 
 Build a chat interface on a Windmill flow deployed in **chat mode**, from any frontend
 or from a Windmill raw app. The library is headless: it runs the flow, follows the
 answer as it streams, keeps the conversation history, and hands you state to render.
 
 ```
-npm install windmill-chat
+npm install @windmill-labs/chat-sdk
 ```
 
-No runtime dependencies. Optional peers: `react` for `windmill-chat/react`, `ai` for
-`windmill-chat/ai-sdk`, `@assistant-ui/react` for `windmill-chat/assistant-ui`.
+No runtime dependencies. Optional peers: `react` for `@windmill-labs/chat-sdk/react`, `ai` for
+`@windmill-labs/chat-sdk/ai-sdk`, `@assistant-ui/react` for `@windmill-labs/chat-sdk/assistant-ui`.
 
 | You build the UI with | Import | You get |
 |---|---|---|
-| Vercel AI SDK `useChat`, AI Elements | `windmill-chat/ai-sdk` | a `ChatTransport`: `useChat({ transport })`, nothing else changes |
-| assistant-ui | `windmill-chat/assistant-ui` | a runtime for `AssistantRuntimeProvider`, threads included |
-| Your own components | `windmill-chat/react` or `windmill-chat` | a hook / a store with messages, status and actions |
+| Vercel AI SDK `useChat`, AI Elements | `@windmill-labs/chat-sdk/ai-sdk` | a `ChatTransport`: `useChat({ transport })`, nothing else changes |
+| assistant-ui | `@windmill-labs/chat-sdk/assistant-ui` | a runtime for `AssistantRuntimeProvider`, threads included |
+| Your own components | `@windmill-labs/chat-sdk/react` or `@windmill-labs/chat-sdk` | a hook / a store with messages, status and actions |
 
 ## The flow
 
@@ -31,7 +31,7 @@ so an AI agent step remembers earlier turns. The answer is:
 
 ```tsx
 import { useChat } from '@ai-sdk/react'
-import { createWindmillChatTransport } from 'windmill-chat/ai-sdk'
+import { createWindmillChatTransport } from '@windmill-labs/chat-sdk/ai-sdk'
 
 const transport = createWindmillChatTransport({
   baseUrl: 'https://app.windmill.dev',
@@ -65,7 +65,7 @@ explanatory error.
 
 ```tsx
 import { AssistantRuntimeProvider } from '@assistant-ui/react'
-import { useWindmillRuntime } from 'windmill-chat/assistant-ui'
+import { useWindmillRuntime } from '@windmill-labs/chat-sdk/assistant-ui'
 
 export function Support() {
   const runtime = useWindmillRuntime({ baseUrl, workspace, flowPath, token })
@@ -84,7 +84,7 @@ through `Reasoning`. It takes the same options as `useWindmillChat` below.
 ## React
 
 ```tsx
-import { useWindmillChat } from 'windmill-chat/react'
+import { useWindmillChat } from '@windmill-labs/chat-sdk/react'
 
 export function Support() {
   const chat = useWindmillChat({
@@ -148,6 +148,45 @@ const chat = useWindmillChat({ flowPath: 'f/support/assistant' })
 - **`wmill app dev`**: there is no viewer session on the dev server, so pass
   `baseUrl`, `workspace` and `token` explicitly during development.
 
+### A saved agent, through an agent runnable
+
+To chat with a saved AI agent (an `ai_agent` resource), give the app an **agent
+runnable**: a path runnable of type `agent` naming the agent, picked under "AI agents"
+in the editor, or in `raw_app.yaml`:
+
+```yaml
+runnables:
+  chat:
+    type: agent
+    path: f/support/agent
+```
+
+Each call runs one turn of the agent's chat as the app, so a sandboxed app declares no
+frontend SDK scope, viewers get no consent prompt and need no access to the agent.
+Name the runnable and pass the app's generated `wmill.ts`, which the chat goes through:
+
+```tsx
+import { useWindmillChat } from '@windmill-labs/chat-sdk/react'
+import * as wmill from './wmill'
+
+const chat = useWindmillChat({ wmill, runnable: 'chat' })
+```
+
+`runnable` is checked against the runnables `wmill.ts` declares, and names the local
+history, so two agent runnables in one app keep separate conversations. Going through
+`wmill.ts` is what makes the same code work in a deployed app and under `wmill app dev`.
+
+`createChat` and the assistant-ui runtime take the same options; the AI SDK transport
+does not. The runnable takes `user_message`, and the chat passes the conversation id as
+`backendAsync`'s `memoryId` option, which the agent's memory is keyed by, so it remembers
+earlier turns (called from `wmill.ts` without it, it is a single run with no conversation). The agent needs managed
+memory: one whose memory is off takes `previous_messages` instead, the history you keep. A signed-in viewer's turns
+are filed under them, so nobody else can continue their conversations; an anonymous
+visitor's are kept apart per app. The chat makes no request of its own: history is
+`'local'` (the app's own storage), `stop()` stops following without cancelling the turn,
+a message sent while it still runs is refused with `TurnRunningError`, and attachments
+are refused.
+
 ## Any framework
 
 `createChat` returns a store: `subscribe` calls the listener immediately and on every
@@ -155,7 +194,7 @@ change, and returns the unsubscribe function. That is the Svelte store contract,
 `$chat` works as is; other frameworks wrap it in a few lines.
 
 ```ts
-import { createChat } from 'windmill-chat'
+import { createChat } from '@windmill-labs/chat-sdk'
 
 const chat = createChat({ baseUrl, workspace, flowPath, token })
 chat.subscribe((state) => render(state))
@@ -164,7 +203,7 @@ await chat.sendMessage('Hello')
 
 ```svelte
 <script>
-  import { createChat } from 'windmill-chat'
+  import { createChat } from '@windmill-labs/chat-sdk'
   const chat = createChat({ flowPath: 'f/support/assistant' })
 </script>
 
@@ -178,7 +217,7 @@ await chat.sendMessage('Hello')
 
 | Option | |
 |---|---|
-| `flowPath` | Path of the deployed flow, e.g. `f/support/assistant`. Required. |
+| `flowPath` | Path of the deployed flow, e.g. `f/support/assistant`. Required unless `follow` is set. |
 | `baseUrl` | The Windmill origin. Detected inside a raw app. |
 | `workspace` | Detected inside a raw app. |
 | `token` | A token, or a function returning one (called before every request, so it can fetch a short-lived token from your backend). Omit it inside a raw app. |
@@ -190,6 +229,8 @@ await chat.sendMessage('Hello')
 | `pollDelayMs` | How often, in ms, the server polls a running turn for the stream (Enterprise; 50 at the fastest, other servers ignore it). Unset, the server relaxes from 100 ms to 3 s over a long turn; set it when tokens must keep flowing at that pace. |
 | `onFinish`, `onError` | Called when a turn has its answer, or could not run at all. |
 | `run` | Runs the flow for a turn yourself and returns the job id, instead of the deployed flow at `flowPath` (Windmill's editor chats with an undeployed flow through a preview run this way). Pass `memory_id` = the conversation id. |
+| `follow` | With `run`: follows the job through your own client, calling `onStream` with each chunk of its result stream and resolving with its result. The chat then makes no request of its own; `runnable` sets both for a raw app's agent runnable, see [A saved agent](#a-saved-agent-through-an-agent-runnable). |
+| `runnable`, `wmill` | In a raw app, chat through the agent runnable of that name, going through the app's generated module (`import * as wmill from './wmill'`). Replaces `flowPath`, `run` and `follow`. |
 
 ## State
 
@@ -203,6 +244,8 @@ interface ChatState {
   history: 'server' | 'local' | 'none'
   loadingMessages: boolean
   hasMoreMessages: boolean
+  runningJobId?: string // the flow job the running turn follows
+  waitingOnBackground?: boolean // the agent answered and waits on tools running in the background
 }
 
 interface ChatMessage {
@@ -225,8 +268,11 @@ A turn goes `submitted` (the flow is queued) → `streaming` (the answer is arri
 `success` or `error`. A flow that fails still completes the turn: its error is the
 answer, an `assistant` message with `success: false`. `status: 'error'` (with `error`
 set) means the turn could not run or be followed at all, such as a refused request.
+An agent that answered while some of its tools still run in the background keeps its turn
+`streaming` with `waitingOnBackground` set until one of them finishes and wakes it: its answer
+is given, and those tools' messages stay `running` until their results arrive.
 
-Methods: `sendMessage(text, { inputs?, attachments?, attachmentsInput? })`, `stop()`,
+Methods: `sendMessage(text, { inputs?, attachments?, attachmentsInput?, overRunningTurn? })`, `stop()`,
 `newConversation()`, `selectConversation(id)`, `loadConversations({ page?, perPage?, kind? })`,
 `deleteConversation(id)`, `renameConversation(id, title)`, `loadOlderMessages()`,
 `resumeTurn(turn)`, `refreshMessages()` (reads what another tab added to the open
@@ -234,7 +280,11 @@ conversation), `destroy()`. `kind` lists the flow editor's test chats (`'test'`)
 own (`'deployed'`, the server's default) or both (`'all'`); each `Conversation` carries
 `isTest`. A rename keeps the conversation's place in the list. Switching conversations
 stops following the current answer; the flow keeps running and, with server history,
-its answer is there when you come back.
+its answer is there when you come back. `overRunningTurn` sends while a turn is still
+followed: the server takes the message when that turn's AI agent is parked (it answered while
+background jobs run, or waits on an approval or a question), ending that turn and carrying its
+background jobs over, and the chat follows the new one; while the turn works it is refused with a
+`TurnRunningError` and the chat keeps following it.
 
 ## Attachments
 
@@ -294,7 +344,8 @@ That store is keyed by the **Windmill user**, so it fits a viewer session or a t
 issued per user. With one token shared by every visitor of a site, all visitors would
 see each other's conversations. For that setup use `history: 'local'` (the default
 with an explicit `token`): the conversation list and messages stay in the browser's
-`localStorage`, per Windmill instance, workspace and flow. `'none'` keeps nothing
+`localStorage`, per Windmill instance, workspace and flow, and the chat starts with that
+list in `state.conversations`, without a `loadConversations()` call. `'none'` keeps nothing
 beyond the page.
 
 When the default `'server'` mode turns out unreadable (a token or sandboxed app
@@ -331,9 +382,10 @@ custom integrations.
 ## For AI coding agents
 
 When asked to add a chat over a Windmill flow: the flow must be deployed with chat mode
-on. Pick the entry point from the table at the top (`useChat` → `windmill-chat/ai-sdk`,
-assistant-ui → `windmill-chat/assistant-ui`, otherwise `windmill-chat/react`). Inside a
-Windmill raw app pass only `flowPath`. Elsewhere pass `baseUrl`, `workspace` and a
+on. Pick the entry point from the table at the top (`useChat` → `@windmill-labs/chat-sdk/ai-sdk`,
+assistant-ui → `@windmill-labs/chat-sdk/assistant-ui`, otherwise `@windmill-labs/chat-sdk/react`). Inside a
+Windmill raw app pass only `flowPath`; for a saved agent, use an `agent` runnable and pass
+`{ wmill, runnable }`. Elsewhere pass `baseUrl`, `workspace` and a
 `token`; for a public page use a token scoped to `jobs:run:flows:<flowPath>` and leave
 `history` at its default. Render `role`, `content`, `pending`, `success` and
 `tool.status`; never build the SSE handling yourself.

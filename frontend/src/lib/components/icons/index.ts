@@ -3,6 +3,10 @@ import DbIcon from './DbIcon.svelte'
 import DiscordIcon from './DiscordIcon.svelte'
 import GcalIcon from './GcalIcon.svelte'
 import GdriveIcon from './GdriveIcon.svelte'
+import OnedriveIcon from './OnedriveIcon.svelte'
+import SharepointIcon from './SharepointIcon.svelte'
+import ExcelIcon from './ExcelIcon.svelte'
+import WordIcon from './WordIcon.svelte'
 import GithubIcon from './GithubIcon.svelte'
 import GitlabIcon from './GitlabIcon.svelte'
 import GmailIcon from './GmailIcon.svelte'
@@ -91,6 +95,7 @@ import ResendIcon from './ResendIcon.svelte'
 import PushoverIcon from './PushoverIcon.svelte'
 import QuickbooksIcon from './QuickbooksIcon.svelte'
 import MsTeamsIcon from './MSTeamsIcon.svelte'
+import OutlookIcon from './OutlookIcon.svelte'
 import MailgunIcon from './MailgunIcon.svelte'
 import IpinfoIcon from './IpinfoIcon.svelte'
 import GoogleCloudIcon from './GoogleCloudIcon.svelte'
@@ -238,6 +243,8 @@ import SalesflareIcon from './SalesflareIcon.svelte'
 import PaylocityIcon from './PaylocityIcon.svelte'
 import KustomerIcon from './KustomerIcon.svelte'
 import NetBoxIcon from './NetBoxIcon.svelte'
+import AristaIcon from './AristaIcon.svelte'
+import VmwareIcon from './VmwareIcon.svelte'
 import AbstractApiIcon from './AbstractApiIcon.svelte'
 import AcumbamailIcon from './AcumbamailIcon.svelte'
 import ChromaIcon from './ChromaIcon.svelte'
@@ -318,6 +325,18 @@ import LeonardoAiIcon from './LeonardoAiIcon.svelte'
 import LocalContextsIcon from './LocalContextsIcon.svelte'
 import WeatherApiIcon from './WeatherApiIcon.svelte'
 import WebScrapingAiIcon from './WebScrapingAiIcon.svelte'
+import ArubaIcon from './ArubaIcon.svelte'
+import F5Icon from './F5Icon.svelte'
+import FortinetIcon from './FortinetIcon.svelte'
+import InfobloxIcon from './InfobloxIcon.svelte'
+import IpFabricIcon from './IpFabricIcon.svelte'
+import NetskopeIcon from './NetskopeIcon.svelte'
+import PaloAltoIcon from './PaloAltoIcon.svelte'
+import SplunkIcon from './SplunkIcon.svelte'
+import TufinIcon from './TufinIcon.svelte'
+import ZabbixIcon from './ZabbixIcon.svelte'
+import EricssonIcon from './EricssonIcon.svelte'
+import LinkupIcon from './LinkupIcon.svelte'
 import type { Component } from 'svelte'
 /**
  * ./triggers/ holds desaturated variants of some marks in this folder, used by the four
@@ -357,10 +376,15 @@ export const APP_TO_ICON_COMPONENT = {
 	gsheets: GSheetsIcon,
 	gitlab: GitlabIcon,
 	// `gcloud` and `gcp_service_account` are both Google Cloud, so both resolve to the
-	// official four-colour mark.
+	// official four-colour mark. `google_service_account` also serves Workspace APIs,
+	// so it takes the G mark like `gworkspace`.
 	gcloud: GoogleCloudIcon,
 	gcal: GcalIcon,
 	gdrive: GdriveIcon,
+	ms_onedrive: OnedriveIcon,
+	ms_sharepoint: SharepointIcon,
+	ms_excel: ExcelIcon,
+	ms_word: WordIcon,
 	airtable: AirtableIcon,
 	toggl: TogglIcon,
 	s3: S3Icon,
@@ -411,6 +435,7 @@ export const APP_TO_ICON_COMPONENT = {
 	surrealdb: SurrealdbIcon,
 	activitypub: ActivitypubIcon,
 	aws_ecr: AwsEcrIcon,
+	aws_sqs: AwsIcon,
 	calcom: CalcomIcon,
 	clickup: ClickupIcon,
 	cloudflare: CloudflareIcon,
@@ -445,12 +470,15 @@ export const APP_TO_ICON_COMPONENT = {
 	resend: ResendIcon,
 	pushover: PushoverIcon,
 	quickbooks: QuickbooksIcon,
+	ms_teams: MsTeamsIcon,
 	ms_teams_webhook: MsTeamsIcon,
 	teams: MsTeamsIcon,
+	ms_outlook: OutlookIcon,
 	mailgun: MailgunIcon,
 	ipinfo: IpinfoIcon,
 	gworkspace: GoogleIcon,
 	gcp_service_account: GoogleCloudIcon,
+	google_service_account: GoogleIcon,
 	cacertificate: CaCertificate,
 	currencyapi: CurrencyApiIcon,
 	visma: VismaIcon,
@@ -598,6 +626,9 @@ export const APP_TO_ICON_COMPONENT = {
 	paylocity: PaylocityIcon,
 	kustomer: KustomerIcon,
 	netbox: NetBoxIcon,
+	arista_eos: AristaIcon,
+	arista_cloudvision: AristaIcon,
+	vmware_vsphere: VmwareIcon,
 	abstractapi: AbstractApiIcon,
 	acumbamail: AcumbamailIcon,
 	chromadb: ChromaIcon,
@@ -678,6 +709,21 @@ export const APP_TO_ICON_COMPONENT = {
 	localcontexts: LocalContextsIcon,
 	weatherapi: WeatherApiIcon,
 	webscrapingai: WebScrapingAiIcon,
+	aruba_central_onprem: ArubaIcon,
+	aruba_instant: ArubaIcon,
+	awx: AnsibleIcon,
+	f5_bigip: F5Icon,
+	fortimanager: FortinetIcon,
+	fortigate: FortinetIcon,
+	infoblox: InfobloxIcon,
+	ip_fabric: IpFabricIcon,
+	netskope: NetskopeIcon,
+	palo_alto_panos: PaloAltoIcon,
+	splunk: SplunkIcon,
+	tufin: TufinIcon,
+	zabbix: ZabbixIcon,
+	ericsson_ep5g: EricssonIcon,
+	linkup: LinkupIcon,
 	oauth_client_credentials: OauthIcon
 } as unknown as Record<string, Component> // to generate correct svelte package types
 
@@ -694,6 +740,10 @@ export {
 	DiscordIcon,
 	GcalIcon,
 	GdriveIcon,
+	OnedriveIcon,
+	SharepointIcon,
+	ExcelIcon,
+	WordIcon,
 	GithubIcon,
 	GitlabIcon,
 	GmailIcon,
@@ -778,6 +828,7 @@ export {
 	PushoverIcon,
 	QuickbooksIcon,
 	MsTeamsIcon,
+	OutlookIcon,
 	MailgunIcon,
 	IpinfoIcon,
 	GoogleCloudIcon,
@@ -915,6 +966,8 @@ export {
 	PaylocityIcon,
 	KustomerIcon,
 	NetBoxIcon,
+	AristaIcon,
+	VmwareIcon,
 	AbstractApiIcon,
 	AcumbamailIcon,
 	ChromaIcon,
@@ -994,5 +1047,17 @@ export {
 	DbtIcon,
 	ShutterstockIcon,
 	TaskadeIcon,
+	ArubaIcon,
+	F5Icon,
+	FortinetIcon,
+	InfobloxIcon,
+	IpFabricIcon,
+	NetskopeIcon,
+	PaloAltoIcon,
+	SplunkIcon,
+	TufinIcon,
+	ZabbixIcon,
+	EricssonIcon,
+	LinkupIcon,
 	OauthIcon
 }

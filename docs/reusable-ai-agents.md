@@ -8,6 +8,23 @@ agent, and edits to the agent propagate to every linked step.
 The `ai_agent` resource type is defined in the hub (windmill-integrations) and synced into
 every workspace via the standard cached-resource-type sync, like other built-in types.
 
+## Running an agent on its own
+
+A saved agent also runs without any flow of the author's: from its deployed page, through
+`POST /w/{workspace}/jobs/run/agent/{path}` (scope `jobs:run:agents:<path>`), from a Slack channel
+it is shared in, from a full-code app, and from the AI session's run tools. All of them go through
+`windmill-api/src/agent_runs.rs`, which reads the agent and runs it as a **one-step flow**
+(`agent_step_flow`, step id `__wm_agent_root`). Every run drops the agent's saved `memory_id` and
+`previous_messages` step inputs: the message, attachments and any `previous_messages` come from
+the run's input. A run with a `memory_id` is a turn of a conversation, filed under `<path>.chat`
+and run with chat input enabled. The agent editor's chat is different: it previews the draft as a
+flow preview of the same one step (`agentChatFlow`), not through `agent_runs.rs`.
+
+Since the run is a flow, everything written for flow runs and chat flows applies to it as well:
+conversations, the running-turn check, approvals and questions. A change to one of those paths
+must keep working for this one-step shape, and can be tested from the agent's deployed page as
+well as from a flow.
+
 ## Rigid linking
 
 `FlowModuleValue::AIAgent` has an optional `agent` field holding the resource path, plus a
@@ -156,12 +173,143 @@ older editor baked into `memory` stays a fallback behind the run's id until the 
 *Keep as memory id* or *Use the run's memory id*. In a chat flow it is dropped on save, since the
 conversation id always took precedence there.
 
+## One running turn per memory id
+
+Two runs with the same memory id would each read the memory at start and the last to finish would
+overwrite the other's turn, so a run is refused while another one is working on its id.
+
+- **Claim.** `set_flow_memory_id` claims `ai_memory_turn (workspace_id, memory_id) -> job_id` in
+  the push transaction, for every run that carries a run memory id, chat or not. A claim whose job
+  is still in `v2_job_queue` refuses the push with a 409 whose body names the running turn; one
+  whose job left the queue is taken over, and the monitor deletes it. For a chat flow the
+  conversation check runs first, since its refusal carries the `user_seq` the chat follows. The
+  claim covers the run memory id only: a step's own `memory_id` is evaluated on the worker, after
+  the push, and stays unguarded.
+- **A parked run hands it over.** A holder whose agent parked (answered while its background jobs
+  run, or waiting on an approval or a question) as the run's last top-level step, where the run
+  is at, is not refused against: the new run takes the conversation (`hand_over_parked_turn`).
+  After that step the run ends, so nothing of it can write the memory or the chat beside the new
+  turn; a step after the agent, or one in a parallel branch, would, so such a run is refused as a
+  working one, its 409 saying why, and `take_over` stays the way through. Under the parked agent's queue row lock, its `suspend` is
+  zeroed and its checkpoint marked `handed_over`, which keeps the monitor's wake and an answer from
+  resuming it too. Its background jobs move onto the claim row (`handed_jobs`, by flow step id) and
+  the new run's agent of that step adopts them when it starts. The parked agent wakes, refuses an
+  open approval or skips a question without a chat row, and ends with the answer it had, writing
+  no memory: it saved its memory when it parked, with the open request's calls already reading as
+  left unanswered. The flow chat's own running-turn check lets a parked turn through the same way.
+- **Take over.** `take_over=true` on a run cancels the run holding the id, then waits up to 40s
+  for it to leave the queue before pushing (`take_over_memory_turn`). Only who started that run, or
+  an admin, can do it, and a restricted token only with an unconfined `jobs:cancel` scope, since a
+  uuid memory id is not confined to the flow being run. The holder is stopped before the new run is
+  validated, so a new run refused for another reason leaves the memory id with no turn. App runs
+  refuse `take_over`.
+- **History on stop.** A cancelled agent writes its managed memory before it returns, so the next
+  turn starts from what this one reached. Every place it stops at has each tool call answered; one
+  stopped before its first reply keeps the unanswered message, and the next turn's message follows
+  it. No compaction runs there, since it would call the model inside the cancel's
+  grace period. An agent cancelled while parked is completed without running, and saves nothing.
+
+## Approval and questions
+
+Two things park the agent rather than run: a call of a tool with `requires_approval` (flow module
+and MCP tools), and a call of the built-in `question` tool, which the model sees as `ask_question`.
+Both live in `windmill-worker/src/ai/pause.rs`.
+
+- **Park.** In a turn that calls such tools, every other call runs right away. The calls that
+  require approval are gathered into one request, answered together; a question is its own request,
+  so a turn that also asks for approval has its question refused, as is a second question. The
+  worker stores the conversation, actions, usage, accumulated stream, next iteration and the
+  waiting calls in `ai_agent_checkpoint`, then parks the agent's own queue row with
+  `suspend_wac_parent`: `suspend = 1`, `suspend_until` at the timeout (1800s for an approval, the
+  question tool's `timeout` otherwise). The job is not completed, its worker is free, and the flow
+  stays on the step.
+- **Answer.** `resume_suspended` with the agent job's id already treats a self-suspended job like a
+  WAC approval: it inserts the `resume_job` row and decrements, or zeroes on a rejection, the
+  agent's own `suspend`. The run page offers the form from the pending `approval` or `question`
+  agent action (Approve/Reject with the calls and their arguments, or the question with its
+  `choices` and a text answer, sent as a list when `multi_select`), and so does a chat flow's chat,
+  on the waiting call's tool card while the turn's top-level agent step waits (it polls the turn's
+  flow job only when a top-level agent step has such a tool or links a saved agent, read off the
+  flow rather than the stream, which a non-streaming agent leaves empty: the card is then added at
+  the end of the turn). Both send that request's `call_id` in the payload. There are no signed resume URLs, Slack or Teams messages,
+  approval page or approver conditions for it: whoever can answer a suspended step without
+  conditions can answer it.
+- **Resume.** The suspended pull takes the row back and `run_agent` finds the checkpoint. In one
+  transaction it zeroes `suspend`, so `resume_suspended` refuses answers while the agent runs, and
+  reads the unread `resume_job` rows. The first one naming the parked request (or naming none)
+  answers it; one naming an earlier request, from a page left open, is read and ignored, and the
+  agent parks again for the time left. Approved calls then run as any call would; rejected ones,
+  and those still unanswered at the timeout, are answered as not run, with the approver's comment.
+  A call whose tool left the roster while parked is answered as no longer available. The agent
+  then skips memory and the prompt and continues the loop. The step's stream continues at the
+  offset the first segment reached. Resolution is live here too: a linked agent edited while
+  parked resumes with its new definition.
+- **Cleanup.** The checkpoint row stays while the job is queued, so a job restarted after its
+  worker died resumes from it, and reads the same answer again: approved calls that ran before
+  the worker died run again. The monitor deletes rows whose job left the queue; the table has no
+  foreign key, since one would lock `v2_job_queue` on every write.
+- **Limits.** A nested agent tool is never offered the question tool or a tool that requires
+  approval: it writes no flow status, and its parent holds a worker while it runs. The banner at the
+  top of the run page shows only a request from a top-level step, as does the chat; one from a step
+  inside a loop or branch is answered from its graph node. The chat transcript of a chat flow
+  records neither the request nor its answer.
+
+## Background tools
+
+A `flowmodule` tool with `background: true` is answered as soon as its job is queued ("started in
+the background as job X"), and the agent keeps working. The job's result reaches the model later as
+a user message tagged with the call's `tool_call` action, since the call itself was already
+answered. Its outcome in `agent_actions_success` is `null` until then, set in place by position.
+
+With `background_after_secs: N` instead, the call is waited on like a foreground one, and still
+unfinished N seconds after it was queued it is answered the same way ("not finished after Ns") and
+continues in the background. Such a job never runs in the agent's own process, which could not release the worker
+while it ran, so it needs another worker free: with none, it only starts once the agent parks.
+
+- **Parking.** The loop checks for finished jobs before each model call. When the model answers
+  with jobs still running, the agent parks like it does for an approval (`suspend = 1`, the same
+  checkpoint table) instead of ending, with the jobs in the checkpoint row's `waiting_on`. The park
+  first checks, under its queue row lock, whether one already finished, and delivers it instead.
+- **Waking.** Every monitor pass zeroes the `suspend` of a parked agent with a completed job in
+  `waiting_on`, so a result waits at most one pass (10s by default) once its job ends. Not
+  `record_child_completion`, although tool jobs are the agent's children: when it wakes a parent it
+  clears all of its pending ids, which fits a workflow-as-code round but would drop the agent's
+  other background jobs.
+- **Iterations.** The model call that follows a background result reuses the iteration of the
+  answer it revisits, so waiting never runs an agent out of iterations. An agent that does run out
+  cancels the jobs still running. With structured output, an earlier structured answer stands unless
+  the model gives another.
+- **With an approval.** While an approval is open, `waiting_on` is empty: results wait for the
+  answer. An answer the row accepts while the agent waits on background jobs only is marked read on
+  resume, so it cannot answer a later request.
+- **Limits.** A nested agent runs its background tools in the foreground, since it cannot park. The
+  job is never reserved for the agent's own worker. Like a foreground tool, a job that never
+  finishes (a tag no worker serves) keeps the agent waiting, here parked and re-checked hourly.
+
 ## Drafts
 
 The agent editor edits the resource through a **per-user resource draft** (`draft` table,
 `item_kind = 'resource'`), autosaved by `useAgentDraft` and deployed by the editor's own Deploy
-button. It is the same draft row the generic resource editor writes and the Review & Deploy page
-lists, so an agent can be deployed from any of them.
+button. It is the same draft row the resource editor's *Edit as JSON* view writes and the Review &
+Deploy page lists, so an agent can be deployed from any of them. `/drafts/list` reports a resource
+draft's `resource_type` (the deployed row's, which a deploy keeps, else the one the draft names), so
+a listing tells an agent's draft apart without reading it; for an agent it also reports the
+description as the summary and the path the draft names as `draft_path`.
+
+Agent drafts are private to their author, like every resource draft: a resource draft can hold a
+credential, and sharing is decided by draft kind (`shares_drafts_across_users`).
+
+The agent editor carries the same draft controls as the script and flow editors: the autosave
+indicator (save state, *Reset to deployed*, the auto-save toggle), a *Diff* button, Ctrl/Cmd+S, and
+the draft prompts (`DraftEditorModals`: a refused save, a draft older than the last deploy). With
+auto-save off, closing the dialog or leaving the page asks before dropping edits that were never
+saved. A session's tab has nothing that could ask, so there the agent saves every edit whatever the
+toggle says, and its indicator leaves the toggle out.
+
+A draft never carries the identity the agent runs as, so every write of one restates the deployed
+agent's `on_behalf_of` with `preserve_on_behalf_of`: a draft deploy, the session's
+`deploy_workspace_item` and *Edit as JSON*'s Save. The server keeps it for a caller allowed to keep
+another identity; anyone else's write makes it theirs.
 
 A flow does not wait for that deploy to see the draft:
 

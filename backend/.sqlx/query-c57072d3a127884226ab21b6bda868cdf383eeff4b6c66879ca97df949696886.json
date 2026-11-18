@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO github_app_repo_approval (workspace_id, path, url)\n         SELECT workspace_id, path, value->>'url' FROM resource\n         WHERE workspace_id = $1 AND path = $2\n           AND value->'is_github_app' = 'true'::jsonb\n           AND left(value->>'url', 1) <> '$'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "c57072d3a127884226ab21b6bda868cdf383eeff4b6c66879ca97df949696886"
+}

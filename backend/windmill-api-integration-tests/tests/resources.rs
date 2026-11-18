@@ -648,6 +648,15 @@ async fn test_interpolated_references_need_the_token_scopes(
         read_probe(json!({"v": "$var:u/test-user/secret"}), with_var.clone()).await;
     assert_eq!((status, body.as_str()), (200, r#"{"v":"CANARY"}"#));
 
+    // A wildcard resource pattern extends to the variables it matches, and only to those.
+    let wildcard = mint(json!(["resources:read:u/test-user/*"])).await;
+    let (status, body) =
+        read_probe(json!({"v": "$var:u/test-user/secret"}), wildcard.clone()).await;
+    assert_eq!((status, body.as_str()), (200, r#"{"v":"CANARY"}"#));
+    let elsewhere = mint(json!(["resources:read:u/test-user/probe,f/other/*"])).await;
+    let (status, body) = read_probe(json!({"v": "$var:u/test-user/secret"}), elsewhere).await;
+    assert_eq!(status, 403, "{body}");
+
     // The resource's own linked secrets (at its path, or `<path>_<field>`) are part of it.
     for (path, value) in [
         ("u/test-user/probe", "LINKED"),
@@ -747,6 +756,186 @@ async fn test_resource_cache_handles_job_context(db: Pool<Postgres>) -> anyhow::
         200,
         "resource with a $WM_* contextual variable must not be cached"
     );
+
+    Ok(())
+}
+
+/// The installation serves a non-admin only the URL an admin last saved on an
+/// app-backed resource, so a write by anyone else must never set it, and a new
+/// resource where an approved one used to be must not inherit it.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_github_app_repo_approval_follows_admin_writes(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let base = format!(
+        "http://localhost:{}/api/w/test-workspace/resources",
+        server.addr.port()
+    );
+    let (path, renamed) = ("u/test-user-2/repo", "u/test-user-2/repo2");
+    let (approved, other) = (
+        "https://github.com/o/r.git",
+        "https://github.com/o/other.git",
+    );
+    let value = |url: &str| json!({"value": {"url": url, "is_github_app": true}});
+    let create = |url: &str| {
+        let mut body = value(url);
+        body["path"] = json!(path);
+        body["resource_type"] = json!("git_repository");
+        body
+    };
+    let post = |token: &'static str, url: String, body: serde_json::Value| async move {
+        let resp = client()
+            .post(url)
+            .bearer_auth(token)
+            .json(&body)
+            .send()
+            .await
+            .unwrap();
+        assert!(resp.status().is_success(), "{}", resp.text().await.unwrap());
+    };
+    let approved_url = |path: &'static str| {
+        let db = db.clone();
+        async move {
+            sqlx::query_scalar::<_, String>(
+                "SELECT url FROM github_app_repo_approval
+                 WHERE workspace_id = 'test-workspace' AND path = $1",
+            )
+            .bind(path)
+            .fetch_optional(&db)
+            .await
+            .unwrap()
+        }
+    };
+
+    post("SECRET_TOKEN_2", format!("{base}/create"), create(approved)).await;
+    assert_eq!(
+        approved_url(path).await,
+        None,
+        "a non-admin's write approves nothing"
+    );
+
+    // Only a save of the value approves: an admin renaming or describing a
+    // resource has not looked at its URL.
+    post(
+        "SECRET_TOKEN",
+        format!("{base}/update/{path}"),
+        json!({"description": "ok"}),
+    )
+    .await;
+    assert_eq!(approved_url(path).await, None);
+    let mut save = value(approved);
+    save["description"] = json!("ok");
+    post("SECRET_TOKEN", format!("{base}/update/{path}"), save).await;
+    assert_eq!(approved_url(path).await.as_deref(), Some(approved));
+
+    post(
+        "SECRET_TOKEN_2",
+        format!("{base}/update_value/{path}"),
+        value(other),
+    )
+    .await;
+    assert_eq!(approved_url(path).await.as_deref(), Some(approved));
+
+    post(
+        "SECRET_TOKEN",
+        format!("{base}/update_value/{path}"),
+        value(other),
+    )
+    .await;
+    assert_eq!(approved_url(path).await.as_deref(), Some(other));
+
+    post(
+        "SECRET_TOKEN_2",
+        format!("{base}/update/{path}"),
+        json!({"path": renamed}),
+    )
+    .await;
+    assert_eq!(approved_url(renamed).await.as_deref(), Some(other));
+    post("SECRET_TOKEN_2", format!("{base}/create"), create(other)).await;
+    assert_eq!(
+        approved_url(path).await,
+        None,
+        "nothing is inherited from the old path"
+    );
+
+    // An admin save that names no app-backed repository revokes the old one, so a
+    // non-admin cannot put the earlier URL back and be served it.
+    post(
+        "SECRET_TOKEN",
+        format!("{base}/update_value/{renamed}"),
+        json!({"value": {"url": other, "is_github_app": false}}),
+    )
+    .await;
+    assert_eq!(approved_url(renamed).await, None);
+
+    // A `$var:` resolves to whatever its owner sets, so it is never approved.
+    post(
+        "SECRET_TOKEN",
+        format!("{base}/update_value/{path}"),
+        value("$var:u/test-user-2/repo_url"),
+    )
+    .await;
+    assert_eq!(approved_url(path).await, None);
+    Ok(())
+}
+
+/// Without an embeddings index the resource type search reads the table, so it has to apply the
+/// same scope as the index: the workspace's own types and the global ones in `admins`, never
+/// another workspace's.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_resource_type_search_without_embeddings(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    sqlx::query("INSERT INTO workspace (id, name, owner) VALUES ('other-workspace', 'other-workspace', 'test-user')")
+        .execute(&db)
+        .await?;
+    for (workspace, name, description) in [
+        (
+            "test-workspace",
+            "c_acme_billing",
+            "Acme internal billing API",
+        ),
+        (
+            "other-workspace",
+            "c_other_billing",
+            "Another workspace's billing API",
+        ),
+    ] {
+        sqlx::query(
+            "INSERT INTO resource_type (workspace_id, name, schema, description, created_by) VALUES ($1, $2, '{}'::jsonb, $3, 'test-user')",
+        )
+        .bind(workspace)
+        .bind(name)
+        .bind(description)
+        .execute(&db)
+        .await?;
+    }
+
+    let search = |text: &str| {
+        let url = format!(
+            "http://localhost:{port}/api/w/test-workspace/embeddings/query_resource_types?text={text}"
+        );
+        async move {
+            let resp = authed(client().get(url)).send().await.unwrap();
+            assert_eq!(resp.status(), 200);
+            resp.json::<Vec<serde_json::Value>>()
+                .await
+                .unwrap()
+                .into_iter()
+                .map(|rt| rt["name"].as_str().unwrap().to_string())
+                .collect::<Vec<_>>()
+        }
+    };
+
+    let billing = search("billing").await;
+    assert_eq!(billing.first().map(String::as_str), Some("c_acme_billing"));
+    assert!(!billing.contains(&"c_other_billing".to_string()));
+    // `ai_skill` is seeded in `admins` by the migrations.
+    assert!(search("skill").await.contains(&"ai_skill".to_string()));
 
     Ok(())
 }

@@ -19,6 +19,11 @@
 	import Section from './Section.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
+	import {
+		devWorkspaceTagSuffix,
+		loadDevWorkspaceTagSuffix,
+		withDevSuffix
+	} from '$lib/devWorkspaceTags'
 	interface Props {
 		defaultTagPerWorkspace?: boolean | undefined
 		defaultTagWorkspaces?: string[]
@@ -134,6 +139,7 @@
 
 	loadDefaultTags()
 	loadWorkspaces()
+	loadDevWorkspaceTagSuffix()
 </script>
 
 <Section label="Default tags">
@@ -208,6 +214,22 @@
 							/>
 						{/snippet}
 					</ToggleButtonGroup>
+					{#if $devWorkspaceTagSuffix}
+						<span class="text-2xs text-secondary">
+							Dev workspace isolation (Workers page) is on and applies after this: a fork's
+							<code
+								>{forkAppendForkSuffix ? 'python3-{parent_id}-fork' : 'python3-{parent_id}'}</code
+							>
+							runs as
+							<code
+								>{withDevSuffix(
+									forkAppendForkSuffix ? 'python3-{parent_id}-fork' : 'python3-{parent_id}',
+									$devWorkspaceTagSuffix
+								)}</code
+							>, on the worker groups serving dev workspaces. To split root and dev jobs across
+							worker pools, isolation alone is enough.
+						</span>
+					{/if}
 				</div>
 				<Toggle
 					bind:checked={limitToWorkspaces}

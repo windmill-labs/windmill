@@ -1,4 +1,5 @@
 import type { ChatOptions, FetchLike, HistoryMode, StorageLike, TokenSource } from './types'
+import { rawAppRunnable } from './runnable'
 
 export interface ResolvedConfig {
   flowPath: string
@@ -15,6 +16,7 @@ export interface ResolvedConfig {
   pageSize: number
   pollDelayMs: number | undefined
   run: ChatOptions['run']
+  follow: ChatOptions['follow']
   onFinish: ChatOptions['onFinish']
   onError: ChatOptions['onError']
 }
@@ -51,13 +53,31 @@ export function detectRawApp(): RawAppContext | undefined {
 }
 
 export function resolveConfig(options: ChatOptions): ResolvedConfig {
-  if (!options.flowPath) throw new Error('windmill-chat: flowPath is required')
+  if (options.runnable !== undefined) {
+    if (!options.wmill) throw new Error('windmill-chat: `runnable` needs `wmill`, the app\'s generated module')
+    if (options.flowPath || options.run || options.follow) {
+      throw new Error('windmill-chat: `runnable` replaces `flowPath`, `run` and `follow`')
+    }
+    // Unsandboxed apps share their origin's storage, so the app's path keeps their histories apart.
+    const app = (globalThis as { ctx?: { path?: unknown } }).ctx?.path
+    options = {
+      ...options,
+      ...rawAppRunnable(options.wmill.backendAsync[options.runnable], options.wmill.streamJob),
+      flowPath: `runnable:${typeof app === 'string' ? `${app}:` : ''}${options.runnable}`
+    }
+  }
+  const follow = options.follow
+  if (follow && !options.run) throw new Error('windmill-chat: `follow` needs `run`, which starts the job it follows')
+  if (follow && options.history === 'server') {
+    throw new Error('windmill-chat: server history is read with the SDK\'s own requests, which `follow` replaces')
+  }
+  if (!options.flowPath && !follow) throw new Error('windmill-chat: flowPath is required')
   const explicitToken = options.token !== undefined
   const detected =
     options.baseUrl && options.workspace && explicitToken ? undefined : detectRawApp()
   const baseUrl = options.baseUrl ?? detected?.baseUrl
   const workspace = options.workspace ?? detected?.workspace
-  if (!baseUrl || !workspace) {
+  if ((!baseUrl || !workspace) && !follow) {
     throw new Error(
       'windmill-chat: pass baseUrl and workspace. They are only detected inside a raw app: an unsandboxed one on the Windmill origin, or a sandboxed one whose policy declares frontend SDK scopes.'
     )
@@ -66,11 +86,11 @@ export function resolveConfig(options: ChatOptions): ResolvedConfig {
   const token =
     options.token ?? (options.baseUrl === undefined || options.baseUrl === detected?.baseUrl ? detected?.token : undefined)
   return {
-    flowPath: options.flowPath,
-    baseUrl,
-    workspace,
+    flowPath: options.flowPath ?? '',
+    baseUrl: baseUrl ?? '',
+    workspace: workspace ?? '',
     token,
-    history: options.history ?? (explicitToken ? 'local' : 'server'),
+    history: options.history ?? (explicitToken || follow ? 'local' : 'server'),
     historyExplicit: options.history !== undefined,
     inputs: options.inputs ?? {},
     fetch: options.fetch,
@@ -79,6 +99,7 @@ export function resolveConfig(options: ChatOptions): ResolvedConfig {
     pageSize: options.pageSize ?? 50,
     pollDelayMs: options.pollDelayMs,
     run: options.run,
+    follow,
     onFinish: options.onFinish,
     onError: options.onError
   }

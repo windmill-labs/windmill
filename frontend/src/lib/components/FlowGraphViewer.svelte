@@ -37,6 +37,9 @@
 		hideDefaultInputs?: boolean
 		provideTriggerContext?: boolean
 		fillAvailableHeight?: boolean
+		/** Cap the canvas at the available height, so a tall flow pans inside it rather than
+		 * adding a scrollbar next to the page's. Only applies with `fillAvailableHeight`. */
+		capToAvailableHeight?: boolean
 	}
 
 	let {
@@ -52,7 +55,8 @@
 		noBorder = false,
 		hideDefaultInputs = false,
 		provideTriggerContext = false,
-		fillAvailableHeight = false
+		fillAvailableHeight = false,
+		capToAvailableHeight = false
 	}: Props = $props()
 
 	let availableHeight = $state(0)
@@ -122,6 +126,10 @@
 				{linkedToolsPath}
 				{download}
 				minHeight={fillAvailableHeight ? Math.max(minHeight, availableHeight) : minHeight}
+				maxHeight={fillAvailableHeight && capToAvailableHeight
+					? Math.max(minHeight, availableHeight)
+					: undefined}
+				fitOnLoad={fillAvailableHeight && capToAvailableHeight}
 				{workspace}
 				modules={flow?.value?.modules}
 				failureModule={flow?.value?.failure_module}

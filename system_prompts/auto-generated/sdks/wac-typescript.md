@@ -67,8 +67,9 @@ export async function getResumeUrls(approver?: string, flowLevel?: boolean): Pro
  * const call_api = task(fetchOrders, { retry: { attempts: 3, delay: 30, multiplier: 2 } });
  *
  * Inside a `workflow()`, calling a task dispatches it as a step.
- * Outside a workflow, the function body executes directly and
- * {@link TaskOptions} — retry included — does not apply.
+ * Outside a workflow, or called from inside another task, the function body
+ * executes directly and {@link TaskOptions} — retry included — does not apply:
+ * a task runs as a single job, so the tasks it calls run in that same job.
  *
  * A task runs as its own job, so its result is always encoded as JSON and
  * decoded back before the caller sees it: a `Date` comes back as a string, a
@@ -112,6 +113,9 @@ export function workflow<T>(fn: (...args: any[]) => Promise<T>)
  * `fn`'s result is encoded as JSON and decoded back before it is returned, so
  * the round that runs the body sees the same types every replay sees: a `Date`
  * comes back as a string, a `Map` as `{}`. {@link Jsonified} is that shape.
+ *
+ * Called from inside a task body, `fn` runs in place and nothing is
+ * checkpointed: a task is a single job and is never replayed.
  */
 export async function step<T>(name: string, fn: () => T | Promise<T>,): Promise<Jsonified<Awaited<T>>>
 

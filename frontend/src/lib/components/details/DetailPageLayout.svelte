@@ -129,7 +129,13 @@
 
 					{#snippet content()}
 						<div class="grow min-h-0 overflow-y-auto">
-							<TabContent value="form" class="flex flex-col flex-1 h-full">
+							<!-- The chat holds its open conversation, running turns and draft in component
+							     state, so leaving the tab must not unmount it. -->
+							<TabContent
+								value="form"
+								alwaysMounted={isChatMode}
+								class="flex flex-col flex-1 h-full"
+							>
 								{@render form?.({ graphInline: false })}
 							</TabContent>
 

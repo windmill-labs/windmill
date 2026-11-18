@@ -42,12 +42,14 @@ jobs:
     # skips auto-review for every private member.
     # Dependabot-triggered runs get a separate secret scope, so this job has no API
     # key and cannot review. workflow_call stays open for an explicit request.
+    # `[skip-ai-review]` in the PR body opts out of the automatic run only.
     if: |
       github.event_name == 'workflow_call' ||
       (
         github.event.pull_request.draft == false &&
         github.event.pull_request.head.repo.fork == false &&
-        github.event.pull_request.user.login != 'dependabot[bot]'
+        github.event.pull_request.user.login != 'dependabot[bot]' &&
+        !contains(github.event.pull_request.body, '[skip-ai-review]')
       )
     permissions:
       contents: read
@@ -174,7 +176,7 @@ jobs:
 
       - name: Checkout repository
         if: steps.codex_config.outputs.enabled == 'true' && steps.pr.outputs.skip != 'true'
-        uses: actions/checkout@v5
+        uses: actions/checkout@v5.1.0
         with:
           ref: refs/pull/${{ steps.pr.outputs.pr_number }}/merge
           fetch-depth: 1
@@ -202,7 +204,7 @@ jobs:
 
       - name: Checkout EE repository
         if: steps.ee.outputs.available == 'true'
-        uses: actions/checkout@v5
+        uses: actions/checkout@v5.1.0
         with:
           repository: windmill-labs/windmill-ee-private
           path: ./windmill-ee-private
@@ -216,7 +218,7 @@ jobs:
 
       - name: Set up Node.js
         if: steps.codex_config.outputs.enabled == 'true' && steps.pr.outputs.skip != 'true'
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@v7.1.0
         with:
           node-version: 22
 
@@ -367,7 +369,7 @@ jobs:
 
       - name: Post Codex review comment
         if: steps.codex_config.outputs.enabled == 'true' && steps.pr.outputs.skip != 'true'
-        uses: actions/github-script@v7
+        uses: actions/github-script@v7.1.0
         env:
           PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}

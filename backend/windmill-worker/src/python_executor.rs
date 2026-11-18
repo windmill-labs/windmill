@@ -117,7 +117,7 @@ async fn handle_piptar_uploads(mut rx: tokio::sync::mpsc::UnboundedReceiver<Pipt
 const NSJAIL_CONFIG_DOWNLOAD_PY_CONTENT: &str = include_str!("../nsjail/download.py.config.proto");
 const NSJAIL_CONFIG_RUN_PYTHON3_CONTENT: &str = include_str!("../nsjail/run.python3.config.proto");
 const NSJAIL_CONFIG_LOCK_PY_CONTENT: &str = include_str!("../nsjail/lock.py.config.proto");
-pub const RELATIVE_PYTHON_LOADER: &str = include_str!("../loader.py");
+const RELATIVE_PYTHON_LOADER: &str = include_str!("../loader.py");
 
 /// Every file exchanged with a job is UTF-8 by construction, so the interpreter
 /// must agree. A job env carries no locale: Linux then picks UTF-8 on its own
@@ -129,7 +129,9 @@ pub const PYTHON_UTF8_ENVS: [(&str, &str); 1] = [("PYTHONUTF8", "1")];
 /// Python dict literal. Preview jobs pass a path -> temp-hash map so relative
 /// imports resolve from not-yet-deployed local content; deployed runs pass
 /// `None` which renders an empty dict (deployed resolution unchanged).
-fn render_relative_python_loader(temp_script_refs: &Option<HashMap<String, String>>) -> String {
+pub(crate) fn render_relative_python_loader(
+    temp_script_refs: &Option<HashMap<String, String>>,
+) -> String {
     let temp_refs_py = temp_script_refs
         .as_ref()
         .and_then(|m| serde_json::to_string(m).ok())
@@ -149,15 +151,16 @@ use crate::global_cache::pull_from_tar;
 use windmill_object_store::get_cache_object_store;
 
 use crate::{
+    check_no_network_jailed,
     common::{
         build_command_with_isolation, create_args_and_out_file, get_reserved_variables, read_file,
         read_result, render_nsjail_rlimit_as, resolve_nsjail_timeout,
-        resolve_nsjail_tmp_mount_block, start_child_process, OccupancyMetrics, StreamNotifier,
-        DEV_CONF_NSJAIL,
+        proto_str, resolve_nsjail_tmp_mount_block, start_child_process, OccupancyMetrics,
+        StreamNotifier, DEV_CONF_NSJAIL,
     },
-    get_proxy_envs_for_lang,
+    get_proxy_envs_for_lang, get_run_proxy_envs,
     handle_child::handle_child,
-    is_sandboxing_enabled, read_ee_registry,
+    is_sandboxing_enabled, nsjail_clone_newnet, read_ee_registry,
     worker_utils::ping_job_status,
     PyV, DISABLE_NUSER, HOME_ENV, INDEX_CERT, NATIVE_CERT, NSJAIL_AVAILABLE, NSJAIL_PATH,
     NSJAIL_PY_RLIMIT_AS_MB, PATH_ENV, PIP_EXTRA_INDEX_URL, PIP_INDEX_URL, PROXY_ENVS,
@@ -367,12 +370,12 @@ pub async fn uv_pip_compile(
             args.extend(["--cert", cert_path]);
         }
         if *NATIVE_CERT {
-            args.extend(["--native-tls"]);
+            args.extend(["--system-certs"]);
         }
         if let Some(exclude_newer) = uv_exclude_newer.as_deref() {
             args.extend(["--exclude-newer", exclude_newer]);
         }
-        tracing::debug!("uv args: {:?}", args);
+        tracing::debug!("uv args: {:?}", redact_index_urls(&args));
 
         #[cfg(windows)]
         let uv_cmd = "uv";
@@ -775,6 +778,8 @@ pub async fn handle_python_job(
                 .to_string(),
         ));
     }
+    let jailed = is_sandboxing_enabled() || annotations.sandbox;
+    check_no_network_jailed(annotations.no_network, jailed)?;
 
     // Preview jobs may carry _TEMP_SCRIPT_REFS so relative imports resolve from
     // not-yet-deployed local content uploaded to raw_script_temp. Gated on
@@ -791,7 +796,21 @@ pub async fn handle_python_job(
         None
     };
 
-    let (py_version, mut additional_python_paths) = handle_python_deps(
+    let module_sources = windmill_parser_py_imports::module_sources(&script_path, modules.as_ref());
+    if annotations.no_network {
+        let imports = std::iter::once((script_path.as_str(), inner_content.as_str()))
+            .chain(
+                module_sources
+                    .iter()
+                    .flatten()
+                    .map(|(path, code)| (path.as_str(), code.as_str())),
+            )
+            .flat_map(|(path, code)| {
+                windmill_parser_py_imports::parse_relative_imports(code, path).unwrap_or_default()
+            });
+        crate::check_no_network_imports(imports, &script_path, modules.as_ref(), "Python")?;
+    }
+    let (py_version, mut additional_python_paths) = handle_python_deps_with_modules(
         job_dir,
         requirements_o,
         inner_content,
@@ -807,6 +826,7 @@ pub async fn handle_python_job(
         precomputed_agent_info,
         annotations.clone(),
         &temp_script_refs,
+        module_sources.as_ref(),
     )
     .await?;
 
@@ -836,6 +856,9 @@ pub async fn handle_python_job(
         );
         if annotations.sandbox {
             logs.push_str("sandbox mode (nsjail)\n");
+        }
+        if annotations.no_network {
+            logs.push_str("no network\n");
         }
         append_logs(&job.id, &job.workspace_id, logs, conn).await;
     }
@@ -980,6 +1003,12 @@ except BaseException as e:
         flow_node_id = os.environ.get('WM_FLOW_STEP_ID')
         if flow_node_id:
             err['step_id'] = flow_node_id
+        job_id = os.environ.get('WM_JOB_ID')
+        if job_id:
+            err['job_id'] = job_id
+        flow_path = os.environ.get('WM_FLOW_PATH')
+        if flow_path:
+            err['flow_path'] = flow_path
         err_json = json.dumps(err, separators=(',', ':'), default=str).replace('\n', '')
         f.write(err_json)
         sys.exit(1)
@@ -1050,6 +1079,12 @@ except BaseException as e:
         flow_node_id = os.environ.get('WM_FLOW_STEP_ID')
         if flow_node_id:
             err['step_id'] = flow_node_id
+        job_id = os.environ.get('WM_JOB_ID')
+        if job_id:
+            err['job_id'] = job_id
+        flow_path = os.environ.get('WM_FLOW_PATH')
+        if flow_path:
+            err['flow_path'] = flow_path
         err_json = json.dumps(err, separators=(',', ':'), default=str).replace('\n', '')
         f.write(err_json)
         sys.exit(1)
@@ -1078,6 +1113,7 @@ except BaseException as e:
 
     let mut reserved_variables =
         get_reserved_variables(job, &client.token, conn, parent_runnable_path).await?;
+    crate::strip_no_network_token(&mut reserved_variables, annotations.no_network);
 
     // Add /tmp/windmill/cache/python_x_y_z/global-site-packages to PYTHONPATH.
     // Usefull if certain wheels needs to be preinstalled before execution.
@@ -1110,7 +1146,7 @@ except BaseException as e:
     #[cfg(windows)]
     let additional_python_paths_folders = additional_python_paths_folders.replace(":", ";");
 
-    if is_sandboxing_enabled() || annotations.sandbox {
+    if jailed {
         let shared_deps = additional_python_paths
             .into_iter()
             .map(|pp| {
@@ -1126,6 +1162,7 @@ mount {{
                 )
             })
             .join("\n");
+        let module_mounts = python_module_mounts(job_dir, &dirs, modules.as_ref());
         let nsjail_timeout =
             resolve_nsjail_timeout(conn, &job.workspace_id, job.id, job.timeout).await;
         let _ = write_file(
@@ -1139,8 +1176,13 @@ mount {{
                 .replace("{JOB_DIR}", job_dir)
                 .replace("{PY_INSTALL_DIR}", &*PY_INSTALL_DIR)
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
+                .replace(
+                    "{CLONE_NEWNET}",
+                    nsjail_clone_newnet(annotations.no_network),
+                )
                 .replace("{SHARED_MOUNT}", shared_mount)
                 .replace("{SHARED_DEPENDENCIES}", shared_deps.as_str())
+                .replace("{MODULE_MOUNTS}", &module_mounts)
                 .replace("{GLOBAL_SITE_PACKAGES}", &global_site_packages_path)
                 .replace("{MAIN}", format!("{dirs}/{last}").as_str())
                 .replace(
@@ -1165,7 +1207,7 @@ mount {{
         job.id
     );
 
-    let child = if is_sandboxing_enabled() || annotations.sandbox {
+    let child = if jailed {
         let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
         nsjail_cmd
             .current_dir(job_dir)
@@ -1173,12 +1215,13 @@ mount {{
             // inject PYTHONPATH here - for some reason I had to do it in nsjail conf
             .envs(reserved_variables)
             .envs(
-                get_proxy_envs_for_lang(
+                get_run_proxy_envs(
                     &ScriptLang::Python3,
                     job.kind,
                     &job.id,
                     &job.workspace_id,
                     conn,
+                    annotations.no_network,
                 )
                 .await?,
             )
@@ -1298,6 +1341,28 @@ mount {{
     }
 
     Ok(result)
+}
+
+/// nsjail mounts for a job's module files. They are written next to the main script, and the
+/// jail sees only what it mounts: without these, a module import falls through to the
+/// loader's API fetch. Keys come from the request, hence the containment check and quoting.
+fn python_module_mounts(
+    job_dir: &str,
+    dirs: &str,
+    modules: Option<&HashMap<String, windmill_common::scripts::ScriptModule>>,
+) -> String {
+    modules
+        .into_iter()
+        .flat_map(|m| m.keys())
+        .filter(|rel| crate::worker::is_contained_relative_path(rel))
+        .map(|rel| {
+            format!(
+                "mount {{\n    src: {}\n    dst: {}\n    is_bind: true\n    mandatory: false\n}}\n",
+                proto_str(&format!("{job_dir}/{dirs}/{rel}")),
+                proto_str(&format!("/tmp/{dirs}/{rel}")),
+            )
+        })
+        .join("\n")
 }
 
 /// Generate Python code to spread preprocessor args from `kwargs` into `pre_args`.
@@ -1554,6 +1619,27 @@ from datetime import datetime, date
 
 scripts = {{}}
 
+# `step_id`, `job_id` and `flow_path` are per job, so the worker adds them, not this process.
+def error_json(e, tb):
+    err = {{ "message": str(e), "name": e.__class__.__name__, "stack": '\n'.join(tb[1:]) }}
+    extra = getattr(e, '__dict__', None)
+    if extra:
+        err['extra'] = extra
+    try:
+        return json.dumps(err, separators=(',', ':'), default=str).replace('\n', '')
+    except Exception:
+        pass
+    # A cyclic attribute would raise here and end the process every later job runs in.
+    safe = {{}}
+    for k, v in extra.items():
+        try:
+            json.dumps(v, default=str)
+            safe[k] = v
+        except Exception:
+            safe[k] = '[unserializable]'
+    err['extra'] = safe
+    return json.dumps(err, separators=(',', ':'), default=str).replace('\n', '')
+
 def to_b_64(v: bytes):
     b64 = base64.b64encode(v)
     return b64.decode('ascii')
@@ -1612,7 +1698,7 @@ for line in sys.stdin:
         except BaseException as e:
             exc_type, exc_value, exc_traceback = sys.exc_info()
             tb = traceback.format_tb(exc_traceback)
-            err_json = json.dumps({{ "message": str(e), "name": e.__class__.__name__, "stack": '\n'.join(tb[1:]) }}, separators=(',', ':'), default=str).replace('\n', '')
+            err_json = error_json(e, tb)
             sys.stdout.write("wm_res[error]:" + err_json + "\n")
         sys.stdout.flush()
         continue
@@ -1640,7 +1726,7 @@ for line in sys.stdin:
         except BaseException as e:
             exc_type, exc_value, exc_traceback = sys.exc_info()
             tb = traceback.format_tb(exc_traceback)
-            err_json = json.dumps({{ "message": str(e), "name": e.__class__.__name__, "stack": '\n'.join(tb[1:]) }}, separators=(',', ':'), default=str).replace('\n', '')
+            err_json = error_json(e, tb)
             sys.stdout.write("wm_res[error]:" + err_json + "\n")
         sys.stdout.flush()
         continue
@@ -1658,7 +1744,7 @@ for line in sys.stdin:
         except BaseException as e:
             exc_type, exc_value, exc_traceback = sys.exc_info()
             tb = traceback.format_tb(exc_traceback)
-            err_json = json.dumps({{ "message": str(e), "name": e.__class__.__name__, "stack": '\n'.join(tb[1:]) }}, separators=(',', ':'), default=str).replace('\n', '')
+            err_json = error_json(e, tb)
             sys.stdout.write("wm_res[error]:" + err_json + "\n")
         sys.stdout.flush()
         continue
@@ -1686,7 +1772,7 @@ for line in sys.stdin:
         except BaseException as e:
             exc_type, exc_value, exc_traceback = sys.exc_info()
             tb = traceback.format_tb(exc_traceback)
-            err_json = json.dumps({{ "message": str(e), "name": e.__class__.__name__, "stack": '\n'.join(tb[1:]) }}, separators=(',', ':'), default=str).replace('\n', '')
+            err_json = error_json(e, tb)
             sys.stdout.write("wm_res[error]:" + err_json + "\n")
         sys.stdout.flush()
         continue
@@ -1939,6 +2025,7 @@ async fn replace_pip_secret(
     }
 }
 
+#[cfg(feature = "private")]
 pub(crate) async fn handle_python_deps(
     job_dir: &str,
     requirements_o: Option<&String>,
@@ -1955,6 +2042,45 @@ pub(crate) async fn handle_python_deps(
     precomputed_agent_info: Option<PrecomputedAgentInfo>,
     annotations: PythonAnnotations,
     temp_script_refs: &Option<HashMap<String, String>>,
+) -> error::Result<(PyV, Vec<String>)> {
+    handle_python_deps_with_modules(
+        job_dir,
+        requirements_o,
+        inner_content,
+        w_id,
+        script_path,
+        job_id,
+        conn,
+        worker_name,
+        worker_dir,
+        mem_peak,
+        canceled_by,
+        occupancy_metrics,
+        precomputed_agent_info,
+        annotations,
+        temp_script_refs,
+        None,
+    )
+    .await
+}
+
+async fn handle_python_deps_with_modules(
+    job_dir: &str,
+    requirements_o: Option<&String>,
+    inner_content: &str,
+    w_id: &str,
+    script_path: &str,
+    job_id: &Uuid,
+    conn: &Connection,
+    worker_name: &str,
+    worker_dir: &str,
+    mem_peak: &mut i32,
+    canceled_by: &mut Option<CanceledBy>,
+    occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
+    precomputed_agent_info: Option<PrecomputedAgentInfo>,
+    annotations: PythonAnnotations,
+    temp_script_refs: &Option<HashMap<String, String>>,
+    module_sources: Option<&HashMap<String, String>>,
 ) -> error::Result<(PyV, Vec<String>)> {
     create_dependencies_dir(job_dir).await;
 
@@ -1984,6 +2110,7 @@ pub(crate) async fn handle_python_deps(
                         &mut locked_v,
                         &None,
                         temp_script_refs,
+                        module_sources,
                     ))
                     .await?;
 
@@ -2247,7 +2374,7 @@ async fn spawn_uv_install(
             vars.push(("TRUSTED_HOST", host));
         }
         if *NATIVE_CERT {
-            vars.push(("UV_NATIVE_TLS", "true"));
+            vars.push(("UV_SYSTEM_CERTS", "true"));
         }
         if let Some(timeout) = UV_HTTP_TIMEOUT.as_ref() {
             vars.push(("UV_HTTP_TIMEOUT", timeout.as_str()));
@@ -2371,7 +2498,7 @@ async fn spawn_uv_install(
             });
         }
         if *NATIVE_CERT {
-            command_args.extend(["--native-tls"]);
+            command_args.extend(["--system-certs"]);
         }
         // TODO:
         // Track https://github.com/astral-sh/uv/issues/6715
@@ -2382,7 +2509,10 @@ async fn spawn_uv_install(
             envs.push(("SSL_CERT_FILE", cert_path));
         }
 
-        tracing::debug!("uv pip install command: {:?}", command_args);
+        tracing::debug!(
+            "uv pip install command: {:?}",
+            redact_index_urls(&command_args)
+        );
 
         #[cfg(unix)]
         {
@@ -3513,7 +3643,7 @@ pub async fn start_worker(
     script_path: &str,
     token: &str,
     job_completed_tx: JobCompletedSender,
-    jobs_rx: tokio::sync::mpsc::Receiver<DedicatedWorkerJob>,
+    jobs_rx: &mut tokio::sync::mpsc::Receiver<DedicatedWorkerJob>,
     killpill_rx: tokio::sync::broadcast::Receiver<()>,
     client: windmill_common::client::AuthedClient,
     concurrency_semaphore: Option<std::sync::Arc<tokio::sync::Semaphore>>,
@@ -3673,6 +3803,25 @@ pub async fn start_worker(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn module_files_are_mounted_next_to_the_main_script() {
+        let module = |content: &str| windmill_common::scripts::ScriptModule {
+            content: content.to_string(),
+            language: windmill_common::scripts::ScriptLang::Python3,
+            lock: None,
+        };
+        let modules = HashMap::from([
+            ("lib/util.py".to_string(), module("")),
+            ("../escape.py".to_string(), module("")),
+            ("q\"uote.py".to_string(), module("")),
+        ]);
+        let mounts = super::python_module_mounts("/jobs/1", "u/admin", Some(&modules));
+        assert!(mounts.contains("src: \"/jobs/1/u/admin/lib/util.py\""), "{mounts}");
+        assert!(mounts.contains("dst: \"/tmp/u/admin/lib/util.py\""), "{mounts}");
+        assert!(!mounts.contains("escape"), "{mounts}");
+        assert!(mounts.contains("q\\\"uote.py"), "{mounts}");
+    }
+
     use super::*;
 
     #[test]
@@ -4047,4 +4196,16 @@ mod tests {
         drop(f2);
         let _ = std::fs::remove_file(&lock_path);
     }
+}
+
+/// Index URLs routinely embed `user:token@`, so the value after an index flag is not logged.
+fn redact_index_urls<'a>(args: &[&'a str]) -> Vec<&'a str> {
+    let mut redact_next = false;
+    args.iter()
+        .map(|a| {
+            let out = if redact_next { "<redacted>" } else { a };
+            redact_next = matches!(*a, "--index-url" | "--extra-index-url");
+            out
+        })
+        .collect()
 }

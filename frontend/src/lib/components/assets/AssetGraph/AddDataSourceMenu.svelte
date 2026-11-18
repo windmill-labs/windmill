@@ -32,7 +32,6 @@ webhook, a queue…): the add node's, and the canvas's right-click one.
 			path: string,
 			source: { kind: NativeTriggerKind; path: string | undefined },
 			outputKind: PipelineOutputKind,
-			aiPrompt?: string,
 			options?: PipelineInsertOptions
 		) => void
 		pathPrefix: string
@@ -58,7 +57,6 @@ webhook, a queue…): the add node's, and the canvas's right-click one.
 			pick.path,
 			{ kind: pick.kindId as NativeTriggerKind, path: undefined },
 			(pick.outputKind ?? 'none') as PipelineOutputKind,
-			pick.aiPrompt,
 			{ schedule: pick.schedule, outputAsset: pick.outputAsset }
 		)
 	}

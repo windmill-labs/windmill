@@ -388,10 +388,12 @@ export function gitSyncIncludePattern(
   switch (pathType) {
     case "flow":
       return `${path}.flow/*,${path}__flow/*`;
+    // An app's custom path is a sibling workspace-specific file: the export's
+    // `<path>.custom_path.*` and the checkout's `<path>.<workspace>.custom_path.*`.
     case "app":
-      return `${path}.app/*,${path}__app/*`;
+      return `${path}.app/*,${path}__app/*,${path}.custom_path.*,${path}.*.custom_path.*`;
     case "raw_app":
-      return `${path}.raw_app/**,${path}__raw_app/**`;
+      return `${path}.raw_app/**,${path}__raw_app/**,${path}.custom_path.*,${path}.*.custom_path.*`;
     case "folder":
       return `${path}/folder.meta.*`;
     case "resourcetype":

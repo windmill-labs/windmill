@@ -1,12 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { draftBaseIsStale, deployDraft } from './utils_draft_deploy'
+import { draftBaseIsStale, deployDraft, getDraftDiffValues } from './utils_draft_deploy'
 
 vi.mock('$lib/gen', () => ({
 	ScriptService: { getScriptByPath: vi.fn(), createScript: vi.fn() },
 	FlowService: { getFlowByPath: vi.fn(), createFlow: vi.fn(), updateFlow: vi.fn() },
 	DraftService: { deleteDraft: vi.fn() },
-	AppService: {},
-	VariableService: {},
+	AppService: { getAppByPath: vi.fn(), createApp: vi.fn() },
+	VariableService: { getVariable: vi.fn(), createVariable: vi.fn(), updateVariable: vi.fn() },
 	ResourceService: { getResource: vi.fn(), updateResource: vi.fn(), createResource: vi.fn() },
 	ScheduleService: {},
 	HttpTriggerService: {},
@@ -22,7 +22,7 @@ vi.mock('$lib/gen', () => ({
 	EmailTriggerService: {}
 }))
 vi.mock('$lib/userDraftDbSyncer.svelte', () => ({
-	UserDraftDbSyncer: { save: vi.fn(), recordRemoteSync: vi.fn() }
+	UserDraftDbSyncer: { save: vi.fn(), recordRemoteSync: vi.fn(), onAnySaved: vi.fn() }
 }))
 vi.mock('$lib/workspaceDrafts.svelte', () => ({ invalidateWorkspaceDrafts: vi.fn() }))
 vi.mock('$lib/workspaceComparison', () => ({ invalidateWorkspaceComparison: vi.fn() }))
@@ -31,9 +31,13 @@ vi.mock('$lib/rawAppDeploy', () => ({ deployRawAppDraft: vi.fn() }))
 vi.mock('$lib/components/raw_apps/utils', () => ({ canonicalRawAppDiffValue: vi.fn() }))
 vi.mock('$lib/appDiffSides', () => ({ classicAppDraftParts: vi.fn() }))
 vi.mock('$lib/utils_deployable', () => ({ TRIGGER_RUNTIME_IGNORE: [] }))
+vi.mock('$lib/components/apps/editor/appPolicy', () => ({
+	updatePolicy: vi.fn(async (_app: unknown, policy: unknown) => policy)
+}))
 
-import { ScriptService, FlowService, ResourceService } from '$lib/gen'
+import { ScriptService, FlowService, VariableService, ResourceService, AppService } from '$lib/gen'
 import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
+import { classicAppDraftParts } from '$lib/appDiffSides'
 
 // draftBaseIsStale compares a draft's base pointer against the deployed head
 // of the item it was fetched with (`get_draft=true`). Shared by CompareDrafts
@@ -121,6 +125,205 @@ describe('deployDraft preserves on_behalf_of', () => {
 				})
 			})
 		)
+	})
+
+	it('agent: claims the deployed identity, which its draft never carries', async () => {
+		vi.mocked(ResourceService.getResource).mockResolvedValueOnce({
+			path: 'f/support/triage_agent',
+			resource_type: 'ai_agent',
+			value: { system_prompt: 'deployed', on_behalf_of: 'u/alice' },
+			draft: { path: 'f/support/triage_agent', args: { system_prompt: 'drafted' } }
+		} as any)
+
+		expect(await deployDraft('resource', 'f/support/triage_agent', 'ws')).toEqual({ success: true })
+		expect(ResourceService.updateResource).toHaveBeenCalledWith(
+			expect.objectContaining({
+				requestBody: expect.objectContaining({
+					value: { system_prompt: 'drafted', on_behalf_of: 'u/alice' },
+					preserve_on_behalf_of: true
+				})
+			})
+		)
+	})
+})
+
+// The backend runs an app without `sandbox` same-origin with each viewer's session, and a draft
+// saved before drafts carried the policy has none to give.
+describe('deployDraft: draft-only classic app', () => {
+	beforeEach(() => vi.clearAllMocks())
+
+	it('creates the app sandboxed when its draft carries no policy', async () => {
+		vi.mocked(AppService.getAppByPath).mockResolvedValueOnce({ draft: { grid: [] } } as any)
+		vi.mocked(classicAppDraftParts).mockReturnValueOnce({ value: { grid: [] } } as any)
+
+		expect(await deployDraft('app', 'u/alice/dash', 'ws', { draftOnly: true })).toEqual({
+			success: true
+		})
+		expect(AppService.createApp).toHaveBeenCalledWith(
+			expect.objectContaining({
+				requestBody: expect.objectContaining({
+					policy: expect.objectContaining({ execution_mode: 'publisher', sandbox: true })
+				})
+			})
+		)
+	})
+
+	it('shows the sandboxed policy it deploys in the diff', async () => {
+		vi.mocked(AppService.getAppByPath).mockResolvedValueOnce({ draft: { grid: [] } } as any)
+		vi.mocked(classicAppDraftParts)
+			.mockReturnValueOnce({ value: {} } as any)
+			.mockReturnValueOnce({ value: { grid: [] } } as any)
+
+		const { draft } = await getDraftDiffValues('app', 'u/alice/dash', 'ws', true)
+		expect(draft.policy).toEqual({ sandbox: true })
+	})
+})
+
+// Muting writes to the deployed row at once, so a draft saved before it holds a stale copy, and
+// the backend unmutes on a deploy that sends `false`.
+describe('deployDraft keeps the deployed mute flag', () => {
+	beforeEach(() => vi.clearAllMocks())
+
+	const muted = (call: any) => call[0].requestBody.ws_error_handler_muted
+
+	it('flow and script: sends the deployed flag over a stale draft', async () => {
+		vi.mocked(FlowService.getFlowByPath).mockResolvedValueOnce({
+			ws_error_handler_muted: true,
+			draft: { path: 'f/ops/sync', value: {}, ws_error_handler_muted: false }
+		} as any)
+		await deployDraft('flow', 'f/ops/sync', 'ws')
+		expect(muted(vi.mocked(FlowService.updateFlow).mock.calls[0])).toBe(true)
+
+		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce({
+			hash: 'v1',
+			ws_error_handler_muted: true,
+			draft: { path: 'f/ops/job', ws_error_handler_muted: false }
+		} as any)
+		await deployDraft('script', 'f/ops/job', 'ws')
+		expect(muted(vi.mocked(ScriptService.createScript).mock.calls[0])).toBe(true)
+	})
+
+	it('draft-only flow: sends the flag the draft was muted with', async () => {
+		vi.mocked(FlowService.getFlowByPath).mockResolvedValueOnce({
+			no_deployed: true,
+			draft: { path: 'f/ops/new', value: {}, ws_error_handler_muted: true }
+		} as any)
+		await deployDraft('flow', 'f/ops/new', 'ws', { draftOnly: true })
+		expect(muted(vi.mocked(FlowService.createFlow).mock.calls[0])).toBe(true)
+	})
+})
+
+// The deploy bodies are built field by field, so a forgotten field is dropped silently.
+describe('deployDraft variable value_valid_until', () => {
+	beforeEach(() => vi.clearAllMocks())
+
+	const DATE = '2027-03-15T08:30:00.000Z'
+
+	function mockVariable(deployedExpiry: string | undefined, draftExpiry: string | undefined) {
+		vi.mocked(VariableService.getVariable).mockResolvedValueOnce({
+			path: 'u/admin/key',
+			value: 'v',
+			is_secret: false,
+			description: '',
+			value_valid_until: deployedExpiry,
+			draft: {
+				path: 'u/admin/key',
+				variable: { value: 'v', is_secret: false, description: '' },
+				value_valid_until: draftExpiry
+			}
+		} as any)
+	}
+
+	const updateBody = () =>
+		vi.mocked(VariableService.updateVariable).mock.calls[0][0].requestBody as any
+
+	it('sends a date the draft set on a variable that had none', async () => {
+		mockVariable(undefined, DATE)
+		await deployDraft('variable', 'u/admin/key', 'ws')
+		expect(updateBody().value_valid_until).toBe(DATE)
+	})
+
+	it('sends null when the draft cleared the deployed date', async () => {
+		mockVariable(DATE, undefined)
+		await deployDraft('variable', 'u/admin/key', 'ws')
+		expect(updateBody().value_valid_until).toBeNull()
+	})
+
+	it('omits it when the draft leaves the deployed date alone', async () => {
+		mockVariable(DATE, DATE)
+		await deployDraft('variable', 'u/admin/key', 'ws')
+		expect(updateBody().value_valid_until).toBeUndefined()
+	})
+
+	it('omits it when the draft spells the deployed moment differently', async () => {
+		mockVariable('2027-03-15T08:30:00Z', DATE)
+		await deployDraft('variable', 'u/admin/key', 'ws')
+		expect(updateBody().value_valid_until).toBeUndefined()
+	})
+
+	it('carries the date onto a draft-only variable', async () => {
+		mockVariable(undefined, DATE)
+		await deployDraft('variable', 'u/admin/key', 'ws', { draftOnly: true })
+		const body = vi.mocked(VariableService.createVariable).mock.calls[0][0].requestBody as any
+		expect(body.value_valid_until).toBe(DATE)
+	})
+})
+
+// The backend skips the dependency job when `lock` is set, so a draft that inherited the
+// deployed lock would deploy new content against the old lockfile.
+describe('deployDraft: script lock', () => {
+	beforeEach(() => vi.clearAllMocks())
+
+	it('never sends the draft lock, so the backend relocks', async () => {
+		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce({
+			hash: 'v1',
+			draft: {
+				path: 'f/admin/fetch',
+				content: 'import requests',
+				lock: 'certifi==2024.1.1',
+				lock_error_logs: 'old error'
+			}
+		} as any)
+
+		await deployDraft('script', 'f/admin/fetch', 'ws')
+		const body = vi.mocked(ScriptService.createScript).mock.calls[0][0].requestBody
+		expect(body).not.toHaveProperty('lock')
+		expect(body).not.toHaveProperty('lock_error_logs')
+	})
+
+	it('flow: drops the lock of a step whose code differs from the deployed one only', async () => {
+		const step = (id: string, content: string) => ({
+			id,
+			value: { type: 'rawscript', language: 'python3', content, lock: 'requests==2.0' }
+		})
+		vi.mocked(FlowService.getFlowByPath).mockResolvedValueOnce({
+			value: { modules: [step('edited', 'import requests'), step('kept', 'import requests')] },
+			draft: {
+				path: 'f/admin/flow',
+				value: { modules: [step('edited', 'import yaml'), step('kept', 'import requests')] }
+			}
+		} as any)
+
+		await deployDraft('flow', 'f/admin/flow', 'ws')
+		const [edited, kept] = vi.mocked(FlowService.updateFlow).mock.calls[0][0].requestBody.value
+			.modules as any[]
+		expect(edited.value).not.toHaveProperty('lock')
+		expect(kept.value.lock).toBe('requests==2.0')
+	})
+
+	// A never-deployed flow is often a copy or an import, whose locks match its code.
+	it('flow: keeps every lock when nothing is deployed to compare against', async () => {
+		const step = { id: 'copied', value: { type: 'rawscript', content: 'x', lock: 'requests==2.0' } }
+		vi.mocked(FlowService.getFlowByPath).mockResolvedValueOnce({
+			no_deployed: true,
+			value: { modules: [step] },
+			draft: { path: 'f/admin/copy', value: { modules: [step] } }
+		} as any)
+
+		await deployDraft('flow', 'f/admin/copy', 'ws', { draftOnly: true })
+		const [copied] = vi.mocked(FlowService.createFlow).mock.calls[0][0].requestBody.value
+			.modules as any[]
+		expect(copied.value.lock).toBe('requests==2.0')
 	})
 })
 

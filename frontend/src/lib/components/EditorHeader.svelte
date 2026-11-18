@@ -4,6 +4,7 @@
 	import PathEditPopover from '$lib/components/PathEditPopover.svelte'
 	import {
 		dirKey,
+		editPathFor,
 		KIND_LABEL_LOWER,
 		kindKey,
 		leafKeyFor,
@@ -22,7 +23,8 @@
 		 * item at that same path even though the rename hasn't been deployed). */
 		savedPath?: string
 		/** Kind of the item being edited; used to label the first breadcrumb segment. */
-		kind?: WorkspaceItemKind
+		/** The agent editor draws its own header. */
+		kind?: Exclude<WorkspaceItemKind, 'agent'>
 		/** True when editing a raw app — forwarded into the virtual `currentItem`
 		 * so the picker / `editPathFor` can route to `/apps_raw/...`. */
 		raw_app?: boolean
@@ -106,6 +108,7 @@
 					isCurrent={!segments}
 					{currentItem}
 					{workspaceId}
+					itemHref={editPathFor}
 					onPick={handlePickerSelect}
 				/>
 				{#if segments}
@@ -121,6 +124,7 @@
 							initialHighlight={dKey}
 							{currentItem}
 							{workspaceId}
+							itemHref={editPathFor}
 							onPick={handlePickerSelect}
 						/>
 					{/each}
@@ -137,6 +141,7 @@
 						isCurrent
 						{currentItem}
 						{workspaceId}
+						itemHref={editPathFor}
 						onPick={handlePickerSelect}
 					/>
 				{/if}

@@ -67,7 +67,7 @@
 		<Alert type="error" title="Could not connect">{error}</Alert>
 		{#if returnTo}
 			<div class="flex justify-center pt-4">
-				<Button variant="default" unifiedSize="md" onclick={() => goto(returnTo!)}>Go back</Button>
+				<Button variant="default" unifiedSize="md" href={returnTo}>Go back</Button>
 			</div>
 		{/if}
 	{/if}

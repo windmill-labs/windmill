@@ -1,48 +1,129 @@
-import { derived, type Readable } from 'svelte/store'
-import { userWorkspaces, workspaceStore } from '$lib/stores'
-import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+import { getContext, setContext } from 'svelte'
+import { derived, fromStore, get, readable, toStore, type Readable } from 'svelte/store'
+import type { RoleCapabilities } from '$lib/gen'
+import { userStore, userWorkspaces, usersWorkspaceStore, workspaceStore } from '$lib/stores'
+import {
+	useOperatingWorkspace,
+	useReadOnlyWorkspace
+} from '$lib/components/operatingWorkspace.svelte'
+import { useActingUser } from '$lib/actingUser.svelte'
+import { canDraftItem, canEditItem, roleCanAuthor, roleCanDraft } from '$lib/editRights'
+import { capabilitiesIn, withoutBuilding } from '$lib/roleCapabilities'
 
 /**
- * Why writes of this kind are locked in the operating workspace, or `undefined` when they are not —
- * the shape `title` and `disabled` both want. See `docs/operator-write-rights.md`.
- *
- * Only `false` locks. A workspace that never configured the key and a non-operator (whose
- * `operator_settings` is null) both hold the right, so `=== true` here would disable the controls
- * for everyone.
+ * The `editRights` rules (`roleCanAuthor` / `canEditItem` for the item handlers, `roleCanDraft` /
+ * `canDraftItem` for drafts) answered for the user acting in the operating workspace, with their
+ * role's capabilities there, or in `workspace`, for a component that is handed one rather than
+ * sitting under a host that declares it. Reads context and registers an effect: call during
+ * component initialisation.
  */
-function writeLock(key: 'manage_schedules' | 'manage_triggers', noun: string) {
-	return derived([userWorkspaces, useOperatingWorkspace()], ([$userWorkspaces, $workspace]) => {
-		const settings = $userWorkspaces.find((w) => w.id === $workspace)?.operator_settings
+export function useEditRights(workspace?: () => string | undefined) {
+	const operating = fromStore(useOperatingWorkspace())
+	const ws = workspace ?? (() => operating.current)
+	const user = useActingUser(ws)
+	const readOnly = useReadOnlyWorkspace()
+	const workspaces = fromStore(userWorkspaces)
+	const open = () => !readOnly(ws())
+	// A read-only workspace leaves the role building nothing, so a gate reading `capabilities`
+	// follows it as the four checks below do. Those keep their own guard: every role edits
+	// resources and variables.
+	const caps = () => {
+		const roleCaps = capabilitiesIn(
+			user.current,
+			workspaces.current.find((w) => w.id === ws())
+		)
+		return open() ? roleCaps : withoutBuilding(roleCaps)
+	}
+	return {
+		get capabilities(): RoleCapabilities {
+			return caps()
+		},
+		roleCanAuthor: (kind: string) => open() && roleCanAuthor(kind, caps()),
+		canEditItem: (kind: string, path: string, extraPerms: Record<string, boolean> | undefined) =>
+			open() && canEditItem(kind, path, extraPerms, user.current, caps()),
+		roleCanDraft: (kind: string) => open() && roleCanDraft(kind, caps()),
+		canDraftItem: (kind: string, path: string, extraPerms: Record<string, boolean> | undefined) =>
+			open() && canDraftItem(kind, path, extraPerms, user.current, caps()),
+		/** This hook looks the user up on its own, so an editor that retries a failed lookup on
+		 *  its acting user (`forgetFailures`) must retry this one too, or it stays read-only. */
+		forgetFailures: () => user.forgetFailures()
+	}
+}
+
+type EditRights = ReturnType<typeof useEditRights>
+const EDIT_RIGHTS_KEY = Symbol('editRights')
+
+/** A list's rows all act as the same user in the same workspace, so they read the list's
+ *  `useEditRights` instance rather than each setting up their own. */
+export function shareEditRights(rights: EditRights): EditRights {
+	setContext(EDIT_RIGHTS_KEY, rights)
+	return rights
+}
+
+/** Only under a component that called `shareEditRights`: elsewhere there is no instance and the
+ *  first check throws. */
+export function getSharedEditRights(): EditRights {
+	return getContext<EditRights>(EDIT_RIGHTS_KEY)
+}
+
+/**
+ * The role's capabilities in `workspace`, from the workspace list alone: `$userStore` describes
+ * only the navigation workspace, so elsewhere only superadmin carries over. Admins get full
+ * capabilities from the server's list.
+ */
+function capabilitiesStore(workspace: Readable<string | undefined>): Readable<RoleCapabilities> {
+	return derived(
+		[userStore, workspaceStore, userWorkspaces, workspace],
+		([$user, $nav, $workspaces, $ws]) =>
+			capabilitiesIn(
+				$ws === $nav && $user?.workspace_id === $ws
+					? $user
+					: { is_super_admin: $user?.is_super_admin },
+				$workspaces.find((w) => w.id === $ws)
+			)
+	)
+}
+
+/** The role's capabilities in the operating workspace. Reads context: call during component
+ * initialisation. Code outside any component reads `roleCapabilities` (navigation workspace) or
+ * `capabilitiesInWorkspace`. */
+export const useRoleCapabilities = () => capabilitiesStore(useOperatingWorkspace())
+
+/** The role's capabilities in a given workspace, read once: for code acting on an explicit
+ * workspace rather than the nav's, such as the global AI chat. */
+export const capabilitiesInWorkspace = (workspace: string | undefined) =>
+	get(capabilitiesStore(readable(workspace)))
+
+/**
+ * Why writes of this kind are locked in the operating workspace, or `undefined` when they are not:
+ * the shape `title` and `disabled` both want. See `docs/operator-write-rights.md`.
+ */
+function writeLock(kind: 'schedule' | 'trigger', noun: string) {
+	const workspace = fromStore(useOperatingWorkspace())
+	const readOnly = useReadOnlyWorkspace()
+	// A store, so a session switched to Use mid-page locks the toggles already shown.
+	const sessionReadOnly = toStore(() => readOnly(workspace.current))
+	return derived([useRoleCapabilities(), sessionReadOnly], ([caps, inUse]) => {
+		if (inUse) return `A session in Use mode cannot manage ${noun}`
 		// Worded as the server words its refusal of the same write.
-		return settings?.[key] === false
-			? `Operators cannot manage ${noun} in this workspace`
-			: undefined
+		return roleCanAuthor(kind, caps)
+			? undefined
+			: `Your role cannot manage ${noun} in this workspace`
 	})
 }
 
 /** Reads context: call during component initialisation. */
-export const useScheduleLock = () => writeLock('manage_schedules', 'schedules')
+export const useScheduleLock = () => writeLock('schedule', 'schedules')
 /** Reads context: call during component initialisation. */
-export const useTriggerLock = () => writeLock('manage_triggers', 'triggers')
+export const useTriggerLock = () => writeLock('trigger', 'triggers')
 
-/**
- * True when the user is an operator of `workspace` and it granted operators the right to compose
- * flows out of runnables that are already deployed. They still author no code, and everywhere else
- * `operator` keeps meaning read-only, so a gate on the operator role has to consult this before
- * refusing. `operator_settings` is null for a non-operator, so this is false for them.
- */
-function builderFlows(workspace: Readable<string | undefined>): Readable<boolean> {
-	return derived(
-		[userWorkspaces, workspace],
-		([$userWorkspaces, $workspace]) =>
-			$userWorkspaces.find((w) => w.id === $workspace)?.operator_settings?.builder_flows === true
-	)
+/** Resolves once the workspace list has loaded. Capabilities fall back to the user's legacy
+ * operator flag until then, so code that picks what a builder starts with on a fresh page load
+ * has to wait for it. */
+export async function workspaceListLoaded(): Promise<void> {
+	let unsubscribe = () => {}
+	await new Promise<void>((resolve) => {
+		unsubscribe = usersWorkspaceStore.subscribe((list) => list && resolve())
+	})
+	unsubscribe()
 }
-
-/** Builder rights in the operating workspace. Reads context: call during component
- * initialisation. */
-export const useOperatorBuilderFlows = () => builderFlows(useOperatingWorkspace())
-
-/** Builder rights in the navigation workspace, for code outside any component: the legacy AI
- * chat is one instance for the whole app and acts on the workspace the nav is on. */
-export const navigationOperatorBuilderFlows = builderFlows(workspaceStore)

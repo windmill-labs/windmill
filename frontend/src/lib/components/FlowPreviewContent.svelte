@@ -28,7 +28,7 @@
 		RefreshCw,
 		X
 	} from 'lucide-svelte'
-	import { DynamicInput, sendUserToast, type StateStore } from '$lib/utils'
+	import { apiErrorMessage, DynamicInput, sendUserToast, type StateStore } from '$lib/utils'
 	import { dfs } from './flows/dfs'
 	import { sliceModules } from './flows/flowStateUtils.svelte'
 	import InputSelectedBadge from './schema/InputSelectedBadge.svelte'
@@ -48,9 +48,12 @@
 		useOperatingUser,
 		useOperatingWorkspace
 	} from '$lib/components/operatingWorkspace.svelte'
+	import { previewOnBehalfOf } from '$lib/utils/previewOnBehalfOf'
+	import { useRoleCapabilities } from '$lib/operatorWriteRights'
 
 	const operatingWorkspace = useOperatingWorkspace()
 	const operatingUser = useOperatingUser()
+	const roleCaps = useRoleCapabilities()
 
 	interface Props {
 		previewMode: 'upTo' | 'whole'
@@ -211,7 +214,12 @@
 				restartedFrom,
 				conversationId,
 				devTempScriptRefs?.(),
-				opWorkspace?.()
+				opWorkspace?.(),
+				previewOnBehalfOf(
+					operatingUser.current,
+					flowStore.val.on_behalf_of,
+					flowStore.val.on_behalf_of_email
+				)
 			)
 			jobId = newJobId
 			isRunning = true
@@ -226,7 +234,7 @@
 			// The chat follows the turn its conversation is still answering rather than
 			// reporting a failed run, so the refusal goes back to it.
 			if (conversationId && e instanceof ApiError && e.status === 409) throw e
-			sendUserToast('Could not run preview', true, undefined, e.toString())
+			sendUserToast('Could not run preview', true, undefined, apiErrorMessage(e))
 		}
 		schemaFormWithArgPicker?.refreshHistory()
 		return newJobId
@@ -562,7 +570,7 @@
 												| ScriptLang
 												| undefined,
 											$initialPathStore,
-											operatingUser.current?.operator
+											!$roleCaps.code
 										)}
 									/>
 								</div>

@@ -13,7 +13,6 @@
 		type ResolvedExpandedSubflowStep
 	} from '../expandedSubflowStep'
 	import { parseExpandedSubflowId } from '$lib/components/restartFromStepPath'
-	import { base } from '$app/paths'
 	import FlowPanelChrome from '../common/FlowPanelChrome.svelte'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
@@ -122,7 +121,7 @@
 					title="Open the subflow in a new tab"
 					startIcon={{ icon: ExternalLink }}
 					iconOnly
-					href={`${base}/flows/edit/${containingFlowPath}?workspace=${encodeURIComponent(
+					href={`/flows/edit/${containingFlowPath}?workspace=${encodeURIComponent(
 						opWs ?? ''
 					)}${module ? `&selected=${encodeURIComponent(leafId)}` : ''}`}
 					target="_blank"

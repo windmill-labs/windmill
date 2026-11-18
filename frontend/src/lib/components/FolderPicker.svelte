@@ -103,6 +103,10 @@
 				// switching the owner toggle from "Folder" back to "User".
 				if (!$userStore.folders) $userStore.folders = []
 				$userStore.folders.push(saved)
+				// Ownership is checked against `folders_owners` (`isOwner`), which is only
+				// resent on the next whoami: without this, items saved in the new folder
+				// keep owner-only actions such as Delete disabled until a reload.
+				$userStore.folders_owners.push(saved)
 			}
 		}
 		await loadFolders()

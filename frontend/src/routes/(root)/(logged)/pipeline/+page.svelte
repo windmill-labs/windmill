@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { roleCapabilities, workspaceStore } from '$lib/stores'
 	import PipelineFolderList from '$lib/components/assets/AssetGraph/PipelineFolderList.svelte'
 	import PipelineSetupSignpost from '$lib/components/assets/AssetGraph/PipelineSetupSignpost.svelte'
 	import PipelineAlphaAckModal from '$lib/components/assets/AssetGraph/PipelineAlphaAckModal.svelte'
@@ -64,12 +64,12 @@
 				</a>
 			</div>
 
-			{#if !$userStore?.operator && $workspaceStore}
+			{#if $roleCapabilities.code && $workspaceStore}
 				<PipelineSetupSignpost workspace={$workspaceStore} />
 			{/if}
 
-			<!-- Operators cannot pick an arbitrary folder, so the list is their only way in. -->
-			<PipelineFolderList hideExisting={!$userStore?.operator} />
+			<!-- A role without code cannot pick an arbitrary folder, so the list is its only way in. -->
+			<PipelineFolderList hideExisting={$roleCapabilities.code} />
 		</div>
 	</div>
 </div>

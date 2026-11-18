@@ -1,0 +1,35 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT c.id AS \"id!\", ws.large_file_storage,\n                  EXISTS (SELECT 1 FROM fork_storage_namespace f\n                          WHERE f.workspace_id = c.id AND f.storage = $2) AS \"isolated!\"\n           FROM unnest($1::text[]) WITH ORDINALITY AS c(id, ord)\n           LEFT JOIN workspace_settings ws ON ws.workspace_id = c.id\n           ORDER BY c.ord",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "large_file_storage",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 2,
+        "name": "isolated!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "TextArray",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null,
+      true,
+      null
+    ]
+  },
+  "hash": "a37dec4e86f537880d45da01ce872ae5b7858a087cb4eb5869573fff69c1c6b9"
+}

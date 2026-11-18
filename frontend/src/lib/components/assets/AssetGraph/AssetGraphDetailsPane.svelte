@@ -2,7 +2,6 @@
 	import { ScriptService, type Script, type ScriptLang } from '$lib/gen'
 	import { untrack } from 'svelte'
 	import { resource } from 'runed'
-	import { base } from '$lib/base'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import ScriptEditor from '$lib/components/ScriptEditor.svelte'
 	import AssetGenericIcon from '$lib/components/icons/AssetGenericIcon.svelte'
@@ -926,7 +925,12 @@
 			sendUserToast(`Saved ${script.path}`)
 			// Authoritative save-time schema-contract check (pipelines gap #2b):
 			// warn-only, post-commit. Fire-and-forget — must never gate the save.
-			notifyContractWarnings(workspace, script.language as ScriptLang, script.content)
+			notifyContractWarnings(
+				workspace,
+				script.language as ScriptLang,
+				script.content,
+				script.path
+			)
 			if (isDraft) {
 				onDraftSaved?.(script.path)
 			} else {
@@ -1192,8 +1196,8 @@
 					variant="subtle"
 					unifiedSize="sm"
 					href={selection.runnable_kind === 'flow'
-						? `${base}/flows/edit/${selection.path}`
-						: `${base}/scripts/edit/${selection.path}`}
+						? `/flows/edit/${selection.path}`
+						: `/scripts/edit/${selection.path}`}
 					target="_blank"
 					startIcon={{ icon: ExternalLink }}
 					iconOnly
@@ -1385,7 +1389,7 @@
 				{#if readOnly}
 					Flows have no inline view here. Open <a
 						class="text-blue-600 hover:underline"
-						href="{base}/flows/get/{selection.path}">the flow page</a
+						href="/flows/get/{selection.path}">the flow page</a
 					> for details and runs.
 				{:else}
 					Flows are not editable inline. Use the open-in-editor button above.

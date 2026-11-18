@@ -98,7 +98,12 @@
 			title={config.readOnly ? config.readOnlyReason : config.title}
 		>
 			<span class="flex items-center gap-1 min-w-0">
-				<span class="truncate">{config.label}</span>
+				{#if config.shortLabel}
+					<span class="truncate hidden xl:inline">{config.label}</span>
+					<span class="truncate xl:hidden">{config.shortLabel}</span>
+				{:else}
+					<span class="truncate">{config.label}</span>
+				{/if}
 				{#if effortLabel}
 					<span class="shrink-0 text-tertiary">· {effortLabel}</span>
 				{/if}

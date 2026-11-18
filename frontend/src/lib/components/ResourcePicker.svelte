@@ -20,6 +20,9 @@
 		value?: string | undefined
 		valueType?: string | undefined
 		resourceType?: string | undefined
+		/** Further resource types whose resources are offered alongside `resourceType`'s. New
+		 *  resources are still created as `resourceType`. */
+		additionalResourceTypes?: string[]
 		disabled?: boolean
 		disablePortal?: boolean
 		showSchemaExplorer?: boolean
@@ -34,7 +37,6 @@
 		excludedValues?: string[]
 		datatableAsPgResource?: boolean
 		workspace?: string | undefined
-		disableChatOffset?: boolean
 		/** Fires when this picker sets a resource, with the type it carries, and with `undefined` on
 		 *  clear. Unlike an effect on `valueType` it never fires for the value the picker was opened
 		 *  on, but `selectFirst` choosing the only candidate during a load does count as setting one. */
@@ -46,6 +48,7 @@
 		value = $bindable(undefined),
 		valueType = $bindable(undefined),
 		resourceType = undefined,
+		additionalResourceTypes = [],
 		disabled = false,
 		disablePortal = false,
 		showSchemaExplorer = false,
@@ -60,7 +63,6 @@
 		excludedValues = undefined,
 		datatableAsPgResource = false,
 		workspace = undefined,
-		disableChatOffset = false,
 		onValueChange = undefined
 	}: Props = $props()
 
@@ -114,8 +116,10 @@
 	async function loadResources(resourceType: string | undefined) {
 		loading = true
 		try {
-			const resourceTypesToQuery =
-				resourceType === 'snowflake' ? ['snowflake', 'snowflake_oauth'] : [resourceType]
+			const resourceTypesToQuery = [
+				...(resourceType === 'snowflake' ? ['snowflake', 'snowflake_oauth'] : [resourceType]),
+				...additionalResourceTypes
+			]
 
 			const resources = await Promise.all(
 				resourceTypesToQuery.map((rt) =>
@@ -209,12 +213,10 @@
 	bind:this={appConnect}
 	{expressOAuthSetup}
 	{workspace}
-	{disableChatOffset}
 />
 <ResourceEditorDrawer
 	bind:this={resourceEditor}
 	{workspace}
-	{disableChatOffset}
 	on:refresh={async (e) => {
 		await loadResources(resourceType)
 		if (e.detail) {

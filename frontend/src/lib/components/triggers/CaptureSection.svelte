@@ -31,7 +31,6 @@
 	import { formatDateShort } from '$lib/utils'
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
 	import DisplayResultControlBar from '$lib/components/DisplayResultControlBar.svelte'
-	import { base } from '$lib/base'
 	import Description from '$lib/components/Description.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { FlaskConical } from 'lucide-svelte'
@@ -463,7 +462,6 @@
 
 			{#if displayResult && toolbarLocation === 'external'}
 				<DisplayResultControlBar
-					{base}
 					result={selectedCapture?.main_args}
 					disableTooltips={false}
 					on:open-drawer={() => {

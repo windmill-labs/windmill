@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { buildWsUrl } from '$lib/wsUrl'
+	import { MultiplayerConnection } from '$lib/multiplayerConnection'
 	import { paneMinPercent } from '$lib/utils/splitpaneSizing'
 	import { processSecretArgs } from './secretArgUtils'
 	import type { Schema, SupportedLanguage } from '$lib/common'
@@ -36,7 +36,6 @@
 	import * as Y from 'yjs'
 	import { scriptLangToEditorLang } from '$lib/scripts'
 	import { langToExt } from '$lib/editorLangUtils'
-	import { WebsocketProvider } from 'y-websocket'
 	import Modal from './common/modal/Modal.svelte'
 	import Popover from './meltComponents/Popover.svelte'
 	import DiffEditor from './DiffEditor.svelte'
@@ -47,7 +46,6 @@
 		CornerDownLeft,
 		Disc,
 		Download,
-		ExternalLink,
 		Github,
 		GitBranch,
 		Play,
@@ -56,7 +54,6 @@
 		Target,
 		Terminal,
 		Pencil,
-		WandSparkles,
 		X,
 		Zap
 	} from 'lucide-svelte'
@@ -73,7 +70,6 @@
 		getDebugFileExtension,
 		fetchContextualVariables,
 		signDebugRequest,
-		signMultiplayerRequest,
 		getDebugErrorMessage
 	} from '$lib/components/debug'
 	import { SvelteSet } from 'svelte/reactivity'
@@ -87,7 +83,6 @@
 	import CaptureButton from './triggers/CaptureButton.svelte'
 	import { setContext } from 'svelte'
 	import HideButton from './apps/editor/settingsPanel/HideButton.svelte'
-	import { base } from '$lib/base'
 	import DispatchEventsButton from '$lib/components/runs/DispatchEventsButton.svelte'
 	import { SUPPORTED_CHAT_SCRIPT_LANGUAGES } from './copilot/chat/script/core'
 	import { getStringError } from './copilot/chat/utils'
@@ -121,7 +116,6 @@
 	import GitRepoViewer from './GitRepoViewer.svelte'
 	import GitRepoResourcePicker from './GitRepoResourcePicker.svelte'
 	import { updateDelegateToGitRepoConfig, insertAdditionalInventories } from '$lib/ansibleUtils'
-	import { copilotInfo } from '$lib/aiStore'
 	import JsonInputs from '$lib/components/JsonInputs.svelte'
 	import { argsToJsonPayload } from '$lib/schema'
 	import Toggle from './Toggle.svelte'
@@ -140,6 +134,8 @@
 		code: string
 		path: string | undefined
 		lang: Preview['language']
+		/** Identity the test runs as instead of the user (see `previewOnBehalfOf`). */
+		previewOnBehalfOf?: string
 		kind?: string | undefined
 		autoKind?: string | undefined
 		template?:
@@ -241,6 +237,7 @@
 		code = $bindable(),
 		path,
 		lang,
+		previewOnBehalfOf,
 		kind = undefined,
 		autoKind = undefined,
 		template = 'script',
@@ -756,7 +753,8 @@
 			workspace,
 			bufferCode,
 			(res.assets ?? []) as AssetWithAltAccessType[],
-			schemaContractContext
+			schemaContractContext,
+			path
 		)
 			.then((markers) => {
 				if (seq === contractCheckSeq) contractMarkers = markers
@@ -819,7 +817,11 @@
 		| undefined = undefined
 	let downloadingRecording = $state(false)
 
-	let wsProvider: WebsocketProvider | undefined = $state(undefined)
+	let collab: MultiplayerConnection | undefined = $state(undefined)
+	// Bumped on every disable, so a connection that finishes opening after collaboration
+	// was turned off or the editor unmounted is dropped instead of reconnecting forever.
+	// Declared here because `?collab=1` calls setCollaborationMode during init, below.
+	let collabGeneration = 0
 	let yContent: Y.Text | undefined = $state(undefined)
 	let peers: { name: string }[] = $state([])
 	let showCollabPopup = $state(false)
@@ -995,7 +997,8 @@
 			// A `__mod` helper is tested alone, so its siblings are left out.
 			onModule ? undefined : modules,
 			undefined,
-			timeout
+			timeout,
+			{ onBehalfOf: previewOnBehalfOf }
 		)
 		if (job) {
 			onTestJob?.({ jobId: job })
@@ -1542,6 +1545,7 @@
 
 	setLicense()
 	export async function setCollaborationMode() {
+		const generation = ++collabGeneration
 		await setLicense()
 		if (!$enterpriseLicense) {
 			sendUserToast(`Multiplayer is an enterprise feature`, true, [
@@ -1555,29 +1559,32 @@
 			return
 		}
 
-		let token: string | undefined
+		const ydoc = new Y.Doc()
+		let yContentInit = ydoc.getText('content')
+
+		let opened: MultiplayerConnection
 		try {
-			token = await signMultiplayerRequest(opWs ?? '')
+			opened = await MultiplayerConnection.open(
+				opWs ?? '',
+				opWs + '/' + (path ?? 'no-room-name'),
+				ydoc
+			)
 		} catch (e) {
 			console.error('Failed to sign multiplayer request:', e)
 			sendUserToast('Failed to authorize multiplayer session', true)
 			return
 		}
-
-		const ydoc = new Y.Doc()
-		if (wsProvider) {
-			wsProvider.destroy()
+		if (generation !== collabGeneration) {
+			opened.destroy()
+			return
 		}
-		let yContentInit = ydoc.getText('content')
+		collab?.destroy()
+		collab = opened
 
-		wsProvider = new WebsocketProvider(
-			buildWsUrl('/ws_mp/'),
-			opWs + '/' + (path ?? 'no-room-name'),
-			ydoc,
-			{ connect: false, params: { token } }
-		)
-
-		wsProvider.on('sync', (isSynced: boolean) => {
+		// One toast per outage: the connection keeps retrying on its own.
+		let errorToastShown = false
+		opened.provider.on('sync', (isSynced: boolean) => {
+			if (isSynced) errorToastShown = false
 			if (isSynced && yContentInit?.toJSON() == '') {
 				showCollabPopup = true
 				yContentInit?.insert(0, code)
@@ -1585,12 +1592,13 @@
 			yContent = yContentInit
 		})
 
-		wsProvider.on('connection-error', (WSErrorEvent) => {
+		opened.provider.on('connection-error', (WSErrorEvent) => {
 			console.error(WSErrorEvent)
+			if (errorToastShown) return
+			errorToastShown = true
 			sendUserToast('Multiplayer server connection had an error', true)
 		})
-		wsProvider.connect()
-		const awareness = wsProvider.awareness
+		const awareness = opened.provider.awareness
 
 		awareness.setLocalStateField('user', {
 			name: $userStore?.username
@@ -1608,11 +1616,11 @@
 	}
 
 	export function disableCollaboration() {
-		if (!wsProvider?.shouldConnect) return
+		collabGeneration++
+		if (!collab) return
 		peers = []
-		wsProvider?.disconnect()
-		wsProvider.destroy()
-		wsProvider = undefined
+		collab.destroy()
+		collab = undefined
 	}
 
 	onDestroy(() => {
@@ -1894,7 +1902,7 @@
 				workspace={opWs}
 				scriptPath={edit ? path : undefined}
 				on:toggleCollabMode={() => {
-					if (wsProvider?.shouldConnect) {
+					if (collab) {
 						disableCollaboration()
 					} else {
 						setCollaborationMode()
@@ -1903,7 +1911,7 @@
 				on:showDiffMode={showDiffMode}
 				on:hideDiffMode={hideDiffMode}
 				customUi={customUi?.editorBar}
-				collabLive={wsProvider?.shouldConnect}
+				collabLive={collab !== undefined}
 				{collabMode}
 				{validCode}
 				{validAssets}
@@ -2254,7 +2262,7 @@
 									<div class="flex items-center gap-2">
 										<a
 											class="text-3xs text-blue-600 hover:underline font-mono"
-											href={`${base}/run/${testJob.id}?workspace=${opWs}`}
+											href={`/run/${testJob.id}?workspace=${opWs}`}
 											target="_blank"
 											rel="noopener noreferrer"
 											title="Open this run"
@@ -2715,43 +2723,9 @@
 						}}
 					/>
 				{/if}
-				{#if !aiChatManager.open && !disableAi && !inSessionPane}
+				{#if !disableAi && !inSessionPane}
 					{#if customUi?.editorBar?.aiGen != false && SUPPORTED_CHAT_SCRIPT_LANGUAGES.includes(lang ?? '')}
-						<OpenInSessionButton source={sessionOpen}>
-							{#snippet fallback()}
-								<HideButton
-									hidden={true}
-									direction="right"
-									panelName="AI"
-									shortcut="L"
-									unifiedSize="sm"
-									usePopoverOverride={!$copilotInfo.enabled}
-									customHiddenIcon={{
-										icon: WandSparkles
-									}}
-									btnClasses="!text-ai"
-									variant="default"
-									on:click={() => {
-										if (!aiChatManager.open) {
-											aiChatManager.changeMode(AIMode.SCRIPT)
-										}
-										aiChatManager.toggleOpen()
-									}}
-								>
-									{#snippet popoverOverride()}
-										<div class="text-sm">
-											Enable Windmill AI in the <a
-												href="{base}/workspace_settings?tab=ai"
-												target="_blank"
-												class="inline-flex flex-row items-center gap-1"
-											>
-												workspace settings <ExternalLink size={16} />
-											</a>
-										</div>
-									{/snippet}
-								</HideButton>
-							{/snippet}
-						</OpenInSessionButton>
+						<OpenInSessionButton source={sessionOpen} deferToHeader />
 					{/if}
 				{/if}
 			</div>
@@ -2793,7 +2767,7 @@
 			bind:this={editor}
 			schemaContractMarkers={contractMarkers}
 			{yContent}
-			awareness={wsProvider?.awareness}
+			awareness={collab?.provider.awareness}
 			on:change={(e) => {
 				if (activeModuleTab === null) {
 					// `editorCode`, not the payload: `setCode` dispatches the string it was

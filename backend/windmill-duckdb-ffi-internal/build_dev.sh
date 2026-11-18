@@ -31,22 +31,21 @@ else
   echo "duckdb-ffi: shared cache $CARGO_TARGET_DIR"
   # The cache key covers only the dependency inputs (Cargo.lock + build.rs), so
   # the expensive bundled-DuckDB build is shared even when this crate's own
-  # source differs between checkouts. But the shared dir's uplifted cdylib is a
+  # source differs between checkouts. But the shared dir's runner binary is a
   # single fixed-name artifact written by whichever worktree built last. Touch
-  # our sources so cargo re-links THIS checkout's cdylib and re-uplifts it
+  # our sources so cargo re-links THIS checkout's runner and re-uplifts it
   # before we copy — the copied artifact then always matches this worktree,
   # never a sibling's. The bundled dependency is a separate crate and stays
   # cached, so this only costs a ~1s relink.
   find src -type f -exec touch {} +
 fi
 
-CARGO_NET_GIT_FETCH_WITH_CLI=true cargo build --release -p windmill_duckdb_ffi_internal
+cargo build --release -p windmill_duckdb_ffi_internal
 mkdir -p ../target/debug/
-# Install through a rename rather than writing over the destination: a running worker
-# has the cdylib mapped, and rewriting those pages under it kills the process with
-# SIGBUS. A rename swaps the directory entry and leaves the old inode alone.
-for artifact in "$CARGO_TARGET_DIR/release/"libwindmill_duckdb_ffi_internal.*; do
-  dest="../target/debug/$(basename "$artifact")"
-  cp "$artifact" "$dest.tmp"
-  mv -f "$dest.tmp" "$dest"
-done
+# The worker looks for the runner next to its own binary. Install through a rename rather
+# than writing over the destination: a runner may be executing, and rewriting its pages under
+# it kills the process with SIGBUS. A rename swaps the directory entry and leaves the old
+# inode alone.
+dest="../target/debug/windmill_duckdb_runner"
+cp "$CARGO_TARGET_DIR/release/windmill_duckdb_runner" "$dest.tmp"
+mv -f "$dest.tmp" "$dest"

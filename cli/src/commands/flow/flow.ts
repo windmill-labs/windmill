@@ -4,12 +4,13 @@ import { Command } from "@cliffy/command";
 import { Confirm } from "@cliffy/prompt/confirm";
 import { Table } from "@cliffy/table";
 import * as log from "../../core/log.ts";
+import { ciTestBatchDeployed, ciTestBatchSkip } from "../../core/ci_test_batch.ts";
 import { dirname, sep as SEP, resolve as pathResolve } from "node:path";
 import { stringify as yamlStringify } from "yaml";
 import { yamlParseFile } from "../../utils/yaml.ts";
 import { readTextFile, validateRequiredArgs } from "../../utils/utils.ts";
 import * as wmill from "../../../gen/services.gen.ts";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
 import { buildFolderPath, getMetadataFileName, loadNonDottedPathsSetting } from "../../utils/resource_folders.ts";
 
 import { requireLogin } from "../../core/auth.ts";
@@ -19,7 +20,7 @@ import {
   toSyncRootRelativePath,
   validatePath,
 } from "../../core/context.ts";
-import { resolve, track_job, pollForJobResult } from "../script/script.ts";
+import { resolve, track_job, pollForJobResult, ensurePreviewOnBehalfOfSupported } from "../script/script.ts";
 import { defaultFlowDefinition } from "../../../bootstrap/flow_bootstrap.ts";
 import {
   SyncOptions,
@@ -39,7 +40,7 @@ import {
 import { generateFlowLockInternal } from "./flow_metadata.ts";
 import { exts } from "../script/script.ts";
 import type { SyncCodebase } from "../../utils/codebase.ts";
-import { listSyncCodebases } from "../../utils/codebase.ts";
+import { listSyncCodebases, sameCodebaseDigest } from "../../utils/codebase.ts";
 import {
   createPreviewLocalScriptReader,
   resolvePreviewLocalScriptState,
@@ -106,7 +107,7 @@ async function findDivergedLocalPathScripts(
         normalizeComparableContent(localScript.lock) !==
           normalizeComparableContent(remoteLock)) ||
       localScript.tag !== normalizeOptionalString(remoteScript.tag) ||
-      localScript.codebaseDigest !== normalizeOptionalString(remoteScript.codebase);
+      !sameCodebaseDigest(localScript.codebaseDigest, remoteScript.codebase);
 
     if (diverged) {
       changed.push(scriptPath);
@@ -296,6 +297,7 @@ export async function pushFlow(
       await wmill.updateFlow({
         workspace: workspace,
         path: remotePath.replaceAll(SEP, "/"),
+        ...ciTestBatchSkip(),
         requestBody: {
           path: remotePath.replaceAll(SEP, "/"),
           deployment_message: message,
@@ -306,12 +308,14 @@ export async function pushFlow(
           skip_draft_deletion: true,
         },
       });
+      ciTestBatchDeployed("flow", remotePath.replaceAll(SEP, "/"));
     }
   } else {
     log.info(colors.bold.yellow("Creating new flow..."));
     try {
       await wmill.createFlow({
         workspace: workspace,
+        ...ciTestBatchSkip(),
         requestBody: {
           path: remotePath.replaceAll(SEP, "/"),
           deployment_message: message,
@@ -328,6 +332,7 @@ export async function pushFlow(
         `Failed to create flow ${remotePath}: ${e.body ?? e.message}`
       );
     }
+    ciTestBatchDeployed("flow", remotePath.replaceAll(SEP, "/"));
   }
 
   // Independent of whether the flow body changed, sync extra_perms via /acls/*.
@@ -639,6 +644,7 @@ async function preview(
     remote?: boolean;
     step?: string;
     tag?: string;
+    onBehalfOf?: string;
   } & SyncOptions,
   flowPath: string
 ) {
@@ -650,34 +656,20 @@ async function preview(
   const cwdBeforeConfig = process.cwd();
   if (useLocalPathScripts) {
     opts = await mergeConfigWithConfigFile(opts);
+  } else {
+    // --remote skips the config read, but resolving the flow folder still
+    // needs the configured suffix (nonDottedPaths).
+    await loadNonDottedPathsSetting();
   }
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
+  await ensurePreviewOnBehalfOfSupported(workspace.workspaceId, opts.onBehalfOf);
   const codebases = useLocalPathScripts ? listSyncCodebases(opts) : [];
 
   const argPath = flowPath;
   flowPath = toSyncRootRelativePath(flowPath, cwdBeforeConfig);
 
-  // Normalize path - ensure it's a directory path to a .flow or __flow folder
-  const isFlowDir = flowPath.endsWith(".flow") || flowPath.endsWith(".flow" + SEP)
-    || flowPath.endsWith("__flow") || flowPath.endsWith("__flow" + SEP);
-  if (!isFlowDir) {
-    // Check if it's a flow.yaml file
-    if (flowPath.endsWith("flow.yaml") || flowPath.endsWith("flow.json")) {
-      // Use dirname so a bare "flow.yaml" (no parent dir) becomes "."
-      // instead of "" — the latter, after appending SEP below, becomes "/"
-      // and silently reads from filesystem root.
-      flowPath = dirname(flowPath);
-    } else {
-      throw new Error(
-        "Flow path must be a .flow/__flow directory or a flow.yaml file"
-      );
-    }
-  }
-
-  if (!flowPath.endsWith(SEP)) {
-    flowPath += SEP;
-  }
+  flowPath = resolveFlowFolderArg(flowPath);
 
   // The flow's windmill path (e.g. "f/cli_smoke/myrelflow"). It is what the
   // preview job runs under, and the anchor for relative-import resolution:
@@ -758,7 +750,7 @@ async function preview(
   // when `useLocalPathScripts` is set, and tempScriptRefs covers relative
   // imports in inline scripts.
   if (opts.step) {
-    await previewStep(opts.step, localFlow, flowWmPath, workspace, input, tempScriptRefs, opts.silent, opts.tag);
+    await previewStep(opts.step, localFlow, flowWmPath, workspace, input, tempScriptRefs, opts.silent, opts.tag, opts.onBehalfOf);
     return;
   }
 
@@ -775,6 +767,7 @@ async function preview(
       args: input,
       tag: opts.tag,
       temp_script_refs: tempScriptRefs,
+      on_behalf_of: opts.onBehalfOf,
     },
   });
 
@@ -808,6 +801,7 @@ async function previewStep(
   tempScriptRefs: Record<string, string> | undefined,
   silent: boolean,
   tag: string | undefined,
+  onBehalfOf: string | undefined,
 ) {
   const module = findStepInFlowValue(localFlow.value, stepId);
   if (!module) {
@@ -841,26 +835,20 @@ async function previewStep(
         args,
         tag,
         temp_script_refs: tempScriptRefs,
+        on_behalf_of: onBehalfOf,
       },
     });
   } else if (moduleValue?.type === "script") {
     // Falls through here only when the deployed PathScript is what we want —
     // either --remote was passed, or no local file exists for this path.
     log.info(colors.yellow(`Previewing step '${stepId}' (script ${moduleValue.path})...`));
-    const script = moduleValue.hash
-      ? await wmill.getScriptByHash({
-          workspace: workspace.workspaceId,
-          hash: moduleValue.hash,
-        })
-      : await wmill.getScriptByPath({
-          workspace: workspace.workspaceId,
-          path: moduleValue.path,
-        });
+    const script = await loadStepScript(workspace.workspaceId, moduleValue);
     jobId = await wmill.runScriptPreview({
       workspace: workspace.workspaceId,
       requestBody: {
         content: script.content,
         language: script.language as any,
+        lock: script.lock,
         // Anchor to the script's own deployed path so its relative imports
         // resolve against the workspace tree (or temp_script_refs).
         path: moduleValue.path,
@@ -868,9 +856,15 @@ async function previewStep(
         args,
         tag,
         temp_script_refs: tempScriptRefs,
+        on_behalf_of: onBehalfOf,
       },
     });
   } else if (moduleValue?.type === "flow") {
+    if (onBehalfOf) {
+      throw new Error(
+        `--on-behalf-of does not apply to step '${stepId}': a flow step runs the deployed flow ${moduleValue.path} by path, and this flag cannot override its identity.`
+      );
+    }
     log.info(colors.yellow(`Previewing step '${stepId}' (flow ${moduleValue.path})...`));
     jobId = await wmill.runFlowByPath({
       workspace: workspace.workspaceId,
@@ -903,6 +897,54 @@ async function previewStep(
     log.info(colors.bold.underline.green(`Step '${stepId}' completed`));
     log.info(JSON.stringify(result, null, 2));
   }
+}
+
+/**
+ * Resolve a `flow preview` argument to its local flow folder, with a trailing
+ * separator. Accepts the folder itself, its flow.yaml, or the flow's Windmill
+ * path (`f/x/my_flow`), which other commands take without the folder suffix.
+ */
+export function resolveFlowFolderArg(flowPath: string): string {
+  const withSep = (p: string) => (p.endsWith(SEP) ? p : p + SEP);
+  const isFlowDir = flowPath.endsWith(".flow") || flowPath.endsWith(".flow" + SEP)
+    || flowPath.endsWith("__flow") || flowPath.endsWith("__flow" + SEP);
+  if (isFlowDir) {
+    return withSep(flowPath);
+  }
+  if (flowPath.endsWith("flow.yaml") || flowPath.endsWith("flow.json")) {
+    // dirname, so a bare "flow.yaml" becomes "." rather than "", which would
+    // turn into "/" and read from the filesystem root.
+    return withSep(dirname(flowPath));
+  }
+  const bare = flowPath.endsWith(SEP) ? flowPath.slice(0, -SEP.length) : flowPath;
+  // The configured suffix first, then the other one: a workspace can hold both.
+  const candidates = [...new Set([buildFolderPath(bare, "flow"), bare + ".flow", bare + "__flow"])];
+  const found = candidates.find((c) => existsSync(c) && statSync(c).isDirectory());
+  if (found) {
+    return withSep(found);
+  }
+  throw new Error(
+    `Flow path must be a .flow/__flow directory, a flow.yaml file, or the Windmill path of a local flow; found none of ${candidates.join(", ")}`
+  );
+}
+
+/**
+ * Fetch the code and lockfile a `script` step runs, the way a whole-flow run
+ * resolves them: hub paths (`hub/<id>/...`) from the hub, others from the
+ * workspace.
+ */
+export async function loadStepScript(
+  workspaceId: string,
+  moduleValue: { path: string; hash?: string },
+): Promise<{ content: string; language: string; lock?: string }> {
+  if (moduleValue.path.startsWith("hub/")) {
+    const hub = await wmill.getHubScriptByPath({ path: moduleValue.path });
+    return { content: hub.content, language: hub.language, lock: hub.lockfile };
+  }
+  const script = moduleValue.hash
+    ? await wmill.getScriptByHash({ workspace: workspaceId, hash: moduleValue.hash })
+    : await wmill.getScriptByPath({ workspace: workspaceId, path: moduleValue.path });
+  return { content: script.content, language: script.language, lock: script.lock };
 }
 
 // Strip the `.flow`/`__flow` directory suffix to recover the flow's logical
@@ -1193,7 +1235,7 @@ const command = new Command()
   .action(run as any)
   .command(
     "preview",
-    "preview a local flow without deploying it. Runs the flow definition from local files and uses local PathScripts by default. Pass --step <id> to run only one module in isolation (resolves nested steps inside branchone/branchall/forloopflow/whileloopflow plus the special preprocessor/failure modules; supported step types: rawscript, script, flow)."
+    "preview a local flow without deploying it. <flow_path> is the flow's Windmill path (f/x/my_flow), its .flow/__flow folder or its flow.yaml. Runs the flow definition from local files and uses local PathScripts by default. Pass --step <id> to run only one module in isolation (resolves nested steps inside branchone/branchall/forloopflow/whileloopflow plus the special preprocessor/failure modules; supported step types: rawscript, script, flow)."
   )
   .arguments("<flow_path:string>")
   .option(
@@ -1215,6 +1257,10 @@ const command = new Command()
   .option(
     "--tag <tag:string>",
     "Override the worker tag the preview is dispatched to (e.g. to route it to dev workers instead of the flow's default tag)."
+  )
+  .option(
+    "--on-behalf-of <identity:string>",
+    "Run the preview as this user or group (an email, u/<username> or g/<group>) instead of yourself, e.g. to reproduce a run_on_behalf_of identity. Requires being an admin or a member of wm_deployers."
   )
   .action(preview as any)
   .command(

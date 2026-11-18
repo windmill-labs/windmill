@@ -3,7 +3,6 @@
 	import { Badge, Button, Drawer } from './common'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import { createEventDispatcher, onDestroy } from 'svelte'
-	import { base } from '$lib/base'
 	import { displayDate, sleep, sendUserToast } from '$lib/utils'
 	import TableCustom from './TableCustom.svelte'
 	import { Hourglass, Loader2, Play, RefreshCw } from 'lucide-svelte'
@@ -141,7 +140,7 @@
 							<td class="text-xs">
 								<a
 									class="pr-3"
-									href="{base}/scripts/get/{scriptHash}?workspace={$operatingWorkspace}"
+									href="/scripts/get/{scriptHash}?workspace={$operatingWorkspace}"
 									target="_blank"
 								>
 									{scriptHash}
@@ -150,7 +149,7 @@
 							<td class="text-xs">
 								<a
 									class="pr-3"
-									href="{base}/run/{jobId}?workspace={$operatingWorkspace}"
+									href="/run/{jobId}?workspace={$operatingWorkspace}"
 									target="_blank">{jobId.substring(24)}</a
 								>
 							</td>

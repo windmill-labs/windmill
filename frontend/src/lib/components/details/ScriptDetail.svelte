@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { base } from '$lib/base'
 	import {
 		JobService,
 		ScriptService,
@@ -46,11 +45,14 @@
 	} from '$lib/components/common'
 	import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
 	import RunForm from '$lib/components/RunForm.svelte'
+	import type { PendingRun } from '$lib/components/details/pendingRun'
 	import DbtRunGraph from '$lib/components/dbt/DbtRunGraph.svelte'
 	import { goto } from '$lib/navigation'
 	import MoveDrawer from '$lib/components/MoveDrawer.svelte'
 
+	import { PLAN_MODE_MESSAGES } from '$lib/components/copilot/chat/planModeMessages'
 	import { sendUserToast } from '$lib/toast'
+	import { latestRequest } from '$lib/utils/latestRequest'
 	import NoDirectDeployAlert from '$lib/components/NoDirectDeployAlert.svelte'
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 
@@ -70,7 +72,6 @@
 		Loader2,
 		Pen,
 		ChevronUpSquare,
-		Shield,
 		Trash,
 		Play,
 		ClipboardCopy,
@@ -102,8 +103,10 @@
 	import {
 		setOperatingWorkspace,
 		useOperatingUser,
+		useReadOnlyWorkspace,
 		useOperatingWorkspaceHref
 	} from '$lib/components/operatingWorkspace.svelte'
+	import { useEditRights } from '$lib/operatorWriteRights'
 	import {
 		buildForkEditUrl,
 		editInForkAllowed,
@@ -117,6 +120,7 @@
 	import WacDiagram from '$lib/components/graph/WacDiagram.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import CiTestResults from '$lib/components/CiTestResults.svelte'
+	import { recentItems } from '$lib/components/home/recentItems.svelte'
 
 	let {
 		hash: routeHash,
@@ -126,6 +130,7 @@
 		onNavigate = goto,
 		active = true,
 		embedded = false,
+		pendingRun,
 		onLoadState
 	}: {
 		/** The `[...hash]` route segment: either a script hash or a script path. */
@@ -141,6 +146,8 @@
 		/** Rendered inside a page that is not the script's own (an AI session preview tab), whose
 		 * URL this must leave alone and which a cross-workspace link must not navigate away. */
 		embedded?: boolean
+		/** A chat tool call confirmed here rather than on its card. See {@link PendingRun}. */
+		pendingRun?: PendingRun
 		/** How the load ended, for a host that renders its own state around this page.
 		 * Providing it also suppresses the "could not load" toast: a 404 here is the normal
 		 * state of a not-yet-deployed path, which the host explains in place instead. */
@@ -167,12 +174,18 @@
 	// lookup does. Assigned once, that leaves the page permanently read-only — `canWrite`
 	// refuses an unknown user — with nothing to recompute it. A hub script is never writable.
 	const promptForAi = $derived((script?.schema?.prompt_for_ai as string | undefined) ?? '')
+	const readOnly = useReadOnlyWorkspace()
 	const can_write = $derived(
 		!isHubScript &&
 			!!script &&
 			script.workspace_id == workspace &&
+			!readOnly(workspace) &&
 			canWrite(script.path, script.extra_perms!, actingUser)
 	)
+	const editRights = useEditRights()
+	const caps = $derived(editRights.capabilities)
+	// The edit actions also need a role that authors scripts.
+	const canEdit = $derived(can_write && editRights.roleCanAuthor('script'))
 	let deploymentInProgress = $state(false)
 	let expandedModuleLocks: Record<string, boolean> = $state({})
 	let expandedModuleCode: Record<string, boolean> = $state({})
@@ -262,15 +275,19 @@
 	}
 
 	async function loadTriggers(path: string): Promise<void> {
-		await triggersState.fetchTriggers(triggersCount, workspace, path, false, undefined, actingUser)
+		await triggersState.fetchTriggers(triggersCount, workspace, path, false)
 	}
 
+	// A slower load for an earlier version must not overwrite the one the page has moved on to.
+	const scriptLoads = latestRequest()
 	async function loadScript(hash: string): Promise<void> {
+		const isLatest = scriptLoads.start()
 		// Check if this is a hub script path
 		if (hash.startsWith('hub/')) {
 			isHubScript = true
 			try {
 				const hubScript = await ScriptService.getHubScriptByPath({ path: hash })
+				if (!isLatest()) return
 				// Create a partial Script object from hub script data
 				script = {
 					hash: '',
@@ -300,8 +317,9 @@
 		}
 
 		isHubScript = false
+		let loaded: Script
 		try {
-			script = await ScriptService.getScriptByHash({
+			loaded = await ScriptService.getScriptByHash({
 				workspace: workspace!,
 				hash,
 				withStarredInfo: true,
@@ -309,13 +327,14 @@
 			})
 		} catch {
 			try {
-				script = await ScriptService.getScriptByPath({
+				loaded = await ScriptService.getScriptByPath({
 					workspace: workspace!,
 					path: hash,
 					withStarredInfo: true
 				})
-				hash = script.hash
+				hash = loaded.hash
 			} catch (e) {
+				if (!isLatest()) return
 				// A path with no deployed script 404s here, which is the normal state of a
 				// draft the user has not deployed — the host says so rather than the page
 				// staying blank, so no toast for it. Anything else is a real failure.
@@ -324,6 +343,21 @@
 				return
 			}
 		}
+		// Set together with `script`: an archived script whose `topHash` is not known yet renders
+		// as an archived path, so an older version would show the "Archived" alert until it is.
+		let nextTopHash: string | undefined = undefined
+		if (loaded.path && loaded.archived) {
+			const script_by_path = await ScriptService.getScriptByPath({
+				workspace: workspace!,
+				path: loaded.path
+			}).catch((_) => console.error('this script has no non-archived version'))
+			if (script_by_path?.hash != loaded.hash) {
+				nextTopHash = script_by_path?.hash
+			}
+		}
+		if (!isLatest()) return
+		script = loaded
+		topHash = nextTopHash
 		// A carried non-template value equal to the resolution of the script's own dynamic
 		// tag for these args is not an override but the previous run's pinned resolution:
 		// drop it so the backend re-resolves from the (possibly edited) args. A differing
@@ -342,17 +376,6 @@
 		}
 		loadTriggers(script.path)
 
-		if (script.path && script.archived) {
-			const script_by_path = await ScriptService.getScriptByPath({
-				workspace: workspace!,
-				path: script.path
-			}).catch((_) => console.error('this script has no non-archived version'))
-			if (script_by_path?.hash != script.hash) {
-				topHash = script_by_path?.hash
-			}
-		} else {
-			topHash = undefined
-		}
 		intervalId && clearInterval(intervalId)
 		deploymentInProgress = script.lock == undefined && script.lock_error_logs == undefined
 		if (deploymentInProgress) {
@@ -360,6 +383,16 @@
 		}
 		if (!script.path.startsWith(`u/${actingUser?.username}`) && script.path.split('/').length > 2) {
 			invisible_to_owner = script.visible_to_runner_only
+		}
+		// Opened from a session's preview tab, it was the session's doing, not a visit. An
+		// archived script has no page for Home's card to open.
+		if (!embedded && !script.archived) {
+			recentItems.record(workspace!, {
+				kind: 'script',
+				path: script.path,
+				summary: script.summary,
+				via: 'view'
+			})
 		}
 		onLoadState?.('loaded')
 	}
@@ -377,6 +410,10 @@
 		invisibleToOwner: boolean | undefined,
 		overrideTag: string | undefined
 	) {
+		// Taken before the round trip below: the call this press answers is the one it was
+		// pressed under, and a call settled meanwhile — declined, then another proposed for
+		// this same script — must not be answered with a job it never asked for.
+		const call = pendingRun
 		try {
 			runLoading = true
 			const scheduledFor = scheduledForStr ? new Date(scheduledForStr).toISOString() : undefined
@@ -402,7 +439,11 @@
 					skipPreprocessor: true
 				})
 			}
-			await onNavigate('/run/' + run + '?workspace=' + workspace)
+			// The call asked for this run; it follows the job rather than starting one, and
+			// shows it in place of this page — so navigating here as well would leave two
+			// surfaces open on the same job.
+			if (!call?.adopt(run, args, script?.schema ?? {}))
+				await onNavigate('/run/' + run + '?workspace=' + workspace)
 		} catch (err) {
 			sendUserToast(`Could not create job: ${err.body}`, true)
 		} finally {
@@ -431,6 +472,10 @@
 			console.error('Was not able to transform hash as args', e)
 		}
 	}
+	// A chat call confirmed here opens its form on what the chat proposed. Read at init like
+	// the hash above, and for the same reason; the host remounts this page when the call
+	// changes, so a tab already open on this script still builds its form from the new one.
+	if (pendingRun) args = { ...untrack(() => pendingRun.proposedArgs) }
 
 	// A dbt retry must name the run it resumes, and a job id is not something to
 	// type from memory: picking `retry` fills the field with the run this caller's
@@ -525,13 +570,13 @@
 	) {
 		const buttons: any = []
 
-		if (!topHash && script && !actingUser?.operator && !script.codebase) {
+		if (!topHash && script && caps.code && !script.codebase) {
 			buttons.push({
 				label: 'Fork',
 				description: `Start a new script from a copy of this one`,
-				narrow: { dropdownOf: 'Edit' },
+				placement: { dropdownOf: 'Edit' },
 				buttonProps: {
-					href: operatingHref(`${base}/scripts/add?template=${script.path}`),
+					href: operatingHref(`/scripts/add?template=${script.path}`),
 					onClick: interceptNav(onNavigate, `/scripts/add?template=${script.path}`),
 					unifiedSize: 'md',
 					variant: 'subtle',
@@ -541,16 +586,11 @@
 			})
 		}
 
-		if (
-			script &&
-			!actingUser?.operator &&
-			!isCloudHosted() &&
-			editInForkAllowed(workspace, $userWorkspaces)
-		) {
+		if (script && caps.code && !isCloudHosted() && editInForkAllowed(workspace, $userWorkspaces)) {
 			buttons.push({
 				label: editInForkLabel(workspace, $userWorkspaces),
 				description: editInForkDescription('script', workspace, $userWorkspaces),
-				narrow: { dropdownOf: 'Edit' },
+				placement: { dropdownOf: 'Edit' },
 				buttonProps: {
 					href: buildForkEditUrl('script', script.path, workspace),
 					onClick: (e: Event | undefined) => editInFork(e, script.path),
@@ -568,7 +608,7 @@
 		buttons.push({
 			label: `Runs`,
 			buttonProps: {
-				href: operatingHref(`${base}/runs/${script.path}`),
+				href: operatingHref(`/runs/${script.path}`),
 				onClick: interceptNav(onNavigate, `/runs/${script.path}`),
 				unifiedSize: 'md',
 				variant: 'subtle',
@@ -576,14 +616,14 @@
 			}
 		})
 
-		if (!script || actingUser?.operator || !can_write) {
+		if (!script || !canEdit) {
 			return buttons
 		}
 
 		if (Array.isArray(script.parent_hashes) && script.parent_hashes.length > 0) {
 			buttons.push({
 				label: `History`,
-				narrow: 'menu',
+				placement: 'menu',
 				buttonProps: {
 					onClick: () => {
 						versionsDrawerOpen = !versionsDrawerOpen
@@ -596,23 +636,26 @@
 			})
 		}
 
-		if (!actingUser?.operator) {
-			buttons.push({
-				label: 'Build app',
-				narrow: 'menu',
-				buttonProps: {
-					onClick: async () => {
-						const app = createRawAppFromScript(script.path, script.summary, script.schema)
-						// The raw app editor reads the payload from sessionStorage on mount.
-						sessionStorage.setItem('rawAppImport', JSON.stringify(app))
-						await onNavigate('/apps_raw/add')
-					},
-					disabled: !showEditButtons,
-					unifiedSize: 'md',
-					variant: 'subtle',
-					startIcon: LayoutDashboard
-				}
-			})
+		if (caps.code) {
+			// It starts from the full template, not the builder one a compose-only role deploys.
+			if (caps.apps === 'full')
+				buttons.push({
+					label: 'Build app',
+					placement: 'menu',
+					alwaysPlaced: true,
+					buttonProps: {
+						onClick: async () => {
+							const app = createRawAppFromScript(script.path, script.summary, script.schema)
+							// The raw app editor reads the payload from sessionStorage on mount.
+							sessionStorage.setItem('rawAppImport', JSON.stringify(app))
+							await onNavigate('/apps_raw/add')
+						},
+						disabled: !showEditButtons,
+						unifiedSize: 'md',
+						variant: 'subtle',
+						startIcon: LayoutDashboard
+					}
+				})
 
 			if (script?.restart_unless_cancelled ?? false) {
 				buttons.push({
@@ -637,7 +680,7 @@
 				buttons.push({
 					label: 'Edit',
 					buttonProps: {
-						href: operatingHref(`${base}${editUrl}`),
+						href: operatingHref(editUrl),
 						onClick: interceptNav(onNavigate, editUrl),
 						unifiedSize: 'md',
 						startIcon: Pen,
@@ -667,7 +710,7 @@
 		script: Script | undefined,
 		deployUiSettings: WorkspaceDeployUISettings | undefined
 	) {
-		if (!script || actingUser?.operator) return []
+		if (!script || !caps.code) return []
 
 		const menuItems: any = []
 
@@ -684,27 +727,16 @@
 		menuItems.push({
 			label: 'Audit logs',
 			Icon: Eye,
-			onclick: () => {
-				onNavigate(`/audit_logs?resource=${script?.path}`)
-			}
-		})
-
-		menuItems.push({
-			label: 'Permissions',
-			Icon: Shield,
-			onclick: () => {
-				shareModal?.openDrawer(script?.path ?? '', 'script')
-			}
+			href: operatingHref(`/audit_logs?resource=${script.path}`),
+			onclick: interceptNav(onNavigate, `/audit_logs?resource=${script.path}`)
 		})
 
 		if (!$disableHubStore) {
 			menuItems.push({
 				label: 'Publish to Hub',
 				Icon: Globe2,
-				onclick: () => {
-					if (!script) return
-					window.open(scriptToHubUrl(script, $hubBaseUrlStore).toString(), '_blank', 'noopener')
-				}
+				href: scriptToHubUrl(script, $hubBaseUrlStore).toString(),
+				hrefTarget: '_blank'
 			})
 		}
 
@@ -815,7 +847,7 @@
 
 <DeployWorkspaceDrawer bind:this={deploymentDrawer} />
 <PersistentScriptDrawer bind:this={persistentScriptDrawer} />
-<ShareModal bind:this={shareModal} />
+<ShareModal bind:this={shareModal} source="detail" />
 
 <Drawer bind:open={versionsDrawerOpen} size="1200px">
 	<DrawerContent title="Versions History" on:close={() => (versionsDrawerOpen = false)} noPadding>
@@ -834,20 +866,24 @@
 	</DrawerContent>
 </Drawer>
 {#key script?.hash}
-	<DetailPageLayout bind:selected={rightPaneSelected} isOperator={actingUser?.operator}>
+	<DetailPageLayout bind:selected={rightPaneSelected} isOperator={!caps.code}>
 		{#snippet header({ wide }: { wide: boolean })}
 			<DetailPageHeader
 				{wide}
 				ownsPageHeader={!embedded}
 				{mainButtons}
 				menuItems={getMenuItems(script, deployUiSettings)}
+				onShare={script && caps.code
+					? () => shareModal?.openDrawer(script?.path ?? '', 'script')
+					: undefined}
 				bind:errorHandlerMuted={
 					() => script?.ws_error_handler_muted ?? false,
 					(v) => {
 						if (script !== undefined) script.ws_error_handler_muted = v
 					}
 				}
-				errorHandlerKind="script"
+				itemKind="script"
+				errorHandlerKind={readOnly(workspace) ? undefined : 'script'}
 				scriptOrFlowPath={script?.path ?? ''}
 				tag={script?.tag ?? ''}
 				labels={script?.labels}
@@ -867,6 +903,12 @@
 						}
 					: undefined}
 			>
+				{#snippet name_marks()}
+					<!-- Favorites are the sidebar's, which lists the navigation workspace only. -->
+					{#if workspace && script && workspace === $workspaceStore}
+						<Star kind="script" path={script.path} summary={script.summary} />
+					{/if}
+				{/snippet}
 				{#snippet trigger_badges()}
 					<TriggersBadge
 						showOnlyWithCount={true}
@@ -884,12 +926,6 @@
 						}}
 					/>
 				{/snippet}
-				{#if workspace && script}
-					<!-- Favorites are the sidebar's, which lists the navigation workspace only. -->
-					{#if workspace === $workspaceStore}
-						<Star kind="script" path={script.path} summary={script.summary} />
-					{/if}
-				{/if}
 				{#if script?.auto_kind === 'wac'}
 					<Popover notClickable>
 						{#snippet text()}
@@ -982,7 +1018,7 @@
 										<Alert type="warning" title="Not HEAD">
 											This hash is not HEAD (latest non-archived version at this path) :
 											<a
-												href="{base}/scripts/get/{topHash}?workspace={workspace}"
+												href="/scripts/get/{topHash}?workspace={workspace}"
 												onclick={interceptNav(onNavigate, `/scripts/get/${topHash}`)}
 												>Go to the HEAD of this path</a
 											>
@@ -1027,20 +1063,32 @@
 						{/if}
 
 						<div class="flex flex-col align-left">
-							{#if (script.schema && Object.keys(script.schema.properties ?? {}).length > 0) || inputSelected}
+							{#if (script.schema && Object.keys(script.schema.properties ?? {}).length > 0) || inputSelected || pendingRun}
 								{@const hasSchema =
 									script.schema && Object.keys(script.schema.properties ?? {}).length > 0}
 								<div
 									class="flex flex-row justify-between min-h-12"
 									transition:slide={{ duration: 150 }}
 								>
-									<InputSelectedBadge
-										onReject={() => {
-											savedInputsV2?.resetSelected()
-										}}
-										{inputSelected}
-									/>
-									{#if hasSchema}
+									<div class="flex flex-row items-start gap-2">
+										{#if pendingRun}
+											<InputSelectedBadge
+												inputSelected="pending_run"
+												onReject={() => pendingRun.decline()}
+											/>
+										{/if}
+										<InputSelectedBadge
+											onReject={() => {
+												savedInputsV2?.resetSelected()
+											}}
+											{inputSelected}
+										/>
+									</div>
+									<!-- Not offered while the form refuses writes: each side of this toggle
+									     mounts what the other unmounts, and a `password` field mints a
+									     variable from the literal it opens on. The form stays on whichever
+									     side it is already showing, read-only. -->
+									{#if hasSchema && !pendingRun?.planModeActive}
 										<Toggle
 											bind:checked={jsonView}
 											size="xs"
@@ -1079,7 +1127,7 @@
 								{#if Object.keys(script?.schema?.properties ?? {}).length > 0}
 									<AIFormAssistant
 										instructions={promptForAi}
-										onEditInstructions={can_write && !actingUser?.operator
+										onEditInstructions={canEdit
 											? () => onNavigate(`/scripts/edit/${script?.path}?metadata_open=true`)
 											: undefined}
 										runnableType="script"
@@ -1104,8 +1152,11 @@
 								bind:isValid
 								runnable={script}
 								runAction={runScript}
+								runRefusal={pendingRun?.planModeActive
+									? PLAN_MODE_MESSAGES.runFormRefused
+									: undefined}
 								bind:args
-								schedulable={true}
+								schedulable={!pendingRun}
 								bind:this={runForm}
 								{jsonView}
 								actions={promptForAi ? undefined : aiAssistant}

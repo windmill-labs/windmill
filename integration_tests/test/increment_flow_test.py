@@ -38,10 +38,10 @@ FLOW_VALUE = """
                 "value":
                 {
                     "tag": "",
-                    "lock": "{\\n  \\"version\\": \\"3\\",\\n  \\"remote\\": {}\\n}\\n",
+                    "lock": "{\\n  \\"dependencies\\": {}\\n}\\n//bun.lockb\\n<empty>",
                     "type": "rawscript",
                     "content": "export async function main(x: number) {\\n  return x + 1\\n}\\n",
-                    "language": "deno",
+                    "language": "bun",
                     "input_transforms":
                     {
                         "x":

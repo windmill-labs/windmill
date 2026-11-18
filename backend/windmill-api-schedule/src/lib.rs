@@ -17,10 +17,13 @@ use sql_builder::{prelude::Bind, SqlBuilder};
 use sqlx::{Postgres, Transaction};
 use std::str::FromStr;
 use windmill_api_auth::{
-    build_scope_path_predicate, check_scopes, maybe_refresh_folders, require_super_admin, ApiAuthed,
+    build_scope_path_predicate, check_scopes,
+    composed::check_new_hub_paths,
+    maybe_refresh_folders, require_super_admin, ApiAuthed,
 };
 use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
+use windmill_common::runnable_ref::RunnableRef;
 use windmill_common::DB;
 use windmill_common::{
     can_preserve_on_behalf_of,
@@ -263,15 +266,32 @@ async fn validate_dynamic_skip<'c>(
     }
 }
 
+/// A handler that does not parse is left out: it never runs, as a fire parses it the same way.
+fn handler_runnables(handlers: [Option<&str>; 3]) -> Vec<RunnableRef> {
+    handlers
+        .into_iter()
+        .flatten()
+        .filter_map(|h| RunnableRef::from_prefixed(h).ok())
+        .collect()
+}
+
 async fn create_schedule(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
-    Json(ns): Json<NewSchedule>,
+    Json(mut ns): Json<NewSchedule>,
 ) -> Result<String> {
     check_scopes(&authed, || format!("schedules:write:{}", ns.path))?;
     reject_reserved_schedule_path(&ns.path)?;
+    // Stored as parsed: the next-run check, the monitor's re-arm, the run history and renames
+    // all match the stored target exactly against job paths, which never start with `/`.
+    let target = (!ns.script_path.is_empty())
+        .then(|| RunnableRef::from_path(&ns.script_path, ns.is_flow))
+        .transpose()?;
+    if let Some(target) = &target {
+        ns.script_path = target.path().to_string();
+    }
 
     let authed = maybe_refresh_folders(&ns.path, &w_id, authed, &db).await;
 
@@ -345,6 +365,14 @@ async fn create_schedule(
         Some(&resolved_permissioned_as),
         Some(&resolved_email),
     )?;
+
+    let mut new_runnables = handler_runnables([
+        ns.on_failure.as_deref(),
+        ns.on_recovery.as_deref(),
+        ns.on_success.as_deref(),
+    ]);
+    new_runnables.extend(target);
+    check_new_hub_paths(&new_runnables, &[], &authed, &db, &w_id).await?;
 
     let mut tx: Transaction<'_, Postgres> = user_db.begin(&authed).await?;
 
@@ -582,6 +610,11 @@ async fn edit_schedule(
         Some(&resolved_email),
     )?;
 
+    let new_handlers = handler_runnables([
+        es.on_failure.as_deref(),
+        es.on_recovery.as_deref(),
+        es.on_success.as_deref(),
+    ]);
     let mut tx = user_db.begin(&authed).await?;
 
     // Validate dynamic_skip if provided
@@ -590,6 +623,17 @@ async fn edit_schedule(
     }
 
     let before = trigger_history::snapshot_row(&mut *tx, "schedule", &w_id, path).await?;
+    check_new_hub_paths(
+        &new_handlers,
+        &handler_runnables(
+            ["on_failure", "on_recovery", "on_success"]
+                .map(|f| before.as_ref().and_then(|b| b.get(f)?.as_str())),
+        ),
+        &authed,
+        &db,
+        &w_id,
+    )
+    .await?;
 
     let schedule = sqlx::query_as!(
         Schedule,
@@ -894,17 +938,18 @@ async fn list_schedule(
     }
     if let Some(broad_filter) = &lsq.broad_filter {
         let pat = format!("%{}%", escape_ilike_pattern(broad_filter));
+        // `binds` fills every `?` in one pass; chained `bind`s would re-scan a `?` in the bound value
         sqlb.and_where(
             "(path ILIKE ? OR script_path ILIKE ? OR description ILIKE ? OR summary ILIKE ? OR schedule ILIKE ?)"
-                .bind(&pat).bind(&pat).bind(&pat).bind(&pat).bind(&pat)
+                .binds(&[&pat]),
         );
     }
     if let Some(label) = &lsq.label {
         for l in label.split(',') {
+            // `binds` fills every `?` in one pass; chained `bind`s would re-scan a `?` in the bound value
             sqlb.and_where(
                 "(labels @> ARRAY[?] OR folder_labels(workspace_id, path) @> ARRAY[?])"
-                    .bind(&l.trim())
-                    .bind(&l.trim()),
+                    .binds(&[&l.trim()]),
             );
         }
     }
@@ -916,7 +961,6 @@ async fn list_schedule(
 
     // Append the authed user's draft-only schedules; see scripts.rs.
     if lsq.include_draft_only.unwrap_or(false)
-        && !authed.is_operator
         && offset == 0
         && lsq.path.is_none()
         && lsq.is_flow.is_none()
@@ -927,6 +971,13 @@ async fn list_schedule(
         && lsq.summary.is_none()
         && lsq.broad_filter.is_none()
         && lsq.label.is_none()
+        && windmill_common::workspaces::operator_can_draft(
+            &db,
+            &w_id,
+            &authed,
+            UserDraftItemKind::TriggerSchedule,
+        )
+        .await?
     {
         let draft_only_rows = fetch_draft_only_list_rows(
             &db,
@@ -1118,8 +1169,7 @@ pub async fn preview_schedule(
     let schedule =
         ScheduleType::from_str(&payload.schedule, payload.cron_version.as_deref(), true)?;
 
-    let tz =
-        chrono_tz::Tz::from_str(&payload.timezone).map_err(|e| Error::BadRequest(e.to_string()))?;
+    let tz = windmill_common::tz::Tz::from_str(&payload.timezone).map_err(Error::BadRequest)?;
 
     let upcoming: Vec<DateTime<Utc>> = schedule.upcoming(tz, 5)?;
 
@@ -1492,7 +1542,8 @@ async fn set_default_error_handler(
     } else {
         windmill_api_settings::delete_global_setting(&db, key.as_str()).await?;
     }
-    windmill_api_settings::audit_setting_write(&db, &authed, &key, value.as_ref()).await?;
+    windmill_audit::instance_config::audit_setting_write(&db, &authed, &key, value.as_ref(), None)
+        .await?;
 
     if payload.override_existing {
         // The rewrite and its history rows go in one transaction: on separate

@@ -26,11 +26,16 @@ import instance from "./commands/instance/instance.ts";
 import workerGroups from "./commands/worker-groups/worker-groups.ts";
 import lint from "./commands/lint/lint.ts";
 import digest from "./commands/digest/digest.ts";
+import review from "./commands/review/review.ts";
 
 import dev from "./commands/dev/dev.ts";
 import { GlobalOptions } from "./types.ts";
 import { OpenAPI } from "../gen/index.ts";
-import { apiErrorMessage, getHeaders } from "./utils/utils.ts";
+import {
+  apiErrorMessage,
+  getHeaders,
+  networkErrorMessage,
+} from "./utils/utils.ts";
 import { detectAuthGatewayChallenge } from "./utils/http_guards.ts";
 import { setShowDiffs } from "./core/conf.ts";
 import { markRequestsAsCliClient } from "./core/client.ts";
@@ -205,6 +210,7 @@ const command = new Command()
   .command("sync", sync)
   .command("lint", lint)
   .command("digest", digest)
+  .command("review", review)
   .command("gitsync-settings", gitsyncSettings)
   .command("protection-rules", protectionRules)
   .command("instance", instance)
@@ -326,8 +332,11 @@ async function main() {
     await command.parse(args);
   } catch (e) {
     const apiError = apiErrorMessage(e);
+    const networkError = networkErrorMessage(e);
     if (apiError !== undefined) {
       log.error("Server failed. " + apiError);
+    } else if (networkError !== undefined) {
+      log.error(networkError);
     } else if (e instanceof Error) {
       log.error(e.message);
     } else if (e !== undefined && e !== null) {

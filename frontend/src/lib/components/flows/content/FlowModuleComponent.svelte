@@ -15,6 +15,7 @@
 
 	import type { FlowModule, FlowModuleValue, RawScript, ScriptLang } from '$lib/gen'
 	import FlowCard from '../common/FlowCard.svelte'
+	import { nextMock } from '../flowMock'
 	import FlowModuleHeader from './FlowModuleHeader.svelte'
 	import { getLatestHashForScript, scriptLangToEditorLang } from '$lib/scripts'
 	import PropPickerWrapper from '../propPicker/PropPickerWrapper.svelte'
@@ -25,6 +26,9 @@
 	import { getFailureStepPropPicker, getStepPropPicker } from '../previousResults'
 	import { deepEqual } from 'fast-equals'
 	import Section from '$lib/components/Section.svelte'
+	import SecondsInput from '$lib/components/common/seconds/SecondsInput.svelte'
+	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 
 	import Button from '$lib/components/common/button/Button.svelte'
 	import FlowPathViewer from './FlowPathViewer.svelte'
@@ -33,14 +37,14 @@
 	import AiAgentStepInputs from './AiAgentStepInputs.svelte'
 	import AgentToolBindings from './AgentToolBindings.svelte'
 	import { getLinkedAgentTools, linkedToolsScope } from '../linkedAgentToolsStore.svelte'
-	import { flowLocalAgentSchema } from '../agentResourceUtils'
+	import { linkedAgentStepSchema } from '../agentResourceUtils'
 	import { AI_AGENT_TOOL_AI_KEYS, AI_DECISION_TOOL_AI_KEYS } from '../agentToolUtils'
 	import { setAiDecisionStep } from '../aiDecisionBranching'
 	import DiffEditor from '$lib/components/DiffEditor.svelte'
 	import type { ButtonProp } from '$lib/components/diffEditorTypes'
 	import { loadSchemaFromModule } from '../flowInfers'
 	import { type Job } from '$lib/gen'
-	import { useOperatorBuilderFlows } from '$lib/operatorWriteRights'
+	import { useRoleCapabilities } from '$lib/operatorWriteRights'
 	import { checkIfParentLoop } from '../utils.svelte'
 	import { useWorkspaceScriptSettings } from '../useWorkspaceScriptSettings.svelte'
 	import ScriptSettingsBadges from '$lib/components/ScriptSettingsBadges.svelte'
@@ -71,12 +75,14 @@
 		signDebugRequest,
 		getDebugErrorMessage
 	} from '$lib/components/debug'
-	import { Bug, Terminal } from 'lucide-svelte'
+	import { Bug, Hand, Hourglass, Terminal } from 'lucide-svelte'
+	import Popover from '$lib/components/Popover.svelte'
 	import { sendUserToast } from '$lib/utils'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
 	const operatingWorkspace = useOperatingWorkspace()
-	const operatorBuilderFlows = useOperatorBuilderFlows()
+	const roleCaps = useRoleCapabilities()
+	const composeOnlyFlows = $derived($roleCaps.flows === 'compose')
 
 	const {
 		selectionManager,
@@ -132,6 +138,12 @@
 		/** Lets the agent's Tools section add a tool through the graph's own insert path. */
 		flowModuleSchemaMap?: import('../map/FlowModuleSchemaMap.svelte').default
 		toolDescription?: string | undefined
+		/** The tool's `requires_approval` setting; only an agent tool has one. */
+		toolRequiresApproval?: boolean
+		/** The tool's `background` setting; only an agent tool has one. */
+		toolBackground?: boolean
+		/** The tool's `background_after_secs` setting; only an agent tool has one. */
+		toolBackgroundAfterSecs?: number
 		siblingToolNames?: string[]
 	}
 
@@ -152,8 +164,21 @@
 		staticOnly = false,
 		flowModuleSchemaMap = undefined,
 		toolDescription = $bindable(undefined),
+		toolRequiresApproval = $bindable(),
+		toolBackground = $bindable(),
+		toolBackgroundAfterSecs = $bindable(),
 		siblingToolNames = undefined
 	}: Props = $props()
+
+	const DEFAULT_BACKGROUND_AFTER_SECS = 30
+	type BackgroundMode = 'never' | 'after' | 'always'
+	let backgroundMode: BackgroundMode = $derived(
+		toolBackground ? 'always' : toolBackgroundAfterSecs != undefined ? 'after' : 'never'
+	)
+	function setBackgroundMode(mode: BackgroundMode) {
+		toolBackground = mode === 'always'
+		toolBackgroundAfterSecs = mode === 'after' ? DEFAULT_BACKGROUND_AFTER_SECS : undefined
+	}
 
 	setAiDecisionStep({
 		get id() {
@@ -244,11 +269,11 @@
 			!flowModule.value.path?.startsWith('hub/') &&
 			flowModule.value.hash == undefined &&
 			customUi?.scriptEdit != false &&
-			!$operatorBuilderFlows &&
+			!composeOnlyFlows &&
 			$workspaceScriptSettingsDrawer != undefined
 	)
 	// Same rule as the graph node's Run button (FlowModuleSchemaItem).
-	let builderCannotTestStep = $derived($operatorBuilderFlows && flowModule.value.type === 'script')
+	let builderCannotTestStep = $derived(composeOnlyFlows && flowModule.value.type === 'script')
 	let workspaceScriptNoEditReason = $derived(
 		flowModule.value.type !== 'script' || canEditWorkspaceScriptSettings
 			? undefined
@@ -309,7 +334,7 @@
 	let inputTransformSchemaForm: { setArgs: (nargs: Record<string, any>) => void } | undefined =
 		$state(undefined)
 	// The linked agent's memory, which decides which history inputs the step offers.
-	let linkedAgentMemory: { memory: unknown } | undefined = $state(undefined)
+	let linkedAgentConfig: { memory: unknown; provider?: unknown } | undefined = $state(undefined)
 
 	let reloadError: string | undefined = $state(undefined)
 	async function reload(flowModule: FlowModule) {
@@ -409,7 +434,10 @@
 		if (model == undefined) return
 		diffMode = true
 
-		diffEditor?.showWithModelAndOriginal((savedModule?.value as RawScript).content ?? '', model)
+		diffEditor?.showWithModelAndOriginal(
+			(savedModule?.value as RawScript | undefined)?.content ?? '',
+			model
+		)
 		editor?.hide()
 	}
 
@@ -1148,6 +1176,30 @@
 												label="Chat"
 											/>
 										{/if}
+										{#if isAgentTool}
+											<Tab value="tool_settings" label="Tool settings">
+												{#snippet extra()}
+													{#if toolRequiresApproval || backgroundMode !== 'never'}
+														<div class="flex flex-row items-center gap-1 text-secondary">
+															{#if toolRequiresApproval}
+																<Popover notClickable>
+																	<Hand size={12} />
+																	{#snippet text()}Require approval · On{/snippet}
+																</Popover>
+															{/if}
+															{#if backgroundMode !== 'never'}
+																<Popover notClickable>
+																	<Hourglass size={12} />
+																	{#snippet text()}Run in background · {backgroundMode === 'always'
+																			? 'Always'
+																			: `After ${toolBackgroundAfterSecs}s`}{/snippet}
+																</Popover>
+															{/if}
+														</div>
+													{/if}
+												{/snippet}
+											</Tab>
+										{/if}
 										{#if !preprocessorModule && !isAgentTool}
 											<Tab value="advanced" label="Run settings">
 												{#snippet extra()}
@@ -1180,7 +1232,7 @@
 														opWorkspace={opWs}
 														flowPath={$pathStore}
 														fromAgentEditor={agentEditorHost?.() != undefined}
-														bind:linkedMemory={linkedAgentMemory}
+														bind:linkedAgent={linkedAgentConfig}
 														chatInputEnabled={flowStore.val.value?.chat_input_enabled ?? false}
 														bind:agent={
 															() =>
@@ -1233,7 +1285,7 @@
 														bind:this={inputTransformSchemaForm}
 														pickableProperties={stepPropPicker.pickableProperties}
 														schema={agentLinked
-															? flowLocalAgentSchema(
+															? linkedAgentStepSchema(
 																	flowStateStore.val[flowModule.id]?.schema ?? {}
 																)
 															: (flowStateStore.val[flowModule.id]?.schema ?? {})}
@@ -1263,7 +1315,7 @@
 														chatInputEnabled={flowStore.val.value?.chat_input_enabled ?? false}
 														workspace={opWs}
 														visibilityKey={agentFieldsKey}
-														linkedMemory={agentLinked ? linkedAgentMemory : undefined}
+														linkedAgent={agentLinked ? linkedAgentConfig : undefined}
 														{agentLinked}
 														tools={agentLinked
 															? getLinkedAgentTools(
@@ -1367,7 +1419,7 @@
 											mod={flowModule}
 											{noEditor}
 											schema={agentLinked
-												? flowLocalAgentSchema(flowStateStore.val[flowModule.id]?.schema ?? {})
+												? linkedAgentStepSchema(flowStateStore.val[flowModule.id]?.schema ?? {})
 												: (flowStateStore.val[flowModule.id]?.schema ?? {})}
 											bind:testJob
 											bind:testIsLoading
@@ -1392,6 +1444,66 @@
 															'When enabled, this AI agent still runs normally, but its assistant response and tool-use messages are not stored in chat-mode conversation history.'
 													}}
 												/>
+											</Section>
+										</div>
+									{:else if visibleSelected === 'tool_settings' && isAgentTool}
+										<div class="flex flex-1 flex-col gap-6 overflow-auto p-4">
+											<Section label="Approval">
+												<Toggle
+													size="xs"
+													textClass="text-xs font-normal text-primary"
+													disabled={noEditor}
+													bind:checked={
+														() => toolRequiresApproval ?? false, (v) => (toolRequiresApproval = v)
+													}
+													options={{
+														right: 'Require approval',
+														rightTooltip:
+															'Each call waits for someone to approve or reject it from the run page or the chat, without holding a worker. Other calls in the same turn run right away. A rejected call is reported to the agent as not run. An agent used as a tool of another agent cannot wait, so it leaves such tools out.'
+													}}
+												/>
+											</Section>
+											<Section
+												label="Run in background"
+												tooltip="A call in the background answers the agent with its job id, and the agent keeps working. The result reaches it in a later message. If it finishes its answer first, it waits for the result without holding a worker."
+											>
+												<div class="flex flex-col gap-2">
+													<ToggleButtonGroup
+														disabled={noEditor}
+														selected={backgroundMode}
+														onSelected={setBackgroundMode}
+													>
+														{#snippet children({ item })}
+															<ToggleButton
+																value="never"
+																label="Never"
+																tooltip="The agent waits for the result."
+																{item}
+															/>
+															<ToggleButton
+																value="after"
+																label="After a delay"
+																tooltip="The agent waits for the result up to a delay, then the call continues in the background."
+																{item}
+															/>
+															<ToggleButton
+																value="always"
+																label="Always"
+																tooltip="The agent is answered as soon as the job starts."
+																{item}
+															/>
+														{/snippet}
+													</ToggleButtonGroup>
+													{#if backgroundMode === 'after'}
+														<SecondsInput
+															disabled={noEditor}
+															bind:seconds={
+																() => toolBackgroundAfterSecs ?? DEFAULT_BACKGROUND_AFTER_SECS,
+																(v) => (toolBackgroundAfterSecs = Math.max(1, v ?? 1))
+															}
+														/>
+													{/if}
+												</div>
 											</Section>
 										</div>
 									{:else if visibleSelected === 'advanced'}
@@ -1493,7 +1605,7 @@
 												? { type: 'inside', flow: parentLoop.type }
 												: undefined}
 											onUpdateMock={(detail) => {
-												flowModule.mock = detail
+												flowModule.mock = nextMock(flowModule.mock, detail)
 												flowModule = flowModule
 												refreshStateStore(flowStore)
 											}}

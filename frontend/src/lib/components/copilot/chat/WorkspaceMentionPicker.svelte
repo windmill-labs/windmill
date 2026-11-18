@@ -1,7 +1,7 @@
 <!--
 @component
 Workspace-only picker for the AI session composer's `+ -> Mention file`
-submenu. It mirrors ChatContextPicker's workspace branch, but starts directly
+submenu. It mirrors ChatContextPicker's workspace branch, folders included, but starts directly
 at the workspace root because the parent menu item already names the scope.
 -->
 <script lang="ts">
@@ -17,12 +17,17 @@ at the workspace root because the parent menu item already names the scope.
 	import { useWorkspaceItemsLoader } from '$lib/components/workspaceItemsLoader.svelte'
 	import { buildWorkspaceTree, relativizeWorkspacePath } from '$lib/components/workspaceTree'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
-	import type {
-		ContextElement,
-		WorkspaceAppElement,
-		WorkspaceFlowElement,
-		WorkspaceScriptElement
+	import {
+		withFolderContextLeaves,
+		type ContextElement,
+		type WorkspaceAgentElement,
+		type WorkspaceAppElement,
+		type WorkspaceFlowElement,
+		type WorkspaceFolderElement,
+		type WorkspaceScriptElement
 	} from './context'
+
+	type LeafData = WorkspaceItem | WorkspaceFolderElement
 
 	interface Props {
 		onSelect: (element: ContextElement) => void
@@ -38,7 +43,7 @@ at the workspace root because the parent menu item already names the scope.
 	let picker: DrillPickerHandle | undefined = $state()
 
 	const operatingWorkspace = useOperatingWorkspace()
-	const WORKSPACE_KINDS: WorkspaceItemKind[] = ['flow', 'script', 'app']
+	const WORKSPACE_KINDS: WorkspaceItemKind[] = ['flow', 'script', 'app', 'agent']
 	const loader = useWorkspaceItemsLoader(
 		() => $operatingWorkspace,
 		() => WORKSPACE_KINDS
@@ -50,13 +55,15 @@ at the workspace root because the parent menu item already names the scope.
 		return { ...loaded, app: loaded.app.filter((a) => a.raw_app) }
 	})
 
-	const tree = $derived<DrillNode<WorkspaceItem>[]>(
-		buildWorkspaceTree({
-			loaded: loadedForTree,
-			kinds: WORKSPACE_KINDS,
-			loadingKind: loader.loadingKind,
-			layout: 'flat'
-		}) as DrillNode<WorkspaceItem>[]
+	const tree = $derived<DrillNode<LeafData>[]>(
+		withFolderContextLeaves(
+			buildWorkspaceTree({
+				loaded: loadedForTree,
+				kinds: WORKSPACE_KINDS,
+				loadingKind: loader.loadingKind,
+				layout: 'flat'
+			})
+		)
 	)
 
 	function workspaceElement(item: WorkspaceItem): ContextElement | undefined {
@@ -87,10 +94,19 @@ at the workspace root because the parent menu item already names the scope.
 				deletable: true
 			} satisfies WorkspaceAppElement & { deletable: boolean }
 		}
+		if (item.kind === 'agent') {
+			return {
+				type: 'workspace_agent',
+				path: item.path,
+				title: item.path,
+				summary: item.summary,
+				deletable: true
+			} satisfies WorkspaceAgentElement & { deletable: boolean }
+		}
 	}
 
-	function handlePick(leaf: DrillLeaf<WorkspaceItem>) {
-		const element = workspaceElement(leaf.data)
+	function handlePick(leaf: DrillLeaf<LeafData>) {
+		const element = 'kind' in leaf.data ? workspaceElement(leaf.data) : leaf.data
 		if (!element) return
 		onSelect(element)
 		close(onAfterClose)
@@ -119,11 +135,15 @@ at the workspace root because the parent menu item already names the scope.
 	}
 </script>
 
-{#snippet leafIcon(leaf: DrillLeaf<WorkspaceItem>)}
-	<RowIcon kind={leaf.data.kind} size={12} />
+{#snippet leafIcon(leaf: DrillLeaf<LeafData>)}
+	{#if 'kind' in leaf.data}
+		<RowIcon kind={leaf.data.kind} size={12} />
+	{:else}
+		<Folder size={12} class="shrink-0 text-tertiary" />
+	{/if}
 {/snippet}
 
-{#snippet branchIcon(branch: DrillBranch<WorkspaceItem>)}
+{#snippet branchIcon(branch: DrillBranch<LeafData>)}
 	{#if branch.icon}
 		{@const Icon = branch.icon}
 		<Icon size={12} class="shrink-0 text-tertiary" />
@@ -140,7 +160,10 @@ at the workspace root because the parent menu item already names the scope.
 		onPick={handlePick}
 		{leafIcon}
 		{branchIcon}
-		leafSecondary={(leaf, scope) => relativizeWorkspacePath(workspaceItemDisplayPath(leaf.data), scope)}
+		leafSecondary={(leaf, scope) =>
+			'kind' in leaf.data
+				? relativizeWorkspacePath(workspaceItemDisplayPath(leaf.data), scope)
+				: undefined}
 		onScopeChange={handleScopeChange}
 		onFilterChange={loader.onFilterChange}
 		rootLoading={WORKSPACE_KINDS.some((k) => !loader.loaded[k] && loader.loadingKind[k])}

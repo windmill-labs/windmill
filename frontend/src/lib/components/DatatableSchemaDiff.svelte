@@ -202,7 +202,7 @@
 				// The merge migration gets the highest timestamp, so any still-pending
 				// migration on the target is earlier: running only the merge applies it
 				// out of order. Warn like the row-level Run action does.
-				const pending = pendingMigrations(status.migrations)
+				const pending = pendingMigrations(status.migrations, migrationSql)
 				if (pending.length > 0) {
 					const confirmed = await outOfOrderModal.ask({
 						title: 'Run migration out of order',

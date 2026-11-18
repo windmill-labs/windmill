@@ -22,7 +22,7 @@
 		testIsLoading?: boolean
 		disableMock?: boolean
 		disableHistory?: boolean
-		onUpdateMock?: (mock: { enabled: boolean; return_value?: unknown }) => void
+		onUpdateMock?: (mock: { enabled: boolean; return_value?: unknown; preview_only?: boolean }) => void
 		loadingJob?: boolean
 		tagLabel?: string
 	}

@@ -7,7 +7,6 @@
 	import { parseDbtRun } from '$lib/components/dbt/parseDbtRun'
 	import { copyToClipboard, parseS3Object, roughSizeOfObject } from '$lib/utils'
 	import ExpandableImage from '$lib/components/common/image/ExpandableImage.svelte'
-	import { base } from '$lib/base'
 	import { downloadViaClient, shouldDownloadViaClient } from '$lib/utils/downloadFile'
 	import { appendViewToken } from '$lib/viewToken'
 	import { Badge, Button, Drawer, DrawerContent } from './common'
@@ -39,6 +38,8 @@
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import MapResult from './MapResult.svelte'
+	import ChartResult from './display/ChartResult.svelte'
+	import { isChartResult } from './display/displayCatalog'
 	import DownloadCsv from './table/DownloadCsv.svelte'
 	import { convertJsonToCsv } from './table/tableUtils'
 	import Tooltip from './Tooltip.svelte'
@@ -90,6 +91,7 @@
 		| 'nondisplayable'
 		| 'pdf'
 		| 'aiagent'
+		| 'chart'
 		| undefined
 	let resultKind: ResultKind = $state()
 	/** Kinds whose renderer leaves the page: S3/ducklake previews fetch the file or
@@ -254,7 +256,7 @@
 	)
 	let resultDownloadHref = $derived(
 		resultApiPath
-			? `${base}/api${resultApiPath}`
+			? `/api${resultApiPath}`
 			: `data:text/json;charset=utf-8,${encodeURIComponent(toJsonStr(result))}`
 	)
 	let resultDownloadName = $derived(`${filename ?? 'result'}.json`)
@@ -379,7 +381,11 @@
 				}
 
 				if (keys.length != 0) {
-					if (
+					// Only a chart the catalog accepts: any other `{ chart }` result stays JSON. The
+					// catalog caps its rows, so it is exempt from the display size limit.
+					if (keys.length == 1 && keys[0] === 'chart' && isChartResult(result)) {
+						return 'chart'
+					} else if (
 						keys.length == 1 &&
 						[...IMG_KINDS, 'html', 'map', 'pdf', 'file', 'error'].includes(keys[0])
 					) {
@@ -856,7 +862,6 @@
 							{workspaceId}
 							{jobId}
 							{nodeId}
-							{base}
 							{result}
 							{disableTooltips}
 							on:open-drawer={() => openDrawer()}
@@ -909,6 +914,8 @@
 							{@html renderResultMarkup(result.html)}
 						{/if}
 					</div>
+				{:else if !forceJson && resultKind === 'chart'}
+					<ChartResult chart={result.chart} />
 				{:else if !forceJson && resultKind === 'map'}
 					<div class="h-full" data-interactive>
 						<MapResult

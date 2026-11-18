@@ -35,9 +35,9 @@
 	import DiffActionBar from './DiffActionBar.svelte'
 	import { getGraphContext } from '$lib/components/graph/graphContext'
 	import MoveHandleButton from '$lib/components/graph/MoveHandleButton.svelte'
-	import { useOperatorBuilderFlows } from '$lib/operatorWriteRights'
+	import { useRoleCapabilities } from '$lib/operatorWriteRights'
 
-	const operatorBuilderFlows = useOperatorBuilderFlows()
+	const roleCaps = useRoleCapabilities()
 
 	interface Props {
 		selected?: boolean
@@ -49,6 +49,7 @@
 			| {
 					enabled?: boolean
 					return_value?: unknown
+					preview_only?: boolean
 			  }
 			| undefined
 		bold?: boolean
@@ -64,7 +65,7 @@
 		icon?: import('svelte').Snippet
 		onTestUpTo?: ((id: string) => void) | undefined
 		inputTransform?: Record<string, any> | undefined
-		onUpdateMock?: (mock: { enabled: boolean; return_value?: unknown }) => void
+		onUpdateMock?: (mock: { enabled: boolean; return_value?: unknown; preview_only?: boolean }) => void
 		onEditInput?: (moduleId: string, key: string) => void
 		flowJob?: Job | undefined
 		isOwner?: boolean
@@ -136,7 +137,9 @@
 	)
 	// A script step is tested as a script preview, which operators are refused: running the
 	// deployed runnable is left to "Test flow".
-	let builderCannotTestStep = $derived($operatorBuilderFlows && mod?.value.type === 'script')
+	let builderCannotTestStep = $derived(
+		$roleCaps.flows === 'compose' && mod?.value.type === 'script'
+	)
 	let moduleTest: ModuleTest | undefined = $state(undefined)
 	let testIsLoading = $state(false)
 	let hover = $state(false)
@@ -310,7 +313,7 @@
 						<Pin size={12} />
 					</button>
 					{#snippet text()}
-						Pinned
+						{mock.preview_only ? 'Pinned in test runs' : 'Pinned in every run'}
 					{/snippet}
 				</Popover>
 			{/if}

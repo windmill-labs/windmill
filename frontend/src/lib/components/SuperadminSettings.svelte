@@ -11,12 +11,6 @@
 	import { SettingsService } from '$lib/gen'
 	import { isCloudHosted } from '$lib/cloud'
 
-	interface Props {
-		disableChatOffset?: boolean
-	}
-
-	let { disableChatOffset = false }: Props = $props()
-
 	let drawer: Drawer | undefined = $state()
 	let diffDrawer: Drawer | undefined = $state()
 	let innerComponent: SuperadminSettingsInner | undefined = $state()
@@ -89,7 +83,7 @@
 	}
 </script>
 
-<Drawer bind:this={drawer} size="1300px" {disableChatOffset} on:close={handleDrawerClose}>
+<Drawer bind:this={drawer} size="1300px" on:close={handleDrawerClose}>
 	<DrawerContent noPadding overflow_y={false} title="Instance settings" on:close={handleClose}>
 		{#snippet titleExtra()}
 			<MeltTooltip disablePopup={!uptodateVersion}>
@@ -146,7 +140,6 @@
 			bind:this={innerComponent}
 			closeDrawer={handleClose}
 			showHeaderInfo={false}
-			{disableChatOffset}
 			bind:yamlMode
 			bind:hasUnsavedChanges
 			bind:hasAnyInvalid

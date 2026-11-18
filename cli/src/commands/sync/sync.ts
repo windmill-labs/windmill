@@ -14,6 +14,13 @@ import { colors } from "@cliffy/ansi/colors";
 import { Command } from "@cliffy/command";
 import { Confirm } from "@cliffy/prompt/confirm";
 import * as log from "../../core/log.ts";
+import {
+  ciTestBatchDeployed,
+  ciTestBatchSkip,
+  closeCiTestBatch,
+  openCiTestBatch,
+} from "../../core/ci_test_batch.ts";
+import { RETIRED_SETTINGS, SETTINGS_MANAGED_ONLY_WHEN_PRESENT } from "../../core/settings.ts";
 import * as path from "node:path";
 import { sep as SEP } from "node:path";
 import {
@@ -43,7 +50,12 @@ import {
 } from "../../types.ts";
 import { downloadZip } from "./pull.ts";
 import { runLint, printReport, checkMissingLocks } from "../lint/lint.ts";
-import { diffSharedUi, pullSharedUi, pushSharedUi } from "../shared_ui.ts";
+import {
+  diffSharedUi,
+  pullSharedUi,
+  pushSharedUi,
+  rawAppsStaleOnSharedUi,
+} from "../shared_ui.ts";
 import {
   pushMigrationFromDisk,
   offerToRunNewMigrations,
@@ -100,6 +112,7 @@ import {
   isCurrentWorkspaceFile,
   isItemTypeConfigured,
   isSpecificItem,
+  isCustomPathFile,
   SpecificItemsConfig,
 } from "../../core/specific_items.ts";
 import {
@@ -116,7 +129,12 @@ import {
 } from "../../utils/git.ts";
 import { Workspace } from "../workspace/workspace.ts";
 import { removePathPrefix } from "../../types.ts";
-import { listSyncCodebases, SyncCodebase } from "../../utils/codebase.ts";
+import {
+  isPerScriptDigest,
+  listSyncCodebases,
+  sameCodebaseDigest,
+  SyncCodebase,
+} from "../../utils/codebase.ts";
 import {
   beginLockfileBatch,
   flushLockfileBatch,
@@ -149,7 +167,11 @@ import {
   extractCurrentMapping,
 } from "../../../windmill-utils-internal/src/inline-scripts/extractor.ts";
 import { generateFlowLockInternal } from "../flow/flow_metadata.ts";
-import { markAccessFromPolicy } from "../app/app.ts";
+import {
+  markAccessFromPolicy,
+  markIsolationFromPolicy,
+  stripEditorState,
+} from "../app/app.ts";
 import {
   APP_BACKEND_FOLDER,
   generateAppLocksInternal,
@@ -556,6 +578,50 @@ export function findCodebase(
   }
 }
 
+/** Computes the per-script codebase digests of every local codebase script in one
+ * esbuild pass, before the diff asks for them one script at a time. */
+async function primeCodebaseDigests(
+  codebases: SyncCodebase[],
+  ignore: (p: string, isDirectory: boolean) => boolean,
+): Promise<void> {
+  if (!codebases.some(isPerScriptDigest)) return;
+  const scripts = new Map<SyncCodebase, string[]>();
+  const walk = async (dir: string) => {
+    for (const e of await readdir(dir || ".", { withFileTypes: true })) {
+      const p = dir ? path.join(dir, e.name) : e.name;
+      if (e.isDirectory()) {
+        if (e.name != "node_modules" && !e.name.startsWith(".")) await walk(p);
+        continue;
+      }
+      if (!e.name.endsWith(".script.yaml") || ignore(p, false)) continue;
+      const ts = p.replace(/\.script\.yaml$/, ".ts");
+      const c = findCodebase(ts, codebases);
+      if (!c || !isPerScriptDigest(c)) continue;
+      if (!(await stat(ts).then((s) => s.isFile(), () => false))) continue;
+      scripts.set(c, [...(scripts.get(c) ?? []), ts]);
+    }
+  };
+  await walk("");
+  for (const [c, paths] of scripts) {
+    const start = performance.now();
+    await c.primeDigests(paths);
+    log.info(
+      `Codebase ${c.relative_path}: digested ${paths.length} scripts in ${((performance.now() - start) / 1000).toFixed(1)}s`,
+    );
+  }
+}
+
+/** Script metadata that differs only by the `.tar` a multi-output bundle adds to the
+ * deployed codebase digest. */
+function sameScriptMetadataModuloTar(a: any, b: any): boolean {
+  if (!a || !b || typeof a != "object" || typeof b != "object") {
+    return false;
+  }
+  const { codebase: c1, ...rest1 } = a;
+  const { codebase: c2, ...rest2 } = b;
+  return sameCodebaseDigest(c1, c2) && deepEqual(rest1, rest2);
+}
+
 async function addCodebaseDigestIfRelevant(
   path: string,
   content: string,
@@ -592,7 +658,7 @@ async function addCodebaseDigestIfRelevant(
         if (ignoreCodebaseChanges) {
           parsed["codebase"] = undefined;
         } else {
-          parsed["codebase"] = await c.getDigest();
+          parsed["codebase"] = await c.getDigest(replacedPath);
         }
         parsed["lock"] = "";
         return yamlStringify(parsed, yamlOptions);
@@ -1062,7 +1128,7 @@ async function pushFilesetParentResource(
   if (cachedWsName && isWorkspaceSpecificFile(resourceFilePath)) {
     serverPath = fromWorkspaceSpecificPath(resourceFilePath, cachedWsName);
     wsSpecific = true;
-  } else if (specificItems && isSpecificItem(childPath, specificItems)) {
+  } else if (isSpecificItem(childPath, specificItems)) {
     wsSpecific = true;
   }
 
@@ -1329,6 +1395,7 @@ export function ZipFSElement(
               log.error(`Failed to parse app.yaml at path: ${p}`);
               throw error;
             }
+            stripEditorState(app);
             let inlineScripts;
             try {
               inlineScripts = extractInlineScriptsForApps(
@@ -1359,7 +1426,10 @@ export function ZipFSElement(
             }
 
             markAccessFromPolicy(app);
+            markIsolationFromPolicy(app, false);
             app.policy = undefined;
+            // Rendered as its own workspace-specific file (see below).
+            delete app.custom_path;
             yield {
               isDirectory: false,
               path: path.join(finalPath, "app.yaml"),
@@ -1377,10 +1447,10 @@ export function ZipFSElement(
               throw error;
             }
             markAccessFromPolicy(rawApp);
+            markIsolationFromPolicy(rawApp, true);
             // console.log("rawApp", rawApp);
             rawApp.policy = undefined;
-            // custom_path is derived from the file path, don't store it
-            delete rawApp?.["custom_path"];
+            delete rawApp.custom_path;
             let inlineScripts;
             const value = rawApp?.["value"];
             const runnables = value?.["runnables"] ?? {};
@@ -1837,6 +1907,24 @@ export function ZipFSElement(
         }
       }
     }
+    if (kind == "app" || kind == "raw_app") {
+      // Always workspace-specific: see isCustomPathFile.
+      const customPath = JSON.parse(await f.async("text"))?.custom_path;
+      if (customPath) {
+        const appPath = removeSuffix(p, kind == "app" ? ".app.json" : ".raw_app.json");
+        const obj = { custom_path: customPath };
+        r.push({
+          isDirectory: false,
+          path: appPath + (useYaml ? ".custom_path.yaml" : ".custom_path.json"),
+          async *getChildren() {},
+          async getContentText() {
+            return useYaml
+              ? yamlStringify(obj, yamlOptions)
+              : JSON.stringify(obj, null, 2);
+          },
+        });
+      }
+    }
     return r;
   }
   function _internal_folder(p: string, zip: JSZip): DynFSElement {
@@ -2099,7 +2187,11 @@ export async function elementsToMap(
         continue;
       }
       if (skips.skipFlows && fileType === "flow") continue;
-      if (skips.skipApps && fileType === "app") continue;
+      if (
+        skips.skipApps &&
+        (fileType === "app" || fileType === "custom_path")
+      )
+        continue;
       if (skips.skipFolders && fileType === "folder") continue;
       if (
         skips.skipWorkspaceDependencies &&
@@ -2569,6 +2661,18 @@ const isWorkspaceSettingsFile = (p: string) =>
 function stripUnappliedSettingsFields(local: any, remote: any) {
   delete local?.name;
   delete remote?.name;
+  for (const key of RETIRED_SETTINGS) {
+    delete local?.[key];
+    delete remote?.[key];
+  }
+  for (const key of ["operator_settings", ...SETTINGS_MANAGED_ONLY_WHEN_PRESENT]) {
+    if (local?.[key] === undefined) delete remote?.[key];
+  }
+  // push clears an omitted mute_critical_alerts to false
+  if (local?.mute_critical_alerts == null && remote?.mute_critical_alerts === false) {
+    delete local?.mute_critical_alerts;
+    delete remote.mute_critical_alerts;
+  }
   if (local?.color == null) {
     delete local?.color;
     delete remote?.color;
@@ -2586,6 +2690,53 @@ function stripUnappliedSettingsFields(local: any, remote: any) {
   } else {
     localInvite.instance_groups_roles ??= {};
     if (remoteInvite) remoteInvite.instance_groups_roles ??= {};
+  }
+}
+
+/**
+ * A checkout made before custom paths had their own file still carries one in
+ * its app file, and a push deploys it. It compares as the workspace's
+ * custom-path file it stands for, unless that file exists, so such a checkout
+ * neither lists its app file as edited nor drops the custom path.
+ */
+function liftInFileCustomPaths(
+  localMap: Record<string, string>,
+  json: boolean,
+): void {
+  for (const key of Object.keys(localMap)) {
+    const normalized = key.replaceAll(SEP, "/");
+    const type = isRawAppFolderMetadataFile(normalized)
+      ? "raw_app"
+      : isAppFolderMetadataFile(normalized)
+        ? "app"
+        : undefined;
+    if (!type || normalized.endsWith(json ? ".yaml" : ".json")) continue;
+    const appPath = extractResourceName(normalized, type);
+    let obj: any;
+    try {
+      obj = json
+        ? JSON.parse(localMap[key])
+        : yamlParseContent(key, localMap[key]);
+    } catch {
+      continue;
+    }
+    if (!appPath || !obj || typeof obj != "object" || !("custom_path" in obj)) {
+      continue;
+    }
+    const customPath = obj.custom_path;
+    delete obj.custom_path;
+    localMap[key] = json
+      ? JSON.stringify(obj, null, 2)
+      : yamlStringify(obj, yamlOptions);
+    const fileKey =
+      appPath.replaceAll("/", SEP) +
+      (json ? ".custom_path.json" : ".custom_path.yaml");
+    if (customPath && !(fileKey in localMap)) {
+      const file = { custom_path: customPath };
+      localMap[fileKey] = json
+        ? JSON.stringify(file, null, 2)
+        : yamlStringify(file, yamlOptions);
+    }
   }
 }
 
@@ -2716,6 +2867,22 @@ export async function compareDynFSElement(
     );
   }
 
+  if (isEls1Remote === false) {
+    liftInFileCustomPaths(m1, json);
+    // `custom_path: ''` clears the deployed one, after which the export has
+    // no file to match it: an empty value with nothing deployed is in sync.
+    for (const [k, v] of Object.entries(m1)) {
+      if (!isCustomPathFile(k) || k in m2) continue;
+      let value: unknown;
+      try {
+        value = (json ? JSON.parse(v) : yamlParseContent(k, v))?.custom_path;
+      } catch {
+        continue;
+      }
+      if (!value) delete m1[k];
+    }
+  }
+
   const changes: Change[] = [];
 
   function parseYaml(k: string, v: string) {
@@ -2747,12 +2914,18 @@ export async function compareDynFSElement(
       }
       return o;
     } else {
+      let o: any;
       try {
-        return yamlParseContent(k, v);
+        o = yamlParseContent(k, v);
       } catch (error) {
         log.error(`Failed to parse YAML content at path: ${k}`);
         throw error;
       }
+      // A file tracked before the field was dropped still carries it.
+      if (path.basename(k) == "app.yaml") {
+        stripEditorState(o);
+      }
+      return o;
     }
   }
 
@@ -2824,7 +2997,10 @@ export async function compareDynFSElement(
         if (isEls1Remote === false && isWorkspaceSettingsFile(k)) {
           stripUnappliedSettingsFields(after, before);
         }
-        if (deepEqual(before, after)) {
+        if (
+          deepEqual(before, after) ||
+          (isScriptMetadata && sameScriptMetadataModuloTar(before, after))
+        ) {
           continue;
         }
         if (!ignoreCodebaseChanges) {
@@ -2838,7 +3014,7 @@ export async function compareDynFSElement(
             delete after.codebase;
             v = yamlStringify(after, yamlOptions);
           }
-          if (beforeCodebase != afterCodebase) {
+          if (!sameCodebaseDigest(beforeCodebase, afterCodebase)) {
             codebaseChanges[k] = afterCodebase ?? beforeCodebase ?? "";
           }
         }
@@ -2859,6 +3035,11 @@ export async function compareDynFSElement(
   const remoteCodebase: Record<string, string> = {};
   for (const [k] of Object.entries(m2)) {
     if (m1[k] === undefined) {
+      // A workspace without its own custom-path file leaves the deployed one
+      // alone: a promotion never carries the target's custom path.
+      if (isEls1Remote === false && isCustomPathFile(k)) {
+        continue;
+      }
       if (
         !ignoreMetadataDeletion ||
         (!k?.endsWith(".script.yaml") && !k?.endsWith(".script.json"))
@@ -2885,7 +3066,7 @@ export async function compareDynFSElement(
         continue;
       }
       const c = findCodebase(tsFile, codebases);
-      if ((await c?.getDigest()) != v) {
+      if (!sameCodebaseDigest(await c?.getDigest(tsFile), v)) {
         changes.push({
           name: "edited",
           path: tsFile,
@@ -2962,8 +3143,10 @@ function getOrderFromPath(p: string) {
     return 11;
   } else if (typ == "app") {
     return 12;
-  } else if (typ == "schedule") {
+  } else if (typ == "custom_path") {
     return 13;
+  } else if (typ == "schedule") {
+    return 14;
   } else if (
     typ == "http_trigger" ||
     typ == "websocket_trigger" ||
@@ -2978,9 +3161,9 @@ function getOrderFromPath(p: string) {
     typ == "email_trigger" ||
     typ == "native_trigger"
   ) {
-    return 14;
-  } else {
     return 15;
+  } else {
+    return 16;
   }
 }
 
@@ -3203,7 +3386,9 @@ export function untrackedDatatableMigrationDeletions<
     (c) =>
       c.name === "deleted" &&
       isDatatableMigrationPath(c.path) &&
-      !(recorded.kind === "known" && recorded.paths.has(c.path)),
+      // git reports `/`-separated paths; the sync diff uses the platform's.
+      !(recorded.kind === "known" &&
+        recorded.paths.has(c.path.replaceAll("\\", "/"))),
   );
 }
 
@@ -3830,6 +4015,7 @@ export async function pull(
     opts.skipDatatableMigrations,
     opts.defaultTs,
     opts.syncBehavior,
+    opts.includeDatatablePermissions,
   );
 
   const remote = ZipFSElement(
@@ -3900,7 +4086,7 @@ export async function pull(
         ...(change.name === "edited" && change.codebase
           ? { codebase_changed: true }
           : {}),
-        ...(specificItems && isSpecificItem(change.path, specificItems)
+        ...(isSpecificItem(change.path, specificItems)
           ? {
               workspace_specific: true,
               workspace_specific_path: getWorkspaceSpecificPath(
@@ -3949,7 +4135,7 @@ export async function pull(
       const change: Change = rawChange;
       // Determine if this file should be written to a workspace-specific path
       let targetPath = change.path;
-      if (specificItems && isSpecificItem(change.path, specificItems)) {
+      if (isSpecificItem(change.path, specificItems)) {
         const workspaceSpecificPath = getWorkspaceSpecificPath(
           change.path,
           specificItems,
@@ -4210,7 +4396,7 @@ export async function pull(
           ...(change.name === "edited" && change.codebase
             ? { codebase_changed: true }
             : {}),
-          ...(specificItems && isSpecificItem(change.path, specificItems)
+          ...(isSpecificItem(change.path, specificItems)
             ? {
                 workspace_specific: true,
                 workspace_specific_path: getWorkspaceSpecificPath(
@@ -4349,8 +4535,10 @@ export async function dedupeLockfilesOnDisk(args: {
     failed = [],
     dryRun,
   } = args;
+  // The plan reads only locks, so codebase digests (a bundle pass per script
+  // under `per_script_digest`) are not computed for it.
   const map = await elementsToMap(
-    await FSFSElement(process.cwd(), codebases, false),
+    await FSFSElement(process.cwd(), codebases, true),
     ignore,
     opts.json ?? false,
     opts,
@@ -4490,7 +4678,7 @@ function prettyChanges(
     let wsNote = "";
 
     // Check if this will be written as a workspace-specific file
-    if (specificItems && isSpecificItem(change.path, specificItems)) {
+    if (isSpecificItem(change.path, specificItems)) {
       const workspaceSpecificPath = getWorkspaceSpecificPath(
         change.path,
         specificItems,
@@ -4933,6 +5121,7 @@ export async function push(
       opts.skipDatatableMigrations,
       opts.defaultTs,
       opts.syncBehavior,
+      opts.includeDatatablePermissions,
     ))!,
     !opts.json,
     opts.defaultTs ?? "bun",
@@ -4943,6 +5132,9 @@ export async function push(
     localFlowInlineMapping,
   );
 
+  if (!opts.skipScripts) {
+    await primeCodebaseDigests(codebases, await ignoreF(opts));
+  }
   const local = await FSFSElement(
     path.join(process.cwd(), ""),
     codebases,
@@ -5069,6 +5261,30 @@ export async function push(
         `dedupeLockfiles is on but this checkout still holds one lockfile per script. Run 'wmill generate-metadata' (or pull) to convert it — until then every script reads as changed.`,
       ),
     );
+  }
+
+  // A raw app inlines ui/ into its bundle, so ui/ content its deployed bundle
+  // was not built from makes it stale with no file of its own changed.
+  try {
+    const pushedApps = new Set(
+      changes
+        .map((c) => extractResourceName(c.path, "raw_app"))
+        .filter((n): n is string => !!n),
+    );
+    for (const metaPath of await rawAppsStaleOnSharedUi(
+      workspace.workspaceId,
+      localMap,
+      pushedApps,
+    )) {
+      changes.push({
+        name: "edited",
+        path: metaPath,
+        before: localMap[metaPath],
+        after: localMap[metaPath],
+      });
+    }
+  } catch (e) {
+    log.warn(`Could not check raw apps against the shared UI folder: ${e}`);
   }
 
   // After the shared-lock pass, which reads a shared lockfile's deletion as the
@@ -5561,7 +5777,7 @@ export async function push(
         ...(change.name === "edited" && change.codebase
           ? { codebase_changed: true }
           : {}),
-        ...(specificItems && isSpecificItem(change.path, specificItems)
+        ...(isSpecificItem(change.path, specificItems)
           ? {
               workspace_specific: true,
               workspace_specific_path: getWorkspaceSpecificPath(
@@ -5731,8 +5947,12 @@ export async function push(
       // `alreadySynced`, and a push touching several files of one bundle then
       // deploys the script once per file: several versions in a row, of which
       // only the last is the one the asset graph ends up describing.
+      // An app's files and its custom-path file group under the app path in
+      // both folder layouts, so the custom path is applied after the app.
       const basePath =
         getScriptBasePathFromModulePath(change.path) ??
+        extractResourceName(change.path, "raw_app")?.replaceAll("/", SEP) ??
+        extractResourceName(change.path, "app")?.replaceAll("/", SEP) ??
         change.path.split(".")[0];
       if (!groupedChanges.has(basePath)) {
         groupedChanges.set(basePath, []);
@@ -5771,6 +5991,7 @@ export async function push(
     // push. Reported at the end, and the push exits non-zero for them.
     const failedChanges: { path: string; error: string }[] = [];
 
+    openCiTestBatch();
     // Create a pool of workers that processes items as they become available
     const pool = new Set();
     // Process folder.meta groups first (sequentially), then items in parallel.
@@ -5822,10 +6043,14 @@ export async function push(
               changes = [deleteRawApp];
             } else {
               // The app is one bundle, so a single change re-pushes all of it.
-              // That leaves the loop exactly one change: any skip it takes for
-              // a raw-app path drops the whole app from the push, and nothing
-              // downstream records that as a failure.
-              changes.splice(1, changes.length - 1);
+              // That leaves the loop exactly one raw-app change: any skip it
+              // takes for a raw-app path drops the whole app from the push, and
+              // nothing downstream records that as a failure. The custom path
+              // is not part of the bundle and is applied after it.
+              changes = [
+                changes[0],
+                ...changes.slice(1).filter((c) => isCustomPathFile(c.path)),
+              ];
             }
           }
 
@@ -5939,6 +6164,7 @@ export async function push(
                     resourceFilePath,
                     isFileResWsSpecific ? true : undefined,
                     true,
+                    permissionedAsContext,
                   );
                 }
                 // Already-synced parents got the full content this run.
@@ -6007,7 +6233,7 @@ export async function push(
               // Check if this is a branch-specific item and get the original workspace-specific path
               let originalWorkspaceSpecificPath: string | undefined;
               const isWsSpecific =
-                specificItems && isSpecificItem(change.path, specificItems);
+                isSpecificItem(change.path, specificItems);
               if (isWsSpecific) {
                 originalWorkspaceSpecificPath = getWorkspaceSpecificPath(
                   change.path,
@@ -6036,6 +6262,7 @@ export async function push(
                       (opts.yes ?? false) || !process.stdin.isTTY,
                     skipReencrypt: opts.skipReencryptOnKeyChange,
                   },
+                  includeDatatablePermissions: opts.includeDatatablePermissions,
                   defaultTs: opts.defaultTs,
                 },
               );
@@ -6142,7 +6369,7 @@ export async function push(
               // For branch-specific items, we read from workspace-specific files but push to base server paths
               let localFilePath = change.path;
               const isAddedWsSpecific =
-                specificItems && isSpecificItem(change.path, specificItems);
+                isSpecificItem(change.path, specificItems);
               if (isAddedWsSpecific) {
                 const workspaceSpecificPath = getWorkspaceSpecificPath(
                   change.path,
@@ -6174,6 +6401,7 @@ export async function push(
                       (opts.yes ?? false) || !process.stdin.isTTY,
                     skipReencrypt: opts.skipReencryptOnKeyChange,
                   },
+                  includeDatatablePermissions: opts.includeDatatablePermissions,
                   defaultTs: opts.defaultTs,
                 },
               );
@@ -6586,8 +6814,10 @@ export async function push(
                 await wmill.updateResource({
                   workspace: workspace.workspaceId,
                   path: removeType(target, "resource"),
+                  ...ciTestBatchSkip(),
                   requestBody: { ws_specific: change.wsSpecific },
                 });
+                ciTestBatchDeployed("resource", removeType(target, "resource"));
               } else if (change.kind === "variable") {
                 await wmill.updateVariable({
                   workspace: workspace.workspaceId,
@@ -6605,21 +6835,32 @@ export async function push(
 
         pool.add(promise);
         // Remove from pool when complete
-        promise.then(() => {
+        // Both outcomes: a rejection left unhandled here kills the process before the
+        // failure path below can close the CI test batch.
+        const done = () => {
           pool.delete(promise);
           if (isFolderGroup) folderPhaseRemaining--;
-        });
+        };
+        promise.then(done, done);
       }
 
       // Wait for at least one task to complete before continuing
       if (pool.size > 0) {
-        await Promise.race(pool);
+        try {
+          await Promise.race(pool);
+        } catch (e) {
+          // The items deployed before the failure held their tests back too.
+          await Promise.allSettled([...pool]);
+          await closeCiTestBatch(workspace.workspaceId);
+          throw e;
+        }
       }
     }
     try {
       await pushSharedUi(workspace.workspaceId, opts.keepDeleted);
     } catch (e) {
-      log.warn(`Failed to push shared UI folder: ${e}`);
+      log.error(colors.red(`Failed to push shared UI folder: ${e}`));
+      failedChanges.push({ path: "ui/", error: String(e) });
     }
     try {
       await offerToRunNewMigrations(
@@ -6640,6 +6881,7 @@ export async function push(
       pushStartedAt,
       changes.map((c) => c.path.replaceAll(SEP, "/")),
     );
+    await closeCiTestBatch(workspace.workspaceId);
     if (!opts.jsonOutput) {
       for (const f of lockJobs.failed) {
         log.warn(
@@ -6655,7 +6897,9 @@ export async function push(
         );
       }
     }
-    const pushedCount = changes.length - failedChanges.length;
+    // ui/ is pushed outside `changes`, so its failure is not one of them.
+    const pushedCount =
+      changes.length - failedChanges.filter((f) => f.path !== "ui/").length;
     if (opts.jsonOutput) {
       const result = {
         success: failedChanges.length === 0,
@@ -6671,7 +6915,7 @@ export async function push(
           ...(change.name === "edited" && change.codebase
             ? { codebase_changed: true }
             : {}),
-          ...(specificItems && isSpecificItem(change.path, specificItems)
+          ...(isSpecificItem(change.path, specificItems)
             ? {
                 workspace_specific: true,
                 workspace_specific_path: getWorkspaceSpecificPath(
@@ -6733,6 +6977,7 @@ export async function push(
     // Dry-run with no changes reaches here (a ui/ diff would have made changes
     // non-empty and returned above); never mutate the remote in that case.
     let sharedUiPushed = false;
+    let sharedUiError: string | undefined;
     if (!opts.dryRun) {
       try {
         sharedUiPushed = await pushSharedUi(
@@ -6740,7 +6985,9 @@ export async function push(
           opts.keepDeleted,
         );
       } catch (e) {
-        log.warn(`Failed to push shared UI folder: ${e}`);
+        sharedUiError = String(e);
+        log.error(colors.red(`Failed to push shared UI folder: ${e}`));
+        process.exitCode = 1;
       }
     }
     // No changes pushed, so no new datatable migrations to run.
@@ -6750,10 +6997,15 @@ export async function push(
       console.log(
         JSON.stringify(
           {
-            success: true,
-            message: sharedUiPushed
+            success: sharedUiError === undefined,
+            message: sharedUiError !== undefined
+              ? "Failed to push shared UI changes"
+              : sharedUiPushed
               ? "Pushed shared UI changes"
               : "No changes to push",
+            ...(sharedUiError !== undefined
+              ? { failed: [{ path: "ui/", error: sharedUiError }] }
+              : {}),
             total: 0,
           },
           null,
@@ -6802,6 +7054,10 @@ const command = new Command()
   .option("--include-users", "Include syncing users")
   .option("--include-groups", "Include syncing groups")
   .option("--include-settings", "Include syncing workspace settings")
+  .option(
+    "--include-datatable-permissions",
+    "With --include-settings, also sync who may connect to each data table as which role",
+  )
   .option("--include-key", "Include workspace encryption key")
   .option(
     "--keep-deleted",
@@ -6865,6 +7121,10 @@ const command = new Command()
   .option("--include-users", "Include syncing users")
   .option("--include-groups", "Include syncing groups")
   .option("--include-settings", "Include syncing workspace settings")
+  .option(
+    "--include-datatable-permissions",
+    "With --include-settings, also sync who may connect to each data table as which role",
+  )
   .option("--include-key", "Include workspace encryption key")
   .option(
     "--skip-reencrypt-on-key-change",

@@ -6,6 +6,7 @@
 	import { thinkingPreferences } from './thinkingPreferences.svelte'
 	import CodeDisplay from './script/CodeDisplay.svelte'
 	import LinkRenderer from './LinkRenderer.svelte'
+	import MarkdownImage from './MarkdownImage.svelte'
 	import {
 		extractCandidatePaths,
 		remarkWindmillPaths,
@@ -15,7 +16,6 @@
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
 	import { Bot, ExternalLink } from 'lucide-svelte'
 	import CopyButton from '$lib/components/common/button/CopyButton.svelte'
-	import { base } from '$lib/base'
 	import { displayDate, truncateRev } from '$lib/utils'
 
 	interface Props {
@@ -35,7 +35,7 @@
 	// the browser — so the job link is absent rather than empty elsewhere.
 	const jobId = $derived(message.role === 'assistant' ? message.jobId : undefined)
 	const createdAt = $derived(message.role === 'assistant' ? message.createdAt : undefined)
-	const runHref = $derived(jobId ? `${base}/run/${jobId}?workspace=${workspace}` : undefined)
+	const runHref = $derived(jobId ? `/run/${jobId}?workspace=${workspace}` : undefined)
 	// Today's answers show the time alone; the day earns its place only on a conversation
 	// read back later. Resolved at render, so a chat left open across midnight keeps
 	// yesterday's format until it is reopened.
@@ -99,10 +99,12 @@
 	})
 
 	const candidatePaths = $derived(extractCandidatePaths(message.content))
+	const reasoningPlugins = [gfmPlugin(), { renderer: { a: LinkRenderer, img: MarkdownImage } }]
 	const rendererPlugin = {
 		renderer: {
 			pre: CodeDisplay,
-			a: LinkRenderer
+			a: LinkRenderer,
+			img: MarkdownImage
 		}
 	}
 
@@ -159,7 +161,7 @@
 		labelClass="truncate"
 		contentClass="font-main text-secondary {markdownProse.xs}"
 	>
-		<Markdown md={reasoning} plugins={[gfmPlugin()]} />
+		<Markdown md={reasoning} plugins={reasoningPlugins} />
 	</ChatCollapsibleCard>
 {/if}
 
@@ -174,12 +176,14 @@
 {/if}
 
 {#if message.content && showActions}
-	<!-- Kept in flow while invisible, so revealing it on hover does not nudge the message
-	     below. A thinking-only row has no answer to copy, and its run's last answer links the run. -->
+	<!-- Zero height in the layout (h-4 = -mt-1 + -mb-3): it draws in the answer's bottom
+	     padding and the gap below the turn, so a turn's last answer is spaced like any other
+	     message. A thinking-only row has no answer to copy, and its run's last answer links
+	     the run. -->
 	<div
-		class="flex items-center gap-2 text-2xs text-tertiary opacity-0 transition-opacity duration-150 group-hover/answer:opacity-100 focus-within:opacity-100"
+		class="flex items-center gap-2 h-4 -mt-1 -mb-3 text-2xs text-tertiary opacity-0 transition-opacity duration-150 group-hover/answer:opacity-100 focus-within:opacity-100"
 	>
-		<CopyButton value={message.content} title="Copy answer" class="-ml-1" />
+		<CopyButton value={message.content} title="Copy answer" class="-ml-1" btnClasses="h-4" />
 		{#if timestamp}
 			<span>{timestamp}</span>
 		{/if}

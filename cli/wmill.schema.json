@@ -10,7 +10,7 @@
         "bun",
         "deno"
       ],
-      "description": "Default TypeScript runtime for new scripts"
+      "description": "TypeScript runtime of a plain .ts script (bun when absent)"
     },
     "includes": {
       "type": "array",
@@ -93,6 +93,10 @@
       "type": "boolean",
       "description": "Include workspace settings in sync"
     },
+    "includeDatatablePermissions": {
+      "type": "boolean",
+      "description": "With includeSettings, also sync each data table's roles and who may connect as them"
+    },
     "includeKey": {
       "type": "boolean",
       "description": "Include encryption key in sync"
@@ -153,6 +157,10 @@
               "type": "string"
             },
             "description": "Paths outside relative_path that scripts import, relative to wmill.yaml; hashed recursively"
+          },
+          "per_script_digest": {
+            "type": "boolean",
+            "description": "Redeploy a script only when a file it bundles changes, instead of on any change under relative_path. Each push bundles every script of the codebase once to find its inputs, so every one of them must bundle. Files a script reads at runtime rather than imports are not covered: list them in extra_digest_paths"
           },
           "includes": {
             "type": "array",

@@ -85,7 +85,7 @@ pub async fn sync_metric_catalog(
     .execute(&mut *db)
     .await?;
 
-    let ann = parse_pipeline_annotations(content);
+    let ann = parse_pipeline_annotations(content).for_script(script_path);
     let Some(spec) = ann
         .materialize
         .filter(|m| m.target_kind == AssetKind::Ducklake)

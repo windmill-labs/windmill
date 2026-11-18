@@ -1,0 +1,25 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH uuid_table as (\n                select unnest($4::uuid[]) as uuid\n            )\n            INSERT INTO v2_job_queue\n                (id, workspace_id, scheduled_for, tag, priority)\n                (SELECT uuid, $1, $2, $3, 0 FROM uuid_table)\n            RETURNING id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Timestamptz",
+        "Varchar",
+        "UuidArray"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "6f27f1d150df2903b66f29af0072e85a030134e440a712e54136c8a4eae36fc7"
+}

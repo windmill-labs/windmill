@@ -62,6 +62,16 @@
 		font-weight: 100 900;
 		font-display: swap;
 	}
+	/* Without it the browser fakes italic by slanting the roman. Fetched only once a page sets
+	   italic text. Public apps load this file on the public app domain, which serves only the
+	   paths `public_app_layer.rs` lists: a font added here is added there too. */
+	@font-face {
+		font-family: 'Inter';
+		font-style: italic;
+		src: url('/Inter-Variable-Italic.woff2') format('woff2');
+		font-weight: 100 900;
+		font-display: swap;
+	}
 
 	/* Firefox rasterizes the macOS bitmap emoji font (Apple Color Emoji, sbix) at a size
 	   that ignores an ancestor's `transform: scale()`, so emoji keep their unzoomed size
@@ -329,6 +339,32 @@
 	transition: none !important;
 }
 
+/* Draggable gutter between a session's chat and its preview: a real (layout-occupying)
+   10px-wide grab zone, no overlap tricks that could cover the chat's scrollbar
+   or the preview's edge. Transparent at rest; on hover the app-global
+   `.splitpanes__splitter::after` grabber fades in. Uses a dedicated class, not
+   the shared `.splitter-hidden`, which force-zeroes splitter opacity and would
+   hide that grabber. */
+.splitpanes--vertical.session-splitter > .splitpanes__splitter {
+	background-color: transparent !important;
+	border: none !important;
+	width: 10px !important;
+}
+/* Inset the global hover grabber from the pane's top/bottom edges so the line
+   doesn't run the full height, and round its ends into a pill. */
+.splitpanes--vertical.session-splitter > .splitpanes__splitter::after {
+	top: 8px !important;
+	bottom: 8px !important;
+	height: auto !important;
+	border-radius: 9999px !important;
+}
+/* Collapsed preview: the pane is resized to 0 but stays mounted, so remove
+   the gutter entirely — it would otherwise leave a dead 10px drag zone on the
+   chat's right edge. */
+.splitpanes--vertical.splitter-off > .splitpanes__splitter {
+	display: none !important;
+}
+
 .monaco-workbench > .notifications-toasts.visible {
 	display: none !important;
 }
@@ -414,13 +450,60 @@ input[type='time']::-webkit-calendar-picker-indicator {
 }
 
 /* Settings search highlight (used by both the drawer and the setup page) */
-[data-setting-key] {
+[data-setting-key],
+[data-setting] {
 	transition: outline 0.8s ease;
 	outline: 2px solid transparent;
 	outline-offset: -2px;
 }
-[data-setting-key].setting-highlight {
+[data-setting].setting-highlight {
+	outline-offset: 4px;
+	border-radius: 4px;
+}
+[data-setting-key].setting-highlight,
+[data-setting].setting-highlight {
 	outline: 2px solid rgb(var(--color-border-accent, 59 130 246));
+}
+
+/* Home's composer, pointed at by New session (AIChatDisplay's flashComposer): its box's outline
+   lights up in the accent color and fades, as a setting does when the settings search lands on
+   it. Scoped to the flash, so the box carries no outline otherwise. */
+[data-composer-flash] [data-composer-box] {
+	outline: 2px solid transparent;
+	outline-offset: 1px;
+	animation: wm-composer-flash 0.8s ease-in;
+}
+@keyframes wm-composer-flash {
+	from {
+		outline-color: rgb(var(--color-border-accent, 59 130 246));
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	[data-composer-flash] [data-composer-box] {
+		animation: none;
+	}
+}
+
+/* Content arriving, rather than being there: Home's page and the page header's actions, which
+   appear only once the header has measured them and so land after what is around them. */
+@keyframes wm-page-in {
+	from {
+		opacity: 0;
+	}
+	to {
+		opacity: 1;
+	}
+}
+/* No fill: a filled animation never ends for the compositor, so every faded element (Home's whole
+   scroll container among them) keeps a GPU layer for the page's lifetime. `from` paints on the
+   first frame anyway, and `to` is the resting style. */
+.wm-page-in {
+	animation: wm-page-in 500ms ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+	.wm-page-in {
+		animation: none;
+	}
 }
 
 .svelte-flow__edges {

@@ -22,7 +22,7 @@ import { appDatatableRole, sdkDatatableCall } from '$lib/components/raw_apps/dat
 import { RAW_APP_BASE } from '$system_prompts'
 
 // Backend runnable types
-export type BackendRunnableType = 'script' | 'flow' | 'hubscript' | 'inline'
+export type BackendRunnableType = 'script' | 'flow' | 'hubscript' | 'agent' | 'inline'
 
 export interface InlineScript {
 	language: 'bun' | 'python3'
@@ -37,6 +37,8 @@ export interface BackendRunnable {
 	inlineScript?: InlineScript
 	// For workspace scripts/flows and hub scripts
 	path?: string
+	// Inline only: data table connections naming no role hold the viewer's roles
+	viewerDataAccess?: boolean
 }
 
 export interface AppFiles {
@@ -309,9 +311,9 @@ const getSetBackendRunnableSchema = memo(() =>
 			),
 		name: z.string().describe('A short summary/description of what the runnable does'),
 		type: z
-			.enum(['script', 'flow', 'hubscript', 'inline'])
+			.enum(['script', 'flow', 'hubscript', 'agent', 'inline'])
 			.describe(
-				'The type of runnable: "inline" for custom code, "script" for workspace script, "flow" for workspace flow, "hubscript" for hub script'
+				'The type of runnable: "inline" for custom code, "script" for workspace script, "flow" for workspace flow, "hubscript" for hub script, "agent" for a saved AI agent (one chat turn)'
 			),
 		staticInputs: z
 			.record(z.string(), z.any())
@@ -326,7 +328,13 @@ const getSetBackendRunnableSchema = memo(() =>
 			.string()
 			.optional()
 			.describe(
-				'Required when type is "script", "flow", or "hubscript". The fully qualified path to the workspace script/flow or hub script.'
+				'Required when type is "script", "flow", "hubscript" or "agent". The fully qualified path to the workspace script/flow, hub script or AI agent.'
+			),
+		viewerDataAccess: z
+			.boolean()
+			.optional()
+			.describe(
+				"Inline only. When true, the runnable reads data as the person viewing the app instead of as the app's identity: data table connections that name no role hold the viewer's roles, and object storage permission rules are checked against the viewer, so row-level security and per-user storage paths answer per viewer. Resources and variables stay the app's. Anonymous viewers are refused. Omit to keep the current setting."
 			)
 	})
 )
@@ -710,10 +718,16 @@ export const getAppTools = memo((): Tool<AppAIChatHelpers>[] => [
 				...args,
 				staticInputs: args.staticInputs === null ? undefined : args.staticInputs,
 				inlineScript: args.inlineScript === null ? undefined : args.inlineScript,
-				path: args.path === null ? undefined : args.path
+				path: args.path === null ? undefined : args.path,
+				viewerDataAccess: args.viewerDataAccess === null ? undefined : args.viewerDataAccess
 			}
 
 			const parsedArgs = getSetBackendRunnableSchema().parse(cleanedArgs)
+			if (parsedArgs.type === 'agent' && Object.keys(parsedArgs.staticInputs ?? {}).length > 0) {
+				const errorMsg = `An "agent" runnable takes no staticInputs: each turn's inputs come from the app.`
+				toolCallbacks.setToolStatus(toolId, { content: errorMsg, error: errorMsg })
+				return errorMsg
+			}
 			toolCallbacks.setToolStatus(toolId, {
 				content: `Setting backend runnable '${parsedArgs.key}'...`
 			})
@@ -723,7 +737,10 @@ export const getAppTools = memo((): Tool<AppAIChatHelpers>[] => [
 				type: parsedArgs.type,
 				...(parsedArgs.staticInputs && { staticInputs: parsedArgs.staticInputs }),
 				...(parsedArgs.inlineScript && { inlineScript: parsedArgs.inlineScript }),
-				...(parsedArgs.path && { path: parsedArgs.path })
+				...(parsedArgs.path && { path: parsedArgs.path }),
+				...(parsedArgs.viewerDataAccess !== undefined && {
+					viewerDataAccess: parsedArgs.viewerDataAccess
+				})
 			}
 
 			toolCallbacks.setToolStatus(toolId, {
@@ -1072,6 +1089,16 @@ When creating a backend runnable with \`set_backend_runnable\`:
      name: "Send Slack message",
      type: "hubscript",
      path: "hub/123/slack/send_message"
+   }
+   \`\`\`
+
+5. **For saved AI agents** (type: "agent"), one chat turn per call, taking \`user_message\` and either \`memory_id\` (the conversation id, for an agent with managed memory) or \`previous_messages\` (the history, for one whose memory is off); no staticInputs:
+   \`\`\`
+   {
+     key: "chat",
+     name: "Chat with the support agent",
+     type: "agent",
+     path: "f/support/agent"
    }
    \`\`\`
 

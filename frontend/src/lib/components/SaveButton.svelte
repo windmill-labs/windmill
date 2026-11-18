@@ -52,7 +52,9 @@
 			})
 			.catch((error) => {
 				console.error('Save failed:', error)
-				sendUserToast(error?.message ?? 'Save failed', true)
+				// An API error's message is only the status text; the server's reason is its body.
+				const body = typeof error?.body === 'string' && error.body ? error.body : undefined
+				sendUserToast(body ?? error?.message ?? 'Save failed', true)
 				saveStatus = 'error'
 				statusTimeout = setTimeout(() => {
 					saveStatus = null

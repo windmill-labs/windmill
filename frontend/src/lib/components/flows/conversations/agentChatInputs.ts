@@ -4,6 +4,12 @@ import { carriedReasoning } from '$lib/components/copilot/chatModelSettings'
 import { parseExpressionAt } from 'acorn'
 import { agentSteps, flowInputReads } from './agentAttachmentInput'
 
+/** A step names its agent bare or as `$res:<path>`/`res://<path>`, as `linkedAgentDrafts` reads it;
+ *  kept apart from that module, which loads the editor's draft stores. */
+function normalizeAgentRef(agentRef: string): string {
+	return agentRef.replace(/^\$res:/, '').replace(/^res:\/\//, '')
+}
+
 /** Block and line comments removed, so what is left is only what affects the value. */
 function withoutComments(source: string): string {
 	return source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '')
@@ -78,6 +84,82 @@ export type AgentModelWiring = {
 	 * which describe what the composer may offer.
 	 */
 	someAgentCannotRun?: boolean
+	/**
+	 * What a step linked to a saved agent runs on where it overrides nothing: an empty model
+	 * input keeps the saved model, and the saved effort applies only on that model, to a step
+	 * that sets no effort of its own.
+	 */
+	saved?: { model?: string; reasoning_effort?: string }
+}
+
+/** The provider saved on each linked agent, by resource path. */
+export type SavedAgentProviders = Record<string, Record<string, any> | undefined>
+
+/** The saved agents whose provider the wiring needs, as bare resource paths. */
+export function chatLinkedAgentPaths(modules: FlowModule[] | undefined): string[] {
+	const paths = chatFacingAgents(modules)
+		.map((module) => (module.value as any).agent as string | undefined)
+		.filter((agent): agent is string => !!agent)
+		.map(normalizeAgentRef)
+	return [...new Set(paths)].sort()
+}
+
+/**
+ * Read a step linked to a saved agent: the provider is the agent's, except for the model and
+ * effort the step overrides, each a literal or one flow input.
+ */
+function parseLinkedStep(
+	provider: Record<string, any> | undefined,
+	transforms: Record<string, InputTransform> | undefined
+): AgentModelWiring | undefined {
+	if (!provider || typeof provider !== 'object') return undefined
+	const fixed: AgentModelWiring['fixed'] = {}
+	for (const field of PROVIDER_FIELDS) {
+		if (provider[field] !== undefined) fixed[field] = provider[field]
+	}
+	const saved = { model: fixed.model, reasoning_effort: fixed.reasoning_effort }
+	// Read off `saved` by whoever shows it, since it holds only on the saved model.
+	delete fixed.reasoning_effort
+	const fields: AgentModelWiring['fields'] = {}
+	for (const field of ['model', 'reasoning_effort'] as const) {
+		const transform = transforms?.[field] as any
+		if (!transform) continue
+		if (transform.type === 'static') {
+			const value = typeof transform.value === 'string' ? transform.value.trim() : ''
+			// An empty model keeps the saved one; an empty effort is the step's choice of none.
+			if (value || field === 'reasoning_effort') fixed[field] = value
+			continue
+		}
+		if (transform.type !== 'javascript') return undefined
+		const name = flowInputName(parseExpression(transform.expr))
+		if (!name) return undefined
+		fields[field] = name
+		delete fixed[field]
+	}
+	return { fields, fixed, saved }
+}
+
+/**
+ * The value a provider field runs on, given what the composer holds, as the worker's
+ * `override_provider_model` resolves a linked agent's.
+ */
+export function wiredFieldValue(
+	wiring: AgentModelWiring,
+	values: Record<string, any>,
+	field: ProviderField
+): any {
+	if (wiring.whole) return values[wiring.whole]?.[field]
+	const name = wiring.fields[field]
+	const own = name ? values[name] : wiring.fixed[field]
+	if (!wiring.saved) return own
+	if (field === 'model') return own || wiring.saved.model
+	// An effort the step overrides is the run's whatever it holds: empty there is no effort.
+	if (field === 'reasoning_effort' && !name && own === undefined) {
+		return wiredFieldValue(wiring, values, 'model') === wiring.saved.model
+			? wiring.saved.reasoning_effort
+			: own
+	}
+	return own
 }
 
 /** The flow input behind `flow_input.x`, `flow_input?.x` or `flow_input['x']`. */
@@ -121,23 +203,8 @@ export function parseProviderTransform(
 	}
 	if (transform?.type !== 'javascript') return undefined
 
-	// The author's own text may already be wrapped, so any balanced surround is fine — what
-	// the span check rejects is an expression with something else beside it.
-	const source = parenthesised(transform.expr)
-	let node: any
-	try {
-		node = parseExpressionAt(source, 0, { ecmaVersion: 'latest' })
-	} catch {
-		return undefined
-	}
-	// A comment beside the expression is not another expression: the author annotating their
-	// own provider must not cost them the model control. Dropped before the check so what
-	// remains is only what would change the value — and so a paren inside a comment is not
-	// counted as one of the wrapping pair.
-	const before = withoutComments(source.slice(0, node.start))
-	const after = withoutComments(source.slice(node.end))
-	if (!/^[\s(]*$/.test(before) || !/^[\s)]*$/.test(after)) return undefined
-	if ((before.match(/\(/g)?.length ?? 0) !== (after.match(/\)/g)?.length ?? 0)) return undefined
+	const node = parseExpression(transform.expr)
+	if (!node) return undefined
 
 	const whole = flowInputName(node)
 	if (whole) return { whole, fields: {}, fixed: {} }
@@ -160,6 +227,28 @@ export function parseProviderTransform(
 		}
 	}
 	return { fields, fixed }
+}
+
+/** The one expression a transform holds, or undefined where it is anything more than that. */
+function parseExpression(expr: string): any {
+	// The author's own text may already be wrapped, so any balanced surround is fine — what
+	// the span check rejects is an expression with something else beside it.
+	const source = parenthesised(expr)
+	let node: any
+	try {
+		node = parseExpressionAt(source, 0, { ecmaVersion: 'latest' })
+	} catch {
+		return undefined
+	}
+	// A comment beside the expression is not another expression: the author annotating their
+	// own provider must not cost them the model control. Dropped before the check so what
+	// remains is only what would change the value — and so a paren inside a comment is not
+	// counted as one of the wrapping pair.
+	const before = withoutComments(source.slice(0, node.start))
+	const after = withoutComments(source.slice(node.end))
+	if (!/^[\s(]*$/.test(before) || !/^[\s)]*$/.test(after)) return undefined
+	if ((before.match(/\(/g)?.length ?? 0) !== (after.match(/\)/g)?.length ?? 0)) return undefined
+	return node
 }
 
 /** How one agent supplies a provider field: from an input, as a literal, or not at all. */
@@ -192,12 +281,16 @@ function fieldSupply(wiring: AgentModelWiring, field: ProviderField): FieldSuppl
  * and field-by-field wiring is ambiguous throughout and yields nothing.
  */
 export function resolveAgentModelWiring(
-	modules: FlowModule[] | undefined
+	modules: FlowModule[] | undefined,
+	savedProviders: SavedAgentProviders = {}
 ): AgentModelWiring | undefined {
 	const agents = chatFacingAgents(modules)
-	const parsed = agents.map((agent) =>
-		parseProviderTransform((agent.value as any).input_transforms?.['provider'])
-	)
+	const parsed = agents.map((agent) => {
+		const value = agent.value as any
+		return value.agent
+			? parseLinkedStep(savedProviders[normalizeAgentRef(value.agent)], value.input_transforms)
+			: parseProviderTransform(value.input_transforms?.['provider'])
+	})
 	if (parsed.length === 0) return undefined
 	// An agent whose provider cannot be read is an agent the composer cannot speak for:
 	// dropping it would let the rest declare a control that governs only some of them.
@@ -219,19 +312,37 @@ export function resolveAgentModelWiring(
 
 	const fields: AgentModelWiring['fields'] = {}
 	const fixed: AgentModelWiring['fixed'] = {}
+	const disagreed = new Set<ProviderField>()
 	for (const field of PROVIDER_FIELDS) {
 		// Every agent has to supply the field the same way for the composer to speak for
 		// them all. One wired name among agents that otherwise fix it is not agreement:
 		// the control would move that one agent and leave the others where they are.
 		const supplies = new Set(wirings.map((w) => JSON.stringify(fieldSupply(w, field))))
+
 		// Disagreement leaves the field neither editable nor known: a control offered here
 		// would govern one agent while the rest ran on something else.
-		if (supplies.size > 1) continue
+		if (supplies.size > 1) {
+			disagreed.add(field)
+			continue
+		}
 		const supply: FieldSupply = JSON.parse([...supplies][0])
 		if (supply.kind === 'wired') fields[field] = supply.name
 		else if (supply.kind === 'fixed') fixed[field] = supply.value
 	}
-	return { fields, fixed, someAgentCannotRun }
+	// An empty input means one thing only where every agent falls back to the same saved value,
+	// and a saved value must not stand in for a field the agents disagree about. The saved effort
+	// belongs to the saved model, so it is only kept alongside one.
+	const common = (field: 'model' | 'reasoning_effort') => {
+		const values = new Set(wirings.map((w) => w.saved?.[field]))
+		return values.size === 1 && !disagreed.has(field) ? [...values][0] : undefined
+	}
+	const model = common('model')
+	return {
+		fields,
+		fixed,
+		someAgentCannotRun,
+		saved: model === undefined ? undefined : { model, reasoning_effort: common('reasoning_effort') }
+	}
 }
 
 /**
@@ -357,11 +468,9 @@ export function withoutRejectedEffort(
 
 	const effortInput = wiring.fields.reasoning_effort
 	if (!effortInput) return values
-	const kindInput = wiring.fields.kind
-	const modelInput = wiring.fields.model
 	const rejected = rejectsEffort(
-		kindInput ? values[kindInput] : wiring.fixed.kind,
-		modelInput ? values[modelInput] : wiring.fixed.model,
+		wiredFieldValue(wiring, values, 'kind'),
+		wiredFieldValue(wiring, values, 'model'),
 		values[effortInput]
 	)
 	return rejected ? { ...values, [effortInput]: '' } : values

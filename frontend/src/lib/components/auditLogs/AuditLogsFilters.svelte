@@ -40,6 +40,8 @@
 	import { usePromise } from '$lib/svelte5Utils.svelte'
 	import { safeSelectItems } from '../select/utils.svelte'
 	import { sendUserToast } from '$lib/toast'
+	import TextInput from '../text_input/TextInput.svelte'
+	import { isUuid } from '$lib/utils/uuid'
 
 	let usernames: string[] | undefined = $state()
 	let resources = usePromise(() => loadResources($workspaceStore!), { loadInit: false })
@@ -52,6 +54,8 @@
 		perPage?: number | undefined
 		operation?: string
 		resource?: string | undefined
+		/** Only the entries about this run. */
+		jobId?: string | undefined
 		actionKind?: ActionKind | 'all'
 		scope?: undefined | 'all_workspaces' | 'instance'
 		loading?: boolean
@@ -68,6 +72,7 @@
 		perPage = $bindable(100),
 		operation = $bindable(),
 		resource = $bindable() as string | undefined,
+		jobId = $bindable(),
 		actionKind = $bindable(undefined),
 		scope = $bindable(undefined),
 		loading = false,
@@ -109,6 +114,7 @@
 		addQueryParam('after', after)
 		addQueryParam('operation', operation)
 		addQueryParam('resource', resource)
+		addQueryParam('job_id', jobId?.trim())
 		addQueryParam('actionKind', actionKind)
 		if (scope && $workspaceStore == 'admins') {
 			addQueryParam('scope', scope)
@@ -128,6 +134,7 @@
 		perPage = Number(urlSearchParams.get('perPage')) || 100
 		operation = urlSearchParams.get('operation') ?? 'all'
 		resource = urlSearchParams.get('resource') ?? undefined
+		jobId = urlSearchParams.get('job_id') ?? undefined
 
 		actionKind = (urlSearchParams.get('actionKind') as ActionKind) ?? 'all'
 	}
@@ -265,7 +272,7 @@
 
 	// observe all the variables that should be reflected in the url
 	$effect(() => {
-		;[username, perPage, before, after, operation, resource, actionKind, scope]
+		;[username, perPage, before, after, operation, resource, jobId, actionKind, scope]
 		untrack(() => updateQueryParams())
 	})
 
@@ -375,6 +382,15 @@
 	</div>
 
 	<div class="w-40 min-w-0 shrink">
+		<TextInput
+			size="sm"
+			bind:value={jobId}
+			error={!!jobId?.trim() && !isUuid(jobId)}
+			inputProps={{ placeholder: 'all runs', title: 'Only the entries about this run ID' }}
+		/>
+	</div>
+
+	<div class="w-40 min-w-0 shrink">
 		<Select
 			class="w-full"
 			size="sm"
@@ -415,6 +431,7 @@
 				actionKind = 'all'
 				perPage = 100
 				resource = 'all'
+				jobId = undefined
 				scope = undefined
 			}}
 			unifiedSize="sm"

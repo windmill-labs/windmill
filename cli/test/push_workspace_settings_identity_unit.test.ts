@@ -17,6 +17,10 @@ let remoteWebhook: string | undefined = undefined;
 // Every wmill.* call reachable from pushWorkspaceSettings is stubbed so the
 // function runs without a backend; only the three we assert on record calls.
 mockServices({
+  // A server without the settings document, so the per-setting endpoints run.
+  applyWorkspaceSettingsDocument: async () => {
+    throw { status: 404 };
+  },
   getSettings: async (_a: { workspace: string }) => ({
     webhook: remoteWebhook,
     color: remoteColor,

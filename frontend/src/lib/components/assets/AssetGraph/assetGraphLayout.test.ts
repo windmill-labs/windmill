@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { layoutAssetGraph } from './assetGraphLayout'
+import { layoutAssetGraph, wrapWideLayers } from './assetGraphLayout'
 import { NODE } from '$lib/components/graph/util'
 
 const NODE_WIDTH = NODE.width
@@ -160,5 +160,42 @@ describe('layoutAssetGraph (tidy-tree with join breaks)', () => {
 		const gap = pos.get('r')!.x - 90 - (pos.get('l')!.x + 50)
 		expect(gap).toBe(NODE.gap.horizontal)
 		expect(pos.get('l')!.x).toBe(50)
+	})
+})
+
+describe('wrapWideLayers', () => {
+	const layers = new Map([
+		['root', { x: 150, y: 0 }],
+		['a', { x: 0, y: 100 }],
+		['b', { x: 100, y: 100 }],
+		['c', { x: 200, y: 100 }],
+		['d', { x: 300, y: 100 }],
+		['leaf', { x: 150, y: 200 }]
+	])
+
+	it('leaves the layout alone without a limit, or when every layer fits', () => {
+		expect(wrapWideLayers(layers, undefined)).toBe(layers)
+		expect(wrapWideLayers(layers, 4)).toEqual(layers)
+	})
+
+	it('wraps a wide layer around its center and pushes later layers below the new rows', () => {
+		const pos = wrapWideLayers(layers, 2)
+		const step = pos.get('c')!.y - pos.get('a')!.y
+
+		expect(step).toBeGreaterThan(0)
+		expect(pos.get('root')).toEqual({ x: 150, y: 0 })
+		expect(pos.get('b')!.y).toBe(pos.get('a')!.y)
+		expect(pos.get('d')!.y).toBe(pos.get('c')!.y)
+		expect((pos.get('a')!.x + pos.get('b')!.x) / 2).toBe(150)
+		expect((pos.get('c')!.x + pos.get('d')!.x) / 2).toBe(150)
+		expect(pos.get('leaf')).toEqual({ x: 150, y: 200 + step })
+	})
+
+	it('spaces wrapped rows by the height the layout gave its taller cards', () => {
+		const step = (extra: number) => {
+			const pos = wrapWideLayers(layers, 2, extra)
+			return pos.get('c')!.y - pos.get('a')!.y
+		}
+		expect(step(40) - step(0)).toBe(40)
 	})
 })

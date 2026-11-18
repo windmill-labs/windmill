@@ -1,11 +1,14 @@
 import {
 	ScriptService,
+	ResourceService,
 	type MainArgSignature,
 	FlowService,
 	type Script,
 	type AssetUsageAccessType
 } from '$lib/gen'
 import { get, writable } from 'svelte/store'
+import type { PathRunType } from './components/apps/inputType.js'
+import { agentRunnableSchema } from './components/raw_apps/agentRunnable.js'
 import type { Schema, SupportedLanguage } from './common.js'
 import {
 	type DynamicInput,
@@ -216,9 +219,10 @@ function parseVolumeAnnotations(code: string, commentPrefix: string): AssetWithA
 		if (!trimmed || trimmed.slice(0, 5).toLowerCase() === '<?php') continue
 		if (!trimmed.startsWith(commentPrefix)) break
 		const after = trimmed.slice(commentPrefix.length).trim()
-		const match = after.match(/^volume:\s*(\S+)/)
+		// `volume:ro <name>`; with a space after the colon, `ro` is the volume's name
+		const match = after.match(/^volume:(ro(?=\s))?\s*(\S+)/)
 		if (match) {
-			volumes.push({ kind: 'volume', path: match[1], access_type: 'rw' })
+			volumes.push({ kind: 'volume', path: match[2], access_type: match[1] ? 'r' : 'rw' })
 		}
 	}
 	return volumes
@@ -301,7 +305,7 @@ export async function inferAnsibleExecutionMode(code: string): Promise<any> {
 	}
 }
 
-const SQL_LANGUAGES = [
+export const SQL_LANGUAGES = [
 	'postgresql',
 	'mysql',
 	'bigquery',
@@ -658,9 +662,15 @@ async function inferSchemaIfNecessary(script: Script) {
 export async function loadSchema(
 	workspace: string,
 	path: string,
-	runType: 'script' | 'flow' | 'hubscript'
+	runType: PathRunType
 ): Promise<{ schema: Schema; summary: string | undefined }> {
-	if (runType === 'script') {
+	if (runType === 'agent') {
+		const agent = await ResourceService.getResource({ workspace, path })
+		return {
+			schema: agentRunnableSchema((agent.value as any)?.memory),
+			summary: agent.description || undefined
+		}
+	} else if (runType === 'script') {
 		const script = await ScriptService.getScriptByPath({
 			workspace,
 			path

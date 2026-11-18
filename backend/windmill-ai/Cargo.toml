@@ -12,6 +12,8 @@ mcp = ["dep:windmill-mcp"]
 [lib]
 name = "windmill_ai"
 path = "src/lib.rs"
+# src/ has no doctests: remove this line before adding one, or cargo test never runs it.
+doctest = false
 
 [dependencies]
 windmill-common = { workspace = true, default-features = false }
@@ -28,6 +30,7 @@ eventsource-stream.workspace = true
 futures.workspace = true
 http.workspace = true
 mime_guess.workspace = true
+rand.workspace = true
 reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true

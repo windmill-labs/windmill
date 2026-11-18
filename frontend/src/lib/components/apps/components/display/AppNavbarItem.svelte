@@ -115,13 +115,17 @@
 					onClick: undefined
 				}
 			} else {
+				const href = resolvedPath ? `/apps/get/${resolvedPath}` : undefined
 				return {
-					onClick: () => {
-						if (resolvedPath) {
-							gotoFn?.(`/apps/get/${resolvedPath}`)
-						}
+					// A plain click goes through `gotoFn`, which an embedded app routes to its top window.
+					onClick: (e?: Event) => {
+						// Not `isNewTabClick`: `$lib/navigation` imports `$app/navigation`, which no app
+						// component pulls in (the packaged `AppPreview` renders them outside SvelteKit).
+						if (e instanceof MouseEvent && (e.ctrlKey || e.metaKey)) return
+						e?.preventDefault()
+						if (href) gotoFn?.(href)
 					},
-					href: undefined,
+					href,
 					target: undefined
 				}
 			}
@@ -177,7 +181,7 @@
 		}`}
 	>
 		<Button
-			on:click={buttonProps.onClick ?? (() => {})}
+			onClick={buttonProps.onClick}
 			href={buttonProps.href}
 			target={buttonProps.target ?? '_self'}
 			color="light"

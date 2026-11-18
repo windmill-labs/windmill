@@ -3,35 +3,51 @@
 	import { page } from '$app/stores'
 	import { isCloudHosted } from '$lib/cloud'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
-	import { Alert, Button, Section, Skeleton, Tab, Tabs } from '$lib/components/common'
+	import { Alert, Button, SecondsInput, Section, Skeleton, Tab, Tabs } from '$lib/components/common'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 
 	import DeployToSetting from '$lib/components/DeployToSetting.svelte'
 	import RemoteDeployTargetSetting from '$lib/components/RemoteDeployTargetSetting.svelte'
 	import DevWorkspaceSetting from '$lib/components/DevWorkspaceSetting.svelte'
-	import ErrorOrRecoveryHandler, {
-		handlerFullPath
-	} from '$lib/components/ErrorOrRecoveryHandler.svelte'
+	import ErrorOrRecoveryHandler from '$lib/components/ErrorOrRecoveryHandler.svelte'
+	import {
+		cloneHandlerDraft,
+		handlerDraftFromStored,
+		handlerDraftToStored,
+		type HandlerDraft
+	} from '$lib/components/handlerDraft.svelte'
 	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
+	import { WORKSPACE_SETTINGS_PATH } from '$lib/components/sessions/previewPaths'
+	import OpenInSessionButton, {
+		type OpenInSessionSource
+	} from '$lib/components/sessions/OpenInSessionButton.svelte'
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
 
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import WorkspaceUserSettings from '$lib/components/settings/WorkspaceUserSettings.svelte'
 	import ForkMemberSettings from '$lib/components/settings/ForkMemberSettings.svelte'
 	import SettingsPageHeader from '$lib/components/settings/SettingsPageHeader.svelte'
-	import { WORKSPACE_SHOW_SLACK_CMD, WORKSPACE_SHOW_WEBHOOK_CLI_SYNC } from '$lib/consts'
+	import MemberWorkspaceSettings from '$lib/components/settings/MemberWorkspaceSettings.svelte'
+	import {
+		WORKSPACE_SETTINGS_SECTION_GROUPS,
+		workspaceSettingsSectionId
+	} from '$lib/components/workspaceSettings/workspaceSettingsSections'
 	import {
 		OauthService,
+		SlackAgentsService,
 		WorkspaceService,
 		SettingService,
 		type AIConfig,
-		type ErrorHandler,
 		type GetCopilotSettingsStateResponse,
 		type InstanceAISummary,
 		type GetSettingsResponse
 	} from '$lib/gen'
-	import type { GuestUsage } from '$lib/gen'
+	import type { GuestUsage, WorkspaceWebhookEventType } from '$lib/gen'
+	import { $WorkspaceWebhookEventType as webhookEventTypeSchema } from '$lib/gen/schemas.gen'
+	import MultiSelect from '$lib/components/select/MultiSelect.svelte'
+	import Checkbox from '$lib/components/common/checkbox/Checkbox.svelte'
+	import { webhookEventPresets } from '$lib/components/workspaceSettings/webhookEventPresets'
 	import {
 		enterpriseLicense,
 		superadmin,
@@ -45,11 +61,19 @@
 	import { sendUserToast } from '$lib/toast'
 	import { clone, emptyString, encodeState, hasUnsavedChanges } from '$lib/utils'
 	import { downloadViaClient, shouldDownloadViaClient } from '$lib/utils/downloadFile'
-	import { ExternalLink, Slack, Target } from 'lucide-svelte'
+	import { ArrowLeft, ExternalLink, Slack, Target } from 'lucide-svelte'
+	import DropdownV2 from '$lib/components/DropdownV2.svelte'
+	import {
+		pageHeader,
+		type PageHeaderSection,
+		type PageHeaderSubpage
+	} from '$lib/components/pageHeaderRegistry.svelte'
 	import SidebarNavigation from '$lib/components/common/sidebar/SidebarNavigation.svelte'
 
 	import PremiumInfo from '$lib/components/settings/PremiumInfo.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
+	import Popover from '$lib/components/Popover.svelte'
+	import SlackChannelAgents from '$lib/components/workspaceSettings/SlackChannelAgents.svelte'
 
 	import ChangeWorkspaceName from '$lib/components/settings/ChangeWorkspaceName.svelte'
 	import ChangeWorkspaceId from '$lib/components/settings/ChangeWorkspaceId.svelte'
@@ -59,7 +83,6 @@
 		convertBackendSettingsToFrontendSettings,
 		type S3ResourceSettings
 	} from '$lib/workspace_settings'
-	import { base } from '$lib/base'
 	import ConnectionSection from '$lib/components/ConnectionSection.svelte'
 	import AISettings from '$lib/components/workspaceSettings/AISettings.svelte'
 	import SharedUiSettings from '$lib/components/workspaceSettings/SharedUiSettings.svelte'
@@ -68,7 +91,9 @@
 	import GitSyncSection from '$lib/components/git_sync/GitSyncSection.svelte'
 	import Trashbin from '$lib/components/settings/Trashbin.svelte'
 	import { untrack } from 'svelte'
-	import { getHandlerType } from '$lib/components/triggers/utils'
+	import { resource } from 'runed'
+	import NativeOAuthCallback from '$lib/components/triggers/native/NativeOAuthCallback.svelte'
+	import type { NativeServiceName } from '$lib/gen'
 	import DbtSettings, {
 		convertDbtSettingsFromBackend,
 		type DbtSettingsType
@@ -87,6 +112,7 @@
 	} from '$lib/components/sessions/sessionState.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import CollapseLink from '$lib/components/CollapseLink.svelte'
+	import SlackAppSetup from '$lib/components/common/slack/SlackAppSetup.svelte'
 	import { validateWebhookUrl, validateEncryptionKey } from '$lib/validators/workspaceSettings'
 	import DataTableSettings, {
 		convertDataTableSettingsFromBackend,
@@ -96,6 +122,8 @@
 	import SettingsFooter from '$lib/components/workspaceSettings/SettingsFooter.svelte'
 	import WorkspaceRulesets from '$lib/components/workspaceSettings/WorkspaceRulesets.svelte'
 	import SettingCard from '$lib/components/instanceSettings/SettingCard.svelte'
+	import WorkspaceSettingsYaml from '$lib/components/workspaceSettings/WorkspaceSettingsYaml.svelte'
+	import { loadCopilot } from '$lib/components/copilot/loadCopilot'
 
 	let slackInitialPath: string = $state('')
 	let slackScriptPath: string = $state('')
@@ -164,7 +192,19 @@
 		await goto('/user/workspaces')
 	}
 	let useCustomSlackApp: boolean = $state(false)
+	// Opt-in: Slack refuses a connection asking for a scope its app doesn't declare. An agent's page
+	// links here with `agents=true`.
+	let slackAgents = $state($page.url.searchParams.get('agents') === 'true')
 	let slackAppType: 'instance' | 'workspace' = $state('instance')
+	// Agents answer only once Windmill can verify Slack's requests with the signing secret of the
+	// app the workspace connects through.
+	let slackSigningSecret: string = $state('')
+	let slackSigningSecretSet: boolean = $state(false)
+	const slackAgentsStatus = resource(
+		() => (slackAgents ? $workspaceStore : undefined),
+		async (workspace) =>
+			workspace ? await SlackAgentsService.getSlackAgentsStatus({ workspace }) : undefined
+	)
 
 	// Keep slackAppType and useCustomSlackApp in sync
 	$effect(() => {
@@ -181,19 +221,62 @@
 	let plan: string | undefined = $state(undefined)
 	let customer_id: string | undefined = $state(undefined)
 	let webhook: string | undefined = $state(undefined)
-	let errorHandlerSelected: ErrorHandler = $state('slack')
-	let errorHandlerScriptPath: string | undefined = $state(undefined)
-	let errorHandlerItemKind: 'flow' | 'script' = $state('script')
-	let errorHandlerExtraArgs: Record<string, any> = $state({})
+	// undefined sends every event type
+	let webhookEvents: WorkspaceWebhookEventType[] | undefined = $state(undefined)
+	const webhookEventItems = webhookEventTypeSchema.enum.map((value) => ({ label: value, value }))
+	function toggleWebhookEventPreset(events: readonly WorkspaceWebhookEventType[]) {
+		const current = webhookEvents ?? []
+		webhookEvents = events.every((e) => current.includes(e))
+			? current.filter((e) => !events.includes(e))
+			: [...current, ...events.filter((e) => !current.includes(e))]
+	}
+	function webhookPresetSelectedCount(events: readonly WorkspaceWebhookEventType[]) {
+		return events.filter((e) => webhookEvents?.includes(e)).length
+	}
+	let customizeWebhookEvents = $state(false)
+	// A partly selected category can only be read in the per-event list.
+	$effect(() => {
+		if (
+			webhookEventPresets.some((p) => {
+				const n = webhookPresetSelectedCount(p.events)
+				return n > 0 && n < p.events.length
+			})
+		) {
+			customizeWebhookEvents = true
+		}
+	})
+	const noErrorHandler = handlerDraftFromStored(
+		'error',
+		undefined,
+		'script',
+		{},
+		{
+			emptySelected: 'slack'
+		}
+	)
+	let errorHandlerDraft: HandlerDraft = $state(cloneHandlerDraft(noErrorHandler))
 	let errorHandlerMutedOnCancel: boolean | undefined = $state(undefined)
 	let errorHandlerMutedOnUserPath: boolean | undefined = $state(undefined)
 	let successHandlerScriptPath: string | undefined = $state(undefined)
+	const noVariableExpirationHandler = handlerDraftFromStored('variableExpiration', undefined)
+	let variableExpirationDraft: HandlerDraft = $state(cloneHandlerDraft(noVariableExpirationHandler))
+	let variableExpirationMutedOnUserPath: boolean = $state(false)
+	// The sweep's default when the stored handler has no `notify_before_secs`.
+	const defaultNotifyBeforeSecs = 24 * 3600
+	let variableExpirationNotifyBeforeSecs: number = $state(defaultNotifyBeforeSecs)
+	let variableExpirationRemindEverySecs: number | undefined = $state(undefined)
+	// The sweep runs every 5 minutes, so shorter intervals count as 5 minutes.
+	let variableExpirationRuns = $derived(
+		variableExpirationRemindEverySecs
+			? Math.ceil(
+					variableExpirationNotifyBeforeSecs / Math.max(variableExpirationRemindEverySecs, 300)
+				)
+			: 1
+	)
 	let criticalAlertUIMuted: boolean | undefined = $state(undefined)
 	let initialCriticalAlertUIMuted: boolean | undefined = $state(undefined)
 	let publicAppRateLimitPerMinute: number | undefined = $state(undefined)
-	let guestAccessEnabled: boolean = $state(false)
 	let guestUsage: GuestUsage | undefined = $state(undefined)
-	let initialGuestAccessEnabled: boolean = $state(false)
 	// A guest JWT is verified against one key: a PEM public key, or a JWKS URL. The
 	// type picks which field is live; the other is cleared on save.
 	let guestJwtKeyType = $state<'pem' | 'jwks'>('pem')
@@ -207,8 +290,8 @@
 		pem: guestJwtKeyType === 'pem' ? guestJwtPublicKey.trim() : '',
 		jwks: guestJwtKeyType === 'jwks' ? guestJwtJwksUrl.trim() : ''
 	})
-	// Whether the deployment can have guests at all; off, the card offers no switch to
-	// turn on. The backend decides; the hostname stands in until it has answered.
+	// Whether the deployment can have guests at all; off, the card offers no guest key to
+	// configure. The backend decides; the hostname stands in until it has answered.
 	let guestsAvailable = $derived.by(() => guestUsage?.available ?? !isCloudHosted())
 	let initialPublicAppRateLimitPerMinute: number | undefined = $state(undefined)
 
@@ -245,20 +328,26 @@
 
 	// Track initial webhook for unsaved changes detection
 	let initialWebhook: string | undefined = $state(undefined)
+	let initialWebhookEvents: WorkspaceWebhookEventType[] | undefined = $state(undefined)
 
 	// Track initial encryption key for unsaved changes detection
 	let initialEditedWorkspaceEncryptionKey: string | undefined = $state(undefined)
 
 	// Track initial error handler settings for unsaved changes detection
-	let initialErrorHandlerSelected: ErrorHandler = $state('slack')
-	let initialErrorHandlerScriptPath: string | undefined = $state(undefined)
-	let initialErrorHandlerItemKind: 'flow' | 'script' = $state('script')
-	let initialErrorHandlerExtraArgs: Record<string, any> = $state({})
+	let initialErrorHandlerDraft: HandlerDraft = $state(cloneHandlerDraft(noErrorHandler))
 	let initialErrorHandlerMutedOnCancel: boolean | undefined = $state(undefined)
 	let initialErrorHandlerMutedOnUserPath: boolean | undefined = $state(undefined)
 
 	// Track initial success handler for unsaved changes detection
 	let initialSuccessHandlerScriptPath: string | undefined = $state(undefined)
+
+	// Track initial variable expiration handler for unsaved changes detection
+	let initialVariableExpirationDraft: HandlerDraft = $state(
+		cloneHandlerDraft(noVariableExpirationHandler)
+	)
+	let initialVariableExpirationMutedOnUserPath: boolean = $state(false)
+	let initialVariableExpirationNotifyBeforeSecs: number = $state(defaultNotifyBeforeSecs)
+	let initialVariableExpirationRemindEverySecs: number | undefined = $state(undefined)
 
 	let s3ResourceSettings: S3ResourceSettings = $state({
 		resourceType: 's3',
@@ -301,12 +390,56 @@
 		return hasUnsavedChanges(changes.savedValue, changes.modifiedValue)
 	})
 
+	let errorHandlerChannelMissing = $derived.by(() => {
+		const { selected } = errorHandlerDraft
+		if (selected !== 'slack' && selected !== 'teams') return false
+		const slot = errorHandlerDraft[selected]
+		return !!slot.path && emptyString(slot.args['channel'])
+	})
+
 	// Derived state for checking unsaved changes in success handler
 	let hasSuccessHandlerChanges = $derived.by(() => {
 		if (tab !== 'error_handler') return false
 		return hasUnsavedChanges(
 			{ successHandlerScriptPath: initialSuccessHandlerScriptPath },
 			{ successHandlerScriptPath: successHandlerScriptPath }
+		)
+	})
+
+	// The mute flag is stored inside the handler setting, which saving with no handler
+	// clears, so the toggle is gated on having one.
+	let variableExpirationHasHandler = $derived(!!handlerDraftToStored(variableExpirationDraft).path)
+
+	// The stored handler is nested because `hasUnsavedChanges` drops a top-level `path`.
+	function variableExpirationSettingsValue(
+		draft: HandlerDraft,
+		mutedOnUserPath: boolean,
+		notifyBeforeSecs: number,
+		remindEverySecs: number | undefined
+	) {
+		return {
+			handler: handlerDraftToStored(draft),
+			mutedOnUserPath,
+			notifyBeforeSecs,
+			remindEverySecs: remindEverySecs || undefined
+		}
+	}
+
+	let hasVariableExpirationChanges = $derived.by(() => {
+		if (tab !== 'variable_expiration') return false
+		return hasUnsavedChanges(
+			variableExpirationSettingsValue(
+				initialVariableExpirationDraft,
+				initialVariableExpirationMutedOnUserPath,
+				initialVariableExpirationNotifyBeforeSecs,
+				initialVariableExpirationRemindEverySecs
+			),
+			variableExpirationSettingsValue(
+				variableExpirationDraft,
+				variableExpirationMutedOnUserPath,
+				variableExpirationNotifyBeforeSecs,
+				variableExpirationRemindEverySecs
+			)
 		)
 	})
 
@@ -372,7 +505,58 @@
 	// The deploy filters configure what may be promoted into the parent, so they only mean
 	// something for a fork. A root workspace deploys nowhere by lineage.
 	const showDeployToTab = $derived(Boolean(currentWorkspace?.parent_workspace_id))
+	// The page native trigger OAuth providers redirect to. Anyone can connect an account, so the
+	// callback is handled before the admin gate.
+	const nativeOAuthService = $derived(
+		$page.url.searchParams.get('tab') === 'native_triggers' && $page.url.searchParams.has('state')
+			? ($page.url.searchParams.get('service') as NativeServiceName | null)
+			: null
+	)
 	const canAdmin = $derived(($userStore?.is_admin ?? false) || Boolean($superadmin))
+	let yamlMode = $state(false)
+	// A workspace where the user is not an admin hides the toggle, so it must not stay in YAML mode.
+	const showYaml = $derived(yamlMode && canAdmin)
+	let yamlEditor: WorkspaceSettingsYaml | undefined = $state(undefined)
+	let yamlConfirm: 'enter' | 'leave' | undefined = $state(undefined)
+
+	function paneHasUnsavedChanges() {
+		const changes = getAllUnsavedChanges()
+		return hasUnsavedChanges(changes.savedValue ?? {}, changes.modifiedValue ?? {})
+	}
+
+	// Switching mode unmounts either the editor or the current pane, so the check runs in the
+	// binding's setter, before that happens. A refused change still leaves the toggle's checkbox
+	// flipped, so the toggle is remounted to show the mode again.
+	let yamlToggleKey = $state(0)
+	function setYamlMode(on: boolean) {
+		if (on === yamlMode) return
+		if (paneHasUnsavedChanges()) {
+			yamlToggleKey++
+			yamlConfirm = on ? 'enter' : 'leave'
+			return
+		}
+		yamlMode = on
+	}
+
+	function confirmYamlSwitch() {
+		if (yamlConfirm === 'enter') {
+			discardAllChanges()
+			yamlMode = true
+		} else {
+			yamlMode = false
+		}
+		yamlConfirm = undefined
+	}
+
+	async function reloadAfterYamlApply() {
+		await Promise.all([
+			loadSettings(),
+			loadSlackOAuthConfig(),
+			WorkspaceService.listUserWorkspaces().then((w) => usersWorkspaceStore.set(w)),
+			loadCopilot($workspaceStore!)
+		])
+	}
+
 	// The creator of a fork gets the fork members screen even when they are not an admin of it:
 	// their `usr` row is copied from the parent, so forking as an ordinary developer leaves them
 	// unable to bring anyone in to collaborate. Nothing else on this page opens up — the backend
@@ -402,6 +586,7 @@
 			| 'dev_workspace'
 			| 'error_handler'
 			| 'success_handler'
+			| 'variable_expiration'
 			| 'critical_alerts'
 			| 'ai'
 			| 'windmill_data_tables'
@@ -416,19 +601,12 @@
 			| 'dependencies'
 			| 'rulesets'
 			| 'shared_ui'
-		// Both 'slack' and 'teams' URLs map to 'slack' tab
-		if (selectedTab === 'teams') {
-			return 'slack'
-		}
-		// Both 'success_handler' and 'error_handler' URLs map to 'error_handler' tab
-		if (selectedTab === 'success_handler') {
-			return 'error_handler'
-		}
-		// The Deployment UI tab was folded into Dev workspace; keep its links working.
-		if (selectedTab === 'deploy_to') {
-			return 'dev_workspace'
-		}
-		return selectedTab || 'users'
+		return selectedTab
+			? (workspaceSettingsSectionId(selectedTab) as Exclude<
+					typeof selectedTab,
+					'teams' | 'success_handler' | 'deploy_to'
+				>)
+			: 'users'
 	})
 
 	let slack_tabs: 'slack_commands' | 'teams_commands' = $derived(
@@ -453,7 +631,8 @@
 	}
 
 	const isSlackOAuthEnabled = $derived(isSlackOAuthConfigured(oauths?.slack))
-	const isTeamsOAuthEnabled = $derived(isTeamsOAuthConfigured(oauths?.teams))
+	// TODO: drop the pre-rename `teams` fallback with the backend one.
+	const isTeamsOAuthEnabled = $derived(isTeamsOAuthConfigured(oauths?.ms_teams ?? oauths?.teams))
 
 	async function editWorkspaceCommand(platform: 'slack' | 'teams'): Promise<void> {
 		if (platform === 'slack') {
@@ -502,19 +681,26 @@
 			}
 		}
 
+		if (webhookEvents?.length === 0) {
+			sendUserToast('Select at least one event type, or send all events', true)
+			return
+		}
+
 		try {
 			if (webhook && webhook.trim() !== '') {
 				await WorkspaceService.editWebhook({
 					workspace: $workspaceStore!,
-					requestBody: { webhook }
+					requestBody: { webhook, events: webhookEvents ?? null }
 				})
 				sendUserToast(`webhook set to ${webhook}`)
 				initialWebhook = webhook
+				initialWebhookEvents = $state.snapshot(webhookEvents)
 			} else {
 				await WorkspaceService.editWebhook({
 					workspace: $workspaceStore!,
-					requestBody: { webhook: undefined }
+					requestBody: { webhook: undefined, events: webhookEvents ?? null }
 				})
+				initialWebhookEvents = $state.snapshot(webhookEvents)
 				sendUserToast(`webhook removed`)
 				initialWebhook = ''
 				webhook = ''
@@ -545,11 +731,8 @@
 	}
 
 	async function saveDefaultAppSettings(): Promise<void> {
-		// Guest access and the guest JWT key are the writes of this card available on every plan;
-		// save them first so a refused Enterprise-only write after cannot swallow them.
-		if (guestAccessEnabled !== initialGuestAccessEnabled) {
-			await editGuestAccess()
-		}
+		// The guest JWT key is the write of this card available on every plan; save it first so
+		// a refused Enterprise-only write after cannot swallow it.
 		if (
 			effectiveGuestJwt.pem !== initialGuestJwtPublicKey ||
 			effectiveGuestJwt.jwks !== initialGuestJwtJwksUrl
@@ -589,19 +772,6 @@
 		initialGuestJwtPublicKey = ''
 		initialGuestJwtJwksUrl = ''
 		sendUserToast('Guest JWT key cleared')
-	}
-
-	async function editGuestAccess(): Promise<void> {
-		await WorkspaceService.editGuestAccess({
-			workspace: $workspaceStore!,
-			requestBody: { guest_access_enabled: guestAccessEnabled }
-		})
-		initialGuestAccessEnabled = guestAccessEnabled
-		sendUserToast(
-			guestAccessEnabled
-				? 'Guests can now open apps set to Guests in this workspace'
-				: 'Guests can no longer sign in to this workspace'
-		)
 	}
 
 	async function loadWorkspaceEncryptionKey(): Promise<void> {
@@ -665,12 +835,8 @@
 		slack_team_name = settings.slack_name
 		teams_team_id = settings.teams_team_id
 		teams_team_name = settings.teams_team_name
-		if (settings.slack_command_script) {
-			itemKind = settings.slack_command_script.split('/')[0] as 'flow' | 'script'
-		}
-		if (settings.teams_command_script) {
-			itemKind = settings.teams_command_script.split('/')[0] as 'flow' | 'script'
-		}
+		const commandScript = settings.teams_command_script || settings.slack_command_script
+		itemKind = commandScript ? (commandScript.split('/')[0] as 'flow' | 'script') : 'flow'
 		slackScriptPath = (settings.slack_command_script ?? '').split('/').slice(1).join('/')
 		teamsScriptPath = (settings.teams_command_script ?? '').split('/').slice(1).join('/')
 		slackInitialPath = slackScriptPath
@@ -678,6 +844,7 @@
 		plan = settings.plan
 		customer_id = settings.customer_id
 		webhook = settings.webhook
+		webhookEvents = settings.webhook_events
 
 		aiInitialConfig = settings.ai_config ?? {}
 		hasInstanceAiConfig = copilotSettingsState.has_instance_ai_config
@@ -687,18 +854,12 @@
 			| { path?: string; extra_args?: any; muted_on_cancel?: boolean; muted_on_user_path?: boolean }
 			| undefined
 		const errorHandlerPath = errorHandler?.path ?? ''
-		errorHandlerItemKind = errorHandlerPath
-			? (errorHandlerPath.split('/')[0] as 'flow' | 'script')
-			: 'script'
-		errorHandlerScriptPath = errorHandlerPath.split('/').slice(1).join('/')
 		errorHandlerMutedOnCancel = errorHandler?.muted_on_cancel
 		errorHandlerMutedOnUserPath = errorHandler?.muted_on_user_path
 		criticalAlertUIMuted = settings.mute_critical_alerts
 		initialCriticalAlertUIMuted = settings.mute_critical_alerts
 		publicAppRateLimitPerMinute = settings.public_app_execution_limit_per_minute ?? undefined
 		initialPublicAppRateLimitPerMinute = settings.public_app_execution_limit_per_minute ?? undefined
-		guestAccessEnabled = settings.guest_access_enabled ?? false
-		initialGuestAccessEnabled = settings.guest_access_enabled ?? false
 		guestJwtPublicKey = settings.guest_jwt_public_key ?? ''
 		guestJwtJwksUrl = settings.guest_jwt_jwks_url ?? ''
 		initialGuestJwtPublicKey = guestJwtPublicKey
@@ -707,22 +868,40 @@
 		WorkspaceService.getGuestUsage({ workspace: $workspaceStore! })
 			.then((u) => (guestUsage = u))
 			.catch(() => (guestUsage = undefined))
-		if (emptyString($enterpriseLicense)) {
-			errorHandlerSelected = 'custom'
-		} else if (
+		const [errorHandlerKind, ...errorHandlerScriptPath] = errorHandlerPath.split('/')
+		errorHandlerDraft = handlerDraftFromStored(
+			'error',
+			errorHandlerScriptPath.join('/'),
+			errorHandlerKind === 'flow' ? 'flow' : 'script',
+			errorHandler?.extra_args,
+			{ asCustom: emptyString($enterpriseLicense) }
+		)
+		if (
+			!emptyString($enterpriseLicense) &&
 			canUseInstanceAlerts &&
 			!errorHandlerPath &&
 			settings.error_handler_fallback_to_instance_alerts
 		) {
-			errorHandlerSelected = 'instance_alerts'
-		} else {
-			errorHandlerSelected = getHandlerType(errorHandlerScriptPath)
+			errorHandlerDraft.selected = 'instance_alerts'
 		}
-		errorHandlerExtraArgs = errorHandler?.extra_args ?? {}
 		const successHandler = settings.success_handler as
 			| { path?: string; extra_args?: any }
 			| undefined
 		successHandlerScriptPath = (successHandler?.path ?? '').split('/').slice(1).join('/')
+		const variableExpirationHandler = settings.variable_expiration_handler
+		const [variableExpirationKind, ...variableExpirationPath] = (
+			variableExpirationHandler?.path ?? ''
+		).split('/')
+		variableExpirationDraft = handlerDraftFromStored(
+			'variableExpiration',
+			variableExpirationPath.join('/'),
+			variableExpirationKind === 'flow' ? 'flow' : 'script',
+			variableExpirationHandler?.extra_args
+		)
+		variableExpirationMutedOnUserPath = variableExpirationHandler?.muted_on_user_path ?? false
+		variableExpirationNotifyBeforeSecs =
+			variableExpirationHandler?.notify_before_secs ?? defaultNotifyBeforeSecs
+		variableExpirationRemindEverySecs = variableExpirationHandler?.remind_every_secs || undefined
 		workspaceDefaultAppPath = settings.default_app
 		initialWorkspaceDefaultAppPath = settings.default_app
 
@@ -740,7 +919,7 @@
 		if (settings.deploy_ui != undefined && settings.deploy_ui != null) {
 			deployUiSettings = {
 				include_path:
-					(settings.deploy_ui.include_path?.length ?? 0 > 0)
+					(settings.deploy_ui.include_path?.length ?? 0) > 0
 						? (settings.deploy_ui.include_path ?? [])
 						: [],
 				include_type: {
@@ -753,6 +932,8 @@
 					triggers: (settings.deploy_ui.include_type?.indexOf('trigger') ?? -1) >= 0
 				}
 			}
+		} else {
+			deployUiSettings = defaultDeployUiSettings()
 		}
 
 		// Store initial deploy settings state for unsaved changes detection
@@ -760,20 +941,24 @@
 
 		// Store initial webhook state for unsaved changes detection
 		initialWebhook = webhook
+		initialWebhookEvents = $state.snapshot(webhookEvents)
 
 		// Store initial encryption key state for unsaved changes detection
 		initialEditedWorkspaceEncryptionKey = editedWorkspaceEncryptionKey
 
 		// Store initial error handler state for unsaved changes detection
-		initialErrorHandlerSelected = errorHandlerSelected
-		initialErrorHandlerScriptPath = errorHandlerScriptPath
-		initialErrorHandlerItemKind = errorHandlerItemKind
-		initialErrorHandlerExtraArgs = clone(errorHandlerExtraArgs)
+		initialErrorHandlerDraft = cloneHandlerDraft(errorHandlerDraft)
 		initialErrorHandlerMutedOnCancel = errorHandlerMutedOnCancel
 		initialErrorHandlerMutedOnUserPath = errorHandlerMutedOnUserPath
 
 		// Store initial success handler state for unsaved changes detection
 		initialSuccessHandlerScriptPath = successHandlerScriptPath
+
+		// Store initial variable expiration handler state for unsaved changes detection
+		initialVariableExpirationDraft = cloneHandlerDraft(variableExpirationDraft)
+		initialVariableExpirationMutedOnUserPath = variableExpirationMutedOnUserPath
+		initialVariableExpirationNotifyBeforeSecs = variableExpirationNotifyBeforeSecs
+		initialVariableExpirationRemindEverySecs = variableExpirationRemindEverySecs
 
 		loadedSettings = true
 	}
@@ -790,6 +975,7 @@
 			slackOAuthClientId = config.slack_oauth_client_id || ''
 			slackOAuthClientSecret = config.slack_oauth_client_secret || ''
 			slackOAuthConfigLoaded = !!config.slack_oauth_client_id
+			slackSigningSecretSet = !!config.slack_signing_secret
 		} catch (e) {
 			console.error('Failed to load Slack OAuth config:', e)
 		}
@@ -825,11 +1011,34 @@
 					slack_oauth_client_secret: slackOAuthClientSecret
 				}
 			})
+			if (slackSigningSecret.trim()) {
+				await WorkspaceService.setWorkspaceSlackSigningSecret({
+					workspace: $workspaceStore,
+					requestBody: { slack_signing_secret: slackSigningSecret }
+				})
+			}
 
 			// Redirect to OAuth flow
-			window.location.href = `${base}/api/oauth/connect_slack?workspace=${$workspaceStore}`
+			window.location.href = `/api/oauth/connect_slack?workspace=${$workspaceStore}${slackAgents ? '&agents=true' : ''}`
 		} catch (e) {
 			sendUserToast('Failed to save Slack OAuth configuration', true)
+			console.error(e)
+		}
+	}
+
+	async function saveSlackSigningSecret(): Promise<void> {
+		if (!$workspaceStore) return
+		const secret = slackSigningSecret.trim() || null
+		try {
+			await WorkspaceService.setWorkspaceSlackSigningSecret({
+				workspace: $workspaceStore,
+				requestBody: { slack_signing_secret: secret }
+			})
+			slackSigningSecret = ''
+			slackSigningSecretSet = !!secret
+			sendUserToast(secret ? 'Signing secret saved' : 'Signing secret removed')
+		} catch (e) {
+			sendUserToast('Failed to save the signing secret', true)
 			console.error(e)
 		}
 	}
@@ -851,6 +1060,7 @@
 			slackOAuthClientId = ''
 			slackOAuthClientSecret = ''
 			slackOAuthConfigLoaded = false
+			slackSigningSecretSet = false
 			await loadSettings()
 			sendUserToast('Workspace Slack app deleted')
 		} catch (e) {
@@ -859,7 +1069,7 @@
 		}
 	}
 
-	let deployUiSettings: {
+	type DeployUiSettings = {
 		include_path: string[]
 		include_type: {
 			scripts: boolean
@@ -870,18 +1080,22 @@
 			secrets: boolean
 			triggers: boolean
 		}
-	} = $state({
-		include_path: [],
-		include_type: {
-			scripts: true,
-			flows: true,
-			apps: true,
-			resources: true,
-			variables: true,
-			secrets: true,
-			triggers: true
+	}
+	function defaultDeployUiSettings(): DeployUiSettings {
+		return {
+			include_path: [],
+			include_type: {
+				scripts: true,
+				flows: true,
+				apps: true,
+				resources: true,
+				variables: true,
+				secrets: true,
+				triggers: true
+			}
 		}
-	})
+	}
+	let deployUiSettings: DeployUiSettings = $state(defaultDeployUiSettings())
 
 	$effect(() => {
 		// `canAdmin` is read as a dependency, not inside untrack: $userStore is repopulated
@@ -905,18 +1119,19 @@
 	})
 
 	async function editErrorHandler() {
-		if (errorHandlerScriptPath) {
+		const handler = handlerDraftToStored(errorHandlerDraft)
+		if (handler.path) {
 			await WorkspaceService.editErrorHandler({
 				workspace: $workspaceStore!,
 				requestBody: {
-					path: handlerFullPath(errorHandlerSelected, errorHandlerItemKind, errorHandlerScriptPath),
-					extra_args: errorHandlerExtraArgs,
+					path: `${handler.kind}/${handler.path}`,
+					extra_args: handler.args,
 					muted_on_cancel: errorHandlerMutedOnCancel,
 					muted_on_user_path: errorHandlerMutedOnUserPath,
 					fallback_to_instance_alerts: false
 				}
 			})
-			sendUserToast(`workspace error handler set to ${errorHandlerScriptPath}`)
+			sendUserToast(`workspace error handler set to ${handler.path}`)
 		} else {
 			await WorkspaceService.editErrorHandler({
 				workspace: $workspaceStore!,
@@ -925,25 +1140,70 @@
 					extra_args: undefined,
 					muted_on_cancel: undefined,
 					muted_on_user_path: undefined,
-					fallback_to_instance_alerts: errorHandlerSelected === 'instance_alerts'
+					fallback_to_instance_alerts: errorHandlerDraft.selected === 'instance_alerts'
 				}
 			})
 			sendUserToast(
-				errorHandlerSelected === 'instance_alerts'
+				errorHandlerDraft.selected === 'instance_alerts'
 					? `failed jobs will be reported to the instance critical alert channels`
-					: initialErrorHandlerScriptPath
+					: handlerDraftToStored(initialErrorHandlerDraft).path
 						? `workspace error handler removed`
 						: `error handler settings saved`
 			)
 		}
 
-		// Update initial values for dirty detection
-		initialErrorHandlerSelected = errorHandlerSelected
-		initialErrorHandlerScriptPath = errorHandlerScriptPath
-		initialErrorHandlerItemKind = errorHandlerItemKind
-		initialErrorHandlerExtraArgs = clone(errorHandlerExtraArgs)
+		// Rebuilt from what was stored, so Discard also drops the other tabs' unsaved edits.
+		initialErrorHandlerDraft = handlerDraftFromStored(
+			'error',
+			handler.path,
+			handler.kind,
+			handler.args,
+			{
+				emptySelected: errorHandlerDraft.selected
+			}
+		)
 		initialErrorHandlerMutedOnCancel = errorHandlerMutedOnCancel
 		initialErrorHandlerMutedOnUserPath = errorHandlerMutedOnUserPath
+	}
+
+	async function editVariableExpirationHandler() {
+		const handler = handlerDraftToStored(variableExpirationDraft)
+		await WorkspaceService.editVariableExpirationHandler({
+			workspace: $workspaceStore!,
+			requestBody: {
+				path: handler.path ? `${handler.kind}/${handler.path}` : undefined,
+				extra_args: handler.args,
+				muted_on_user_path: variableExpirationMutedOnUserPath,
+				notify_before_secs: variableExpirationNotifyBeforeSecs,
+				remind_every_secs: variableExpirationRemindEverySecs || undefined
+			}
+		})
+		sendUserToast(
+			handler.path
+				? `Variable expiration handler set to ${handler.path}`
+				: handlerDraftToStored(initialVariableExpirationDraft).path
+					? 'Variable expiration handler removed'
+					: 'Variable expiration settings saved'
+		)
+
+		// Rebuilt from what was stored, so Discard also drops the other tabs' unsaved edits.
+		initialVariableExpirationDraft = handlerDraftFromStored(
+			'variableExpiration',
+			handler.path,
+			handler.kind,
+			handler.args,
+			{ emptySelected: variableExpirationDraft.selected }
+		)
+		initialVariableExpirationMutedOnUserPath = variableExpirationMutedOnUserPath
+		initialVariableExpirationNotifyBeforeSecs = variableExpirationNotifyBeforeSecs
+		initialVariableExpirationRemindEverySecs = variableExpirationRemindEverySecs
+	}
+
+	function discardVariableExpirationChanges() {
+		variableExpirationDraft = cloneHandlerDraft(initialVariableExpirationDraft)
+		variableExpirationMutedOnUserPath = initialVariableExpirationMutedOnUserPath
+		variableExpirationNotifyBeforeSecs = initialVariableExpirationNotifyBeforeSecs
+		variableExpirationRemindEverySecs = initialVariableExpirationRemindEverySecs
 	}
 
 	async function editSuccessHandler() {
@@ -1070,11 +1330,13 @@
 			value && value.trim() !== '' ? value : undefined
 
 		const savedValue = {
-			webhook: normalizeWebhookValue(initialWebhook)
+			webhook: normalizeWebhookValue(initialWebhook),
+			events: initialWebhookEvents
 		}
 
 		const modifiedValue = {
-			webhook: normalizeWebhookValue(webhook)
+			webhook: normalizeWebhookValue(webhook),
+			events: webhookEvents
 		}
 
 		return { savedValue, modifiedValue }
@@ -1083,6 +1345,7 @@
 	// Function to discard unsaved webhook settings changes
 	function discardWebhookSettingsChanges() {
 		webhook = initialWebhook || ''
+		webhookEvents = $state.snapshot(initialWebhookEvents)
 	}
 
 	// Function to check if there are unsaved changes in encryption key settings
@@ -1109,14 +1372,12 @@
 			savedValue: {
 				defaultAppPath: initialWorkspaceDefaultAppPath,
 				publicAppRateLimitPerMinute: initialPublicAppRateLimitPerMinute,
-				guestAccessEnabled: initialGuestAccessEnabled,
 				guestJwtPem: initialGuestJwtPublicKey,
 				guestJwtJwks: initialGuestJwtJwksUrl
 			},
 			modifiedValue: {
 				defaultAppPath: workspaceDefaultAppPath,
 				publicAppRateLimitPerMinute: publicAppRateLimitPerMinute,
-				guestAccessEnabled: guestAccessEnabled,
 				guestJwtPem: effectiveGuestJwt.pem,
 				guestJwtJwks: effectiveGuestJwt.jwks
 			}
@@ -1127,55 +1388,54 @@
 	function discardDefaultAppSettingsChanges() {
 		workspaceDefaultAppPath = initialWorkspaceDefaultAppPath
 		publicAppRateLimitPerMinute = initialPublicAppRateLimitPerMinute
-		guestAccessEnabled = initialGuestAccessEnabled
 		guestJwtPublicKey = initialGuestJwtPublicKey
 		guestJwtJwksUrl = initialGuestJwtJwksUrl
 		guestJwtKeyType = initialGuestJwtJwksUrl ? 'jwks' : 'pem'
 	}
 
-	// Strip keys from extraArgs that are auto-managed by child components:
-	// - 'slack': computed by ErrorOrRecoveryHandler's $effect based on handler type
-	// - 'channel_name': display metadata stripped by SchemaForm's removeExtraKey()
-	function normalizeHandlerExtraArgs(args: Record<string, any>): Record<string, any> {
-		const { slack: _, channel_name: __, ...rest } = args
-		return rest
+	// Compares what Save would send, so visiting another tab and coming back is not a change.
+	// The stored handler is nested because `hasUnsavedChanges` drops a top-level `path`.
+	function errorHandlerSettingsValue(
+		draft: HandlerDraft,
+		mutedOnCancel: boolean | undefined,
+		mutedOnUserPath: boolean | undefined
+	) {
+		return {
+			errorHandler: handlerDraftToStored(draft),
+			fallbackToInstanceAlerts: draft.selected === 'instance_alerts',
+			errorHandlerMutedOnCancel: mutedOnCancel,
+			errorHandlerMutedOnUserPath: mutedOnUserPath
+		}
 	}
 
 	// Function to check if there are unsaved changes in error handler settings
 	function getErrorHandlerSettingsInitialAndModifiedValues() {
-		const savedValue = {
-			errorHandlerSelected: initialErrorHandlerSelected,
-			errorHandlerScriptPath: initialErrorHandlerScriptPath,
-			errorHandlerItemKind: initialErrorHandlerItemKind,
-			errorHandlerExtraArgs: normalizeHandlerExtraArgs(initialErrorHandlerExtraArgs),
-			errorHandlerMutedOnCancel: initialErrorHandlerMutedOnCancel,
-			errorHandlerMutedOnUserPath: initialErrorHandlerMutedOnUserPath
+		return {
+			savedValue: errorHandlerSettingsValue(
+				initialErrorHandlerDraft,
+				initialErrorHandlerMutedOnCancel,
+				initialErrorHandlerMutedOnUserPath
+			),
+			modifiedValue: errorHandlerSettingsValue(
+				errorHandlerDraft,
+				errorHandlerMutedOnCancel,
+				errorHandlerMutedOnUserPath
+			)
 		}
-
-		const modifiedValue = {
-			errorHandlerSelected: errorHandlerSelected,
-			errorHandlerScriptPath: errorHandlerScriptPath,
-			errorHandlerItemKind: errorHandlerItemKind,
-			errorHandlerExtraArgs: normalizeHandlerExtraArgs(errorHandlerExtraArgs),
-			errorHandlerMutedOnCancel: errorHandlerMutedOnCancel,
-			errorHandlerMutedOnUserPath: errorHandlerMutedOnUserPath
-		}
-
-		return { savedValue, modifiedValue }
 	}
 
 	// Function to discard unsaved error handler settings changes
 	function discardErrorHandlerSettingsChanges() {
-		errorHandlerSelected = initialErrorHandlerSelected
-		errorHandlerScriptPath = initialErrorHandlerScriptPath
-		errorHandlerItemKind = initialErrorHandlerItemKind
-		errorHandlerExtraArgs = clone(initialErrorHandlerExtraArgs)
+		errorHandlerDraft = cloneHandlerDraft(initialErrorHandlerDraft)
 		errorHandlerMutedOnCancel = initialErrorHandlerMutedOnCancel
 		errorHandlerMutedOnUserPath = initialErrorHandlerMutedOnUserPath
 	}
 
 	// Combined function to check for unsaved changes across all tabs
 	function getAllUnsavedChanges() {
+		if (showYaml) {
+			return yamlEditor?.unsavedChanges() ?? { savedValue: {}, modifiedValue: {} }
+		}
 		switch (tab) {
 			case 'windmill_data_tables':
 				return dataTableSettingsComponent?.unsavedChanges() ?? { savedValue: {}, modifiedValue: {} }
@@ -1210,6 +1470,21 @@
 					}
 				}
 			}
+			case 'variable_expiration':
+				return {
+					savedValue: variableExpirationSettingsValue(
+						initialVariableExpirationDraft,
+						initialVariableExpirationMutedOnUserPath,
+						initialVariableExpirationNotifyBeforeSecs,
+						initialVariableExpirationRemindEverySecs
+					),
+					modifiedValue: variableExpirationSettingsValue(
+						variableExpirationDraft,
+						variableExpirationMutedOnUserPath,
+						variableExpirationNotifyBeforeSecs,
+						variableExpirationRemindEverySecs
+					)
+				}
 			case 'critical_alerts':
 				return {
 					savedValue: { criticalAlertUIMuted: initialCriticalAlertUIMuted },
@@ -1224,6 +1499,10 @@
 
 	// Combined function to discard changes based on current tab
 	function discardAllChanges() {
+		if (showYaml) {
+			yamlEditor?.discard()
+			return
+		}
 		switch (tab) {
 			case 'ai':
 				aiSettingsComponent?.discard()
@@ -1250,6 +1529,9 @@
 				discardErrorHandlerSettingsChanges()
 				successHandlerScriptPath = initialSuccessHandlerScriptPath
 				break
+			case 'variable_expiration':
+				discardVariableExpirationChanges()
+				break
 			case 'critical_alerts':
 				criticalAlertUIMuted = initialCriticalAlertUIMuted
 				break
@@ -1265,185 +1547,11 @@
 		}
 	}
 
-	// Navigation groups for sidebar
-	const adminNavigationGroups = $derived([
-		{
-			items: [
-				{
-					id: 'general',
-					label: 'General',
-					aiId: 'workspace-settings-general',
-					aiDescription: 'General workspace settings'
-				},
-				{
-					id: 'users',
-					label: 'Users',
-					aiId: 'workspace-settings-users',
-					aiDescription: 'Users workspace settings'
-				},
-				{
-					id: 'ai',
-					label: 'Windmill AI',
-					aiId: 'workspace-settings-ai',
-					aiDescription: 'Windmill AI workspace settings'
-				},
-				{
-					id: 'premium',
-					label: 'Premium plans',
-					aiId: 'workspace-settings-premium',
-					aiDescription: 'Premium plans workspace settings',
-					showIf: isCloudHosted()
-				}
-			]
-		},
-		{
-			title: 'Git & deployment',
-			items: [
-				{
-					id: 'git_sync',
-					label: 'Git sync',
-					aiId: 'workspace-settings-git-sync',
-					aiDescription: 'Git sync workspace settings',
-					isEE: true
-				},
-				{
-					id: 'dev_workspace',
-					label: 'Dev workspace',
-					aiId: 'workspace-settings-dev-workspace',
-					aiDescription:
-						'Pair this workspace with a dev workspace (same code, different environment), and choose which items its deploy UI may promote'
-				},
-				{
-					id: 'rulesets',
-					label: 'Rulesets',
-					aiId: 'workspace-settings-rulesets',
-					aiDescription: 'Protection Rulesets workspace settings',
-					isEE: true
-				}
-			]
-		},
-		{
-			title: 'Integrations',
-			items: [
-				{
-					id: 'slack',
-					label: 'Slack / Teams',
-					aiId: 'workspace-settings-slack',
-					aiDescription: 'Slack / Teams workspace settings',
-					showIf: WORKSPACE_SHOW_SLACK_CMD
-				},
-				{
-					id: 'webhook',
-					label: 'Webhook',
-					aiId: 'workspace-settings-webhook',
-					aiDescription: 'Webhook workspace settings',
-					showIf: WORKSPACE_SHOW_WEBHOOK_CLI_SYNC && !isCloudHosted()
-				},
-				{
-					id: 'native_triggers',
-					label: 'Native triggers',
-					aiId: 'workspace-settings-integrations',
-					aiDescription: 'Workspace integrations for native triggers'
-				}
-			]
-		},
-		{
-			title: 'Hooks',
-			items: [
-				{
-					id: 'error_handler',
-					label: 'Error / success handler',
-					aiId: 'workspace-settings-error-handler',
-					aiDescription: 'Error and success handler workspace settings',
-					isEE: true
-				},
-				{
-					id: 'critical_alerts',
-					label: 'Critical alerts',
-					aiId: 'workspace-settings-critical-alerts',
-					aiDescription: 'Critical alerts workspace settings',
-					isEE: true
-				}
-			]
-		},
-		{
-			title: 'Data & storage',
-			items: [
-				{
-					id: 'windmill_data_tables',
-					label: 'Data tables',
-					aiId: 'workspace-settings-windmill-data-tables',
-					aiDescription: 'Data tables workspace settings'
-				},
-				{
-					id: 'windmill_lfs',
-					label: 'Object storage (S3)',
-					aiId: 'workspace-settings-windmill-lfs',
-					aiDescription: 'Object Storage (S3) workspace settings'
-				},
-				{
-					id: 'volume_storage',
-					label: 'Volumes',
-					aiId: 'workspace-settings-volume-storage',
-					aiDescription: 'Volume storage workspace settings'
-				},
-				{
-					id: 'ducklake',
-					label: 'Ducklake',
-					aiId: 'workspace-settings-ducklake',
-					aiDescription: 'Ducklake workspace settings'
-				},
-				{
-					id: 'dbt',
-					label: 'dbt',
-					aiId: 'workspace-settings-dbt',
-					aiDescription: 'dbt warehouses workspace settings'
-				}
-			]
-		},
-		{
-			title: 'Advanced',
-			items: [
-				{
-					id: 'default_app',
-					label: 'Apps',
-					aiId: 'workspace-settings-apps',
-					aiDescription: 'Apps workspace settings',
-					isEE: true
-				},
-				{
-					id: 'shared_ui',
-					label: 'Shared UI folder',
-					aiId: 'workspace-settings-shared-ui',
-					aiDescription: 'Shared frontend folder usable by raw apps'
-				},
-				{
-					id: 'dependencies',
-					label: 'Dependencies',
-					aiId: 'workspace-settings-dependencies',
-					aiDescription: 'Workspace dependencies settings'
-				},
-				{
-					id: 'encryption',
-					label: 'Encryption',
-					aiId: 'workspace-settings-encryption',
-					aiDescription: 'Encryption workspace settings'
-				},
-				{
-					id: 'trashbin',
-					label: 'Trashbin',
-					aiId: 'workspace-settings-trashbin',
-					aiDescription: 'Trashbin for recently deleted items'
-				}
-			]
-		}
-	])
-
 	// A fork's creator manages its members through the same screen, but nothing else about the
 	// workspace is theirs to change, so they get the Members entry alone.
 	const navigationGroups = $derived(
 		canAdmin
-			? adminNavigationGroups
+			? WORKSPACE_SETTINGS_SECTION_GROUPS
 			: [
 					{
 						items: [
@@ -1463,42 +1571,167 @@
 	const tabLabel = $derived(
 		navigationGroups.flatMap((g) => g.items).find((i) => i.id === tab)?.label
 	)
+
+	const sessionSource: OpenInSessionSource = $derived({
+		// Read at click time: the tab lives in the query, so the preview opens on the tab being
+		// viewed. YAML mode is component state and does not carry over.
+		page: () => WORKSPACE_SETTINGS_PATH + window.location.search,
+		workspaceId: $workspaceStore ?? undefined
+	})
+	function tabHref(id: string): string {
+		const params = new URLSearchParams($page.url.searchParams)
+		params.set('tab', id)
+		return `?${params.toString()}`
+	}
+	function sectionListHref(): string {
+		const params = new URLSearchParams($page.url.searchParams)
+		params.delete('tab')
+		const query = params.toString()
+		return query ? `?${query}` : WORKSPACE_SETTINGS_PATH
+	}
+
+	// Below 768px (Tailwind `md`) the sidebar would leave a phone or a session preview a sliver for
+	// the settings, so the list and the section become two pages. Measured on the page's own box
+	// rather than the viewport: the app's sidebar takes its share of a viewport first.
+	let layoutWidth = $state(window.innerWidth)
+	type SectionEntry = { id: string; label: string; showIf?: boolean; disabled?: boolean }
+	const sectionGroups = $derived(
+		navigationGroups.map((g) => ({
+			title: g.title as string | undefined,
+			items: (g.items as SectionEntry[]).filter((i) => i.showIf !== false)
+		}))
+	)
+	const visibleSections = $derived(sectionGroups.flatMap((g) => g.items))
+	const pagedLayout = $derived(layoutWidth < 768 && !showYaml && visibleSections.length > 1)
+	// The URL says which page is on screen, so the browser's back button returns to the list and
+	// a link to a section opens on it. Wide, a missing `tab` still means the default section.
+	const sectionOpen = $derived($page.url.searchParams.has('tab'))
+	// The list and the section slide between each other the way `PagedContent` pages do: the
+	// page arriving travels a quarter of the box and fades in, the page leaving vanishes at once
+	// so it never ghosts over the one arriving. `side` is where a hidden page waits.
+	function slidingPage(shown: boolean, side: -1 | 1): string {
+		const offset = shown ? '' : side < 0 ? '-translate-x-1/4' : 'translate-x-1/4'
+		return `absolute inset-0 motion-reduce:!transition-none ${offset} ${shown ? '' : 'opacity-0 pointer-events-none'}`
+	}
+	function slideTransition(shown: boolean): string {
+		return `transform 130ms ease-out, opacity ${shown ? '90ms' : '0s'} ease-out`
+	}
+	// None for a single section (a fork owner's Members): Workspace settings is admin-only, so the
+	// picker has no branch to list it under.
+	const subpages: PageHeaderSubpage[] | undefined = $derived(
+		visibleSections.length < 2
+			? undefined
+			: sectionGroups.flatMap((group) =>
+					group.items.map((i) => ({
+						label: i.label,
+						href: WORKSPACE_SETTINGS_PATH + tabHref(i.id),
+						group: group.title,
+						current: i.id === tab,
+						disabled: i.disabled
+					}))
+				)
+	)
+	const headerSection: PageHeaderSection | undefined = $derived(
+		showYaml
+			? { parent: 'Workspace settings', label: 'YAML' }
+			: pagedLayout
+				? sectionOpen && tabLabel
+					? {
+							parent: 'Workspace settings',
+							parentHref: sectionListHref(),
+							label: tabLabel,
+							subpages
+						}
+					: undefined
+				: tabLabel
+					? { parent: 'Workspace settings', label: tabLabel, subpages }
+					: undefined
+	)
 </script>
 
 <CenteredPage wrapperClasses="pb-0 h-full" handleOverflow={false} class="flex flex-col h-full">
-	{#if canAdmin || isForkOwner}
+	{#if nativeOAuthService}
+		<NativeOAuthCallback />
+	{:else if canAdmin || isForkOwner}
 		<!-- No title of its own: the band already says which workspace's settings these are, and the
 		     two controls that sat beside the title are the page's actions. The panes below scroll
 		     inside themselves, so the bar keeps its edge at rest rather than only under a scroll. -->
 		<PageHeaderContent
-			section={tabLabel ? { parent: 'Workspace settings', label: tabLabel } : undefined}
+			section={headerSection}
 			actions={settingsActions}
+			{sessionSource}
+			actionFolds={1}
 			separator="always"
 		/>
 
-		<div class="flex grow min-h-0 pb-4">
-			<!-- Sidebar Navigation -->
-			<!-- The top padding belongs inside both scrollers, not above them: it is the gap under the
-			     separator at rest, and it has to travel with the content so what scrolls passes under
-			     the line rather than stopping short of it. -->
-			<div class="w-60 shrink-0 h-full overflow-auto pt-6 pb-4 pr-4 -ml-2">
-				<SidebarNavigation
-					groups={navigationGroups}
-					selectedId={tab}
-					onNavigate={(id) => {
-						const params = new URLSearchParams($page.url.searchParams)
-						params.set('tab', id)
-						goto(`?${params.toString()}`)
-					}}
-				/>
+		<div class="flex grow min-h-0 pb-4" bind:clientWidth={layoutWidth}>
+			<!-- One tree for both layouts, which differ only in classes: a section moved to another
+			     parent would be rebuilt, losing the unsaved edits it keeps in its own state.
+			     Narrow, the negative margin undoes CenteredPage's side padding, which each page puts
+			     back inside its scroller: the box clips, so a scroller inside the padding would have
+			     its scrollbar cut and a gap beside it. -->
+			<div
+				class="flex flex-1 min-w-0 h-full {pagedLayout
+					? 'relative overflow-hidden -mx-4 sm:-mx-6 md:-mx-8'
+					: ''}"
+			>
+				{#if !showYaml}
+					<!-- The top padding belongs inside both scrollers, not above them: it is the gap
+					     under the separator at rest, and it has to travel with the content so what
+					     scrolls passes under the line rather than stopping short of it. Narrow, 8px
+					     short of the page gutter: the entries carry their own. -->
+					<div
+						class={pagedLayout
+							? `${slidingPage(!sectionOpen, -1)} overflow-auto pt-4 pb-4 px-2 sm:px-4 md:px-6`
+							: 'w-60 shrink-0 h-full overflow-auto pt-6 pb-4 pr-4 -ml-2'}
+						style:transition={pagedLayout ? slideTransition(!sectionOpen) : undefined}
+						inert={pagedLayout && sectionOpen}
+					>
+						<!-- Capped narrow so a row's hover band stays the size of a menu entry. -->
+						<SidebarNavigation
+							class={pagedLayout ? 'max-w-sm' : ''}
+							groups={navigationGroups}
+							selectedId={pagedLayout && !sectionOpen ? '' : tab}
+							onNavigate={(id) => goto(tabHref(id))}
+							itemHref={tabHref}
+							drillIn={pagedLayout}
+						/>
+					</div>
+				{/if}
+				<div
+					class={pagedLayout ? `${slidingPage(sectionOpen, 1)} flex` : 'flex flex-1 min-w-0 h-full'}
+					style:transition={pagedLayout ? slideTransition(sectionOpen) : undefined}
+					inert={pagedLayout && !sectionOpen}
+				>
+					{@render sectionPane()}
+				</div>
 			</div>
+		</div>
 
-			<!-- Main Content -->
-			<div class="flex-1 min-w-0 h-full">
-				<div class="h-full overflow-auto">
-					<div class="h-fit px-6 pt-6" style="scrollbar-gutter: stable both-edges;">
+		{#snippet sectionPane()}
+			<div class="flex-1 min-w-0 h-full flex flex-col">
+				{#if pagedLayout}
+					<div class="flex pt-3 px-4 sm:px-6 md:px-8">
+						<Button
+							variant="subtle"
+							unifiedSize="xs"
+							startIcon={{ icon: ArrowLeft }}
+							btnClasses="text-secondary"
+							href={sectionListHref()}
+						>
+							All settings
+						</Button>
+					</div>
+				{/if}
+				<div class="grow min-h-0 overflow-auto">
+					<div
+						class="h-fit {pagedLayout ? 'px-4 sm:px-6 md:px-8 pt-3' : 'px-6 pt-6'}"
+						style="scrollbar-gutter: stable both-edges;"
+					>
 						{#if !loadedSettings}
 							<Skeleton layout={[1, [40]]} />
+						{:else if showYaml}
+							<WorkspaceSettingsYaml bind:this={yamlEditor} onApplied={reloadAfterYamlApply} />
 						{:else if tab == 'users'}
 							{#if canAdmin}
 								<WorkspaceUserSettings />
@@ -1554,7 +1787,7 @@
 									<Button
 										variant="default"
 										startIcon={{ icon: Target }}
-										onclick={() => goto(`${base}/forks/compare?mode=fork`)}
+										href="/forks/compare?mode=fork"
 									>
 										Merge into another workspace
 									</Button>
@@ -1592,7 +1825,7 @@
 													<Button
 														endIcon={{ icon: ExternalLink }}
 														variant="accent"
-														href="{base}/api/w/{$workspaceStore}/workspaces/billing_portal"
+														href="/api/w/{$workspaceStore}/workspaces/billing_portal"
 													>
 														Customer portal
 													</Button>
@@ -1644,9 +1877,9 @@
 											}
 										}}
 										onSelect={editSlackCommand}
-										connectHref="{base}/api/oauth/connect_slack"
-										createScriptHref="{base}/scripts/add?hub=hub%2F28071%2Fslack%2Fexample_of_responding_to_a_slack_command_slack"
-										createFlowHref="{base}/flows/add?hub=28"
+										connectHref="/api/oauth/connect_slack{slackAgents ? '?agents=true' : ''}"
+										createScriptHref="/scripts/add?hub=hub%2F28071%2Fslack%2Fexample_of_responding_to_a_slack_command_slack"
+										createFlowHref="/flows/add?hub=28"
 										documentationLink="https://www.windmill.dev/docs/integrations/slack"
 										onLoadSettings={loadSettings}
 										display_name={slack_team_name}
@@ -1657,27 +1890,42 @@
 										{#snippet workspaceConfig()}
 											<!-- Workspace OAuth Configuration Section -->
 											{#if !slack_team_name}
-												<div class="flex flex-col gap-1">
-													<!-- Show toggle buttons for app type selection -->
-													<ToggleButtonGroup bind:selected={slackAppType}>
-														{#snippet children({ item })}
-															<ToggleButton
-																{item}
-																value="instance"
-																label="Instance specific Slack app"
-															/>
-															<ToggleButton
-																{item}
-																value="workspace"
-																label="Workspace specific Slack app"
-															/>
-														{/snippet}
-													</ToggleButtonGroup>
-													<div class="text-2xs text-hint"
-														>Use the Slack app configured at the instance level if you want to use
-														the same Slack app for all workspaces. Configure your Slack app here if
-														you want to use a specific Slack app for this workspace.</div
-													>
+												<div class="flex flex-col gap-4 pb-3">
+													<div class="flex flex-col gap-1">
+														<ToggleButtonGroup bind:selected={slackAppType}>
+															{#snippet children({ item })}
+																<ToggleButton
+																	{item}
+																	value="instance"
+																	label="Instance specific Slack app"
+																/>
+																<ToggleButton
+																	{item}
+																	value="workspace"
+																	label="Workspace specific Slack app"
+																/>
+															{/snippet}
+														</ToggleButtonGroup>
+														<div class="text-2xs text-hint"
+															>The instance app is shared by all workspaces. A workspace app is your
+															own, for this workspace only.</div
+														>
+													</div>
+													<Toggle
+														size="xs"
+														bind:checked={slackAgents}
+														options={{
+															right: 'Let AI agents answer in Slack',
+															rightTooltip:
+																'Lets editors share agents in Slack channels, where people ask them by mentioning the bot. Needs users:read, users:read.email and channels:read on the Slack app.'
+														}}
+													/>
+													{#if slackAppType === 'instance' && slackAgentsStatus.current?.signing_secret_set === false}
+														<Alert type="warning" size="xs" title="Agents won't answer yet">
+															An instance admin needs to set the Slack app's signing secret in the
+															instance settings.
+														</Alert>
+													{/if}
 												</div>
 											{/if}
 											{#if slackOAuthConfigLoaded}
@@ -1693,6 +1941,34 @@
 													/>
 													<div class="text-2xs text-hint"
 														>Client ID for the Slack app configured at the workspace level</div
+													>
+												</div>
+												<div class="flex flex-col gap-1">
+													<div class="text-xs text-primary font-normal">Signing secret</div>
+													<div class="flex gap-2">
+														<TextInput
+															inputProps={{
+																type: 'password',
+																placeholder: slackSigningSecretSet
+																	? '••••••••••••••••••••••••••••••••'
+																	: 'Enter signing secret'
+															}}
+															bind:value={slackSigningSecret}
+														/>
+														<Button
+															unifiedSize="md"
+															variant="default"
+															onclick={saveSlackSigningSecret}
+															disabled={!slackSigningSecret.trim() && !slackSigningSecretSet}
+														>
+															{slackSigningSecret.trim() || !slackSigningSecretSet
+																? 'Save'
+																: 'Remove'}
+														</Button>
+													</div>
+													<div class="text-2xs text-hint"
+														>Lets Windmill check that requests come from Slack. Required for AI
+														agents; recommended for <code>/windmill</code> commands.</div
 													>
 												</div>
 											{:else if slackAppType === 'workspace'}
@@ -1719,21 +1995,23 @@
 														/>
 													</label>
 
+													<label class="flex flex-col gap-1">
+														<span class="text-primary font-semibold text-xs">Signing secret</span>
+														<TextInput
+															inputProps={{
+																type: 'password',
+																placeholder: 'Enter signing secret'
+															}}
+															bind:value={slackSigningSecret}
+														/>
+														<span class="text-2xs text-hint"
+															>Lets Windmill check that requests come from Slack. Required for AI
+															agents; recommended for <code>/windmill</code> commands.</span
+														>
+													</label>
+
 													<CollapseLink text="Instructions">
-														<div class="text-xs text-secondary">
-															Create a Slack app at{' '}
-															<a
-																href="https://api.slack.com/apps"
-																target="_blank"
-																rel="noopener noreferrer"
-																class="text-blue-600 dark:text-blue-400 hover:underline"
-															>
-																Slack API
-															</a>. Set the redirect URI to:{' '}
-															<code class="bg-gray-100 dark:bg-gray-800 px-1 py-0.5 rounded">
-																{window.location.origin}{base}/oauth/callback_slack
-															</code>
-														</div>
+														<SlackAppSetup />
 													</CollapseLink>
 
 													<div class="pt-2">
@@ -1741,7 +2019,9 @@
 															size="xs"
 															variant="accent"
 															onclick={saveAndConnectSlack}
-															disabled={!slackOAuthClientId || !slackOAuthClientSecret}
+															disabled={!slackOAuthClientId ||
+																!slackOAuthClientSecret ||
+																(slackAgents && !slackSigningSecret.trim())}
 															startIcon={{ icon: Slack }}
 															btnClasses="w-fit"
 														>
@@ -1758,6 +2038,9 @@
 											{/if}
 										{/snippet}
 									</ConnectionSection>
+									{#if slack_team_name && $workspaceStore}
+										<SlackChannelAgents workspace={$workspaceStore} />
+									{/if}
 								{:else if slack_tabs === 'teams_commands'}
 									{#if !$enterpriseLicense}
 										<div class="pt-4"></div>
@@ -1781,8 +2064,8 @@
 											}}
 											onSelect={editTeamsCommand}
 											connectHref={undefined}
-											createScriptHref="{base}/scripts/add?hub=hub%2F11591%2Fteams%2FExample%20of%20responding%20to%20a%20Microsoft%20Teams%20command"
-											createFlowHref="{base}/flows/add?hub=58"
+											createScriptHref="/scripts/add?hub=hub%2F11591%2Fteams%2FExample%20of%20responding%20to%20a%20Microsoft%20Teams%20command"
+											createFlowHref="/flows/add?hub=58"
 											documentationLink="https://www.windmill.dev/docs/integrations/teams"
 											onLoadSettings={loadSettings}
 											display_name={teams_team_name}
@@ -1835,7 +2118,7 @@
 								{:else}
 									<Button
 										size="sm"
-										href="{base}/api/w/{$workspaceStore ?? ''}/workspaces/tarball?archive_type=zip"
+										href="/api/w/{$workspaceStore ?? ''}/workspaces/tarball?archive_type=zip"
 										target="_blank"
 									>
 										Export workspace as zip file
@@ -1856,7 +2139,7 @@
 									documentation for more information.
 								</p>
 							{/if}
-							<div class="flex gap-2">
+							<div class="flex flex-wrap gap-x-2">
 								<Button
 									destructive
 									disabled={$workspaceStore === 'admins' || $workspaceStore === 'starter'}
@@ -1941,12 +2224,67 @@
 									<div class="text-xs text-red-600 dark:text-red-400">{webhookValidationError}</div>
 								{/if}
 							</SettingCard>
+							<SettingCard
+								label="Events to send"
+								description="Send every event, or only the categories you select."
+								class="mt-6"
+							>
+								<ToggleButtonGroup
+									selected={webhookEvents === undefined ? 'all' : 'selected'}
+									onSelected={(v) => {
+										webhookEvents = v === 'all' ? undefined : [...(initialWebhookEvents ?? [])]
+									}}
+									class="max-w-lg"
+								>
+									{#snippet children({ item })}
+										<ToggleButton {item} value="all" label="All events" />
+										<ToggleButton {item} value="selected" label="Selected events" />
+									{/snippet}
+								</ToggleButtonGroup>
+								{#if webhookEvents !== undefined}
+									<div class="grid grid-cols-2 sm:grid-cols-4 gap-x-4 gap-y-2 max-w-lg mt-3">
+										{#each webhookEventPresets as preset (preset.label)}
+											{@const count = webhookPresetSelectedCount(preset.events)}
+											<label class="flex items-center gap-2 text-xs text-primary cursor-pointer">
+												<Checkbox
+													checked={count === preset.events.length}
+													indeterminate={count > 0 && count < preset.events.length}
+													onChange={() => toggleWebhookEventPreset(preset.events)}
+												/>
+												{preset.label}
+											</label>
+										{/each}
+									</div>
+									<CollapseLink
+										text="Customize individual events"
+										bind:open={customizeWebhookEvents}
+										class="mt-3"
+									>
+										<MultiSelect
+											items={webhookEventItems}
+											bind:value={webhookEvents}
+											placeholder="Select event types"
+											class="max-w-lg"
+										/>
+									</CollapseLink>
+									{#if webhookEventTypeSchema.enum.every((e) => webhookEvents?.includes(e))}
+										<div class="text-xs text-secondary max-w-lg">
+											Every event type is selected. Event types added in later versions are not sent
+											unless you choose All events.
+										</div>
+									{:else if webhookEvents.length === 0}
+										<div class="text-xs text-red-600 dark:text-red-400">
+											Select at least one category or event type
+										</div>
+									{/if}
+								{/if}
+							</SettingCard>
 							<SettingsFooter
 								hasUnsavedChanges={hasWebhookChanges}
 								onSave={editWebhook}
 								onDiscard={discardWebhookSettingsChanges}
 								saveLabel="Save webhook"
-								disabled={!!webhookValidationError}
+								disabled={!!webhookValidationError || webhookEvents?.length === 0}
 								class="mt-8"
 							/>
 						{:else if tab == 'error_handler'}
@@ -1968,11 +2306,8 @@
 										isEditable={true}
 										errorOrRecovery="error"
 										showScriptHelpText={true}
-										bind:handlerSelected={errorHandlerSelected}
-										bind:handlerPath={errorHandlerScriptPath}
+										bind:draft={errorHandlerDraft}
 										customScriptTemplate="/scripts/add?hub=hub%2F9083%2Fwindmill%2Fworkspace_error_handler_template"
-										bind:customHandlerKind={errorHandlerItemKind}
-										bind:handlerExtraArgs={errorHandlerExtraArgs}
 										showInstanceAlerts={canUseInstanceAlerts}
 									>
 										{#snippet customTabTooltip()}
@@ -2003,21 +2338,15 @@
 										{/snippet}
 									</ErrorOrRecoveryHandler>
 
-									{#if errorHandlerSelected !== 'instance_alerts'}
+									{#if errorHandlerDraft.selected !== 'instance_alerts'}
 										<SettingCard class="gap-2">
 											<Toggle
-												disabled={!$enterpriseLicense ||
-													((errorHandlerSelected === 'slack' || errorHandlerSelected === 'teams') &&
-														!emptyString(errorHandlerScriptPath) &&
-														emptyString(errorHandlerExtraArgs['channel']))}
+												disabled={!$enterpriseLicense || errorHandlerChannelMissing}
 												bind:checked={errorHandlerMutedOnCancel}
 												options={{ right: 'Do not run error handler for canceled jobs' }}
 											/>
 											<Toggle
-												disabled={!$enterpriseLicense ||
-													((errorHandlerSelected === 'slack' || errorHandlerSelected === 'teams') &&
-														!emptyString(errorHandlerScriptPath) &&
-														emptyString(errorHandlerExtraArgs['channel']))}
+												disabled={!$enterpriseLicense || errorHandlerChannelMissing}
 												bind:checked={errorHandlerMutedOnUserPath}
 												options={{ right: 'Do not run error handler for u/ scripts and flows' }}
 											/>
@@ -2032,10 +2361,7 @@
 									onSave={editErrorHandler}
 									onDiscard={discardErrorHandlerSettingsChanges}
 									saveLabel="Save error handler"
-									disabled={!$enterpriseLicense ||
-										((errorHandlerSelected === 'slack' || errorHandlerSelected === 'teams') &&
-											!emptyString(errorHandlerScriptPath) &&
-											emptyString(errorHandlerExtraArgs['channel']))}
+									disabled={!$enterpriseLicense || errorHandlerChannelMissing}
 								/>
 							</Section>
 
@@ -2057,7 +2383,7 @@
 											/>
 											<Button
 												variant="default"
-												href={`${base}/scripts/add?lang=bun#` +
+												href={'/scripts/add?lang=bun#' +
 													encodeState({
 														path: 'f/success_handler',
 														summary: 'Workspace Success Handler',
@@ -2112,6 +2438,125 @@ export async function main(
 									}}
 									saveLabel="Save success handler"
 									disabled={!$enterpriseLicense}
+								/>
+							</Section>
+						{:else if tab == 'variable_expiration'}
+							<SettingsPageHeader
+								title="Variable expiration handler"
+								description="Run a script or flow ahead of the date the value of a workspace variable expires, so it can be rotated before it stops working."
+								link="https://www.windmill.dev/docs/core_concepts/variables_and_secrets"
+							/>
+
+							{#if !$enterpriseLicense && variableExpirationDraft.selected !== 'custom'}
+								<Alert type="warning" title="Slack and Teams handlers are an EE feature">
+									Connecting a workspace to Slack or Teams is a Windmill EE feature.
+								</Alert>
+							{/if}
+
+							<Section label="Handler">
+								<div class="flex flex-col gap-6">
+									<ErrorOrRecoveryHandler
+										noMargin
+										isEditable={true}
+										errorOrRecovery="variableExpiration"
+										customRequiresEE={false}
+										toggleText="Notify when a variable is about to expire"
+										bind:draft={variableExpirationDraft}
+										customScriptTemplate="/scripts/add?hub=hub%2F30050%2Fwindmill%2Fworkspace_variable_expiration_handler_template"
+									/>
+
+									<SettingCard
+										label="Notify before expiry"
+										description="How long before a variable's value expires the handler runs"
+										class="gap-2"
+									>
+										<SecondsInput
+											bind:seconds={variableExpirationNotifyBeforeSecs}
+											disabled={!variableExpirationHasHandler}
+											hideSeconds
+											hideTotal
+										/>
+										<div class="flex flex-col gap-1 mt-4">
+											<span class="text-xs font-semibold text-emphasis">Remind every</span>
+											<span class="text-xs text-secondary">
+												Run the handler again at this interval until the value expires. Expiries are
+												checked every 5 minutes, so shorter intervals act as 5 minutes. Leave empty
+												or at 0 for a single notice.
+											</span>
+											<SecondsInput
+												bind:seconds={variableExpirationRemindEverySecs}
+												disabled={!variableExpirationHasHandler}
+												clearable
+												hideSeconds
+												hideTotal
+											/>
+											{#if variableExpirationRemindEverySecs && variableExpirationRemindEverySecs >= variableExpirationNotifyBeforeSecs}
+												<span class="text-xs text-yellow-600 dark:text-yellow-400">
+													No reminder will be sent: the interval must be shorter than Notify before
+													expiry.
+												</span>
+											{:else if variableExpirationRuns >= 24}
+												<span class="text-xs text-yellow-600 dark:text-yellow-400">
+													This runs the handler up to {variableExpirationRuns} times before the value
+													expires.
+												</span>
+											{/if}
+										</div>
+									</SettingCard>
+
+									<SettingCard class="gap-2">
+										<!-- `w-fit`: the trigger is a flex item of the card, so it would otherwise
+										stretch the full width and anchor the popup away from the toggle. -->
+										<Popover
+											notClickable
+											disablePopup={variableExpirationHasHandler}
+											placement="bottom-start"
+											class="w-fit"
+										>
+											<Toggle
+												bind:checked={variableExpirationMutedOnUserPath}
+												disabled={!variableExpirationHasHandler}
+												options={{
+													right: 'Do not run the handler for variables in u/ paths'
+												}}
+											/>
+											{#snippet text()}
+												Select a handler first
+											{/snippet}
+										</Popover>
+									</SettingCard>
+
+									<Alert type="info" title="Runs as g/variable_expiration_handler">
+										{#if variableExpirationDraft.selected === 'custom'}
+											The handler is executed by the automatically created group
+											g/variable_expiration_handler. Rotating a variable means writing to it, so
+											grant that group write access to the variables it is meant to rotate. It
+											starts with none. A script that carries an on-behalf-of identity is the
+											exception: it runs as that user, with their permissions rather than the
+											group's.
+										{:else}
+											The handler is executed by the automatically created group
+											g/variable_expiration_handler. It only posts a message, so it needs no access
+											to your variables: it is given the path and the expiry date, never the value.
+											{#if variableExpirationDraft.selected === 'slack'}
+												Access to the Slack bot token is granted for you.
+											{/if}
+										{/if}
+									</Alert>
+									<span class="text-xs text-secondary">
+										If the handler fails to start, a critical alert is raised once and the handler
+										is tried again at every check. The alert is resolved as soon as it starts.
+									</span>
+								</div>
+
+								<SettingsFooter
+									class="mt-6"
+									inline
+									hasUnsavedChanges={hasVariableExpirationChanges}
+									onSave={editVariableExpirationHandler}
+									onDiscard={discardVariableExpirationChanges}
+									saveLabel="Save variable expiration handler"
+									disabled={!$enterpriseLicense && variableExpirationDraft.selected !== 'custom'}
 								/>
 							</Section>
 						{:else if tab == 'critical_alerts'}
@@ -2259,7 +2704,7 @@ export async function main(
 
 							<SettingCard
 								label="Guests"
-								description="Let anyone your identity provider authenticates, or a JWT your own backend signs (configured below), open the apps set to Guests without a Windmill account. They join no workspace, see nothing else, and take no seat. Off by default. Turning it off stops guests immediately, even for apps already set to Guests."
+								description="An app set to Guests can be opened by anyone your identity provider authenticates, or by a JWT your own backend signs (configured below), without a Windmill account. They join no workspace, see nothing else, and take no seat. To limit who may set an app to Guests, add the 'Restrict guest app access' rule to a protection ruleset."
 								class="mt-6"
 							>
 								{#if !guestsAvailable}
@@ -2278,16 +2723,7 @@ export async function main(
 										</div>
 									{/if}
 								{:else}
-									<Toggle
-										bind:checked={guestAccessEnabled}
-										options={{ right: 'Allow guests to open apps set to Guests' }}
-									/>
-									{#if guestUsage && !guestUsage.instance_enabled}
-										<span class="text-hint text-2xs">
-											A superadmin has turned guests off for this instance, so this switch has no
-											effect until they are allowed again.
-										</span>
-									{:else if guestUsage}
+									{#if guestUsage}
 										<span class="text-hint text-2xs">
 											{guestUsage.guest_count} of {guestUsage.free_allowance} free guests used across
 											this instance in the last {guestUsage.window_days} days.
@@ -2357,7 +2793,6 @@ export async function main(
 								onDiscard={discardDefaultAppSettingsChanges}
 								saveLabel="Save app settings"
 								disabled={!$enterpriseLicense &&
-									guestAccessEnabled === initialGuestAccessEnabled &&
 									effectiveGuestJwt.pem === initialGuestJwtPublicKey &&
 									effectiveGuestJwt.jwks === initialGuestJwtJwksUrl}
 							/>
@@ -2424,12 +2859,10 @@ export async function main(
 					</div>
 				</div>
 			</div>
-		</div>
+		{/snippet}
 	{:else}
-		<div class="bg-red-100 border-l-4 border-red-600 text-orange-700 p-4 m-4" role="alert">
-			<p class="font-bold">Not an admin</p>
-			<p>Workspace settings are only available for admin of workspaces</p>
-		</div>
+		<PageHeaderContent separator="always" />
+		<MemberWorkspaceSettings />
 	{/if}
 </CenteredPage>
 
@@ -2440,12 +2873,44 @@ export async function main(
 	tabMode={true}
 />
 
+<ConfirmationModal
+	open={yamlConfirm !== undefined}
+	title="Unsaved changes detected"
+	confirmationText="Discard changes"
+	onConfirmed={confirmYamlSwitch}
+	onCanceled={() => {
+		yamlConfirm = undefined
+	}}
+>
+	<span>
+		{yamlConfirm === 'enter'
+			? 'Switching to YAML mode discards the changes you made in this pane.'
+			: 'Leaving YAML mode discards the changes you made in the editor.'}
+	</span>
+</ConfirmationModal>
+
 {#snippet settingsActions()}
-	{#if $superadmin}
-		<Button variant="default" unifiedSize="sm" on:click={() => goto('#superadmin-settings')}>
-			Instance settings
-		</Button>
+	{#if canAdmin}
+		{#key yamlToggleKey}
+			<Toggle bind:checked={() => yamlMode, setYamlMode} options={{ right: 'YAML' }} size="sm" />
+		{/key}
 	{/if}
+	{#if $superadmin}
+		<!-- Goes into a menu on a phone, where the AI session button that ends the row would
+		     otherwise squeeze the breadcrumb under these controls. -->
+		{#if pageHeader.actionFold >= 1}
+			<DropdownV2
+				size="sm"
+				items={[{ displayName: 'Instance settings', href: '#superadmin-settings' }]}
+			/>
+		{:else}
+			<Button variant="default" unifiedSize="sm" href="#superadmin-settings">
+				Instance settings
+			</Button>
+		{/if}
+	{/if}
+	<!-- No main action on this page: the session button ends the row. -->
+	<OpenInSessionButton source={sessionSource} />
 {/snippet}
 
 <style>

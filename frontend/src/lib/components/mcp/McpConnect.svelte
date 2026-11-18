@@ -8,7 +8,6 @@
 	import McpServerOAuthConnect from './McpServerOAuthConnect.svelte'
 	import OauthScopes from '$lib/components/OauthScopes.svelte'
 	import { sameTopDomainOrigin } from '$lib/cookies'
-	import { base } from '$lib/base'
 	import { onDestroy, untrack } from 'svelte'
 	import { ExternalLink, Pen } from 'lucide-svelte'
 	import { MCP_REGISTRY, findMcpEntry, findMcpEntryByUrl } from './registry'
@@ -279,27 +278,21 @@
 		if (!t) return
 		const { workspace, path } = t
 		try {
-			let account: number | undefined = undefined
-			if (res?.expires_in != undefined) {
-				account = Number(
-					await OauthService.createAccount({
-						workspace,
-						requestBody: {
-							refresh_token: res.refresh_token ?? '',
-							expires_in: res.expires_in,
-							client: t.client,
-							scopes: t.scopes
-						}
-					})
-				)
-			}
 			await upsertSecretVariable({
 				workspace,
 				path,
 				value: res.access_token,
 				resourcePath: path,
 				isOauth: true,
-				account
+				account:
+					res?.expires_in != undefined
+						? {
+								refresh_token: res.refresh_token ?? '',
+								expires_in: res.expires_in,
+								client: t.client,
+								scopes: t.scopes
+							}
+						: undefined
 			})
 			await createMcpResource(t, `$var:${path}`)
 			sendUserToast(`Connected ${t.label}`)
@@ -449,7 +442,7 @@
 				Under <span class="font-mono">u/{$userStore?.username ?? 'you'}</span> it is yours alone; in
 				a folder, everyone in it can use the connection and its token. Saved as an
 				<a
-					href="{base}/resources?workspace={ws}"
+					href="/resources?workspace={ws}"
 					target="_blank"
 					rel="noopener noreferrer"
 					class="text-accent hover:underline inline-flex items-center gap-1"

@@ -22,7 +22,7 @@
 		disabled?: boolean
 		onClick?: () => void
 		divider?: boolean
-		type?: 'action' | 'delete'
+		type?: 'action' | 'delete' | 'ai'
 		shortcut?: string
 	}
 
@@ -129,7 +129,8 @@
 							? CONTEXT_MENU_ITEM_DISABLED_CLASS
 							: menuItem.type === 'delete'
 								? CONTEXT_MENU_ITEM_DELETE_CLASS
-								: CONTEXT_MENU_ITEM_HOVER_MELT_CLASS
+								: CONTEXT_MENU_ITEM_HOVER_MELT_CLASS,
+						menuItem.type === 'ai' && !menuItem.disabled && 'text-ai'
 					)}
 					use:melt={$item}
 					onclick={() => handleItemClick(menuItem)}

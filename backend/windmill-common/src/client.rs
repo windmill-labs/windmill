@@ -71,15 +71,32 @@ impl AuthedClient {
     }
 
     pub async fn get_id_token(&self, audience: &str) -> anyhow::Result<String> {
+        self.get_id_token_expiring_in(audience, None).await
+    }
+
+    /// `expires_in` caps the token's lifetime below the instance default, for
+    /// audiences that refuse long-lived assertions.
+    pub async fn get_id_token_expiring_in(
+        &self,
+        audience: &str,
+        expires_in: Option<i64>,
+    ) -> anyhow::Result<String> {
+        // An audience can be a URL, whose slashes would otherwise split the path segment.
         let url = format!(
             "{}/api/w/{}/oidc/token/{}",
-            self.base_internal_url, self.workspace, audience
+            self.base_internal_url,
+            self.workspace,
+            urlencoding::encode(audience)
         );
-        let response = self
+        let mut request = self
             .force_client
             .as_ref()
             .unwrap_or(&HTTP_CLIENT)
-            .post(&url)
+            .post(&url);
+        if let Some(expires_in) = expires_in {
+            request = request.query(&[("expires_in", expires_in)]);
+        }
+        let response = request
             .header(
                 reqwest::header::AUTHORIZATION,
                 reqwest::header::HeaderValue::from_str(&format!("Bearer {}", self.token))?,
@@ -108,6 +125,30 @@ impl AuthedClient {
             self.base_internal_url, self.workspace, path
         );
         make_basic_get_request(self, &url, None, Some("decoding resource value as json")).await
+    }
+
+    /// The value of the `ai_agent` resource at `path`, refused when the resource there is of another
+    /// type. Only writes of an agent are checked for operators, so a step linking a path must not run
+    /// tools from a resource retyped, or recreated as another type, since the link was approved.
+    pub async fn get_agent_value(&self, path: &str) -> anyhow::Result<serde_json::Value> {
+        #[derive(serde::Deserialize)]
+        struct Resource {
+            resource_type: String,
+            value: Option<serde_json::Value>,
+        }
+        let url = format!(
+            "{}/api/w/{}/resources/get/{}",
+            self.base_internal_url, self.workspace, path
+        );
+        let resource: Resource =
+            make_basic_get_request(self, &url, None, Some("decoding the agent resource")).await?;
+        if resource.resource_type != "ai_agent" {
+            anyhow::bail!(
+                "{path} is a {} resource, not an AI agent",
+                resource.resource_type
+            );
+        }
+        Ok(resource.value.unwrap_or_default())
     }
 
     pub async fn get_variable_value(&self, path: &str) -> anyhow::Result<String> {

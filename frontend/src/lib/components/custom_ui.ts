@@ -46,6 +46,10 @@ export type FlowBuilderWhitelabelCustomUi = {
 	tagLabel?: string
 	aiAgent?: boolean
 	aiSandbox?: boolean
+	/** Set to false so no AI feature can add, change or remove the flow's inputs (its schema): the
+	 * step input fill ("Fill inputs" and the per-input suggestion) only uses existing flow
+	 * inputs, and the flow AI chat cannot edit the schema. */
+	aiFlowInputs?: boolean
 	suggestIntegration?: boolean
 	suggestScript?: boolean
 	// Default timeout (in seconds) prefilled when enabling a custom step timeout.

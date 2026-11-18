@@ -165,7 +165,7 @@
 							let confirm = await confirmationModal.ask({
 								title: 'Confirm setup',
 								children: `This will create a new database ${dbname} in the Windmill PostgreSQL instance`,
-								confirmationText: 'Setup database'
+								confirmationText: 'Set up database'
 							})
 							preventClose = false
 							if (!confirm) return

@@ -39,6 +39,12 @@ export function getWorkspaceRole(workspace: string): Promise<RoleLookup> {
 	return lookup
 }
 
+/** Admin of `workspace`, which may not be the navigated one; an unknown user is not. */
+export async function isAdminIn(workspace: string): Promise<boolean> {
+	const role = await getWorkspaceRole(workspace)
+	return role.kind === 'resolved' && !!(role.user.is_admin || role.user.is_super_admin)
+}
+
 /** Roles are per-identity, so anything that changes who is logged in must drop this. */
 export function clearWorkspaceRoleCache(): void {
 	workspaceRoleCache.clear()

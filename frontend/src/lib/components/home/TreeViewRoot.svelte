@@ -3,8 +3,11 @@
 	import TreeView from './TreeView.svelte'
 	import { countLeaves, groupItems, type ItemType, type UserItem } from './treeViewUtils'
 	import { Button } from '$lib/components/common'
-	import { ChevronDown, ChevronUp, Users } from 'lucide-svelte'
+	import { Users } from 'lucide-svelte'
+	import TreeOwnerRow from './TreeOwnerRow.svelte'
+	import { inUnruledList, rowRule } from '../common/table/unruledList'
 	import { getLocalSetting, pluralize, storeLocalSetting } from '$lib/utils'
+	import type { TreeOpenMemory } from './treeViewState.svelte'
 
 	interface Props {
 		collapseAll: boolean
@@ -31,7 +34,7 @@
 		// when it doesn't apply, in which case every owner is injected as before.
 		ownerCounts?: Record<string, number>
 		// The viewer's own username: their personal space is a fixture of the tree and
-		// stays even when empty, so they have somewhere to create into.
+		// stays even when empty, so they have somewhere to create into, unless `hideEmptySelf`.
 		selfUsername?: string
 		ownerLoad?: Record<
 			string,
@@ -40,12 +43,29 @@
 		onExpandOwner?: (owner: string, more?: boolean, opts?: { all?: boolean }) => void
 		onCollapseOwner?: (owner: string) => void
 		showEditButton?: boolean
+		/** Off where the tree is part of its host's list rather than a box of its own (Home). */
+		framed?: boolean
 		// Tuck every user space but `selfUsername`'s into one collapsible "Other users" row
 		// under it. Only for browsing: a search or filter must not hide its matches behind
 		// a closed row.
 		groupOtherUsers?: boolean
 		// See TreeView's `leaf`.
 		leaf?: Snippet<[ItemType, number]>
+		// See TreeView's `openMemory`.
+		openMemory?: Pick<TreeOpenMemory, 'isOpen' | 'setOpen'>
+		// See TreeView's `onManageFolder`.
+		onManageFolder?: (folderName: string) => void
+		// See TreeView's `ownerLead`.
+		ownerLead?: Snippet<[string]>
+		// See TreeView's `ownerDetail`.
+		ownerDetail?: Snippet<[string]>
+		// Inject folders `ownerCounts` calls empty, as "0 items". Off under a kind filter,
+		// where those counts are per kind and every folder lacking that kind would show.
+		keepEmptyFolders?: boolean
+		// Folders injected even when empty and `keepEmptyFolders` is off.
+		keptFolders?: string[]
+		// Drop `selfUsername`'s space too when it holds nothing, instead of keeping it as "0 items".
+		hideEmptySelf?: boolean
 	}
 
 	let {
@@ -66,9 +86,19 @@
 		onExpandOwner,
 		onCollapseOwner,
 		showEditButton = true,
+		framed = true,
 		groupOtherUsers = false,
-		leaf
+		leaf,
+		openMemory,
+		onManageFolder,
+		ownerLead,
+		ownerDetail,
+		keepEmptyFolders = false,
+		keptFolders,
+		hideEmptySelf = false
 	}: Props = $props()
+
+	const unruled = inUnruledList()
 
 	// How many root nodes render at once. A root node is a collapsed owner row that
 	// fetches nothing until expanded, so a large slice costs a row each and no request
@@ -92,6 +122,9 @@
 		allUsers
 		ownerCounts
 		selfUsername
+		keepEmptyFolders
+		keptFolders
+		hideEmptySelf
 		untrack(() => {
 			// While searching, `items` is already relevance-ranked and the sort
 			// selector is disabled, so keep that order: a no-op leaf comparator
@@ -116,15 +149,21 @@
 						.filter((g) => 'folderName' in g)
 						.map((g) => (g as { folderName: string }).folderName)
 				)
-				// Once counts are in, an owner holding nothing the user can see is dropped
-				// rather than injected — a workspace's folder list is mostly noise in the
-				// tree otherwise. Pipeline folders are exempt: their entry is the pipeline
-				// itself, whose member scripts are folded out of the runnable count.
+				// Once counts are in, a user space holding nothing the user can see is dropped
+				// rather than injected — the member list is mostly noise in the tree otherwise.
+				// Empty folders are dropped too unless `keepEmptyFolders` or `keptFolders`. Pipeline folders are
+				// exempt: their entry is the pipeline, whose scripts the count folds out.
 				const isEmptyOwner = (prefix: string) => ownerCounts != undefined && !ownerCounts[prefix]
 				const missingFolders: { folderName: string; items: [] }[] = []
 				for (const folderName of [...(pipelineFolders ?? []), ...allFolders]) {
 					if (presentFolders.has(folderName)) continue
-					if (!pipelineFolders?.has(folderName) && isEmptyOwner(`f/${folderName}`)) continue
+					if (
+						!keepEmptyFolders &&
+						!pipelineFolders?.has(folderName) &&
+						!keptFolders?.includes(folderName) &&
+						isEmptyOwner(`f/${folderName}`)
+					)
+						continue
 					presentFolders.add(folderName)
 					missingFolders.push({ folderName, items: [] })
 				}
@@ -135,8 +174,9 @@
 				for (const username of allUsers) {
 					if (presentUsers.has(username)) continue
 					// Your own space is exempt from the drop: it's where you create, so it
-					// stays visible (as "0 items") when empty rather than disappearing.
-					if (username !== selfUsername && isEmptyOwner(`u/${username}`)) continue
+					// stays visible (as "0 items") when empty rather than disappearing, unless `hideEmptySelf`.
+					if ((hideEmptySelf || username !== selfUsername) && isEmptyOwner(`u/${username}`))
+						continue
 					presentUsers.add(username)
 					missingUsers.push({ username, items: [] })
 				}
@@ -264,6 +304,10 @@
 		{showCode}
 		{showEditButton}
 		{leaf}
+		{openMemory}
+		{onManageFolder}
+		{ownerLead}
+		{ownerDetail}
 	/>
 {/snippet}
 
@@ -280,42 +324,25 @@
 	<!-- Every row draws its own border-b, so the last one would double the frame's bottom border.
 	     Pulling the content 1px down puts that border under the frame, where overflow-hidden
 	     clips it, whichever row (collapsed owner, leaf, expanded subtree) ends the list. -->
-	<div class="border rounded-md bg-surface-tertiary overflow-hidden">
+	<div class="{framed ? 'border rounded-md bg-surface-tertiary' : ''} overflow-hidden">
 		<div class="-mb-px">
 			{#each rows.slice(0, nbDisplayed) as row (row.kind === 'otherUsers' ? 'other_users' : 'folderName' in row.node ? `f__${row.node.folderName}` : 'username' in row.node ? `u__${row.node.username}` : `i__${row.node.type}__${row.node.path}`)}
 				{#if row.kind === 'otherUsers'}
 					<!-- Same shape as an owner row, so it reads as part of the tree. It only reveals
 				     the user rows under it: each still loads its own items when opened. -->
-					<!-- svelte-ignore a11y_click_events_have_key_events -->
-					<!-- svelte-ignore a11y_no_static_element_interactions -->
-					<div
-						onclick={toggleOtherUsers}
-						class="px-4 py-2 border-b w-full flex flex-row items-center justify-between cursor-pointer"
+					<TreeOwnerRow
+						icon={Users}
+						name="Other users"
+						opened={otherUsersOpen}
+						onToggle={toggleOtherUsers}
+						toggleLabel={otherUsersOpen ? 'Hide other users' : 'Show other users'}
 					>
-						<div class="flex flex-row items-center gap-4">
-							<Users size={16} class="text-secondary" />
-							<div>
-								<span class="whitespace-nowrap text-xs text-emphasis font-semibold"
-									>Other users</span
-								>
-								<div class="text-2xs font-normal text-secondary whitespace-nowrap">
-									({pluralize(otherUsers.length, 'user')}{otherUsersItemCount != undefined
-										? ` · ${pluralize(otherUsersItemCount, 'item')}`
-										: ''})
-								</div>
-							</div>
-						</div>
-						<Button
-							iconOnly
-							unifiedSize="xs"
-							variant="subtle"
-							startIcon={{ icon: otherUsersOpen ? ChevronUp : ChevronDown }}
-							title={otherUsersOpen ? 'Hide other users' : 'Show other users'}
-							aria-label="Other users"
-							aria-expanded={otherUsersOpen}
-							onClick={toggleOtherUsers}
-						/>
-					</div>
+						{#snippet detail()}
+							({pluralize(otherUsers.length, 'user')}{otherUsersItemCount != undefined
+								? ` · ${pluralize(otherUsersItemCount, 'item')}`
+								: ''})
+						{/snippet}
+					</TreeOwnerRow>
 					{#if otherUsersOpen}
 						<!-- Ranked after every root owner, so opening this row can't push folders out
 					     of what "expand all" auto-loads. -->
@@ -324,7 +351,9 @@
 						{/each}
 						{#if nbOtherUsersDisplayed < otherUsers.length}
 							<div
-								class="pl-8 pr-4 py-2 border-b flex flex-row items-center justify-between gap-4 bg-surface-secondary"
+								class="pl-8 pr-4 py-2 {rowRule(
+									unruled
+								)} flex flex-row items-center justify-between gap-4 bg-surface-secondary"
 							>
 								<span class="text-xs text-secondary">
 									Showing {nbOtherUsersDisplayed} of {otherUsers.length} users

@@ -9,8 +9,8 @@
 use axum::extract::Multipart;
 use windmill_api_auth::{
     auth::{list_tokens_internal, AuthCache, TruncatedTokenWithEmail},
-    build_scope_path_predicate, check_scopes, maybe_refresh_folders, require_owner_of_path,
-    ApiAuthed,
+    build_scope_path_predicate, check_scopes, maybe_refresh_folders, require_is_writer,
+    require_owner_of_path, ApiAuthed,
 };
 use windmill_common::{
     user_drafts::{overlay_or_draft_only, DraftUserRef, UserDraftItemKind, WithDraftOverlay},
@@ -40,7 +40,11 @@ use std::{collections::HashMap, sync::Arc};
 use windmill_audit::audit_oss::{audit_log, AuditAuthorable};
 use windmill_audit::ActionKind;
 use windmill_dep_map::scoped_dependency_map::ScopedDependencyMap;
-use windmill_dep_map::{lock_hash::record_lock_hashes, process_relative_imports};
+use windmill_dep_map::{
+    ci_tests::{CiTestBatchItem, CiTestBatchOutcome},
+    lock_hash::record_lock_hashes,
+    process_relative_imports,
+};
 
 use windmill_common::{
     assets::{
@@ -119,6 +123,10 @@ pub fn workspaced_service() -> Router {
         .route("/delete/h/{hash}", post(delete_script_by_hash))
         .route("/delete/p/{*path}", post(delete_script_by_path))
         .route("/delete_bulk", delete(delete_scripts_bulk))
+        // By hash, a script is read without the folder/path ACL that `/get/p` and `/raw/p`
+        // apply (`get/h` only does with `?authed=true`), and `raw/h` also skips the token-scope
+        // check. Ideally these would be authorized too, but the hash acts as the secret: a member
+        // reaching one (e.g. via a flow they can read) is by design, not a vulnerability.
         .route("/get/h/{hash}", get(get_script_by_hash))
         .route("/raw/h/{hash}", get(raw_script_by_hash))
         .route("/deployment_status/h/{hash}", get(get_deployment_status))
@@ -144,6 +152,7 @@ pub fn workspaced_service() -> Router {
         // CI test results
         .route("/ci_test_results/{kind}/{*path}", get(get_ci_test_results))
         .route("/ci_test_results_batch", post(get_ci_test_results_batch))
+        .route("/trigger_ci_tests_batch", post(trigger_ci_tests_batch))
         // Save-time schema-contract check (pipelines gap #2b)
         .route("/check_schema_contracts", post(check_schema_contracts))
 }
@@ -185,6 +194,10 @@ async fn list_scripts(
     Query(pagination): Query<Pagination>,
     Query(lq): Query<ListScriptQuery>,
 ) -> JsonResult<Vec<ListableScript>> {
+    // A role that cannot write code lists only what it can run: no libraries, no drafts.
+    let cannot_code = !windmill_common::roles::caller_capabilities(&db, &w_id, &authed)
+        .await?
+        .code;
     let (per_page, offset) = paginate_without_limits(pagination);
     let mut sqlb = SqlBuilder::select_from("script as o")
         .fields(&[
@@ -255,7 +268,7 @@ async fn list_scripts(
             .as_ref()
             .map(|x| !x.contains(&"preprocessor".to_string()))
             .unwrap_or(true))
-        || authed.is_operator
+        || cannot_code
     {
         // only include scripts that have a runnable entrypoint. Use a
         // deny-list: anything that isn't a 'lib' (library script without
@@ -305,14 +318,14 @@ async fn list_scripts(
     }
     if let Some(label) = &lq.label {
         for l in label.split(',') {
+            // `binds` fills every `?` in one pass; chained `bind`s would re-scan a `?` in the bound value
             sqlb.and_where(
                 "(o.labels @> ARRAY[?] OR folder_labels(o.workspace_id, o.path) @> ARRAY[?])"
-                    .bind(&l.trim())
-                    .bind(&l.trim()),
+                    .binds(&[&l.trim()]),
             );
         }
     }
-    if authed.is_operator {
+    if cannot_code {
         sqlb.and_where_eq("kind", quote("script"));
     } else if let Some(lowercased_kinds) = lowercased_kinds {
         let safe_kinds = lowercased_kinds
@@ -360,7 +373,7 @@ async fn list_scripts(
     // `include_draft_only` so picker callers stay deployed-only (home page opts in);
     // skipped past page 0 or under any narrowing filter to keep pagination clean.
     if lq.include_draft_only.unwrap_or(false)
-        && !authed.is_operator
+        && !cannot_code
         && offset == 0
         && lq.path_start.is_none()
         && lq.path_exact.is_none()
@@ -571,6 +584,7 @@ async fn create_snapshot_script(
                 user_db.clone(),
                 webhook.clone(),
                 query.skip_if_noop,
+                query.skip_ci_tests,
                 None,
             )
             .await?;
@@ -664,6 +678,9 @@ struct CreateScriptQuery {
     /// sync / promotion callbacks are suppressed.
     #[serde(default)]
     skip_if_noop: bool,
+    /// See `windmill_dep_map::ci_tests::SkipCiTestsQuery`; also carried to the dependency job.
+    #[serde(default)]
+    skip_ci_tests: bool,
 }
 
 async fn create_script(
@@ -682,6 +699,7 @@ async fn create_script(
         db,
         w_id,
         query.skip_if_noop,
+        query.skip_ci_tests,
         ns,
         None,
     )
@@ -723,6 +741,7 @@ async fn update_script(
         db,
         w_id,
         query.skip_if_noop,
+        query.skip_ci_tests,
         ns,
         Some(path.to_string()),
     )
@@ -736,6 +755,7 @@ async fn deploy_script(
     db: DB,
     w_id: String,
     skip_if_noop: bool,
+    skip_ci_tests: bool,
     ns: NewScript,
     supersede_head_at: Option<String>,
 ) -> Result<(StatusCode, String)> {
@@ -765,6 +785,7 @@ async fn deploy_script(
         user_db,
         webhook,
         skip_if_noop,
+        skip_ci_tests,
         supersede_head_at,
     )
     .await?;
@@ -792,7 +813,7 @@ async fn deploy_script(
         }
         hdm.handle(&db).await?;
         let db2 = db.clone();
-        if ready_to_test {
+        if ready_to_test && !skip_ci_tests {
             tokio::spawn(async move {
                 if let Err(e) = windmill_dep_map::ci_tests::trigger_ci_tests_for_item(
                     &db2,
@@ -900,7 +921,7 @@ async fn is_noop_deploy_against_parent(
     parent: &Script<ScriptRunnableSettingsHandle>,
     resolved_on_behalf_of: Option<&str>,
     resolved_job_token_scopes: Option<&[String]>,
-    db: &DB,
+    tx: &mut Transaction<'_, Postgres>,
 ) -> Result<bool> {
     if parent.archived || parent.deleted {
         return Ok(false);
@@ -1056,12 +1077,13 @@ async fn is_noop_deploy_against_parent(
         return Ok(false);
     }
 
+    let parent_settings = windmill_common::runnable_settings::from_handle(
+        parent.runnable_settings.runnable_settings_handle,
+        &mut **tx,
+    )
+    .await?;
     let (parent_debouncing, parent_concurrency) =
-        windmill_common::runnable_settings::prefetch_cached_from_handle(
-            parent.runnable_settings.runnable_settings_handle,
-            db,
-        )
-        .await?;
+        windmill_common::runnable_settings::prefetch_cached_tx(&parent_settings, tx).await?;
     if concurrency_settings != &parent_concurrency {
         return Ok(false);
     }
@@ -1130,6 +1152,69 @@ fn lock_hash_entry(path: &str, lock: &str) -> [(String, i64); 1] {
     [(path.to_string(), hash_script(lock))]
 }
 
+/// The principal a deploy would store, and the address written beside it only while a worker
+/// that still reads that address may be live.
+async fn resolve_deploy_identity(
+    on_behalf_of_email: Option<&str>,
+    on_behalf_of: Option<&str>,
+    preserve: bool,
+    authed: &ApiAuthed,
+    w_id: &str,
+    db: &DB,
+) -> Result<(Option<String>, Option<String>)> {
+    let resolved = windmill_common::resolve_on_behalf_of(
+        on_behalf_of_email,
+        on_behalf_of,
+        preserve,
+        authed,
+        w_id,
+        db,
+    )
+    .await?;
+    let legacy_email =
+        windmill_common::legacy_on_behalf_of_email(resolved.as_deref(), w_id, db).await?;
+    Ok((resolved, legacy_email))
+}
+
+/// Lineage reads must see versions the caller cannot, yet run on the deploy's own connection,
+/// after the row locks that make them sound: lifting RLS for them is what stands in for asking
+/// the pool, which while `tx` is held is a hold-and-wait. Every lift must be undone before `tx`
+/// is handed on, or the rest of the deploy writes unscoped.
+async fn set_lineage_reads_unscoped(
+    tx: &mut Transaction<'_, Postgres>,
+    authed: &ApiAuthed,
+    unscoped: bool,
+) -> Result<()> {
+    // An admin's transaction already runs as `windmill_admin`.
+    if !authed.is_admin {
+        let role = if unscoped {
+            "SET LOCAL ROLE windmill_admin"
+        } else {
+            "SET LOCAL ROLE windmill_user"
+        };
+        sqlx::query(role).execute(&mut **tx).await?;
+    }
+    Ok(())
+}
+
+/// The folder's default identity for `path` and what deploying under it would store.
+async fn resolve_folder_default_identity(
+    authed: &ApiAuthed,
+    w_id: &str,
+    path: &str,
+    db: &DB,
+) -> Result<Option<(String, String, (Option<String>, Option<String>))>> {
+    let Some((email, permissioned_as)) =
+        windmill_common::folders::resolve_folder_default_on_behalf_of(db, w_id, path).await?
+    else {
+        return Ok(None);
+    };
+    let identity =
+        resolve_deploy_identity(Some(&email), Some(&permissioned_as), true, authed, w_id, db)
+            .await?;
+    Ok(Some((email, permissioned_as, identity)))
+}
+
 /// The `dbt://` relation both halves of a deploy have to agree on: a whole
 /// `<warehouse>/<schema>/<name>`, under a warehouse this workspace configures.
 ///
@@ -1184,7 +1269,7 @@ async fn validate_dbt_relation(
 /// The schema the editor would have derived from `content`, for a deploy that sends
 /// none (MCP, a bare API call). `None` for a language whose parser this build lacks,
 /// or code that does not parse.
-fn infer_main_schema(
+pub fn infer_main_schema(
     language: &ScriptLang,
     kind: Option<&ScriptKind>,
     content: &str,
@@ -1279,6 +1364,7 @@ async fn create_script_internal<'c>(
     user_db: UserDB,
     webhook: WebhookShared,
     skip_if_noop: bool,
+    skip_ci_tests: bool,
     // When set, the parent is the live head at this path rather than anything the body
     // named, resolved against the deploying transaction.
     supersede_head_at: Option<String>,
@@ -1288,11 +1374,7 @@ async fn create_script_internal<'c>(
     Option<PostCommitDeploy>,
     Vec<MovedNativeTrigger>,
 )> {
-    if authed.is_operator {
-        return Err(Error::NotAuthorized(
-            "Operators cannot create scripts for security reasons".to_string(),
-        ));
-    }
+    windmill_common::workspaces::check_role_can_code(&db, &w_id, &authed, "create scripts").await?;
     check_scopes(&authed, || format!("scripts:write:{}", ns.path))?;
 
     // Normalize positive-only settings so a `<= 0` value (e.g. a CLI-pushed `0`) persists as
@@ -1341,38 +1423,24 @@ async fn create_script_internal<'c>(
     let skip_draft_deletion = ns.skip_draft_deletion.unwrap_or(false);
     let authed = maybe_refresh_folders(&ns.path, &w_id, authed, &db).await;
 
-    let mut tx: Transaction<'_, Postgres> = user_db.begin(&authed).await?;
-
-    // Apply folder default_permissioned_as the first time a script is deployed
-    // at this path. Check inside the transaction to avoid TOCTOU with concurrent deploys.
+    // Everything read from `db` happens before `tx` opens: `user_db` wraps the same pool, so a
+    // deploy taking a second connection while holding `tx` lets N concurrent deploys hold the
+    // whole pool between them and each wait out the acquire timeout for one more.
     let explicit_preserve = (ns.on_behalf_of_email.is_some() || ns.on_behalf_of.is_some())
         && ns.preserve_on_behalf_of.unwrap_or(false)
         && windmill_common::can_preserve_on_behalf_of(&authed);
-    if !explicit_preserve && windmill_common::can_preserve_on_behalf_of(&authed) {
-        let path_already_exists = sqlx::query_scalar!(
-            "SELECT EXISTS(SELECT 1 FROM script WHERE path = $1 AND workspace_id = $2)",
-            &ns.path,
-            &w_id
-        )
-        .fetch_one(&mut *tx)
-        .await?
-        .unwrap_or(false);
-        if !path_already_exists {
-            if let Some((default_email, default_permissioned_as)) =
-                windmill_common::folders::resolve_folder_default_on_behalf_of(&db, &w_id, &ns.path)
-                    .await?
-            {
-                ns.on_behalf_of_email = Some(default_email);
-                ns.on_behalf_of = Some(default_permissioned_as);
-                ns.preserve_on_behalf_of = Some(true);
-            }
-        }
-    }
-    let authed_principal = windmill_common::users::username_to_permissioned_as(&authed.username);
+    // Held rather than raised: a rule naming a principal that no longer exists fails here, and
+    // must fail only a first deploy, which is all the default applies to.
+    let folder_default =
+        if !explicit_preserve && windmill_common::can_preserve_on_behalf_of(&authed) {
+            resolve_folder_default_identity(&authed, &w_id, &ns.path, &db).await
+        } else {
+            Ok(None)
+        };
     // Resolved here rather than at the INSERT so the no-op check below compares the identity
     // that would actually be stored: the parent row holds only the principal, while a
     // preserving push may name that same principal by address alone.
-    let resolved_on_behalf_of = windmill_common::resolve_on_behalf_of(
+    let requested_identity = resolve_deploy_identity(
         ns.on_behalf_of_email.as_deref(),
         ns.on_behalf_of.as_deref(),
         ns.preserve_on_behalf_of.unwrap_or(false),
@@ -1381,10 +1449,46 @@ async fn create_script_internal<'c>(
         &db,
     )
     .await?;
-    // Written beside the principal only while a worker that still reads it may be live.
-    let legacy_on_behalf_of_email =
-        windmill_common::legacy_on_behalf_of_email(resolved_on_behalf_of.as_deref(), &w_id, &db)
-            .await?;
+    // Not on `tx`: these inserts are cached as written, which a rolled-back deploy would undo.
+    let runnable_settings_handle = windmill_common::runnable_settings::insert_rs(
+        RunnableSettings {
+            debouncing_settings: ns.debouncing_settings.insert_cached(&db).await?,
+            concurrency_settings: ns.concurrency_settings.insert_cached(&db).await?,
+            retry_settings: None,
+        },
+        &db,
+    )
+    .await?;
+
+    let mut tx: Transaction<'_, Postgres> = user_db.begin(&authed).await?;
+
+    // Apply folder default_permissioned_as the first time a script is deployed
+    // at this path. Check inside the transaction to avoid TOCTOU with concurrent deploys.
+    let path_already_exists = match folder_default {
+        Ok(None) => true,
+        _ => sqlx::query_scalar!(
+            "SELECT EXISTS(SELECT 1 FROM script WHERE path = $1 AND workspace_id = $2)",
+            &ns.path,
+            &w_id
+        )
+        .fetch_one(&mut *tx)
+        .await?
+        .unwrap_or(false),
+    };
+    let (resolved_on_behalf_of, legacy_on_behalf_of_email) = if path_already_exists {
+        requested_identity
+    } else {
+        match folder_default? {
+            Some((default_email, default_permissioned_as, identity)) => {
+                ns.on_behalf_of_email = Some(default_email);
+                ns.on_behalf_of = Some(default_permissioned_as);
+                ns.preserve_on_behalf_of = Some(true);
+                identity
+            }
+            None => requested_identity,
+        }
+    };
+    let authed_principal = windmill_common::users::username_to_permissioned_as(&authed.username);
     // When auto_parent is set, serialize concurrent creates for the same (workspace, path)
     // so the clashing_script query always sees the latest committed head.
     if ns.auto_parent.unwrap_or(false) {
@@ -1467,66 +1571,70 @@ async fn create_script_internal<'c>(
     // nothing being live there, so a parentless deploy onto a live path still meets the
     // path conflict the match below raises.
     let mut parent_adopted_from_retired_path = false;
-    if ns.parent_hash.is_none() && clashing_script.is_none() {
-        // Locked, not merely read: a competing deploy chaining onto this same candidate
-        // takes `FOR UPDATE` on it before inserting, so holding the row is what serializes
-        // the two. Probe first and the child still uncommitted reads as absent.
-        let candidate = sqlx::query_scalar::<_, i64>(
+    // Locked, not merely read: a competing deploy chaining onto this same candidate
+    // takes `FOR UPDATE` on it before inserting, so holding the row is what serializes
+    // the two. Probe first and the child still uncommitted reads as absent.
+    let adoption_candidate = if ns.parent_hash.is_none() && clashing_script.is_none() {
+        sqlx::query_scalar::<_, i64>(
             "SELECT hash FROM script WHERE path = $1 AND workspace_id = $2 \
              ORDER BY created_at DESC LIMIT 1 FOR UPDATE",
         )
         .bind(&ns.path)
         .bind(&w_id)
         .fetch_optional(&mut *tx)
-        .await?;
+        .await?
+    } else {
+        None
+    };
+    set_lineage_reads_unscoped(&mut tx, &authed, true).await?;
+    if let Some(hash) = adoption_candidate {
         // Adoptable only if nothing already descends from it: a rename leaves its source
         // path holding a version whose child lives at the destination, and a second child
         // forks a lineage the guard below requires to be linear. Nothing adoptable means a
         // fresh lineage, which has no parent to vary its hash and can still collide.
-        ns.parent_hash = match candidate {
-            Some(hash) => sqlx::query_scalar!(
-                "SELECT 1 FROM script WHERE parent_hashes[1] = $1 AND workspace_id = $2",
-                hash,
-                &w_id
-            )
-            .fetch_optional(&db)
-            .await?
-            .is_none()
-            .then_some(ScriptHash(hash)),
-            None => None,
-        };
+        ns.parent_hash = sqlx::query_scalar!(
+            "SELECT 1 FROM script WHERE parent_hashes[1] = $1 AND workspace_id = $2",
+            hash,
+            &w_id
+        )
+        .fetch_optional(&mut *tx)
+        .await?
+        .is_none()
+        .then_some(ScriptHash(hash));
         parent_adopted_from_retired_path = ns.parent_hash.is_some();
     }
 
     // Absent keeps the previous version's value, read once the parent is settled (a rename
     // adopts its source head above), so a client unaware of the setting cannot drop a
     // restriction by redeploying or renaming.
-    let resolved_job_token_scopes: Option<Vec<String>> = match (&ns.job_token_scopes, &ns.parent_hash) {
-        (Some(Some(scopes)), _) => {
-            windmill_common::min_version::MIN_VERSION_SUPPORTS_JOB_TOKEN_SCOPES
-                .assert()
-                .await?;
-            Some(windmill_common::scopes::validate_job_token_scopes(scopes)?)
-        }
-        (Some(None), _) => None,
-        (None, Some(parent_hash)) => sqlx::query_scalar!(
-            "SELECT job_token_scopes FROM script WHERE hash = $1 AND workspace_id = $2",
-            parent_hash.0,
-            &w_id
-        )
-        .fetch_optional(&db)
-        .await?
-        .flatten(),
-        (None, None) => sqlx::query_scalar!(
-            "SELECT job_token_scopes FROM script WHERE path = $1 AND workspace_id = $2 \
+    let resolved_job_token_scopes: Option<Vec<String>> =
+        match (&ns.job_token_scopes, &ns.parent_hash) {
+            (Some(Some(scopes)), _) => {
+                windmill_common::min_version::MIN_VERSION_SUPPORTS_JOB_TOKEN_SCOPES
+                    .assert()
+                    .await?;
+                Some(windmill_common::scopes::validate_job_token_scopes(scopes)?)
+            }
+            (Some(None), _) => None,
+            (None, Some(parent_hash)) => sqlx::query_scalar!(
+                "SELECT job_token_scopes FROM script WHERE hash = $1 AND workspace_id = $2",
+                parent_hash.0,
+                &w_id
+            )
+            .fetch_optional(&mut *tx)
+            .await?
+            .flatten(),
+            (None, None) => sqlx::query_scalar!(
+                "SELECT job_token_scopes FROM script WHERE path = $1 AND workspace_id = $2 \
              AND deleted = false ORDER BY created_at DESC LIMIT 1",
-            &ns.path,
-            &w_id
-        )
-        .fetch_optional(&db)
-        .await?
-        .flatten(),
-    };
+                &ns.path,
+                &w_id
+            )
+            .fetch_optional(&mut *tx)
+            .await?
+            .flatten(),
+        };
+    set_lineage_reads_unscoped(&mut tx, &authed, false).await?;
     ns.job_token_scopes = Some(resolved_job_token_scopes.clone());
 
     // Before hashing, so the hash and the no-op check see the schema that gets stored.
@@ -1610,14 +1718,16 @@ async fn create_script_internal<'c>(
             // Unscoped, and sound only under the lock above: linearity is a property of the
             // lineage, not of what this caller may read. A child can sit where they cannot
             // see it — a folder they renamed it into, or grants an adopting deploy reset —
-            // and asked through `tx` it reads as absent, letting the fork through.
+            // and asked through a scoped `tx` it reads as absent, letting the fork through.
+            set_lineage_reads_unscoped(&mut tx, &authed, true).await?;
             let clashing_hash_o = sqlx::query_scalar!(
                 "SELECT hash FROM script WHERE parent_hashes[1] = $1 AND workspace_id = $2",
                 p_hash.0,
                 &w_id
             )
-            .fetch_optional(&db)
+            .fetch_optional(&mut *tx)
             .await?;
+            set_lineage_reads_unscoped(&mut tx, &authed, false).await?;
 
             if let Some(clashing_hash) = clashing_hash_o {
                 // Named only when the caller could already read it. The probe above has to be
@@ -1662,7 +1772,7 @@ async fn create_script_internal<'c>(
                     &ps,
                     resolved_on_behalf_of.as_deref(),
                     resolved_job_token_scopes.as_deref(),
-                    &db,
+                    &mut tx,
                 )
                 .await?
             {
@@ -1896,7 +2006,7 @@ async fn create_script_internal<'c>(
     // bare `// pipeline` marker is the opt-in signal for pipeline
     // membership; parsed writes tell us what is produced (we don't record
     // them in auto_kind itself).
-    let pipeline_annotations = parse_pipeline_annotations(&ns.content);
+    let pipeline_annotations = parse_pipeline_annotations(&ns.content).for_script(&ns.path);
     // `// materialize` names what this script produces. Two target kinds, and the
     // runtime behind each is what constrains the annotation:
     //   • `ducklake://<name>/<table>` — the DuckDB executor generates the write
@@ -2206,16 +2316,6 @@ async fn create_script_internal<'c>(
     } else {
         auto_kind
     };
-
-    let runnable_settings_handle = windmill_common::runnable_settings::insert_rs(
-        RunnableSettings {
-            debouncing_settings: ns.debouncing_settings.insert_cached(&db).await?,
-            concurrency_settings: ns.concurrency_settings.insert_cached(&db).await?,
-            retry_settings: None,
-        },
-        &db,
-    )
-    .await?;
 
     let (
         guarded_concurrent_limit,
@@ -2792,6 +2892,20 @@ async fn create_script_internal<'c>(
             }
         }
     }
+    if codebase.is_some() {
+        // Cleanup only: rows left from a plain version of this path. A dedicated-worker lock
+        // job or a map rebuild can write them back; `trigger_dependents` is what keeps a lib's
+        // lock change from relocking a codebase script.
+        sqlx::query!(
+            "DELETE FROM dependency_map WHERE workspace_id = $1 AND importer_kind = 'script'
+             AND (importer_path = $2 OR importer_path = $3)",
+            &w_id,
+            &ns.path,
+            p_path_opt.as_deref().unwrap_or(&ns.path),
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
     for spec in &pipeline_triggers {
         let Some((trigger_kind, trigger_ref)) = trigger_spec_to_row(spec) else {
             continue;
@@ -2948,6 +3062,34 @@ async fn create_script_internal<'c>(
     } else {
         tracing::info!("creating script {hash:?} at path {script_path} on workspace {w_id}",);
     }
+    if ns.dedicated_worker == Some(true) && resolved_job_token_scopes.is_none() {
+        // Its dependency job is tagged for a dedicated worker. One taking it through a
+        // `dedicated_workers` pattern only listens to the scripts it found at its last config
+        // load: re-saving the group's config reloads it, unless the live version it replaces
+        // was served already (a version adopted from a deleted path was not). An entry's one
+        // leading `/` is dropped first, as `WorkspacedPath::dedicated` reads it for the worker.
+        sqlx::query(
+            "UPDATE config SET config = config
+             WHERE name LIKE 'worker\\_\\_%'
+               AND jsonb_typeof(config->'dedicated_workers') = 'array'
+               AND EXISTS (
+                   SELECT 1 FROM jsonb_array_elements_text(config->'dedicated_workers') raw,
+                       regexp_replace(raw, '^([^:]*):/(?!/)', '\\1:') e
+                   WHERE right(e, 2) = '/*' AND starts_with($1 || ':' || $2, left(e, -1)))
+               AND NOT EXISTS (
+                   SELECT 1 FROM script WHERE workspace_id = $1 AND hash = $3 AND path = $2
+                       AND dedicated_worker = true AND job_token_scopes IS NULL)",
+        )
+        .bind(&w_id)
+        .bind(&ns.path)
+        .bind(
+            p_hashes
+                .filter(|_| !parent_adopted_from_retired_path)
+                .and_then(|h| h.first().copied()),
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
     if needs_lock_gen {
         let tag = windmill_common::scripts::dependency_job_tag(ns.tag, &lang);
 
@@ -2963,6 +3105,9 @@ async fn create_script_internal<'c>(
         }
         if let Some(ref p_path) = p_path_opt {
             args.insert("parent_path".to_string(), to_raw_value(&p_path));
+        }
+        if skip_ci_tests {
+            args.insert("skip_ci_tests".to_string(), to_raw_value(&true));
         }
 
         let tx = PushIsolationLevel::Transaction(tx);
@@ -3044,12 +3189,18 @@ async fn create_script_internal<'c>(
             let deployment_message = ns.deployment_message.clone();
             let content = ns.content.clone();
             let language = ns.language.clone();
+            let relock_args = skip_ci_tests.then(|| {
+                sqlx::types::Json(HashMap::from([(
+                    "skip_ci_tests".to_string(),
+                    to_raw_value(&true),
+                )]))
+            });
             tokio::spawn(async move {
-                tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+                tokio::time::sleep(windmill_dep_map::ci_tests::LOCKED_DEPLOY_RELOCK_DELAY).await;
                 if let Err(e) = process_relative_imports(
                     &db2,
                     None,
-                    None,
+                    relock_args.as_ref(),
                     &w_id2,
                     &script_path2,
                     parent_path,
@@ -4004,11 +4155,8 @@ async fn archive_script_by_path(
     Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> Result<()> {
-    if authed.is_operator {
-        return Err(Error::NotAuthorized(
-            "Operators cannot archive scripts for security reasons".to_string(),
-        ));
-    }
+    windmill_common::workspaces::check_role_can_code(&db, &w_id, &authed, "archive scripts")
+        .await?;
     let path = path.to_path();
     check_scopes(&authed, || format!("scripts:write:{}", path))?;
     if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
@@ -4100,11 +4248,8 @@ async fn archive_script_by_hash(
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, hash)): Path<(String, ScriptHash)>,
 ) -> JsonResult<Script<ScriptRunnableSettingsInline>> {
-    if authed.is_operator {
-        return Err(Error::NotAuthorized(
-            "Operators cannot archive scripts for security reasons".to_string(),
-        ));
-    }
+    windmill_common::workspaces::check_role_can_code(&db, &w_id, &authed, "archive scripts")
+        .await?;
     if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
         &w_id,
         AuditAuthorable::username(&authed),
@@ -4265,12 +4410,6 @@ async fn delete_script_by_path(
     let path = path.to_path();
 
     check_scopes(&authed, || format!("scripts:write:{}", path))?;
-
-    if path == "u/admin/hub_sync" && w_id == "admins" {
-        return Err(Error::BadRequest(
-            "Cannot delete the global setup app".to_string(),
-        ));
-    }
 
     if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
         &w_id,
@@ -4444,12 +4583,6 @@ async fn delete_scripts_bulk(
     }
 
     require_admin(authed.is_admin, &authed.username)?;
-
-    if request.paths.contains(&"u/admin/hub_sync".to_string()) && w_id == "admins" {
-        return Err(Error::BadRequest(
-            "Cannot delete the global setup app".to_string(),
-        ));
-    }
 
     if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
         &w_id,
@@ -4938,14 +5071,71 @@ async fn get_ci_test_results(
 }
 
 #[derive(Deserialize)]
-struct CiTestBatchItem {
-    path: String,
-    kind: String,
+struct CiTestBatchRequest {
+    items: Vec<CiTestBatchItem>,
 }
 
 #[derive(Deserialize)]
-struct CiTestBatchRequest {
+struct TriggerCiTestsBatchRequest {
     items: Vec<CiTestBatchItem>,
+    #[serde(default)]
+    ignore_pending: bool,
+}
+
+async fn trigger_ci_tests_batch(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Json(req): Json<TriggerCiTestsBatchRequest>,
+) -> JsonResult<CiTestBatchOutcome> {
+    // The tests run as the caller, as a deploy runs them as the deployer, so queueing them
+    // takes a role that may run and the authority deploying the items does: the tests can be
+    // ones the caller cannot read. No cap on the items: a batch is as large as its push.
+    windmill_common::workspaces::check_role_can_run(&db, &w_id, &authed).await?;
+    for item in &req.items {
+        let (perms_query, scope) = match item.kind.as_str() {
+            "script" => (
+                "SELECT extra_perms FROM script WHERE path = $1 AND workspace_id = $2 \
+                 ORDER BY created_at DESC LIMIT 1",
+                "scripts",
+            ),
+            "flow" => (
+                "SELECT extra_perms FROM flow WHERE path = $1 AND workspace_id = $2",
+                "flows",
+            ),
+            "resource" => (
+                "SELECT extra_perms FROM resource WHERE path = $1 AND workspace_id = $2",
+                "resources",
+            ),
+            other => {
+                return Err(Error::BadRequest(format!(
+                    "CI tests cannot target an item of kind {other}"
+                )))
+            }
+        };
+        check_scopes(&authed, || format!("{scope}:write:{}", item.path))?;
+        require_is_writer(
+            &authed,
+            &item.path,
+            &w_id,
+            db.clone(),
+            perms_query,
+            &item.kind,
+        )
+        .await?;
+    }
+
+    Ok(Json(
+        windmill_dep_map::ci_tests::trigger_ci_tests_for_batch(
+            &db,
+            &w_id,
+            req.items,
+            req.ignore_pending,
+            &authed.email,
+            &authed.username,
+        )
+        .await?,
+    ))
 }
 
 async fn get_ci_test_results_batch(
@@ -5075,6 +5265,8 @@ async fn get_ci_test_results_batch(
 struct CheckSchemaContractsRequest {
     language: ScriptLang,
     content: String,
+    #[serde(default)]
+    path: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -5099,7 +5291,10 @@ async fn check_schema_contracts(
 ) -> JsonResult<CheckSchemaContractsResponse> {
     let assets = crate::asset_inference::effective_script_assets(&req.language, &req.content, None)
         .unwrap_or_default();
-    let ann = parse_pipeline_annotations(&req.content);
+    let mut ann = parse_pipeline_annotations(&req.content);
+    if let Some(path) = req.path.as_deref() {
+        ann = ann.for_script(path);
+    }
     let mut tx = user_db.begin(&authed).await?;
     let warnings = windmill_common::schema_contracts::check_schema_contracts(
         &mut tx,

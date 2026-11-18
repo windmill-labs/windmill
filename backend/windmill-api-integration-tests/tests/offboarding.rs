@@ -90,6 +90,25 @@ async fn test_offboard_to_user(db: Pool<Postgres>) -> anyhow::Result<()> {
     .execute(&db)
     .await?;
 
+    // An agent records who it runs as inside its value, on a path the user does not own.
+    sqlx::query(
+        "INSERT INTO resource (workspace_id, path, value, resource_type, created_by)
+         VALUES ('test-workspace', 'f/shared/agent', $1, 'ai_agent', 'test-user')",
+    )
+    .bind(json!({ "run_on_behalf_of": true, "on_behalf_of": "u/test-user-2" }))
+    .execute(&db)
+    .await?;
+    let preview: serde_json::Value =
+        authed(client().get(ws_url(port, "offboard_preview/test-user-2")))
+            .send()
+            .await?
+            .json()
+            .await?;
+    assert_eq!(
+        preview["executing_on_behalf"]["resources"],
+        json!(["f/shared/agent"])
+    );
+
     let resp = authed(client().post(ws_url(port, "offboard/test-user-2")))
         .json(&json!({
             "reassign_to": "u/test-user",
@@ -99,6 +118,14 @@ async fn test_offboard_to_user(db: Pool<Postgres>) -> anyhow::Result<()> {
         .send()
         .await?;
     assert_eq!(resp.status(), 200);
+
+    let agent_obo: Option<String> = sqlx::query_scalar(
+        "SELECT value->>'on_behalf_of' FROM resource
+         WHERE path = 'f/shared/agent' AND workspace_id = 'test-workspace'",
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(agent_obo.as_deref(), Some("u/test-user"));
 
     let body: serde_json::Value = resp.json().await?;
     assert!(body["conflicts"].as_array().map_or(true, |a| a.is_empty()));
@@ -117,7 +144,10 @@ async fn test_offboard_to_user(db: Pool<Postgres>) -> anyhow::Result<()> {
     .fetch_one(&db)
     .await?;
     assert_eq!(
-        (obo.on_behalf_of.as_deref(), obo.on_behalf_of_email.as_deref()),
+        (
+            obo.on_behalf_of.as_deref(),
+            obo.on_behalf_of_email.as_deref()
+        ),
         (Some("u/test-user"), Some("test@windmill.dev")),
         "the reassignment moves the whole identity, not just the half this release reads"
     );
@@ -287,6 +317,86 @@ async fn test_offboard_to_folder(db: Pool<Postgres>) -> anyhow::Result<()> {
     .fetch_optional(&db)
     .await?;
     assert_eq!(perm.as_deref(), Some("u/test-user"));
+
+    Ok(())
+}
+
+/// Offboarding moves the user's runnables to the target, so handlers naming them must follow.
+#[sqlx::test(migrations = "../migrations", fixtures("base", "offboarding_test"))]
+async fn test_offboard_moves_handler_paths(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    sqlx::raw_sql(
+        r#"UPDATE schedule SET on_failure = 'script/u/test-user-2/script_a', on_success = 'flow/u/test-user-2/flow_a'
+             WHERE workspace_id = 'test-workspace' AND path = 'f/test-folder/sched_shared';
+           UPDATE http_trigger SET error_handler_path = 'u/test-user-2/script_b'
+             WHERE workspace_id = 'test-workspace' AND path = 'f/test-folder/webhook_shared';
+           UPDATE workspace_settings SET error_handler = '{"path": "script/u/test-user-2/script_b", "muted_on_cancel": true}',
+               slack_command_script = 'u/test-user-2/script_a', teams_command_script = 'flow/u/test-user-2/flow_a',
+               default_app = 'u/test-user-2/app_a'
+             WHERE workspace_id = 'test-workspace';"#,
+    )
+    .execute(&db)
+    .await?;
+
+    let resp = authed(client().post(ws_url(port, "offboard/test-user-2")))
+        .json(&json!({
+            "reassign_to": "f/test-folder",
+            "new_on_behalf_of_user": "test-user",
+            "delete_user": true
+        }))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 200, "offboard: {}", resp.text().await?);
+
+    let schedule: (String, String) = sqlx::query_as(
+        "SELECT on_failure, on_success FROM schedule
+         WHERE workspace_id = 'test-workspace' AND path = 'f/test-folder/sched_shared'",
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(
+        schedule,
+        (
+            "script/f/test-folder/script_a".into(),
+            "flow/f/test-folder/flow_a".into()
+        )
+    );
+
+    let trigger: String = sqlx::query_scalar(
+        "SELECT error_handler_path FROM http_trigger
+         WHERE workspace_id = 'test-workspace' AND path = 'f/test-folder/webhook_shared'",
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(trigger, "f/test-folder/script_b");
+
+    let error_handler: serde_json::Value = sqlx::query_scalar(
+        "SELECT error_handler FROM workspace_settings WHERE workspace_id = 'test-workspace'",
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(
+        error_handler,
+        json!({ "path": "script/f/test-folder/script_b", "muted_on_cancel": true })
+    );
+
+    let commands: (String, String, String) = sqlx::query_as(
+        "SELECT slack_command_script, teams_command_script, default_app FROM workspace_settings
+         WHERE workspace_id = 'test-workspace'",
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(
+        commands,
+        (
+            "f/test-folder/script_a".into(),
+            "flow/f/test-folder/flow_a".into(),
+            "f/test-folder/app_a".into()
+        )
+    );
 
     Ok(())
 }

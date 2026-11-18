@@ -87,9 +87,11 @@
 {:else}
 	<div
 		class={twMerge(
-			'mb-1 min-w-0',
-			message.role === 'user' && 'mb-2',
-			message.role === 'user' && messageIndex > 0 && 'mt-4 mb-6',
+			'mb-2 min-w-0',
+			inGroup && 'mb-1',
+			message.role === 'user' && 'mb-6',
+			// mt-4, not mt-6: the message above already brings its own mb-2.
+			message.role === 'user' && messageIndex > 0 && 'mt-4',
 			isLast && '!mb-12',
 			message.role !== 'user' || !chatHost.supportsMessageEditing
 				? 'cursor-default'
@@ -185,6 +187,7 @@
 					     files to go out). -->
 					{#if message.content.trim() !== ''}
 						<div
+							data-user-bubble={messageIndex}
 							class="text-xs px-3 py-2 w-fit max-w-[min(32rem,100%)] bg-surface-accent-selected text-accent rounded-lg relative group break-words"
 						>
 							{#each segments(messageDraft(message)) as seg}{#if seg.type === 'text'}<span

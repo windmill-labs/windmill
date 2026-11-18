@@ -1,4 +1,3 @@
-import { base } from '$lib/base'
 import type { RemoteDeployConnection, RemoteDeployTarget } from '$lib/gen'
 import { randomSecret } from '$lib/utils/uuid'
 
@@ -67,7 +66,7 @@ export function remoteDeployAuthorizeUrl(
 	localStorage.setItem(PENDING_PREFIX + state, JSON.stringify(pending))
 	const params = new URLSearchParams({
 		workspace: target.workspace_id,
-		callback: `${window.location.origin}${base}${CALLBACK_PATH}`,
+		callback: `${window.location.origin}${CALLBACK_PATH}`,
 		state
 	})
 	return `${target.base_url}/user/remote_deploy_authorize?${params}`

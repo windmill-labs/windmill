@@ -23,6 +23,7 @@ use windmill_common::{
     error::{Error, Result},
     jobs::{JobPayload, RawCode},
     scripts::ScriptLang,
+    utils::strip_json_nul,
     worker::to_raw_value,
     DB,
 };
@@ -134,8 +135,14 @@ pub(crate) async fn bundle_raw_app_sources(
     let shared_ui = shared_ui_files(user_db, authed, w_id).await?;
 
     let mut args: HashMap<String, Box<serde_json::value::RawValue>> = HashMap::new();
-    args.insert("files".to_string(), to_raw_value(files));
-    args.insert("shared_ui".to_string(), to_raw_value(&shared_ui));
+    args.insert(
+        "files_json".to_string(),
+        json_text_arg(&serde_json::to_string(files)?),
+    );
+    args.insert(
+        "shared_ui_json".to_string(),
+        json_text_arg(&serde_json::to_string(&shared_ui)?),
+    );
     let overridden = std::env::var("WM_RAW_APP_BUNDLER_CLI").is_ok_and(|c| !c.trim().is_empty());
     args.insert(
         "cli_command".to_string(),
@@ -145,7 +152,7 @@ pub(crate) async fn bundle_raw_app_sources(
         "prefer_installed_cli".to_string(),
         to_raw_value(&!overridden),
     );
-    args.insert("runnables".to_string(), runnables.to_owned());
+    args.insert("runnables_json".to_string(), json_text_arg(runnables.get()));
 
     let tx = PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into());
     let scope_ceiling = windmill_api_auth::caller_scope_ceiling(db, authed).await?;
@@ -198,6 +205,18 @@ pub(crate) async fn bundle_raw_app_sources(
     tx.commit().await?;
 
     wait_for_bundle(db, w_id, uuid, authed).await
+}
+
+/// The app's own data goes to the job as JSON text, for `main` to parse, not as
+/// a value: a worker resolves every `$var:`/`$res:` string it finds in a job's
+/// args, so a static input holding a reference would reach the policy as the
+/// value it resolves to instead of the reference the app states. Text starting
+/// with `{` or `"` is left as it is.
+///
+/// NULs stripped first, as `push` strips them from args and as the app's value
+/// is stored: the policy is keyed by a hash of each inline script.
+fn json_text_arg(json: &str) -> Box<serde_json::value::RawValue> {
+    to_raw_value(&strip_json_nul(json))
 }
 
 /// Waits for the bundle job. The wait itself is bounded by
@@ -282,4 +301,28 @@ async fn shared_ui_files(
     Ok(files
         .and_then(|f| serde_json::from_value::<HashMap<String, String>>(f).ok())
         .unwrap_or_default())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::json_text_arg;
+
+    #[test]
+    fn app_data_arg_is_text_the_worker_leaves_alone() {
+        for json in [
+            r#"{"a":{"fields":{"p":{"type":"static","value":"$var:u/alice/pw"}}}}"#,
+            r#"{"/config.txt":"$res:u/alice/db"}"#,
+            r#""$var:u/alice/pw""#,
+        ] {
+            let arg: serde_json::Value = serde_json::from_str(json_text_arg(json).get()).unwrap();
+            // One string, so nothing to walk into, and not one a worker resolves.
+            let text = arg.as_str().unwrap();
+            assert_eq!(text, json);
+            assert!(!text.starts_with('$'));
+        }
+        // What the job parses is what the app stores, NUL escapes included.
+        let arg: serde_json::Value =
+            serde_json::from_str(json_text_arg(r#"{"a":"x\u0000y"}"#).get()).unwrap();
+        assert_eq!(arg.as_str(), Some(r#"{"a":"xy"}"#));
+    }
 }

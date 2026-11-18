@@ -3,7 +3,7 @@
 	import Button from '../common/button/Button.svelte'
 	import Label from '../Label.svelte'
 	import TextInput from '../text_input/TextInput.svelte'
-	import { AIMode, getVisibleAIModes } from '../copilot/chat/AIChatManager.svelte'
+	import { AIMode } from '../copilot/chat/AIChatManager.svelte'
 	import { ExternalLink } from 'lucide-svelte'
 	import { Alert } from '../common'
 
@@ -66,7 +66,7 @@
 		[AIMode.ASK]: 'Ask Mode'
 	}
 
-	let visibleModes = $derived(modes ?? getVisibleAIModes())
+	let visibleModes = $derived(modes ?? Object.values(AIMode))
 	// In read-only mode, only show modes that actually have a prompt configured
 	let displayModes = $derived(
 		readOnly

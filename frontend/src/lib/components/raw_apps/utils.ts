@@ -1,20 +1,65 @@
-import type { ScriptLang } from '../../gen/types.gen'
+import type { ScriptLang, ScriptModule } from '../../gen/types.gen'
 import type { Schema } from '../../common'
 import { schemaToTsType } from '../../schema'
 import { isRunnableByName, isRunnableByPath, type RunnableWithFields } from '../apps/inputType'
 import type { InlineScript } from '../apps/sharedTypes'
 import { stateSnapshot } from '$lib/stateSnapshot.svelte'
 import { appSourceToDraftValue, normalizeRawAppData } from './rawAppDraftValue'
+import { urlParamsToObject } from '$lib/utils/queryParams'
 
 // export type RunnableWithFields = any
 
 type RunnableWithInlineScript = RunnableWithFields & {
 	inlineScript?: InlineScript & { language: ScriptLang }
+	viewer_data_access?: boolean
 }
 export type Runnable = RunnableWithInlineScript | undefined
 
 export type RawApp = {
 	files: string[]
+}
+
+function moduleExtension(language: ScriptLang | undefined): string | undefined {
+	if (language === 'bun' || language === 'bunnative') return 'ts'
+	if (language === 'python3') return 'py'
+	return undefined
+}
+
+/** Ids of the sibling runnables `content` imports as `./<id>` (TS) or `.<id>` (Python). */
+function siblingImports(content: string, ext: string): string[] {
+	const pattern =
+		ext === 'ts'
+			? /(?:from|import)\s*['"]\.\/([^'"/]+?)(?:\.ts)?['"]/g
+			: /^\s*from\s+\.([A-Za-z_]\w*)\s+import\b/gm
+	return Array.from(content.matchAll(pattern), (m) => m[1])
+}
+
+/**
+ * The app's other inline runnables that runnable `id` imports, directly or through one
+ * another, as the modules its preview ships with so those imports resolve to the
+ * editor's code. Deploy stores the same set on the runnable.
+ */
+export function rawAppPreviewModules(
+	runnables: Record<string, Runnable>,
+	id: string
+): Record<string, ScriptModule> | undefined {
+	const own = runnables[id]?.inlineScript
+	const ext = moduleExtension(own?.language)
+	if (!own || !ext) return undefined
+	const modules: Record<string, ScriptModule> = {}
+	const queue = siblingImports(own.content, ext)
+	while (queue.length > 0) {
+		const siblingId = queue.pop()!
+		const key = `${siblingId}.${ext}`
+		const inlineScript = runnables[siblingId]?.inlineScript
+		// `main.ts` is the Bun entrypoint's own file, so no module may take that name. The
+		// runnable itself is kept when a cycle reaches it: the entrypoint is not under its id.
+		if (key in modules || key === 'main.ts') continue
+		if (!inlineScript || moduleExtension(inlineScript.language) !== ext) continue
+		modules[key] = { content: inlineScript.content, language: inlineScript.language }
+		queue.push(...siblingImports(inlineScript.content, ext))
+	}
+	return Object.keys(modules).length > 0 ? modules : undefined
 }
 
 // Server-managed columns the deployed app row (getAppByPath) carries but the
@@ -76,6 +121,10 @@ export function stripRawAppDiffNoise<T extends Record<string, any>>(value: T): T
 export function canonicalRawAppDiffValue(source: Record<string, any>) {
 	return stripRawAppDiffNoise(appSourceToDraftValue(source))
 }
+
+/** A boolean editor-layout preference (file sidebar, split with preview), owned and
+ * typically persisted by whoever passes it. */
+export type LayoutFlag = { val: boolean }
 
 export type RawAppRuntimeLogLevel = 'log' | 'info' | 'warn' | 'error' | 'debug'
 export type RawAppRuntimeLogEntry = {
@@ -194,7 +243,8 @@ export function formatRuntimeLogsForChat(entries: RawAppRuntimeLogEntry[]): stri
 const BUILD_LOG_TAIL_LINES = 40
 const BUILD_LOG_TAIL_CHARS = 6000
 // Per-package install progress: dozens of lines per build that would crowd the errors out of the tail.
-const ROUTINE_INSTALL_LOG_LINE = /^\s*(Using cached resolution|Using idb cache|Resolved \S+@|Extract(ing|ed) )/
+const ROUTINE_INSTALL_LOG_LINE =
+	/^\s*(Using cached resolution|Using idb cache|Resolved \S+@|Extract(ing|ed) )/
 
 export function formatBuildLogTailForChat(buildLogs: string): string {
 	// The bundler log accumulates every install and build since the editor opened.
@@ -270,6 +320,22 @@ export function applyRawAppStorageOp(storeKey: string, d: any) {
 	} catch (_) {}
 }
 
+/** A full-code app's `window.ctx`, on every path that runs one. `query` is the viewer
+ * page's, built as a low-code app's `ctx.query`, and `{}` rather than absent. */
+export function rawAppCtx(
+	user: unknown,
+	workspace: string | undefined,
+	path: string,
+	search: string
+) {
+	return {
+		ctx: user,
+		workspace,
+		path,
+		query: urlParamsToObject(new URLSearchParams(search), { stripReserved: true })
+	}
+}
+
 // The sandboxed (isolated) raw-app wrapper is generated server-side and served as
 // a sandboxed, opaque-origin document (see `get_raw_app_data` in the backend
 // `apps.rs`, WIN-2006) — a blob: URL cannot carry the `CSP: sandbox` response
@@ -293,7 +359,6 @@ export function unsandboxedRawAppHtml(
 <html>
 <head>
 	<meta charset="UTF-8" />
-	<title>App</title>
 	<!-- Before the app's own stylesheet, so a bundle that wants a margin can still set one: the
 	     browser default of 8px would otherwise frame every app with a gap it never asked for. -->
 	<style>html, body { margin: 0; }</style>
@@ -318,6 +383,21 @@ export function unsandboxedRawAppHtml(
 			history.pushState = function () { _ps.apply(this, arguments); notifyParent(); };
 			history.replaceState = function () { _rs.apply(this, arguments); notifyParent(); };
 			setTimeout(notifyParent, 0);
+
+			// The parent shows the app's document.title in its tab. This document has no
+			// <title> of its own: document.title reads the first one, so a placeholder would
+			// shadow the one a framework (React 19, react-helmet) appends.
+			var lastTitle = '';
+			new MutationObserver(function () {
+				var t = document.title;
+				if (t === lastTitle) return;
+				lastTitle = t;
+				try {
+					if (window.parent !== window) {
+						window.parent.postMessage({ type: 'windmill:title', title: t }, '*');
+					}
+				} catch (_) {}
+			}).observe(document.head, { childList: true, subtree: true, characterData: true });
 		})();
 	</script>
 </head>
@@ -375,15 +455,28 @@ export function genWmillTs(runnables: Record<string, Runnable>) {
 	return `// THIS FILE IS READ-ONLY
 // AND GENERATED AUTOMATICALLY FROM YOUR RUNNABLES
 
+/**
+ * \`memoryId\` names the conversation a turn of an agent or a chat-mode flow belongs to: a
+ * signed-in viewer's conversations are theirs alone.
+ */
 export declare const backend: {
 ${Object.entries(runnables)
-	.map(([k, v]) => `  ${k}: (args: ${hiddenRunnableToTsType(v)}) => Promise<any>;`)
+	.map(
+		([k, v]) =>
+			`  ${k}: (args: ${hiddenRunnableToTsType(v)}, opts?: { memoryId?: string }) => Promise<any>;`
+	)
 	.join('\n')}
 };
 
+/**
+ * Start a runnable and resolve its job id. \`memoryId\` is as for \`backend\`.
+ */
 export declare const backendAsync: {
 ${Object.entries(runnables)
-	.map(([k, v]) => `  ${k}: (args: ${hiddenRunnableToTsType(v)}) => Promise<string>;`)
+	.map(
+		([k, v]) =>
+			`  ${k}: (args: ${hiddenRunnableToTsType(v)}, opts?: { memoryId?: string }) => Promise<string>;`
+	)
 	.join('\n')}
 };
 

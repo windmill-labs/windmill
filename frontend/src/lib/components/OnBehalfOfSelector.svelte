@@ -19,14 +19,16 @@
 			kind === 'app' ||
 			kind === 'raw_app' ||
 			kind === 'trigger' ||
-			isTriggerOrScheduleKind(kind)
+			isTriggerOrScheduleKind(kind) ||
+			// Only an agent's value carries an identity, so no other resource has a source value.
+			kind === 'resource'
 		if (!supported) return false
 		return !!sourceValue
 	}
 </script>
 
 <script lang="ts">
-	import { Check, UserCog, Users, ExternalLink } from 'lucide-svelte'
+	import { Check, User as UserIcon, UserCog, Users, ExternalLink } from 'lucide-svelte'
 	import MeltPopover from './meltComponents/Popover.svelte'
 	import Portal from './Portal.svelte'
 	import Modal from './common/modal/Modal.svelte'
@@ -74,6 +76,9 @@
 		 * one is the wrong name whenever the deploy targets a different workspace.
 		 */
 		myPermissionedAs?: string
+		/** Without `canPreserve`, show the current user as plain text instead of a popover whose
+		 *  only enabled option is "me". The host must treat that as the choice already made. */
+		readOnlyWithoutPreserve?: boolean
 	}
 
 	let {
@@ -88,7 +93,8 @@
 		folderDefault = undefined,
 		aboveConfirmationModal = false,
 		onPickerOpenChange = undefined,
-		myPermissionedAs = undefined
+		myPermissionedAs = undefined,
+		readOnlyWithoutPreserve = false
 	}: Props = $props()
 
 	const isTrigger = $derived(kind === 'trigger' || isTriggerOrScheduleKind(kind))
@@ -187,77 +193,84 @@
 	})
 </script>
 
-<MeltPopover
-	placement="bottom"
-	contentClasses={aboveConfirmationModal ? 'z-[10001]' : ''}
-	on:openChange={(e) => e.detail && loadUsers()}
->
-	{#snippet trigger()}
-		<span class="inline-flex items-center gap-1">
-			<UserCog class="w-4 h-4 {selected ? 'text-green-500' : 'text-yellow-500'}" />
-			{#if selectedDisplayName}
-				<span class="text-xs truncate max-w-24">{selectedDisplayName}</span>
-			{/if}
-			{#if isFolderDefaultSelected}
-				<span
-					class="text-[10px] px-1 py-0.5 rounded bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-900"
-					title="From this folder's default_permissioned_as rule"
+{#if readOnlyWithoutPreserve && !canPreserve}
+	<span class="inline-flex items-center gap-1 text-xs text-secondary">
+		<UserIcon class="w-4 h-4" />
+		{myDisplayName}
+	</span>
+{:else}
+	<MeltPopover
+		placement="bottom"
+		contentClasses={aboveConfirmationModal ? 'z-[10001]' : ''}
+		on:openChange={(e) => e.detail && loadUsers()}
+	>
+		{#snippet trigger()}
+			<span class="inline-flex items-center gap-1">
+				<UserCog class="w-4 h-4 {selected ? 'text-green-500' : 'text-yellow-500'}" />
+				{#if selectedDisplayName}
+					<span class="text-xs truncate max-w-24">{selectedDisplayName}</span>
+				{/if}
+				{#if isFolderDefaultSelected}
+					<span
+						class="text-[10px] px-1 py-0.5 rounded bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-900"
+						title="From this folder's default_permissioned_as rule"
+					>
+						folder default
+					</span>
+				{/if}
+			</span>
+		{/snippet}
+		{#snippet content({ close: closePopover })}
+			<div class="p-3 flex flex-col gap-2 min-w-48">
+				<div class="text-xs font-medium text-secondary mb-1">{label}</div>
+				<!-- Target option -->
+				{#if targetValue}
+					<button
+						class="flex items-center gap-2 px-2 py-1.5 rounded text-left text-xs hover:bg-surface-hover {!canPreserve
+							? 'opacity-50 cursor-not-allowed'
+							: ''}"
+						disabled={!canPreserve}
+						onclick={() => onSelect('target')}
+					>
+						<Check class="w-3 h-3 {selected === 'target' ? 'opacity-100' : 'opacity-0'}" />
+						<span class="truncate max-w-40">{targetDisplayName}</span>
+						<span class="text-xs text-tertiary">{isDeployment ? '(target)' : '(current)'}</span>
+					</button>
+				{/if}
+				<!-- Me option -->
+				<button
+					class="flex items-center gap-2 px-2 py-1.5 rounded text-left text-xs hover:bg-surface-hover"
+					onclick={() => onSelect('me')}
 				>
-					folder default
-				</span>
-			{/if}
-		</span>
-	{/snippet}
-	{#snippet content({ close: closePopover })}
-		<div class="p-3 flex flex-col gap-2 min-w-48">
-			<div class="text-xs font-medium text-secondary mb-1">{label}</div>
-			<!-- Target option -->
-			{#if targetValue}
+					<Check class="w-3 h-3 {selected === 'me' ? 'opacity-100' : 'opacity-0'}" />
+					<span class="truncate max-w-40">{myDisplayName}</span>
+					<span class="text-xs text-tertiary">(me)</span>
+				</button>
+				<!-- Custom / Pick from workspace -->
 				<button
 					class="flex items-center gap-2 px-2 py-1.5 rounded text-left text-xs hover:bg-surface-hover {!canPreserve
 						? 'opacity-50 cursor-not-allowed'
 						: ''}"
 					disabled={!canPreserve}
-					onclick={() => onSelect('target')}
+					onclick={() => {
+						closePopover()
+						openModal()
+					}}
 				>
-					<Check class="w-3 h-3 {selected === 'target' ? 'opacity-100' : 'opacity-0'}" />
-					<span class="truncate max-w-40">{targetDisplayName}</span>
-					<span class="text-xs text-tertiary">{isDeployment ? '(target)' : '(current)'}</span>
+					{#if selected === 'custom' && customDisplayName}
+						<Check class="w-3 h-3 opacity-100" />
+						<span class="truncate max-w-40">{customDisplayName}</span>
+						<span class="text-xs text-tertiary">(custom)</span>
+					{:else}
+						<Check class="w-3 h-3 opacity-0" />
+						<Users class="w-3 h-3 text-tertiary" />
+						<span>Pick from workspace&hellip;</span>
+					{/if}
 				</button>
-			{/if}
-			<!-- Me option -->
-			<button
-				class="flex items-center gap-2 px-2 py-1.5 rounded text-left text-xs hover:bg-surface-hover"
-				onclick={() => onSelect('me')}
-			>
-				<Check class="w-3 h-3 {selected === 'me' ? 'opacity-100' : 'opacity-0'}" />
-				<span class="truncate max-w-40">{myDisplayName}</span>
-				<span class="text-xs text-tertiary">(me)</span>
-			</button>
-			<!-- Custom / Pick from workspace -->
-			<button
-				class="flex items-center gap-2 px-2 py-1.5 rounded text-left text-xs hover:bg-surface-hover {!canPreserve
-					? 'opacity-50 cursor-not-allowed'
-					: ''}"
-				disabled={!canPreserve}
-				onclick={() => {
-					closePopover()
-					openModal()
-				}}
-			>
-				{#if selected === 'custom' && customDisplayName}
-					<Check class="w-3 h-3 opacity-100" />
-					<span class="truncate max-w-40">{customDisplayName}</span>
-					<span class="text-xs text-tertiary">(custom)</span>
-				{:else}
-					<Check class="w-3 h-3 opacity-0" />
-					<Users class="w-3 h-3 text-tertiary" />
-					<span>Pick from workspace&hellip;</span>
-				{/if}
-			</button>
-		</div>
-	{/snippet}
-</MeltPopover>
+			</div>
+		{/snippet}
+	</MeltPopover>
+{/if}
 
 <!-- User selection modal. Portalled: the modal positions itself with `fixed`, which resolves
      against the nearest transformed ancestor — inside a dialog card (which is transformed for

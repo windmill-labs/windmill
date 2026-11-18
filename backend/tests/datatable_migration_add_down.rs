@@ -174,3 +174,34 @@ async fn test_add_down_to_a_migration_whose_comment_predates_role_annotations(
     assert_eq!(resp.status(), 200, "{}", resp.text().await?);
     Ok(())
 }
+
+/// Likewise for `-- schemas`: the scope annotation is held only to up SQL being written, so a
+/// definition whose stored up opens with prose starting with the word still accepts its down.
+#[sqlx::test(fixtures("datatable_migrations_grants"))]
+async fn test_add_down_to_a_migration_whose_comment_predates_scope_annotations(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    setup_applied_migration_without_down(&db).await?;
+    let code_up = format!("-- Schemas: changes for the widgets feature\n{CODE_UP}");
+    sqlx::query("UPDATE datatable_migrations SET code_up = $1 WHERE workspace_id = 'dtmig-ws'")
+        .bind(&code_up)
+        .execute(&db)
+        .await?;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let resp = authed(reqwest::Client::new().post(format!(
+        "http://localhost:{}/api/w/dtmig-ws/workspaces/upsert_datatable_migration/main",
+        server.addr.port()
+    )))
+    .json(&json!({
+        "timestamp": VERSION,
+        "name": "create_widgets",
+        "code_up": code_up,
+        "code_down": CODE_DOWN,
+    }))
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+    Ok(())
+}

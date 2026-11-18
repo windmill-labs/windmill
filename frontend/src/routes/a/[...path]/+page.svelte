@@ -5,7 +5,6 @@
 	import type { GuestEntry } from '$lib/gen/types.gen'
 	import type { UserExt } from '$lib/stores'
 	import { page } from '$app/state'
-	import { base } from '$lib/base'
 	import PublicApp from '$lib/components/apps/editor/PublicApp.svelte'
 	import PublicAppFrame from '$lib/components/apps/editor/PublicAppFrame.svelte'
 	import {
@@ -74,7 +73,7 @@
 	// read it. Captured once (not reactively): the embedder mirrors the app's
 	// hash/query back onto this page's URL, and re-deriving the src from it would
 	// reload the app on its every navigation.
-	const viewerUrl = `${base}/a/${parsedCustomPath.path}${page.url.search}${page.url.hash}`
+	const viewerUrl = `/a/${parsedCustomPath.path}${page.url.search}${page.url.hash}`
 
 	let workspace: string | undefined = $state(undefined)
 	let embedWorkspace: string | undefined

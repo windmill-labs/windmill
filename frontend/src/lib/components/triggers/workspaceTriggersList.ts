@@ -116,6 +116,7 @@ export const TRIGGER_KINDS: Record<
 			'url',
 			'filters',
 			'filter_logic',
+			'run_on_filter_error',
 			'initial_messages',
 			'url_runnable_args',
 			'can_return_message',
@@ -180,6 +181,7 @@ export const TRIGGER_KINDS: Record<
 			'topics',
 			'filters',
 			'filter_logic',
+			'run_on_filter_error',
 			'auto_offset_reset',
 			'auto_commit'
 		],

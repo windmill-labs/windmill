@@ -18,9 +18,11 @@
 		showsView
 	} from './previewRouter'
 	import { withMenuHidden } from './sessionMode.svelte'
+	import { useSessionPermissions } from './sessionPermissions.svelte'
 	import ArtifactViewer from '../copilot/chat/artifacts/ArtifactViewer.svelte'
 	import RunFormPreviewSlot from './RunFormPreviewSlot.svelte'
 	import { setOverlayHost } from '../common/overlayHost.svelte'
+	import { setReadOnlyWorkspace } from '../operatingWorkspace.svelte'
 
 	let {
 		tab,
@@ -33,7 +35,6 @@
 		darkMode,
 		fullscreen = false,
 		onNavigate,
-		onSeeDetails,
 		onLoad
 	}: {
 		tab: SessionPreviewTab
@@ -58,9 +59,6 @@
 		darkMode: boolean
 		/** A link click inside a live editor re-points the active preview tab. */
 		onNavigate: (item: WorkspaceItem) => void
-		/** An editor's `Exit & see details` — re-points this tab at the item's deployed
-		 * view instead of navigating out of the session. */
-		onSeeDetails: (item: WorkspaceItem) => void
 		/** Iframe finished loading — the page reads back its observed location. */
 		onLoad: (frame: HTMLIFrameElement) => void
 	} = $props()
@@ -76,7 +74,19 @@
 	const itemPath = $derived(
 		slot.kind === 'editor' || slot.kind === 'viewer' ? slot.path : undefined
 	)
-	const mode = $derived(slot.kind === 'viewer' ? 'view' : 'edit')
+	const workspaceId = $derived(
+		session ? (getEffectiveWorkspaceId(session) ?? $workspaceStore ?? '') : ''
+	)
+	const permissions = useSessionPermissions(
+		() => workspaceId || undefined,
+		() => runtime?.manager
+	)
+	setReadOnlyWorkspace((ws) => !!ws && ws === workspaceId && permissions.readOnly)
+	// Every route into an editor ends here, the breadcrumb and the chat's openers included, so
+	// this is where an editor the user cannot save is turned into the deployed page.
+	const mode = $derived(
+		slot.kind === 'viewer' || (itemKind && !permissions.canOpenEditor(itemKind)) ? 'view' : 'edit'
+	)
 	// `new_draft` marks a raw app handed over by the new-app builder.
 	const newRawApp = $derived(
 		itemKind === 'raw_app' && new URL(tab.url, 'http://x').searchParams.get('new_draft') === 'true'
@@ -88,24 +98,19 @@
 			? (new URL(tab.url, 'http://x').searchParams.get('version') ?? undefined)
 			: undefined
 	)
-
-	// The path an editor reports is its deployed one, which a staged rename can make
-	// differ from this tab's — so the view opens on what actually exists.
-	const seeDetails = (e: { path: string }) =>
-		onSeeDetails({
-			path: e.path,
-			summary: '',
-			kind: itemKind === 'raw_app' ? 'app' : (itemKind as 'script' | 'flow'),
-			raw_app: itemKind === 'raw_app'
-		})
+	// What a run's `Run again` hands the deployed page it opens: the run's args in the
+	// fragment, and for a dbt run the failure it could resume instead.
+	const viewerUrl = $derived(slot.kind === 'viewer' ? new URL(tab.url, 'http://x') : undefined)
+	// The chat tool call this tab was opened to answer rides in the same query. Re-pointing
+	// the tab rebuilds its url without it, so a tab sent anywhere else — another item,
+	// another version — stops carrying the call rather than answering it from a page it was
+	// never confirmed against.
+	const pendingRunId = $derived(viewerUrl?.searchParams.get('pending_run') ?? undefined)
 
 	// Where inside the editor the tab was opened on ("open this flow step in a
 	// session"). Only the in-process editors need it handed over — an iframe tab
 	// loads the URL whole, params included.
 	const selectedId = $derived(parsePreviewSelectedId(tab.url))
-	const workspaceId = $derived(
-		session ? (getEffectiveWorkspaceId(session) ?? $workspaceStore ?? '') : ''
-	)
 	const isActiveSession = $derived(!!session && sessionState.currentSessionId === session.id)
 
 	// Resolved live from the session's store so an update_artifact re-renders the panel.
@@ -141,6 +146,7 @@
 	// A page item's editor reads its draft only when it loads, so a reload remounts it.
 	let pageItemReloadNonce = $state(0)
 	let pageListReloadNonce = $state(0)
+	let runReloadNonce = $state(0)
 
 	export function reload() {
 		// A live editor shares the runtime store the chat mutates, so generic chat
@@ -160,6 +166,10 @@
 		}
 		if (slot.kind === 'pagelist') {
 			pageListReloadNonce++
+			return
+		}
+		if (slot.kind === 'run') {
+			runReloadNonce++
 			return
 		}
 		try {
@@ -310,6 +320,7 @@
 		bind:this={overlayHostEl}
 		class="absolute inset-0 flex flex-col min-h-0 bg-surface {visibility}"
 		aria-hidden={!active}
+		inert={permissions.moveStarted}
 	>
 		<!-- Only the side the tab shows is mounted. A hidden editor would be a second editor on
 		     the item's one cell that tab dedupe, reading URLs, cannot see; a hidden side's drawers
@@ -329,7 +340,6 @@
 							path={itemPath}
 							{workspaceId}
 							{onNavigate}
-							onSeeDetails={seeDetails}
 							{isActiveSession}
 							{active}
 							initialSelectedId={selectedId}
@@ -344,7 +354,6 @@
 							path={itemPath}
 							{workspaceId}
 							{onNavigate}
-							onSeeDetails={seeDetails}
 							{isActiveSession}
 							{active}
 							{fullscreen}
@@ -368,13 +377,17 @@
 							path={itemPath}
 							{workspaceId}
 							{onNavigate}
-							onSeeDetails={seeDetails}
 							{isActiveSession}
 							{active}
 							{newRawApp}
+							{fullscreen}
 						/>
 					{/await}
 				{/if}
+			</div>
+		{:else if permissions.moving && slot.kind !== 'viewer'}
+			<div class="flex-1 flex items-center justify-center p-8 text-center text-sm text-secondary">
+				The editor reopens once the session has moved.
 			</div>
 		{:else if itemKind !== 'pipeline'}
 			<div class="absolute inset-0 flex flex-col min-h-0 bg-surface">
@@ -387,12 +400,22 @@
 						kind={itemKind}
 						path={itemPath}
 						version={pinnedVersion}
+						{pendingRunId}
+						locationHash={viewerUrl?.hash}
+						dbtRetryFrom={viewerUrl?.searchParams.get('dbt_retry_from') ?? undefined}
 						{workspaceId}
 						tabId={tab.id}
 						container={overlayHostEl}
 						active={active && !collapsed}
 					/>
 				{/await}
+			</div>
+		{:else}
+			<!-- A pipeline has no deployed page, only its editor. -->
+			<div class="flex-1 flex items-center justify-center p-8 text-center text-sm text-secondary">
+				{permissions.readOnly
+					? 'The pipeline editor saves drafts, which a session in Use mode cannot do.'
+					: 'The pipeline editor saves drafts, which your role cannot do in this workspace.'}
 			</div>
 		{/if}
 	</div>
@@ -401,6 +424,7 @@
 		bind:this={overlayHostEl}
 		class="absolute inset-0 flex flex-col min-h-0 bg-surface {visibility}"
 		aria-hidden={!active}
+		inert={permissions.moveStarted}
 	>
 		<!-- Waits for the host element, as the run form does: the editors' own drawers and
 		     modals portal when they mount, and resolve their host only then. -->
@@ -417,6 +441,7 @@
 		bind:this={overlayHostEl}
 		class="absolute inset-0 flex flex-col min-h-0 bg-surface {visibility}"
 		aria-hidden={!active}
+		inert={permissions.moveStarted}
 	>
 		{#if overlayHostEl}
 			{#await import('./PageListView.svelte')}
@@ -433,11 +458,36 @@
 			{/await}
 		{/if}
 	</div>
+{:else if slot.kind === 'run' && mounted && runtime}
+	<div
+		bind:this={overlayHostEl}
+		class="absolute inset-0 flex flex-col min-h-0 bg-surface {visibility}"
+		aria-hidden={!active}
+		inert={permissions.moveStarted}
+	>
+		{#if overlayHostEl}
+			{#await import('./RunViewerView.svelte')}
+				{@render editorLoading()}
+			{:then Module}
+				<!-- A run stays in the workspace it ran in, which the tab's URL names: the
+				     session's own can change under an open tab (a staged fork committing). -->
+				<Module.default
+					{runtime}
+					jobId={slot.jobId}
+					workspaceId={slot.workspace ?? workspaceId}
+					tabId={tab.id}
+					container={overlayHostEl}
+					reloadNonce={runReloadNonce}
+				/>
+			{/await}
+		{/if}
+	</div>
 {:else if slot.kind === 'artifact' && mounted}
 	<div
 		bind:this={overlayHostEl}
 		class="absolute inset-0 flex flex-col min-h-0 bg-surface {visibility}"
 		aria-hidden={!active}
+		inert={permissions.moveStarted}
 	>
 		{#if artifact && runtime}
 			<ArtifactViewer
@@ -455,6 +505,7 @@
 		bind:this={overlayHostEl}
 		class="absolute inset-0 flex flex-col min-h-0 bg-surface {visibility}"
 		aria-hidden={!active}
+		inert={permissions.moveStarted}
 	>
 		<!-- Waits for the host element itself: Drawer portals when it mounts, and the portal
 		     action reads its target once, so a form mounted in the same pass as this div would

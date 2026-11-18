@@ -4,6 +4,7 @@
 //! (typically windmill-api) to provide the actual functionality for the MCP server.
 
 use async_trait::async_trait;
+use rmcp::model::{CallToolResult, Tool};
 use rmcp::ErrorData;
 use serde_json::Value;
 use std::collections::HashMap;
@@ -15,6 +16,26 @@ use crate::server::endpoints::EndpointTool;
 
 /// Result type for backend operations using rmcp's ErrorData directly
 pub type BackendResult<T> = Result<T, ErrorData>;
+
+/// How a script or flow run by a tool ended.
+pub enum RunOutcome {
+    Success(Value),
+    /// The job ran and failed. `result` is the job's result, its error object included.
+    Failed {
+        job_id: String,
+        run_url: String,
+        result: Value,
+    },
+}
+
+/// What a v2 token may do: read, read and run deployed scripts, flows and agents
+/// (`mcp:read_run`), or everything its owner can.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SessionAccess {
+    ReadOnly,
+    ReadAndRun,
+    Full,
+}
 
 /// What the backend needs about the HTTP request a tool call arrived on, in order
 /// to hand a runnable the headers of the call that triggered it.
@@ -40,6 +61,9 @@ pub enum PathFilter<'a> {
     /// `is_resource_allowed`: a `*` pattern matches everything, an empty list
     /// matches nothing.
     Patterns(&'a [String]),
+    /// Paths whose last segment is one of these — the candidates a short tool name
+    /// can resolve to.
+    LastSegment(&'a [String]),
 }
 
 /// Authentication context required by the MCP server
@@ -84,6 +108,21 @@ pub trait McpBackend: Send + Sync + Clone + 'static {
     /// The authentication context type
     type Auth: McpAuth;
 
+    /// Called once a tool call in a workspace has an outcome: `refusal` is the error the
+    /// caller receives, `None` when it succeeded.
+    async fn after_tool_call(
+        &self,
+        _auth: &Self::Auth,
+        _workspace_id: &str,
+        _tool: &str,
+        _refusal: Option<&str>,
+    ) {
+    }
+
+    /// Whether the caller's role may start runs in the workspace: the same check
+    /// `run_script` and `run_flow` refuse on, so the listing offers no tool that always fails.
+    async fn can_run(&self, auth: &Self::Auth, workspace_id: &str) -> BackendResult<bool>;
+
     // ─────────────────────────────────────────────────────────────────
     // Listing Operations
     // ─────────────────────────────────────────────────────────────────
@@ -105,6 +144,18 @@ pub trait McpBackend: Send + Sync + Clone + 'static {
         favorites_only: bool,
         path_filter: Option<PathFilter<'_>>,
     ) -> BackendResult<Vec<FlowInfo>>;
+
+    /// Every path of `item_type` ("script" or "flow") the listing would include, with
+    /// no fetch cap: tool names are disambiguated against all of them, not only the
+    /// items that make it into the capped listing.
+    async fn list_runnable_paths(
+        &self,
+        auth: &Self::Auth,
+        workspace_id: &str,
+        item_type: &str,
+        favorites_only: bool,
+        path_filter: Option<PathFilter<'_>>,
+    ) -> BackendResult<Vec<String>>;
 
     /// List resource types in workspace
     async fn list_resource_types(
@@ -166,7 +217,7 @@ pub trait McpBackend: Send + Sync + Clone + 'static {
         path: &str,
         args: Value,
         request: &McpRequest<'_>,
-    ) -> BackendResult<Value>;
+    ) -> BackendResult<RunOutcome>;
 
     /// Run a flow and wait for result
     async fn run_flow(
@@ -176,7 +227,7 @@ pub trait McpBackend: Send + Sync + Clone + 'static {
         path: &str,
         args: Value,
         request: &McpRequest<'_>,
-    ) -> BackendResult<Value>;
+    ) -> BackendResult<RunOutcome>;
 
     /// Call an endpoint tool (generated API endpoint)
     async fn call_endpoint(
@@ -219,4 +270,45 @@ pub trait McpBackend: Send + Sync + Clone + 'static {
 
     /// Get all available endpoint tools
     fn all_endpoint_tools(&self) -> Vec<EndpointTool>;
+
+    // ─────────────────────────────────────────────────────────────────
+    // Workspace server (`SessionRunner`): the AI-session toolset
+    // ─────────────────────────────────────────────────────────────────
+
+    /// The instructions a client reaching one workspace receives on connecting, built for
+    /// this user and what the token lets them do.
+    async fn session_instructions(
+        &self,
+        auth: &Self::Auth,
+        workspace_id: &str,
+        access: SessionAccess,
+    ) -> BackendResult<String>;
+
+    /// The instructions for a client reaching several workspaces: what holds in all of them.
+    fn generic_session_instructions(&self, access: SessionAccess) -> String;
+
+    /// What `generic_session_instructions` leaves out, for one workspace.
+    async fn workspace_context(
+        &self,
+        auth: &Self::Auth,
+        workspace_id: &str,
+        access: SessionAccess,
+    ) -> String;
+
+    /// The tools a token with this access is offered.
+    fn session_tools(&self, access: SessionAccess) -> Vec<Tool>;
+
+    /// The MCP Apps views (`ui://` HTML) session tools render their results in, as
+    /// `(uri, html)`.
+    fn session_views(&self) -> &'static [(&'static str, &'static str)];
+
+    async fn call_session_tool(
+        &self,
+        auth: &Self::Auth,
+        workspace_id: &str,
+        name: &str,
+        args: Value,
+        access: SessionAccess,
+        origin: Option<&str>,
+    ) -> BackendResult<CallToolResult>;
 }

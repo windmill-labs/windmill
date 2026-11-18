@@ -1,5 +1,3 @@
-import { base } from '$lib/base'
-
 /**
  * The workspace a share from `workspaceId` lands in: the topmost ancestor the user still
  * belongs to. A session often runs in a fork, whose members are its creator alone, so a link
@@ -19,10 +17,14 @@ export function shareWorkspaceId(
 	}
 }
 
+export function sharedArtifactPath(workspaceId: string, shareId: string): string {
+	return `/shared_artifacts/${encodeURIComponent(shareId)}?workspace=${encodeURIComponent(
+		workspaceId
+	)}`
+}
+
 export function sharedArtifactUrl(workspaceId: string, shareId: string): string {
-	return `${window.location.origin}${base}/shared_artifacts/${encodeURIComponent(
-		shareId
-	)}?workspace=${encodeURIComponent(workspaceId)}`
+	return `${window.location.origin}${sharedArtifactPath(workspaceId, shareId)}`
 }
 
 /** "30 days", "12 hours": the retention window in the largest whole unit it fills. */

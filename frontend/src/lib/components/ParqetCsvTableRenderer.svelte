@@ -8,7 +8,6 @@
 	import { twMerge } from 'tailwind-merge'
 	import DarkModeObserver from './DarkModeObserver.svelte'
 	import { AppService, HelpersService } from '$lib/gen'
-	import { base } from '$lib/base'
 	import { downloadViaClient, shouldDownloadViaClient } from '$lib/utils/downloadFile'
 	import { enterpriseLicense } from '$lib/stores'
 	import { Download } from 'lucide-svelte'
@@ -267,7 +266,7 @@
 		{:else}
 			<a
 				target="_blank"
-				href="{base}/api{csvApiPath}"
+				href="/api{csvApiPath}"
 				class="text-secondary w-full text-right underline text-2xs whitespace-nowrap"
 				><div class="flex flex-row-reverse gap-2 items-center"><Download size={12} /> CSV</div></a
 			>

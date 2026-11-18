@@ -1,6 +1,10 @@
-import { WorkspaceService } from '$lib/gen'
-import { copilotWorkspace, setCopilotInfo } from '$lib/aiStore'
-import { workspaceAIClients } from './lib'
+import {
+	applyCopilotInfo,
+	copilotWorkspace,
+	loadWorkspaceCopilotInfo,
+	setCopilotInfo
+} from '$lib/aiStore'
+import { setAiClientWorkspace } from './aiClientWorkspace'
 import { writable } from 'svelte/store'
 
 // The workspace of the most recent loadCopilot *request*, set synchronously before the
@@ -42,11 +46,13 @@ export function loadCopilot(workspace: string): Promise<void> {
 }
 
 async function fetchAndApply(workspace: string, token: number) {
-	workspaceAIClients.init(workspace)
+	setAiClientWorkspace(workspace)
 	try {
-		const info = await WorkspaceService.getCopilotInfo({ workspace })
+		// Through the per-workspace cache: a session in this workspace then sends with the config
+		// the tab shows.
+		const info = await loadWorkspaceCopilotInfo(workspace, true)
 		if (token !== loadCopilotToken) return
-		setCopilotInfo(info)
+		applyCopilotInfo(info)
 		copilotWorkspace.set(workspace)
 	} catch (err) {
 		if (token !== loadCopilotToken) return

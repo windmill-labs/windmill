@@ -21,11 +21,6 @@
 		// Picked output asset kind. Optional because some menu instances
 		// (those without `pickOutputKind`) skip that stage entirely.
 		outputKind?: string
-		// Optional natural-language prompt entered on the path stage.
-		// When set, the caller is expected to bootstrap the script body
-		// from this prompt via AI (using language + outputKind + the
-		// upstream input as context) instead of using the seeded template.
-		aiPrompt?: string
 		// Set by the schedule step when the picked kind is `schedule`.
 		schedule?: PipelineInsertSchedule
 		// Set by the asset step for the table output kinds, replacing the
@@ -43,7 +38,6 @@
 <script lang="ts">
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
-	import { copilotInfo } from '$lib/aiStore'
 	import LanguageIcon from '$lib/components/common/languageIcons/LanguageIcon.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import {
@@ -70,8 +64,8 @@
 		loadDefaultScheduleAdvanced,
 		scheduleAdvancedCfg
 	} from '$lib/components/triggers/schedules/ScheduleAdvancedOptions.svelte'
-	import { workspaceStore } from '$lib/stores'
-	import { ArrowLeft, ChevronDown, CornerDownLeft, Loader2, Sparkles } from 'lucide-svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import { ArrowLeft, ChevronDown, CornerDownLeft, Loader2 } from 'lucide-svelte'
 	import { tick, untrack } from 'svelte'
 	import { arrowTabNav } from '$lib/attachments/arrowTabNav'
 	import { selectAndAdvanceTo } from '$lib/attachments/selectAndAdvanceTo'
@@ -106,6 +100,8 @@
 		onSchedule
 	}: Props = $props()
 
+	const operatingWorkspace = useOperatingWorkspace()
+
 	// When there's only one trigger kind, hide the Trigger column entirely
 	// and pre-select it so the user lands directly on the Language picker.
 	const singleKind = $derived(kinds.length === 1 ? kinds[0] : undefined)
@@ -114,8 +110,7 @@
 		triggerId: singleKind?.id,
 		language: undefined as undefined | ScriptLang,
 		outputId: undefined as undefined | PipelineOutputKind,
-		scriptPath: `${defaultPathSuffix ?? 'pipeline_script'}_${shortSlug()}`,
-		aiPrompt: undefined as undefined | string
+		scriptPath: `${defaultPathSuffix ?? 'pipeline_script'}_${shortSlug()}`
 	})
 	let selected = $state(buildEmptySelected())
 	let menuOpen = $state(false)
@@ -177,7 +172,7 @@
 	// A new schedule starts from the workspace's default handlers, as in the schedule
 	// drawer. The step cannot be confirmed until they are in.
 	function loadAdvancedDefaults() {
-		const ws = $workspaceStore
+		const ws = $operatingWorkspace
 		if (!ws || config.advancedDefaults !== 'unloaded') return
 		const target = config
 		target.advancedDefaults = 'loading'
@@ -224,10 +219,8 @@
 	// focus off to the first tabbable in the next column.
 	let languageEl: HTMLElement | undefined
 	let outputEl: HTMLElement | undefined
-	// Refs into the bottom panel for the Output → Path → AI Prompt → Save chain. The AI
-	// prompt is absent where the workspace hid the assistant, so Path advances to Save.
+	// Refs into the bottom panel for the Output → Path → Save chain.
 	let pathEl: HTMLElement | undefined
-	let aiPromptEl: HTMLElement | undefined
 	let saveEl: HTMLElement | undefined
 
 	let compatibleKinds = $derived.by<PipelineOutputKind[]>(() => {
@@ -300,13 +293,11 @@
 			void focusCurrentStep()
 			return
 		}
-		const trimmedPrompt = selected.aiPrompt?.trim()
 		onPick({
 			kindId: selected.triggerId,
 			language: selected.language,
 			path: pathPrefix + suffix,
 			outputKind: selected.outputId,
-			aiPrompt: trimmedPrompt && trimmedPrompt.length > 0 ? trimmedPrompt : undefined,
 			schedule: configSteps.includes('schedule') ? scheduleConfig() : undefined,
 			outputAsset:
 				configSteps.includes('asset') && config.asset
@@ -489,7 +480,7 @@
 			onkeydown={(e) =>
 				(e.metaKey || e.ctrlKey) && e.key === 'Enter'
 					? (e.preventDefault(), e.stopPropagation(), confirm(close))
-					: selectAndAdvanceTo(() => aiPromptEl ?? saveEl)(e)}
+					: selectAndAdvanceTo(() => saveEl)(e)}
 		>
 			<div
 				class="border rounded-md rounded-r-none border-r-0 text-xs w-fit shrink-0 whitespace-nowrap flex items-center px-2 text-secondary bg-surface-input"
@@ -508,38 +499,17 @@
 			</span>
 		{/if}
 	</Label>
-	{#if !$copilotInfo.workspaceDisabled}
-		<Label label="AI Prompt (optional)">
-			<!-- svelte-ignore a11y_no_static_element_interactions -->
-			<div
-				bind:this={aiPromptEl}
-				onkeydown={(e) =>
-					(e.metaKey || e.ctrlKey) && e.key === 'Enter' && (confirm(close), e.stopPropagation())}
-			>
-				<TextInput
-					class="resize-none h-12 !max-h-12"
-					underlyingInputEl="textarea"
-					inputProps={{
-						placeholder: 'Describe what the script should do — leave empty to use a template'
-					}}
-					bind:value={selected.aiPrompt}
-				/>
-			</div>
-		</Label>
-	{/if}
 	<div class="ml-auto" bind:this={saveEl}>
 		{@render confirmButton(close)}
 	</div>
 {/snippet}
 
 {#snippet confirmButton(close: () => void)}
-	{@const hasAiPrompt = !!selected.aiPrompt?.trim()}
 	<Button
 		variant="accent"
 		btnClasses="w-fit"
 		disabled={!stepValid}
 		onClick={() => confirm(close)}
-		startIcon={isLastStep && hasAiPrompt ? { icon: Sparkles } : undefined}
 		shortCut={{ Icon: CornerDownLeft }}
 		>{scheduleFor
 			? 'Create schedule'
@@ -547,11 +517,9 @@
 				? step === 0
 					? 'Configure'
 					: 'Next'
-				: hasAiPrompt
-					? 'Generate'
-					: selectedKind?.configuredAfterCreate
-						? 'Configure'
-						: 'Create'}</Button
+				: selectedKind?.configuredAfterCreate
+					? 'Configure'
+					: 'Create'}</Button
 	>
 {/snippet}
 
@@ -653,25 +621,16 @@
 							     overwrite a handler picked while they load. -->
 							{#if config.advancedDefaults === 'loaded'}
 								<ScheduleAdvancedOptions
-									wsId={$workspaceStore}
+									wsId={$operatingWorkspace}
 									itemKind="script"
 									canWrite
-									bind:errorHandlerSelected={config.advanced.errorHandlerSelected}
-									bind:errorHandlerPath={config.advanced.errorHandlerPath}
-									bind:errorHandleritemKind={config.advanced.errorHandleritemKind}
-									bind:errorHandlerExtraArgs={config.advanced.errorHandlerExtraArgs}
+									bind:errorHandler={config.advanced.errorHandler}
 									bind:wsErrorHandlerMuted={config.advanced.wsErrorHandlerMuted}
 									bind:failedTimes={config.advanced.failedTimes}
 									bind:failedExact={config.advanced.failedExact}
-									bind:recoveryHandlerSelected={config.advanced.recoveryHandlerSelected}
-									bind:recoveryHandlerPath={config.advanced.recoveryHandlerPath}
-									bind:recoveryHandlerItemKind={config.advanced.recoveryHandlerItemKind}
-									bind:recoveryHandlerExtraArgs={config.advanced.recoveryHandlerExtraArgs}
+									bind:recoveryHandler={config.advanced.recoveryHandler}
 									bind:recoveredTimes={config.advanced.recoveredTimes}
-									bind:successHandlerSelected={config.advanced.successHandlerSelected}
-									bind:successHandlerPath={config.advanced.successHandlerPath}
-									bind:successHandlerItemKind={config.advanced.successHandlerItemKind}
-									bind:successHandlerExtraArgs={config.advanced.successHandlerExtraArgs}
+									bind:successHandler={config.advanced.successHandler}
 									bind:retry={config.advanced.retry}
 									bind:dynamicSkipPath={config.advanced.dynamicSkipPath}
 									bind:tag={config.advanced.tag}

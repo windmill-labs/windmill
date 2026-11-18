@@ -9,25 +9,25 @@ jobs:
     runs-on: ubicloud
     container: node:18
     steps:
-      - uses: actions/create-github-app-token@v2
+      - uses: actions/create-github-app-token@v2.2.2
         id: app
         with:
           app-id: ${{ vars.INTERNAL_APP_ID }}
           private-key: ${{ secrets.INTERNAL_APP_KEY }}
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4.4.0
         with:
           token: ${{ steps.app.outputs.token }}
       - run: git config --system --add safe.directory /__w/windmill/windmill
       - name: Change versions
         run: ./.github/change-versions.sh "$(cat version.txt)"
-      - uses: actions-rs/toolchain@v1
+      - uses: actions-rs/toolchain@v1.0.7
         with:
           toolchain: stable
       - name: update lockfile
         run: |
           cd backend
           cargo generate-lockfile
-      - uses: stefanzweifel/git-auto-commit-action@v5
+      - uses: stefanzweifel/git-auto-commit-action@v5.2.0
         with:
           commit_user_name: windmill-internal-app[bot]
           commit_user_email: windmill-internal-app[bot]@users.noreply.github.com

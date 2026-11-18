@@ -281,6 +281,8 @@ export async function pushNativeTrigger(
     is_flow: localTrigger.is_flow,
     service_config: localTrigger.service_config,
     summary: localTrigger.summary,
+    // Used on create only; an update keeps the connection the webhook was registered under.
+    connection_path: localTrigger.connection_path,
   };
 
   if (remoteTrigger) {
@@ -336,14 +338,14 @@ export async function pushNativeTrigger(
   }
 }
 
-const triggerTemplates: Record<TriggerType, Record<string, any>> = {
+// Scaffold only fields the backend reads: `mode` supersedes the deprecated `enabled`, and
+// `request_type` the deprecated `is_async`.
+export const triggerTemplates: Record<TriggerType, Record<string, any>> = {
   http: {
     script_path: "",
     is_flow: false,
     route_path: "",
     http_method: "get",
-    is_async: false,
-    requires_auth: true,
     request_type: "sync",
     authentication_method: "none",
     is_static_website: false,
@@ -358,7 +360,7 @@ const triggerTemplates: Record<TriggerType, Record<string, any>> = {
     filters: [],
     can_return_message: false,
     can_return_error_result: false,
-    enabled: false,
+    mode: "disabled",
   },
   kafka: {
     script_path: "",
@@ -367,7 +369,7 @@ const triggerTemplates: Record<TriggerType, Record<string, any>> = {
     group_id: "",
     topics: [],
     filters: [],
-    enabled: false,
+    mode: "disabled",
   },
   nats: {
     script_path: "",
@@ -375,7 +377,7 @@ const triggerTemplates: Record<TriggerType, Record<string, any>> = {
     nats_resource_path: "",
     subjects: [],
     use_jetstream: false,
-    enabled: false,
+    mode: "disabled",
   },
   postgres: {
     script_path: "",
@@ -383,21 +385,21 @@ const triggerTemplates: Record<TriggerType, Record<string, any>> = {
     postgres_resource_path: "",
     publication_name: "",
     replication_slot_name: "",
-    enabled: false,
+    mode: "disabled",
   },
   mqtt: {
     script_path: "",
     is_flow: false,
     mqtt_resource_path: "",
     subscribe_topics: [],
-    enabled: false,
+    mode: "disabled",
   },
   amqp: {
     script_path: "",
     is_flow: false,
     amqp_resource_path: "",
     queue_name: "",
-    enabled: false,
+    mode: "disabled",
   },
   sqs: {
     script_path: "",
@@ -405,7 +407,7 @@ const triggerTemplates: Record<TriggerType, Record<string, any>> = {
     queue_url: "",
     aws_resource_path: "",
     aws_auth_resource_type: "credentials",
-    enabled: false,
+    mode: "disabled",
   },
   gcp: {
     script_path: "",
@@ -415,7 +417,7 @@ const triggerTemplates: Record<TriggerType, Record<string, any>> = {
     subscription_id: "",
     delivery_type: "pull",
     subscription_mode: "create_update",
-    enabled: false,
+    mode: "disabled",
   },
   azure: {
     script_path: "",
@@ -424,13 +426,13 @@ const triggerTemplates: Record<TriggerType, Record<string, any>> = {
     azure_mode: "namespace_pull",
     scope_resource_id: "",
     subscription_name: "",
-    enabled: false,
+    mode: "disabled",
   },
   email: {
     script_path: "",
     is_flow: false,
     local_part: "",
-    enabled: false,
+    mode: "disabled",
   },
 };
 

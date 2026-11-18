@@ -2,6 +2,7 @@ import type { FlowModule } from '$lib/gen'
 import {
 	getToolNameError,
 	isFlowModuleTool,
+	isNamedTool,
 	type AgentTool,
 	type FlowModuleTool
 } from './agentToolUtils'
@@ -195,10 +196,8 @@ export function collectInvalidAgentToolNames(modules: unknown): InvalidAgentTool
 	forEachAiAgentModule(modules, (mod, v) => {
 		const tools: AgentTool[] = Array.isArray(v.tools) ? v.tools : []
 		// Only a flowmodule tool's summary is a callable name: the worker never reads an mcp or
-		// websearch summary, so a blank one there must stay writable (both default to '').
-		const named = tools.filter(
-			(tool) => tool.value?.tool_type !== 'mcp' && tool.value?.tool_type !== 'websearch'
-		)
+		// built-in tool's summary, so a blank one there must stay writable.
+		const named = tools.filter(isNamedTool)
 		const siblingNames = named.map((tool) => tool.summary ?? '')
 		for (const tool of named) {
 			const name = tool.summary ?? ''

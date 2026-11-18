@@ -1046,3 +1046,596 @@ async fn test_impersonation_session_is_never_refreshed(db: Pool<Postgres>) -> an
 
     Ok(())
 }
+
+#[cfg(all(feature = "enterprise", feature = "private"))]
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_set_password_revokes_mcp_oauth_grants(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+
+    sqlx::raw_sql(
+        "INSERT INTO mcp_oauth_server_client (client_id, client_name, redirect_uris)
+         VALUES ('mcp-client', 'MCP client', ARRAY['http://localhost/cb']);
+         INSERT INTO token (token_hash, token_prefix, email, label, expiration)
+         VALUES (encode(sha256('MCP_ACCESS_TOKEN'::bytea), 'hex'), 'MCP_ACCESS', 'test2@windmill.dev',
+                 'mcp-oauth-mcp-client', now() + interval '7 days'),
+                (encode(sha256('OTHER_MCP_TOKEN'::bytea), 'hex'), 'OTHER_MCP_', 'test3@windmill.dev',
+                 'mcp-oauth-mcp-client', now() + interval '7 days');
+         INSERT INTO mcp_oauth_refresh_token
+             (refresh_token, access_token_hash, client_id, user_email, workspace_id, scopes, token_family, expires_at)
+         VALUES ('test2-refresh', encode(sha256('MCP_ACCESS_TOKEN'::bytea), 'hex'), 'mcp-client',
+                 'test2@windmill.dev', 'test-workspace', ARRAY['mcp:all'], gen_random_uuid(), now() + interval '30 days'),
+                ('test3-refresh', encode(sha256('OTHER_MCP_TOKEN'::bytea), 'hex'), 'mcp-client',
+                 'test3@windmill.dev', 'test-workspace', ARRAY['mcp:all'], gen_random_uuid(), now() + interval '30 days');
+         INSERT INTO mcp_oauth_server_code (code, client_id, user_email, workspace_id, scopes, redirect_uri)
+         VALUES ('test2-code', 'mcp-client', 'test2@windmill.dev', 'test-workspace', ARRAY['mcp:all'],
+                 'http://localhost/cb');",
+    )
+    .execute(&db)
+    .await?;
+
+    // A refresh in flight: it holds the grant lock and writes its rotated tokens while the
+    // password change is waiting on that lock.
+    let mut grant = db.begin().await?;
+    sqlx::query("SELECT 1 FROM password WHERE email = $1 FOR SHARE")
+        .bind("test2@windmill.dev")
+        .execute(&mut *grant)
+        .await?;
+    let request = tokio::spawn(
+        authed(client().post(format!(
+            "http://localhost:{}/api/users/set_password_of/test2@windmill.dev",
+            server.addr.port()
+        )))
+        .json(&json!({"password": "new-test-password-123"}))
+        .send(),
+    );
+    let mut waiting = false;
+    for _ in 0..100 {
+        waiting = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM pg_stat_activity
+             WHERE wait_event_type = 'Lock' AND datname = current_database())",
+        )
+        .fetch_one(&db)
+        .await?;
+        if waiting {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+    assert!(
+        waiting,
+        "the password change never waited on the grant lock"
+    );
+    sqlx::raw_sql(
+        "INSERT INTO token (token_hash, token_prefix, email, label, expiration)
+         VALUES (encode(sha256('MCP_ROTATED_TOKEN'::bytea), 'hex'), 'MCP_ROTATE', 'test2@windmill.dev',
+                 'mcp-oauth-mcp-client', now() + interval '7 days');
+         INSERT INTO mcp_oauth_refresh_token
+             (refresh_token, access_token_hash, client_id, user_email, workspace_id, scopes, token_family, expires_at)
+         VALUES ('test2-rotated', encode(sha256('MCP_ROTATED_TOKEN'::bytea), 'hex'), 'mcp-client',
+                 'test2@windmill.dev', 'test-workspace', ARRAY['mcp:all'], gen_random_uuid(), now() + interval '30 days');",
+    )
+    .execute(&mut *grant)
+    .await?;
+    grant.commit().await?;
+
+    let resp = request.await??;
+    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+
+    let labels: Vec<(String, String)> = sqlx::query_as(
+        "SELECT email, label FROM token WHERE email IN ('test2@windmill.dev', 'test3@windmill.dev') ORDER BY email, label",
+    )
+    .fetch_all(&db)
+    .await?;
+    assert_eq!(
+        labels,
+        vec![
+            ("test2@windmill.dev".to_string(), "test token 2".to_string()),
+            (
+                "test3@windmill.dev".to_string(),
+                "mcp-oauth-mcp-client".to_string()
+            ),
+            ("test3@windmill.dev".to_string(), "test token 3".to_string()),
+        ]
+    );
+    let refresh: Vec<String> = sqlx::query_scalar(
+        "SELECT refresh_token FROM mcp_oauth_refresh_token ORDER BY refresh_token",
+    )
+    .fetch_all(&db)
+    .await?;
+    assert_eq!(refresh, vec!["test3-refresh".to_string()]);
+    let invalidated: Vec<String> = sqlx::query_scalar(
+        "SELECT payload FROM notify_event WHERE channel = 'notify_token_invalidation' ORDER BY payload",
+    )
+    .fetch_all(&db)
+    .await?;
+    assert_eq!(
+        invalidated,
+        vec!["MCP_ACCESS".to_string(), "MCP_ROTATE".to_string()]
+    );
+    let codes: i64 = sqlx::query_scalar("SELECT count(*) FROM mcp_oauth_server_code")
+        .fetch_one(&db)
+        .await?;
+    assert_eq!(codes, 0);
+
+    Ok(())
+}
+
+/// Without automatic usernames, a username is only unique within a workspace, so renaming one
+/// account must leave the memberships of a like-named account elsewhere alone.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_rename_keeps_other_workspaces_like_named_memberships(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    sqlx::raw_sql(
+        "INSERT INTO workspace (id, name, owner) VALUES ('other-workspace', 'other', 'test-user');
+         INSERT INTO usr (workspace_id, email, username, is_admin, role)
+             VALUES ('other-workspace', 'test3@windmill.dev', 'test-user-2', false, 'User');
+         INSERT INTO group_ (workspace_id, name, summary, extra_perms) VALUES
+             ('test-workspace', 'ops', '', '{}'), ('other-workspace', 'finance', '', '{}');
+         INSERT INTO usr_to_group (workspace_id, group_, usr) VALUES
+             ('test-workspace', 'ops', 'test-user-2'),
+             ('other-workspace', 'finance', 'test-user-2');",
+    )
+    .execute(&db)
+    .await?;
+
+    let resp = authed(client().post(format!(
+        "http://localhost:{port}/api/users/rename/test2@windmill.dev"
+    )))
+    .json(&json!({ "new_username": "alice" }))
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 200, "rename: {}", resp.text().await?);
+
+    let memberships: Vec<(String, String, String)> = sqlx::query_as(
+        "SELECT workspace_id, group_, usr FROM usr_to_group
+         WHERE group_ IN ('ops', 'finance') ORDER BY workspace_id",
+    )
+    .fetch_all(&db)
+    .await?;
+    assert_eq!(
+        memberships,
+        vec![
+            (
+                "other-workspace".into(),
+                "finance".into(),
+                "test-user-2".into()
+            ),
+            ("test-workspace".into(), "ops".into(), "alice".into()),
+        ]
+    );
+
+    Ok(())
+}
+
+/// Renaming an account that holds a reserved job name keeps Windmill's jobs under that name:
+/// `SUPERADMIN_SECRET` runs keep both columns, visitor runs keep `created_by = anonymous`. The
+/// account's own `u/anonymous` principal, and every job of an audit-only name (`sso`), follow it.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_rename_from_reserved_name_keeps_system_jobs(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    sqlx::raw_sql(
+        "UPDATE usr SET username = 'superadmin_secret' WHERE email = 'test3@windmill.dev';
+         UPDATE password SET username = 'superadmin_secret' WHERE email = 'test3@windmill.dev';
+         UPDATE usr SET username = 'sso' WHERE email = 'test2@windmill.dev';
+         UPDATE password SET username = 'sso' WHERE email = 'test2@windmill.dev';
+         INSERT INTO password (email, password_hash, login_type, verified, username)
+         VALUES ('test4@windmill.dev', 'not-a-real-hash', 'password', true, 'anonymous');
+         INSERT INTO usr (workspace_id, email, username, is_admin, role)
+         VALUES ('test-workspace', 'test4@windmill.dev', 'anonymous', false, 'User');
+         INSERT INTO v2_job (id, workspace_id, created_by, permissioned_as, kind, tag, args)
+         VALUES (gen_random_uuid(), 'test-workspace', 'superadmin_secret', 'u/superadmin_secret', 'script', 'deno', '{}'::jsonb),
+                (gen_random_uuid(), 'test-workspace', 'sso', 'u/sso', 'script', 'deno', '{}'::jsonb),
+                (gen_random_uuid(), 'test-workspace', 'anonymous', 'u/test-user', 'script', 'deno', '{}'::jsonb),
+                (gen_random_uuid(), 'test-workspace', 'anonymous', 'u/anonymous', 'script', 'deno', '{}'::jsonb);",
+    )
+    .execute(&db)
+    .await?;
+
+    for (email, new_username) in [
+        ("test3@windmill.dev", "former_secret"),
+        ("test2@windmill.dev", "former_sso"),
+        ("test4@windmill.dev", "former_anonymous"),
+    ] {
+        let resp =
+            authed(client().post(format!("http://localhost:{port}/api/users/rename/{email}")))
+                .json(&json!({ "new_username": new_username }))
+                .send()
+                .await?;
+        assert_eq!(resp.status(), 200, "rename: {}", resp.text().await?);
+    }
+
+    let username: String =
+        sqlx::query_scalar("SELECT username FROM usr WHERE email = 'test3@windmill.dev'")
+            .fetch_one(&db)
+            .await?;
+    assert_eq!(username, "former_secret");
+    let jobs: Vec<(String, String)> = sqlx::query_as(
+        "SELECT created_by, permissioned_as FROM v2_job WHERE workspace_id = 'test-workspace'
+         ORDER BY created_by, permissioned_as",
+    )
+    .fetch_all(&db)
+    .await?;
+    assert_eq!(
+        jobs,
+        vec![
+            ("anonymous".to_string(), "u/former_anonymous".to_string()),
+            ("anonymous".to_string(), "u/test-user".to_string()),
+            ("former_sso".to_string(), "u/former_sso".to_string()),
+            (
+                "superadmin_secret".to_string(),
+                "u/superadmin_secret".to_string()
+            ),
+        ]
+    );
+
+    Ok(())
+}
+
+/// Schedules, triggers and folder default rules run as `permissioned_as`; one left on the old
+/// username no longer resolves, and the server disables the schedule at its next push.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_rename_moves_run_as_of_schedules_and_triggers(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    sqlx::raw_sql(
+        r#"INSERT INTO schedule (workspace_id, path, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, email, permissioned_as, extra_perms)
+           VALUES ('test-workspace', 'f/ops/nightly', 'test-user-2', NOW(), '0 * * * *', 'UTC', true, 'f/ops/job', false, 'test2@windmill.dev', 'u/test-user-2', '{}');
+         INSERT INTO http_trigger (workspace_id, path, route_path, route_path_key, script_path, is_flow, edited_by, permissioned_as, edited_at, extra_perms, http_method, authentication_method, mode)
+           VALUES ('test-workspace', 'u/test-user-2/hook', '/hook', 'hook', 'u/test-user-2/job', false, 'test-user-2', 'u/test-user-2', NOW(), '{"u/test-user-2": true}', 'post', 'none', 'enabled');
+         INSERT INTO kafka_trigger (workspace_id, path, kafka_resource_path, topics, group_id, script_path, is_flow, edited_by, permissioned_as)
+           VALUES ('test-workspace', 'u/test-user-2/k', 'f/ops/kafka', '{t}', 'g', 'f/ops/job', false, 'test-user-2', 'u/test-user-2');
+         INSERT INTO kafka_pending_commits (workspace_id, kafka_trigger_path, topic, partition, "offset")
+           VALUES ('test-workspace', 'u/test-user-2/k', 't', 0, 1);
+         INSERT INTO folder (workspace_id, name, display_name, owners, extra_perms, created_by, default_permissioned_as)
+           VALUES ('test-workspace', 'ops', 'ops', '{}', '{}', 'test-user',
+                   '[{"path_glob": "a/*", "permissioned_as": "u/test-user"}, {"path_glob": "*", "permissioned_as": "u/test-user-2"}]');"#,
+    )
+    .execute(&db)
+    .await?;
+
+    let resp = authed(client().post(format!(
+        "http://localhost:{port}/api/users/rename/test2@windmill.dev"
+    )))
+    .json(&json!({ "new_username": "alice" }))
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 200, "rename: {}", resp.text().await?);
+
+    let schedule: String = sqlx::query_scalar(
+        "SELECT permissioned_as FROM schedule WHERE workspace_id = 'test-workspace' AND path = 'f/ops/nightly'",
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(schedule, "u/alice");
+
+    let trigger: (String, String, String, String, serde_json::Value) = sqlx::query_as(
+        "SELECT path, script_path, edited_by, permissioned_as, extra_perms FROM http_trigger
+         WHERE workspace_id = 'test-workspace'",
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(
+        trigger,
+        (
+            "u/alice/hook".into(),
+            "u/alice/job".into(),
+            "alice".into(),
+            "u/alice".into(),
+            json!({ "u/alice": true })
+        )
+    );
+
+    let pending_commit: String =
+        sqlx::query_scalar("SELECT kafka_trigger_path FROM kafka_pending_commits")
+            .fetch_one(&db)
+            .await?;
+    assert_eq!(pending_commit, "u/alice/k");
+
+    let rules: serde_json::Value = sqlx::query_scalar(
+        "SELECT default_permissioned_as FROM folder WHERE workspace_id = 'test-workspace' AND name = 'ops'",
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(
+        rules,
+        json!([
+            { "path_glob": "a/*", "permissioned_as": "u/test-user" },
+            { "path_glob": "*", "permissioned_as": "u/alice" }
+        ])
+    );
+
+    Ok(())
+}
+
+/// The rename moves the user's runnables, so every handler naming one must follow in the form its
+/// column stores, or it fails exactly when it fires. A handler under another user's path stays.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_rename_moves_handler_paths(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    sqlx::raw_sql(
+        r#"INSERT INTO schedule (workspace_id, path, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, email, permissioned_as, extra_perms, on_failure, on_recovery, on_success, dynamic_skip)
+           VALUES ('test-workspace', 'f/ops/nightly', 'test-user', NOW(), '0 * * * *', 'UTC', true, 'f/ops/job', false, 'test@windmill.dev', 'u/test-user', '{}',
+                   'script/u/test-user-2/on_fail', 'flow/u/test-user-2/on_recover', 'script/u/test-user/on_success', 'u/test-user-2/skip');
+         INSERT INTO http_trigger (workspace_id, path, route_path, route_path_key, script_path, is_flow, edited_by, permissioned_as, edited_at, extra_perms, http_method, authentication_method, mode, error_handler_path)
+           VALUES ('test-workspace', 'f/ops/hook', '/hook', 'hook', 'f/ops/job', false, 'test-user', 'u/test-user', NOW(), '{}', 'post', 'none', 'enabled', 'u/test-user-2/trigger_err');
+         INSERT INTO kafka_trigger (workspace_id, path, kafka_resource_path, topics, group_id, script_path, is_flow, edited_by, permissioned_as, error_handler_path, server_id)
+           VALUES ('test-workspace', 'f/ops/k', 'f/ops/kafka', '{t}', 'g', 'f/ops/job', false, 'test-user', 'u/test-user', 'u/test-user/trigger_err', 'srv'),
+                  ('test-workspace', 'f/ops/k2', 'f/ops/kafka', '{t}', 'g', 'f/ops/job', false, 'test-user', 'u/test-user', 'u/test-user-2/trigger_err', 'srv');
+         UPDATE workspace_settings SET
+           error_handler = '{"path": "script/u/test-user-2/ws_err", "extra_args": {"channel": "ops"}, "muted_on_cancel": true}',
+           success_handler = '{"path": "flow/u/test-user-2/ws_ok"}',
+           variable_expiration_handler = '{"path": "script/u/test-user/expiry", "notify_before_secs": 60}',
+           slack_command_script = 'script/u/test-user-2/slack_cmd',
+           teams_command_script = 'u/test-user/teams_cmd',
+           default_app = 'u/test-user-2/home'
+         WHERE workspace_id = 'test-workspace';"#,
+    )
+    .execute(&db)
+    .await?;
+
+    let resp = authed(client().post(format!(
+        "http://localhost:{port}/api/users/rename/test2@windmill.dev"
+    )))
+    .json(&json!({ "new_username": "alice" }))
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 200, "rename: {}", resp.text().await?);
+
+    let schedule: (String, String, String, String) = sqlx::query_as(
+        "SELECT on_failure, on_recovery, on_success, dynamic_skip FROM schedule
+         WHERE workspace_id = 'test-workspace' AND path = 'f/ops/nightly'",
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(
+        schedule,
+        (
+            "script/u/alice/on_fail".into(),
+            "flow/u/alice/on_recover".into(),
+            "script/u/test-user/on_success".into(),
+            "u/alice/skip".into()
+        )
+    );
+
+    let http: String = sqlx::query_scalar(
+        "SELECT error_handler_path FROM http_trigger WHERE workspace_id = 'test-workspace'",
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(http, "u/alice/trigger_err");
+    // A listener whose handler moved must restart to load it; one whose handler stayed is left be.
+    let kafka: Vec<(String, String, Option<String>)> = sqlx::query_as(
+        "SELECT path, error_handler_path, server_id FROM kafka_trigger
+         WHERE workspace_id = 'test-workspace' ORDER BY path",
+    )
+    .fetch_all(&db)
+    .await?;
+    assert_eq!(
+        kafka,
+        vec![
+            (
+                "f/ops/k".into(),
+                "u/test-user/trigger_err".into(),
+                Some("srv".into())
+            ),
+            ("f/ops/k2".into(), "u/alice/trigger_err".into(), None),
+        ]
+    );
+
+    let settings: (serde_json::Value, serde_json::Value, serde_json::Value) = sqlx::query_as(
+        "SELECT error_handler, success_handler, variable_expiration_handler FROM workspace_settings
+         WHERE workspace_id = 'test-workspace'",
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(
+        settings,
+        (
+            json!({ "path": "script/u/alice/ws_err", "extra_args": { "channel": "ops" }, "muted_on_cancel": true }),
+            json!({ "path": "flow/u/alice/ws_ok" }),
+            json!({ "path": "script/u/test-user/expiry", "notify_before_secs": 60 })
+        )
+    );
+
+    let commands: (String, String, String) = sqlx::query_as(
+        "SELECT slack_command_script, teams_command_script, default_app FROM workspace_settings
+         WHERE workspace_id = 'test-workspace'",
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(
+        commands,
+        (
+            "script/u/alice/slack_cmd".into(),
+            "u/test-user/teams_cmd".into(),
+            "u/alice/home".into()
+        )
+    );
+
+    Ok(())
+}
+
+/// Outside a superadmin's workspaces `u/{password.username}` resolves to them, so their rows there
+/// follow the rename — but not in a workspace where a member holds that name, where it was theirs.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_rename_superadmin_moves_run_as_outside_their_workspaces(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    sqlx::raw_sql(
+        r#"INSERT INTO workspace (id, name, owner) VALUES ('no-member', 'no-member', 'test-user'), ('like-named', 'like-named', 'test-user');
+         INSERT INTO usr (workspace_id, email, username, is_admin, role)
+           VALUES ('like-named', 'test3@windmill.dev', 'test-user', false, 'User');
+         INSERT INTO schedule (workspace_id, path, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, email, permissioned_as, extra_perms)
+           VALUES ('no-member', 'f/ops/nightly', 'test-user', NOW(), '0 * * * *', 'UTC', true, 'f/ops/job', false, 'test@windmill.dev', 'u/test-user', '{}'),
+                  ('like-named', 'f/ops/nightly', 'test-user', NOW(), '0 * * * *', 'UTC', true, 'f/ops/job', false, 'test3@windmill.dev', 'u/test-user', '{}');"#,
+    )
+    .execute(&db)
+    .await?;
+
+    let resp = authed(client().post(format!(
+        "http://localhost:{port}/api/users/rename/test@windmill.dev"
+    )))
+    .json(&json!({ "new_username": "root" }))
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 200, "rename: {}", resp.text().await?);
+
+    let schedules: Vec<(String, String)> = sqlx::query_as(
+        "SELECT workspace_id, permissioned_as FROM schedule WHERE path = 'f/ops/nightly' ORDER BY workspace_id",
+    )
+    .fetch_all(&db)
+    .await?;
+    assert_eq!(
+        schedules,
+        vec![
+            ("like-named".into(), "u/test-user".into()),
+            ("no-member".into(), "u/root".into()),
+        ]
+    );
+
+    Ok(())
+}
+
+/// A legacy `group-ops` member canonicalizes to `g/ops`; renaming them must not hand the group's
+/// schedules and folder rules to the member.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_rename_group_prefixed_member_keeps_group_run_as(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    sqlx::raw_sql(
+        r#"UPDATE usr SET username = 'group-ops' WHERE email = 'test2@windmill.dev';
+         UPDATE password SET username = 'group-ops' WHERE email = 'test2@windmill.dev';
+         INSERT INTO schedule (workspace_id, path, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, email, permissioned_as, extra_perms)
+           VALUES ('test-workspace', 'f/ops/nightly', 'test-user', NOW(), '0 * * * *', 'UTC', true, 'f/ops/job', false, 'test@windmill.dev', 'g/ops', '{}');
+         INSERT INTO folder (workspace_id, name, display_name, owners, extra_perms, created_by, default_permissioned_as)
+           VALUES ('test-workspace', 'ops', 'ops', '{}', '{}', 'test-user', '[{"path_glob": "*", "permissioned_as": "g/ops"}]');"#,
+    )
+    .execute(&db)
+    .await?;
+
+    let resp = authed(client().post(format!(
+        "http://localhost:{port}/api/users/rename/test2@windmill.dev"
+    )))
+    .json(&json!({ "new_username": "alice" }))
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 200, "rename: {}", resp.text().await?);
+
+    let (schedule, rules): (String, serde_json::Value) = sqlx::query_as(
+        "SELECT s.permissioned_as, f.default_permissioned_as FROM schedule s, folder f
+         WHERE s.path = 'f/ops/nightly' AND f.name = 'ops'",
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(schedule, "g/ops");
+    assert_eq!(
+        rules,
+        json!([{ "path_glob": "*", "permissioned_as": "g/ops" }])
+    );
+
+    Ok(())
+}
+
+/// Same rule for the runnables that carry their principal themselves: scripts, flows, drafts,
+/// apps and agents running as `g/ops` stay the group's. The agent sits in a workspace the
+/// member is not in, which is what the instance-wide sweep reaches.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_rename_group_prefixed_member_keeps_group_runnables(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    sqlx::raw_sql(
+        r#"UPDATE usr SET username = 'group-ops' WHERE email = 'test2@windmill.dev';
+         UPDATE password SET username = 'group-ops' WHERE email = 'test2@windmill.dev';
+         INSERT INTO workspace (id, name, owner) VALUES ('other-workspace', 'other-workspace', 'test-user');
+         INSERT INTO script (workspace_id, path, hash, content, summary, description, language, created_by, created_at, on_behalf_of, on_behalf_of_email)
+           VALUES ('test-workspace', 'f/ops/job', 96001, 'def main(): pass', '', '', 'python3', 'test-user', NOW(), 'g/ops', 'group-ops@windmill.dev');
+         INSERT INTO flow (workspace_id, path, summary, description, value, edited_by, edited_at, schema, extra_perms, on_behalf_of, on_behalf_of_email)
+           VALUES ('test-workspace', 'f/ops/flow', '', '', '{"modules": []}', 'test-user', NOW(), '{}', '{}', 'g/ops', 'group-ops@windmill.dev');
+         INSERT INTO draft (workspace_id, path, typ, value, email)
+           VALUES ('test-workspace', 'f/ops/job', 'script', '{"on_behalf_of": "g/ops", "on_behalf_of_email": "group-ops@windmill.dev"}', 'test@windmill.dev'),
+                  ('test-workspace', 'f/ops/app', 'app', '{"policy": {"on_behalf_of": "g/ops", "on_behalf_of_email": "test2@windmill.dev"}}', 'test@windmill.dev');
+         INSERT INTO app (workspace_id, path, summary, policy, versions)
+           VALUES ('test-workspace', 'f/ops/app', '', '{"on_behalf_of": "g/ops", "on_behalf_of_email": "test2@windmill.dev"}', '{}');
+         INSERT INTO resource (workspace_id, path, value, resource_type, created_by)
+           VALUES ('other-workspace', 'f/ops/agent', '{"run_on_behalf_of": true, "on_behalf_of": "g/ops"}', 'ai_agent', 'test-user');"#,
+    )
+    .execute(&db)
+    .await?;
+
+    let resp = authed(client().post(format!(
+        "http://localhost:{port}/api/users/rename/test2@windmill.dev"
+    )))
+    .json(&json!({ "new_username": "alice" }))
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 200, "rename: {}", resp.text().await?);
+
+    let principals: Vec<(String, Option<String>)> = sqlx::query_as(
+        "SELECT 'script', on_behalf_of FROM script WHERE path = 'f/ops/job'
+         UNION ALL SELECT 'flow', on_behalf_of FROM flow WHERE path = 'f/ops/flow'
+         UNION ALL SELECT 'draft ' || typ, COALESCE(value->>'on_behalf_of', value->'policy'->>'on_behalf_of')
+           FROM draft WHERE path LIKE 'f/ops/%'
+         UNION ALL SELECT 'app', policy->>'on_behalf_of' FROM app WHERE path = 'f/ops/app'
+         UNION ALL SELECT 'agent', value->>'on_behalf_of' FROM resource WHERE path = 'f/ops/agent'
+         ORDER BY 1",
+    )
+    .fetch_all(&db)
+    .await?;
+    assert_eq!(
+        principals,
+        [
+            "agent",
+            "app",
+            "draft app",
+            "draft script",
+            "flow",
+            "script"
+        ]
+        .map(|k| (k.to_string(), Some("g/ops".to_string())))
+        .to_vec()
+    );
+
+    Ok(())
+}
+
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_generated_username_skips_anonymous(db: Pool<Postgres>) -> anyhow::Result<()> {
+    let mut tx = db.begin().await?;
+    let username = windmill_common::usernames::generate_instance_wide_unique_username(
+        &mut tx,
+        "anonymous@acme.com",
+    )
+    .await?;
+    assert_eq!(username, "anonymous2");
+    Ok(())
+}

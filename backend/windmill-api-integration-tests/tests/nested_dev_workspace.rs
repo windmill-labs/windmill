@@ -432,13 +432,35 @@ async fn test_archive_takes_the_pairing_lock_for_a_standalone_workspace(
         .execute(&mut *held)
         .await?;
 
-    let finished =
-        tokio::time::timeout(std::time::Duration::from_secs(5), archive(port, "h-cand")).await;
-    assert!(
-        finished.is_err(),
-        "archive of a standalone workspace completed while its pairing lock was held: {finished:?}"
-    );
+    let archiving = tokio::spawn(async move { archive(port, "h-cand").await });
+
+    let mut parked = false;
+    for _ in 0..400 {
+        let waiting: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM pg_stat_activity WHERE wait_event_type = 'Lock' \
+             AND wait_event = 'advisory' AND datname = current_database() \
+             AND query LIKE '%dev_workspace_pairing%' AND pid <> pg_backend_pid()",
+        )
+        .fetch_one(&db)
+        .await?;
+        if waiting > 0 {
+            parked = true;
+            break;
+        }
+        assert!(
+            !archiving.is_finished(),
+            "archive of a standalone workspace completed while its pairing lock was held: {:?}",
+            archiving.await
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+    }
+    assert!(parked, "archive never waited on the pairing lock");
 
     held.rollback().await?;
+    let (status, body) = archiving.await?;
+    assert!(
+        status.is_success(),
+        "archive after the lock was released returned {status}: {body}"
+    );
     Ok(())
 }
