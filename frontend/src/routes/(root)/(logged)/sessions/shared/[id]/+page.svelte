@@ -1,17 +1,16 @@
 <script lang="ts">
 	import { goto } from '$app/navigation'
 	import { page } from '$app/state'
-	import { EllipsisVertical, Link2Off, Share2, X } from 'lucide-svelte'
+	import { EllipsisVertical, Link2Off, X } from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
 	import SharedSessionBody from '$lib/components/sessions/SharedSessionBody.svelte'
+	import SharedSessionTitle from '$lib/components/sessions/SharedSessionTitle.svelte'
 	import { useSharedSession } from '$lib/components/sessions/sharedSession.svelte'
-	import { userColorClass, userInitials } from '$lib/components/userInitials'
 	import { resource } from 'runed'
 	import { UserService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { displayDate } from '$lib/utils'
 
 	const workspace = $derived(page.url.searchParams.get('workspace') ?? $workspaceStore ?? '')
 	const id = $derived(page.params.id ?? '')
@@ -40,22 +39,11 @@
 </script>
 
 {#snippet sessionName()}
-	<span class="truncate text-xs font-normal text-emphasis" title={name}>{name}</span>
-	{#if found}
-		{@const author = found.session.created_by}
-		<span class="ml-2 inline-flex shrink-0 items-center gap-1" title="Shared by {author}">
-			<span class="inline-flex items-center gap-0.5 text-2xs font-normal text-hint">
-				<Share2 size={10} aria-hidden="true" />Shared by
-			</span>
-			<span
-				class="inline-flex h-4 w-4 items-center justify-center rounded-full text-[8px] font-semibold text-white {userColorClass(
-					author
-				)}"
-			>
-				{userInitials(author)}
-			</span>
-		</span>
-	{/if}
+	<SharedSessionTitle
+		{name}
+		author={found?.session.created_by}
+		sharedAt={found?.session.shared_at}
+	/>
 {/snippet}
 
 {#snippet headerActions()}
@@ -118,16 +106,6 @@
 	actingWorkspaceId={workspace}
 />
 
-<div class="h-full min-h-0 flex flex-col">
-	<div class="flex-1 min-h-0 overflow-y-auto">
-		<div class="mx-auto flex min-h-full w-full max-w-3xl flex-col px-7 pt-4">
-			<SharedSessionBody loaded={shared.current} {workspace} member={isMember} />
-		</div>
-	</div>
-	{#if found}
-		<div class="mx-auto w-full max-w-3xl px-7 pb-3 pt-2 text-center text-xs text-secondary">
-			Read-only {found.session.is_public ? 'public ' : ''}copy shared by {found.session.created_by}
-			· {displayDate(found.session.shared_at)}
-		</div>
-	{/if}
+<div class="h-full min-h-0">
+	<SharedSessionBody loaded={shared.current} {workspace} member={isMember} />
 </div>

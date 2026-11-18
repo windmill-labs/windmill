@@ -31,6 +31,8 @@
 		readsDrafts: boolean
 		/** Why the reader cannot, shown under the list once it is known. */
 		draftsLockedReason: string | undefined
+		/** Where the reader signs in to lift the lock, when they have no session. */
+		draftsSignInHref?: string
 		artifacts: PersistedArtifact[]
 		openArtifact: (artifact: PersistedArtifact) => void
 	}
@@ -41,6 +43,7 @@
 		author,
 		readsDrafts,
 		draftsLockedReason,
+		draftsSignInHref,
 		artifacts,
 		openArtifact
 	}: Props = $props()
@@ -127,7 +130,12 @@
 {#snippet lockedNote()}
 	<div class="flex items-start gap-1.5 px-3 py-1 text-2xs text-secondary">
 		<Lock size={11} class="mt-0.5 shrink-0" />
-		<span>{draftsLockedReason}</span>
+		<span>
+			{draftsLockedReason}
+			{#if draftsSignInHref}
+				<a href={draftsSignInHref} class="font-medium text-accent hover:underline">Sign in</a>
+			{/if}
+		</span>
 	</div>
 {/snippet}
 
@@ -142,6 +150,7 @@
 				itemKey={(e) => `${e.kind}:${e.path}`}
 				itemHref={deployedHref}
 				{rowTitle}
+				itemDisabled={(edit) => (edit.draft ? !opensDraft(edit) : !deployedHref(edit))}
 				onPick={(edit) => void viewDraft(edit)}
 				triggerClass={`${TOKEN_TRIGGER_CLASS} ${token.class}`}
 				widthClass="w-96"
