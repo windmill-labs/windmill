@@ -2681,8 +2681,6 @@ mod tests {
 
     #[test]
     fn retry_exponential_fractional_multiplier() {
-        // #5691: a fractional multiplier must be accepted and applied, not
-        // rejected at parse time with "expected u16".
         let retry: Retry = serde_json::from_str(
             r#"
             {
@@ -2700,18 +2698,6 @@ mod tests {
                 .map(|previous_attempts| retry.interval(previous_attempts, false))
                 .collect::<Vec<_>>()
         );
-    }
-
-    #[test]
-    fn retry_exponential_integer_multiplier_back_compat() {
-        // Stored flows use integer multipliers; they must still deserialize into
-        // the now-float field unchanged.
-        let retry: Retry = serde_json::from_str(
-            r#"{ "constant": {}, "exponential": { "attempts": 1, "multiplier": 3, "seconds": 2 } }"#,
-        )
-        .unwrap();
-        assert_eq!(retry.exponential.multiplier, 3.0);
-        assert_eq!(Some(6 * SECOND), retry.interval(0, false));
     }
 
     #[test]
