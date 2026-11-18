@@ -2091,6 +2091,8 @@ export const mcpEndpointTools: EndpointTool[] = [
                                                 },
                                                 "multiplier": {
                                                         "type": "number",
+                                                        "minimum": 0,
+                                                        "maximum": 65535,
                                                         "description": "Multiplier for exponential backoff"
                                                 },
                                                 "seconds": {
@@ -2295,6 +2297,8 @@ export const mcpEndpointTools: EndpointTool[] = [
                                                 },
                                                 "multiplier": {
                                                         "type": "number",
+                                                        "minimum": 0,
+                                                        "maximum": 65535,
                                                         "description": "Multiplier for exponential backoff"
                                                 },
                                                 "seconds": {

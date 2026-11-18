@@ -237,6 +237,16 @@ fn reject_reserved_schedule_path(path: &str) -> Result<()> {
     Ok(())
 }
 
+/// The retry is stored as raw JSON and only parsed when a run is pushed, so an invalid one
+/// would otherwise be accepted here and fail every run.
+fn validate_retry(retry: Option<&serde_json::Value>) -> Result<()> {
+    if let Some(retry) = retry {
+        serde_json::from_value::<windmill_common::flows::Retry>(retry.clone())
+            .map_err(|e| Error::BadRequest(format!("Invalid retry: {e}")))?;
+    }
+    Ok(())
+}
+
 /// Validate that a dynamic skip handler (script or flow) exists
 async fn validate_dynamic_skip<'c>(
     tx: &mut Transaction<'c, Postgres>,
@@ -319,6 +329,7 @@ async fn create_schedule(
 
     // Check schedule for error (validate before opening the tx).
     ScheduleType::from_str(&ns.schedule, ns.cron_version.as_deref(), true)?;
+    validate_retry(ns.retry.as_ref())?;
 
     // These reads deliberately use the non-RLS `db` pool (fork-ness and
     // permissioned_as resolution must be complete regardless of the caller's
@@ -577,6 +588,7 @@ async fn edit_schedule(
 
     // Check schedule for error
     ScheduleType::from_str(&es.schedule, es.cron_version.as_deref(), true)?;
+    validate_retry(es.retry.as_ref())?;
 
     let resolved_edited_by = resolve_edited_by(&authed);
 

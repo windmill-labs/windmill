@@ -359,6 +359,7 @@
 							type="number"
 							step="any"
 							min="0"
+							max="65535"
 						/>
 						<div class="text-xs font-bold !mt-2">Base (in seconds)</div>
 						<input

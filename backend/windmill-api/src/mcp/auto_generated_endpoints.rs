@@ -2087,6 +2087,8 @@ You should get the schema of the script or flow before creating the schedule to 
                                                 },
                                                 "multiplier": {
                                                         "type": "number",
+                                                        "minimum": 0,
+                                                        "maximum": 65535,
                                                         "description": "Multiplier for exponential backoff"
                                                 },
                                                 "seconds": {
@@ -2294,6 +2296,8 @@ You should get the schema of the script or flow before updating the schedule to 
                                                 },
                                                 "multiplier": {
                                                         "type": "number",
+                                                        "minimum": 0,
+                                                        "maximum": 65535,
                                                         "description": "Multiplier for exponential backoff"
                                                 },
                                                 "seconds": {

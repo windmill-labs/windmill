@@ -11999,6 +11999,8 @@ paths:
                                           description: Number of retry attempts
                                         multiplier:
                                           type: number
+                                          minimum: 0
+                                          maximum: 65535
                                           description: Multiplier for exponential backoff
                                         seconds:
                                           type: integer
@@ -23552,6 +23554,8 @@ paths:
                           description: Number of retry attempts
                         multiplier:
                           type: number
+                          minimum: 0
+                          maximum: 65535
                           description: Multiplier for exponential backoff
                         seconds:
                           type: integer

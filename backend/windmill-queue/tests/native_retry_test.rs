@@ -189,7 +189,9 @@ mod native_retry {
         root.job_token_scopes = Some(vec!["jobs:run".to_string()]);
 
         assert!(maybe_enqueue_native_script_retry(&db, &root, &None, &no_result).await?);
-        let (r1_id, ..) = retry_by_attempt(&db, root_id, 1).await.expect("retry 1 exists");
+        let (r1_id, ..) = retry_by_attempt(&db, root_id, 1)
+            .await
+            .expect("retry 1 exists");
         let scopes: Option<Vec<String>> =
             sqlx::query_scalar("SELECT job_token_scopes FROM job_perms WHERE job_id = $1")
                 .bind(r1_id)
@@ -281,6 +283,48 @@ mod native_retry {
             rs.retry_settings.is_some(),
             "retry policy is still carried for further chaining"
         );
+        Ok(())
+    }
+
+    // A fractional multiplier is stored in the float column with an integer that older
+    // workers read; a row without the float (written by an older version) reads the integer.
+    #[sqlx::test(migrations = "../migrations", fixtures("base", "schedule_push"))]
+    async fn retry_multiplier_reads_float_then_integer_column(
+        db: Pool<Postgres>,
+    ) -> anyhow::Result<()> {
+        let mut retry = Retry::default();
+        retry.exponential.attempts = 2;
+        retry.exponential.seconds = 4;
+        retry.exponential.multiplier = 0.5;
+        let hash = RetrySettings::from(&retry)
+            .insert_cached(&db)
+            .await?
+            .expect("non-default policy is stored");
+        let (int, float) = sqlx::query_as::<_, (Option<i32>, Option<f64>)>(
+            "SELECT exponential_multiplier, exponential_multiplier_float FROM retry_settings WHERE hash = $1",
+        )
+        .bind(hash)
+        .fetch_one(&db)
+        .await?;
+        assert_eq!((int, float), (Some(1), Some(0.5)));
+
+        // Rows planted under fresh hashes, so `get` reads them from the database.
+        for (hash, int, float, expected) in [
+            (rand::random::<i64>(), 1, Some(0.5), 0.5),
+            (rand::random::<i64>(), 3, None, 3.0),
+        ] {
+            sqlx::query(
+                "INSERT INTO retry_settings (hash, exponential_attempts, exponential_multiplier, exponential_multiplier_float, exponential_seconds)
+                 VALUES ($1, 2, $2, $3, 4)",
+            )
+            .bind(hash)
+            .bind(int)
+            .bind(float)
+            .execute(&db)
+            .await?;
+            let read: Retry = RetrySettings::get(hash, &db).await?.into();
+            assert_eq!(read.exponential.multiplier, expected);
+        }
         Ok(())
     }
 

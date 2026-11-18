@@ -546,7 +546,10 @@ pub struct ConstantDelay {
 pub struct ExponentialDelay {
     pub attempts: u32,
     /// Multiplier applied to `seconds ^ failures`; fractional values (e.g. 0.4) are allowed.
-    #[serde(serialize_with = "serialize_multiplier")]
+    #[serde(
+        serialize_with = "serialize_multiplier",
+        deserialize_with = "deserialize_multiplier"
+    )]
     pub multiplier: f64,
     pub seconds: u16,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -556,6 +559,20 @@ pub struct ExponentialDelay {
 impl Default for ExponentialDelay {
     fn default() -> Self {
         Self { attempts: 0, multiplier: 1.0, seconds: 0, random_factor: None }
+    }
+}
+
+/// Bounded to the range the multiplier had as a `u16`: a negative one would make every delay
+/// 0 seconds, and an integral value in range stays readable by workers that parse a `u16`.
+fn deserialize_multiplier<'de, D: Deserializer<'de>>(d: D) -> Result<f64, D::Error> {
+    let m = f64::deserialize(d)?;
+    if (0.0..=u16::MAX as f64).contains(&m) {
+        Ok(m)
+    } else {
+        Err(serde::de::Error::custom(format!(
+            "retry multiplier must be between 0 and {}, got {m}",
+            u16::MAX
+        )))
     }
 }
 
@@ -1777,6 +1794,15 @@ mod tests {
             let input = json!({ "exponential": { "attempts": 2, "multiplier": m, "seconds": 4 } });
             let retry: Retry = serde_json::from_value(input.clone()).unwrap();
             assert_eq!(serde_json::to_value(&retry).unwrap(), input);
+        }
+    }
+
+    #[test]
+    fn exponential_retry_multiplier_out_of_range_is_rejected() {
+        for m in [json!(-1), json!(-0.5), json!(65535.5), json!(70000)] {
+            let input = json!({ "exponential": { "attempts": 2, "multiplier": m, "seconds": 4 } });
+            let err = serde_json::from_value::<Retry>(input).unwrap_err().to_string();
+            assert!(err.contains("retry multiplier must be between 0 and 65535"), "{err}");
         }
     }
 
