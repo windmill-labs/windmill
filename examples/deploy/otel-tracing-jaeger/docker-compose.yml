@@ -142,7 +142,7 @@ services:
   #   - ENABLE_MULTIPLAYER=false - Real-time collaboration (Enterprise Edition)
   #   - ENABLE_DEBUGGER=false - Interactive debugging via DAP WebSocket
   windmill_extra:
-    image: ghcr.io/windmill-labs/windmill-extra:latest
+    image: ${WM_EXTRA_IMAGE:-ghcr.io/windmill-labs/windmill-extra:latest}
     pull_policy: always
     restart: unless-stopped
     expose:
