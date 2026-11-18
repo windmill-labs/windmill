@@ -3,6 +3,7 @@ import { AiService, UserService } from '$lib/gen'
 import { sendUserToast } from '$lib/toast'
 import { readSessionSnapshot } from './sessionSharing'
 import { invalidateSharedSessions } from './sharedSessionsList.svelte'
+import { logSharedSessionOpen, logSharedSessionRemove } from './sharedSessionTelemetry'
 
 export type LoadedSharedSession =
 	| {
@@ -22,7 +23,10 @@ export function useSharedSession(key: () => { workspace: string; id: string } | 
 			const session = await AiService.getSharedAiSession(args)
 			// Reading someone else's share is what lists it for the reader, and the sidebar may
 			// have fetched its list before this read recorded it.
-			if (!session.mine) invalidateSharedSessions(args.workspace)
+			if (!session.mine) {
+				invalidateSharedSessions(args.workspace)
+				logSharedSessionOpen(args.workspace)
+			}
 			return { state: 'found', session, snapshot: readSessionSnapshot(session.snapshot) }
 		} catch (err) {
 			const status = (err as { status?: number })?.status
@@ -70,6 +74,7 @@ export function useSharedSession(key: () => { workspace: string; id: string } | 
 		try {
 			await AiService.forgetOpenedAiSession({ workspace, id: found.session.id })
 			invalidateSharedSessions(workspace)
+			logSharedSessionRemove('header', workspace)
 			sendUserToast('Removed from your shared sessions')
 			return true
 		} catch (err) {

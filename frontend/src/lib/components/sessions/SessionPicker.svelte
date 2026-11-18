@@ -36,6 +36,7 @@
 		useSharedSessionsList,
 		type SharedSessionsFilter
 	} from './sharedSessionsList.svelte'
+	import { logSharedSessionRemove } from './sharedSessionTelemetry'
 	import { sharedSessionAppHref, sharedSessionUrl } from './sessionSharing'
 	import { copyToClipboard } from '$lib/utils'
 	import { twMerge } from 'tailwind-merge'
@@ -213,6 +214,7 @@
 		try {
 			await AiService.forgetOpenedAiSession({ workspace: sharedWorkspace, id: shared.id })
 			invalidateSharedSessions(sharedWorkspace)
+			logSharedSessionRemove('sidebar', sharedWorkspace)
 			sendUserToast('Removed from your shared sessions')
 			await leaveSharedPage(shared.id)
 		} catch (err) {
