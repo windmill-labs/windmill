@@ -1,8 +1,8 @@
 use futures::Future;
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
-use nix::sys::signal::{self, Signal};
-#[cfg(any(target_os = "linux", target_os = "macos"))]
+use nix::sys::signal::Signal;
+#[cfg(target_os = "linux")]
 use nix::unistd::Pid;
 use process_wrap::tokio::TokioChildWrapper;
 use windmill_common::agent_workers::PingJobStatusResponse;
@@ -153,17 +153,12 @@ struct OutputLine {
 }
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
-fn send_job_signal(id: u32, sig: Signal) {
-    let pid = Pid::from_raw(id as i32);
-    // if id is a process group leader, send SIGINT/SIGTERM
-    // to its process group
-    let target = if nix::unistd::getpgid(Some(pid)) == Ok(pid) {
-        Pid::from_raw(-(id as i32))
-    } else {
-        pid
-    };
-    if let Err(e) = signal::kill(target, sig) {
-        tracing::debug!("failed to send {sig} to {target}: {e}");
+fn send_job_signal(child: &dyn TokioChildWrapper, sig: Signal) {
+    // Under the ProcessGroup wrap this is a killpg on the group recorded at spawn, so a
+    // wrapper that does not forward signals (unshare, tini, sh) cannot shield the job.
+    // Without it (DISABLE_PROCESS_GROUP) it signals the direct child only.
+    if let Err(e) = child.signal(sig as i32) {
+        tracing::debug!("failed to send {sig} to the job process: {e}");
     }
 }
 
@@ -392,18 +387,13 @@ pub async fn handle_child(
         // when the kill could not be confirmed. SIGINT and SIGTERM are only sent where the
         // sends below are compiled in: elsewhere an exit during their wait is unsignaled.
         let unix_signal = |s: &'static str| {
-            if cfg!(any(target_os = "linux", target_os = "macos")) {
-                s
-            } else {
-                "none"
-            }
+            if cfg!(any(target_os = "linux", target_os = "macos")) { s } else { "none" }
         };
         let kill = async {
-            #[allow(unused_variables)]
-            if let Some(id) = child.id() {
+            if child.id().is_some() {
                 if *MAX_WAIT_FOR_SIGINT > 0 {
                     #[cfg(any(target_os = "linux", target_os = "macos"))]
-                    send_job_signal(id, Signal::SIGINT);
+                    send_job_signal(child.as_ref(), Signal::SIGINT);
 
                     for _ in 0..*MAX_WAIT_FOR_SIGINT {
                         if child.try_wait().is_ok_and(|x| x.is_some()) {
@@ -418,7 +408,7 @@ pub async fn handle_child(
                 }
                 if sigterm {
                     #[cfg(any(target_os = "linux", target_os = "macos"))]
-                    send_job_signal(id, Signal::SIGTERM);
+                    send_job_signal(child.as_ref(), Signal::SIGTERM);
 
                     for _ in 0..*MAX_WAIT_FOR_SIGTERM {
                         if child.try_wait().is_ok_and(|x| x.is_some()) {
@@ -1382,20 +1372,20 @@ mod tests {
     #[tokio::test]
     async fn send_job_signal_reaches_child_behind_a_wrapper_ignoring_sigterm() {
         use std::process::Stdio;
-        let mut child = tokio::process::Command::new("sh")
-            .args(["-c", "sleep 60 &\ntrap '' TERM\necho ready\nwait"])
-            .process_group(0)
-            .stdout(Stdio::piped())
-            .spawn()
+        let mut cmd = tokio::process::Command::new("sh");
+        cmd.args(["-c", "sleep 60 &\ntrap '' TERM\necho ready\nwait"])
+            .stdout(Stdio::piped());
+        let mut child = crate::common::start_child_process(cmd, "sh", false)
+            .await
             .unwrap();
 
-        let stdout = child.stdout.take().unwrap();
+        let stdout = child.stdout().take().unwrap();
         let mut lines = BufReader::new(stdout).lines();
         assert_eq!(lines.next_line().await.unwrap().as_deref(), Some("ready"));
 
-        send_job_signal(child.id().unwrap(), Signal::SIGTERM);
+        send_job_signal(child.as_ref(), Signal::SIGTERM);
 
-        tokio::time::timeout(Duration::from_secs(2), child.wait())
+        tokio::time::timeout(Duration::from_secs(2), Box::into_pin(child.wait()))
             .await
             .expect("wrapper should exit once its child receives SIGTERM")
             .unwrap();
