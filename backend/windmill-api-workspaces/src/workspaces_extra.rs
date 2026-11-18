@@ -810,14 +810,6 @@ pub(crate) async fn change_workspace_id(
     .execute(&mut *tx)
     .await?;
 
-    sqlx::query!(
-        "UPDATE github_app_repo_approval SET workspace_id = $1 WHERE workspace_id = $2",
-        &rw.new_id,
-        &old_id
-    )
-    .execute(&mut *tx)
-    .await?;
-
     info!("Updating resource_type table");
     sqlx::query!(
         "UPDATE resource_type SET workspace_id = $1 WHERE workspace_id = $2",

@@ -1452,7 +1452,6 @@ async fn create_resource(
             &db,
             &w_id,
             &resource.path,
-            &authed.username,
         )
         .await?;
     }
@@ -2425,7 +2424,6 @@ async fn update_resource(
             &db,
             &w_id,
             &npath,
-            &authed.username,
         )
         .await?;
     }
@@ -2709,7 +2707,6 @@ async fn set_resource_value(
             db,
             w_id,
             path,
-            &authed.username,
         )
         .await?;
     }
@@ -4131,6 +4128,11 @@ async fn get_git_commit_hash(
     let Some(git_repo_resource_value) = git_repo_resource_value else {
         return Err(Error::NotFound(format!("Resource {} not found", path)).into());
     };
+    let caller = if authed.is_admin {
+        GitRemoteCaller::AdminOrSystem
+    } else {
+        GitRemoteCaller::NonAdmin
+    };
 
     // App-backed repos store a tokenless URL, so the `ls-remote` below can't
     // authenticate. Reuse the poller's REST head lookup, which mints an
@@ -4145,13 +4147,8 @@ async fn get_git_commit_hash(
         .unwrap_or(false)
     {
         if let Some((_, commit_hash)) =
-            windmill_common::git_sync_ee::get_app_repo_head_for_autopull(
-                &db,
-                &w_id,
-                path,
-                windmill_common::git_sync_oss::AppRepoCaller::from_is_admin(authed.is_admin),
-            )
-            .await?
+            windmill_common::git_sync_ee::get_app_repo_head_for_autopull(&db, &w_id, path, caller)
+                .await?
         {
             return Ok(Json(GitCommitHashResponse { commit_hash }));
         }
@@ -4161,11 +4158,6 @@ async fn get_git_commit_hash(
         .map_err(|e| {
         Error::BadRequest(format!("Invalid git repository resource format: {}", e))
     })?;
-    let caller = if authed.is_admin {
-        GitRemoteCaller::AdminOrSystem
-    } else {
-        GitRemoteCaller::NonAdmin
-    };
     git_resource.url =
         resolve_azure_devops_url(&db_with_opt_authed, &w_id, &git_resource.url, false, caller)
             .await?;

@@ -5330,7 +5330,7 @@ async fn poll_git_auto_pull_inner(db: &Pool<Postgres>) -> error::Result<()> {
                             db,
                             &row.workspace_id,
                             &repo.git_repo_resource_path,
-                            windmill_common::git_sync_oss::AppRepoCaller::AdminOrSystem,
+                            windmill_common::ssrf::GitRemoteCaller::AdminOrSystem,
                         )
                         .await
                     }

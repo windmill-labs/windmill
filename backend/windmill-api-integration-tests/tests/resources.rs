@@ -760,28 +760,31 @@ async fn test_resource_cache_handles_job_context(db: Pool<Postgres>) -> anyhow::
     Ok(())
 }
 
-/// Without an embeddings index the resource type search reads the table, so it has to apply the
-/// same scope as the index: the workspace's own types and the global ones in `admins`, never
-/// another workspace's.
 /// The installation serves a non-admin only the URL an admin last saved on an
-/// app-backed resource, so a write by anyone else must never move the approval.
+/// app-backed resource, so a write by anyone else must never set it, and a new
+/// resource where an approved one used to be must not inherit it.
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
 async fn test_github_app_repo_approval_follows_admin_writes(
     db: Pool<Postgres>,
 ) -> anyhow::Result<()> {
-    use windmill_common::git_sync_oss::is_github_app_repo_approved;
     initialize_tracing().await;
     let server = ApiServer::start(db.clone()).await?;
     let base = format!(
         "http://localhost:{}/api/w/test-workspace/resources",
         server.addr.port()
     );
-    let path = "u/test-user-2/repo";
+    let (path, renamed) = ("u/test-user-2/repo", "u/test-user-2/repo2");
     let (approved, other) = (
         "https://github.com/o/r.git",
         "https://github.com/o/other.git",
     );
     let value = |url: &str| json!({"value": {"url": url, "is_github_app": true}});
+    let create = |url: &str| {
+        let mut body = value(url);
+        body["path"] = json!(path);
+        body["resource_type"] = json!("git_repository");
+        body
+    };
     let post = |token: &'static str, url: String, body: serde_json::Value| async move {
         let resp = client()
             .post(url)
@@ -792,54 +795,42 @@ async fn test_github_app_repo_approval_follows_admin_writes(
             .unwrap();
         assert!(resp.status().is_success(), "{}", resp.text().await.unwrap());
     };
-    let is_approved = |url: &'static str| {
+    let approved_url = |path: &'static str| {
         let db = db.clone();
         async move {
-            is_github_app_repo_approved(&db, "test-workspace", path, url)
-                .await
-                .unwrap()
+            sqlx::query_scalar::<_, Option<String>>(
+                "SELECT github_app_approved_url FROM resource
+                 WHERE workspace_id = 'test-workspace' AND path = $1",
+            )
+            .bind(path)
+            .fetch_one(&db)
+            .await
+            .unwrap()
         }
     };
 
-    let mut create = value(approved);
-    create["path"] = json!(path);
-    create["resource_type"] = json!("git_repository");
-    post("SECRET_TOKEN_2", format!("{base}/create"), create).await;
-    assert!(
-        !is_approved(approved).await,
-        "a non-admin's own write approves nothing"
-    );
+    post("SECRET_TOKEN_2", format!("{base}/create"), create(approved)).await;
+    assert_eq!(approved_url(path).await, None, "a non-admin's write approves nothing");
 
-    post(
-        "SECRET_TOKEN",
-        format!("{base}/update/{path}"),
-        json!({"description": "ok"}),
-    )
-    .await;
-    assert!(is_approved(approved).await);
+    post("SECRET_TOKEN", format!("{base}/update/{path}"), json!({"description": "ok"})).await;
+    assert_eq!(approved_url(path).await.as_deref(), Some(approved));
 
-    post(
-        "SECRET_TOKEN_2",
-        format!("{base}/update_value/{path}"),
-        value(other),
-    )
-    .await;
-    assert!(
-        !is_approved(other).await,
-        "a non-admin repointing it is not approved"
-    );
-    assert!(is_approved(approved).await);
+    post("SECRET_TOKEN_2", format!("{base}/update_value/{path}"), value(other)).await;
+    assert_eq!(approved_url(path).await.as_deref(), Some(approved));
 
-    post(
-        "SECRET_TOKEN",
-        format!("{base}/update_value/{path}"),
-        value(other),
-    )
-    .await;
-    assert!(is_approved(other).await && !is_approved(approved).await);
+    post("SECRET_TOKEN", format!("{base}/update_value/{path}"), value(other)).await;
+    assert_eq!(approved_url(path).await.as_deref(), Some(other));
+
+    post("SECRET_TOKEN_2", format!("{base}/update/{path}"), json!({"path": renamed})).await;
+    assert_eq!(approved_url(renamed).await.as_deref(), Some(other));
+    post("SECRET_TOKEN_2", format!("{base}/create"), create(other)).await;
+    assert_eq!(approved_url(path).await, None, "nothing is inherited from the old path");
     Ok(())
 }
 
+/// Without an embeddings index the resource type search reads the table, so it has to apply the
+/// same scope as the index: the workspace's own types and the global ones in `admins`, never
+/// another workspace's.
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
 async fn test_resource_type_search_without_embeddings(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;

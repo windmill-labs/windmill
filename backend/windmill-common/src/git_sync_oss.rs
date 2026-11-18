@@ -143,25 +143,6 @@ pub fn prepend_token_to_github_url(
     ))
 }
 
-/// Who is asking the GitHub App installation to read an app-backed repository.
-/// A non-admin is served only the repository an admin approved for that
-/// resource (see [`approve_github_app_repo`]).
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum AppRepoCaller {
-    AdminOrSystem,
-    NonAdmin,
-}
-
-impl AppRepoCaller {
-    pub fn from_is_admin(is_admin: bool) -> Self {
-        if is_admin {
-            Self::AdminOrSystem
-        } else {
-            Self::NonAdmin
-        }
-    }
-}
-
 /// Record, for an admin's write of `path`, the repository URL an app-backed
 /// `git_repository` resource now resolves to, so non-admins who can read the
 /// resource may use the installation for that repository and no other. Must
@@ -171,7 +152,6 @@ pub async fn approve_github_app_repo(
     db: &crate::DB,
     w_id: &str,
     path: &str,
-    approved_by: &str,
 ) -> crate::error::Result<()> {
     let value = sqlx::query_scalar!(
         "SELECT value FROM resource WHERE workspace_id = $1 AND path = $2",
@@ -191,41 +171,25 @@ pub async fn approve_github_app_repo(
     let Some(url) = url else {
         return Ok(());
     };
-    let url = crate::variables::get_variable_or_self(url.to_string(), db, w_id).await?;
+    // Best-effort: an unresolvable `$var:` (not created yet, or a secret
+    // backend that is down) must not fail the admin's write. Non-admins stay
+    // refused until a later admin save resolves it.
+    let url = match crate::variables::get_variable_or_self(url.to_string(), db, w_id).await {
+        Ok(url) => url,
+        Err(e) => {
+            tracing::warn!("not approving the repository of {w_id}/{path}: {e}");
+            return Ok(());
+        }
+    };
     sqlx::query!(
-        "INSERT INTO github_app_repo_approval (workspace_id, resource_path, url, approved_by)
-         VALUES ($1, $2, $3, $4)
-         ON CONFLICT (workspace_id, resource_path)
-         DO UPDATE SET url = EXCLUDED.url, approved_by = EXCLUDED.approved_by, approved_at = now()",
+        "UPDATE resource SET github_app_approved_url = $3 WHERE workspace_id = $1 AND path = $2",
         w_id,
         path,
-        url,
-        approved_by
+        url
     )
     .execute(&mut *tx)
     .await?;
     Ok(())
-}
-
-/// Whether an admin approved `resolved_url` for the app-backed resource at
-/// `path`. Compared against the URL as resolved now, so a later edit of the
-/// resource or of a `$var:` it references by someone else revokes it.
-pub async fn is_github_app_repo_approved(
-    db: &crate::DB,
-    w_id: &str,
-    path: &str,
-    resolved_url: &str,
-) -> crate::error::Result<bool> {
-    Ok(sqlx::query_scalar!(
-        "SELECT EXISTS(SELECT 1 FROM github_app_repo_approval
-         WHERE workspace_id = $1 AND resource_path = $2 AND url = $3)",
-        w_id,
-        path,
-        resolved_url
-    )
-    .fetch_one(db)
-    .await?
-    .unwrap_or(false))
 }
 
 #[cfg(test)]
