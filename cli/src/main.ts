@@ -31,7 +31,11 @@ import review from "./commands/review/review.ts";
 import dev from "./commands/dev/dev.ts";
 import { GlobalOptions } from "./types.ts";
 import { OpenAPI } from "../gen/index.ts";
-import { apiErrorMessage, getHeaders } from "./utils/utils.ts";
+import {
+  apiErrorMessage,
+  getHeaders,
+  networkErrorMessage,
+} from "./utils/utils.ts";
 import { detectAuthGatewayChallenge } from "./utils/http_guards.ts";
 import { setShowDiffs } from "./core/conf.ts";
 import { markRequestsAsCliClient } from "./core/client.ts";
@@ -328,8 +332,11 @@ async function main() {
     await command.parse(args);
   } catch (e) {
     const apiError = apiErrorMessage(e);
+    const networkError = networkErrorMessage(e);
     if (apiError !== undefined) {
       log.error("Server failed. " + apiError);
+    } else if (networkError !== undefined) {
+      log.error(networkError);
     } else if (e instanceof Error) {
       log.error(e.message);
     } else if (e !== undefined && e !== null) {

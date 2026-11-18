@@ -6,8 +6,8 @@ use sqlx::{Postgres, Transaction};
 use windmill_common::{
     error::{self, Error},
     flows::FlowValue,
-    jobs::{check_can_name_runnable, check_can_name_with, naming_needs_code, RunOrigin},
-    roles::{caller_capabilities, AuthorLevel},
+    jobs::{check_can_name_runnable, RunOrigin},
+    roles::AuthorLevel,
     runnable_ref::RunnableRef,
     workspaces::{check_operator_can_build, BuilderKind},
     DB,
@@ -38,31 +38,19 @@ fn name_refused_path(runnable: &RunnableRef, e: Error) -> Error {
     }
 }
 
-/// Whether the caller may name the Hub paths among `new`, for `check_new_hub_paths`. Resolve it
-/// before the save's transaction opens: on a role-cache miss it reads from the pool.
-pub async fn can_name_hub(
-    new: &[RunnableRef],
-    authed: &ApiAuthed,
-    db: &DB,
-    w_id: &str,
-) -> error::Result<bool> {
-    if !new.iter().any(naming_needs_code) {
-        return Ok(true);
-    }
-    Ok(caller_capabilities(db, w_id, authed).await?.code)
-}
-
 /// Refuses each of `new` that `old` does not hold and that needs `code`. A trigger or schedule
 /// save is checked on the paths it changes only, so a member without `code` can still edit one
 /// that already runs a Hub path; nothing is checked at fire. `old` must be the row locked by the
 /// save, or a concurrent edit could slip a removed Hub path back in as unchanged.
-pub fn check_new_hub_paths(
+pub async fn check_new_hub_paths(
     new: &[RunnableRef],
     old: &[RunnableRef],
-    can_name_hub: bool,
+    authed: &ApiAuthed,
+    db: &DB,
+    w_id: &str,
 ) -> error::Result<()> {
     for runnable in new.iter().filter(|r| !old.contains(r)) {
-        check_can_name_with(runnable, can_name_hub).map_err(|e| name_refused_path(runnable, e))?;
+        check_builder_can_name_hub(runnable, authed, db, w_id).await?;
     }
     Ok(())
 }
@@ -79,10 +67,6 @@ pub async fn authorize_composed_flow(
     w_id: &str,
 ) -> error::Result<()> {
     let mut refs = windmill_common::flows::check_flow_is_composition_only(value)?;
-    // Each check reads the caller's role; a flow can step through the same Hub script many times.
-    refs.hub_runnables
-        .sort_by(|a, b| (a.is_flow(), a.path()).cmp(&(b.is_flow(), b.path())));
-    refs.hub_runnables.dedup();
     for runnable in &refs.hub_runnables {
         check_builder_can_name_hub(runnable, authed, db, w_id).await?;
     }

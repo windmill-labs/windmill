@@ -5330,6 +5330,7 @@ async fn poll_git_auto_pull_inner(db: &Pool<Postgres>) -> error::Result<()> {
                             db,
                             &row.workspace_id,
                             &repo.git_repo_resource_path,
+                            windmill_common::ssrf::GitRemoteCaller::AdminOrSystem,
                         )
                         .await
                     }
@@ -8531,7 +8532,9 @@ mod loggable_setting_value_tests {
     fn never_prints_string_or_structured_values() {
         let token = "ghp_secret_token";
         for v in [
-            json!(format!("[install.scopes]\n\"@org\" = {{ token = \"{token}\" }}")),
+            json!(format!(
+                "[install.scopes]\n\"@org\" = {{ token = \"{token}\" }}"
+            )),
             json!({ "registry": { "token": token } }),
             json!([token]),
         ] {

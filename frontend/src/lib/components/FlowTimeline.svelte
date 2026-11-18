@@ -198,6 +198,7 @@
 										id={k}
 										{onSelectedIteration}
 										flowJobsSuccess={localModuleStates[k]?.flow_jobs_success}
+										flowJobsLabels={localModuleStates[k]?.flow_jobs_labels}
 										flowJobs={localModuleStates[k]?.flow_jobs}
 										selected={localModuleStates[k]?.selectedForloopIndex ?? 0}
 										selectedManually={localModuleStates[k]?.selectedForLoopSetManually ?? false}

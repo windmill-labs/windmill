@@ -546,7 +546,7 @@
 					/>
 				{/if}
 			</div>
-			<div class="flex gap-2">
+			<div class="flex flex-wrap gap-2">
 				<Button
 					variant="accent"
 					disabled={busy || !selectedDevId || !!candidateClash}

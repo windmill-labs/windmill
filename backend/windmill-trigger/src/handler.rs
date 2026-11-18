@@ -14,7 +14,7 @@ use sqlx::{FromRow, PgConnection};
 use std::fmt::Debug;
 use windmill_api_auth::{
     build_scope_path_predicate, check_scopes,
-    composed::{can_name_hub, check_new_hub_paths},
+    composed::check_new_hub_paths,
     ApiAuthed,
 };
 use windmill_common::{
@@ -503,17 +503,11 @@ fn trigger_runnables<T: TriggerCrud>(trigger: &serde_json::Value) -> Vec<Runnabl
     runnables
 }
 
-/// The runnables a trigger save names, and whether the saver may name the Hub ones among them,
-/// for `check_new_hub_paths`. Resolve it before the save's transaction opens.
-pub async fn trigger_save_runnables<T: TriggerCrud>(
+/// The runnables a trigger save names, for `check_new_hub_paths`.
+pub fn trigger_save_runnables<T: TriggerCrud>(
     trigger: &TriggerData<T::TriggerConfigRequest>,
-    authed: &ApiAuthed,
-    db: &DB,
-    workspace_id: &str,
-) -> Result<(Vec<RunnableRef>, bool)> {
-    let new = trigger_runnables::<T>(&serde_json::to_value(trigger)?);
-    let can_name_hub = can_name_hub(&new, authed, db, workspace_id).await?;
-    Ok((new, can_name_hub))
+) -> Result<Vec<RunnableRef>> {
+    Ok(trigger_runnables::<T>(&serde_json::to_value(trigger)?))
 }
 
 /// Append this mutation to `trigger_history`, diffing the row at `path` against
@@ -602,9 +596,8 @@ async fn create_trigger<T: TriggerCrud>(
     handler
         .validate_new(&db, &workspace_id, &new_trigger.config)
         .await?;
-    let (new, can_name_hub) =
-        trigger_save_runnables::<T>(&new_trigger, &authed, &db, &workspace_id).await?;
-    check_new_hub_paths(&new, &[], can_name_hub)?;
+    let new = trigger_save_runnables::<T>(&new_trigger)?;
+    check_new_hub_paths(&new, &[], &authed, &db, &workspace_id).await?;
 
     let mut tx = user_db.begin(&authed).await?;
 
@@ -878,8 +871,7 @@ async fn update_trigger<T: TriggerCrud>(
     handler
         .validate_edit(&db, &workspace_id, &edit_trigger.config, path)
         .await?;
-    let (new_runnables, can_name_hub) =
-        trigger_save_runnables::<T>(&edit_trigger, &authed, &db, &workspace_id).await?;
+    let new_runnables = trigger_save_runnables::<T>(&edit_trigger)?;
 
     let mut tx = user_db.begin(&authed).await?;
 
@@ -929,8 +921,11 @@ async fn update_trigger<T: TriggerCrud>(
             .as_ref()
             .map(trigger_runnables::<T>)
             .unwrap_or_default(),
-        can_name_hub,
-    )?;
+        &authed,
+        &db,
+        &workspace_id,
+    )
+    .await?;
 
     handler
         .update_trigger(&db, &mut *tx, &authed, &workspace_id, path, edit_trigger)
