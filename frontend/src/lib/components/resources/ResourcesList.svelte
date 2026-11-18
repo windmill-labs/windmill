@@ -333,7 +333,9 @@
 		counts: latestRequest()
 	}
 
-	async function loadResources(): Promise<void> {
+	// Not part of loadResources, which every filter change re-runs: the counts are of the whole
+	// workspace and only move when the workspace changes or a resource is created or deleted.
+	function loadResourceCounts(): void {
 		const isLatestCount = loads.counts.start()
 		ResourceService.listResourceCountsByType({ workspace: $operatingWorkspace! })
 			.then(
@@ -343,6 +345,14 @@
 			.then((counts) => {
 				if (isLatestCount()) resourceCounts = counts
 			})
+	}
+
+	async function loadResourcesAndCounts(): Promise<void> {
+		loadResourceCounts()
+		await loadResources()
+	}
+
+	async function loadResources(): Promise<void> {
 		const result = await loadResourceInternal('workspace', undefined, 'cache,state,app_theme')
 		if (result) resources = result
 	}
@@ -579,6 +589,7 @@
 
 	async function reload() {
 		loading.types = true
+		loadResourceCounts()
 		if (tab == 'cache') {
 			loading.cache = true
 			await loadCache()
@@ -729,6 +740,7 @@
 				// workspace's rows behind another tab. The others reload when reopened, so they are
 				// emptied, and a load still in flight for them is superseded so it cannot refill them.
 				resourceCounts = undefined
+				loadResourceCounts()
 				if (tab !== 'workspace') loadResources()
 				if (tab !== 'cache') {
 					loads.cache.start()
@@ -1664,14 +1676,14 @@
 	</CenteredPage>
 {/if}
 
-<SupabaseConnect bind:this={supabaseConnect} on:refresh={loadResources} />
-<AppConnect bind:this={appConnect} on:refresh={loadResources} />
+<SupabaseConnect bind:this={supabaseConnect} on:refresh={loadResourcesAndCounts} />
+<AppConnect bind:this={appConnect} on:refresh={loadResourcesAndCounts} />
 
 <ResourceEditorDrawer
 	bind:this={resourceEditor}
 	workspace={$operatingWorkspace}
-	on:refresh={loadResources}
-	onRestored={loadResources}
+	on:refresh={loadResourcesAndCounts}
+	onRestored={loadResourcesAndCounts}
 />
 
 <ShareModal
