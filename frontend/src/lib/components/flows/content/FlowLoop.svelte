@@ -71,10 +71,15 @@
 	// onto the step once it holds an expression; an emptied label is removed from the step
 	// rather than stored as an empty expression.
 	let iterationLabelPlaceholder: InputTransform = $state({ type: 'javascript', expr: '' })
+	let showIterationLabel = $state(
+		mod.value.type === 'forloopflow' && mod.value.iteration_label != undefined
+	)
 	$effect(() => {
 		if (mod.value.type !== 'forloopflow') return
 		const label = mod.value.iteration_label
 		if (label == undefined) {
+			// The editor outlives the toggle by its exit transition and writes into the placeholder.
+			if (!showIterationLabel) return
 			const expr =
 				iterationLabelPlaceholder.type === 'javascript' ? iterationLabelPlaceholder.expr : ''
 			if (!emptyString(expr)) {
@@ -172,7 +177,7 @@
 	const ITERATOR_TOOLTIP =
 		'The JavaScript expression that will be evaluated to get the list of items to iterate over. Example: ["banana", "apple", flow_input.my_fruit].'
 	const ITERATION_LABEL_TOOLTIP =
-		'Optional. Evaluated for each iteration to name it in the run viewer and the iteration picker, e.g. flow_input.iter.value.name. A failing expression only leaves the iteration unnamed.'
+		'Evaluated for each iteration to name it in the run viewer and the iteration picker, e.g. flow_input.iter.value.name. A failing expression only leaves the iteration unnamed.'
 	const DEFAULT_PARALLELISM = 4
 	const PARALLELISM_LABEL = 'Limit concurrent iterations'
 	const SQUASH_PARALLEL_CONFLICT =
@@ -315,36 +320,6 @@
 							</InputTransformForm>
 						</PropPickerWrapper>
 					</section>
-					<section>
-						<PropPickerWrapper
-							sidePane
-							flow_input={stepPropPicker.pickableProperties.flow_input}
-							notSelectable
-							pickableProperties={stepPropPicker.pickableProperties}
-							on:select={({ detail }) => {
-								iterationLabelEditor?.insertAtCursor(detail)
-								iterationLabelEditor?.focus()
-							}}
-						>
-							<InputTransformForm
-								bind:arg={
-									() => (mod.value as ForloopFlow).iteration_label ?? iterationLabelPlaceholder,
-									(v) => {
-										;(mod.value as ForloopFlow).iteration_label = v
-									}
-								}
-								argName="iteration_label"
-								label="Iteration label"
-								headerTooltip={ITERATION_LABEL_TOOLTIP}
-								schema={iterationLabelSchema}
-								noDynamicToggle
-								extraLib={stepPropPicker.extraLib}
-								pickableProperties={stepPropPicker.pickableProperties}
-								previousModuleId={previousModule?.id}
-								bind:editor={iterationLabelEditor}
-							/>
-						</PropPickerWrapper>
-					</section>
 					<section class="flex flex-col gap-6">
 						<Toggle
 							size="xs"
@@ -423,6 +398,56 @@
 												bind:editor={parallelismEditor}
 											/>
 										{/key}
+									</PropPickerWrapper>
+								</div>
+							{/if}
+						</div>
+
+						<div class="flex flex-col gap-2">
+							<Toggle
+								size="xs"
+								textClass="text-xs font-normal text-primary"
+								bind:checked={showIterationLabel}
+								on:change={({ detail }) => {
+									if (detail) {
+										iterationLabelPlaceholder = { type: 'javascript', expr: '' }
+									} else {
+										;(mod.value as ForloopFlow).iteration_label = undefined
+									}
+								}}
+								options={{
+									right: 'Custom iteration labels',
+									rightTooltip: ITERATION_LABEL_TOOLTIP
+								}}
+							/>
+							{#if showIterationLabel}
+								<div class="pl-9" transition:slideDynamic>
+									<PropPickerWrapper
+										sidePane
+										flow_input={stepPropPicker.pickableProperties.flow_input}
+										notSelectable
+										pickableProperties={stepPropPicker.pickableProperties}
+										on:select={({ detail }) => {
+											iterationLabelEditor?.insertAtCursor(detail)
+											iterationLabelEditor?.focus()
+										}}
+									>
+										<InputTransformForm
+											bind:arg={
+												() => (mod.value as ForloopFlow).iteration_label ?? iterationLabelPlaceholder,
+												(v) => {
+													;(mod.value as ForloopFlow).iteration_label = v
+												}
+											}
+											argName="iteration_label"
+											label="Label expression"
+											schema={iterationLabelSchema}
+											noDynamicToggle
+											extraLib={stepPropPicker.extraLib}
+											pickableProperties={stepPropPicker.pickableProperties}
+											previousModuleId={previousModule?.id}
+											bind:editor={iterationLabelEditor}
+										/>
 									</PropPickerWrapper>
 								</div>
 							{/if}
