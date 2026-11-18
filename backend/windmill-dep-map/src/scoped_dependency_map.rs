@@ -409,32 +409,6 @@ SELECT importer_node_id, imported_path, imported_lockfile_hash
         tx
     }
 
-    /// A rebuild does not relock anything, so it must not record what an importer resolved
-    /// workspace dependencies against: copying the current hash would let `try_skip_relock`
-    /// keep a lock built from older dependencies. Without a hash, the next relock check of a
-    /// rebuilt importer always relocks.
-    async fn commit_rebuilt(self, tx: sqlx::Transaction<'_, sqlx::Postgres>) -> Result<()> {
-        let (w_id, importer_path, importer_kind) = (
-            self.w_id.clone(),
-            self.importer_path.clone(),
-            self.importer_kind.clone(),
-        );
-        let mut tx = self.dissolve(tx).await;
-        sqlx::query!(
-            "UPDATE dependency_map SET imported_lockfile_hash = NULL
-             WHERE workspace_id = $1 AND importer_path = $2
-                AND importer_kind = $3::text::IMPORTER_KIND
-                AND imported_path LIKE 'dependencies/%'",
-            w_id,
-            importer_path,
-            importer_kind,
-        )
-        .execute(&mut *tx)
-        .await?;
-        tx.commit().await?;
-        Ok(())
-    }
-
     pub async fn rebuild_map_unchecked(
         w_id: &str,
         db: &sqlx::Pool<sqlx::Postgres>,
@@ -461,7 +435,7 @@ SELECT importer_node_id, imported_path, imported_lockfile_hash
                 .await?;
 
                 if !*WMDEBUG_NO_DMAP_DISSOLVE {
-                    dmap.commit_rebuilt(tx).await?;
+                    dmap.dissolve(tx).await.commit().await?;
                 }
                 tracing::info!(workspace_id = w_id, "Rebuilt for script {}", &r.path);
             }
@@ -510,7 +484,7 @@ SELECT importer_node_id, imported_path, imported_lockfile_hash
                     }
 
                     if !*WMDEBUG_NO_DMAP_DISSOLVE {
-                        dmap.commit_rebuilt(tx).await?;
+                        dmap.dissolve(tx).await.commit().await?;
                     }
 
                     tracing::info!(workspace_id = w_id, "Rebuilt for flow {}", &r.path);
@@ -554,7 +528,7 @@ SELECT importer_node_id, imported_path, imported_lockfile_hash
                         tx = dmap.patch(ri, id.unwrap_or_default(), tx).await?;
                     }
                     if !*WMDEBUG_NO_DMAP_DISSOLVE {
-                        dmap.commit_rebuilt(tx).await?;
+                        dmap.dissolve(tx).await.commit().await?;
                     }
                     tracing::info!(workspace_id = w_id, "Rebuilt for app {}", &r.path);
                 } else {

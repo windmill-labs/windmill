@@ -45,9 +45,23 @@ mod workspace_dependencies {
         .await
         .unwrap();
 
-        // The map rebuild and the redeploy run in the background, the redeploy pushed as a
-        // debounced dependency job once the map is rebuilt; it never needs to run for what is
-        // asserted here.
+        // The dependency map decides which runnables are redeployed, and is rebuilt before
+        // `create` returns.
+        let importers: Vec<String> = sqlx::query_scalar(
+            "SELECT importer_path FROM dependency_map
+             WHERE workspace_id = 'admins' AND imported_path = 'dependencies/package.json'
+             ORDER BY importer_path",
+        )
+        .fetch_all(db)
+        .await?;
+        assert_eq!(
+            importers,
+            vec!["u/admin/simple_bun".to_string()],
+            "hub_sync must not be recorded as importing the default workspace dependencies"
+        );
+
+        // The redeploy is pushed in the background as a debounced dependency job; it never needs
+        // to run for what is asserted here.
         let mut jobs: Vec<(Option<String>, String)> = vec![];
         for _ in 0..200 {
             jobs = sqlx::query_as(
@@ -67,23 +81,6 @@ mod workspace_dependencies {
                 "dependencies".to_string()
             )],
             "Expected exactly one dependency job, for u/admin/simple_bun (hub_sync should be blacklisted)"
-        );
-
-        // The dependency map decides which runnables are redeployed.
-        let importers: Vec<(String, Option<i64>)> = sqlx::query_as(
-            "SELECT importer_path, imported_lockfile_hash FROM dependency_map
-             WHERE workspace_id = 'admins' AND imported_path = 'dependencies/package.json'
-             ORDER BY importer_path",
-        )
-        .fetch_all(db)
-        .await?;
-        // The rebuild runs after the new dependencies' hash is stored; recording it would let
-        // the redeploy skip its relock and keep a lock built without them.
-        assert_eq!(
-            importers,
-            vec![("u/admin/simple_bun".to_string(), None)],
-            "hub_sync must not be recorded as importing the default workspace dependencies, \
-             and the rebuild must not record a consumed hash"
         );
 
         Ok(())

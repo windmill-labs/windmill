@@ -287,7 +287,6 @@ windmill-api-agent-workers = { workspace = true, optional = true }
 windmill-api-scripts.workspace = true
 windmill-api-settings.workspace = true
 windmill-audit.workspace = true
-windmill-dep-map.workspace = true
 windmill-worker.workspace = true
 windmill-indexer = { workspace = true, optional = true }
 windmill-autoscaling = { workspace = true, optional = true }
@@ -334,6 +333,7 @@ tikv-jemalloc-ctl = { optional = true, workspace = true }
 serde_json.workspace = true
 reqwest.workspace = true
 windmill-queue = { workspace = true, features = ["failpoints"] }
+windmill-dep-map.workspace = true
 windmill-test-utils.workspace = true
 windmill-worker-volumes.workspace = true
 windmill-types.workspace = true
