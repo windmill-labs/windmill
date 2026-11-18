@@ -75,6 +75,11 @@ test("Node's bare fetch failure is reported with its cause", () => {
   });
   // Nothing reached the server, so there is nothing to wait for.
   expect(isNoResponseError(refused)).toBe(false);
+
+  const invalidUrl = Object.assign(new TypeError("Invalid URL"), {
+    code: "ERR_INVALID_URL",
+  });
+  expect(networkErrorMessage(invalidUrl)).toBeUndefined();
   expect(networkErrorMessage(refused)).toBe(
     "Could not reach the Windmill server: connect ECONNREFUSED 127.0.0.1:8000 (ECONNREFUSED)",
   );

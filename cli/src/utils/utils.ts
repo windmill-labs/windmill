@@ -383,9 +383,12 @@ function fetchFailureCause(
       ? (cause as { code?: string; message?: string })
       : {};
   }
-  // Bun puts the code on the error itself.
+  // Bun puts the code on the error itself. Node's own argument errors carry an `ERR_` code
+  // too, and are not network failures.
   const code = (e as { code?: unknown }).code;
-  return typeof code === "string" ? { code, message: e.message } : undefined;
+  return typeof code === "string" && !code.startsWith("ERR_")
+    ? { code, message: e.message }
+    : undefined;
 }
 
 /**
