@@ -162,8 +162,7 @@
 
 	function handleKeydown(event: KeyboardEvent) {
 		if (event.key === 'Escape' && isEditing) {
-			// A save already in flight has sent the new name, so keep it on screen.
-			setEditing(null, !isEditing.isSaving)
+			setEditing(null, true)
 			event.stopPropagation()
 			event.preventDefault()
 		} else if (event.key === 'Escape' && selectedInput) {
@@ -173,18 +172,21 @@
 		}
 
 		if (event.key === 'Enter' && isEditing) {
-			updateInput(isEditing).then(() => {
-				setEditing(null)
+			const saved = isEditing
+			updateInput(saved).then(() => {
+				// another row's rename may have been opened while this one was saving
+				if (isEditing?.id === saved.id) setEditing(null)
 			})
 			event.stopPropagation()
 			event.preventDefault()
 		}
 	}
 
-	// The rename field edits the listed input itself, so a cancelled rename must put its name back.
+	// The rename field edits the listed input itself, so a cancelled rename must put its name back,
+	// unless its save is in flight: that has already sent the new name.
 	let nameBeforeEdit = ''
 	function setEditing(input: EditableInput | null, cancel = false) {
-		if (cancel && isEditing) isEditing.name = nameBeforeEdit
+		if (cancel && isEditing && !isEditing.isSaving) isEditing.name = nameBeforeEdit
 		nameBeforeEdit = input?.name ?? ''
 		isEditing = input
 		dispatch('isEditing', !!input)
