@@ -1287,6 +1287,62 @@ class Script
     Ok(())
 }
 
+#[cfg(feature = "csharp")]
+#[sqlx::test(fixtures("base"))]
+async fn test_csharp_job_omitted_args_take_declared_defaults(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let job = || {
+        RunJob::from(JobPayload::Code(RawCode {
+            hash: None,
+            content: r#"
+class Script
+{
+    const int Answer = 42;
+    public static string Main(string s = "World", int n = Answer)
+    {
+        return $"{s ?? "<null>"} {n}";
+    }
+}
+"#
+            .to_owned(),
+            path: None,
+            lock: None,
+            language: ScriptLang::CSharp,
+            cache_ttl: None,
+            cache_ignore_s3_path: None,
+            dedicated_worker: None,
+            concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default(
+            )
+            .into(),
+            debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+            modules: None,
+            tag: None,
+        }))
+    };
+
+    let omitted = job()
+        .run_until_complete(&db, false, port)
+        .await
+        .json_result()
+        .unwrap();
+    assert_eq!(omitted, json!("World 42"));
+
+    let explicit = job()
+        .arg("s", json!(null))
+        .arg("n", json!(1))
+        .run_until_complete(&db, false, port)
+        .await
+        .json_result()
+        .unwrap();
+    assert_eq!(explicit, json!("<null> 1"));
+    Ok(())
+}
+
 #[sqlx::test(fixtures("base"))]
 async fn test_bash_job(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;

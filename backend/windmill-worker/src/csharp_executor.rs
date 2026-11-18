@@ -282,8 +282,18 @@ fn gen_cs_proj(
     let args_class_body = &args
         .iter()
         .map(|x| {
+            // The schema keys a verbatim identifier (`@class`) with its `@`, which is not
+            // part of the C# name the serializer would match on.
+            let json_name = if x.name.starts_with('@') {
+                format!(
+                    "[System.Text.Json.Serialization.JsonPropertyName(\"{}\")] ",
+                    x.name
+                )
+            } else {
+                String::new()
+            };
             Ok(format!(
-                "        public {} {} {{ get; set; }}",
+                "        {json_name}public {} {} {{ get; set; }}",
                 otyp(x)?,
                 &x.name
             ))
@@ -296,7 +306,10 @@ fn gen_cs_proj(
     // expression may name a constant the wrapper cannot see.
     let mut resolve_defaults = String::new();
     if args.iter().any(|x| x.has_default) {
-        let names = args.iter().map(|x| format!("\"{}\"", x.name)).join(", ");
+        let names = args
+            .iter()
+            .map(|x| format!("\"{}\"", x.name.trim_start_matches('@')))
+            .join(", ");
         resolve_defaults.push_str(&format!(
             r#"
                 using JsonDocument __argsDoc = JsonDocument.Parse(__argsJson);
