@@ -9,6 +9,17 @@ import { isRunnableByPath } from '$lib/components/apps/inputType'
 
 export type RefKind = 'resource' | 'script' | 'flow'
 
+// Who an agent runs as and who may use it belong to the workspace it is deployed in: an
+// export must not carry them, and an install must not trust one that does, or the agent
+// would run its tools as whoever installed it for anyone who can read it.
+const AGENT_WORKSPACE_KEYS = ['on_behalf_of', 'run_on_behalf_of', 'slack_anyone']
+
+export function withoutAgentWorkspaceKeys(value: unknown): Record<string, unknown> {
+	const out = { ...((value ?? {}) as Record<string, unknown>) }
+	for (const key of AGENT_WORKSPACE_KEYS) delete out[key]
+	return out
+}
+
 export interface Ref {
 	kind: RefKind
 	/** Bare path, without the `$res:` / `res://` prefix for resources. */
@@ -78,64 +89,20 @@ function withRefPrefix(ref: string, next: string): string {
 	return prefix + next
 }
 
-/** The saved agent an `aiagent` step or tool is linked to, if any. */
-function linkedAgentPath(v: any): string | undefined {
-	return bareResourcePath(v?.agent)
-}
-
-/** An MCP tool's server: a resource path, bare or as a `$res:` token. */
-function mcpResourcePath(tool: any): string | undefined {
-	const v = tool?.value
-	return v?.tool_type === 'mcp' ? bareResourcePath(v.resource_path) : undefined
-}
-
 /** A whole-string `$res:PATH` / `res://PATH` value (prefix in group 1, path in group 2). */
 const RES_VALUE_RE = /^(\$res:|res:\/\/)(.+)$/
 
-/**
- * Tool names a step enables are plain strings, and an MCP server goes by its bare resource
- * path there: the list follows the server when it moves, or the worker, which matches names
- * exactly, would silently drop it from the roster.
- */
-function rewriteEnabledTools(inputTransforms: any, map: Map<string, string>): void {
-	const enabled = inputTransforms?.enabled_tools
-	if (enabled?.type !== 'static' || !Array.isArray(enabled.value)) return
-	enabled.value = enabled.value.map((name: unknown) =>
-		typeof name === 'string' ? (map.get(name) ?? name) : name
-	)
-}
-
-/**
- * Every reference inside an agent's configuration: a saved agent's whole value, or the
- * tool wiring (`tool_inputs`) a linked step lays over one. One walk serves both reading
- * and rewriting (`resolve` is told each reference and may return its new path), so the two
- * cannot disagree about what a reference is.
- *
- * Nothing here lists the fields a reference may sit in, on purpose. A saved agent is read
- * unvalidated: the worker resolves its brain keys as arguments, whichever they are, its
- * tools nest (an agent used as a tool, with tools of its own), and keys keep being added.
- * So the whole value is walked, and a reference is recognised by its shape wherever it sits:
- *  - a string that is a `$res:` reference as a whole, the only form the worker resolves in
- *    an argument. A token inside a sentence (a prompt explaining the syntax) is prose.
- *  - `$res:` tokens anywhere in a rawscript tool's `content`, as in a flow's inline code
- *  - `{ type: 'script' | 'flow', path }`: a tool that runs a script or a flow
- *  - `{ type: 'aiagent', agent }`: a tool linked to another saved agent
- *  - `{ tool_type: 'mcp', resource_path }`: an MCP server
- *
- * The one place read differently is an input, where the worker reads one too: an entry of
- * an `input_transforms` map, or of a tool's map under `tool_inputs`. There, a static
- * `value` is an argument (only whole-string references count, so a JSON argument that
- * looks like a tool is not one) and a JavaScript `expr` is code that is evaluated, never
- * resolved. An object merely shaped like an input anywhere else is walked as configuration:
- * the install check relies on this walk, and nothing may be hidden that way.
- * `$var:` references are read by `extractVarRefsFromValue`, which walks every string.
- */
 type AgentRefResolver = (kind: RefKind, path: string) => string | undefined
 type AgentWalkContext = 'config' | 'inputs' | 'toolInputs' | 'input' | 'data'
 
+// The single definition of what an agent's configuration references, for reading
+// (`resolve` returns nothing) and rewriting (it returns the new path) alike. No list of
+// fields: a saved agent is read unvalidated and tools nest, so shapes are matched at any depth.
+// The install containment check relies on this walk seeing everything the worker acts on.
 function walkAgentConfig(value: any, resolve: AgentRefResolver): any {
 	const walk = (v: any, ctx: AgentWalkContext): any => {
 		if (typeof v === 'string') {
+			// Whole-string only, as the worker resolves arguments: a token in prose is inert.
 			const m = RES_VALUE_RE.exec(v)
 			const next = m ? resolve('resource', m[2]) : undefined
 			return next !== undefined ? m![1] + next : v
@@ -145,6 +112,10 @@ function walkAgentConfig(value: any, resolve: AgentRefResolver): any {
 
 		const out: Record<string, any> = {}
 		for (const k of Object.keys(v)) {
+			// Only an entry of `input_transforms` (or of a tool's map under `tool_inputs`) is an
+			// input: its static `value` is argument data and its JavaScript `expr` is never
+			// resolved. The same keys anywhere else are configuration, or a crafted export
+			// could hide a tool beside them.
 			let child: AgentWalkContext = 'config'
 			if (ctx === 'data') child = 'data'
 			else if (ctx === 'inputs') child = 'input'
@@ -157,15 +128,14 @@ function walkAgentConfig(value: any, resolve: AgentRefResolver): any {
 			else if (k === 'tool_inputs') child = 'toolInputs'
 			out[k] = walk(v[k], child)
 		}
-		// Shapes name things only where the worker reads configuration: not inside an
-		// argument, and not on the maps that merely hold inputs by name.
 		if (ctx !== 'config' && ctx !== 'input') return out
 
 		if ((v.type === 'script' || v.type === 'flow') && typeof v.path === 'string') {
 			out.path = resolve(v.type, v.path) ?? v.path
 		}
 		if (v.type === 'aiagent') {
-			const linked = linkedAgentPath(v)
+			// Linked to a saved agent, by bare path or `$res:`.
+			const linked = bareResourcePath(v.agent)
 			const next = linked ? resolve('resource', linked) : undefined
 			if (next !== undefined) out.agent = withRefPrefix(v.agent, next)
 		}
@@ -185,36 +155,46 @@ function walkAgentConfig(value: any, resolve: AgentRefResolver): any {
 	return walk(value, 'config')
 }
 
-function collectAgentConfigRefs(
-	value: any,
-	add: (kind: RefKind, path: string) => void,
-	ctx: 'config' | 'toolInputs' = 'config'
-): void {
-	walkAgentConfig(ctx === 'toolInputs' ? { tool_inputs: value } : value, (kind, path) => {
+function collectAgentConfigRefs(value: any, add: (kind: RefKind, path: string) => void): void {
+	walkAgentConfig(value, (kind, path) => {
 		add(kind, path)
 		return undefined
 	})
 }
 
-/** The rewrite matching `collectAgentConfigRefs`. Returns a copy. */
-function rewriteAgentConfig(
-	value: any,
-	map: Map<string, string>,
-	ctx: 'config' | 'toolInputs' = 'config'
-): any {
-	const resolve: AgentRefResolver = (_kind, path) => map.get(path)
-	if (ctx === 'toolInputs') return walkAgentConfig({ tool_inputs: value }, resolve).tool_inputs
-	const out = walkAgentConfig(value, resolve)
-	// A second pass, since it needs the tools' final paths: see `rewriteEnabledTools`.
+/** Returns a rewritten copy. */
+function rewriteAgentConfig(value: any, map: Map<string, string>): any {
+	const out = walkAgentConfig(value, (_kind, path) => map.get(path))
+	// `enabled_tools` names an MCP server by its bare resource path and the worker matches
+	// names exactly: the list must follow the server, or it silently leaves the roster.
 	const fixEnabled = (v: any) => {
 		if (Array.isArray(v)) v.forEach(fixEnabled)
 		else if (v && typeof v === 'object') {
-			if (v.type === 'aiagent') rewriteEnabledTools(v.input_transforms, map)
+			const enabled = v.type === 'aiagent' ? v.input_transforms?.enabled_tools : undefined
+			if (enabled?.type === 'static' && Array.isArray(enabled.value)) {
+				enabled.value = enabled.value.map((name: unknown) =>
+					typeof name === 'string' ? (map.get(name) ?? name) : name
+				)
+			}
 			for (const k of Object.keys(v)) fixEnabled(v[k])
 		}
 	}
 	fixEnabled(out)
 	return out
+}
+
+// What `walkAgentConfig` must read on an `aiagent` flow step. Its module tools are left
+// out (`null` keeps the indexes): the flow walk visits those as modules.
+function agentStepConfig(v: any): any {
+	return {
+		type: 'aiagent',
+		agent: v.agent,
+		tools: (Array.isArray(v.tools) ? v.tools : []).map((t: any) =>
+			t?.value?.tool_type === 'mcp' ? t : null
+		),
+		tool_inputs: v.tool_inputs,
+		input_transforms: { enabled_tools: v.input_transforms?.enabled_tools }
+	}
 }
 
 /**
@@ -245,18 +225,7 @@ export function extractFlowRefs(value: any): Ref[] {
 		if (!v || typeof v !== 'object') continue
 		if (v.type === 'script' && typeof v.path === 'string') add('script', v.path)
 		if (v.type === 'flow' && typeof v.path === 'string') add('flow', v.path)
-		if (v.type === 'aiagent') {
-			// A step or tool linked to a saved agent: an `ai_agent` resource, shipped whole.
-			const linked = linkedAgentPath(v)
-			if (linked) add('resource', linked)
-			// MCP tools are not modules, so the walk above never visits them.
-			for (const tool of Array.isArray(v.tools) ? v.tools : []) {
-				const mcp = mcpResourcePath(tool)
-				if (mcp) add('resource', mcp)
-			}
-			// What a linked step binds on the agent's own tools, keyed by tool id.
-			collectAgentConfigRefs(v.tool_inputs, add, 'toolInputs')
-		}
+		if (v.type === 'aiagent') collectAgentConfigRefs(agentStepConfig(v), add)
 		if (typeof v.content === 'string') {
 			for (const r of extractScriptRefs(v.content)) add('resource', r.path)
 		}
@@ -552,18 +521,15 @@ export function rewriteFlowValue(value: any, map: Map<string, string>): any {
 			v.path = map.get(v.path)
 		}
 		if (v.type === 'aiagent') {
-			const linked = linkedAgentPath(v)
-			if (linked && map.has(linked)) v.agent = withRefPrefix(v.agent, map.get(linked)!)
-			if (Array.isArray(v.tools)) {
-				for (const tool of v.tools) {
-					const mcp = mcpResourcePath(tool)
-					if (mcp && map.has(mcp)) {
-						tool.value.resource_path = withRefPrefix(tool.value.resource_path, map.get(mcp)!)
-					}
-				}
+			const next = rewriteAgentConfig(agentStepConfig(v), map)
+			if (v.agent !== undefined) v.agent = next.agent
+			next.tools.forEach((tool: any, i: number) => {
+				if (tool) v.tools[i] = tool
+			})
+			if (v.tool_inputs !== undefined) v.tool_inputs = next.tool_inputs
+			if (v.input_transforms?.enabled_tools !== undefined) {
+				v.input_transforms.enabled_tools = next.input_transforms.enabled_tools
 			}
-			if (v.tool_inputs) v.tool_inputs = rewriteAgentConfig(v.tool_inputs, map, 'toolInputs')
-			rewriteEnabledTools(v.input_transforms, map)
 		}
 		if (typeof v.content === 'string') v.content = rewriteContent(v.content, map)
 		const it = v.input_transforms
@@ -625,8 +591,7 @@ export function rewriteRawAppContent(content: string, map: Map<string, string>):
 	return JSON.stringify(rewriteAppValue(parsed, map))
 }
 
-// A saved agent (`ai_agent` resource value). Its whole value is walked rather than a list of
-// known fields: see `collectAgentConfigRefs`.
+// A saved agent (`ai_agent` resource value), walked whole: see `walkAgentConfig`.
 export function extractAgentRefs(value: any): Ref[] {
 	const out: Ref[] = []
 	const seen = new Set<string>()

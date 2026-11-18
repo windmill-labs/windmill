@@ -29,6 +29,7 @@ import {
 	collectExportVarPaths,
 	extractAppRefs,
 	extractAgentRefs,
+	withoutAgentWorkspaceKeys,
 	extractFlowRefs,
 	extractRawAppRefs,
 	extractScriptRefs,
@@ -152,7 +153,7 @@ function importAgent(workspace: string, a: ExportItem): Promise<unknown> {
 		requestBody: {
 			path: a.path,
 			resource_type: 'ai_agent',
-			value: a.value ?? {},
+			value: withoutAgentWorkspaceKeys(a.value),
 			description: a.description ?? a.summary ?? ''
 		}
 	})

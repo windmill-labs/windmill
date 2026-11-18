@@ -5,6 +5,7 @@ import {
 	extractFlowRefs,
 	extractAgentRefs,
 	rewriteAgentValue,
+	withoutAgentWorkspaceKeys,
 	extractAppRefs,
 	buildPathMap,
 	rewriteContent,
@@ -1401,5 +1402,16 @@ describe('saved AI agents', () => {
 		)
 		expect(out.modules[0].value.agent).toBe('$res:f/mine/helpdesk')
 		expect(out.modules[0].value.tool_inputs.lookup.db.value).toBe('$res:f/mine/db')
+	})
+
+	it('drops who an agent runs as, whoever wrote the value', () => {
+		const out = withoutAgentWorkspaceKeys({
+			system_prompt: 'x',
+			on_behalf_of: 'u/someone',
+			run_on_behalf_of: true,
+			slack_anyone: true
+		})
+		expect(out).toEqual({ system_prompt: 'x' })
+		expect(withoutAgentWorkspaceKeys(undefined)).toEqual({})
 	})
 })

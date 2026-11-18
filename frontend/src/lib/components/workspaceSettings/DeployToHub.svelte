@@ -1130,6 +1130,7 @@
 							<div class="min-h-0 flex-1">
 								<AgentRecordSession
 									turns={s.agentTurns}
+									workspace={s.workspace}
 									pending={s.agentPending}
 									error={s.agentError}
 									saving={s.agentSaving}

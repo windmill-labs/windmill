@@ -1,3 +1,4 @@
+import { STRUCTURED_OUTPUT_CALL } from '$lib/components/aiAgentResult'
 import { untrack } from 'svelte'
 import type {
 	AttachmentUpload,
@@ -250,9 +251,6 @@ function builtInWebSearch(message: ChatMessage): WebSearchResult | undefined {
 		}))
 	}
 }
-
-/** The name the worker gives the structured-output tool: suffixed when an agent tool already has it. */
-const STRUCTURED_OUTPUT_CALL = /^structured_output(_\d+)?$/
 
 /**
  * `busy`: the latest turn is still running, so a failed tool call is not yet its outcome.

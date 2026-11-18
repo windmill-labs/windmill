@@ -511,6 +511,15 @@
 		"./components/copilot/chat/shared": {
 			"types": "./package/components/copilot/chat/shared.d.ts",
 			"default": "./package/components/copilot/chat/shared.js"
+		},
+		"./components/recording/AgentRecordingTranscript.svelte": {
+			"types": "./package/components/recording/AgentRecordingTranscript.svelte.d.ts",
+			"svelte": "./package/components/recording/AgentRecordingTranscript.svelte",
+			"default": "./package/components/recording/AgentRecordingTranscript.svelte"
+		},
+		"./components/recording/agentRecording": {
+			"types": "./package/components/recording/agentRecording.d.ts",
+			"default": "./package/components/recording/agentRecording.js"
 		}
 	},
 	"files": [
@@ -703,6 +712,12 @@
 			],
 			"components/copilot/chat/shared": [
 				"./package/components/copilot/chat/shared.d.ts"
+			],
+			"components/recording/AgentRecordingTranscript.svelte": [
+				"./package/components/recording/AgentRecordingTranscript.svelte.d.ts"
+			],
+			"components/recording/agentRecording": [
+				"./package/components/recording/agentRecording.d.ts"
 			]
 		}
 	},

@@ -11,6 +11,7 @@ import {
 import { sendUserToast } from '$lib/toast'
 import { randomUUID } from '$lib/utils/uuid'
 import { isSuspended } from '$lib/components/agentRequest'
+import { readAgentTurn } from '$lib/components/aiAgentResult'
 import { sleep, emptySchema } from '$lib/utils'
 import {
 	buildProjectBundle,
@@ -19,6 +20,7 @@ import {
 	extractScriptRefs,
 	extractFlowRefs,
 	extractAgentRefs,
+	withoutAgentWorkspaceKeys,
 	extractAppRefs,
 	extractTriggerConfigResourceRefs,
 	extractVarRefsFromValue,
@@ -58,7 +60,6 @@ import { capturePipelineRecording } from '$lib/components/recording/pipelineReco
 import { buildFlowRecording, buildScriptRecording } from '$lib/components/recording/runRecording'
 import type {
 	AgentRecording,
-	AgentToolCall,
 	AgentTurn,
 	PipelineRecording,
 	RawAppRecording
@@ -908,14 +909,7 @@ export class DeployToHubSession {
 					} else if (ref.kind === 'agent') {
 						const r = await ResourceService.getResource({ workspace, path: ref.path })
 						if (r.resource_type !== 'ai_agent') return undefined
-						// What an agent is, not who runs it here: the deploy identity and the
-						// sharing switches belong to this workspace and never leave it.
-						const {
-							on_behalf_of: _onBehalfOf,
-							run_on_behalf_of: _runOnBehalfOf,
-							slack_anyone: _slackAnyone,
-							...value
-						} = (r.value ?? {}) as Record<string, unknown>
+						const value = withoutAgentWorkspaceKeys(r.value)
 						return {
 							kind: 'agent',
 							path: ref.path,
@@ -2289,59 +2283,4 @@ export function useDeployToHubSession(args: {
 			return session
 		}
 	}
-}
-
-/** The call a structured answer is given through: the answer itself, not a tool of the agent. */
-const STRUCTURED_OUTPUT_CALL = /^structured_output(_\d+)?$/
-
-/**
- * One turn, read off the result of its run: the answer, and what the agent called to get
- * there, in order. Tool calls are the model's own (`assistant.tool_calls`, each with the
- * `tool` message answering it); a web search is a capability of the provider rather than a
- * call, so the worker records it as a `tool` message tagged `web_search`.
- */
-export function readAgentTurn(result: unknown): { answer: string; tool_calls: AgentToolCall[] } {
-	const r = result as { output?: unknown; messages?: any[] } | null
-	const text = (v: unknown) =>
-		typeof v === 'string' ? v : v == null ? '' : JSON.stringify(v, null, 2)
-	// With memory, the run returns the whole conversation: this turn starts after its own
-	// message, the last `user` one. A background tool's result also comes back as a `user`
-	// message, tagged with its call's `agent_action`, and does not start a turn.
-	const all = Array.isArray(r?.messages) ? r.messages : []
-	const lastUser = all
-		.map((m) => (m?.role === 'user' && !m.agent_action ? 'user' : ''))
-		.lastIndexOf('user')
-	const messages = lastUser >= 0 ? all.slice(lastUser + 1) : all
-	const results = new Map<string, unknown>()
-	for (const m of messages) {
-		if (m?.role === 'tool' && typeof m.tool_call_id === 'string') {
-			results.set(m.tool_call_id, m.content)
-		}
-	}
-	const tool_calls: AgentToolCall[] = []
-	for (const m of messages) {
-		if (m?.role === 'tool' && m.agent_action?.type === 'web_search') {
-			tool_calls.push({ name: 'web_search' })
-			continue
-		}
-		if (m?.role !== 'assistant' || !Array.isArray(m.tool_calls)) continue
-		for (const c of m.tool_calls) {
-			const name = c?.function?.name ?? 'tool'
-			if (STRUCTURED_OUTPUT_CALL.test(name)) continue
-			const raw = c?.function?.arguments
-			let args: unknown = raw
-			if (typeof raw === 'string') {
-				try {
-					args = JSON.parse(raw)
-				} catch {}
-			}
-			tool_calls.push({
-				name,
-				args,
-				result: typeof c?.id === 'string' ? results.get(c.id) : undefined
-			})
-		}
-	}
-	const output = r && typeof r === 'object' && 'output' in r ? r.output : result
-	return { answer: text(output), tool_calls }
 }

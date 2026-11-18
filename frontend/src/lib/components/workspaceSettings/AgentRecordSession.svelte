@@ -1,8 +1,9 @@
 <script lang="ts">
 	import { Alert, Button } from '$lib/components/common'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
-	import { Check, Globe, Loader2, Send, Wrench } from 'lucide-svelte'
+	import { Check, Send } from 'lucide-svelte'
 	import type { AgentTurn } from '$lib/components/recording/types'
+	import AgentRecordingTranscript from '$lib/components/recording/AgentRecordingTranscript.svelte'
 
 	/**
 	 * Records the demo of a saved AI agent: a conversation, one run of the agent per message,
@@ -11,6 +12,7 @@
 	 */
 	interface Props {
 		turns: AgentTurn[]
+		workspace: string
 		/** The message being answered, while a run is in flight. */
 		pending?: string
 		error?: string
@@ -23,6 +25,7 @@
 
 	let {
 		turns,
+		workspace,
 		pending = undefined,
 		error = undefined,
 		saving = false,
@@ -40,8 +43,6 @@
 		// A turn that failed is not in the conversation: hand the message back.
 		if (!answered && !draft) draft = message
 	}
-
-	const fmt = (ms: number) => (ms < 1000 ? `${Math.round(ms)} ms` : `${(ms / 1000).toFixed(1)} s`)
 </script>
 
 <div class="flex h-full min-h-0 flex-col gap-3">
@@ -52,44 +53,7 @@
 				a good demo.
 			</span>
 		{/if}
-		{#each turns as turn, i (i)}
-			<div class="flex justify-end">
-				<div
-					class="max-w-[85%] whitespace-pre-wrap rounded-md bg-surface-accent-selected px-3 py-2 text-sm"
-				>
-					{turn.user_message}
-				</div>
-			</div>
-			{#if turn.tool_calls.length > 0}
-				<div class="flex flex-wrap items-center gap-2 text-2xs text-secondary">
-					{#each turn.tool_calls as call, j (j)}
-						<span class="inline-flex items-center gap-1 font-mono">
-							{#if call.name === 'web_search'}<Globe size={10} />{:else}<Wrench
-									size={10}
-								/>{/if}{call.name}
-						</span>
-					{/each}
-				</div>
-			{/if}
-			<div class="flex justify-start">
-				<div class="max-w-[85%] whitespace-pre-wrap rounded-md border bg-surface px-3 py-2 text-sm">
-					{turn.answer}
-				</div>
-			</div>
-			<div class="text-2xs text-hint">{fmt(turn.duration_ms)}</div>
-		{/each}
-		{#if pending !== undefined}
-			<div class="flex justify-end">
-				<div
-					class="max-w-[85%] whitespace-pre-wrap rounded-md bg-surface-accent-selected px-3 py-2 text-sm"
-				>
-					{pending}
-				</div>
-			</div>
-			<div class="flex items-center gap-1.5 text-xs text-secondary">
-				<Loader2 size={12} class="animate-spin" /> The agent is answering…
-			</div>
-		{/if}
+		<AgentRecordingTranscript {turns} {pending} {workspace} />
 		{#if error}
 			<Alert type="error" size="xs" title="The agent did not answer">{error}</Alert>
 		{/if}

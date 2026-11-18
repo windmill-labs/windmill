@@ -389,10 +389,10 @@ struct ProjectLogoBody {
     logo: Option<Option<ProjectLogoInner>>,
 }
 
-fn deserialize_explicit<'de, D: Deserializer<'de>>(
+fn deserialize_explicit<'de, T: Deserialize<'de>, D: Deserializer<'de>>(
     d: D,
-) -> Result<Option<Option<ProjectLogoInner>>, D::Error> {
-    Option::<ProjectLogoInner>::deserialize(d).map(Some)
+) -> Result<Option<Option<T>>, D::Error> {
+    Option::<T>::deserialize(d).map(Some)
 }
 
 // Mirrors the Hub's own limits so an oversized/invalid payload is rejected
@@ -526,14 +526,8 @@ async fn publish_agents(
 #[derive(Deserialize, Serialize)]
 struct AgentRecordingBody {
     path: String,
-    #[serde(default, deserialize_with = "deserialize_explicit_recording")]
+    #[serde(default, deserialize_with = "deserialize_explicit")]
     recording: Option<Option<serde_json::Value>>,
-}
-
-fn deserialize_explicit_recording<'de, D: Deserializer<'de>>(
-    d: D,
-) -> Result<Option<Option<serde_json::Value>>, D::Error> {
-    Option::<serde_json::Value>::deserialize(d).map(Some)
 }
 
 async fn publish_agent_recording(
