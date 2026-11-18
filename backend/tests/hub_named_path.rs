@@ -5,6 +5,7 @@ use serde_json::json;
 use sqlx::{Pool, Postgres};
 use windmill_common::{
     jobs::{check_can_name_runnable, RunOrigin},
+    roles::RoleCapabilities,
     runnable_ref::RunnableRef,
 };
 use windmill_test_utils::*;
@@ -161,5 +162,51 @@ async fn a_hub_path_named_without_code_is_refused(db: Pool<Postgres>) -> anyhow:
     let preset = RunnableRef::from_path("hub/2431/slack/schedule-error-handler-slack", false)?;
     let origin = RunOrigin::NamedBy(op.to_authed_ref());
     check_can_name_runnable(&origin, &preset, &db, "test-workspace").await?;
+    Ok(())
+}
+
+/// The rule reads the capabilities authentication resolved and queries nothing; only a restricted
+/// caller built without a role lookup reads the role, and is still refused.
+#[sqlx::test(fixtures("base"))]
+async fn the_rule_reads_code_from_the_caller(db: Pool<Postgres>) -> anyhow::Result<()> {
+    sqlx::raw_sql(
+        "INSERT INTO usr(workspace_id, email, username, is_admin, operator, role)
+            VALUES ('test-workspace', 'op@windmill.dev', 'op', false, true, 'Operator');",
+    )
+    .execute(&db)
+    .await?;
+    let hub = RunnableRef::from_path(&format!("hub/{HUB_ID}/test/echo"), false)?;
+    let op = |capabilities| windmill_api_auth::ApiAuthed {
+        email: "op@windmill.dev".into(),
+        username: "op".into(),
+        is_operator: true,
+        capabilities,
+        ..Default::default()
+    };
+    let check = |authed: windmill_api_auth::ApiAuthed, db: Pool<Postgres>| {
+        let hub = hub.clone();
+        async move {
+            let origin = RunOrigin::NamedBy(authed.to_authed_ref());
+            check_can_name_runnable(&origin, &hub, &db, "test-workspace").await
+        }
+    };
+
+    let unresolved = check(op(None), db.clone()).await;
+    assert!(
+        matches!(&unresolved, Err(e) if e.to_string().contains(REFUSAL)),
+        "{unresolved:?}"
+    );
+
+    // Any query on this pool fails.
+    let dead = sqlx::postgres::PgPoolOptions::new()
+        .acquire_timeout(std::time::Duration::from_millis(200))
+        .connect_lazy("postgres://nobody@127.0.0.1:1/none")?;
+    let refused = check(op(Some(RoleCapabilities::OPERATOR)), dead.clone()).await;
+    assert!(
+        matches!(&refused, Err(e) if e.to_string().contains(REFUSAL)),
+        "{refused:?}"
+    );
+    let coder = RoleCapabilities { code: true, ..RoleCapabilities::OPERATOR };
+    check(op(Some(coder)), dead).await?;
     Ok(())
 }

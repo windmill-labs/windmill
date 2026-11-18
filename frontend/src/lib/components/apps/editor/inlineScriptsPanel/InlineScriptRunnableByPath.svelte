@@ -367,16 +367,19 @@
 				Expand
 			</Button>
 			{#if hubFlowId}
-				<Button
-					variant="default"
-					size="xs"
-					startIcon={{ icon: GitFork }}
-					endIcon={{ icon: ExternalLink }}
-					target="_blank"
-					href="/flows/add?hub={hubFlowId}"
-				>
-					Fork
-				</Button>
+				<!-- A Hub flow's steps are usually inline code, which only `flows: full` may deploy. -->
+				{#if $roleCaps.flows === 'full'}
+					<Button
+						variant="default"
+						size="xs"
+						startIcon={{ icon: GitFork }}
+						endIcon={{ icon: ExternalLink }}
+						target="_blank"
+						href="/flows/add?hub={hubFlowId}"
+					>
+						Fork
+					</Button>
+				{/if}
 			{:else}
 				<Button
 					variant="default"

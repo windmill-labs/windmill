@@ -14435,7 +14435,9 @@ paths:
                 user:
                   type: string
                 model:
-                  description: defaults to the AI config's default model
+                  description: >
+                    defaults to the AI config's default model. Must be enabled in the AI
+                    settings, or be the default, metadata or code-completion model.
                   $ref: "#/components/schemas/AIProviderModel"
                 max_tokens:
                   type: integer

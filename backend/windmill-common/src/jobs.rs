@@ -188,26 +188,12 @@ pub async fn check_can_name_runnable(
     let RunOrigin::NamedBy(authed) = origin else {
         return Ok(());
     };
-    if !naming_needs_code(runnable) {
-        return Ok(());
-    }
-    check_can_name_with(
-        runnable,
-        crate::roles::caller_capabilities(db, w_id, authed)
+    if !runnable.path().starts_with("hub/")
+        || runnable.preset_handler().is_some()
+        || crate::roles::caller_capabilities(db, w_id, authed)
             .await?
-            .code,
-    )
-}
-
-/// A Hub path that is not a preset handler.
-pub fn naming_needs_code(runnable: &RunnableRef) -> bool {
-    runnable.path().starts_with("hub/") && runnable.preset_handler().is_none()
-}
-
-/// `check_can_name_runnable` for a caller whose `code` capability is already resolved, so a check
-/// inside a transaction does not take a second pooled connection.
-pub fn check_can_name_with(runnable: &RunnableRef, code: bool) -> error::Result<()> {
-    if code || !naming_needs_code(runnable) {
+            .code
+    {
         return Ok(());
     }
     Err(Error::PermissionDenied(
