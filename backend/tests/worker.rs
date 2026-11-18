@@ -4787,6 +4787,61 @@ async fn test_unrecoverable_failure_on_continue_on_error_runs_failure_module(
     Ok(())
 }
 
+/// A failure the flow goes past because of `continue_on_error` is recorded on the root flow's
+/// status, including one inside a loop iteration's subflow.
+#[cfg(feature = "deno_core")]
+#[sqlx::test(fixtures("base"))]
+async fn test_continue_on_error_recorded_on_root(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let failing = |id: &str| {
+        json!({"id": id, "continue_on_error": true, "value": {
+            "type": "rawscript", "language": "bun", "input_transforms": {},
+            "content": "export function main() { throw new Error('boom'); }",
+        }})
+    };
+    let flow: FlowValue = serde_json::from_value(json!({
+        "modules": [
+            failing("a"),
+            {"id": "loop", "value": {
+                "type": "forloopflow", "parallel": true, "skip_failures": false,
+                "iterator": {"type": "static", "value": [1, 2]},
+                "modules": [failing("b"), {"id": "c", "value": {"type": "identity"}}],
+            }},
+        ],
+    }))
+    .unwrap();
+
+    let job = RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
+        .run_until_complete(&db, false, port)
+        .await;
+    server.close().await.unwrap();
+
+    assert!(job.success, "{:?}", job.json_result());
+    let mut recorded: Vec<(String, Uuid, Option<Uuid>)> = sqlx::query_as(
+        "SELECT e->>'id', (e->>'job')::uuid, j.parent_job
+         FROM v2_job_completed c, JSONB_ARRAY_ELEMENTS(c.flow_status->'continued_on_error') e
+         JOIN v2_job j ON j.id = (e->>'job')::uuid
+         WHERE c.id = $1",
+    )
+    .bind(job.id)
+    .fetch_all(&db)
+    .await?;
+    recorded.sort();
+    let ids: Vec<&str> = recorded.iter().map(|(id, ..)| id.as_str()).collect();
+    assert_eq!(ids, vec!["a", "b", "b"]);
+    assert_eq!(recorded[0].2, Some(job.id));
+    assert_ne!(recorded[1].1, recorded[2].1);
+    assert_ne!(
+        recorded[1].2,
+        Some(job.id),
+        "b runs in an iteration's subflow"
+    );
+    Ok(())
+}
+
 #[cfg(feature = "deno_core")]
 #[sqlx::test(fixtures("base"))]
 async fn test_run_wait_result_early_return_with_failure_module(

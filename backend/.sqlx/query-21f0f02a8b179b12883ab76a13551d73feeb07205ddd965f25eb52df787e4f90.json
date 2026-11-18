@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE v2_job_status s\n         SET flow_status = JSONB_SET(\n             s.flow_status,\n             ARRAY['continued_on_error'],\n             COALESCE(s.flow_status->'continued_on_error', '[]'::jsonb) || JSONB_BUILD_ARRAY($2::jsonb)\n         )\n         FROM v2_job j\n         WHERE j.id = $1\n           AND s.id = COALESCE(j.root_job, j.flow_innermost_root_job, j.parent_job, j.id)\n           AND s.flow_status IS NOT NULL\n           AND JSONB_ARRAY_LENGTH(COALESCE(s.flow_status->'continued_on_error', '[]'::jsonb)) < $3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Jsonb",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "21f0f02a8b179b12883ab76a13551d73feeb07205ddd965f25eb52df787e4f90"
+}

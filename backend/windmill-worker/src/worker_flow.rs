@@ -1412,6 +1412,15 @@ pub async fn update_flow_status_after_job_completion_internal(
                     } else {
                         false
                     };
+                    if inc {
+                        record_continued_on_error(
+                            &mut tx,
+                            flow,
+                            module_status.id(),
+                            *job_id_for_status,
+                        )
+                        .await?;
+                    }
                     if (stop_early && stop_early_err_msg.is_some()) || loop_exhausted_err.is_some()
                     {
                         // if stop_early with error message, we need to set explictely success to false as this function was called with success = true as the job succeeded
@@ -2501,6 +2510,41 @@ async fn set_success_and_duration_in_flow_job_success<'c>(
 /// there. `Ok(None)` means nothing was written because the flow has no queued `v2_job_status`
 /// row; the caller then reads the flow with `get_mini_pulled_job`, whose LEFT JOIN still returns
 /// a queued flow that lacks a status row.
+/// Records on the root flow a step that failed and that `flow` goes past because of
+/// `continue_on_error`, so that the failure shows on the root run without expanding the
+/// subflow it happened in. Locks the root's status row after `flow`'s, the child-to-ancestor
+/// order every flow completion takes.
+async fn record_continued_on_error(
+    tx: &mut Transaction<'_, Postgres>,
+    flow: Uuid,
+    step_id: String,
+    job: Uuid,
+) -> error::Result<()> {
+    let entry = windmill_types::flow_status::ContinuedOnError { id: step_id, job };
+    sqlx::query!(
+        "UPDATE v2_job_status s
+         SET flow_status = JSONB_SET(
+             s.flow_status,
+             ARRAY['continued_on_error'],
+             COALESCE(s.flow_status->'continued_on_error', '[]'::jsonb) || JSONB_BUILD_ARRAY($2::jsonb)
+         )
+         FROM v2_job j
+         WHERE j.id = $1
+           AND s.id = COALESCE(j.root_job, j.flow_innermost_root_job, j.parent_job, j.id)
+           AND s.flow_status IS NOT NULL
+           AND JSONB_ARRAY_LENGTH(COALESCE(s.flow_status->'continued_on_error', '[]'::jsonb)) < $3",
+        flow,
+        json!(entry),
+        windmill_types::flow_status::MAX_CONTINUED_ON_ERROR,
+    )
+    .execute(&mut **tx)
+    .await
+    .map_err(|e| {
+        Error::internal_err(format!("error while recording continued_on_error on root of {flow}: {e:#}"))
+    })?;
+    Ok(())
+}
+
 async fn advance_flow_status(
     tx: &mut Transaction<'_, Postgres>,
     flow: Uuid,
