@@ -73,6 +73,29 @@ export function extractScriptRefs(content: string): Ref[] {
  *  - `type: script` steps that reference a script by path (script)
  *  - `type: flow` steps that reference a sub-flow by path (flow)
  */
+/** A resource path written bare or as a `$res:` / `res://` token, without its prefix. */
+function bareResourcePath(ref: unknown): string | undefined {
+	if (typeof ref !== 'string') return undefined
+	return ref.replace(/^\$res:/, '').replace(/^res:\/\//, '') || undefined
+}
+
+/** `next` written the way `ref` was: bare, `$res:` or `res://`. */
+function withRefPrefix(ref: string, next: string): string {
+	const prefix = /^(\$res:|res:\/\/)/.exec(ref)?.[1] ?? ''
+	return prefix + next
+}
+
+/** The saved agent an `aiagent` step or tool is linked to, if any. */
+function linkedAgentPath(v: any): string | undefined {
+	return bareResourcePath(v?.agent)
+}
+
+/** An MCP tool's server: a resource path, bare or as a `$res:` token. */
+function mcpResourcePath(tool: any): string | undefined {
+	const v = tool?.value
+	return v?.tool_type === 'mcp' ? bareResourcePath(v.resource_path) : undefined
+}
+
 export function extractFlowRefs(value: any): Ref[] {
 	const out: Ref[] = []
 	const seen = new Set<string>()
@@ -91,6 +114,16 @@ export function extractFlowRefs(value: any): Ref[] {
 		if (!v || typeof v !== 'object') continue
 		if (v.type === 'script' && typeof v.path === 'string') add('script', v.path)
 		if (v.type === 'flow' && typeof v.path === 'string') add('flow', v.path)
+		if (v.type === 'aiagent') {
+			// A step or tool linked to a saved agent: an `ai_agent` resource, shipped whole.
+			const linked = linkedAgentPath(v)
+			if (linked) add('resource', linked)
+			// MCP tools are not modules, so the walk above never visits them.
+			for (const tool of Array.isArray(v.tools) ? v.tools : []) {
+				const mcp = mcpResourcePath(tool)
+				if (mcp) add('resource', mcp)
+			}
+		}
 		if (typeof v.content === 'string') {
 			for (const r of extractScriptRefs(v.content)) add('resource', r.path)
 		}
@@ -385,6 +418,18 @@ export function rewriteFlowValue(value: any, map: Map<string, string>): any {
 		) {
 			v.path = map.get(v.path)
 		}
+		if (v.type === 'aiagent') {
+			const linked = linkedAgentPath(v)
+			if (linked && map.has(linked)) v.agent = withRefPrefix(v.agent, map.get(linked)!)
+			if (Array.isArray(v.tools)) {
+				for (const tool of v.tools) {
+					const mcp = mcpResourcePath(tool)
+					if (mcp && map.has(mcp)) {
+						tool.value.resource_path = withRefPrefix(tool.value.resource_path, map.get(mcp)!)
+					}
+				}
+			}
+		}
 		if (typeof v.content === 'string') v.content = rewriteContent(v.content, map)
 		const it = v.input_transforms
 		if (it && typeof it === 'object') {
@@ -465,38 +510,15 @@ function agentAsFlow(value: any): any {
 	}
 }
 
-/** An MCP tool's server: a resource path, bare or as a `$res:` token. The flow walker
- * skips MCP tools, so an agent's are read here. */
-function mcpResourcePath(tool: any): string | undefined {
-	const v = tool?.value
-	if (v?.tool_type !== 'mcp' || typeof v.resource_path !== 'string') return undefined
-	return v.resource_path.replace(/^\$res:/, '') || undefined
-}
-
 export function extractAgentRefs(value: any): Ref[] {
-	const refs = extractFlowRefs(agentAsFlow(value))
-	for (const tool of Array.isArray(value?.tools) ? value.tools : []) {
-		const path = mcpResourcePath(tool)
-		if (path && !refs.some((r) => r.kind === 'resource' && r.path === path)) {
-			refs.push({ kind: 'resource', path })
-		}
-	}
-	return refs
+	return extractFlowRefs(agentAsFlow(value))
 }
 
 export function rewriteAgentValue(value: any, map: Map<string, string>): any {
 	if (!value || typeof value !== 'object') return value
 	const step = rewriteFlowValue(agentAsFlow(value), map)?.modules?.[0]?.value
 	const out = { ...value }
-	if (Array.isArray(value.tools)) {
-		out.tools = (step?.tools ?? value.tools).map((tool: any) => {
-			const path = mcpResourcePath(tool)
-			const next = path ? map.get(path) : undefined
-			if (!next) return tool
-			const token = tool.value.resource_path.startsWith('$res:')
-			return { ...tool, value: { ...tool.value, resource_path: token ? `$res:${next}` : next } }
-		})
-	}
+	if (Array.isArray(value.tools)) out.tools = step?.tools ?? value.tools
 	if (value.provider !== undefined) {
 		out.provider = step?.input_transforms?.provider?.value ?? value.provider
 	}
@@ -741,6 +763,13 @@ export async function buildProjectBundle(
 	// Key by `${kind}:${path}`, not bare path: a script and flow can share a path,
 	// and keying by path alone would silently drop one.
 	const refKey = (kind: string, path: string) => `${kind}:${path}`
+	// Resource types, looked up once: a referenced `ai_agent` resource is an agent the
+	// project ships whole (with what its tools run), not an empty stub.
+	const types = new Map<string, Promise<string | undefined>>()
+	const typeOf = (path: string) => {
+		if (!types.has(path)) types.set(path, deps.resolveResourceType(path))
+		return types.get(path)!
+	}
 
 	// Refs at the same BFS depth are independent: fetch each level concurrently.
 	let level: ItemRef[] = []
@@ -756,6 +785,7 @@ export async function buildProjectBundle(
 			level.map(async (ref) => ({ ref, item: await deps.fetchItem(ref) }))
 		)
 		const next: ItemRef[] = []
+		const newResources: string[] = []
 		for (const { ref, item } of results) {
 			if (!item) {
 				unresolved.push(ref.path)
@@ -765,6 +795,7 @@ export async function buildProjectBundle(
 			for (const r of refsForFetched(item)) {
 				if (classifyPath(r.path, slug) === 'hub') continue
 				if (r.kind === 'resource') {
+					if (!resourcePaths.has(r.path)) newResources.push(r.path)
 					resourcePaths.add(r.path)
 				} else if (r.kind === 'script' || r.kind === 'flow') {
 					const key = refKey(r.kind, r.path)
@@ -779,6 +810,14 @@ export async function buildProjectBundle(
 			// materializes them as placeholders). Variables are never hub-hosted.
 			for (const p of varRefsForFetched(item)) varPaths.add(p)
 		}
+		const newTypes = await Promise.all(newResources.map(typeOf))
+		newResources.forEach((path, i) => {
+			const key = refKey('agent', path)
+			if (newTypes[i] === 'ai_agent' && !queued.has(key)) {
+				queued.add(key)
+				next.push({ kind: 'agent', path })
+			}
+		})
 		level = next
 	}
 
@@ -807,7 +846,7 @@ export async function buildProjectBundle(
 	// also turn it into an empty stub at the same path.
 	for (const it of fetchedItems) if (it.kind === 'agent') resourcePaths.delete(it.path)
 	const resolved = await Promise.all(
-		[...resourcePaths].map(async (path) => ({ path, type: await deps.resolveResourceType(path) }))
+		[...resourcePaths].map(async (path) => ({ path, type: await typeOf(path) }))
 	)
 	for (const { path, type } of resolved) {
 		if (!type) {

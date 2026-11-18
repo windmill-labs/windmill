@@ -1119,4 +1119,88 @@ describe('saved AI agents', () => {
 			'$var:f/mine/region'
 		)
 	})
+
+	it('ships and rewrites the MCP server of a nested agent tool', () => {
+		const value = {
+			tools: [
+				{
+					id: 'inner',
+					value: {
+						tool_type: 'flowmodule',
+						type: 'aiagent',
+						input_transforms: {},
+						tools: [{ id: 'm', value: { tool_type: 'mcp', resource_path: '$res:f/proj/mcp' } }]
+					}
+				}
+			]
+		}
+		expect(extractAgentRefs(value)).toContainEqual({ kind: 'resource', path: 'f/proj/mcp' })
+		const out = rewriteAgentValue(value, new Map([['f/proj/mcp', 'f/mine/mcp']]))
+		expect(out.tools[0].value.tools[0].value.resource_path).toBe('$res:f/mine/mcp')
+	})
+
+	it('relocates the saved agent a tool is linked to', () => {
+		const exp: ProjectExport = {
+			project: { slug: 'proj', name: 'P', summary: '', readme: null },
+			scripts: [],
+			flows: [],
+			apps: [],
+			resources: [],
+			triggers: [],
+			agents: [
+				{
+					path: 'f/proj/parent',
+					value: {
+						tools: [
+							{
+								id: 'child',
+								value: {
+									tool_type: 'flowmodule',
+									type: 'aiagent',
+									agent: '$res:f/proj/child',
+									input_transforms: {}
+								}
+							}
+						]
+					}
+				},
+				{ path: 'f/proj/child', value: { tools: [] } }
+			]
+		}
+		const out = retargetProjectExport(exp, 'proj', 'mine')
+		expect(out.agents?.[0].value.tools[0].value.agent).toBe('$res:f/mine/child')
+	})
+
+	it('ships a linked agent from outside the folder whole, not as a stub', async () => {
+		const parent: FetchedItem = {
+			kind: 'agent',
+			path: 'f/proj/parent',
+			value: {
+				tools: [
+					{
+						id: 'child',
+						value: {
+							tool_type: 'flowmodule',
+							type: 'aiagent',
+							agent: 'u/admin/child',
+							input_transforms: {}
+						}
+					}
+				]
+			}
+		}
+		const child: FetchedItem = { kind: 'agent', path: 'u/admin/child', value: { tools: [] } }
+		const bundle = await buildProjectBundle([{ kind: 'agent', path: 'f/proj/parent' }], 'proj', {
+			fetchItem: async (ref: ItemRef) => (ref.path === 'u/admin/child' ? child : parent),
+			resolveResourceType: async (path: string) =>
+				path === 'u/admin/child' ? 'ai_agent' : 'some_type'
+		})
+		expect(bundle.items.map((i) => `${i.kind}:${i.newPath}`).sort()).toEqual([
+			'agent:f/proj/child',
+			'agent:f/proj/parent'
+		])
+		expect(bundle.resourceStubs).toEqual([])
+		const shipped = bundle.items.find((i) => i.newPath === 'f/proj/parent')!
+		expect(shipped.value.tools[0].value.agent).toBe('f/proj/child')
+	})
 })

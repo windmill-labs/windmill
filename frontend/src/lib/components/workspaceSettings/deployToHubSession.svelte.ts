@@ -576,11 +576,12 @@ export class DeployToHubSession {
 				this.#listAllPages((p) => RawAppService.listRawApps({ workspace, ...p })),
 				this.#listAllPages((p) => FlowService.listFlows({ workspace, ...p })),
 				this.#listAllPages((p) => ScriptService.listScripts({ workspace, ...p })),
-				// Saved AI agents are `ai_agent` resources. A workspace without the type
-				// lists none rather than failing the whole load.
+				// Saved AI agents are `ai_agent` resources; a workspace without any lists none.
+				// A failure fails the load like the other lists: agents sync as a full set, so
+				// publishing without them would remove them from the Hub.
 				this.#listAllPages((p) =>
 					ResourceService.listResource({ workspace, resourceType: 'ai_agent', ...p })
-				).catch(() => [])
+				)
 			])
 			if (this.#disposed) return
 
