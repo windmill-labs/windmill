@@ -1,0 +1,35 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT username, workspace_role, operator FROM usr\n         WHERE workspace_id = $1 AND email = $2 AND NOT disabled",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "username",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "workspace_role",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "operator",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "4e8c9610c697c2fb1b08ce78773ef2875ef34dd304ff21979095bb7b9304bccd"
+}

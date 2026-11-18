@@ -7,6 +7,9 @@ edition.workspace = true
 [lib]
 name = "windmill_api_integration_tests"
 path = "src/lib.rs"
+# src/ has no unit tests or doctests: remove both lines before adding one, or cargo test never runs it.
+test = false
+doctest = false
 
 [features]
 default = []
@@ -16,6 +19,7 @@ deno_core = ["windmill-test-utils/deno_core"]
 mcp = ["windmill-test-utils/mcp", "dep:rmcp"]
 run_inline = ["dep:windmill-worker", "windmill-test-utils/run_inline", "windmill-test-utils/duckdb"]
 postgres_trigger = ["windmill-test-utils/postgres_trigger"]
+http_trigger = ["windmill-test-utils/http_trigger"]
 
 [dependencies]
 windmill-test-utils.workspace = true
@@ -35,6 +39,9 @@ anyhow.workspace = true
 uuid.workspace = true
 futures.workspace = true
 rand.workspace = true
+hmac.workspace = true
+sha2.workspace = true
+hex.workspace = true
 rumqttc.workspace = true
 rdkafka.workspace = true
 async-nats.workspace = true
@@ -44,3 +51,4 @@ aws-sdk-sqs = { workspace = true, optional = true }
 base64 = { workspace = true, optional = true }
 axum.workspace = true
 rmcp = { workspace = true, optional = true }
+serial_test = "3"

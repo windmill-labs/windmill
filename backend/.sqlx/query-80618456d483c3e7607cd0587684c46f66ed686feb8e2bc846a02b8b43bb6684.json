@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM v2_job_debounce_batch WHERE debounce_batch = (\n                SELECT debounce_batch FROM v2_job_debounce_batch WHERE id = $1\n            )",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "80618456d483c3e7607cd0587684c46f66ed686feb8e2bc846a02b8b43bb6684"
+}

@@ -6,10 +6,10 @@ def "main" [
   lang: string # Example: nu
 ] {
   ./build.nu $lang --no-opt
-  (
+  do {
     cd ../../../frontend; npm install ../backend/parsers/windmill-parser-wasm/pkg-($lang)
-  )
-  (
+  }
+  do {
     cd ../../../cli; bun install ../backend/parsers/windmill-parser-wasm/pkg-($lang)
-  )
+  }
 }

@@ -1,19 +1,23 @@
-import type { ListableApp, Script, Flow, ListableRawApp } from '$lib/gen'
-type TableItem<T, U extends 'script' | 'flow' | 'app' | 'raw_app'> = T & {
-	canWrite: boolean
+import type { ListableApp, Script, Flow, ListableRawApp, ListableResource } from '$lib/gen'
+type TableItem<T, U extends 'script' | 'flow' | 'app' | 'raw_app' | 'agent'> = T & {
 	marked?: string
 	type?: U
 	time?: number
 	starred?: boolean
-	has_draft?: boolean
+	// Server fetch ordinal (see ItemsList) — the tree sorts leaves by it to preserve
+	// the endpoint's order rather than re-deriving it.
+	ord?: number
 }
 
 type TableScript = TableItem<Script, 'script'>
 type TableFlow = TableItem<Flow, 'flow'>
 type TableApp = TableItem<ListableApp, 'app'>
 type TableRawApp = TableItem<ListableRawApp, 'raw_app'>
+/** A saved agent: an `ai_agent` resource the home page lists as a kind of its own. Its
+ *  description stands in as the summary every other kind carries. */
+type TableAgent = TableItem<ListableResource & { summary?: string }, 'agent'>
 
-export type ItemType = TableScript | TableFlow | TableApp | TableRawApp
+export type ItemType = TableScript | TableFlow | TableApp | TableRawApp | TableAgent
 
 export interface FolderItem {
 	folderName: string
@@ -23,6 +27,34 @@ export interface FolderItem {
 export type UserItem = {
 	username: string
 	items: (ItemType | FolderItem)[]
+}
+
+// Rows per request when loading a prefix in the tree. Larger than the global stream's
+// page because a tree row is a single line and a folder is opened to see what it
+// holds — most folders come in whole on the first click.
+export const OWNER_PAGE_SIZE = 300
+
+/**
+ * Where an item belongs: its owner, folder, and the name it is filtered and searched by.
+ * A draft-only item is parked at a generated `u/<you>/draft_<uuid>` but names the path it
+ * will deploy to, and that is what the row shows and what the server lists, filters and
+ * counts it under — so every categorization has to follow it. `path` stays the storage
+ * identity that the editor link and the row key resolve.
+ */
+export function effectivePath(item: {
+	path: string
+	draft_only?: boolean | null
+	draft_path?: string | null
+}): string {
+	return (item.draft_only && item.draft_path) || item.path
+}
+
+/** Rows loaded under a node, counting nested subfolders' rows rather than the subfolder
+ *  as one child — what "N items are on screen here" means to someone reading the tree. */
+export function countLeaves(node: FolderItem | UserItem): number {
+	let n = 0
+	for (const child of node.items) n += 'items' in child ? countLeaves(child) : 1
+	return n
 }
 
 function insertItemInFolder(
@@ -49,7 +81,23 @@ function insertItemInFolder(
 	})
 }
 
-export function groupItems(items: ItemType[] | undefined): (ItemType | FolderItem | UserItem)[] {
+// Default leaf ordering when the caller doesn't impose one: starred first, then
+// most recently modified. Folders/users always sort alphabetically regardless.
+const defaultLeafCompare = (a: ItemType, b: ItemType): number => {
+	if (a.starred && !b.starred) return -1
+	if (!a.starred && b.starred) return 1
+	return getModifiedAt(b) - getModifiedAt(a)
+}
+
+export function groupItems(
+	items: ItemType[] | undefined,
+	leafCompare: (a: ItemType, b: ItemType) => number = defaultLeafCompare,
+	// Folders/users have only a name, so the sort key is always name; `groupDesc`
+	// flips its direction (Z-A) to follow a name-descending sort, like a file explorer
+	// reordering folders when you reverse the name sort. Time sorts pass false (no
+	// folder timestamp to order by, so folders stay alphabetical).
+	groupDesc: boolean = false
+): (ItemType | FolderItem | UserItem)[] {
 	if (!items) {
 		return []
 	}
@@ -57,7 +105,7 @@ export function groupItems(items: ItemType[] | undefined): (ItemType | FolderIte
 	const root: (ItemType | FolderItem | UserItem)[] = []
 
 	items.forEach((item) => {
-		const pathSplit = item.path.split('/')
+		const pathSplit = effectivePath(item).split('/')
 		if (pathSplit[0] === 'u') {
 			const username = pathSplit[1]
 			let userItem = root.find((f): f is UserItem => 'username' in f && f.username === username) as
@@ -76,30 +124,43 @@ export function groupItems(items: ItemType[] | undefined): (ItemType | FolderIte
 			}
 		} else if (pathSplit[0] === 'f') {
 			insertItemInFolder(root, item, pathSplit.slice(1))
+		} else {
+			// Any other owner (e.g. a schedule at `g/<group>/...`) has no node kind, so it
+			// stays a top-level leaf rather than vanishing from the tree.
+			root.push(item)
 		}
 	})
 
+	const dir = groupDesc ? -1 : 1
+	// Users, then folders, then ungrouped leaves regardless of direction; only the name
+	// comparison within users and folders follows `groupDesc`.
+	const rank = (n: ItemType | FolderItem | UserItem) =>
+		'username' in n ? 0 : 'folderName' in n ? 1 : 2
 	root.sort((a, b) => {
-		if ('username' in a && 'folderName' in b) {
-			return -1
-		}
-		if ('folderName' in a && 'username' in b) {
-			return 1
-		}
-		return (a['username'] ?? a['folderName'] ?? '').localeCompare(b['username'] ?? b['folderName'])
+		const r = rank(a) - rank(b)
+		if (r !== 0) return r
+		if ('username' in a && 'username' in b) return dir * a.username.localeCompare(b.username)
+		if ('folderName' in a && 'folderName' in b)
+			return dir * a.folderName.localeCompare(b.folderName)
+		return 0
 	})
 
-	sortGroup(root)
+	sortGroup(root, leafCompare, dir)
 
 	return root
 }
 
-function sortGroup(group: (ItemType | FolderItem | UserItem)[]) {
+function sortGroup(
+	group: (ItemType | FolderItem | UserItem)[],
+	leafCompare: (a: ItemType, b: ItemType) => number,
+	dir: number = 1
+) {
 	group.forEach((item) => {
 		if ('items' in item) {
 			item.items.sort((a, b) => {
+				// Nested subfolders sort before leaves and follow the group direction.
 				if ('folderName' in a && 'folderName' in b) {
-					return a.folderName.localeCompare(b.folderName)
+					return dir * a.folderName.localeCompare(b.folderName)
 				}
 				if ('folderName' in a) {
 					return -1
@@ -108,14 +169,12 @@ function sortGroup(group: (ItemType | FolderItem | UserItem)[]) {
 					return 1
 				}
 				if (isItemType(a) && isItemType(b)) {
-					if (a.starred && !b.starred) return -1
-					if (!a.starred && b.starred) return 1
-					return getModifiedAt(b) - getModifiedAt(a)
+					return leafCompare(a, b)
 				}
 				return 0
 			})
 
-			sortGroup(item.items)
+			sortGroup(item.items, leafCompare, dir)
 		}
 	})
 }
@@ -133,6 +192,8 @@ function getModifiedAt(item: ItemType): number {
 		return new Date(item.edited_at).getTime() || 0
 	} else if (item.type === 'raw_app') {
 		return new Date(item.edited_at).getTime() || 0
+	} else if (item.type === 'agent') {
+		return new Date(item.edited_at ?? 0).getTime() || 0
 	}
 
 	return 0

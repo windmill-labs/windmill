@@ -1,14 +1,31 @@
+// Adding a global setting? Decide whether agent workers may read it. Agent
+// workers (remote workers connected over HTTP) fetch settings through an
+// endpoint that is deny-by-exception: every key is served except those in
+// AGENT_WORKER_BLOCKED_SETTINGS (defined below). If a new setting holds an
+// instance secret the server should keep to itself, add its key there.
 pub const CUSTOM_TAGS_SETTING: &str = "custom_tags";
 pub const DEFAULT_TAGS_PER_WORKSPACE_SETTING: &str = "default_tags_per_workspace";
 pub const DEFAULT_TAGS_WORKSPACES_SETTING: &str = "default_tags_workspaces";
 pub const FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX_SETTING: &str =
     "fork_workspace_tag_append_fork_suffix";
 pub const PREVIEW_TAGS_OVERRIDE_SETTING: &str = "preview_tags_override";
+pub const DEPENDENCY_JOB_TAG_SETTING: &str = "dependency_job_tag";
+pub const DEV_WORKSPACE_ISOLATION_SETTING: &str = "dev_workspace_isolation";
+pub const DEV_WORKSPACE_TAG_SUFFIX_SETTING: &str = "dev_workspace_tag_suffix";
+pub const DEV_WORKSPACE_ISOLATION_SKIP_NON_DEV_FORKS_SETTING: &str =
+    "dev_workspace_isolation_skip_non_dev_forks";
 pub const BASE_URL_SETTING: &str = "base_url";
 pub const WS_BASE_URL_SETTING: &str = "ws_base_url";
 pub const OAUTH_SETTING: &str = "oauths";
 pub const AI_CONFIG_SETTING: &str = "ai_config";
 pub const RETENTION_PERIOD_SECS_SETTING: &str = "retention_period_secs";
+pub const RETENTION_PERIOD_SECS_OVERRIDES_SETTING: &str = "retention_period_secs_overrides";
+pub const SERVICE_LOG_RETENTION_SECS_SETTING: &str = "service_log_retention_secs";
+/// Upper bound on how many per-workspace retention overrides may be configured. The periodic monitor
+/// sweeps each override workspace in its own transaction every pass, so this keeps a pass bounded
+/// (and the feature is a targeted escape hatch for a handful of special workspaces, not a bulk knob).
+/// Enforced at write time and defensively on load.
+pub const MAX_RETENTION_OVERRIDE_WORKSPACES: usize = 10;
 pub const AUDIT_LOG_RETENTION_DAYS_SETTING: &str = "audit_log_retention_days";
 pub const STORE_AUDIT_LOGS_S3_SETTING: &str = "store_audit_logs_s3";
 /// `background_task_state.name` for the audit-log → object-store export cursor.
@@ -45,7 +62,13 @@ pub const SAML_METADATA_SETTING: &str = "saml_metadata";
 pub const SMTP_SETTING: &str = "smtp_settings";
 pub const TEAMS_SETTING: &str = "teams";
 pub const INDEXER_SETTING: &str = "indexer_settings";
+pub const EXTERNAL_INSTANCE_PG_SETTING: &str = "external_instance_pg";
+/// Turns off Windmill's own Postgres as a data table and Ducklake substrate. Absent means on,
+/// which is what every instance that predates the setting expects.
+pub const INSTANCE_PG_DISABLED_SETTING: &str = "instance_pg_disabled";
+pub const EXTERNAL_INSTANCE_PG_STATE_SETTING: &str = "external_instance_pg_state";
 pub const TIMEOUT_WAIT_RESULT_SETTING: &str = "timeout_wait_result";
+pub const AGENT_WORKLOAD_IDENTITY_ISSUERS_SETTING: &str = "agent_workload_identity_issuers";
 
 pub const UNIQUE_ID_SETTING: &str = "uid";
 pub const DISABLE_STATS_SETTING: &str = "disable_stats";
@@ -58,35 +81,397 @@ pub const NSJAIL_TMPFS_SIZE_MB_SETTING: &str = "nsjail_tmpfs_size_mb";
 pub const NSJAIL_TMP_BACKING_SETTING: &str = "nsjail_tmp_backing";
 pub const NSJAIL_TMP_BACKING_DISK: &str = "disk";
 pub const NSJAIL_TMP_BACKING_TMPFS: &str = "tmpfs";
+pub const SANDBOX_IMAGE_MAX_SIZE_MB_SETTING: &str = "sandbox_image_max_size_mb";
+pub const SANDBOX_IMAGE_CACHE_MAX_MB_SETTING: &str = "sandbox_image_cache_max_mb";
+pub const SANDBOX_IMAGE_PULL_POLICY_SETTING: &str = "sandbox_image_pull_policy";
+pub const SANDBOX_IMAGE_DEFAULT_REGISTRY_SETTING: &str = "sandbox_image_default_registry";
+pub const SANDBOX_REGISTRY_AUTH_SETTING: &str = "sandbox_registry_auth";
+// Enables the `#ssh <resource>` directive that reroutes bash execution to a
+// remote host over SSH (enterprise feature). Off by default. See
+// windmill-worker/src/ssh_executor_ee.rs.
+pub const SSH_EXECUTION_SETTING: &str = "ssh_execution_enabled";
 pub const OBJECT_STORE_CONFIG_SETTING: &str = "object_store_cache_config";
+/// Whether the instance object store stands in for a workspace without storage of its own
+/// as the place its members' AI sessions are backed up to. On unless the row says `false`;
+/// inert without an instance object store.
+pub const AI_SESSIONS_INSTANCE_STORAGE_FALLBACK_SETTING: &str =
+    "ai_sessions_instance_storage_fallback";
+/// Compile a newly deployed script's binary right after its dependency job and push it
+/// to the instance object store, so the first run does not pay the compile. Inert unless
+/// instance object storage is configured — without it the binary would only ever land in
+/// the building worker's local cache, which is not where the next run looks.
+pub const AUTO_BUILD_BINARY_ON_DEPLOY_SETTING: &str = "auto_build_binary_on_deploy";
+/// Worker tag the auto-build jobs are queued on. Unset means the script's language tag,
+/// which is where its dependency job already runs.
+pub const AUTO_BUILD_BINARY_TAG_SETTING: &str = "auto_build_binary_tag";
 pub const HUB_API_SECRET_SETTING: &str = "hub_api_secret";
 
 pub const AUTOMATE_USERNAME_CREATION_SETTING: &str = "automate_username_creation";
+pub const DISABLE_WORKSPACE_INVITE_EMAILS_SETTING: &str = "disable_workspace_invite_emails";
 pub const DISABLE_PASSWORD_LOGIN_SETTING: &str = "disable_password_login";
+/// Refuse `?token=` on the MCP endpoints, leaving the `Authorization` header as the only way
+/// in. A URL-borne credential ends up in browser history, proxy logs and referrers, so an
+/// instance that cares sends MCP clients through the OAuth flow instead.
+pub const MCP_DISABLE_TOKEN_QUERY_PARAM_SETTING: &str = "mcp_disable_token_query_param";
+/// An external OIDC issuer whose access tokens the MCP endpoints accept, and the OAuth clients
+/// of that issuer they serve. Read and validated by [`parse_mcp_external_idp`].
+pub const MCP_EXTERNAL_IDP_SETTING: &str = "mcp_external_idp";
+/// Ceiling, in days, on how far ahead a token minted through `POST /users/tokens/create` or
+/// `POST /users/tokens/impersonate` may expire; a request asking for more, or for no
+/// expiration at all, is shortened to it rather than refused. On those routes only: server-side
+/// mints (webhook tokens, app embed tokens, sessions) choose a lifetime the caller never picks
+/// and go straight to `create_token_internal`. Read and validated by
+/// [`parse_max_token_expiration_days`].
+pub const MAX_TOKEN_EXPIRATION_DAYS_SETTING: &str = "max_token_expiration_days";
+/// Largest `max_token_expiration_days` read as a ceiling, about 2,700 years. The token form
+/// applies the same bound (`frontend/src/lib/tokenExpiration.ts`) so that it and the server
+/// agree on whether a ceiling exists.
+pub const MAX_TOKEN_EXPIRATION_DAYS_BOUND: i64 = 1_000_000;
+
+/// Reads a stored `max_token_expiration_days`: `Ok(None)` when unset or cleared (null or an
+/// empty string), the ceiling for a whole number of days within
+/// `1..=MAX_TOKEN_EXPIRATION_DAYS_BOUND` stored as an integer, an integral float or a string of
+/// digits, and an error for anything else.
+///
+/// The settings API and config sync both reject the error at write time: the token routes can
+/// only read an unparseable value as no ceiling, so accepting a typo would silently turn the
+/// policy off. `parseMaxTokenExpirationDays` in the frontend must accept exactly the same values.
+pub fn parse_max_token_expiration_days(
+    value: Option<&serde_json::Value>,
+) -> Result<Option<i64>, String> {
+    let days = match value {
+        None | Some(serde_json::Value::Null) => return Ok(None),
+        Some(serde_json::Value::String(s)) if s.trim().is_empty() => return Ok(None),
+        Some(serde_json::Value::Number(n)) => n
+            .as_i64()
+            .or_else(|| n.as_f64().filter(|f| f.fract() == 0.0).map(|f| f as i64)),
+        Some(serde_json::Value::String(s)) => s.trim().parse::<i64>().ok(),
+        Some(_) => None,
+    };
+    match days {
+        Some(days) if (1..=MAX_TOKEN_EXPIRATION_DAYS_BOUND).contains(&days) => Ok(Some(days)),
+        _ => Err(format!(
+            "must be a whole number of days from 1 to {MAX_TOKEN_EXPIRATION_DAYS_BOUND}, or empty for no limit"
+        )),
+    }
+}
 pub const AUTO_LOGIN_PROVIDER_SETTING: &str = "auto_login_provider";
+/// Name of the SAML attribute or OIDC userinfo claim carrying the user's IdP groups. Unset or
+/// empty leaves instance-group membership entirely to SCIM.
+pub const SSO_GROUPS_CLAIM_SETTING: &str = "sso_groups_claim";
+/// OIDC userinfo claim or SAML attribute holding the user's email. Unset, or absent from a
+/// login, keeps the protocol's default (OIDC `email`, SAML NameID).
+pub const SSO_EMAIL_CLAIM_SETTING: &str = "sso_email_claim";
+/// OIDC userinfo claim or SAML attribute (`NameID` for the subject's NameID) holding the
+/// username given to an account created at login. Unset, or absent, keeps the default.
+pub const SSO_USERNAME_CLAIM_SETTING: &str = "sso_username_claim";
 pub const HUB_BASE_URL_SETTING: &str = "hub_base_url";
 pub const HUB_ACCESSIBLE_URL_SETTING: &str = "hub_accessible_url";
 pub const DISABLE_HUB_SETTING: &str = "disable_hub";
+pub const SYNC_HUB_RESOURCE_TYPES_DAILY_SETTING: &str = "sync_hub_resource_types_daily";
 pub const CRITICAL_ERROR_CHANNELS_SETTING: &str = "critical_error_channels";
 pub const CRITICAL_ALERT_MUTE_UI_SETTING: &str = "critical_alert_mute_ui";
 pub const CRITICAL_ALERTS_ON_DB_OVERSIZE_SETTING: &str = "critical_alerts_on_db_oversize";
 pub const CRITICAL_ALERTS_ON_TOKEN_EXPIRY_SETTING: &str = "critical_alerts_on_token_expiry";
+pub const CRITICAL_ALERT_MUTE_ZOMBIE_JOB_RESTART_SETTING: &str =
+    "critical_alert_mute_zombie_job_restart";
+pub const CRITICAL_ALERT_MUTE_STRANDED_JOBS_SETTING: &str = "critical_alert_mute_stranded_jobs";
 pub const DEV_INSTANCE_SETTING: &str = "dev_instance";
 pub const JWT_SECRET_SETTING: &str = "jwt_secret";
 pub const EMAIL_DOMAIN_SETTING: &str = "email_domain";
 pub const OTEL_SETTING: &str = "otel";
 pub const OTEL_TRACING_PROXY_SETTING: &str = "otel_tracing_proxy";
+pub const OTEL_TRACES_RETENTION_SECS_SETTING: &str = "otel_traces_retention_secs";
 pub const APP_WORKSPACED_ROUTE_SETTING: &str = "app_workspaced_route";
 pub const HTTP_ROUTE_WORKSPACED_ROUTE_SETTING: &str = "http_route_workspaced_route";
+pub const HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS_SETTING: &str = "http_route_default_allowed_origins";
 pub const SECRET_BACKEND_SETTING: &str = "secret_backend";
+pub const EXTERNAL_SECRETS_SETTING: &str = "external_secrets";
 pub const MIN_KEEP_ALIVE_VERSION_SETTING: &str = "min_keep_alive_version";
 pub const GITHUB_ENTERPRISE_APP_SETTING: &str = "github_enterprise_app";
+/// Base URL GitHub delivers git-sync repository webhooks to. Falls back to
+/// `base_url` when unset; set it when the browser-facing URL is not reachable
+/// from GitHub and a separate ingress fronts the API for inbound webhooks.
+pub const GITHUB_APP_WEBHOOK_BASE_URL_SETTING: &str = "github_app_webhook_base_url";
+/// Base URL the UI shows for the endpoints external clients call (webhooks, HTTP
+/// routes, push trigger endpoints, the CLI, the MCP server), instead of the origin the UI is
+/// browsed on. For deployments that serve the API on a separate domain or behind a gateway.
+/// The server reads it too, through [`mcp_base_url`], for the MCP gateway's OAuth metadata.
+/// EE only. Readable by any authenticated user, like [`INSTANCE_BANNER_SETTING`]:
+/// every user is shown URLs built from it.
+pub const API_BASE_URL_SETTING: &str = "api_base_url";
+/// Which of [`API_BASE_URL_SURFACES`] [`API_BASE_URL_SETTING`] applies to; unset means all,
+/// so a surface added later follows the API base url until an admin narrows the list.
+/// Lets an instance expose a single surface (say, only MCP) on a public host.
+pub const API_BASE_URL_APPLIES_TO_SETTING: &str = "api_base_url_applies_to";
+pub const API_BASE_URL_SURFACES: [&str; 4] = ["webhooks", "push_triggers", "cli", "mcp"];
+/// Instance-wide announcement rendered above every page of the app (maintenance
+/// windows, incidents). Readable by any authenticated user, unlike most settings:
+/// the banner exists to be shown to everyone, so it must never hold anything the
+/// whole instance may not see.
+pub const INSTANCE_BANNER_SETTING: &str = "instance_banner";
+
+/// Ceiling on the banner message. The banner is a one-or-two-line strip above every
+/// page, so anything longer is a layout accident rather than an announcement.
+pub const INSTANCE_BANNER_MESSAGE_MAX_LEN: usize = 500;
+
+/// Ceiling on the banner's link label, which renders as a button inside that same strip.
+pub const INSTANCE_BANNER_LINK_LABEL_MAX_LEN: usize = 60;
+
+/// Validate an [`INSTANCE_BANNER_SETTING`] value.
+///
+/// The banner is the one setting rendered to every user of the instance, so its
+/// shape is checked at the boundary rather than trusted from the writer: a value
+/// that reaches the browser malformed breaks the layout for everyone at once.
+///
+/// The link is restricted to http(s) so a stored `javascript:`/`data:` URL can
+/// never become the href of an anchor every user sees.
+///
+/// Only shapes that would *misrender* are rejected. An enabled banner with no message
+/// is left alone deliberately: it renders as nothing, and every write path here runs
+/// under the bulk settings save, so rejecting it would fail an admin's whole settings
+/// edit — retention, SMTP and all — over a half-typed announcement.
+pub fn validate_instance_banner(value: &serde_json::Value) -> Result<(), String> {
+    let obj = value
+        .as_object()
+        .ok_or_else(|| "must be a JSON object".to_string())?;
+
+    // Field types are checked before their contents. Every read below is an `as_str`/
+    // `as_bool`, which reports a wrong-typed field as absent — so without this a
+    // `"link": 123` would skip the URL checks entirely and be stored, and the settings
+    // form would then throw on it (`link.trim()` on a number) instead of rendering.
+    for (field, expected, ok) in [
+        (
+            "enabled",
+            "a boolean",
+            obj.get("enabled").is_none_or(|v| v.is_boolean()),
+        ),
+        (
+            "dismissible",
+            "a boolean",
+            obj.get("dismissible").is_none_or(|v| v.is_boolean()),
+        ),
+        (
+            "message",
+            "a string",
+            obj.get("message").is_none_or(|v| v.is_string()),
+        ),
+        (
+            "severity",
+            "a string",
+            obj.get("severity").is_none_or(|v| v.is_string()),
+        ),
+        (
+            "link",
+            "a string",
+            obj.get("link").is_none_or(|v| v.is_string()),
+        ),
+        (
+            "link_label",
+            "a string",
+            obj.get("link_label").is_none_or(|v| v.is_string()),
+        ),
+    ] {
+        if !ok {
+            return Err(format!("{field} must be {expected}"));
+        }
+    }
+
+    for (field, max) in [
+        ("message", INSTANCE_BANNER_MESSAGE_MAX_LEN),
+        ("link_label", INSTANCE_BANNER_LINK_LABEL_MAX_LEN),
+    ] {
+        let len = obj
+            .get(field)
+            .and_then(|v| v.as_str())
+            .map_or(0, |s| s.chars().count());
+        if len > max {
+            return Err(format!("{field} must be at most {max} characters"));
+        }
+    }
+
+    if let Some(severity) = obj.get("severity").and_then(|v| v.as_str()) {
+        if !matches!(severity, "info" | "warning" | "error") {
+            return Err("severity must be one of info, warning, error".to_string());
+        }
+    }
+
+    if let Some(link) = obj.get("link").and_then(|v| v.as_str()) {
+        if !link.trim().is_empty() {
+            let url = url::Url::parse(link.trim())
+                .map_err(|e| format!("link must be an absolute http(s) URL: {e}"))?;
+            if !matches!(url.scheme(), "http" | "https") {
+                return Err("link must use the http or https scheme".to_string());
+            }
+            if !url.has_host() {
+                return Err("link must include a host".to_string());
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Instance-wide accent color (`#rrggbb`) that recolors the UI's accent tokens and
+/// tints the sidebar, so each environment of a deployment is recognizable at a glance.
+/// Readable by any authenticated user, like [`INSTANCE_BANNER_SETTING`].
+pub const ACCENT_COLOR_SETTING: &str = "accent_color";
+
+/// Validate an [`ACCENT_COLOR_SETTING`] value.
+///
+/// Only `#rrggbb` is accepted: the value is interpolated into a stylesheet every user
+/// loads, so anything looser is CSS injection into every session of the instance.
+pub fn validate_accent_color(value: &serde_json::Value) -> Result<(), String> {
+    let s = value
+        .as_str()
+        .ok_or_else(|| "must be a string".to_string())?;
+    let hex = s.strip_prefix('#').unwrap_or("");
+    if hex.len() != 6 || !hex.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Err("must be a hex color of the form #rrggbb".to_string());
+    }
+    Ok(())
+}
+
+/// Validate a non-empty [`DEV_WORKSPACE_TAG_SUFFIX_SETTING`] value. Every writer must call
+/// it: a suffix that fails it is ignored at load, so the workers would listen on a suffix
+/// the setting does not show.
+pub fn validate_dev_workspace_tag_suffix(value: &serde_json::Value) -> Result<(), String> {
+    let s = value
+        .as_str()
+        .ok_or_else(|| "must be a string".to_string())?;
+    if !crate::worker::is_valid_dev_workspace_tag_suffix(s.trim()) {
+        return Err(
+            "may only contain letters, digits, '-', '_' and '.', up to 32 characters".to_string(),
+        );
+    }
+    Ok(())
+}
+
+/// The settings every signed-in browser reads on each full page load.
+#[derive(serde::Serialize, Clone, Debug, Default, PartialEq)]
+pub struct InstanceUi {
+    pub instance_banner: Option<serde_json::Value>,
+    pub accent_color: Option<serde_json::Value>,
+    pub api_base_url: Option<serde_json::Value>,
+    pub api_base_url_applies_to: Option<serde_json::Value>,
+}
+
+pub async fn get_instance_ui(db: &Pool<Postgres>) -> error::Result<InstanceUi> {
+    let rows = sqlx::query!(
+        "SELECT name, value FROM global_settings WHERE name = ANY($1)",
+        &[
+            INSTANCE_BANNER_SETTING,
+            ACCENT_COLOR_SETTING,
+            API_BASE_URL_SETTING,
+            API_BASE_URL_APPLIES_TO_SETTING
+        ] as &[&str]
+    )
+    .fetch_all(db)
+    .await?;
+    let mut ui = InstanceUi::default();
+    for row in rows {
+        match row.name.as_str() {
+            INSTANCE_BANNER_SETTING => ui.instance_banner = Some(row.value),
+            ACCENT_COLOR_SETTING => ui.accent_color = Some(row.value),
+            API_BASE_URL_SETTING => ui.api_base_url = Some(row.value),
+            API_BASE_URL_APPLIES_TO_SETTING => ui.api_base_url_applies_to = Some(row.value),
+            _ => {}
+        }
+    }
+    Ok(ui)
+}
+
+/// Validate an [`API_BASE_URL_APPLIES_TO_SETTING`] value: a list of
+/// [`API_BASE_URL_SURFACES`]. An unknown name is refused rather than ignored, since a
+/// misspelt `mcp` would silently leave the MCP server on `base_url`.
+pub fn validate_api_base_url_applies_to(value: &serde_json::Value) -> Result<(), String> {
+    let serde_json::Value::Array(items) = value else {
+        return Err("must be a list of surfaces".to_string());
+    };
+    for item in items {
+        match item.as_str() {
+            Some(s) if API_BASE_URL_SURFACES.contains(&s) => {}
+            _ => {
+                return Err(format!(
+                    "must only list surfaces among {}",
+                    API_BASE_URL_SURFACES.join(", ")
+                ))
+            }
+        }
+    }
+    Ok(())
+}
+
+const SHELL_ACTIVE_CHARS: [char; 16] = [
+    '$', '`', '\'', '"', '\\', ';', '&', '|', '<', '>', '(', ')', '{', '}', '*', '!',
+];
+
+/// Validate a [`GITHUB_APP_WEBHOOK_BASE_URL_SETTING`] or [`API_BASE_URL_SETTING`] value.
+///
+/// A path is appended to it verbatim, so anything that doesn't concatenate into a
+/// URL an external caller can reach must be rejected at write time rather than
+/// silently producing an unreachable hook or endpoint: a wrong scheme
+/// (`httpss://`), a missing host, embedded whitespace, or a query/fragment
+/// (appending a path after `?`/`#` keeps it inside the query/fragment).
+///
+/// No message here echoes the submitted value. Userinfo is not the only secret a
+/// URL can carry — `?token=…` is just as common — so rather than enumerating the
+/// shapes worth hiding, no branch reports the value at all and each says what was
+/// wrong with it instead. That matters because these strings reach further than the
+/// submitter: the declarative path wraps them into `sync-config` output and operator
+/// reconcile logs.
+pub fn validate_webhook_base_url(value: &str) -> Result<(), String> {
+    let value = value.trim();
+    let url =
+        url::Url::parse(value).map_err(|e| format!("must be an absolute http(s) URL: {e}"))?;
+    if !url.username().is_empty() || url.password().is_some() {
+        return Err(
+            "must not embed a username or password: the URL is readable by users who are not instance admins".to_string(),
+        );
+    }
+    if !matches!(url.scheme(), "http" | "https") {
+        // The scheme is submitted text too — `hunter2://host` parses fine — so it is
+        // named, not echoed, like every other branch here.
+        return Err("must use the http or https scheme".to_string());
+    }
+    if !url.has_host() {
+        return Err("must include a host".to_string());
+    }
+    if url.query().is_some() || url.fragment().is_some() {
+        return Err(
+            "must not include a query string or fragment, since a path is appended to it"
+                .to_string(),
+        );
+    }
+    if value.chars().any(char::is_whitespace) {
+        return Err("must not contain whitespace".to_string());
+    }
+    // The UI pastes the URL into shell commands users copy, where double quotes
+    // do not stop `$(...)` or backticks from running.
+    if value.contains(SHELL_ACTIVE_CHARS) {
+        return Err(
+            "must not contain shell metacharacters, since it is shown inside commands users copy"
+                .to_string(),
+        );
+    }
+    // Matches the sibling `base_url` / `hub_base_url` convention. The receiver
+    // builder trims it anyway, so this is about keeping the stored value canonical
+    // rather than about reachability.
+    if value.ends_with('/') {
+        return Err("must not end with a trailing slash".to_string());
+    }
+    Ok(())
+}
+
 pub const INSTANCE_EVENTS_WEBHOOK_SETTING: &str = "instance_events_webhook";
 pub const WORKSPACE_REGISTRIES_SETTING: &str = "workspace_registries";
 pub const RESTART_COORDINATION_SETTING: &str = "_restart_coordination";
 pub const ALERT_CONFIG_SETTING: &str = "alert_job_queue_waiting";
 
-// Workspace fairness: cloud-only mechanism that caps any single workspace at
+/// The instance's workspace roles (EE), a list of `crate::roles::RoleDefinition`.
+pub const WORKSPACE_ROLES_SETTING: &str = "workspace_roles";
+
+// Workspace fairness (Enterprise): caps any single workspace at
 // `workspace_fairness_max_percent`% of the shared worker pool once it has been
 // occupying it for more than `workspace_fairness_duration_secs` seconds. See
 // `windmill-queue/src/workspace_fairness.rs`.
@@ -95,15 +480,362 @@ pub const WORKSPACE_FAIRNESS_MAX_PERCENT_SETTING: &str = "workspace_fairness_max
 pub const WORKSPACE_FAIRNESS_DURATION_SECS_SETTING: &str = "workspace_fairness_duration_secs";
 pub const WORKSPACE_FAIRNESS_MIN_TOTAL_SETTING: &str = "workspace_fairness_min_total_jobs";
 
+// Cloud-only ceiling on how many jobs may sit in the queue behind a single
+// concurrency key. `0` disables the cap. See `windmill-queue/src/jobs.rs`,
+// `check_concurrency_key_queue_cap`.
+pub const CONCURRENCY_KEY_MAX_QUEUED_SETTING: &str = "concurrency_key_max_queued_jobs";
+
+// Admit the jobs waiting behind a concurrency key in the order they became due.
+// See `windmill-queue/src/jobs.rs`, `oldest_waiting_concurrency_job`.
+pub const CONCURRENCY_LIMIT_IN_ORDER_SETTING: &str = "concurrency_limit_in_order";
+
+// Cloud-only ceiling on how many jobs a single workspace may have queued in
+// total, across every key and script. Applies even to premium workspaces. `0`
+// disables the cap. See `windmill-queue/src/jobs.rs`, `check_workspace_queue_cap`.
+pub const WORKSPACE_MAX_QUEUED_JOBS_SETTING: &str = "workspace_max_queued_jobs";
+
+// Days after which a pending top-level job whose tag no worker has served in that time is
+// canceled. Unset or `0` only alerts. Read by the server monitor on each pass.
+pub const CANCEL_STRANDED_JOBS_AFTER_DAYS_SETTING: &str = "cancel_stranded_jobs_after_days";
+
+/// Global settings an agent worker (a remote worker connected over HTTP instead
+/// of to the database) must NEVER read through
+/// `GET /api/agent_workers/get_global_setting/{key}`. Every other key is served.
+///
+/// SECURITY: that endpoint is authenticated only by an agent-worker JWT and
+/// returns the raw `global_settings` value for the requested key. Because the
+/// policy is deny-by-exception (anything not listed here is readable), every
+/// setting that holds an instance secret or credential an agent worker does not
+/// need MUST be listed below. Missing one discloses it to every agent worker —
+/// `jwt_secret` is the worst case (a token holder could forge a superadmin JWT),
+/// but `oauths`, `smtp_settings`, `secret_backend`, object-store credentials,
+/// etc. are instance-wide secrets too.
+///
+/// NOT blocked, on purpose: the operational credentials an agent worker loads to
+/// run jobs (`license_key`, `hub_api_secret`, `sandbox_registry_auth`,
+/// `powershell_repo_pat`, `npmrc`, ...). Those are already within an agent
+/// worker's trust boundary, and blocking them breaks worker startup or
+/// dependency installation. When adding a new setting that stores a secret the
+/// server keeps to itself, add it here.
+pub const AGENT_WORKER_BLOCKED_SETTINGS: &[&str] = &[
+    // Instance identity / auth secrets — disclosure enables privilege escalation
+    // or impersonation. `rsa_keys` signs job OIDC tokens; only the server mints them.
+    JWT_SECRET_SETTING,
+    "rsa_keys",
+    OAUTH_SETTING,
+    SMTP_SETTING,
+    SCIM_TOKEN_SETTING,
+    SAML_METADATA_SETTING,
+    SECRET_BACKEND_SETTING,
+    EXTERNAL_SECRETS_SETTING,
+    GITHUB_ENTERPRISE_APP_SETTING,
+    OBJECT_STORE_CONFIG_SETTING,
+    AI_CONFIG_SETTING,
+    TEAMS_SETTING,
+    INDEXER_SETTING,
+    // Server-only configs that may embed credentials, webhook URLs or tokens and
+    // are never loaded by an agent worker.
+    CRITICAL_ERROR_CHANNELS_SETTING,
+    INSTANCE_EVENTS_WEBHOOK_SETTING,
+    OTEL_SETTING,
+    OTEL_TRACING_PROXY_SETTING,
+    // Custom-instance DB credentials: `custom_instance_pg_databases` holds `user_pwd`,
+    // `custom_instance_replication_pwd` holds the REPLICATION-role password. Agent workers
+    // resolve datatable connections through the dedicated datatable endpoints, never these.
+    "custom_instance_pg_databases",
+    "custom_instance_replication_pwd",
+    // The external cluster's admin login, and the passwords Windmill generated on it.
+    EXTERNAL_INSTANCE_PG_SETTING,
+    EXTERNAL_INSTANCE_PG_STATE_SETTING,
+];
+
+/// Whether an agent worker may read the given global setting over HTTP.
+/// Deny-by-exception: everything is readable except [`AGENT_WORKER_BLOCKED_SETTINGS`].
+pub fn is_setting_readable_by_agent_worker(name: &str) -> bool {
+    !AGENT_WORKER_BLOCKED_SETTINGS.contains(&name)
+}
+
 use std::sync::atomic::AtomicBool;
 
 lazy_static::lazy_static! {
     pub static ref HTTP_ROUTE_WORKSPACED_ROUTE: AtomicBool = AtomicBool::new(false);
     pub static ref DISABLE_PASSWORD_LOGIN: AtomicBool = AtomicBool::new(false);
+    pub static ref MCP_DISABLE_TOKEN_QUERY_PARAM: AtomicBool = AtomicBool::new(false);
+    /// `None` when [`MCP_EXTERNAL_IDP_SETTING`] is unset or has no issuer.
+    pub static ref MCP_EXTERNAL_IDP: arc_swap::ArcSwapOption<McpExternalIdp> =
+        arc_swap::ArcSwapOption::empty();
+    /// Empty means unset. See [`API_BASE_URL_SETTING`].
+    pub static ref API_BASE_URL: arc_swap::ArcSwap<String> =
+        arc_swap::ArcSwap::from_pointee(String::new());
+    /// Whether [`API_BASE_URL_APPLIES_TO_SETTING`] includes `mcp`.
+    pub static ref API_BASE_URL_APPLIES_TO_MCP: AtomicBool = AtomicBool::new(true);
+    /// Origins HTTP routes allow cross-origin when they configure none of their
+    /// own. Empty means unset, which keeps the historical `*`.
+    pub static ref HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS: arc_swap::ArcSwap<Vec<String>> =
+        arc_swap::ArcSwap::from_pointee(vec![]);
+}
+
+/// [`MCP_EXTERNAL_IDP_SETTING`]: the MCP endpoints accept an access token signed by `issuer`
+/// when its `client_claim` names one of `clients`, acting as the Windmill user whose email is
+/// in `email_claim`, limited to that client's selection in that client's workspace.
+#[derive(Debug, Clone, PartialEq, serde::Deserialize, serde::Serialize)]
+pub struct McpExternalIdp {
+    pub issuer: String,
+    /// Checked against the token's `aud` when set. Many issuers stamp an audience the
+    /// resource server cannot choose, so it is optional.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub audience: Option<String>,
+    #[serde(default = "default_mcp_client_claim")]
+    pub client_claim: String,
+    #[serde(default = "default_mcp_email_claim")]
+    pub email_claim: String,
+    #[serde(default)]
+    pub clients: Vec<McpExternalClient>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Deserialize, serde::Serialize)]
+pub struct McpExternalClient {
+    pub client_id: String,
+    pub workspace_id: String,
+    /// Selection scopes, as a token scoped to runnables-as-tools carries them.
+    pub scopes: Vec<String>,
+}
+
+fn default_mcp_client_claim() -> String {
+    "azp".to_string()
+}
+
+fn default_mcp_email_claim() -> String {
+    "email".to_string()
+}
+
+impl McpExternalIdp {
+    pub fn client(&self, client_id: &str) -> Option<&McpExternalClient> {
+        self.clients.iter().find(|c| c.client_id == client_id)
+    }
+}
+
+/// Reads [`MCP_EXTERNAL_IDP_SETTING`]; `None` when unset. A client may only be given
+/// individual tools: `mcp:all` would hand it the whole session toolset and endpoint scopes
+/// the raw API, neither of which the user's own grant to the client is meant to cover.
+pub fn parse_mcp_external_idp(
+    value: Option<&serde_json::Value>,
+) -> Result<Option<McpExternalIdp>, String> {
+    let value = match value {
+        None | Some(serde_json::Value::Null) => return Ok(None),
+        Some(v) => v,
+    };
+    let idp: McpExternalIdp = serde_json::from_value(value.clone()).map_err(|e| e.to_string())?;
+    if idp.issuer.trim().is_empty() {
+        return if idp.clients.is_empty() {
+            Ok(None)
+        } else {
+            Err("clients need an issuer".to_string())
+        };
+    }
+    // Its keys are fetched from it: over plain http anyone on the path could forge tokens.
+    let url = url::Url::parse(&idp.issuer).map_err(|e| format!("issuer: {e}"))?;
+    let local = matches!(url.host_str(), Some("localhost" | "127.0.0.1"));
+    if !(url.scheme() == "https" || url.scheme() == "http" && local) {
+        return Err("issuer must be an https URL".to_string());
+    }
+    if idp.client_claim.trim().is_empty() || idp.email_claim.trim().is_empty() {
+        return Err("claim names must not be empty".to_string());
+    }
+    for (i, client) in idp.clients.iter().enumerate() {
+        if client.client_id.trim().is_empty() || client.workspace_id.trim().is_empty() {
+            return Err("every client needs a client id and a workspace".to_string());
+        }
+        // Recorded on every run it starts, in a VARCHAR(255) column.
+        if client.client_id.len() > 255 {
+            return Err(format!("client id {} is too long", client.client_id));
+        }
+        if idp.clients[..i]
+            .iter()
+            .any(|c| c.client_id == client.client_id)
+        {
+            return Err(format!("client {} is listed twice", client.client_id));
+        }
+        client_access(&client.scopes).map_err(|e| format!("client {}: {e}", client.client_id))?;
+    }
+    Ok(Some(idp))
+}
+
+/// Whether an external MCP client's scopes give the AI session's toolset (`mcp:all`, alone or
+/// narrowed by `mcp:read_only` / `mcp:read_run`) rather than a selection of scripts, flows and
+/// hub scripts. Endpoint scopes, path-narrowed `mcp:all` and `mcp:workspaces:` are refused:
+/// a client reaches its one workspace, and only through these two shapes.
+pub fn client_access(scopes: &[String]) -> Result<bool, String> {
+    // Markers the token form adds; they grant nothing.
+    let scopes: Vec<&str> = scopes
+        .iter()
+        .map(String::as_str)
+        .filter(|s| !["mcp:runnables_as_tools", "mcp:session"].contains(s))
+        .collect();
+    if scopes.contains(&"mcp:all") {
+        let narrowed: Vec<&str> = scopes.iter().copied().filter(|s| *s != "mcp:all").collect();
+        return match narrowed.as_slice() {
+            [] | ["mcp:read_only"] | ["mcp:read_run"] => Ok(true),
+            other => Err(format!(
+                "mcp:all takes at most one of mcp:read_only and mcp:read_run, not {}",
+                other.join(" ")
+            )),
+        };
+    }
+    if scopes.is_empty() {
+        return Err("selects no tools".to_string());
+    }
+    if let Some(scope) = scopes.iter().find(|s| {
+        !(**s == "mcp:favorites"
+            || ["mcp:scripts:", "mcp:flows:", "mcp:hub:"]
+                .iter()
+                .any(|p| s.strip_prefix(p).is_some_and(|rest| !rest.is_empty())))
+    }) {
+        return Err(format!(
+            "{scope} is not an access level nor a selection of scripts, flows or hub scripts"
+        ));
+    }
+    Ok(false)
+}
+
+/// [`API_BASE_URL_SETTING`] when it applies to MCP, else `base_url`. The MCP gateway builds every URL it hands a
+/// client to call from it: its resource identifier, the authorization server it names, and
+/// that server's issuer, token and registration endpoints. Not the authorization endpoint:
+/// the user's browser opens it, and the consent page it redirects to is served on `base_url`.
+///
+/// Enterprise only, like the UI that shows the MCP URL: an MCP client rejects metadata
+/// naming a host other than the URL it was given, so the two must agree.
+pub fn mcp_base_url() -> String {
+    #[cfg(feature = "enterprise")]
+    {
+        let configured = API_BASE_URL.load();
+        if !configured.is_empty()
+            && API_BASE_URL_APPLIES_TO_MCP.load(std::sync::atomic::Ordering::Relaxed)
+        {
+            return configured.to_string();
+        }
+    }
+    crate::BASE_URL.load().to_string()
+}
+
+/// Whether an allowlist places no restriction at all.
+///
+/// `*` is the explicit "open on purpose" entry, and a route carrying it behaves
+/// exactly as an unconfigured one: it is how a route opts out of a stricter
+/// instance default, including back into the `wm_headers` escape hatch.
+pub fn allows_any_origin(allowed_origins: &[String]) -> bool {
+    allowed_origins.iter().any(|allowed| allowed == "*")
+}
+
+/// An allowlist is scanned on every request to a restricted route, including
+/// the unauthenticated preflight, so its size is a request cost anyone can
+/// trigger.
+pub const MAX_ALLOWED_ORIGINS: usize = 100;
+pub const MAX_ALLOWED_ORIGIN_LEN: usize = 256;
+
+/// Reject allowlist entries that cannot be compared, stored, or safely allowed.
+///
+/// The stored string is only ever an operand: `match_origin` echoes the
+/// request's own `Origin` back, never this value, so a malformed entry matches
+/// nothing and fails closed. Shapes that merely cannot match are the editor's
+/// business to warn about, not this function's to refuse. What is left are the
+/// three cases where permissiveness costs something: `null` is what every
+/// sandboxed iframe sends, so allowing it would admit any page that can open
+/// one; a comma cannot survive the editor's comma-separated field, which would
+/// silently split one entry into two and widen the list; and an unbounded list
+/// makes every preflight pay for it.
+pub fn validate_allowed_origins(allowed_origins: &[String]) -> crate::error::Result<()> {
+    if allowed_origins.len() > MAX_ALLOWED_ORIGINS {
+        return Err(crate::error::Error::BadRequest(format!(
+            "At most {} allowed origins, got {}.",
+            MAX_ALLOWED_ORIGINS,
+            allowed_origins.len()
+        )));
+    }
+
+    for origin in allowed_origins {
+        if origin == "*" {
+            continue;
+        }
+
+        let invalid = |reason: &str| {
+            crate::error::Error::BadRequest(format!(
+                "Invalid allowed origin '{}': {}.",
+                origin, reason
+            ))
+        };
+
+        if origin.is_empty() {
+            return Err(invalid("must not be empty"));
+        }
+        if origin.len() > MAX_ALLOWED_ORIGIN_LEN {
+            return Err(invalid("is longer than any origin a browser sends"));
+        }
+        // The editor edits the whole list as one comma-separated field, so an
+        // entry carrying a comma comes back as two and widens the list.
+        if origin.contains(',') {
+            return Err(invalid("must not contain a comma, which separates entries"));
+        }
+        if origin.eq_ignore_ascii_case("null") {
+            return Err(invalid(
+                "'null' is what a sandboxed iframe sends, so allowing it would allow any page that can open one",
+            ));
+        }
+        // An Origin header is always visible ASCII, so a value outside it can
+        // never be the string this is compared against.
+        if !origin.chars().all(|c| c.is_ascii_graphic()) {
+            return Err(invalid(
+                "must contain only visible ASCII, with no whitespace",
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+/// Read [`HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS_SETTING`] from its stored value.
+///
+/// Accepts the comma-separated string the settings UI writes, or a JSON array
+/// for anything setting it through the API directly.
+pub fn parse_allowed_origins_setting(
+    value: Option<&serde_json::Value>,
+) -> crate::error::Result<Vec<String>> {
+    let origins = match value {
+        None | Some(serde_json::Value::Null) => vec![],
+        Some(serde_json::Value::String(raw)) => raw
+            .split(',')
+            .map(|origin| origin.trim().to_string())
+            .filter(|origin| !origin.is_empty())
+            .collect(),
+        Some(serde_json::Value::Array(entries)) => entries
+            .iter()
+            .map(|entry| match entry {
+                serde_json::Value::String(origin) => Ok(origin.trim().to_string()),
+                _ => Err(crate::error::Error::BadRequest(format!(
+                    "{} entries must be strings",
+                    HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS_SETTING
+                ))),
+            })
+            // Not filtered for empties, unlike the string form: there a
+            // trailing separator naturally yields an empty token, whereas an
+            // empty array entry is something the caller wrote and validation
+            // should reject rather than silently drop.
+            .collect::<crate::error::Result<Vec<_>>>()?,
+        Some(_) => {
+            return Err(crate::error::Error::BadRequest(format!(
+                "{} expected to be a comma-separated string or an array of strings",
+                HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS_SETTING
+            )))
+        }
+    };
+
+    validate_allowed_origins(&origins)?;
+    Ok(origins)
 }
 
 pub const ENV_SETTINGS: &[&str] = &[
     "DISABLE_NSJAIL",
+    "DISABLE_BUN_INSTALL_SANDBOX",
     "MODE",
     "NUM_WORKERS",
     "METRICS_ADDR",
@@ -157,28 +889,113 @@ pub const ENV_SETTINGS: &[&str] = &[
     "WAIT_RESULT_SLOW_POLL_INTERVAL_MS",
     "WAIT_RESULT_FAST_POLL_INTERVAL_MS",
     "EXIT_AFTER_NO_JOB_FOR_SECS",
+    "EXIT_AFTER_N_JOBS",
+    "WORKER_SUFFIX",
     "REQUEST_SIZE_LIMIT",
     "CREATE_WORKSPACE_REQUIRE_SUPERADMIN",
     "GLOBAL_ERROR_HANDLER_PATH_IN_ADMINS_WORKSPACE",
     "MAX_WAIT_FOR_SIGINT",
     "MAX_WAIT_FOR_SIGTERM",
+    "JOB_OOM_SCORE_ADJ",
     "WORKER_GROUP",
     "SAML_METADATA",
     "INSTANCE_IS_DEV",
     "OTEL_METRICS",
     "OTEL_TRACING",
     "OTEL_LOGS",
+    // The OTEL_EXPORTER_OTLP_*HEADERS variables are left out: they carry exporter API keys, and
+    // this list is logged at startup and returned to superadmins by `get_local_settings`.
+    "OTEL_METRICS_ENABLED",
+    "OTEL_TRACING_ENABLED",
+    "OTEL_LOGS_ENABLED",
+    "OTEL_EXPORTER_OTLP_ENDPOINT",
+    "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
+    "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT",
+    "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT",
+    "OTEL_EXPORTER_OTLP_PROTOCOL",
+    "OTEL_EXPORTER_OTLP_COMPRESSION",
+    "OTEL_EXPORTER_OTLP_TIMEOUT",
+    "OTEL_EXPORTER_OTLP_TRACES_TIMEOUT",
+    "OTEL_EXPORTER_OTLP_METRICS_TIMEOUT",
+    "OTEL_EXPORTER_OTLP_LOGS_TIMEOUT",
+    "OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE",
+    "OTEL_METRIC_EXPORT_INTERVAL",
+    "OTEL_SERVICE_NAME",
+    "OTEL_SERVICE_VERSION",
+    "OTEL_HOST_NAME",
+    "OTEL_ENVIRONMENT",
+    "OTEL_RESOURCE_ATTRIBUTES",
+    "OTEL_JOB_LOGS",
+    "OTEL_TRACES_RETENTION_SECS",
+    "AI_SHARED_ARTIFACT_RETENTION_SECS",
     "DISABLE_S3_STORE",
     "PG_SCHEMA",
     "PG_LISTENER_REFRESH_PERIOD_SECS",
     "AI_REQUEST_TIMEOUT_SECONDS",
     "JOB_CLEANUP_BATCH_SIZE",
     "JOB_CLEANUP_MAX_BATCHES",
+    "AUTO_BUILD_BINARY_ON_DEPLOY",
+    "AUTO_BUILD_BINARY_TAG",
 ];
 
+use crate::ee_oss::LicensePlan;
 use crate::error;
 use sqlx::postgres::Postgres;
 use sqlx::Pool;
+
+/// Read several settings in one round trip. Names with no row are simply absent from the
+/// result, exactly as [`load_value_from_global_settings`] returns `None` for them.
+pub async fn load_values_from_global_settings(
+    db: &Pool<Postgres>,
+    names: &[&str],
+) -> error::Result<std::collections::HashMap<String, serde_json::Value>> {
+    // Listing the names keeps this on the primary key. `global_settings` also holds
+    // `workspace_dependencies_map_rebuilt:<workspace_id>`, one row per workspace with no
+    // cleanup path, so a predicate that scanned the table would grow with workspace count.
+    let rows = sqlx::query!(
+        "SELECT name, value FROM global_settings WHERE name = ANY($1)",
+        names as &[&str]
+    )
+    .fetch_all(db)
+    .await?;
+    Ok(rows.into_iter().map(|r| (r.name, r.value)).collect())
+}
+
+/// Return the instance's JWT secret, generating one only if the row holds nothing usable.
+///
+/// The write has to be conditional rather than a plain upsert, for two reasons. A usable
+/// secret must never be overwritten: replicas booting together would each install their own
+/// and reject each other's tokens. And `notify_global_setting_change` fires on every write to
+/// this table, so an unconditional upsert would make each startup trigger a cluster-wide
+/// settings reload. An empty `RETURNING` is how a caller learns another process's secret
+/// stands, and reads that one instead.
+///
+/// Safe to call with a value read earlier: the statement, not the caller's read, decides.
+pub async fn get_or_create_jwt_secret(db: &Pool<Postgres>) -> error::Result<String> {
+    let candidate = crate::utils::rd_string(32);
+    let stored = sqlx::query_scalar!(
+        "INSERT INTO global_settings (name, value) VALUES ($1, $2)
+         ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value
+         WHERE jsonb_typeof(global_settings.value) <> 'string'
+         RETURNING value",
+        JWT_SECRET_SETTING,
+        serde_json::to_value(&candidate)?
+    )
+    .fetch_optional(db)
+    .await?;
+
+    match stored {
+        Some(_) => Ok(candidate),
+        None => load_value_from_global_settings(db, JWT_SECRET_SETTING)
+            .await?
+            .and_then(|v| serde_json::from_value::<String>(v).ok())
+            .ok_or_else(|| {
+                error::Error::InternalErr(
+                    "jwt_secret conflicted but holds no usable value".to_string(),
+                )
+            }),
+    }
+}
 
 pub async fn load_value_from_global_settings(
     db: &Pool<Postgres>,
@@ -192,6 +1009,85 @@ pub async fn load_value_from_global_settings(
     .await?
     .map(|x| x.value);
     Ok(r)
+}
+
+lazy_static::lazy_static! {
+    static ref AUTO_BUILD_BINARY_ON_DEPLOY_ENV: bool = std::env::var("AUTO_BUILD_BINARY_ON_DEPLOY")
+        .ok()
+        .and_then(|x| x.trim().parse::<bool>().ok())
+        .unwrap_or(false);
+    static ref AUTO_BUILD_BINARY_TAG_ENV: Option<String> = std::env::var("AUTO_BUILD_BINARY_TAG")
+        .ok()
+        .map(|x| x.trim().to_string())
+        .filter(|x| !x.is_empty());
+}
+
+/// Whether newly deployed scripts should have their binary built and pushed to the
+/// instance object store, and on which worker tag.
+///
+/// `None` = off. `Some(tag_override)` = on, where `None` inside means "use the script's
+/// language tag". Read per deployment rather than cached: deploys of a compiled language
+/// are rare, and a stale cache here silently skips builds for as long as it lives.
+///
+/// The env fallbacks are read in whichever process decides — a server for a deploy that
+/// brings its own lock, a worker for one that generates it — so on a split deployment they
+/// belong on both. The instance setting has no such caveat; prefer it.
+pub async fn auto_build_binary_on_deploy(
+    db: &Pool<Postgres>,
+) -> error::Result<Option<Option<String>>> {
+    let enabled =
+        match load_value_from_global_settings(db, AUTO_BUILD_BINARY_ON_DEPLOY_SETTING).await? {
+            Some(serde_json::Value::Bool(b)) => b,
+            // An unset (or cleared) setting falls back to the env var, matching how the
+            // instance-settings UI leaves a never-touched toggle absent from the table.
+            None | Some(serde_json::Value::Null) => *AUTO_BUILD_BINARY_ON_DEPLOY_ENV,
+            Some(other) => {
+                tracing::error!(
+                    "{AUTO_BUILD_BINARY_ON_DEPLOY_SETTING} is not a boolean: {other}, ignoring"
+                );
+                false
+            }
+        };
+    if !enabled {
+        return Ok(None);
+    }
+    // Without an instance object store the artifact never leaves the building worker's own
+    // disk, so every other worker would still compile it on first run.
+    if !instance_object_store_configured(db).await? {
+        tracing::warn!(
+            "{AUTO_BUILD_BINARY_ON_DEPLOY_SETTING} is enabled but no instance object storage is \
+             configured, not building anything"
+        );
+        return Ok(None);
+    }
+    let tag = match load_value_from_global_settings(db, AUTO_BUILD_BINARY_TAG_SETTING).await? {
+        Some(serde_json::Value::String(s)) if !s.trim().is_empty() => Some(s.trim().to_string()),
+        Some(serde_json::Value::Null) | Some(serde_json::Value::String(_)) | None => {
+            AUTO_BUILD_BINARY_TAG_ENV.clone()
+        }
+        Some(other) => {
+            tracing::error!("{AUTO_BUILD_BINARY_TAG_SETTING} is not a string: {other}, ignoring");
+            None
+        }
+    };
+    Ok(Some(tag))
+}
+
+/// Whether an instance object store is configured, mirroring every condition
+/// `windmill_object_store::reload_object_store_setting` needs to actually load one —
+/// including its refusal on the Pro plan, without which a Pro instance holding an
+/// object-store row would queue a build per deploy that can only ever skip.
+///
+/// Reads config rather than the loaded client so callers outside the worker (which may be
+/// built without the object-store features) reach the same answer.
+async fn instance_object_store_configured(db: &Pool<Postgres>) -> error::Result<bool> {
+    if matches!(crate::ee_oss::get_license_plan().await, LicensePlan::Pro) {
+        return Ok(false);
+    }
+    Ok(!matches!(
+        load_value_from_global_settings(db, OBJECT_STORE_CONFIG_SETTING).await?,
+        None | Some(serde_json::Value::Null)
+    ) || std::env::var("S3_CACHE_BUCKET").is_ok())
 }
 
 /// Read OAuth client_id and client_secret from instance-level global settings.
@@ -244,6 +1140,7 @@ pub fn workspace_integration_oauth_key(client_name: &str) -> &str {
 pub fn workspace_integration_token_endpoint(client_name: &str, base_url: &str) -> String {
     match client_name {
         "google" => "https://oauth2.googleapis.com/token".to_string(),
+        "github" => "https://github.com/login/oauth/access_token".to_string(),
         _ => format!("{}/apps/oauth2/api/v1/token", base_url),
     }
 }
@@ -252,7 +1149,322 @@ pub fn workspace_integration_token_endpoint(client_name: &str, base_url: &str) -
 pub fn workspace_integration_auth_endpoint(client_name: &str, base_url: &str) -> String {
     match client_name {
         "google" => "https://accounts.google.com/o/oauth2/v2/auth".to_string(),
+        "github" => "https://github.com/login/oauth/authorize".to_string(),
         _ => format!("{}/apps/oauth2/authorize", base_url),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn api_base_url_applies_to_accepts_only_known_surfaces() {
+        use serde_json::json;
+        assert!(validate_api_base_url_applies_to(&json!(["mcp", "webhooks"])).is_ok());
+        assert!(validate_api_base_url_applies_to(&json!([])).is_ok());
+        assert!(validate_api_base_url_applies_to(&json!(["mpc"])).is_err());
+        assert!(validate_api_base_url_applies_to(&json!("mcp")).is_err());
+    }
+
+    #[test]
+    fn mcp_external_clients_get_an_access_level_or_a_selection() {
+        let with_scopes = |scopes: &[&str]| {
+            parse_mcp_external_idp(Some(&serde_json::json!({
+                "issuer": "https://idp.example.com/realms/main",
+                "clients": [{ "client_id": "a", "workspace_id": "w", "scopes": scopes }]
+            })))
+        };
+        let idp = with_scopes(&["mcp:flows:f/x/run", "mcp:scripts:f/x/*", "mcp:favorites"])
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            (idp.client_claim.as_str(), idp.email_claim.as_str()),
+            ("azp", "email")
+        );
+        for (scopes, session) in [
+            (&["mcp:all"][..], true),
+            (&["mcp:all", "mcp:read_run", "mcp:session"], true),
+            (&["mcp:favorites", "mcp:runnables_as_tools"], false),
+        ] {
+            let scopes: Vec<String> = scopes.iter().map(|s| s.to_string()).collect();
+            assert_eq!(client_access(&scopes), Ok(session), "{scopes:?}");
+        }
+        for refused in [
+            &["mcp:all", "mcp:read_only", "mcp:read_run"][..],
+            &["mcp:all", "mcp:scripts:f/x/run"],
+            &["mcp:all", "mcp:workspaces:a,b"],
+            &["mcp:all:f/x/*"],
+            &["mcp:endpoints:listJobs"],
+            &["mcp:scripts:"],
+            &[],
+        ] {
+            assert!(with_scopes(refused).is_err(), "{refused:?}");
+        }
+        assert_eq!(parse_mcp_external_idp(None), Ok(None));
+        assert_eq!(
+            parse_mcp_external_idp(Some(&serde_json::json!({"issuer": ""}))),
+            Ok(None)
+        );
+    }
+
+    // `frontend/src/lib/tokenExpiration.test.ts` holds the same table for the token form's
+    // parser; the two must stay in step.
+    #[test]
+    fn max_token_expiration_days_accepts_only_whole_days_within_the_bound() {
+        use serde_json::json;
+        for (stored, days) in [
+            (json!(7), 7),
+            (json!(7.0), 7),
+            (json!("7"), 7),
+            (json!(" 30 "), 30),
+            (json!("+7"), 7),
+            (
+                json!(MAX_TOKEN_EXPIRATION_DAYS_BOUND),
+                MAX_TOKEN_EXPIRATION_DAYS_BOUND,
+            ),
+        ] {
+            assert_eq!(
+                parse_max_token_expiration_days(Some(&stored)),
+                Ok(Some(days)),
+                "{stored}"
+            );
+        }
+        for cleared in [json!(null), json!(""), json!("  ")] {
+            assert_eq!(
+                parse_max_token_expiration_days(Some(&cleared)),
+                Ok(None),
+                "{cleared}"
+            );
+        }
+        assert_eq!(parse_max_token_expiration_days(None), Ok(None));
+        for bad in [
+            json!(7.5),
+            json!(0),
+            json!(-3),
+            json!("7.0"),
+            json!("1e1"),
+            json!("0x7"),
+            json!(MAX_TOKEN_EXPIRATION_DAYS_BOUND + 1),
+            json!("99999999999999999999"),
+            json!(true),
+            json!([7]),
+        ] {
+            assert!(
+                parse_max_token_expiration_days(Some(&bad)).is_err(),
+                "{bad} must be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn webhook_base_url_errors_never_echo_credentials() {
+        // These strings reach sync-config output and operator logs, so no branch may
+        // report the value verbatim. The secret is distinctive so this asserts on the
+        // credential leaking, not on the wording of the message.
+        const SECRET: &str = "hunter2xyzzy";
+        for bad in [
+            format!("https://admin:{SECRET}@hooks.example.com"),
+            format!("https://admin:{SECRET}@hooks.example.com?x=1"),
+            format!("https://admin:{SECRET}@hooks.example.com/"),
+            format!("https://admin:{SECRET}@"),
+            format!("https://admin:{SECRET}@hooks.example.com#f"),
+            format!("admin:{SECRET}@not-a-url"),
+            // Reach the parse-failure branch, the only one that sees an unvalidated
+            // string: multiple `@`, an invalid scheme, and no `//` at all.
+            format!("https://alias@admin:{SECRET}@["),
+            format!("https://a@b@admin:{SECRET}@hooks.example.com"),
+            format!("1x:{SECRET}@hooks.example.com"),
+            format!("ad min:{SECRET}@hooks.example.com"),
+            format!("{SECRET}@"),
+            // A query token is just as sensitive as userinfo and reaches the same logs.
+            format!("https://hooks.example.com?token={SECRET}"),
+            format!("https://hooks.example.com#{SECRET}"),
+            format!("https://hooks.example.com/{SECRET} x"),
+            // A custom scheme parses fine, so the scheme itself is attacker-chosen text.
+            format!("{SECRET}://hooks.example.com"),
+        ] {
+            let err = validate_webhook_base_url(&bad).expect_err("should be rejected");
+            assert!(
+                !err.contains(SECRET),
+                "'{bad}' leaked its credential into: {err}"
+            );
+        }
+    }
+
+    #[test]
+    fn accent_color_accepts_only_hex_rgb() {
+        for ok in ["#1f9d55", "#ABCDEF"] {
+            assert!(
+                validate_accent_color(&serde_json::json!(ok)).is_ok(),
+                "{ok}"
+            );
+        }
+        for bad in [
+            serde_json::json!("1f9d55"),
+            serde_json::json!("#fff"),
+            serde_json::json!("red"),
+            serde_json::json!("#000000;} body{display:none"),
+            serde_json::json!("#12345g"),
+            serde_json::json!(123),
+        ] {
+            assert!(validate_accent_color(&bad).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn instance_banner_rejects_unsafe_and_malformed_values() {
+        // The link becomes the href of an anchor shown to every user of the instance,
+        // so a non-http(s) scheme must not survive a write.
+        for link in [
+            "javascript:alert(1)",
+            "data:text/html,<script>alert(1)</script>",
+            "vbscript:msgbox(1)",
+            "not-a-url",
+            "https://",
+        ] {
+            let banner = serde_json::json!({ "enabled": true, "message": "down", "link": link });
+            assert!(
+                validate_instance_banner(&banner).is_err(),
+                "link '{link}' should be rejected"
+            );
+        }
+        // A wrong-typed field reads as absent to every accessor here, so without an
+        // explicit type check it would skip validation and be stored.
+        for bad in [
+            serde_json::json!({ "enabled": true, "message": "down", "link": 123 }),
+            serde_json::json!({ "enabled": true, "message": "down", "link_label": ["a"] }),
+            serde_json::json!({ "enabled": true, "message": { "text": "down" } }),
+            serde_json::json!({ "enabled": true, "message": "down", "severity": 2 }),
+            serde_json::json!({ "enabled": "yes", "message": "down" }),
+            serde_json::json!({ "enabled": true, "message": "down", "dismissible": "no" }),
+        ] {
+            assert!(
+                validate_instance_banner(&bad).is_err(),
+                "{bad} should be rejected"
+            );
+        }
+        // The strip is one or two lines tall; both of its texts are bounded.
+        for (field, over) in [
+            ("message", INSTANCE_BANNER_MESSAGE_MAX_LEN + 1),
+            ("link_label", INSTANCE_BANNER_LINK_LABEL_MAX_LEN + 1),
+        ] {
+            let mut banner = serde_json::json!({ "enabled": true, "message": "down" });
+            banner[field] = serde_json::Value::String("x".repeat(over));
+            assert!(
+                validate_instance_banner(&banner).is_err(),
+                "an over-long {field} should be rejected"
+            );
+        }
+        // Enabled with no message renders as nothing and must stay writable: every path
+        // into this validator is a bulk settings save, so rejecting it would fail an
+        // admin's unrelated edits over a half-typed announcement.
+        assert!(validate_instance_banner(&serde_json::json!({ "enabled": true })).is_ok());
+        let ok = serde_json::json!({
+            "enabled": true, "message": "down", "severity": "warning",
+            "link": "https://status.example.com", "dismissible": false
+        });
+        assert!(validate_instance_banner(&ok).is_ok());
+    }
+
+    #[test]
+    fn webhook_base_url_matches_the_ui_validator() {
+        // Kept in lockstep with `isValidWebhookBaseUrl` in
+        // frontend/src/lib/components/instanceSettings.ts: a value the field accepts
+        // must not 400 on save, and vice versa.
+        let accept = [
+            "https://hooks.example.com",
+            "http://hooks.example.com:8080",
+            "https://example.com/windmill",
+            " https://hooks.example.com ",
+            "https://[::1]:8000",
+        ];
+        let reject = [
+            "httpss://hooks.example.com",
+            "hooks.example.com",
+            "ftp://hooks.example.com",
+            "https://",
+            "https://hooks.example.com?token=x",
+            "https://hooks.example.com#frag",
+            "https://hooks example.com",
+            "https://hooks.example.com/",
+            "https://hooks.example.com:abc",
+            "https://x/a b",
+            "https://hooks.example.com?",
+            "https://hooks.example.com#",
+            "https://user:password@hooks.example.com",
+            "https://user@hooks.example.com",
+            "https://hooks.example.com/$(uname)",
+            "https://hooks.example.com/`uname`",
+            "https://hooks.example.com/a;b",
+        ];
+        for v in accept {
+            assert!(
+                validate_webhook_base_url(v).is_ok(),
+                "'{v}' should be accepted"
+            );
+        }
+        for v in reject {
+            assert!(
+                validate_webhook_base_url(v).is_err(),
+                "'{v}' should be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn agent_workers_can_read_operational_settings() {
+        // Operational knobs and the credentials a worker needs to run jobs are
+        // intentionally NOT blocked. Deny-by-exception also means an arbitrary
+        // unlisted key is readable.
+        for key in [
+            NPMRC_SETTING,
+            PIP_INDEX_URL_SETTING,
+            JOB_ISOLATION_SETTING,
+            LICENSE_KEY_SETTING,
+            HUB_API_SECRET_SETTING,
+            SANDBOX_REGISTRY_AUTH_SETTING,
+            POWERSHELL_REPO_PAT_SETTING,
+            "some_future_operational_setting",
+        ] {
+            assert!(
+                is_setting_readable_by_agent_worker(key),
+                "'{key}' must remain readable by agent workers"
+            );
+        }
+    }
+
+    #[test]
+    fn agent_workers_cannot_read_instance_secrets() {
+        // Disclosing any of these to a remote worker enables privilege
+        // escalation (jwt_secret -> forged superadmin JWT) or leaks instance
+        // secrets. They must never be served by the agent-worker endpoint.
+        for key in [
+            JWT_SECRET_SETTING,
+            "rsa_keys",
+            OAUTH_SETTING,
+            SMTP_SETTING,
+            SCIM_TOKEN_SETTING,
+            SAML_METADATA_SETTING,
+            SECRET_BACKEND_SETTING,
+            EXTERNAL_SECRETS_SETTING,
+            GITHUB_ENTERPRISE_APP_SETTING,
+            OBJECT_STORE_CONFIG_SETTING,
+            AI_CONFIG_SETTING,
+            TEAMS_SETTING,
+            INDEXER_SETTING,
+            CRITICAL_ERROR_CHANNELS_SETTING,
+            INSTANCE_EVENTS_WEBHOOK_SETTING,
+            OTEL_SETTING,
+            OTEL_TRACING_PROXY_SETTING,
+            "custom_instance_pg_databases",
+            "custom_instance_replication_pwd",
+        ] {
+            assert!(
+                !is_setting_readable_by_agent_worker(key),
+                "'{key}' is an instance secret and must not be readable by agent workers"
+            );
+        }
     }
 }
 

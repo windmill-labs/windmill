@@ -51,27 +51,53 @@ parent and incoming mail would be delivered arbitrarily. The clone filter
 copies email triggers only when `workspaced_local_part IS TRUE` (or
 `CLOUD_HOSTED`, since cloud scopes email lookup by `workspace_id` natively).
 
-## Merge-direction filter (always on)
+## Operational state is owned by the parent
 
-Whenever the source workspace has `parent_workspace_id IS NOT NULL` (i.e.
-it's a fork), the tarball export at `/api/w/{workspace}/workspaces/tarball`
-strips fork-local fields:
+The rule that makes both the normal-git PR merge and the in-app merge behave:
 
-- `mode` from every `*_trigger` row
-- `enabled` from every `schedule` row
+> **A trigger's `mode` (and a schedule's `enabled`) belongs to the parent
+> workspace. Git-sync *reads* the parent's value into a fork's synced file and
+> *never writes* a fork's value back. No git-sync / merge / create / update
+> write sets a fork's operational state; the `setmode` / `setenabled` endpoint
+> is the intended explicit mutator.**
 
-The fork-detection key is the column, not the `wm-fork-*` naming convention,
-so it stays consistent with the conflict-warning gates in `set_trigger_mode`
-and `set_schedule_enabled` and survives any future ID rename.
+(Runtime error handling can still auto-disable an errored trigger or schedule —
+that's orthogonal to this rule, which governs git-sync/merge/create/update
+writes.)
 
-The trigger update handler complements this: when an incoming `update_trigger`
-request omits both `mode` and `enabled`, the existing DB value is preserved
-instead of falling back to the BaseTriggerData default of `Enabled`. This
-means the fork→parent merge cannot flip the parent's operational state, even
-if the fork has an explicit (locally-disabled) state for that path.
+This is enforced in two halves, keyed off `parent_workspace_id IS NOT NULL`
+(the column, not the `wm-fork-*` naming convention — it stays consistent with
+the conflict-warning gates and survives any future ID rename):
 
-The schedule `EditSchedule` payload already lacks an `enabled` field, so its
-update path is naturally safe.
+**Read half — parent-value substitution on export.** When the source workspace
+is a fork, the tarball export at `/api/w/{workspace}/workspaces/tarball`
+rewrites each trigger's `mode` (and each schedule's `enabled`) to the
+*parent's* value for the same path, looked up at export time. A fork-only path
+(absent from the parent) keeps the fork's own value — there's no parent state
+to defer to, so it lands with whatever the fork creator set.
+
+The earlier design *stripped* these fields instead. That broke a normal-git PR
+merge: the parent branch (and the merge base) carries the line, the fork branch
+dropped it, so the 3-way merge either silently deleted `mode`/`enabled` from
+the parent — corrupting the source of truth — or conflicted outright when the
+parent had also edited it. Substituting the parent's value makes the fork's
+file byte-identical to the parent on that field, so the merge has nothing to
+resolve.
+
+**Write half — fork writes never set operational state.** A write into a fork
+(git-sync push, merge deploy, clone, or a plain UI create) must not set the
+state, otherwise pulling the substituted parent value straight back into the
+fork would re-enable it. So `create_trigger`/`create_schedule` force `disabled`
+for a fork target, and `update_trigger` preserves the fork's existing `mode`
+(`workspace_is_fork` in `windmill-trigger/src/handler.rs`; schedule `enabled` is
+naturally preserved because `EditSchedule` has no `enabled` field). The same
+handlers serve both merge paths, so the two can't diverge. The fork owner
+re-enables locally via `setmode`/`setenabled` (which carry the conflict
+warning below).
+
+For a non-fork target the incoming value is applied as given — so a fork→parent
+merge of an existing trigger writes the parent's own (substituted) value (a
+no-op), and a fork-only trigger lands with the fork creator's chosen state.
 
 ## Conflict warning on enable
 
@@ -161,22 +187,23 @@ but `tally_deployed_object_changes` still records mutations against them; the
 deploy will fail at the workspace-collision check if the user tries to
 deploy a non-workspaced row to a fork.
 
-Operational state (`mode` for triggers, `enabled` for schedules) is handled
-asymmetrically between update and create:
+Operational state (`mode` for triggers, `enabled` for schedules) follows the
+same "owned by the parent" rule as the git round-trip (see *Operational state
+is owned by the parent* above) — the two paths share the backend `create`/
+`update` handlers, so they can't diverge.
 
-- **Update**: the merge deploy strips `mode`/`enabled` so the target's existing
-  state is preserved. Triggers rely on the backend's `is_mode_unspecified()`
-  safeguard in `update_trigger`; schedules rely on `EditSchedule` lacking the
-  `enabled` field. Both deploy paths perform the strip
-  (`stripOperationalState` in `utils_deployable.ts`, `preparePayload` in
-  `merge.ts`). This matches the YAML round-trip's `fork_trigger_ignore_keys`
-  / `fork_schedule_ignore_keys`.
-- **Create**: the source's `mode`/`enabled` is passed through. There's no
-  target row to preserve, so a fork-only trigger or schedule lands with the
-  state the fork creator chose. When the source omits the flag entirely (e.g.
-  legacy clients), the backend defaults to `enabled` for both kinds —
-  `BaseTriggerData::mode()` returns `Enabled` and the schedule insert defaults
-  to `true` to match.
+- **Update**: the merge deploy strips `mode`/`enabled`
+  (`stripOperationalStateOnUpdate` in the shared `windmill-utils-internal`
+  package, `cli/windmill-utils-internal/src/deploy.ts`), so the target's
+  existing value is preserved — equivalent to substituting the target's value.
+  For a fork target the backend preserves it regardless (`workspace_is_fork`);
+  for a parent target the `is_mode_unspecified()` safeguard does. Schedules also
+  rely on `EditSchedule` lacking the `enabled` field.
+- **Create**: the source's `mode`/`enabled` is passed through. Into a **parent**
+  there's no row to preserve, so a fork-only trigger/schedule lands with the
+  state the fork creator chose (omitting the flag defaults to `enabled`:
+  `BaseTriggerData::mode()` → `Enabled`, schedule insert → `true`). Into a
+  **fork** the backend forces `disabled` — a fork write never enables anything.
 
 ## Future work — runtime listener suffix
 

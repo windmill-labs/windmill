@@ -8,6 +8,7 @@ import type { TableAction } from '$lib/components/apps/editor/component'
 import { mount, unmount } from 'svelte'
 import { Button } from '$lib/components/common'
 import { Trash2 } from 'lucide-svelte'
+import { safeHref } from '$lib/utils/safeHref'
 
 export type WindmillColumnDef = ColDef & {
 	_isActionsColumn?: boolean
@@ -110,15 +111,25 @@ export function isLinkObject(value: any): value is LinkObject {
 
 export function defaultCellRenderer(cellRendererType: string) {
 	if (cellRendererType === 'link') {
+		// AG Grid assigns a string returned by a cell renderer to innerHTML, and cell values are
+		// run results, so the link is built as a DOM node that never parses them as markup.
 		return (params: ICellRendererParams) => {
-			if (isLinkObject(params.value)) {
-				const value = params.value
-				return `<a href=${value.href} class="underline" target="_blank">${value.label}</a>`
-			} else if (params.value) {
-				return `<a href=${params.value} class="underline" target="_blank">${params.value}</a>`
-			} else {
+			if (!params.value) {
 				return params.value
 			}
+			const { href, label } = isLinkObject(params.value)
+				? params.value
+				: { href: params.value, label: params.value }
+			const allowedHref = safeHref(String(href), window.location.href)
+			const el = document.createElement(allowedHref ? 'a' : 'span')
+			el.textContent = String(label)
+			if (allowedHref) {
+				el.setAttribute('href', allowedHref)
+				el.setAttribute('target', '_blank')
+				el.setAttribute('rel', 'noopener noreferrer')
+				el.className = 'underline'
+			}
+			return el
 		}
 	} else {
 		return undefined

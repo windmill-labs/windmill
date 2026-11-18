@@ -1,0 +1,41 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO ai_shared_artifact\n               (workspace_id, artifact_id, email, created_by, name, kind, version, content)\n           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)\n           ON CONFLICT (workspace_id, email, artifact_id) DO UPDATE\n           SET created_by = EXCLUDED.created_by,\n               name = EXCLUDED.name,\n               kind = EXCLUDED.kind,\n               version = EXCLUDED.version,\n               content = EXCLUDED.content,\n               shared_at = now()\n           RETURNING id, shared_at, (xmax = 0) AS \"inserted!\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "shared_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 2,
+        "name": "inserted!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Int4",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      null
+    ]
+  },
+  "hash": "0589cb0f96e17ecadae4923be70a6cf0148a9e10c1c4ad0f99312b8e99ec1b8a"
+}

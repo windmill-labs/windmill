@@ -139,6 +139,22 @@ pub struct GeminiGenerationConfig {
     pub response_mime_type: Option<String>,
     #[serde(rename = "responseSchema", skip_serializing_if = "Option::is_none")]
     pub response_schema: Option<serde_json::Value>,
+    #[serde(rename = "thinkingConfig", skip_serializing_if = "Option::is_none")]
+    pub thinking_config: Option<GeminiThinkingConfig>,
+}
+
+/// Thinking controls. Gemini 3+ models take a level token (`thinkingLevel`);
+/// Gemini 2.5 models take a token budget (`thinkingBudget`, `-1` = dynamic).
+/// `includeThoughts` returns thought summaries for chat display — summaries are
+/// free; thinking tokens are billed whether or not they are returned.
+#[derive(Serialize, Debug, PartialEq)]
+pub struct GeminiThinkingConfig {
+    #[serde(rename = "thinkingLevel", skip_serializing_if = "Option::is_none")]
+    pub thinking_level: Option<String>,
+    #[serde(rename = "thinkingBudget", skip_serializing_if = "Option::is_none")]
+    pub thinking_budget: Option<i32>,
+    #[serde(rename = "includeThoughts", skip_serializing_if = "Option::is_none")]
+    pub include_thoughts: Option<bool>,
 }
 
 // ============================================================================
@@ -206,6 +222,9 @@ pub struct GeminiSSEPart {
     pub text: Option<String>,
     #[serde(rename = "functionCall")]
     pub function_call: Option<GeminiSSEFunctionCall>,
+    /// Marks a thought-summary part (returned when `includeThoughts` is set).
+    #[serde(default)]
+    pub thought: Option<bool>,
     /// Thought signature for Gemini 3+ models.
     #[serde(rename = "thoughtSignature")]
     pub thought_signature: Option<String>,
@@ -258,7 +277,7 @@ pub struct GeminiSSECandidate {
 }
 
 /// Token usage from the `usageMetadata` field of a Gemini SSE event.
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Deserialize, Debug, Clone, Default)]
 pub struct GeminiUsageMetadata {
     #[serde(rename = "promptTokenCount", default)]
     pub prompt_token_count: Option<i32>,
@@ -266,6 +285,39 @@ pub struct GeminiUsageMetadata {
     pub candidates_token_count: Option<i32>,
     #[serde(rename = "totalTokenCount", default)]
     pub total_token_count: Option<i32>,
+    /// Subset of `promptTokenCount` served from context cache, billed at a reduced
+    /// rate. Reported separately so the client can price it separately.
+    #[serde(rename = "cachedContentTokenCount", default)]
+    pub cached_content_token_count: Option<i32>,
+    /// Thinking tokens, billed as output but counted apart from `candidatesTokenCount`.
+    #[serde(rename = "thoughtsTokenCount", default)]
+    pub thoughts_token_count: Option<i32>,
+    /// Input tokens spent on tool-use prompts, counted apart from `promptTokenCount`
+    /// rather than within it.
+    #[serde(rename = "toolUsePromptTokenCount", default)]
+    pub tool_use_prompt_token_count: Option<i32>,
+}
+
+/// Input tokens as billed. Gemini reports tool-use prompts in their own field, and
+/// they are disjoint from `promptTokenCount`: a live tool call returns 17 prompt +
+/// 60 tool-use + 17 candidates + 52 thoughts against a `totalTokenCount` of 146, so
+/// leaving them out under-reports the input of every tool-using turn. Cached tokens
+/// are not added here, being already part of `promptTokenCount`.
+pub(crate) fn gemini_prompt_tokens(usage: &GeminiUsageMetadata) -> i32 {
+    usage
+        .prompt_token_count
+        .unwrap_or(0)
+        .saturating_add(usage.tool_use_prompt_token_count.unwrap_or(0))
+}
+
+/// Output tokens as billed: Gemini counts thinking apart from `candidatesTokenCount`
+/// but charges it at the output rate, so a reply that thought would otherwise be
+/// reported as far cheaper than it was.
+pub(crate) fn gemini_completion_tokens(usage: &GeminiUsageMetadata) -> i32 {
+    usage
+        .candidates_token_count
+        .unwrap_or(0)
+        .saturating_add(usage.thoughts_token_count.unwrap_or(0))
 }
 
 /// Top-level structure of one Gemini SSE event.
@@ -274,6 +326,17 @@ pub struct GeminiSSEEvent {
     pub candidates: Option<Vec<GeminiSSECandidate>>,
     #[serde(rename = "usageMetadata")]
     pub usage_metadata: Option<GeminiUsageMetadata>,
+    #[serde(default)]
+    pub error: Option<crate::retry::StreamErrorBody>,
+    #[serde(rename = "promptFeedback", default)]
+    pub prompt_feedback: Option<GeminiPromptFeedback>,
+}
+
+/// Set when Gemini refuses the prompt itself, in which case no candidate follows.
+#[derive(Deserialize, Debug)]
+pub struct GeminiPromptFeedback {
+    #[serde(rename = "blockReason", default)]
+    pub block_reason: Option<String>,
 }
 
 // ============================================================================
@@ -293,6 +356,7 @@ impl GeminiToolCallEvent {
     pub fn to_extra_content(&self) -> Option<ExtraContent> {
         self.thought_signature.as_ref().map(|sig| ExtraContent {
             google: Some(GoogleExtraContent { thought_signature: Some(sig.clone()) }),
+            ..Default::default()
         })
     }
 }
@@ -301,6 +365,9 @@ impl GeminiToolCallEvent {
 #[derive(Debug, Default)]
 pub struct GeminiParsedEvent {
     pub text: Option<String>,
+    /// Thought-summary text (parts flagged `thought: true`), kept separate from
+    /// the answer so it can stream as `reasoning_content`.
+    pub reasoning: Option<String>,
     pub tool_calls: Vec<GeminiToolCallEvent>,
     pub annotations: Vec<UrlCitation>,
     pub used_websearch: bool,
@@ -494,10 +561,40 @@ pub fn openai_tools_to_gemini(
     }
 }
 
+/// Follows a Gemini stream to tell a complete turn from one cut short.
+#[derive(Default)]
+pub struct GeminiTurn {
+    ended: bool,
+    has_output: bool,
+}
+
+impl GeminiTurn {
+    pub fn observe(&mut self, event: &GeminiParsedEvent) {
+        // A function call arrives whole and may come without a `finishReason`, so it
+        // counts too, as in gemini-cli's stream validation.
+        self.ended |= event.finish_reason.is_some() || !event.tool_calls.is_empty();
+        self.has_output |= event.text.is_some() || event.reasoning.is_some();
+    }
+
+    /// Whether the turn's final event arrived.
+    pub fn ended(&self) -> bool {
+        self.ended
+    }
+
+    /// Whether a stream that closed cleanly here holds the whole turn. Gemini 2.5 closes
+    /// its stream without a single event when thinking spends the whole
+    /// `maxOutputTokens`: an empty answer, which a retry would only get again, rather
+    /// than a cut one.
+    pub fn complete_at_close(&self) -> bool {
+        self.ended || !self.has_output
+    }
+}
+
 /// Parse one Gemini SSE data line into a [`GeminiParsedEvent`].
 ///
 /// Returns `Ok(None)` for empty data or unrecognised payloads (e.g. `"[DONE]"`).
 /// Logs a warning and returns `Ok(None)` on JSON parse errors rather than propagating.
+/// An error the stream reports is returned as one.
 pub fn parse_gemini_sse_event(data: &str) -> Result<Option<GeminiParsedEvent>, Error> {
     if data.is_empty() || data == "[DONE]" {
         return Ok(None);
@@ -510,6 +607,21 @@ pub fn parse_gemini_sse_event(data: &str) -> Result<Option<GeminiParsedEvent>, E
             return Ok(None);
         }
     };
+
+    if let Some(error) = event.error {
+        return Err(error.into_error("Gemini"));
+    }
+
+    // `BLOCK_REASON_UNSPECIFIED` is the protobuf enum's placeholder, not a block.
+    if let Some(reason) = event
+        .prompt_feedback
+        .and_then(|f| f.block_reason)
+        .filter(|r| !matches!(r.as_str(), "" | "BLOCK_REASON_UNSPECIFIED"))
+    {
+        return Err(Error::AIError(format!(
+            "Gemini blocked the prompt: {reason}"
+        )));
+    }
 
     let mut parsed = GeminiParsedEvent { usage: event.usage_metadata, ..Default::default() };
 
@@ -565,9 +677,12 @@ pub fn gemini_response_to_openai(parsed: &GeminiParsedEvent, model: &str) -> ser
 
     let usage = parsed.usage.as_ref().map(|u| {
         serde_json::json!({
-            "prompt_tokens": u.prompt_token_count.unwrap_or(0),
-            "completion_tokens": u.candidates_token_count.unwrap_or(0),
+            "prompt_tokens": gemini_prompt_tokens(u),
+            "completion_tokens": gemini_completion_tokens(u),
             "total_tokens": u.total_token_count.unwrap_or(0),
+            "prompt_tokens_details": {
+                "cached_tokens": u.cached_content_token_count.unwrap_or(0)
+            },
         })
     });
 
@@ -575,6 +690,9 @@ pub fn gemini_response_to_openai(parsed: &GeminiParsedEvent, model: &str) -> ser
         "role": "assistant",
         "content": content,
     });
+    if let Some(reasoning) = &parsed.reasoning {
+        message["reasoning_content"] = serde_json::json!(reasoning);
+    }
     if !tool_calls.is_empty() {
         message["tool_calls"] = serde_json::json!(tool_calls);
     }
@@ -603,6 +721,20 @@ pub fn gemini_event_to_openai_sse_chunks(
     tool_call_index: &mut usize,
 ) -> Vec<String> {
     let mut chunks = Vec::new();
+
+    if let Some(reasoning) = &parsed.reasoning {
+        let chunk = serde_json::json!({
+            "id": id,
+            "object": "chat.completion.chunk",
+            "model": model,
+            "choices": [{
+                "index": 0,
+                "delta": { "reasoning_content": reasoning },
+                "finish_reason": null,
+            }]
+        });
+        chunks.push(format!("data: {}\n\n", chunk));
+    }
 
     if let Some(text) = &parsed.text {
         let chunk = serde_json::json!({
@@ -634,6 +766,32 @@ pub fn gemini_event_to_openai_sse_chunks(
         });
         chunks.push(format!("data: {}\n\n", chunk));
         *tool_call_index += 1;
+    }
+
+    // Gemini reports token counts in `usageMetadata` on its final event. Mirror
+    // OpenAI's `stream_options.include_usage` terminal chunk (top-level `usage`,
+    // empty `choices`) so the frontend's `'usage' in chunk` path records them.
+    if let Some(usage) = &parsed.usage {
+        let prompt_tokens = gemini_prompt_tokens(usage);
+        let completion_tokens = gemini_completion_tokens(usage);
+        let total_tokens = usage
+            .total_token_count
+            .unwrap_or(prompt_tokens + completion_tokens);
+        let chunk = serde_json::json!({
+            "id": id,
+            "object": "chat.completion.chunk",
+            "model": model,
+            "choices": [],
+            "usage": {
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+                "total_tokens": total_tokens,
+                "prompt_tokens_details": {
+                    "cached_tokens": usage.cached_content_token_count.unwrap_or(0)
+                },
+            }
+        });
+        chunks.push(format!("data: {}\n\n", chunk));
     }
 
     chunks
@@ -718,9 +876,16 @@ fn extract_candidates_into(candidates: &[GeminiSSECandidate], parsed: &mut Gemin
                 for part in parts {
                     if let Some(text) = &part.text {
                         if !text.is_empty() {
-                            match parsed.text.as_mut() {
+                            // Thought-summary parts go to the reasoning channel,
+                            // not the answer.
+                            let target = if part.thought == Some(true) {
+                                &mut parsed.reasoning
+                            } else {
+                                &mut parsed.text
+                            };
+                            match target.as_mut() {
                                 Some(existing) => existing.push_str(text),
-                                None => parsed.text = Some(text.clone()),
+                                None => *target = Some(text.clone()),
                             }
                         }
                     }
@@ -788,9 +953,18 @@ fn openai_tool_call_json(
 #[cfg(test)]
 mod tests {
     use super::{
-        gemini_event_to_openai_sse_chunks, gemini_response_to_openai, sanitize_schema_for_google,
-        GeminiParsedEvent, GeminiToolCallEvent,
+        gemini_event_to_openai_sse_chunks, gemini_response_to_openai, parse_gemini_sse_event,
+        sanitize_schema_for_google, GeminiParsedEvent, GeminiToolCallEvent, GeminiUsageMetadata,
     };
+
+    /// Strip the `data: ...\n\n` SSE framing and parse the payload as JSON.
+    fn parse_sse_chunk(chunk: &str) -> serde_json::Value {
+        let payload = chunk
+            .strip_prefix("data: ")
+            .and_then(|c| c.strip_suffix("\n\n"))
+            .expect("chunk should be wrapped as SSE data");
+        serde_json::from_str(payload).expect("chunk should be valid JSON")
+    }
 
     #[test]
     fn gemini_response_to_openai_preserves_thought_signature() {
@@ -854,6 +1028,223 @@ mod tests {
             "stream-thought-signature"
         );
         assert_eq!(tool_call["index"], 0);
+    }
+
+    #[test]
+    fn gemini_streaming_emits_usage_chunk() {
+        let parsed = GeminiParsedEvent {
+            text: Some("the answer".to_string()),
+            usage: Some(GeminiUsageMetadata {
+                prompt_token_count: Some(12),
+                candidates_token_count: Some(7),
+                total_token_count: Some(19),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+
+        let mut tool_call_index = 0;
+        let chunks = gemini_event_to_openai_sse_chunks(
+            &parsed,
+            "chatcmpl-test",
+            "gemini-3-flash-preview",
+            &mut tool_call_index,
+        );
+
+        // Mirrors OpenAI's `stream_options.include_usage`: a terminal chunk with
+        // top-level `usage` and empty `choices`.
+        let usage_chunk = chunks
+            .iter()
+            .map(|c| parse_sse_chunk(c))
+            .find(|v| v.get("usage").map(|u| !u.is_null()).unwrap_or(false))
+            .expect("a chunk should carry top-level usage");
+
+        assert_eq!(usage_chunk["usage"]["prompt_tokens"], 12);
+        assert_eq!(usage_chunk["usage"]["completion_tokens"], 7);
+        assert_eq!(usage_chunk["usage"]["total_tokens"], 19);
+        assert_eq!(usage_chunk["choices"], serde_json::json!([]));
+    }
+
+    #[test]
+    fn gemini_usage_chunk_splits_cached_and_bills_thoughts() {
+        let parsed = GeminiParsedEvent {
+            text: Some("the answer".to_string()),
+            usage: Some(GeminiUsageMetadata {
+                prompt_token_count: Some(1000),
+                candidates_token_count: Some(20),
+                total_token_count: Some(1120),
+                cached_content_token_count: Some(900),
+                thoughts_token_count: Some(100),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+
+        let mut tool_call_index = 0;
+        let chunks = gemini_event_to_openai_sse_chunks(
+            &parsed,
+            "chatcmpl-test",
+            "gemini-3-flash-preview",
+            &mut tool_call_index,
+        );
+        let usage_chunk = chunks
+            .iter()
+            .map(|c| parse_sse_chunk(c))
+            .find(|v| v.get("usage").map(|u| !u.is_null()).unwrap_or(false))
+            .expect("a chunk should carry top-level usage");
+
+        // Gemini's prompt count already includes the cached tokens, so it passes
+        // through unchanged and the cached share is reported alongside it; thinking
+        // is billed as output but counted apart from the candidates.
+        assert_eq!(usage_chunk["usage"]["prompt_tokens"], 1000);
+        assert_eq!(
+            usage_chunk["usage"]["prompt_tokens_details"]["cached_tokens"],
+            900
+        );
+        assert_eq!(usage_chunk["usage"]["completion_tokens"], 120);
+    }
+
+    #[test]
+    fn gemini_usage_chunk_counts_tool_use_prompt_tokens() {
+        let parsed = GeminiParsedEvent {
+            text: Some("Canberra".to_string()),
+            usage: Some(GeminiUsageMetadata {
+                prompt_token_count: Some(17),
+                candidates_token_count: Some(17),
+                total_token_count: Some(146),
+                tool_use_prompt_token_count: Some(60),
+                thoughts_token_count: Some(52),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+
+        let mut tool_call_index = 0;
+        let chunks = gemini_event_to_openai_sse_chunks(
+            &parsed,
+            "chatcmpl-test",
+            "gemini-2.5-flash",
+            &mut tool_call_index,
+        );
+        let usage_chunk = chunks
+            .iter()
+            .map(|c| parse_sse_chunk(c))
+            .find(|v| v.get("usage").map(|u| !u.is_null()).unwrap_or(false))
+            .expect("a chunk should carry top-level usage");
+
+        assert_eq!(usage_chunk["usage"]["prompt_tokens"], 77);
+        assert_eq!(usage_chunk["usage"]["completion_tokens"], 69);
+        assert_eq!(
+            usage_chunk["usage"]["prompt_tokens"].as_i64().unwrap()
+                + usage_chunk["usage"]["completion_tokens"].as_i64().unwrap(),
+            146
+        );
+    }
+
+    #[test]
+    fn gemini_streaming_usage_total_falls_back_to_prompt_plus_completion() {
+        let parsed = GeminiParsedEvent {
+            usage: Some(GeminiUsageMetadata {
+                prompt_token_count: Some(5),
+                candidates_token_count: Some(3),
+                total_token_count: None,
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+
+        let mut tool_call_index = 0;
+        let chunks = gemini_event_to_openai_sse_chunks(
+            &parsed,
+            "chatcmpl-test",
+            "gemini-3-flash-preview",
+            &mut tool_call_index,
+        );
+
+        let usage_chunk = chunks
+            .iter()
+            .map(|c| parse_sse_chunk(c))
+            .find(|v| v.get("usage").map(|u| !u.is_null()).unwrap_or(false))
+            .expect("a chunk should carry top-level usage");
+
+        assert_eq!(usage_chunk["usage"]["prompt_tokens"], 5);
+        assert_eq!(usage_chunk["usage"]["completion_tokens"], 3);
+        assert_eq!(usage_chunk["usage"]["total_tokens"], 8);
+    }
+
+    #[test]
+    fn gemini_streaming_without_usage_emits_no_usage_chunk() {
+        let parsed =
+            GeminiParsedEvent { text: Some("the answer".to_string()), ..Default::default() };
+
+        let mut tool_call_index = 0;
+        let chunks = gemini_event_to_openai_sse_chunks(
+            &parsed,
+            "chatcmpl-test",
+            "gemini-3-flash-preview",
+            &mut tool_call_index,
+        );
+
+        assert!(
+            chunks
+                .iter()
+                .map(|c| parse_sse_chunk(c))
+                .all(|v| v.get("usage").map(|u| u.is_null()).unwrap_or(true)),
+            "no usage chunk should be emitted when the event has no usageMetadata"
+        );
+    }
+
+    #[test]
+    fn gemini_thought_parts_route_to_reasoning() {
+        let event = r#"{
+            "candidates": [{
+                "content": {
+                    "parts": [
+                        {"text": "summary of my thinking", "thought": true},
+                        {"text": "the answer"}
+                    ]
+                }
+            }]
+        }"#;
+        let parsed = parse_gemini_sse_event(event)
+            .expect("parse succeeds")
+            .expect("event is recognised");
+        assert_eq!(parsed.reasoning.as_deref(), Some("summary of my thinking"));
+        assert_eq!(parsed.text.as_deref(), Some("the answer"));
+
+        let mut tool_call_index = 0;
+        let chunks = gemini_event_to_openai_sse_chunks(
+            &parsed,
+            "chatcmpl-test",
+            "gemini-3-flash-preview",
+            &mut tool_call_index,
+        );
+        assert_eq!(chunks.len(), 2);
+        let reasoning_chunk: serde_json::Value = serde_json::from_str(
+            chunks[0]
+                .strip_prefix("data: ")
+                .and_then(|c| c.strip_suffix("\n\n"))
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            reasoning_chunk["choices"][0]["delta"]["reasoning_content"],
+            "summary of my thinking"
+        );
+        let text_chunk: serde_json::Value = serde_json::from_str(
+            chunks[1]
+                .strip_prefix("data: ")
+                .and_then(|c| c.strip_suffix("\n\n"))
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(text_chunk["choices"][0]["delta"]["content"], "the answer");
+
+        // Non-streaming conversion keeps the channels separate too.
+        let response = gemini_response_to_openai(&parsed, "gemini-3-flash-preview");
+        let message = &response["choices"][0]["message"];
+        assert_eq!(message["content"], "the answer");
+        assert_eq!(message["reasoning_content"], "summary of my thinking");
     }
 
     #[test]

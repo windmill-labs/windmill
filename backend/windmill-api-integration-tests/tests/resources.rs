@@ -199,6 +199,25 @@ async fn test_resource_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
     let list = resp.json::<Vec<serde_json::Value>>().await?;
     assert!(!list.is_empty());
 
+    // Values are capped so the search modal never has to hold a whole workspace of
+    // resource content in memory.
+    let find = |path: &str| {
+        list.iter()
+            .find(|r| r["path"] == path)
+            .unwrap_or_else(|| panic!("{path} missing from list_search"))
+            .clone()
+    };
+    let oversized = find("u/test-user/oversized_resource");
+    assert_eq!(oversized["value"].as_str().unwrap().chars().count(), 4000);
+    assert_eq!(oversized["truncated"], true);
+
+    let simple = find("u/test-user/simple_resource");
+    assert!(simple["value"].as_str().unwrap().contains("\"host\""));
+    assert_eq!(simple["truncated"], false);
+
+    // A null value must still come back as searchable text, not null.
+    assert_eq!(find("u/test-user/null_resource")["value"], "");
+
     // --- list_names ---
     let resp = authed(client().get(format!("{base}/list_names/object")))
         .send()
@@ -274,6 +293,19 @@ async fn test_resource_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
     let resp = authed_get(port, "get", "u/test-user/new_resource").await;
     let body = resp.json::<serde_json::Value>().await?;
     assert_eq!(body["description"], "Updated description");
+
+    // --- update (resource_type) ---
+    // An update that only changes resource_type must persist it.
+    let resp = authed(client().post(resource_url(port, "update", "u/test-user/new_resource")))
+        .json(&json!({"resource_type": "mcp_server"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+
+    let resp = authed_get(port, "get", "u/test-user/new_resource").await;
+    let body = resp.json::<serde_json::Value>().await?;
+    assert_eq!(body["resource_type"], "mcp_server");
 
     // --- update_value ---
     let resp = authed(client().post(resource_url(
@@ -411,6 +443,30 @@ async fn test_resource_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
     let body = resp.json::<serde_json::Value>().await?;
     assert_eq!(body["description"], "Updated type desc");
 
+    // display_name: an update that omits it, as a push from a CLI predating the field does,
+    // keeps it; an explicit null clears it.
+    for (update, expected) in [
+        (
+            json!({"display_name": "New Test Type"}),
+            json!("New Test Type"),
+        ),
+        (
+            json!({"description": "Updated type desc"}),
+            json!("New Test Type"),
+        ),
+        (json!({"display_name": null}), serde_json::Value::Null),
+    ] {
+        let resp = authed(client().post(resource_url(port, "type/update", "new_test_type")))
+            .json(&update)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 200);
+        let resp = authed_get(port, "type/get", "new_test_type").await;
+        let body = resp.json::<serde_json::Value>().await?;
+        assert_eq!(body["display_name"], expected);
+    }
+
     // type/delete
     let resp = authed(client().delete(resource_url(port, "type/delete", "new_test_type")))
         .send()
@@ -473,6 +529,413 @@ async fn test_resource_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
         .await
         .unwrap();
     assert_eq!(resp.status(), 200);
+
+    Ok(())
+}
+
+/// Regression test: the resource-value interpolation cache
+/// (`get_value_interpolated?allow_cache=true`) must be identity-scoped. test-user-2
+/// (folder access) warms the cache; test-user-3 (no access) must then be denied rather
+/// than served the cached, already-decrypted value. Pre-fix the unscoped key returned
+/// a 200 with the secret here.
+#[sqlx::test(migrations = "../migrations", fixtures("base", "resource_cache_rls"))]
+async fn test_resource_value_cache_is_identity_scoped(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let url = format!(
+        "{}?allow_cache=true",
+        resource_url(port, "get_value_interpolated", "f/secret/cache_target")
+    );
+    let get = |token: &str| {
+        client()
+            .get(url.as_str())
+            .header("Authorization", format!("Bearer {token}"))
+    };
+
+    // test-user-2 has folder access and WARMS the cache.
+    let resp = get("SECRET_TOKEN_2").send().await?;
+    assert_eq!(resp.status(), 200);
+    assert!(resp.text().await?.contains("LEAKED_FOLDER_SECRET"));
+
+    // test-user-3 has no folder access: must miss the cache and be denied (401), not leak.
+    let resp = get("SECRET_TOKEN_3").send().await?;
+    assert_eq!(resp.status(), 401);
+    assert!(!resp.text().await?.contains("LEAKED_FOLDER_SECRET"));
+
+    Ok(())
+}
+
+/// A token scoped to one resource must not read, through the `$var:`/`$res:` references it
+/// writes into that resource, what its scopes would refuse to read directly.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_interpolated_references_need_the_token_scopes(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base = format!("http://localhost:{port}/api/w/test-workspace");
+
+    let resp = authed(client().post(format!("{base}/variables/create")))
+        .json(&json!({"path": "u/test-user/secret", "value": "CANARY", "is_secret": true, "description": ""}))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 201);
+    let resp = authed(client().post(format!("{base}/resources/create")))
+        .json(&json!({"path": "u/test-user/other", "value": {"pw": "OTHER"}, "resource_type": "object", "description": ""}))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 201);
+
+    let mint = |scopes: serde_json::Value| async move {
+        let resp =
+            authed(client().post(format!("http://localhost:{port}/api/users/tokens/create")))
+                .json(
+                    &json!({"label": "scoped", "scopes": scopes, "workspace_id": "test-workspace"}),
+                )
+                .send()
+                .await
+                .unwrap();
+        assert_eq!(resp.status(), 201);
+        resp.text().await.unwrap()
+    };
+    let probe_only = mint(json!(["resources:write:u/test-user/probe"])).await;
+    let with_var = mint(json!([
+        "resources:read:u/test-user/probe",
+        "variables:read:u/test-user/secret"
+    ]))
+    .await;
+
+    let read_probe = |value: serde_json::Value, token: String| {
+        let base = base.clone();
+        let probe_only = probe_only.clone();
+        async move {
+            let resp = client()
+                .post(format!("{base}/resources/create?update_if_exists=true"))
+                .bearer_auth(&probe_only)
+                .json(&json!({"path": "u/test-user/probe", "value": value, "resource_type": "object", "description": ""}))
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(resp.status(), 201);
+            let resp = client()
+                .get(format!(
+                    "{base}/resources/get_value_interpolated/u/test-user/probe"
+                ))
+                .bearer_auth(&token)
+                .send()
+                .await
+                .unwrap();
+            (resp.status().as_u16(), resp.text().await.unwrap())
+        }
+    };
+
+    for value in [
+        json!({"v": "$var:u/test-user/secret"}),
+        json!({"v": "$jsonvar:u/test-user/secret"}),
+        json!({"v": ["$res:u/test-user/other"]}),
+    ] {
+        let (status, body) = read_probe(value.clone(), probe_only.clone()).await;
+        assert_eq!(status, 403, "{value}: {body}");
+        assert!(
+            !body.contains("CANARY") && !body.contains("OTHER"),
+            "{body}"
+        );
+    }
+
+    let (status, body) =
+        read_probe(json!({"v": "$var:u/test-user/secret"}), with_var.clone()).await;
+    assert_eq!((status, body.as_str()), (200, r#"{"v":"CANARY"}"#));
+
+    // A wildcard resource pattern extends to the variables it matches, and only to those.
+    let wildcard = mint(json!(["resources:read:u/test-user/*"])).await;
+    let (status, body) =
+        read_probe(json!({"v": "$var:u/test-user/secret"}), wildcard.clone()).await;
+    assert_eq!((status, body.as_str()), (200, r#"{"v":"CANARY"}"#));
+    let elsewhere = mint(json!(["resources:read:u/test-user/probe,f/other/*"])).await;
+    let (status, body) = read_probe(json!({"v": "$var:u/test-user/secret"}), elsewhere).await;
+    assert_eq!(status, 403, "{body}");
+
+    // The resource's own linked secrets (at its path, or `<path>_<field>`) are part of it.
+    for (path, value) in [
+        ("u/test-user/probe", "LINKED"),
+        ("u/test-user/probe_key", "KEY"),
+    ] {
+        let resp = authed(client().post(format!("{base}/variables/create")))
+            .json(&json!({"path": path, "value": value, "is_secret": true, "description": ""}))
+            .send()
+            .await?;
+        assert_eq!(resp.status(), 201);
+    }
+    let (status, body) = read_probe(
+        json!({"pw": "$var:u/test-user/probe", "key": "$var:u/test-user/probe_key"}),
+        probe_only.clone(),
+    )
+    .await;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&body)?,
+        json!({"pw": "LINKED", "key": "KEY"})
+    );
+
+    Ok(())
+}
+
+/// A resource whose value contains a `$WM_*` contextual variable (e.g. `$WM_TOKEN`) is
+/// job-dependent and must NEVER be cached — even when first read WITHOUT a `job_id`, where the
+/// placeholder is left unresolved (caching that would serve a stale placeholder to a later job
+/// read). Any other value — plain, or a non-`$WM_` `$`-string like `$HOME` (which is NOT
+/// interpolated, so it's constant) — is job-independent and IS cached, with the entry shared
+/// across job contexts (a read carrying a `job_id` still hits it, keeping the hit ratio up).
+/// We prove all three by warming each (no job_id), deleting the row directly (cache survives),
+/// then re-reading: the job-independent ones are still served from cache — even under a
+/// `job_id` — while the `$WM_*` one was never cached and 404s.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_resource_cache_handles_job_context(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base = format!("http://localhost:{port}/api/w/test-workspace/resources");
+
+    let plain = "u/test-user/plain_res";
+    let dollar = "u/test-user/dollar_res"; // non-$WM_ `$`-string: not interpolated, cacheable
+    let jobctx = "u/test-user/jobctx_res";
+    for (path, value) in [
+        (plain, json!({"v": 1})),
+        (dollar, json!({"d": "$HOME"})),
+        (jobctx, json!({"j": "$WM_JOB_ID"})),
+    ] {
+        let resp = authed(client().post(format!("{base}/create")))
+            .json(
+                &json!({ "path": path, "value": value, "description": "", "resource_type": "object" }),
+            )
+            .send()
+            .await?;
+        assert_eq!(resp.status(), 201);
+    }
+
+    let get = |path: &str, query: &str| {
+        let url = format!("{base}/get_value_interpolated/{path}?{query}");
+        async move { authed(client().get(url)).send().await.unwrap() }
+    };
+
+    // Warm all three WITHOUT a job context (the placeholder is left unresolved for `jobctx`).
+    for path in [plain, dollar, jobctx] {
+        assert_eq!(get(path, "allow_cache=true").await.status(), 200);
+    }
+
+    // Delete the rows directly — bypasses the API/NOTIFY, so the in-memory cache survives.
+    for path in [plain, dollar, jobctx] {
+        sqlx::query("DELETE FROM resource WHERE workspace_id = 'test-workspace' AND path = $1")
+            .bind(path)
+            .execute(&db)
+            .await?;
+    }
+
+    // Job-independent values are cached and still served even under a job_id (a random uuid is
+    // fine: a cache hit short-circuits before any job lookup). `$HOME` is a non-`$WM_` string,
+    // so it's not interpolated and stays cacheable.
+    for path in [plain, dollar] {
+        let resp = get(
+            path,
+            "allow_cache=true&job_id=11111111-1111-4111-8111-111111111111",
+        )
+        .await;
+        assert_eq!(
+            resp.status(),
+            200,
+            "job-independent resource ({path}) must stay cached and be served under a job_id"
+        );
+    }
+
+    // The `$WM_*` resource was never cached → the (now deleted) row is not found.
+    let resp = get(jobctx, "allow_cache=true").await;
+    assert_ne!(
+        resp.status(),
+        200,
+        "resource with a $WM_* contextual variable must not be cached"
+    );
+
+    Ok(())
+}
+
+/// The installation serves a non-admin only the URL an admin last saved on an
+/// app-backed resource, so a write by anyone else must never set it, and a new
+/// resource where an approved one used to be must not inherit it.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_github_app_repo_approval_follows_admin_writes(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let base = format!(
+        "http://localhost:{}/api/w/test-workspace/resources",
+        server.addr.port()
+    );
+    let (path, renamed) = ("u/test-user-2/repo", "u/test-user-2/repo2");
+    let (approved, other) = (
+        "https://github.com/o/r.git",
+        "https://github.com/o/other.git",
+    );
+    let value = |url: &str| json!({"value": {"url": url, "is_github_app": true}});
+    let create = |url: &str| {
+        let mut body = value(url);
+        body["path"] = json!(path);
+        body["resource_type"] = json!("git_repository");
+        body
+    };
+    let post = |token: &'static str, url: String, body: serde_json::Value| async move {
+        let resp = client()
+            .post(url)
+            .bearer_auth(token)
+            .json(&body)
+            .send()
+            .await
+            .unwrap();
+        assert!(resp.status().is_success(), "{}", resp.text().await.unwrap());
+    };
+    let approved_url = |path: &'static str| {
+        let db = db.clone();
+        async move {
+            sqlx::query_scalar::<_, String>(
+                "SELECT url FROM github_app_repo_approval
+                 WHERE workspace_id = 'test-workspace' AND path = $1",
+            )
+            .bind(path)
+            .fetch_optional(&db)
+            .await
+            .unwrap()
+        }
+    };
+
+    post("SECRET_TOKEN_2", format!("{base}/create"), create(approved)).await;
+    assert_eq!(
+        approved_url(path).await,
+        None,
+        "a non-admin's write approves nothing"
+    );
+
+    // Only a save of the value approves: an admin renaming or describing a
+    // resource has not looked at its URL.
+    post(
+        "SECRET_TOKEN",
+        format!("{base}/update/{path}"),
+        json!({"description": "ok"}),
+    )
+    .await;
+    assert_eq!(approved_url(path).await, None);
+    let mut save = value(approved);
+    save["description"] = json!("ok");
+    post("SECRET_TOKEN", format!("{base}/update/{path}"), save).await;
+    assert_eq!(approved_url(path).await.as_deref(), Some(approved));
+
+    post(
+        "SECRET_TOKEN_2",
+        format!("{base}/update_value/{path}"),
+        value(other),
+    )
+    .await;
+    assert_eq!(approved_url(path).await.as_deref(), Some(approved));
+
+    post(
+        "SECRET_TOKEN",
+        format!("{base}/update_value/{path}"),
+        value(other),
+    )
+    .await;
+    assert_eq!(approved_url(path).await.as_deref(), Some(other));
+
+    post(
+        "SECRET_TOKEN_2",
+        format!("{base}/update/{path}"),
+        json!({"path": renamed}),
+    )
+    .await;
+    assert_eq!(approved_url(renamed).await.as_deref(), Some(other));
+    post("SECRET_TOKEN_2", format!("{base}/create"), create(other)).await;
+    assert_eq!(
+        approved_url(path).await,
+        None,
+        "nothing is inherited from the old path"
+    );
+
+    // An admin save that names no app-backed repository revokes the old one, so a
+    // non-admin cannot put the earlier URL back and be served it.
+    post(
+        "SECRET_TOKEN",
+        format!("{base}/update_value/{renamed}"),
+        json!({"value": {"url": other, "is_github_app": false}}),
+    )
+    .await;
+    assert_eq!(approved_url(renamed).await, None);
+
+    // A `$var:` resolves to whatever its owner sets, so it is never approved.
+    post(
+        "SECRET_TOKEN",
+        format!("{base}/update_value/{path}"),
+        value("$var:u/test-user-2/repo_url"),
+    )
+    .await;
+    assert_eq!(approved_url(path).await, None);
+    Ok(())
+}
+
+/// Without an embeddings index the resource type search reads the table, so it has to apply the
+/// same scope as the index: the workspace's own types and the global ones in `admins`, never
+/// another workspace's.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_resource_type_search_without_embeddings(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    sqlx::query("INSERT INTO workspace (id, name, owner) VALUES ('other-workspace', 'other-workspace', 'test-user')")
+        .execute(&db)
+        .await?;
+    for (workspace, name, description) in [
+        (
+            "test-workspace",
+            "c_acme_billing",
+            "Acme internal billing API",
+        ),
+        (
+            "other-workspace",
+            "c_other_billing",
+            "Another workspace's billing API",
+        ),
+    ] {
+        sqlx::query(
+            "INSERT INTO resource_type (workspace_id, name, schema, description, created_by) VALUES ($1, $2, '{}'::jsonb, $3, 'test-user')",
+        )
+        .bind(workspace)
+        .bind(name)
+        .bind(description)
+        .execute(&db)
+        .await?;
+    }
+
+    let search = |text: &str| {
+        let url = format!(
+            "http://localhost:{port}/api/w/test-workspace/embeddings/query_resource_types?text={text}"
+        );
+        async move {
+            let resp = authed(client().get(url)).send().await.unwrap();
+            assert_eq!(resp.status(), 200);
+            resp.json::<Vec<serde_json::Value>>()
+                .await
+                .unwrap()
+                .into_iter()
+                .map(|rt| rt["name"].as_str().unwrap().to_string())
+                .collect::<Vec<_>>()
+        }
+    };
+
+    let billing = search("billing").await;
+    assert_eq!(billing.first().map(String::as_str), Some("c_acme_billing"));
+    assert!(!billing.contains(&"c_other_billing".to_string()));
+    // `ai_skill` is seeded in `admins` by the migrations.
+    assert!(search("skill").await.contains(&"ai_skill".to_string()));
 
     Ok(())
 }
@@ -632,37 +1095,26 @@ async fn test_mcp_client_get_job_and_logs(db: Pool<Postgres>) -> anyhow::Result<
     .auth_header("MCP_TOKEN");
     let transport = StreamableHttpClientTransport::from_config(config);
 
-    let client_info = ClientInfo {
-        protocol_version: Default::default(),
-        capabilities: ClientCapabilities::default(),
-        client_info: Implementation {
-            name: "test-client".to_string(),
-            title: None,
-            version: "0.0.1".to_string(),
-            description: None,
-            website_url: None,
-            icons: None,
-        },
-        meta: None,
-    };
+    let client_info = ClientInfo::new(
+        ClientCapabilities::default(),
+        Implementation::new("test-client", "0.0.1"),
+    );
 
     let client: RunningService<RoleClient, InitializeRequestParams> =
         client_info.serve(transport).await?;
 
     // --- Test getJob ---
     let result = client
-        .call_tool(CallToolRequestParams {
-            name: "getJob".into(),
-            arguments: Some(serde_json::from_value(json!({ "id": job_id.to_string() }))?),
-            task: None,
-            meta: None,
-        })
+        .call_tool(
+            CallToolRequestParams::new("getJob")
+                .with_arguments(serde_json::from_value(json!({ "id": job_id.to_string() }))?),
+        )
         .await?;
 
     let text = result
         .content
         .first()
-        .and_then(|c| c.raw.as_text())
+        .and_then(|c| c.as_text())
         .expect("getJob should return text content");
     let job: serde_json::Value = serde_json::from_str(&text.text)?;
     assert_eq!(job["id"], job_id.to_string());
@@ -676,18 +1128,16 @@ async fn test_mcp_client_get_job_and_logs(db: Pool<Postgres>) -> anyhow::Result<
 
     // --- Test getJobLogs ---
     let result = client
-        .call_tool(CallToolRequestParams {
-            name: "getJobLogs".into(),
-            arguments: Some(serde_json::from_value(json!({ "id": job_id.to_string() }))?),
-            task: None,
-            meta: None,
-        })
+        .call_tool(
+            CallToolRequestParams::new("getJobLogs")
+                .with_arguments(serde_json::from_value(json!({ "id": job_id.to_string() }))?),
+        )
         .await?;
 
     let text = result
         .content
         .first()
-        .and_then(|c| c.raw.as_text())
+        .and_then(|c| c.as_text())
         .expect("getJobLogs should return text content");
     // The logs endpoint returns text/plain, which gets wrapped as a JSON string by call_endpoint
     let logs: String = serde_json::from_str(&text.text)?;

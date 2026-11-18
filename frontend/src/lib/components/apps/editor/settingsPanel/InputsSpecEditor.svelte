@@ -359,6 +359,7 @@
 				}}
 				readOnlyMode={false}
 				regexFilter={/\.(png|jpg|jpeg|svg|webp)$/i}
+				lazyFolders={false}
 			/>
 		{:else if componentInput?.type === 'user'}
 			<span class="text-2xs italic text-primary">Field's value is set by the user</span>

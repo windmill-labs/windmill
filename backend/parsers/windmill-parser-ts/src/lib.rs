@@ -16,11 +16,13 @@ use windmill_parser::{
 
 use swc_common::{sync::Lrc, FileName, SourceMap, SourceMapper, Span, Spanned};
 use swc_ecma_ast::{
-    ArrayLit, AssignPat, BigInt, BindingIdent, Bool, Decl, ExportDecl, Expr, Ident, IdentName, Lit,
-    MemberExpr, MemberProp, ModuleDecl, ModuleItem, Number, ObjectLit, ObjectPat, Param, Pat, Stmt,
-    Str, TsArrayType, TsEntityName, TsInterfaceDecl, TsKeywordType, TsKeywordTypeKind, TsLit,
-    TsLitType, TsOptionalType, TsParenthesizedType, TsPropertySignature, TsType, TsTypeAliasDecl,
-    TsTypeAnn, TsTypeElement, TsTypeLit, TsTypeRef, TsUnionOrIntersectionType, TsUnionType,
+    ArrayLit, AssignPat, BigInt, BindingIdent, Bool, Decl, ExportDecl, Expr, ExprOrSpread, Ident,
+    IdentName, KeyValueProp, Lit, MemberExpr, MemberProp, ModuleDecl, ModuleItem, Number,
+    ObjectLit, ObjectPat, Param, Pat, Prop, PropName, PropOrSpread, Stmt, Str, TsArrayType,
+    TsEntityName, TsInterfaceDecl, TsKeywordType, TsKeywordTypeKind, TsLit, TsLitType,
+    TsOptionalType, TsParenthesizedType, TsPropertySignature, TsType, TsTypeAliasDecl, TsTypeAnn,
+    TsTypeElement, TsTypeLit, TsTypeRef, TsUnionOrIntersectionType, TsUnionType, UnaryExpr,
+    UnaryOp,
 };
 use swc_ecma_parser::{lexer::Lexer, EsSyntax, Parser, StringInput, Syntax, TsSyntax};
 
@@ -129,7 +131,10 @@ impl Visit for ImportsFinder {
 /// See also: [`parse_relative_imports`] for resolved absolute paths.
 pub fn parse_expr_for_imports(code: &str, skip_type_only: bool) -> anyhow::Result<Vec<String>> {
     let cm: Lrc<SourceMap> = Default::default();
-    let fm = cm.new_source_file(FileName::Custom("main.d.ts".into()).into(), code.to_string());
+    let fm = cm.new_source_file(
+        FileName::Custom("main.d.ts".into()).into(),
+        code.to_string(),
+    );
     let mut tss = TsSyntax::default();
     tss.disallow_ambiguous_jsx_like;
     tss.tsx = true;
@@ -184,7 +189,20 @@ pub fn parse_expr_for_imports(code: &str, skip_type_only: bool) -> anyhow::Resul
 /// // Returns: ["f/utils"]
 /// ```
 pub fn parse_relative_imports(code: &str, path: &str) -> anyhow::Result<Vec<String>> {
-    let imports = parse_expr_for_imports(code, false)?;
+    resolve_relative_imports(code, path, false)
+}
+
+/// [`parse_relative_imports`] without type-only imports, which are erased before the code runs.
+pub fn parse_runtime_relative_imports(code: &str, path: &str) -> anyhow::Result<Vec<String>> {
+    resolve_relative_imports(code, path, true)
+}
+
+fn resolve_relative_imports(
+    code: &str,
+    path: &str,
+    skip_type_only: bool,
+) -> anyhow::Result<Vec<String>> {
+    let imports = parse_expr_for_imports(code, skip_type_only)?;
     let script_dir = path.rsplit_once('/').map(|(dir, _)| dir).unwrap_or("");
 
     let mut resolved: Vec<String> = imports
@@ -575,6 +593,15 @@ fn parse_param(
                 }
             };
 
+            let literal = match &*right {
+                Expr::Object(_) | Expr::Array(_) if !skip_dflt => literal_json(&right),
+                _ => None,
+            };
+            // Types an untyped object default that is not a plain literal (`{ a: x }`).
+            let literal_shape = match &*right {
+                Expr::Object(_) => Some(Typ::Object(ObjectType::new(None, None))),
+                _ => None,
+            };
             let dflt = if skip_dflt {
                 None
             } else {
@@ -590,14 +617,19 @@ fn parse_param(
                     Expr::Lit(Lit::Num(Number { value, .. })) => Some(serde_json::json!(value)),
                     Expr::Lit(Lit::BigInt(BigInt { value, .. })) => Some(serde_json::json!(value)),
                     Expr::Lit(Lit::Bool(Bool { value, .. })) => Some(Value::Bool(value)),
-                    Expr::Object(ObjectLit { span, .. }) => eval_span(span, cm),
-                    Expr::Array(ArrayLit { span, .. }) => eval_span(span, cm),
+                    Expr::Object(ObjectLit { span, .. }) | Expr::Array(ArrayLit { span, .. }) => {
+                        literal.or_else(|| eval_span(span, cm))
+                    }
                     _ => None,
                 }
             };
 
-            if typ == Typ::Unknown && dflt.is_some() {
-                typ = json_to_typ(dflt.as_ref().unwrap(), false);
+            if typ == Typ::Unknown {
+                match &dflt {
+                    Some(d) => typ = json_to_typ(d, false),
+                    None if !skip_dflt => typ = literal_shape.unwrap_or(Typ::Unknown),
+                    None => {}
+                }
             }
             Ok(Arg {
                 otyp,
@@ -631,6 +663,59 @@ fn parse_param(
         )),
     };
     r
+}
+
+/// A default written as a plain literal, read off the AST: `['a']` and `{ a: 1 }` are
+/// not JSON, and outside wasm nothing can evaluate them (see `eval_sync`).
+fn literal_json(expr: &Expr) -> Option<Value> {
+    let num = |v: f64| {
+        if v.fract() == 0.0 && v.abs() < 9007199254740992.0 {
+            Some(serde_json::json!(v as i64))
+        } else {
+            serde_json::Number::from_f64(v).map(Value::Number)
+        }
+    };
+    match expr {
+        Expr::Lit(Lit::Str(s)) => Some(Value::String(s.value.to_string())),
+        Expr::Lit(Lit::Num(n)) => num(n.value),
+        Expr::Lit(Lit::Bool(b)) => Some(Value::Bool(b.value)),
+        Expr::Lit(Lit::Null(_)) => Some(Value::Null),
+        Expr::Unary(UnaryExpr { op: UnaryOp::Minus, arg, .. }) => match &**arg {
+            Expr::Lit(Lit::Num(n)) => num(-n.value),
+            _ => None,
+        },
+        Expr::Paren(p) => literal_json(&p.expr),
+        Expr::Array(a) => a
+            .elems
+            .iter()
+            .map(|e| match e {
+                Some(ExprOrSpread { spread: None, expr }) => literal_json(expr),
+                _ => None,
+            })
+            .collect::<Option<Vec<_>>>()
+            .map(Value::Array),
+        Expr::Object(o) => o
+            .props
+            .iter()
+            .map(|p| match p {
+                PropOrSpread::Prop(p) => match &**p {
+                    Prop::KeyValue(KeyValueProp { key, value }) => {
+                        let key = match key {
+                            PropName::Ident(i) => i.sym.to_string(),
+                            PropName::Str(s) => s.value.to_string(),
+                            PropName::Num(n) => n.value.to_string(),
+                            _ => return None,
+                        };
+                        Some((key, literal_json(value)?))
+                    }
+                    _ => None,
+                },
+                _ => None,
+            })
+            .collect::<Option<serde_json::Map<_, _>>>()
+            .map(Value::Object),
+        _ => None,
+    }
 }
 
 fn eval_span(span: Span, cm: &Lrc<SourceMap>) -> Option<Value> {
@@ -688,6 +773,107 @@ pub fn remove_pinned_imports(code: &str) -> anyhow::Result<String> {
             content = content.replace(&import, &to);
         }
     }
+    Ok(content)
+}
+
+/// Spans of the string literals naming a loaded module: `import`/`export … from` sources and the
+/// argument of a dynamic `import()`. A `require()` call is left out: `require` is an ordinary
+/// binding a script can shadow, so its argument is not known to be a module.
+struct ImportSpecifierSpans(Vec<Span>);
+
+impl Visit for ImportSpecifierSpans {
+    noop_visit_type!();
+
+    fn visit_import_decl(&mut self, n: &swc_ecma_ast::ImportDecl) {
+        self.0.push(n.src.span);
+    }
+
+    fn visit_export_all(&mut self, n: &swc_ecma_ast::ExportAll) {
+        self.0.push(n.src.span);
+    }
+
+    fn visit_named_export(&mut self, n: &swc_ecma_ast::NamedExport) {
+        if let Some(src) = &n.src {
+            self.0.push(src.span);
+        }
+    }
+
+    fn visit_call_expr(&mut self, n: &swc_ecma_ast::CallExpr) {
+        if let (swc_ecma_ast::Callee::Import(_), Some(arg)) = (&n.callee, n.args.first()) {
+            if let (None, Expr::Lit(Lit::Str(s))) = (arg.spread, &*arg.expr) {
+                self.0.push(s.span);
+            }
+        }
+        n.visit_children_with(self);
+    }
+}
+
+/// Drops the `@version` from each pinned module specifier (`pkg@1.2.3/sub` -> `pkg/sub`),
+/// rewriting only the specifier literals. Unlike [`remove_pinned_imports`], the same text
+/// elsewhere, such as a string the script returns, stays as written.
+pub fn remove_pinned_import_specifiers(code: &str) -> anyhow::Result<String> {
+    let cm: Lrc<SourceMap> = Default::default();
+    let fm = cm.new_source_file(
+        FileName::Custom("main.d.ts".into()).into(),
+        code.to_string(),
+    );
+    let mut tss = TsSyntax::default();
+    tss.tsx = true;
+    tss.no_early_errors = true;
+    let lexer = Lexer::new(
+        Syntax::Typescript(tss),
+        Default::default(),
+        StringInput::from(&*fm),
+        None,
+    );
+    let module = Parser::new_from(lexer).parse_module().map_err(|e| {
+        anyhow::anyhow!("Error while parsing code, it is invalid TypeScript: {e:?}")
+    })?;
+    let mut specifiers = ImportSpecifierSpans(vec![]);
+    specifiers.visit_module(&module);
+    specifiers.0.sort_by_key(|s| s.lo);
+
+    // Spans index the parsed source, which the source map stripped of any UTF-8 BOM.
+    let bom = if code.starts_with('\u{feff}') {
+        '\u{feff}'.len_utf8()
+    } else {
+        0
+    };
+    let offset =
+        |pos: swc_common::BytePos| pos.0.checked_sub(fm.start_pos.0).map(|o| bom + o as usize);
+    let mut content = String::with_capacity(code.len());
+    let mut copied = 0;
+    for span in specifiers.0 {
+        // A span covers the literal's quotes. One that does not land on a matching pair is left
+        // as written rather than risk rewriting the wrong bytes.
+        let (Some(open), Some(close)) = (
+            offset(span.lo),
+            offset(span.hi).and_then(|e| e.checked_sub(1)),
+        ) else {
+            continue;
+        };
+        let quote = code.as_bytes().get(open);
+        if open >= close
+            || open < copied
+            || !matches!(quote, Some(b'"' | b'\''))
+            || code.as_bytes().get(close) != quote
+        {
+            continue;
+        }
+        let Some(specifier) = code.get(open + 1..close) else {
+            continue;
+        };
+        let unpinned = IMPORTS_VERSION.captures(specifier).and_then(|x| {
+            x.get(1)
+                .map(|y| format!("{}{}", y.as_str(), x.get(2).map_or("", |z| z.as_str())))
+        });
+        if let Some(unpinned) = unpinned.filter(|u| u != specifier) {
+            content.push_str(&code[copied..open + 1]);
+            content.push_str(&unpinned);
+            copied = close;
+        }
+    }
+    content.push_str(&code[copied..]);
     Ok(content)
 }
 
@@ -1257,5 +1443,7 @@ pub fn eval_sync(code: &str) -> Result<serde_json::Value, String> {
 
 #[cfg(not(target_arch = "wasm32"))]
 pub fn eval_sync(_code: &str) -> Result<serde_json::Value, String> {
-    panic!("eval_sync is only available in wasm32")
+    // The server parses signatures with defaults too: a default that is not JSON
+    // (`{ a: 1 }`, `['x']`) is then left out rather than failing the parse.
+    Err("evaluating a JavaScript default needs the wasm build".to_string())
 }

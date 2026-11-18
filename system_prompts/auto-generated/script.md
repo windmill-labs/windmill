@@ -2,29 +2,118 @@
 
 ## General Principles
 
-- Scripts must export a main function (do not call it)
+- A script's inputs are its parameters. Credentials and configuration come in as resource-typed parameters, never hard-coded or read from the environment; the language section below shows how that language declares parameters
+- When no resource type exists for a service, still take its connection as one resource-typed parameter, of a custom type holding the connection fields (base URL, account identifiers, credentials), its secret in a variable the resource references. A custom type is named `c_<name>`, which keeps it apart from a hub type synced later: the parameter takes `RT.C<Name>` in TypeScript, a `c_<name>` TypedDict in Python. A plain string parameter or a variable read inside the code only when the user asks for it: the resource keeps a connection's fields together, lets whoever runs the script pick an existing connection, and keeps the secret out of the arguments a run records. If the instance is reported as not having synced the Windmill Hub's resource types, mention that a superadmin can sync them, since the hub has types for most services. Otherwise, or when the user prefers it to syncing, propose the resource type and ask before creating it
+- A Windmill Hub script takes a resource type the hub publishes, so on an instance that has not synced the hub's types that type is missing: say so, and that a superadmin can sync them, before asking for a resource of it. Hub scripts often declare the type inline (`type Stripe = { token: string }`), which is still the `stripe` resource type; in code you write, name it the way the language section shows (`RT.Stripe` in TypeScript) rather than copying the inline declaration
 - Libraries are installed automatically - do not show installation instructions
-- Credentials and configuration are stored in resources and passed as parameters
-- The windmill client (`wmill`) provides APIs for interacting with the platform
-
-## Function Naming
-
-- Main function: `main` (or `preprocessor` for preprocessor scripts)
-- Must be async for TypeScript variants
+- In a language with an entrypoint function (TypeScript, Python, Go, Rust, PHP, R, …), name it `main` (`Main` in C#) and do not call it; in TypeScript it must be async. SQL, GraphQL, Bash, PowerShell and Ansible scripts have no `main`: their language section shows how they take arguments
+- Where the language has a Windmill client (`wmill`), use it to interact with the platform
+- A script's input schema may carry a top-level `prompt_for_ai` string: its author's instructions to an AI choosing the inputs. Follow it when you pick arguments to run that script, and keep it when you rewrite the schema
 
 ## Return Values
 
-- Scripts can return any JSON-serializable value
+- A script can return any JSON-serializable value; a SQL script returns the rows its query produces
 - Return values become available to subsequent flow steps via `results.step_id`
 
 ## Preprocessor Scripts
 
-Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, Postgres, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
+Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, GCP Pub/Sub, Azure, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
+
+A preprocessor is written in TypeScript or Python: its function is named `preprocessor` instead of `main`, and it receives a single parameter called `event` (the language section gives its type).
 
 The returned object determines the parameter values passed to the flow.
 e.g., `{ b: 1, a: 2 }` calls the flow with `a = 2` and `b = 1`, assuming the flow has two inputs called `a` and `b`.
 
-The preprocessor receives a single parameter called `event`.
+
+# Ansible
+
+Windmill runs Ansible playbooks with `ansible-playbook`. A script is a single YAML
+document made of two parts separated by a `---` line: a Windmill **header** and one or
+more standard Ansible **plays**.
+
+## Structure
+
+```yaml
+---
+# Windmill header: configures inventories, file resources, arguments and dependencies
+extra_vars:
+  world_qualifier:
+    type: string
+dependencies:
+  galaxy:
+    collections:
+      - name: community.general
+  python:
+    - jmespath
+---
+# Standard Ansible plays
+- name: Echo
+  hosts: 127.0.0.1
+  connection: local
+  tasks:
+    - name: Print debug message
+      debug:
+        msg: "Hello, {{ world_qualifier }} world!"
+```
+
+## Header
+
+The header is **not** standard Ansible — it is parsed by Windmill to build the script's
+inputs and runtime environment. Supported keys:
+
+- `extra_vars`: defines the script arguments. Each entry is passed to the playbook via
+  `--extra-vars` and becomes a Jinja variable usable as `{{ name }}` in the plays. Give
+  each argument a `type` (`string`, `number`, `boolean`, `object`, ...) so Windmill can
+  generate the input form.
+- `inventory`: lists inventories. Use `resource_type: ansible_inventory` (optionally
+  pinned with `resource: u/user/your_resource`) or `resource_type: dynamic_inventory`.
+- `files`: writes Windmill resources/variables to files before the run, e.g.
+  `- resource: u/user/template` with `target: ./config.j2`, or
+  `- variable: u/user/ssh_key` with `target: ./ssh_key` and `mode: '0600'`.
+- `dependencies`: `galaxy` collections/roles (installed with `ansible-galaxy`) and
+  `python` pip packages available to the playbook.
+- `options`: extra `ansible-playbook` flags such as `- verbosity: vvv`.
+- `vault_password`: a Windmill variable path to use as the Ansible Vault password.
+
+## Arguments
+
+Reference header `extra_vars` directly as Jinja variables in the plays:
+
+```yaml
+extra_vars:
+  name:
+    type: string
+  count:
+    type: number
+---
+- hosts: localhost
+  tasks:
+    - debug:
+        msg: "{{ name }} x {{ count }}"
+```
+
+## Environment variables
+
+Windmill contextual variables are available as environment variables and read with the
+`env` lookup:
+
+```yaml
+- debug:
+    msg: "Running in workspace {{ lookup('env', 'WM_WORKSPACE') }}"
+```
+
+## Output
+
+To return a result, write JSON to a `result.json` file in the job directory:
+
+```yaml
+- hosts: localhost
+  tasks:
+    - name: Write result
+      copy:
+        content: "{{ { 'ok': true, 'value': 42 } | to_json }}"
+        dest: result.json
+```
 
 
 # Bash
@@ -124,7 +213,7 @@ being buffered, bypassing the 10000-row return cap.
 
 # TypeScript (Bun)
 
-Bun runtime with full npm ecosystem and fastest execution.
+Bun runtime with full npm ecosystem and fastest execution. **Bun is the default and preferred TypeScript runtime** — choose it for any TypeScript script unless there is a major reason to use Deno for that specific use-case.
 
 ## Structure
 
@@ -153,14 +242,16 @@ export async function main(stripe: RT.Stripe) {
 
 Only use resource types if you need them to satisfy the instructions. Always use the RT namespace.
 
-Before using a resource type, check the `rt.d.ts` file in the project root to see all available resource types and their fields. This file is generated by `wmill resource-type generate-namespace`.
-
 ## Imports
 
 ```typescript
 import Stripe from "stripe";
 import { someFunction } from "some-package";
 ```
+
+## Prefer `//native` when the runtime allows it
+
+If a script only needs `fetch` and the JavaScript standard library — including when it uses `windmill-client` — prefer making it a **native** script: add `//native` as the first line and write it with the `write-script-bunnative` skill. Native scripts run on a lightweight V8 isolate, start faster, and parallelize heavily. `windmill-client` works on the native worker (its calls go over `fetch`), so needing the Windmill client is **not** a reason to avoid `//native`. Use the regular `bun` language only when the code (or a dependency) needs Node/Bun runtime APIs — `node:*` modules, the filesystem, child processes, or native addons.
 
 ## Windmill Client
 
@@ -170,7 +261,9 @@ Import the windmill client for platform interactions:
 import * as wmill from "windmill-client";
 ```
 
-See the SDK documentation for available methods.
+**Prefer `windmill-client` over raw `fetch` for anything that talks to Windmill** — reading resources/variables/states, running scripts and flows, S3 object operations, etc. It handles auth, the workspace, and the base URL for you, so you don't hand-roll URLs or tokens. Reserve `fetch` for calling *external* HTTP APIs that aren't Windmill.
+
+The full `windmill-client` API reference (every exported function and its signature) is included below — consult it for the exact method to use instead of guessing or falling back to `fetch`.
 
 ## Preprocessor Scripts
 
@@ -188,7 +281,9 @@ type Event = {
     | "postgres"
     | "sqs"
     | "mqtt"
-    | "gcp";
+    | "amqp"
+    | "gcp"
+    | "azure";
   body: any;
   headers: Record<string, string>;
   query: Record<string, string>;
@@ -239,13 +334,14 @@ const result: wmill.S3Object = await wmill.writeS3File(
 
 # TypeScript (Bun Native)
 
-Native TypeScript execution with fetch only - no external imports allowed.
+Native TypeScript execution. Native scripts are Bun scripts that run on the native worker — a lightweight V8 isolate that exposes `fetch` and the JavaScript standard library — and can be heavily parallelized. Every script MUST start with `//native` on its first line so Windmill routes it to the native worker; without it the exact same script runs on the regular Bun worker. You may import npm packages and other Windmill scripts (e.g. `./helper.ts`) — imports are resolved and bundled just like a regular Bun script — as long as everything (your code and its dependencies) relies only on `fetch` and the standard library. Libraries that need Node/Bun runtime APIs (filesystem, `node:*` modules, child processes, native addons) will not work on the native worker; use the regular `bun` language for those.
 
 ## Structure
 
 Export a single **async** function called `main`:
 
 ```typescript
+//native
 export async function main(param1: string, param2: number) {
   // Your code here
   return { result: param1, count: param2 };
@@ -261,6 +357,7 @@ On Windmill, credentials and configuration are stored in resources and passed as
 Use the `RT` namespace for resource types:
 
 ```typescript
+//native
 export async function main(stripe: RT.Stripe) {
   // stripe contains API key and config from the resource
 }
@@ -268,28 +365,42 @@ export async function main(stripe: RT.Stripe) {
 
 Only use resource types if you need them to satisfy the instructions. Always use the RT namespace.
 
-Before using a resource type, check the `rt.d.ts` file in the project root to see all available resource types and their fields. This file is generated by `wmill resource-type generate-namespace`.
-
 ## Imports
 
-**No imports allowed.** Use the globally available `fetch` function:
+**The constraint is the runtime, not the import list.** You may import npm packages and relative Windmill scripts; they are resolved and bundled exactly like a regular Bun script. But the native worker only provides `fetch` and the JavaScript standard library, so any imported code must work using only those. Anything requiring Node/Bun built-ins (`node:fs`, `child_process`, the `Bun` API, native modules) belongs in a regular `bun` script instead. Use the globally available `fetch` for HTTP:
 
 ```typescript
+//native
 export async function main(url: string) {
   const response = await fetch(url);
   return await response.json();
 }
 ```
 
+## Pure computation: `//no_network`
+
+A native script that only transforms its inputs can declare `//no_network` in its leading comment block (right after `//native`). The runtime then refuses every connection the script attempts: `fetch` to any host, the Windmill API (so `windmill-client` calls fail too), raw sockets and unix sockets, and `WM_TOKEN` is not set. Without `//native` it means something else: the script must run in an nsjail sandbox (`//sandbox`, or instance-wide sandboxing), which then loses its network, and it fails to run otherwise. Use it only when the script needs no external data beyond its arguments:
+
+```typescript
+//native
+//no_network
+export async function main(items: { price: number; qty: number }[]) {
+  return items.reduce((sum, i) => sum + i.price * i.qty, 0);
+}
+```
+
 ## Windmill Client
 
-The windmill client is not available in native TypeScript mode. Use fetch to call APIs directly.
+`windmill-client` works on the native worker (its calls go over `fetch`), so use it as the **preferred way to talk to Windmill** — reading resources/variables/states, running scripts and flows, and the S3 helpers below (`loadS3File`, `loadS3FileStream`, `writeS3File`, `S3Object`). It handles auth, the workspace, and the base URL for you. Reserve raw `fetch` for calling *external* HTTP APIs that aren't Windmill.
+
+The full `windmill-client` API reference (every exported function and its signature) is included below — consult it for the exact method instead of hand-rolling a `fetch` against the Windmill API.
 
 ## Preprocessor Scripts
 
 For preprocessor scripts, the function should be named `preprocessor` and receives an `event` parameter:
 
 ```typescript
+//native
 type Event = {
   kind:
     | "webhook"
@@ -301,7 +412,9 @@ type Event = {
     | "postgres"
     | "sqs"
     | "mqtt"
-    | "gcp";
+    | "amqp"
+    | "gcp"
+    | "azure";
   body: any;
   headers: Record<string, string>;
   query: Record<string, string>;
@@ -322,6 +435,7 @@ Windmill provides built-in support for S3-compatible storage operations. The `wm
 ### Receiving an S3Object as a script parameter
 
 ```typescript
+//native
 import * as wmill from "windmill-client";
 
 export async function main(file: wmill.S3Object) {
@@ -333,6 +447,7 @@ export async function main(file: wmill.S3Object) {
 ### S3 operations
 
 ```typescript
+//native
 import * as wmill from "windmill-client";
 
 // Load file content from S3
@@ -397,6 +512,8 @@ public class Script
 
 Deno runtime with npm support via `npm:` prefix and native Deno libraries.
 
+**Prefer Bun (`write-script-bun`) for TypeScript.** Only use Deno when the script specifically requires the Deno runtime — Deno's standard library or `deno.land` URL imports that have no npm equivalent. For all other TypeScript, use Bun instead.
+
 ## Structure
 
 Export a single **async** function called `main`:
@@ -424,8 +541,6 @@ export async function main(stripe: RT.Stripe) {
 
 Only use resource types if you need them to satisfy the instructions. Always use the RT namespace.
 
-Before using a resource type, check the `rt.d.ts` file in the project root to see all available resource types and their fields. This file is generated by `wmill resource-type generate-namespace`.
-
 ## Imports
 
 ```typescript
@@ -445,7 +560,9 @@ Import the windmill client for platform interactions:
 import * as wmill from "windmill-client";
 ```
 
-See the SDK documentation for available methods.
+**Prefer `windmill-client` over raw `fetch` for anything that talks to Windmill** — reading resources/variables/states, running scripts and flows, S3 object operations, etc. It handles auth, the workspace, and the base URL for you. Reserve `fetch` for calling *external* HTTP APIs that aren't Windmill.
+
+The full `windmill-client` API reference (every exported function and its signature) is included below — consult it for the exact method instead of guessing or falling back to `fetch`.
 
 ## Preprocessor Scripts
 
@@ -463,7 +580,9 @@ type Event = {
     | "postgres"
     | "sqs"
     | "mqtt"
-    | "gcp";
+    | "amqp"
+    | "gcp"
+    | "azure";
   body: any;
   headers: Record<string, string>;
   query: Record<string, string>;
@@ -823,85 +942,6 @@ omit to use the workspace default), `format` (`json` (default), `parquet`, or
 being buffered as the script return value.
 
 
-# TypeScript (Native)
-
-Native TypeScript execution with fetch only - no external imports allowed.
-
-## Structure
-
-Export a single **async** function called `main`:
-
-```typescript
-export async function main(param1: string, param2: number) {
-  // Your code here
-  return { result: param1, count: param2 };
-}
-```
-
-Do not call the main function.
-
-## Resource Types
-
-On Windmill, credentials and configuration are stored in resources and passed as parameters to main.
-
-Use the `RT` namespace for resource types:
-
-```typescript
-export async function main(stripe: RT.Stripe) {
-  // stripe contains API key and config from the resource
-}
-```
-
-Only use resource types if you need them to satisfy the instructions. Always use the RT namespace.
-
-Before using a resource type, check the `rt.d.ts` file in the project root to see all available resource types and their fields. This file is generated by `wmill resource-type generate-namespace`.
-
-## Imports
-
-**No imports allowed.** Use the globally available `fetch` function:
-
-```typescript
-export async function main(url: string) {
-  const response = await fetch(url);
-  return await response.json();
-}
-```
-
-## Windmill Client
-
-The windmill client is not available in native TypeScript mode. Use fetch to call APIs directly.
-
-## Preprocessor Scripts
-
-For preprocessor scripts, the function should be named `preprocessor` and receives an `event` parameter:
-
-```typescript
-type Event = {
-  kind:
-    | "webhook"
-    | "http"
-    | "websocket"
-    | "kafka"
-    | "email"
-    | "nats"
-    | "postgres"
-    | "sqs"
-    | "mqtt"
-    | "gcp";
-  body: any;
-  headers: Record<string, string>;
-  query: Record<string, string>;
-};
-
-export async function preprocessor(event: Event) {
-  return {
-    param1: event.body.field1,
-    param2: event.query.id
-  };
-}
-```
-
-
 # PHP
 
 ## Structure
@@ -1143,7 +1183,7 @@ For preprocessor scripts, the function should be named `preprocessor` and receiv
 from typing import TypedDict, Literal, Any
 
 class Event(TypedDict):
-    kind: Literal["webhook", "http", "websocket", "kafka", "email", "nats", "postgres", "sqs", "mqtt", "gcp"]
+    kind: Literal["webhook", "http", "websocket", "kafka", "email", "nats", "postgres", "sqs", "mqtt", "amqp", "gcp", "azure"]
     body: Any
     headers: dict[str, str]
     query: dict[str, str]
@@ -1371,6 +1411,27 @@ Name the parameters by adding comments before the statement:
 SELECT * FROM users WHERE name = ? AND age > ?;
 ```
 
+## Array parameters
+
+Declare a list with a `[]` suffix on the element type (`(varchar[])`,
+`(int[])`), or `(array)` for an untyped one. Snowflake cannot bind an array
+directly, so Windmill binds the list as JSON text: wrap the placeholder with
+`PARSE_JSON(?)`, and cast to `ARRAY` where a function expects one.
+
+```sql
+-- ? groups (varchar[])
+SELECT o.* FROM orders o
+WHERE ARRAY_CONTAINS(o.owner_group::VARIANT, PARSE_JSON(?)::ARRAY);
+```
+
+Or join on the elements with `FLATTEN`:
+
+```sql
+-- ? groups (varchar[])
+SELECT o.* FROM orders o
+JOIN TABLE(FLATTEN(input => PARSE_JSON(?))) g ON g.value::STRING = o.owner_group;
+```
+
 ## Receiving an S3Object as a script parameter
 
 Declare the arg with type `(s3object)`. Windmill renders an S3 file picker for
@@ -1407,6 +1468,22 @@ being buffered, bypassing the 10000-row return cap.
 
 Import: import * as wmill from 'windmill-client'
 
+The client configures itself from the job's environment — base URL, token and credentials mode
+are all set before your code runs, so there is nothing to initialize and no reason to read
+WM_TOKEN or BASE_INTERNAL_URL and build an API URL yourself. Reconstructing that by hand only
+reintroduces details the client already handles. Call the SDK for anything Windmill, and use raw
+HTTP for third-party APIs.
+
+The helpers below are the surface to prefer. For an endpoint none of them covers, import the
+generated service classes (JobService, ScriptService, ...) from 'windmill-client' — they are not
+listed here but they do exist. What does not exist is a helper name you guessed at: if it is
+neither listed below nor a service method, do not call it.
+
+To know who is running the script, read the contextual variables rather than calling the API:
+`process.env.WM_END_USER_EMAIL || process.env.WM_EMAIL`. WM_END_USER_EMAIL is the app viewer when
+the run was triggered from an app and empty otherwise (both variables are always defined), WM_EMAIL
+is the user the job is permissioned as. WM_USERNAME is the matching username.
+
 workerHasInternalServer(): boolean
 
 /**
@@ -1438,27 +1515,24 @@ async getResource(path?: string, undefinedIfEmpty?: boolean): Promise<any>
 async getRootJobId(jobId?: string): Promise<string>
 
 /**
- * @deprecated Use runScriptByPath or runScriptByHash instead
- */
-async runScript(path: string | null = null, hash_: string | null = null, args: Record<string, any> | null = null, verbose: boolean = false): Promise<any>
-
-/**
  * Run a script synchronously by its path and wait for the result
  * @param path - Script path in Windmill
  * @param args - Arguments to pass to the script
  * @param verbose - Enable verbose logging
+ * @param tag - Override the worker tag the job runs on
  * @returns Script execution result
  */
-async runScriptByPath(path: string, args: Record<string, any> | null = null, verbose: boolean = false): Promise<any>
+async runScriptByPath(path: string, args: Record<string, any> | null = null, verbose: boolean = false, tag: string | null = null): Promise<any>
 
 /**
  * Run a script synchronously by its hash and wait for the result
  * @param hash_ - Script hash in Windmill
  * @param args - Arguments to pass to the script
  * @param verbose - Enable verbose logging
+ * @param tag - Override the worker tag the job runs on
  * @returns Script execution result
  */
-async runScriptByHash(hash_: string, args: Record<string, any> | null = null, verbose: boolean = false): Promise<any>
+async runScriptByHash(hash_: string, args: Record<string, any> | null = null, verbose: boolean = false, tag: string | null = null): Promise<any>
 
 /**
  * Append a text to the result stream
@@ -1477,9 +1551,10 @@ async streamResult(stream: AsyncIterable<string>): Promise<void>
  * @param path - Flow path in Windmill
  * @param args - Arguments to pass to the flow
  * @param verbose - Enable verbose logging
+ * @param tag - Override the worker tag the job runs on
  * @returns Flow execution result
  */
-async runFlow(path: string | null = null, args: Record<string, any> | null = null, verbose: boolean = false): Promise<any>
+async runFlow(path: string | null = null, args: Record<string, any> | null = null, verbose: boolean = false, tag: string | null = null): Promise<any>
 
 /**
  * Wait for a job to complete and return its result
@@ -1504,27 +1579,34 @@ async getResult(jobId: string): Promise<any>
 async getResultMaybe(jobId: string): Promise<any>
 
 /**
- * @deprecated Use runScriptByPathAsync or runScriptByHashAsync instead
+ * Cancel a queued or running job by ID.
+ * @param jobId - UUID of the job to cancel
+ * @param reason - Optional reason for cancellation
+ * @returns Response message from the cancel endpoint
  */
-async runScriptAsync(path: string | null, hash_: string | null, args: Record<string, any> | null, scheduledInSeconds: number | null = null): Promise<string>
+async cancelJob(jobId: string, reason: string | undefined = undefined): Promise<string>
 
 /**
  * Run a script asynchronously by its path
  * @param path - Script path in Windmill
  * @param args - Arguments to pass to the script
- * @param scheduledInSeconds - Schedule execution for a future time (in seconds)
+ * @param scheduledInSeconds - Schedule execution for a future time (in seconds), or {@link RunScriptAsyncOptions}
+ *   `{ scheduledInSeconds?, tag?, retry? }`, e.g. `{ retry: { constant: { attempts: 3, seconds: 10 } } }`
+ * @param tag - Override the worker tag the job runs on
  * @returns Job ID of the created job
  */
-async runScriptByPathAsync(path: string, args: Record<string, any> | null = null, scheduledInSeconds: number | null = null): Promise<string>
+async runScriptByPathAsync(path: string, args: Record<string, any> | null = null, scheduledInSeconds: number | null | RunScriptAsyncOptions = null, tag: string | null = null): Promise<string>
 
 /**
  * Run a script asynchronously by its hash
  * @param hash_ - Script hash in Windmill
  * @param args - Arguments to pass to the script
- * @param scheduledInSeconds - Schedule execution for a future time (in seconds)
+ * @param scheduledInSeconds - Schedule execution for a future time (in seconds), or {@link RunScriptAsyncOptions}
+ *   `{ scheduledInSeconds?, tag?, retry? }`, e.g. `{ retry: { constant: { attempts: 3, seconds: 10 } } }`
+ * @param tag - Override the worker tag the job runs on
  * @returns Job ID of the created job
  */
-async runScriptByHashAsync(hash_: string, args: Record<string, any> | null = null, scheduledInSeconds: number | null = null): Promise<string>
+async runScriptByHashAsync(hash_: string, args: Record<string, any> | null = null, scheduledInSeconds: number | null | RunScriptAsyncOptions = null, tag: string | null = null): Promise<string>
 
 /**
  * Run a flow asynchronously by its path
@@ -1532,9 +1614,10 @@ async runScriptByHashAsync(hash_: string, args: Record<string, any> | null = nul
  * @param args - Arguments to pass to the flow
  * @param scheduledInSeconds - Schedule execution for a future time (in seconds)
  * @param doNotTrackInParent - If false, tracks state in parent job (only use when fully awaiting the job)
+ * @param tag - Override the worker tag the job runs on
  * @returns Job ID of the created job
  */
-async runFlowAsync(path: string | null, args: Record<string, any> | null, scheduledInSeconds: number | null = null, // can only be set to false if this the job will be fully await and not concurrent with any other job // as otherwise the child flow and its own child will store their state in the parent job which will // lead to incorrectness and failures doNotTrackInParent: boolean = true): Promise<string>
+async runFlowAsync(path: string | null, args: Record<string, any> | null, scheduledInSeconds: number | null = null, // can only be set to false if this the job will be fully await and not concurrent with any other job // as otherwise the child flow and its own child will store their state in the parent job which will // lead to incorrectness and failures doNotTrackInParent: boolean = true, tag: string | null = null): Promise<string>
 
 /**
  * Resolve a resource value in case the default value was picked because the input payload was undefined
@@ -1560,13 +1643,6 @@ async setResource(value: any, path?: string, initializeToTypeIfNotExist?: string
 /**
  * Set the state
  * @param state state to set
- * @deprecated use setState instead
- */
-async setInternalState(state: any): Promise<void>
-
-/**
- * Set the state
- * @param state state to set
  * @param path Optional state resource path override. Defaults to `getStatePath()`.
  */
 async setState(state: any, path?: string): Promise<void>
@@ -1587,6 +1663,14 @@ async setProgress(percent: number, jobId?: any): Promise<void>
 async getProgress(jobId?: any): Promise<number | null>
 
 /**
+ * Whether the worker running this job has received its shutdown signal.
+ * A draining worker waits for its current job to finish before exiting, so a
+ * long-running script can poll this and return early to let the worker be replaced.
+ * @param jobId? Job to check, defaults to the current job
+ */
+async workerIsDraining(jobId?: string): Promise<boolean>
+
+/**
  * Set a flow user state
  * @param key key of the state
  * @param value value of the state
@@ -1598,12 +1682,6 @@ async setFlowUserState(key: string, value: any, errorIfNotPossible?: boolean): P
  * @param path path of the variable
  */
 async getFlowUserState(key: string, errorIfNotPossible?: boolean): Promise<any>
-
-/**
- * Get the internal state
- * @deprecated use getState instead
- */
-async getInternalState(): Promise<any>
 
 /**
  * Get the state shared across executions
@@ -1701,31 +1779,35 @@ async deleteS3File(s3object: S3Object, workspace: string | undefined = undefined
 /**
  * Sign S3 objects to be used by anonymous users in public apps
  * @param s3objects s3 objects to sign
+ * @param expirySecs how long the signature stays valid, in seconds (default 43200 = 12h, clamped to [60, 604800])
  * @returns signed s3 objects
  */
-async signS3Objects(s3objects: S3Object[]): Promise<S3Object[]>
+async signS3Objects(s3objects: S3Object[], { expirySecs }: { expirySecs?: number } = {}): Promise<S3Object[]>
 
 /**
  * Sign S3 object to be used by anonymous users in public apps
  * @param s3object s3 object to sign
+ * @param expirySecs how long the signature stays valid, in seconds (default 43200 = 12h, clamped to [60, 604800])
  * @returns signed s3 object
  */
-async signS3Object(s3object: S3Object): Promise<S3Object>
+async signS3Object(s3object: S3Object, { expirySecs }: { expirySecs?: number } = {}): Promise<S3Object>
 
 /**
  * Generate a presigned public URL for an array of S3 objects.
  * If an S3 object is not signed yet, it will be signed first.
  * @param s3Objects s3 objects to sign
+ * @param expirySecs how long the signature stays valid, in seconds (default 43200 = 12h, clamped to [60, 604800])
  * @returns list of signed public URLs
  */
-async getPresignedS3PublicUrls(s3Objects: S3Object[], { baseUrl }: { baseUrl?: string } = {}): Promise<string[]>
+async getPresignedS3PublicUrls(s3Objects: S3Object[], { baseUrl, expirySecs }: { baseUrl?: string; expirySecs?: number } = {}): Promise<string[]>
 
 /**
  * Generate a presigned public URL for an S3 object. If the S3 object is not signed yet, it will be signed first.
  * @param s3Object s3 object to sign
+ * @param expirySecs how long the signature stays valid, in seconds (default 43200 = 12h, clamped to [60, 604800])
  * @returns signed public URL
  */
-async getPresignedS3PublicUrl(s3Objects: S3Object, { baseUrl }: { baseUrl?: string } = {}): Promise<string>
+async getPresignedS3PublicUrl(s3Objects: S3Object, { baseUrl, expirySecs }: { baseUrl?: string; expirySecs?: number } = {}): Promise<string>
 
 /**
  * Get URLs needed for resuming a flow after this step
@@ -1735,15 +1817,6 @@ async getPresignedS3PublicUrl(s3Objects: S3Object, { baseUrl }: { baseUrl?: stri
  * @returns approval page UI URL, resume and cancel API URLs for resuming the flow
  */
 async getResumeUrls(approver?: string, flowLevel?: boolean): Promise<{
-  approvalPage: string;
-  resume: string;
-  cancel: string;
-}>
-
-/**
- * @deprecated use getResumeUrls instead
- */
-getResumeEndpoints(approver?: string): Promise<{
   approvalPage: string;
   resume: string;
   cancel: string;
@@ -1770,15 +1843,6 @@ base64ToUint8Array(data: string): Uint8Array
  * @returns Base64-encoded string
  */
 uint8ArrayToBase64(arrayBuffer: Uint8Array): string
-
-/**
- * Get email from workspace username
- * This method is particularly useful for apps that require the email address of the viewer.
- * Indeed, in the viewer context, WM_USERNAME is set to the username of the viewer but WM_EMAIL is set to the email of the creator of the app.
- * @param username
- * @returns email address
- */
-async usernameToEmail(username: string): Promise<string>
 
 /**
  * Sends an interactive approval request via Slack, allowing optional customization of the message, approver, and form fields.
@@ -1854,18 +1918,22 @@ async requestInteractiveSlackApproval({ slackResourcePath, channelId, message, a
  */
 async requestInteractiveTeamsApproval({ teamName, channelName, message, approver, defaultArgsJson, dynamicEnumsJson, }: TeamsApprovalOptions): Promise<void>
 
-/**
- * Parse an S3 object from URI string or record format
- * @param s3Object - S3 object as URI string (s3://storage/key) or record
- * @returns S3 object record with storage and s3 key
- */
-parseS3Object(s3Object: S3Object): S3ObjectRecord
-
 setWorkflowCtx(ctx: WorkflowCtx | null): void
 
 async sleep(seconds: number): Promise<void>
 
-async step<T>(name: string, fn: () => T | Promise<T>): Promise<T>
+/**
+ * Execute `fn` inline and checkpoint the result. On replay the cached value is
+ * returned without re-executing `fn`.
+ * 
+ * `fn`'s result is encoded as JSON and decoded back before it is returned, so
+ * the round that runs the body sees the same types every replay sees: a `Date`
+ * comes back as a string, a `Map` as `{}`. {@link Jsonified} is that shape.
+ * 
+ * Called from inside a task body, `fn` runs in place and nothing is
+ * checkpointed: a task is a single job and is never replayed.
+ */
+async step<T>(name: string, fn: () => T | Promise<T>,): Promise<Jsonified<Awaited<T>>>
 
 /**
  * Create a task that dispatches to a separate Windmill script.
@@ -1899,15 +1967,47 @@ workflow<T>(fn: (...args: any[]) => Promise<T>): void
 /**
  * Suspend the workflow and wait for an external approval.
  * 
- * Use `getResumeUrls()` (wrapped in `step()`) to obtain resume/cancel/approvalPage
- * URLs before calling this function.
+ * Pass `key` to name the step, then `getApprovalUrls(key)` yields the URLs that
+ * resume exactly this approval — route them through your own channel. Without a
+ * key the steps are named `approval`, `approval_2`, ...
+ * 
+ * `skin: "minimal"` shows approvers only the request (form and approve/reject)
+ * instead of the detailed page with the workflow's details. `description` is
+ * shown above the form: a string, or a rich value such as `{ markdown: "..." }`.
  * 
  * @example
- * const urls = await step("urls", () => getResumeUrls());
- * await step("notify", () => sendEmail(urls.approvalPage));
- * const { value, approver } = await waitForApproval({ timeout: 3600 });
+ * const urls = await step("urls", () => getApprovalUrls("manager"));
+ * await step("notify", () => sendEmail(urls.resume, urls.cancel));
+ * const { value, approver } = await waitForApproval({ key: "manager", timeout: 3600 });
  */
-waitForApproval(options?: { timeout?: number; form?: object; selfApproval?: boolean; }): PromiseLike<{ value: any; approver: string; approved: boolean }>
+waitForApproval(options?: { timeout?: number; form?: object; selfApproval?: boolean; key?: string; skin?: "detailed" | "minimal"; description?: string | object; }): PromiseLike<{ value: any; approver: string; approved: boolean }>
+
+/**
+ * Resume/cancel/approval-page URLs bound to one `waitForApproval` step.
+ * 
+ * Unlike `getResumeUrls()`, which signs a random nonce, these address the very
+ * `resume_job` record the step's built-in approval buttons use, so they are
+ * stable across replays and safe to embed in a custom notification.
+ * 
+ * `stepKey` must match the `key` given to `waitForApproval`. Keys must be unique
+ * within a workflow; reusing one throws rather than silently renaming it. The URL
+ * only resumes while that step is awaiting approval; used at any other moment it is
+ * rejected rather than banking a row a different approval would consume. Send it
+ * ahead of time — approvers just cannot act before the workflow reaches the step.
+ * 
+ * `resume` and `cancel` are step-bound; `approvalPage` is not — it opens the job's
+ * approval page, which acts on whichever approval is pending when it is used.
+ * 
+ * @example
+ * const urls = await step("urls", () => getApprovalUrls("manager"));
+ * await step("notify", () => sendEmail(urls.resume, urls.cancel));
+ * await waitForApproval({ key: "manager" });
+ */
+async getApprovalUrls(stepKey: string = "approval", approver?: string): Promise<{
+  approvalPage: string;
+  resume: string;
+  cancel: string;
+}>
 
 /**
  * Process items in parallel with optional concurrency control.
@@ -1931,8 +2031,21 @@ async parallel<T, R>(items: T[], fn: (item: T) => PromiseLike<R> | R, options?: 
 async commitKafkaOffsets(triggerPath: string, topic: string, partition: number, offset: number,): Promise<void>
 
 /**
+ * Parse an S3 object from URI string or record format
+ * @param s3Object - S3 object as URI string (`s3://storage/key`, `s3:///key`
+ *   for the default storage) or record. Any other string throws rather than
+ *   falling back to an auto-generated key: an auto key is requested by
+ *   omitting the object, and a fallback would silently misplace the upload
+ *   on any typo.
+ * @returns S3 object record with storage and s3 key
+ */
+parseS3Object(s3Object: S3Object): S3ObjectRecord
+
+/**
  * Create a SQL template function for PostgreSQL/datatable queries
  * @param name - Database/datatable name (default: "main")
+ * @param opts.role - Connect as this data table role instead of the data table's default one.
+ *   Only meaningful on a data table under roles, and only for a role you are a tenant of.
  * @returns SQL template function for building parameterized queries
  * @example
  * let sql = wmill.datatable()
@@ -1942,12 +2055,15 @@ async commitKafkaOffsets(triggerPath: string, topic: string, partition: number, 
  *   SELECT * FROM friends
  *     WHERE name = ${name} AND age = ${age}::int
  * `.fetch()
+ * @example
+ * // Read through a restricted role
+ * let sql = wmill.datatable("main", { role: "analytics" })
  */
-datatable(name: string = "main"): DatatableSqlTemplateFunction
+datatable(name: string = "main", opts?: DatatableOptions): DatatableSqlTemplateFunction
 
 /**
  * Create a SQL template function for DuckDB/ducklake queries
- * @param name - DuckDB database name (default: "main")
+ * @param name - DuckDB database name, optionally with a schema as `name:schema` (default: "main")
  * @returns SQL template function for building parameterized queries
  * @example
  * let sql = wmill.ducklake()
@@ -1957,13 +2073,55 @@ datatable(name: string = "main"): DatatableSqlTemplateFunction
  *   SELECT * FROM friends
  *     WHERE name = ${name} AND age = ${age}
  * `.fetch()
+ * @example
+ * // Target a specific schema within the ducklake
+ * let sql = wmill.ducklake("my_lake:analytics")
  */
 ducklake(name: string = "main"): SqlTemplateFunction
+
+/**
+ * Idempotently materialize `selectSql` into a ducklake table for one
+ * partition (or the whole table when `partition` is omitted) — the client-side
+ * equivalent of the `// materialize` engine.
+ * With `uniqueKey` it upserts the slice (delete-by-key + insert); otherwise it
+ * replaces it (whole table → `CREATE OR REPLACE`; partition → delete + insert).
+ * Safe to re-run for the same partition (backfill / failure-recovery).
+ * 
+ * Returns a lazy statement — call `.execute()` to run it:
+ * `await wmill.upsertPartition({ table, selectSql, partition }).execute()`.
+ */
+upsertPartition(opts: DucklakeMaterializeOptions): SqlStatement<any>
+
+/**
+ * INSERT-only materialization (no dedup/replace) for append-only tables.
+ * Re-running the same partition duplicates rows — use only for immutable
+ * event-log sources.
+ * 
+ * Returns a lazy statement — call `.execute()` to run it:
+ * `await wmill.appendPartition({ table, selectSql, partition }).execute()`.
+ */
+appendPartition(opts: Omit<DucklakeMaterializeOptions, "uniqueKey">,): SqlStatement<any>
 
 
 # Python SDK (wmill)
 
 Import: import wmill
+
+The client configures itself from the job's environment — base URL, token and credentials mode
+are all set before your code runs, so there is nothing to initialize and no reason to read
+WM_TOKEN or BASE_INTERNAL_URL and build an API URL yourself. Reconstructing that by hand only
+reintroduces details the client already handles. Call the SDK for anything Windmill, and use raw
+HTTP for third-party APIs.
+
+The functions below are the surface to prefer. For an endpoint none of them covers,
+wmill.Windmill().get(endpoint) and .post(endpoint) issue an authenticated request against this
+instance. What does not exist is a function name you guessed at: if it is not listed below, do
+not call it.
+
+To know who is running the script, read the contextual variables rather than calling the API:
+`os.environ.get("WM_END_USER_EMAIL") or os.environ.get("WM_EMAIL")`. WM_END_USER_EMAIL is the app
+viewer when the run was triggered from an app and empty otherwise (both variables are always
+defined), WM_EMAIL is the user the job is permissioned as. WM_USERNAME is the matching username.
 
 def worker_has_internal_server() -> bool
 
@@ -2006,30 +2164,24 @@ def post(endpoint, raise_for_status = True, **kwargs) -> httpx.Response
 #     New authentication token string
 def create_token(duration = dt.timedelta(days=1)) -> str
 
-# Create a script job and return its job id.
-# 
-# .. deprecated:: Use run_script_by_path_async or run_script_by_hash_async instead.
-def run_script_async(path: str = None, hash_: str = None, args: dict = None, scheduled_in_secs: int = None) -> str
-
 # Create a script job by path and return its job id.
-def run_script_by_path_async(path: str, args: dict = None, scheduled_in_secs: int = None) -> str
+# 
+# ``retry`` re-runs the job when it fails, with the policy a schedule takes,
+# e.g. ``{"constant": {"attempts": 3, "seconds": 10}}``. The returned id is
+# the first attempt's; each retry is a job of its own, recorded as a child of it.
+def run_script_by_path_async(path: str, args: dict = None, scheduled_in_secs: int = None, tag: str = None, retry: dict = None) -> str
 
-# Create a script job by hash and return its job id.
-def run_script_by_hash_async(hash_: str, args: dict = None, scheduled_in_secs: int = None) -> str
+# Create a script job by hash and return its job id. See ``run_script_by_path_async`` for ``retry``.
+def run_script_by_hash_async(hash_: str, args: dict = None, scheduled_in_secs: int = None, tag: str = None, retry: dict = None) -> str
 
 # Create a flow job and return its job id.
-def run_flow_async(path: str, args: dict = None, scheduled_in_secs: int = None, do_not_track_in_parent: bool = True) -> str
-
-# Run script synchronously and return its result.
-# 
-# .. deprecated:: Use run_script_by_path or run_script_by_hash instead.
-def run_script(path: str = None, hash_: str = None, args: dict = None, timeout: dt.timedelta | int | float | None = None, verbose: bool = False, cleanup: bool = True, assert_result_is_not_none: bool = False) -> Any
+def run_flow_async(path: str, args: dict = None, scheduled_in_secs: int = None, do_not_track_in_parent: bool = True, tag: str = None) -> str
 
 # Run script by path synchronously and return its result.
-def run_script_by_path(path: str, args: dict = None, timeout: dt.timedelta | int | float | None = None, verbose: bool = False, cleanup: bool = True, assert_result_is_not_none: bool = False) -> Any
+def run_script_by_path(path: str, args: dict = None, timeout: dt.timedelta | int | float | None = None, verbose: bool = False, cleanup: bool = True, assert_result_is_not_none: bool = False, tag: str = None) -> Any
 
 # Run script by hash synchronously and return its result.
-def run_script_by_hash(hash_: str, args: dict = None, timeout: dt.timedelta | int | float | None = None, verbose: bool = False, cleanup: bool = True, assert_result_is_not_none: bool = False) -> Any
+def run_script_by_hash(hash_: str, args: dict = None, timeout: dt.timedelta | int | float | None = None, verbose: bool = False, cleanup: bool = True, assert_result_is_not_none: bool = False, tag: str = None) -> Any
 
 # Run a script on the current worker without creating a job.
 # 
@@ -2193,6 +2345,18 @@ def set_progress(value: int, job_id: Optional[str] = None)
 #     Progress value (0-100) or None if not set
 def get_progress(job_id: Optional[str] = None) -> Any
 
+# Whether the worker running the job has received its shutdown signal.
+# 
+# A draining worker waits for its current job to finish before exiting. A long-running
+# script can poll this and return early so the worker can be replaced.
+# 
+# Args:
+#     job_id: Job ID (defaults to current WM_JOB_ID)
+# 
+# Returns:
+#     True if the worker running the job is draining
+def worker_is_draining(job_id: Optional[str] = None) -> bool
+
 # Set the user state of a flow at a given key
 def set_flow_user_state(key: str, value: Any) -> None
 
@@ -2206,15 +2370,31 @@ def get_flow_user_state(key: str) -> Any
 def version()
 
 # Convenient helpers that takes an S3 resource as input and returns the settings necessary to
-# initiate an S3 connection from DuckDB
+# initiate an S3 connection from DuckDB.
+# 
+# Without a resource path, the connection goes to the workspace storage through Windmill's
+# S3 proxy when that storage is S3: address it as ``s3://<bucket>/<key>`` with the
+# storage's own bucket, returned as ``s3_bucket``. Pass the resource path to connect with
+# the storage's own credentials instead.
 def get_duckdb_connection_settings(s3_resource_path: str = '') -> DuckDbConnectionSettings | None
 
 # Convenient helpers that takes an S3 resource as input and returns the settings necessary to
-# initiate an S3 connection from Polars
+# initiate an S3 connection from Polars.
+# 
+# Without a resource path, the connection goes to the workspace storage through Windmill's
+# S3 proxy when that storage is S3: address it as ``s3://<bucket>/<key>`` with the
+# storage's own bucket, returned as ``s3_bucket``. Pass the resource path to connect with
+# the storage's own credentials instead.
 def get_polars_connection_settings(s3_resource_path: str = '') -> PolarsConnectionSettings
 
 # Convenient helpers that takes an S3 resource as input and returns the settings necessary to
-# initiate an S3 connection using boto3
+# initiate an S3 connection using boto3.
+# 
+# Without a resource path, the connection goes to the workspace storage through Windmill's
+# S3 proxy when that storage is S3: pass the storage's own bucket as ``Bucket``. The proxy
+# serves object reads, writes, deletes, listing and multipart uploads of that bucket only;
+# presigned URLs, other buckets and bucket-level APIs need the storage's own credentials,
+# which passing the resource path returns.
 def get_boto3_connection_settings(s3_resource_path: str = '') -> Boto3ConnectionSettings
 
 # Load a file from the workspace s3 bucket and returns its content as bytes.
@@ -2270,19 +2450,23 @@ def delete_s3_object(s3object: S3Object | str, s3_resource_path: str | None = No
 # 
 # Args:
 #     s3_objects: List of S3 objects to sign
+#     expiry_secs: How long the signature stays valid, in seconds
+#         (defaults to 43200 = 12h, clamped to [60, 604800])
 # 
 # Returns:
 #     List of signed S3 objects
-def sign_s3_objects(s3_objects: list[S3Object | str]) -> list[S3Object]
+def sign_s3_objects(s3_objects: list[S3Object | str], expiry_secs: int | None = None) -> list[S3Object]
 
 # Sign a single S3 object for use by anonymous users in public apps.
 # 
 # Args:
 #     s3_object: S3 object to sign
+#     expiry_secs: How long the signature stays valid, in seconds
+#         (defaults to 43200 = 12h, clamped to [60, 604800])
 # 
 # Returns:
 #     Signed S3 object
-def sign_s3_object(s3_object: S3Object | str) -> S3Object
+def sign_s3_object(s3_object: S3Object | str, expiry_secs: int | None = None) -> S3Object
 
 # Generate presigned public URLs for an array of S3 objects.
 # If an S3 object is not signed yet, it will be signed first.
@@ -2290,6 +2474,8 @@ def sign_s3_object(s3_object: S3Object | str) -> S3Object
 # Args:
 #     s3_objects: List of S3 objects to sign
 #     base_url: Optional base URL for the presigned URLs (defaults to WM_BASE_URL)
+#     expiry_secs: How long the signatures stay valid, in seconds
+#         (defaults to 43200 = 12h, clamped to [60, 604800])
 # 
 # Returns:
 #     List of signed public URLs
@@ -2297,7 +2483,7 @@ def sign_s3_object(s3_object: S3Object | str) -> S3Object
 # Example:
 #     >>> s3_objs = [S3Object(s3="/path/to/file1.txt"), S3Object(s3="/path/to/file2.txt")]
 #     >>> urls = client.get_presigned_s3_public_urls(s3_objs)
-def get_presigned_s3_public_urls(s3_objects: list[S3Object | str], base_url: str | None = None) -> list[str]
+def get_presigned_s3_public_urls(s3_objects: list[S3Object | str], base_url: str | None = None, expiry_secs: int | None = None) -> list[str]
 
 # Generate a presigned public URL for an S3 object.
 # If the S3 object is not signed yet, it will be signed first.
@@ -2305,6 +2491,8 @@ def get_presigned_s3_public_urls(s3_objects: list[S3Object | str], base_url: str
 # Args:
 #     s3_object: S3 object to sign
 #     base_url: Optional base URL for the presigned URL (defaults to WM_BASE_URL)
+#     expiry_secs: How long the signature stays valid, in seconds
+#         (defaults to 43200 = 12h, clamped to [60, 604800])
 # 
 # Returns:
 #     Signed public URL
@@ -2312,7 +2500,7 @@ def get_presigned_s3_public_urls(s3_objects: list[S3Object | str], base_url: str
 # Example:
 #     >>> s3_obj = S3Object(s3="/path/to/file.txt")
 #     >>> url = client.get_presigned_s3_public_url(s3_obj)
-def get_presigned_s3_public_url(s3_object: S3Object | str, base_url: str | None = None) -> str
+def get_presigned_s3_public_url(s3_object: S3Object | str, base_url: str | None = None, expiry_secs: int | None = None) -> str
 
 # Get the current user information.
 # 
@@ -2362,6 +2550,17 @@ def get_shared_state(path: str = 'state.json') -> None
 #     Dictionary with approvalPage, resume, and cancel URLs
 def get_resume_urls(approver: str = None, flow_level: bool = None) -> dict
 
+# Get the resume URLs bound to one ``wait_for_approval`` step of this workflow.
+# 
+# Args:
+#     step_key: Checkpoint key of the approval step, as passed to
+#         ``wait_for_approval(key=...)``
+#     approver: Optional approver name
+# 
+# Returns:
+#     Dictionary with approvalPage, resume, and cancel URLs
+def get_approval_urls(step_key: str = 'approval', approver: str = None) -> dict
+
 # Sends an interactive approval request via Slack, allowing optional customization of the message, approver, and form fields.
 # 
 # **[Enterprise Edition Only]** To include form fields in the Slack approval request, use the "Advanced -> Suspend -> Form" functionality.
@@ -2400,11 +2599,6 @@ def get_resume_urls(approver: str = None, flow_level: bool = None) -> dict
 # - The function checks for required environment variables (`WM_FLOW_JOB_ID`, `WM_FLOW_STEP_ID`) to ensure it is run in the appropriate context.
 def request_interactive_slack_approval(slack_resource_path: str, channel_id: str, message: str = None, approver: str = None, default_args_json: dict = None, dynamic_enums_json: dict = None) -> None
 
-# Get email from workspace username
-# This method is particularly useful for apps that require the email address of the viewer.
-# Indeed, in the viewer context WM_USERNAME is set to the username of the viewer but WM_EMAIL is set to the email of the creator of the app.
-def username_to_email(username: str) -> str
-
 # Send a message to a Microsoft Teams conversation with conversation_id, where success is used to style the message
 def send_teams_message(conversation_id: str, text: str, success: bool = True, card_block: dict = None)
 
@@ -2412,10 +2606,13 @@ def send_teams_message(conversation_id: str, text: str, success: bool = True, ca
 # 
 # Args:
 #     name: Database name (default: "main")
+#     role: Connect as this data table role instead of the data table's default one.
+#         Only meaningful on a data table under roles, and only for a role you are a
+#         tenant of.
 # 
 # Returns:
 #     DataTableClient instance
-def datatable(name: str = 'main')
+def datatable(name: str = 'main', *, role: Optional[str] = None)
 
 # Get a DuckLake client for DuckDB queries.
 # 
@@ -2438,6 +2635,18 @@ def get_workspace() -> str
 
 def get_version() -> str
 
+# Create a script job and return its job ID.
+# 
+# Args:
+#     hash_or_path: Script hash or path (determined by presence of '/')
+#     args: Script arguments
+#     scheduled_in_secs: Delay before execution in seconds
+#     tag: Override the worker tag the job runs on
+# 
+# Returns:
+#     Job ID string
+def run_script_async(hash_or_path: str, args: Dict[str, Any] = None, scheduled_in_secs: int = None, tag: str = None) -> str
+
 # Run a script synchronously by hash and return its result.
 # 
 # Args:
@@ -2447,10 +2656,11 @@ def get_version() -> str
 #     assert_result_is_not_none: Raise exception if result is None
 #     cleanup: Register cleanup handler to cancel job on exit
 #     timeout: Maximum time to wait
+#     tag: Override the worker tag the job runs on
 # 
 # Returns:
 #     Script result
-def run_script_sync(hash: str, args: Dict[str, Any] = None, verbose: bool = False, assert_result_is_not_none: bool = True, cleanup: bool = True, timeout: dt.timedelta = None) -> Any
+def run_script_sync(hash: str, args: Dict[str, Any] = None, verbose: bool = False, assert_result_is_not_none: bool = True, cleanup: bool = True, timeout: dt.timedelta = None, tag: str = None) -> Any
 
 # Run a script synchronously by path and return its result.
 # 
@@ -2461,10 +2671,11 @@ def run_script_sync(hash: str, args: Dict[str, Any] = None, verbose: bool = Fals
 #     assert_result_is_not_none: Raise exception if result is None
 #     cleanup: Register cleanup handler to cancel job on exit
 #     timeout: Maximum time to wait
+#     tag: Override the worker tag the job runs on
 # 
 # Returns:
 #     Script result
-def run_script_by_path_sync(path: str, args: Dict[str, Any] = None, verbose: bool = False, assert_result_is_not_none: bool = True, cleanup: bool = True, timeout: dt.timedelta = None) -> Any
+def run_script_by_path_sync(path: str, args: Dict[str, Any] = None, verbose: bool = False, assert_result_is_not_none: bool = True, cleanup: bool = True, timeout: dt.timedelta = None, tag: str = None) -> Any
 
 # Convenient helpers that takes an S3 resource as input and returns the settings necessary to
 # initiate an S3 connection from DuckDB
@@ -2487,7 +2698,11 @@ def get_state_path() -> str
 # Parse resource syntax from string.
 def parse_resource_syntax(s: str) -> Optional[str]
 
-# Parse S3 object from string or S3Object format.
+# Parse S3 object from a `s3://<storage>/<key>` URI string (`s3:///<key>`
+# for the default storage) or S3Object format. Any other string raises
+# rather than falling back to an auto-generated key: an auto key is
+# requested by omitting the object, and a fallback would silently misplace
+# the upload on any typo.
 def parse_s3_object(s3_object: S3Object | str) -> S3Object
 
 # Parse variable syntax from string.
@@ -2514,6 +2729,27 @@ def stream_result(stream) -> None
 # Returns:
 #     SqlQuery instance for fetching results
 def query(sql: str, *args) -> SqlQuery
+
+# Idempotently materialize the rows of `select_sql` into ducklake
+# `table` for one `partition` (or the whole table when `partition` is
+# None). Client-side equivalent of the `// materialize` engine: with
+# `unique_key` it upserts within the slice (delete-by-key + insert);
+# without it, it replaces (whole table → CREATE OR REPLACE; partition →
+# delete the partition + insert). Re-running the same slice is safe — the
+# backfill / failure-recovery contract.
+# 
+# The partition value is bound as a DuckDB arg (never string-interpolated)
+# so it cannot inject SQL. `select_sql` is trusted (your own query).
+def upsert_partition(table: str, select_sql: str, partition: str = None, unique_key: str = None, partition_col: str = '_wm_partition', schema: str = None)
+
+# INSERT-only materialization (no dedup / no replace) for an immutable
+# event-log table — for one `partition`, or the whole table when
+# `partition` is None. NOTE: unlike `upsert_partition`, re-running the same
+# slice duplicates rows — use only for append-only sources.
+def append_partition(table: str, select_sql: str, partition: str = None, partition_col: str = '_wm_partition', schema: str = None)
+
+# Read a materialized ducklake table, optionally a single partition.
+def read(table: str, partition: str = None, partition_col: str = '_wm_partition', schema: str = None)
 
 # Execute query and fetch results.
 # 
@@ -2554,7 +2790,37 @@ def parse_sql_client_name(name: str) -> tuple[str, Optional[str]]
 # 
 # - **v2 (inside @workflow)**: dispatches as a checkpoint step.
 # - **v1 (WM_JOB_ID set, no @workflow)**: dispatches via HTTP API.
-# - **Standalone**: executes the function body directly.
+# - **Standalone, or called from inside another v2 task**: executes the
+#   function body directly. A task runs as a single job, so the tasks it
+#   calls run in that same job, without their own options.
+# 
+# A task runs as its own job, so its result is always encoded as JSON and
+# decoded back before the caller sees it: a ``datetime`` comes back as a
+# string, a tuple as a list.
+# 
+# ``retry`` re-dispatches the task after a failure, inside ``@workflow`` only.
+# Every attempt is a step of its own (``call_api``, ``call_api#2``, ...) and
+# the wait between two of them is a durable sleep, so a retrying task holds no
+# worker while it backs off. Keys: ``attempts`` (retries after the first
+# failure, a whole number from 0 to 100), ``delay`` (seconds before the first
+# retry, sub-second delays dropped), ``multiplier`` (applied to the delay
+# after each attempt, 1 keeps it constant), ``max_delay`` (ceiling in
+# seconds). ``attempts`` is required, and an out-of-range or unknown key is
+# rejected where the policy is written.
+# 
+# A workflow sleeps once per round, so tasks backing off in the same fan-out
+# wait one after another rather than together: the delay before a fan-out
+# retries is the sum of every backoff pending in it, not the longest one, and
+# it grows with both the width of the fan-out and ``attempts``. Retries with
+# no ``delay`` all go out in a single round.
+# 
+# ``cache_ttl`` serves a previous result of the task for that many seconds
+# instead of running it again. A task is keyed on its step key (its name and
+# call order) and the workflow's input, not on the arguments it is called
+# with, so cache one only when whether it runs, and what it receives, follow
+# from the workflow's input alone. A ``task_script`` target is keyed on the
+# arguments it is called with. It has no effect on a ``task_flow`` target,
+# which keeps its flow's own cache policy.
 # 
 # Usage::
 # 
@@ -2563,9 +2829,14 @@ def parse_sql_client_name(name: str) -> tuple[str, Optional[str]]
 # 
 #     @task(path="f/external_script", timeout=600, tag="gpu")
 #     async def run_external(x: int): ...
-def task(_func = None, path: Optional[str] = None, tag: Optional[str] = None, timeout: Optional[int] = None, cache_ttl: Optional[int] = None, priority: Optional[int] = None, concurrency_limit: Optional[int] = None, concurrency_key: Optional[str] = None, concurrency_time_window_s: Optional[int] = None)
+# 
+#     @task(retry={"attempts": 3, "delay": 30, "multiplier": 2})
+#     async def call_api(payload: dict): ...
+def task(_func = None, *, path: Optional[str] = None, tag: Optional[str] = None, timeout: Optional[int] = None, cache_ttl: Optional[int] = None, priority: Optional[int] = None, concurrency_limit: Optional[int] = None, concurrency_key: Optional[str] = None, concurrency_time_window_s: Optional[int] = None, retry: Optional[dict] = None)
 
 # Create a task that dispatches to a separate Windmill script.
+# 
+# ``retry`` takes the same policy as :func:`task`.
 # 
 # Usage::
 # 
@@ -2574,9 +2845,11 @@ def task(_func = None, path: Optional[str] = None, tag: Optional[str] = None, ti
 #     @workflow
 #     async def main():
 #         data = await extract(url="https://...")
-def task_script(path: str, timeout: Optional[int] = None, tag: Optional[str] = None, cache_ttl: Optional[int] = None, priority: Optional[int] = None, concurrency_limit: Optional[int] = None, concurrency_key: Optional[str] = None, concurrency_time_window_s: Optional[int] = None)
+def task_script(path: str, *, timeout: Optional[int] = None, tag: Optional[str] = None, cache_ttl: Optional[int] = None, priority: Optional[int] = None, concurrency_limit: Optional[int] = None, concurrency_key: Optional[str] = None, concurrency_time_window_s: Optional[int] = None, retry: Optional[dict] = None)
 
 # Create a task that dispatches to a separate Windmill flow.
+# 
+# ``retry`` takes the same policy as :func:`task`.
 # 
 # Usage::
 # 
@@ -2585,7 +2858,7 @@ def task_script(path: str, timeout: Optional[int] = None, tag: Optional[str] = N
 #     @workflow
 #     async def main():
 #         result = await pipeline(input=data)
-def task_flow(path: str, timeout: Optional[int] = None, tag: Optional[str] = None, cache_ttl: Optional[int] = None, priority: Optional[int] = None, concurrency_limit: Optional[int] = None, concurrency_key: Optional[str] = None, concurrency_time_window_s: Optional[int] = None)
+def task_flow(path: str, *, timeout: Optional[int] = None, tag: Optional[str] = None, cache_ttl: Optional[int] = None, priority: Optional[int] = None, concurrency_limit: Optional[int] = None, concurrency_key: Optional[str] = None, concurrency_time_window_s: Optional[int] = None, retry: Optional[dict] = None)
 
 # Decorator marking an async function as a workflow-as-code entry point.
 # 
@@ -2601,18 +2874,26 @@ def workflow(func)
 # On replay the cached value is returned without re-executing ``fn``.
 # Use for lightweight deterministic operations (timestamps, random IDs,
 # config reads) that should not incur the overhead of a child job.
+# 
+# ``fn``'s result is encoded as JSON and decoded back before it is returned,
+# so the round that runs the body sees the same types every replay sees:
+# a ``datetime`` comes back as a string, a tuple as a list.
+# 
+# Called from inside a task body, ``fn`` runs in place and nothing is
+# checkpointed: a task is a single job and is never replayed.
 async def step(name: str, fn)
 
 # Server-side sleep — suspend the workflow for the given duration without holding a worker.
 # 
 # Inside a @workflow, the parent job suspends and auto-resumes after ``seconds``.
-# Outside a workflow, falls back to ``asyncio.sleep``.
+# Outside a workflow, or inside a task body, falls back to ``asyncio.sleep``.
 async def sleep(seconds: int)
 
 # Suspend the workflow and wait for an external approval.
 # 
-# Use ``get_resume_urls()`` (wrapped in ``step()``) to obtain
-# resume/cancel/approval URLs before calling this function.
+# Pass ``key`` to name the step, then ``get_approval_urls(key)`` yields the URLs
+# that resume exactly this approval — route them through your own channel.
+# Without a key the steps are named ``approval``, ``approval_2``, ...
 # 
 # Returns a dict with ``value`` (form data), ``approver``, and ``approved``.
 # 
@@ -2620,13 +2901,18 @@ async def sleep(seconds: int)
 #     timeout: Approval timeout in seconds (default 1800).
 #     form: Optional form schema for the approval page.
 #     self_approval: Whether the user who triggered the flow can approve it (default True).
+#     key: Optional checkpoint key naming this approval step.
+#     skin: ``"minimal"`` shows approvers only the request (form and approve/reject)
+#         instead of the detailed page with the workflow's details.
+#     description: Shown to approvers above the form: a string, or a rich value such as
+#         ``{"markdown": "..."}``.
 # 
 # Example::
 # 
-#     urls = await step("urls", lambda: get_resume_urls())
-#     await step("notify", lambda: send_email(urls["approvalPage"]))
-#     result = await wait_for_approval(timeout=3600)
-async def wait_for_approval(timeout: int = 1800, form: dict | None = None, self_approval: bool = True) -> dict
+#     urls = await step("urls", lambda: get_approval_urls("manager"))
+#     await step("notify", lambda: send_email(urls["resume"], urls["cancel"]))
+#     result = await wait_for_approval(key="manager", timeout=3600)
+async def wait_for_approval(timeout: int = 1800, form: dict | None = None, self_approval: bool = True, key: str | None = None, skin: Literal['detailed', 'minimal'] | None = None, description: str | dict | None = None) -> dict
 
 # Process items in parallel with optional concurrency control.
 # 
@@ -2640,7 +2926,7 @@ async def wait_for_approval(timeout: int = 1800, form: dict | None = None, self_
 #         ...
 # 
 #     results = await parallel(items, process, concurrency=5)
-async def parallel(items, fn, concurrency: Optional[int] = None)
+async def parallel(items, fn, *, concurrency: Optional[int] = None)
 
 # Commit Kafka offsets for a trigger with auto_commit disabled.
 # 

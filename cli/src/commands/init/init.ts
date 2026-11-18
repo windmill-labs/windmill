@@ -18,6 +18,7 @@ import {
 import { generateRTNamespace } from "../resource-type/resource-type.ts";
 import { generateCommentedTemplate } from "./template.ts";
 import { refreshPrompts } from "../refresh/prompts.ts";
+import { refreshTsconfig } from "../refresh/tsconfig.ts";
 
 export interface InitOptions {
   useDefault?: boolean;
@@ -238,7 +239,19 @@ async function initAction(opts: InitOptions) {
 
   await refreshPrompts({ yes: opts.useDefault === true });
 
-  // Generate resource type namespace (only if a workspace was bound)
+  // Generate the IDE tsconfig (managed tsconfig.wmill.json + user tsconfig.json
+  // that extends it). Independent of any workspace binding — it's purely local.
+  try {
+    await refreshTsconfig({ yes: opts.useDefault === true });
+  } catch (error) {
+    log.warn(
+      `Could not generate tsconfig: ${
+        error instanceof Error ? error.message : error
+      }`
+    );
+  }
+
+  // Generate resource type namespace (needs a bound workspace)
   if (didBindWorkspace && boundProfile) {
     try {
       // Cache the bound profile so resolveWorkspace doesn't re-resolve and prompt again
@@ -253,9 +266,51 @@ async function initAction(opts: InitOptions) {
       );
     }
   } else {
-    log.info(
-      colors.gray("Skipped resource type namespace generation (no workspace bound). Run 'wmill workspace bind' then 'wmill init' to generate it.")
+    // generateRTNamespace resolves a workspace; its non-interactive
+    // multiple-workspaces path process.exit(-1)s (uncatchable), aborting init.
+    // So generate only for a single resolvable workspace (baseUrl + matching
+    // profile), passed via __secret_workspace to skip resolution; else skip.
+    const { readConfigFile, getWorkspaceNames, getEffectiveWorkspaceId } =
+      await import("../../core/conf.ts");
+    const config = await readConfigFile({ warnIfMissing: false });
+    const resolvable = getWorkspaceNames(config.workspaces).filter(
+      (n) => !!(config.workspaces as any)?.[n]?.baseUrl
     );
+    let boundProfileForGen: Workspace | undefined;
+    if (resolvable.length === 1) {
+      const name = resolvable[0];
+      const entry = (config.workspaces as any)[name];
+      let normalizedBaseUrl: string | undefined;
+      try {
+        normalizedBaseUrl = new URL(entry.baseUrl).toString();
+      } catch {
+        normalizedBaseUrl = undefined;
+      }
+      if (normalizedBaseUrl) {
+        const workspaceId = getEffectiveWorkspaceId(name, entry);
+        const profiles = await allWorkspaces(opts.configDir);
+        boundProfileForGen = profiles.find(
+          (p) => p.remote === normalizedBaseUrl && p.workspaceId === workspaceId
+        );
+      }
+    }
+    if (boundProfileForGen) {
+      try {
+        const rtOpts = { ...opts } as GlobalOptions;
+        (rtOpts as any).__secret_workspace = boundProfileForGen;
+        await generateRTNamespace(rtOpts);
+      } catch (error) {
+        log.warn(
+          `Could not pull resource types and generate TypeScript namespace: ${
+            error instanceof Error ? error.message : error
+          }`
+        );
+      }
+    } else {
+      log.info(
+        colors.gray("Skipped resource type namespace generation (no workspace bound). Run 'wmill workspace bind' then 'wmill init' to generate it.")
+      );
+    }
   }
 }
 

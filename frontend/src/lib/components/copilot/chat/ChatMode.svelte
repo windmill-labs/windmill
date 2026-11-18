@@ -2,7 +2,10 @@
 	import { ChevronDown } from 'lucide-svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
-	import { aiChatManager, AIMode } from './AIChatManager.svelte'
+	import { AIMode } from './AIChatManager.svelte'
+	import { getAiChatManager } from './aiChatManagerContext'
+
+	const aiChatManager = getAiChatManager()
 
 	const modeLabel = (mode: AIMode) => mode.charAt(0).toUpperCase() + mode.slice(1) + ' mode'
 

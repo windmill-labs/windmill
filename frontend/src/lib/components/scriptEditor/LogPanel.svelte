@@ -9,8 +9,6 @@
 		type Preview,
 		type WorkflowStatus
 	} from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
-	import { base } from '$lib/base'
 	import { displayDate } from '$lib/utils'
 	import Tabs from '../common/tabs/Tabs.svelte'
 	import Tab from '../common/tabs/Tab.svelte'
@@ -33,6 +31,9 @@
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import type { PreviewPanelUi } from '../custom_ui'
 	import { getStringError } from '../copilot/chat/utils'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		lang: Preview['language'] | undefined
@@ -112,6 +113,14 @@
 
 	let forceJson = $state(false)
 	let isWac = $derived(!!previewJob?.workflow_as_code_status)
+	// Hide the tab strip when only the "Logs & Result" tab would render —
+	// avoids a single-item bar in embedded contexts (e.g. asset graph pane).
+	let visibleTabCount = $derived(
+		1 +
+			(customUi?.disableHistory !== true ? 1 : 0) +
+			(showCaptures && customUi?.disableTriggerCaptures !== true ? 1 : 0) +
+			(customUi?.disableTracing !== true ? 1 : 0)
+	)
 	let wacDone = $derived(
 		previewJob?.type == 'CompletedJob' ||
 			(previewJob != undefined && !previewIsLoading && !!previewJob.workflow_as_code_status)
@@ -140,7 +149,11 @@
 	</DrawerContent>
 </Drawer>
 <div class="h-full flex flex-col">
-	<Tabs bind:selected={selectedTab} class="pt-1" wrapperClass="flex-none">
+	<Tabs
+		bind:selected={selectedTab}
+		class="pt-1"
+		wrapperClass={visibleTabCount > 1 ? 'flex-none' : 'hidden'}
+	>
 		<Tab value="logs" label="Logs & Result" />
 		{#if customUi?.disableHistory !== true}
 			<Tab value="history" label="History" />
@@ -169,7 +182,7 @@
 						</div>
 					{:else}
 						<SplitPanesWrapper>
-							<Splitpanes horizontal>
+							<Splitpanes horizontal={customUi?.logsResultSideBySide !== true}>
 								<Pane class="relative">
 									<LogViewer
 										jobId={previewJob?.id}
@@ -202,8 +215,12 @@
 													fixTableSizingToParent
 												>
 													{#snippet copilot_fix()}
-														{#if lang && editor && diffEditor && args && previewJob && !previewJob.success && getStringError(previewJob.result)}
-															<ScriptFix {lang} />
+														{@const previewError =
+															previewJob && !previewJob.success
+																? getStringError(previewJob.result)
+																: undefined}
+														{#if lang && editor && diffEditor && args && previewError}
+															<ScriptFix {lang} error={previewError} jobId={previewJob?.id} />
 														{/if}
 													{/snippet}
 												</DisplayResult>
@@ -211,9 +228,11 @@
 										</div>
 									{:else}
 										<div class="text-sm text-primary p-2 flex justify-between items-center">
-											<span>
+											<!-- min-h pins this to the text-sm line box, and tracks it across root font
+											     sizes, so swapping the text for the spinner does not resize the row -->
+											<span class="flex items-center min-h-5">
 												{#if previewIsLoading}
-													<Loader2 class="animate-spin" />
+													<Loader2 size={14} class="animate-spin" />
 												{:else}
 													Test to see the result here
 												{/if}
@@ -250,7 +269,7 @@
 										<Cell first>
 											<a
 												class="pr-3"
-												href="{base}/run/{id}?workspace={workspace ?? $workspaceStore}"
+												href="/run/{id}?workspace={workspace ?? $operatingWorkspace}"
 												target="_blank">{id.substring(30)}</a
 											>
 										</Cell>
@@ -268,7 +287,7 @@
 												onclick={preventDefault(() => {
 													openDrawer({ mode: 'json', content: undefined, title: 'Result' })
 													JobService.getCompletedJobResult({
-														workspace: workspace ?? $workspaceStore ?? 'NO_W',
+														workspace: workspace ?? $operatingWorkspace ?? 'NO_W',
 														id
 													}).then((res) => {
 														drawerContent && (drawerContent.content = res)
@@ -284,7 +303,7 @@
 												onclick={preventDefault(async () => {
 													const code = (
 														await JobService.getCompletedJob({
-															workspace: workspace ?? $workspaceStore ?? 'NO_W',
+															workspace: workspace ?? $operatingWorkspace ?? 'NO_W',
 															id
 														})
 													).raw_code
@@ -305,7 +324,7 @@
 													const logs = await (
 														await fetch(
 															OpenAPI.BASE +
-																`/w/${workspace ?? $workspaceStore}/jobs_u/get_logs/${id}`
+																`/w/${workspace ?? $operatingWorkspace}/jobs_u/get_logs/${id}`
 														)
 													).text()
 													console.log(logs)

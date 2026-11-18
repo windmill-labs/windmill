@@ -12,7 +12,8 @@ import {
 	Tag,
 	UserIcon,
 	Zap,
-	CirclePlayIcon
+	CirclePlayIcon,
+	Wrench
 } from 'lucide-svelte'
 import { triggerDisplayNamesMap } from '../triggers/utils'
 import type { FilterInstanceRec, FilterSchemaRec } from '../FilterSearchbar.svelte'
@@ -163,6 +164,7 @@ export function buildRunsFilterSearchbarSchema({
 				{ label: 'Running', value: 'running' as const },
 				{ label: 'Success', value: 'success' as const },
 				{ label: 'Failure', value: 'failure' as const },
+				{ label: 'Canceled', value: 'canceled' as const },
 				{ label: 'Waiting', value: 'waiting' as const },
 				{ label: 'Suspended', value: 'suspended' as const }
 			],
@@ -174,6 +176,17 @@ export function buildRunsFilterSearchbarSchema({
 			type: 'boolean' as const,
 			label: 'Show skipped',
 			description: 'Include skipped flow steps'
+		},
+		resolved: {
+			type: 'oneof' as const,
+			options: [
+				{ label: 'All (default)', value: 'all' as const },
+				{ label: 'Unresolved only', value: 'unresolved' as const },
+				{ label: 'Resolved only', value: 'resolved' as const }
+			],
+			label: 'Resolution',
+			icon: Wrench,
+			description: 'Filter by whether a failed or canceled run has been marked as handled'
 		},
 		job_trigger_kind: {
 			type: 'oneof' as const,
@@ -204,7 +217,9 @@ export function buildRunsFilterSearchbarSchema({
 		show_future_jobs: {
 			type: 'boolean' as const,
 			label: 'Show future jobs (Default: true)',
-			description: 'Include jobs that are planned later'
+			description: 'Include jobs that are planned later',
+			// On by default (useJobsLoader), so selecting it means "turn it off" — keep the picker.
+			default: true
 		},
 		...(isSuperAdminOrDevops &&
 			isAdminsWorkspace && {
@@ -239,6 +254,7 @@ export const buildRunsFilterPresets = ({
 	{ name: 'Hide schedules', value: 'job_trigger_kind:\\ !schedule' },
 	{ name: 'Hide future jobs', value: 'show_future_jobs:\\ false' },
 	{ name: 'Show skipped', value: 'show_skipped:\\ true' },
+	{ name: 'Hide resolved runs', value: 'resolved:\\ unresolved' },
 	...(isSuperAdminOrDevops && isAdminsWorkspace
 		? [{ name: 'All workspaces', value: 'all_workspaces:\\ true' }]
 		: [])

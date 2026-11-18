@@ -5,7 +5,8 @@
 	import Button from '$lib/components/common/button/Button.svelte'
 	import type { Preview, ScriptLang } from '$lib/gen'
 	import { createEventDispatcher, onDestroy, onMount, untrack } from 'svelte'
-	import { Trash2, Bug, Terminal } from 'lucide-svelte'
+	import { Trash2, Bug, Terminal, Paintbrush } from 'lucide-svelte'
+	import { getModifierKey } from '$lib/utils'
 	import { inferArgs, inferAssets } from '$lib/infer'
 	import type { Schema } from '$lib/common'
 	import Editor from '$lib/components/Editor.svelte'
@@ -17,13 +18,13 @@
 	import CacheTtlPopup from '../apps/editor/inlineScriptsPanel/CacheTtlPopup.svelte'
 	import TagPopup from '../apps/editor/inlineScriptsPanel/TagPopup.svelte'
 	import DeleteAfterUsePopup from './DeleteAfterUsePopup.svelte'
+	import ViewerDataAccessPopup from './ViewerDataAccessPopup.svelte'
 	import { computeFields } from '../apps/editor/inlineScriptsPanel/utils'
 	import EditorBar, { EDITOR_BAR_HELPERS_INLINE_THRESHOLD } from '../EditorBar.svelte'
 	import { LanguageIcon } from '../common/languageIcons'
 	import { resource } from 'runed'
 	import { usePreparedAssetSqlQueries } from '$lib/infer.svelte'
 	import AssetsDropdownButton from '../assets/AssetsDropdownButton.svelte'
-	import { workspaceStore } from '$lib/stores'
 	import { SvelteSet } from 'svelte/reactivity'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { editor as meditor } from 'monaco-editor'
@@ -41,6 +42,7 @@
 		getDebugErrorMessage
 	} from '$lib/components/debug'
 	import TextInput from '../text_input/TextInput.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
 	interface Props {
 		inlineScript: (InlineScript & { language: ScriptLang }) | undefined
@@ -52,6 +54,7 @@
 		editor?: any | undefined
 		lastDeployedCode?: string | undefined
 		delete_after_secs?: number | undefined
+		viewer_data_access?: boolean | undefined
 		/** Called when code is selected in the editor */
 		onSelectionChange?: (
 			selection: {
@@ -74,8 +77,20 @@
 		editor = $bindable(undefined),
 		lastDeployedCode,
 		onSelectionChange,
-		delete_after_secs = $bindable()
+		delete_after_secs = $bindable(),
+		viewer_data_access = $bindable()
 	}: Props = $props()
+
+	// The asset parser misses a chained `wmill.datatable('x')`...``, so the source is matched too.
+	const readsData = $derived(
+		(inlineScript?.assets?.some((a) => ['datatable', 'ducklake', 's3object'].includes(a.kind)) ??
+			false) ||
+			/datatable\s*\(|datatable:\/\/|s3:\/\/|s3_?file|S3Object/i.test(inlineScript?.content ?? '')
+	)
+
+	const operatingWorkspace = useOperatingWorkspace()
+	let opWs = $derived($operatingWorkspace)
+
 	let diffEditor = $state() as DiffEditor | undefined
 	let validCode = $state(true)
 
@@ -145,7 +160,7 @@
 	)
 	let preparedSqlQueries = usePreparedAssetSqlQueries(
 		() => inferAssetsRes.current?.sql_queries,
-		() => $workspaceStore
+		() => opWs
 	)
 	$effect(() => {
 		if (!inlineScript || !inferAssetsRes.current || inferAssetsRes.current.status === 'error')
@@ -303,13 +318,13 @@
 			resetDAPClient()
 			dapClient = getDAPClient(dapServerUrl)
 
-			const env = await fetchContextualVariables($workspaceStore ?? '')
+			const env = await fetchContextualVariables(opWs ?? '')
 			const code = inlineScript.content
 
 			let signedPayload
 			try {
 				signedPayload = await signDebugRequest(
-					$workspaceStore ?? '',
+					opWs ?? '',
 					code ?? '',
 					inlineScript.language ?? 'python3'
 				)
@@ -616,6 +631,9 @@
 				/>
 			{/if}
 			<div class="flex w-full flex-row gap-2 items-center justify-end">
+				{#if readsData || viewer_data_access}
+					<ViewerDataAccessPopup bind:viewer_data_access />
+				{/if}
 				{#if inlineScript}
 					<TagPopup bind:tag={inlineScript.tag} />
 					<CacheTtlPopup bind:cache_ttl={inlineScript.cache_ttl} />
@@ -623,19 +641,22 @@
 				<DeleteAfterUsePopup bind:delete_after_secs />
 
 				<Button
-					variant="default"
+					title={`Format (${getModifierKey()}S)`}
+					aria-label="Format"
+					variant="subtle"
 					unifiedSize="sm"
 					on:click={async () => {
 						editor?.format()
 					}}
-				>
-					Format
-				</Button>
+					endIcon={{ icon: Paintbrush }}
+					iconOnly
+				/>
 			</div>
 		</div>
 
 		<div class="shadow-sm px-1 border-b-1 border-gray-200 dark:border-gray-700">
 			<EditorBar
+				workspace={opWs}
 				{validCode}
 				{editor}
 				lang={inlineScript.language}
@@ -733,7 +754,7 @@
 							client={dapClient}
 							currentFrameId={currentDebugFrameId}
 							onClose={() => (showDebugConsole = false)}
-							workspace={$workspaceStore}
+							workspace={opWs}
 							jobId={debugSessionJobId ?? undefined}
 						/>
 					</Pane>

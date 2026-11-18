@@ -14,7 +14,7 @@
 
 import { expect, test } from "bun:test";
 import * as path from "node:path";
-import { writeFile, readFile, stat } from "node:fs/promises";
+import { writeFile, readFile, stat, rename } from "node:fs/promises";
 import { withTestBackend } from "./test_backend.ts";
 import { addWorkspace } from "../workspace.ts";
 import { parseJsonFromCLIOutput } from "./test_config_helpers.ts";
@@ -683,6 +683,173 @@ excludes: []
 
       // Verify no diff on subsequent pull (idempotency)
       await verifyNoDiffOnPull(backend, tempDir);
+    });
+});
+
+// The core WIN-2020 reproduction. The real failure is NOT a user authoring
+// both f/Caps and f/caps — it is a SINGLE capitalized folder whose on-disk
+// casing drifts on a case-insensitive filesystem (Windows stores/reports the
+// case the directory was first created with). The diff then sees a brand-new
+// lowercase path plus a destructive delete of the real one.
+//
+// This test runs on BOTH the Linux and Windows CI jobs:
+//   - On the Windows runner (real case-insensitive NTFS) the CLI auto-detects
+//     case-insensitivity via its filesystem probe — no override, real behavior.
+//   - On Linux (case-sensitive) we reproduce the drift with an explicit rename
+//     and force the same code path with WMILL_CASE_INSENSITIVE_FS=true, and we
+//     additionally assert that WITHOUT the fix the destructive phantom appears
+//     (which can only be observed on a case-sensitive FS).
+test("Mixed Case Paths: case-only folder drift reconciles to server casing (WIN-2020)", async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      await setupWorkspaceProfile(backend);
+
+      await createFolder(backend, "Caps");
+      await createScript(
+        backend,
+        "f/Caps/MyScript",
+        'export async function main() { return "drift repro"; }',
+        "Drift Script"
+      );
+
+      await writeFile(
+        path.join(tempDir, "wmill.yaml"),
+        `defaultTs: bun
+includes:
+  - "**"
+excludes: []
+`,
+        "utf-8"
+      );
+
+      const pullResult = await backend.runCLICommand(["sync", "pull", "--yes"], tempDir);
+      expect(pullResult.code).toEqual(0);
+
+      const upperDir = path.join(tempDir, "f", "Caps");
+      const lowerDir = path.join(tempDir, "f", "caps");
+      const pulledExists = await stat(path.join(upperDir, "MyScript.ts"))
+        .then(() => true)
+        .catch(() => false);
+      expect(pulledExists).toBeTruthy();
+
+      // Simulate the on-disk casing drift (a no-op-in-spirit case-only rename).
+      // On Windows this is a real case-only rename of the same directory; on
+      // Linux it produces a genuinely lowercase sibling.
+      await rename(upperDir, lowerDir);
+
+      const onWindows = process.platform === "win32";
+
+      // Without case-insensitive handling, the drift is a destructive
+      // delete(f/Caps) + add(f/caps) phantom. Only observable on a
+      // case-sensitive FS (Linux), where the override defaults off.
+      if (!onWindows) {
+        const buggy = await backend.runCLICommand(
+          ["sync", "push", "--yes", "--dry-run", "--json-output"],
+          tempDir
+        );
+        expect(buggy.code).toEqual(0);
+        const buggyChanges = parseJsonFromCLIOutput(buggy.stdout).changes || [];
+        const hasDelete = buggyChanges.some(
+          (c: any) => c.type === "deleted" && c.path.replace(/\\/g, "/").startsWith("f/Caps/")
+        );
+        const hasAdd = buggyChanges.some(
+          (c: any) => c.type === "added" && c.path.replace(/\\/g, "/").startsWith("f/caps/")
+        );
+        expect(hasDelete).toBeTruthy();
+        expect(hasAdd).toBeTruthy();
+      }
+
+      // With case-insensitive handling in effect (auto on Windows via the FS
+      // probe, forced via env on Linux) the drifted local casing is reconciled
+      // to the server's casing, so the push is a clean no-op.
+      if (!onWindows) process.env.WMILL_CASE_INSENSITIVE_FS = "true";
+      try {
+        const fixed = await backend.runCLICommand(
+          ["sync", "push", "--yes", "--dry-run", "--json-output"],
+          tempDir
+        );
+        expect(fixed.code).toEqual(0);
+        const fixedChanges = parseJsonFromCLIOutput(fixed.stdout).changes || [];
+        if (fixedChanges.length !== 0) {
+          console.error(
+            "Expected no changes after reconciliation, got:",
+            JSON.stringify(fixedChanges, null, 2)
+          );
+        }
+        expect(fixedChanges.length).toEqual(0);
+
+        // P1 regression: a brand-new item added under the drifted (lowercase)
+        // folder must be pushed under the server's folder casing (f/Caps), not
+        // recreate the case-only collision as f/caps. A self-contained variable
+        // YAML is used so the assertion targets path canonicalization without
+        // dragging in script lock/metadata generation.
+        await writeFile(
+          path.join(lowerDir, "NewVar.variable.yaml"),
+          `value: hello\nis_secret: false\ndescription: new under drifted folder\nis_oauth: false\n`,
+          "utf-8"
+        );
+        const added = await backend.runCLICommand(
+          ["sync", "push", "--yes", "--dry-run", "--json-output"],
+          tempDir
+        );
+        expect(added.code).toEqual(0);
+        const addedChanges = parseJsonFromCLIOutput(added.stdout).changes || [];
+        const addedPaths = addedChanges.map((c: any) =>
+          c.path.replace(/\\/g, "/")
+        );
+        expect(
+          addedPaths.some((p: string) => p === "f/Caps/NewVar.variable.yaml")
+        ).toBeTruthy();
+        expect(
+          addedPaths.some((p: string) => p.startsWith("f/caps/"))
+        ).toBeFalsy();
+      } finally {
+        if (!onWindows) delete process.env.WMILL_CASE_INSENSITIVE_FS;
+      }
+    });
+});
+
+// A genuine, unrepresentable server-side collision: two DISTINCT server folders
+// that differ only by case (f/Caps and f/caps). These cannot both exist on a
+// case-insensitive filesystem, so the CLI must warn. Skipped on Windows, where
+// the pull physically cannot lay both folders down; the warning string itself
+// is exercised platform-independently by the unit tests.
+const collisionTest = process.platform === "win32" ? test.skip : test;
+collisionTest("Mixed Case Paths: distinct server folders differing only by case warn", async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      await setupWorkspaceProfile(backend);
+
+      await createFolder(backend, "Caps");
+      await createFolder(backend, "caps");
+      await createScript(
+        backend,
+        "f/Caps/upper",
+        'export async function main() { return "upper"; }',
+        "Upper"
+      );
+      await createScript(
+        backend,
+        "f/caps/lower",
+        'export async function main() { return "lower"; }',
+        "Lower"
+      );
+
+      await writeFile(
+        path.join(tempDir, "wmill.yaml"),
+        `defaultTs: bun
+includes:
+  - "**"
+excludes: []
+`,
+        "utf-8"
+      );
+
+      const pullResult = await backend.runCLICommand(["sync", "pull", "--yes"], tempDir);
+      expect(pullResult.code).toEqual(0);
+
+      const combinedOutput = pullResult.stdout + pullResult.stderr;
+      expect(combinedOutput.includes("differ only by letter case")).toBeTruthy();
+      expect(combinedOutput.includes("f/Caps")).toBeTruthy();
+      expect(combinedOutput.includes("f/caps")).toBeTruthy();
     });
 });
 

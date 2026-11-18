@@ -5,18 +5,17 @@
 	import { emptyStringTrimmed } from '$lib/utils'
 	import TestTriggerConnection from '../TestTriggerConnection.svelte'
 	import Subsection from '$lib/components/Subsection.svelte'
-	import { Plus } from 'lucide-svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import ArgInput from '$lib/components/ArgInput.svelte'
-	import ItemPicker from '$lib/components/ItemPicker.svelte'
-	import VariableEditor from '$lib/components/VariableEditor.svelte'
-	import { Button } from '$lib/components/common'
-	import { VariableService, type AwsAuthResourceType } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
+	import type ItemPicker from '$lib/components/ItemPicker.svelte'
+	import type VariableEditor from '$lib/components/VariableEditor.svelte'
+	import VariablePicker from '$lib/components/VariablePicker.svelte'
+	import { type AwsAuthResourceType } from '$lib/gen'
 	import TestingBadge from '../testingBadge.svelte'
 	import MultiSelect from '$lib/components/select/MultiSelect.svelte'
 	import { safeSelectItems } from '$lib/components/select/utils.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
 	interface Props {
 		can_write?: boolean
@@ -39,10 +38,9 @@
 		message_attributes = $bindable([]),
 		showTestingBadge = false
 	}: Props = $props()
+	const operatingWorkspace = useOperatingWorkspace()
+	const wsId = $derived($operatingWorkspace)
 
-	async function loadVariables() {
-		return await VariableService.listVariable({ workspace: $workspaceStore ?? '' })
-	}
 	let itemPicker: ItemPicker | undefined = $state()
 	let variableEditor: VariableEditor | undefined = $state()
 	let cached: string[] = $state([])
@@ -71,20 +69,31 @@
 
 						<ToggleButtonGroup
 							bind:selected={aws_auth_resource_type}
+							disabled={!can_write}
 							on:selected={() => {
 								aws_resource_path = ''
 							}}
 						>
-							{#snippet children({ item })}
-								<ToggleButton label="Credentials" value="credentials" {item} />
-								<ToggleButton label="Oidc" value="oidc" {item} />
+							{#snippet children({ item, disabled })}
+								<ToggleButton label="Credentials" value="credentials" {item} {disabled} />
+								<ToggleButton label="Oidc" value="oidc" {item} {disabled} />
 							{/snippet}
 						</ToggleButtonGroup>
 
 						{#if aws_auth_resource_type === 'credentials'}
-							<ResourcePicker resourceType="aws" bind:value={aws_resource_path} />
+							<ResourcePicker
+								workspace={wsId}
+								resourceType="aws"
+								bind:value={aws_resource_path}
+								disabled={!can_write}
+							/>
 						{:else if aws_auth_resource_type === 'oidc'}
-							<ResourcePicker resourceType="aws_oidc" bind:value={aws_resource_path} />
+							<ResourcePicker
+								workspace={wsId}
+								resourceType="aws_oidc"
+								bind:value={aws_resource_path}
+								disabled={!can_write}
+							/>
 						{/if}
 						{#if isValid}
 							<TestTriggerConnection kind="sqs" args={{ aws_resource_path, queue_url }} />
@@ -124,6 +133,7 @@
 				<div class="mt-2">
 					<ToggleButtonGroup
 						selected={tab}
+						disabled={!can_write}
 						on:selected={({ detail }) => {
 							if (detail === 'all') {
 								cached = message_attributes
@@ -134,9 +144,9 @@
 							tab = detail
 						}}
 					>
-						{#snippet children({ item })}
-							<ToggleButton value="all" label="All attributes" {item} />
-							<ToggleButton value="specific" label="Specific attributes" {item} />
+						{#snippet children({ item, disabled })}
+							<ToggleButton value="all" label="All attributes" {item} {disabled} />
+							<ToggleButton value="specific" label="Specific attributes" {item} {disabled} />
 						{/snippet}
 					</ToggleButtonGroup>
 				</div>
@@ -147,7 +157,7 @@
 						onCreateItem={(x) => message_attributes.push(x)}
 						placeholder="Set message attributes"
 						noItemsMsg="Add message attributes to filter on"
-						disabled={tab === 'all'}
+						disabled={tab === 'all' || !can_write}
 					/>
 				</div>
 			</Subsection>
@@ -155,32 +165,12 @@
 	</Section>
 </div>
 
-<ItemPicker
-	bind:this={itemPicker}
-	pickCallback={(path, _) => {
+<VariablePicker
+	editable
+	bind:itemPicker
+	bind:variableEditor
+	workspace={wsId}
+	onPick={(path) => {
 		queue_url = '$var:' + path
 	}}
-	tooltip="Variables are dynamic values that have a key associated to them and can be retrieved during the execution of a Script or Flow."
-	documentationLink="https://www.windmill.dev/docs/core_concepts/variables_and_secrets"
-	itemName="Variable"
-	extraField="path"
-	loadItems={loadVariables}
-	buttons={{ 'Edit/View': (x) => variableEditor?.editVariable(x) }}
->
-	{#snippet submission()}
-		<div class="flex flex-row">
-			<Button
-				variant="accent"
-				size="sm"
-				startIcon={{ icon: Plus }}
-				on:click={() => {
-					variableEditor?.initNew()
-				}}
-			>
-				New variable
-			</Button>
-		</div>
-	{/snippet}
-</ItemPicker>
-
-<VariableEditor bind:this={variableEditor} on:create={itemPicker.openDrawer} />
+/>

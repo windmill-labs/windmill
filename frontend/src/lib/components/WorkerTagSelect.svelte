@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { workerTags, workspaceStore } from '$lib/stores'
+	import { userWorkspaces, workerTags, workspaceStore } from '$lib/stores'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 	import { WorkerService } from '$lib/gen'
 
 	import { createEventDispatcher, onDestroy, onMount } from 'svelte'
@@ -9,6 +10,13 @@
 	import { RotateCw } from 'lucide-svelte'
 	import { sendUserToast } from '$lib/toast'
 	import Popover from './Popover.svelte'
+	import {
+		devWorkspaceTagSuffix,
+		devWorkspaceSkipNonDevForks,
+		isIsolatedWorkspaceId,
+		loadDevWorkspaceTagSuffix,
+		withDevSuffix
+	} from '$lib/devWorkspaceTags'
 
 	let {
 		tag = $bindable(),
@@ -16,7 +24,9 @@
 		nullTag = undefined,
 		disabled = false,
 		placeholder,
-		inputClass
+		inputClass,
+		size = 'md',
+		workspaceId = undefined
 	}: {
 		tag: string | undefined
 		noLabel?: boolean
@@ -26,12 +36,29 @@
 		language?: string
 		class?: string
 		inputClass?: string
+		/** Forwarded to the underlying Select — controls the input height. The
+		 * condensed session top bar passes `sm` to match its smaller buttons. */
+		size?: 'sm' | 'md' | 'lg'
+		// Workspace to read custom tags and worker availability from. Defaults to the
+		// operating workspace (see `useOperatingWorkspace`).
+		workspaceId?: string
 	} = $props()
 
 	let loading = $state(false)
 	let visible = $state(false)
 	let timeout: number | undefined = undefined
 	let tagsToWorkerExists = $state<Record<string, boolean> | undefined>(undefined)
+
+	// The shared `workerTags` store caches tags for the navigation workspace. When
+	// this select targets a different workspace, read/write a local list instead so
+	// it neither shows the navigation workspace's tags nor clobbers the shared cache.
+	const operatingWorkspace = useOperatingWorkspace()
+	let effectiveWorkspace = $derived(workspaceId ?? $operatingWorkspace)
+	let usesLocal = $derived(
+		effectiveWorkspace != undefined && effectiveWorkspace !== $workspaceStore
+	)
+	let localWorkerTags = $state<string[] | undefined>(undefined)
+	let currentTags = $derived(usesLocal ? localWorkerTags : $workerTags)
 
 	onMount(() => {
 		visible = true
@@ -51,39 +78,61 @@
 	async function loadWorkerGroups(force = false) {
 		loading = true
 		try {
-			if (!$workerTags || force) {
-				$workerTags = await WorkerService.getCustomTagsForWorkspace({ workspace: $workspaceStore! })
+			if (usesLocal) {
+				if (!localWorkerTags || force) {
+					localWorkerTags = await WorkerService.getCustomTagsForWorkspace({
+						workspace: effectiveWorkspace!
+					})
+				}
+			} else if (!$workerTags || force) {
+				$workerTags = await WorkerService.getCustomTagsForWorkspace({
+					workspace: effectiveWorkspace!
+				})
 			}
 		} catch (e) {
-			$workerTags = []
+			if (usesLocal) {
+				localWorkerTags = []
+			} else {
+				$workerTags = []
+			}
 			sendUserToast('Error loading custom tags', true)
 		}
 		loading = false
 	}
+	// A dynamic tag is filled in when the job runs, so no worker can be looked up for its text.
+	const dynamicTagRegex = /\$(workspace|args\[|flow_expr\[)/
 	let items = $derived([
 		// ...(tag ? ['reset to default'] : [nullTag ? `default: ${nullTag}` : '']),
-		...(tag && tag != '' && !($workerTags ?? []).includes(tag) ? [tag] : []),
-		...($workerTags ?? [])
+		...(tag && tag != '' && !(currentTags ?? []).includes(tag) ? [tag] : []),
+		...(currentTags ?? [])
 	])
 
 	let lastCheck: number | undefined = undefined
-	async function loadTagsToWorkerExists(tags: string[]) {
-		if (lastCheck && Date.now() - lastCheck < 5000) {
-			return
-		}
+	// Each run reads the list as it is then, so a tag typed in since the last run is looked up
+	// too, and a run too soon after the last one is deferred rather than dropped.
+	async function loadTagsToWorkerExists() {
 		if (timeout) {
 			clearTimeout(timeout)
 		}
+		const wait = lastCheck ? 5000 - (Date.now() - lastCheck) : 0
+		if (wait > 0) {
+			timeout = setTimeout(loadTagsToWorkerExists, wait)
+			return
+		}
 		if (open) {
-			tagsToWorkerExists = await WorkerService.existsWorkersWithTags({
-				tags: tags.join(','),
-				workspace: $workspaceStore
+			// Probed as jobs of this workspace land: suffixed in a dev workspace.
+			const probed = items.filter((t) => !dynamicTagRegex.test(t))
+			const asRun = (t: string) => (devSuffix ? withDevSuffix(t, devSuffix) : t)
+			const exists = await WorkerService.existsWorkersWithTags({
+				tags: probed.map(asRun).join(','),
+				workspace: effectiveWorkspace
 			})
+			tagsToWorkerExists = Object.fromEntries(
+				probed.filter((t) => asRun(t) in exists).map((t) => [t, exists[asRun(t)]])
+			)
 			lastCheck = Date.now()
 			if (visible) {
-				timeout = setTimeout(() => {
-					loadTagsToWorkerExists(tags)
-				}, 5000)
+				timeout = setTimeout(loadTagsToWorkerExists, 5000)
 			}
 		}
 	}
@@ -103,16 +152,25 @@
 	// )
 
 	$effect(() => {
-		if ($workerTags && open) {
-			loadTagsToWorkerExists($workerTags)
+		if (currentTags && open) {
+			loadTagsToWorkerExists()
 		}
 	})
 
 	let open = $state(false)
+
+	loadDevWorkspaceTagSuffix()
+	let devSuffix = $derived(
+		$devWorkspaceTagSuffix &&
+			isIsolatedWorkspaceId(effectiveWorkspace, $userWorkspaces, $devWorkspaceSkipNonDevForks)
+			? $devWorkspaceTagSuffix
+			: undefined
+	)
 </script>
 
 {#snippet startSnippet({ item })}
-	{#if tagsToWorkerExists}
+	<!-- A tag nothing was looked up for, like a dynamic one, gets no dot rather than a red one. -->
+	{#if tagsToWorkerExists && !item.__is_create && item.value in tagsToWorkerExists}
 		{#if tagsToWorkerExists[item.value]}
 			<Popover>
 				{#snippet text()}
@@ -130,7 +188,7 @@
 		{/if}
 	{/if}
 {/snippet}
-<div class="flex gap-1 items-center relative">
+<div class="flex gap-1 items-center relative" title={tag || undefined}>
 	{#if !noLabel}
 		<div class="text-primary text-xs">{placeholder ?? 'tag'}</div>
 	{/if}
@@ -138,27 +196,52 @@
 		clearable
 		class="w-full"
 		bind:open
+		{size}
 		{inputClass}
 		{disabled}
 		placeholder={nullTag ? nullTag : (placeholder ?? 'lang default')}
 		items={safeSelectItems(items)}
 		bind:value={() => tag, (value) => ((tag = value), dispatch('change', value))}
+		onCreateItem={(value) => ((tag = value), dispatch('change', value))}
+		createText="Press Enter to use this tag"
 		{startSnippet}
 		bottomSnippet={refreshAll}
 	/>
+	{#if devSuffix && tag}
+		<Popover>
+			{#snippet text()}
+				This workspace is a dev workspace or a fork, so its jobs run on worker groups serving dev
+				workspaces, with every tag suffixed with <code>{devSuffix}</code>.
+			{/snippet}
+			<span class="text-2xs text-hint whitespace-nowrap">
+				runs as <code>{withDevSuffix(tag, devSuffix)}</code> here
+			</span>
+		</Popover>
+	{/if}
 </div>
 
 {#snippet refreshAll()}
-	<Button
-		iconOnly
-		variant="subtle"
-		unifiedSize="sm"
-		startIcon={{ icon: RotateCw, classes: loading ? 'animate-spin' : '' }}
-		on:click={async () => {
-			loadWorkerGroups(true)
-			open = true
-		}}
-		btnClasses="rounded-none"
-		title="Refresh worker groups"
-	></Button>
+	<div class="flex items-center justify-between gap-2 border-t border-border-light">
+		<span class="max-w-64 px-4 py-1 text-2xs text-secondary">
+			<code>$workspace</code>, <code>$args[…]</code> and <code>$flow_expr[…]</code> are filled in
+			when the job runs, and must land on an allowed tag
+			{#if devSuffix}
+				<br />In this dev workspace every tag runs suffixed with <code>{devSuffix}</code>, the
+				default one included: <code>gpu</code> runs as
+				<code>{withDevSuffix('gpu', devSuffix)}</code>
+			{/if}
+		</span>
+		<Button
+			iconOnly
+			variant="subtle"
+			unifiedSize="sm"
+			startIcon={{ icon: RotateCw, classes: loading ? 'animate-spin' : '' }}
+			on:click={async () => {
+				loadWorkerGroups(true)
+				open = true
+			}}
+			btnClasses="rounded-none"
+			title="Refresh worker groups"
+		></Button>
+	</div>
 {/snippet}

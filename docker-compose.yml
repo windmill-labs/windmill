@@ -8,15 +8,28 @@ x-logging: &default-logging
     compress: "true"
 
 services:
+  ## UPGRADING FROM POSTGRES 16: db_data holds a cluster 18 cannot read, so the
+  ## container exits with an explanatory error rather than coming up blank. Migrating
+  ## means dumping the WHOLE cluster (pg_dumpall), never just the windmill database:
+  ## Windmill keeps datatable, DuckLake and wm_fork_* databases beside it and grants
+  ## its RLS policies to cluster-level roles, and a single-database dump loses both
+  ## silently. Full procedure, and why 16 is still a valid choice until Nov 2028:
+  ## https://www.windmill.dev/docs/advanced/self_host#upgrade-postgresql-to-18
   db:
     deploy:
       # To use an external database, set replicas to 0 and set DATABASE_URL to the external database url in the .env file
       replicas: 1
-    image: postgres:16
+    image: postgres:18
     shm_size: 1g
     restart: unless-stopped
     volumes:
-      - db_data:/var/lib/postgresql/data
+      # From 18 on the official image keeps the cluster in a major-version
+      # subdirectory (/var/lib/postgresql/18/docker), so the mount has to be the
+      # parent directory: that is what lets pg_upgrade see an old and a new
+      # cluster inside a single mount point. Mounting the pre-18 .../data path
+      # instead makes the image exit rather than start, which is what turns a
+      # stale 16 cluster into a loud failure instead of an empty instance.
+      - db_data:/var/lib/postgresql
     expose:
       - 5432
     environment:
@@ -49,25 +62,6 @@ services:
 
     logging: *default-logging
 
-  # Docker-in-Docker sidecar: provides an isolated Docker daemon so user scripts
-  # can run containers without accessing the host Docker socket.
-  dind:
-    image: docker:dind
-    privileged: true
-    restart: unless-stopped
-    environment:
-      DOCKER_TLS_CERTDIR: ""
-    volumes:
-      - dind-data:/var/lib/docker
-    expose:
-      - 2375
-    healthcheck:
-      test: ["CMD", "docker", "info"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    logging: *default-logging
-
   windmill_worker:
     image: ${WM_IMAGE}
     pull_policy: always
@@ -89,22 +83,19 @@ services:
       # If running with non-root/non-windmill UID (e.g., user: "1001:1001"),
       # add: - HOME=/tmp
       - FAVOR_UNSHARE_PID=true
-      # Connect to the dind sidecar instead of the host Docker socket
-      - DOCKER_HOST=tcp://dind:2375
     depends_on:
       db:
-        condition: service_healthy
-      dind:
         condition: service_healthy
     # to mount the worker folder to debug, KEEP_JOB_DIR=true and mount /tmp/windmill
     volumes:
       - worker_dependency_cache:/tmp/windmill/cache
       - worker_logs:/tmp/windmill/logs
-      ## WARNING: mounting the host Docker socket grants user scripts full access to
-      ## the host Docker daemon, enabling host filesystem access and privilege escalation.
-      ## Only use this if you fully trust all users who can run scripts.
-      ## To use it, remove the DOCKER_HOST env var and dind depends_on above,
-      ## and uncomment the line below:
+      ## Sandboxed containers (`# sandbox <image>`) run daemonless via crane + nsjail
+      ## inside the worker itself — no Docker socket or dind sidecar required.
+      ## For the legacy full-compat docker (a bare `# docker`, trusted users only),
+      ## mount the host Docker socket by uncommenting the line below. WARNING: this
+      ## grants user scripts full access to the host Docker daemon (host filesystem
+      ## access and privilege escalation) — only use it if you fully trust all users.
       # - /var/run/docker.sock:/var/run/docker.sock
 
     logging: *default-logging
@@ -204,14 +195,23 @@ services:
       - ENABLE_DEBUGGER=true # Set to true to enable debugger
       - DEBUGGER_PORT=3003 # Debugger service port
       - ENABLE_NSJAIL=false # Set to true for nsjail sandboxing (requires privileged: true)
-      - REQUIRE_SIGNED_DEBUG_REQUESTS=false # Set to true to require JWT tokens for debug sessions
-      - WINDMILL_BASE_URL=http://windmill_server:8000
+      - REQUIRE_SIGNED_DEBUG_REQUESTS=true # Require backend-signed JWT tokens for debug sessions. Do NOT set to false on any internet-reachable deployment: it exposes an unauthenticated code-execution debugger.
+      - WINDMILL_BASE_URL=http://windmill_server:8000 # Needed to verify the backend-signed tokens the LSP, debugger and multiplayer require
+      # - REQUIRE_SIGNED_LSP_REQUESTS=false # Only for a windmill_server older than this image, which cannot sign LSP sessions
+      # - DEBUG_ALLOWED_ORIGINS=https://your-windmill-host # Optional CSWSH hardening: comma-separated allowlist of browser Origins permitted to open debug WebSockets
     volumes:
       - lsp_cache:/pyls/.cache
+      # Behind a TLS-intercepting proxy, mount its CA here (as .crt) and it is registered in the
+      # system trust store before any service starts. That alone does not cover dependency
+      # installation — see debugger/README.md for the variables it also needs
+      # - ./corp-ca.crt:/usr/local/share/ca-certificates/corp-ca.crt:ro
     logging: *default-logging
 
   caddy:
-    image: ghcr.io/windmill-labs/caddy-l4:latest
+    # Pinned: this image and the ./Caddyfile next to it are version-coupled, so
+    # they have to move together. Bump docker/caddy-l4.version in the same
+    # commit as any Caddyfile change.
+    image: ghcr.io/windmill-labs/caddy-l4:2.11.4-1
     restart: unless-stopped
     # Configure the mounted Caddyfile and the exposed ports or use another reverse proxy if needed
     volumes:
@@ -237,4 +237,3 @@ volumes:
   windmill_index: null
   lsp_cache: null
   caddy_data: null
-  dind-data: null

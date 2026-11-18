@@ -53,6 +53,8 @@ export type GraphModuleState = {
 	selectedForloopIndex?: number
 	selectedForLoopSetManually?: boolean
 	flow_jobs_success?: (boolean | undefined)[]
+	/** A for-loop's per-iteration labels, positionally aligned with `flow_jobs`. */
+	flow_jobs_labels?: (string | null)[]
 	flow_jobs_duration?: {
 		started_at?: (string | undefined)[]
 		duration_ms?: (number | undefined)[]
@@ -66,8 +68,13 @@ export type GraphModuleState = {
 	isListJob?: boolean
 	skipped?: boolean
 	agent_actions?: FlowStatusModule['agent_actions']
+	/** Positionally aligned with `agent_actions`: every action gets one entry, so a missing or
+	 * `null` entry (a background tool call still running) means it has not finished yet. */
+	agent_actions_success?: FlowStatusModule['agent_actions_success']
 	script_hash?: string
 	workflow_as_code_status?: WorkflowStatus
+	/** Kind of the step's own job: `identity` when the worker stood in for the step. */
+	job_kind?: Job['job_kind']
 }
 
 export type NestedNodes = GraphItem[]

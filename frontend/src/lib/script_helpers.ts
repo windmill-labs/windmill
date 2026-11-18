@@ -3,6 +3,7 @@ import { type Script } from './gen'
 import type { SupportedLanguage } from './common'
 
 import CLAUDE_SANDBOX_INIT_CODE from './templates/claude_sandbox.ts.template?raw'
+import PI_SANDBOX_INIT_CODE from './templates/pi_sandbox.ts.template?raw'
 import WAC_PYTHON_INIT_CODE from './templates/wac_python.py.template?raw'
 import WAC_TYPESCRIPT_INIT_CODE from './templates/wac_typescript.ts.template?raw'
 import CI_TEST_BUN_INIT_CODE from './templates/ci_test_bun.ts.template?raw'
@@ -15,6 +16,7 @@ def main(message: str, name: str, step_id: str):
     print("message", message)
     print("name", name)
     print("step_id", step_id)
+    # "recover": True ends the flow as a success instead of a failure
     return { "message": message, "flow_id": flow_id, "step_id": step_id, "recover": False }`
 
 const PYTHON_INIT_CODE_CLEAR = `# import wmill
@@ -243,6 +245,7 @@ export async function main(message: string, name: string, step_id: string) {
   console.log("message", message)
   console.log("name",name)
   console.log("step_id", step_id)
+  // recover: true ends the flow as a success instead of a failure
   return { message, flow_id, step_id, recover: false }
 }
 `
@@ -253,6 +256,7 @@ export async function main(message: string, name: string, step_id: string) {
   console.log("message", message)
   console.log("name",name)
   console.log("step_id", step_id)
+  // recover: true ends the flow as a success instead of a failure
   return { message, flow_id, step_id, recover: false }
 }
 `
@@ -703,7 +707,7 @@ export const TS_PREPROCESSOR_SCRIPT_INTRO = `/**
  *
  * ⚠️ This function runs BEFORE the main function.
  *
- * It processes raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, Postgres, or email)
+ * It processes raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, or email)
  * before passing it to \`main\`. This separates the trigger logic from the main logic and keeps the auto-generated runnable UI clean.
  *
  * The returned object defines the parameter values passed to \`main()\`.
@@ -716,7 +720,7 @@ export const TS_PREPROCESSOR_SCRIPT_INTRO = `/**
 export const TS_PREPROCESSOR_FLOW_INTRO = `/**
  * Trigger preprocessor
  *
- * It processes raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, Postgres, or email) 
+ * It processes raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, or email) 
  * before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
  * 
  * The returned object determines the parameter values passed to the flow.
@@ -813,6 +817,16 @@ type TriggerEvent =
       };
     }
   | {
+      kind: "amqp";
+      trigger_path: string;
+      payload: string;
+      exchange: string;
+      routing_key: string;
+      queue_name: string;
+      redelivered: boolean;
+      delivery_tag: number;
+    }
+  | {
       kind: "gcp";
       trigger_path: string;
       payload: string;
@@ -867,7 +881,7 @@ export const PYTHON_PREPROCESSOR_SCRIPT_INTRO = `# Trigger preprocessor
 #
 # ⚠️ This function runs BEFORE the main function.
 #
-# It processes raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, Postgres, or email) 
+# It processes raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, or email) 
 # before passing it to \`main\`. This separates the trigger logic from the main logic and keeps the auto-generated UI clean.
 #
 # The returned object defines the parameter values passed to \`main()\`.
@@ -878,7 +892,7 @@ export const PYTHON_PREPROCESSOR_SCRIPT_INTRO = `# Trigger preprocessor
 
 export const PYTHON_PREPROCESSOR_FLOW_INTRO = `# Trigger preprocessor
 #
-# It processes raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, Postgres, or email) 
+# It processes raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, or email) 
 # before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
 # 
 # The returned object determines the parameter values passed to the flow.
@@ -986,6 +1000,17 @@ class MqttEvent(TypedDict):
     v5: Optional[MqttV5Properties]
 
 
+class AmqpEvent(TypedDict):
+    kind: Literal["amqp"]
+    trigger_path: str
+    payload: str
+    exchange: str
+    routing_key: str
+    queue_name: str
+    redelivered: bool
+    delivery_tag: int
+
+
 class GcpEvent(TypedDict):
     kind: Literal["gcp"]
     trigger_path: str
@@ -1019,6 +1044,7 @@ Event = Union[
     NatsEvent,
     SqsEvent,
     MqttEvent,
+    AmqpEvent,
     GcpEvent,
     PostgresEvent,
 ]
@@ -1036,7 +1062,7 @@ export const PHP_PREPROCESSOR_SCRIPT_INTRO = `<?php
  *
  * ⚠️ This function runs BEFORE the main function.
  *
- * It processes raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, Postgres, or email)
+ * It processes raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, or email)
  * before passing it to \`main\`. This separates the trigger logic from the main logic and keeps the auto-generated runnable UI clean.
  *
  * The returned object defines the parameter values passed to \`main()\`.
@@ -1052,7 +1078,7 @@ export const PHP_PREPROCESSOR_FLOW_INTRO = `<?php
 /**
  * Trigger preprocessor
  *
- * It processes raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, Postgres, or email) 
+ * It processes raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, or email) 
  * before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
  * 
  * The returned object determines the parameter values passed to the flow.
@@ -1098,6 +1124,10 @@ export const PHP_PREPROCESSOR_MODULE_CODE = `function preprocessor(object $event
     // ['kind' => 'mqtt', 'trigger_path' => '...', 'payload' => '...', 'topic' => '...', 'retain' => true, 'pkid' => 1,
     //  'qos' => 1, 'v5' => [...]]
     //
+    // AMQP event:
+    // ['kind' => 'amqp', 'trigger_path' => '...', 'payload' => '...', 'exchange' => '...', 'routing_key' => '...',
+    //  'queue_name' => '...', 'redelivered' => false, 'delivery_tag' => 1]
+    //
     // GCP event:
     // ['kind' => 'gcp', 'trigger_path' => '...', 'payload' => '...', 'message_id' => '...', 'subscription' => '...',
     //  'ordering_key' => '...', 'attributes' => [...], 'delivery_type' => 'push',
@@ -1114,21 +1144,18 @@ export const PHP_PREPROCESSOR_MODULE_CODE = `function preprocessor(object $event
 `
 
 const DOCKER_INIT_CODE = `# shellcheck shell=bash
-# docker
-# The annotation "docker" above is important, it tells windmill that after 
-# the end of the bash script, it should manage the container at id $WM_JOB_ID:
-# pipe logs, monitor memory usage, kill container if job is cancelled.
+# sandbox alpine:latest
+# The "# sandbox <image>" annotation runs this script INSIDE the image above,
+# sandboxed via nsjail: the image's rootfs is extracted (rootless podman) and the
+# body runs chrooted in it, inheriting the job's confinement. The body runs with
+# the image's /bin/sh and windmill args bind positionally as $1, $2, ...
+# Daemonless — no docker run/-d/exec/build and no host -v bind mounts.
+# (A bare "# docker" still uses the legacy daemon runtime instead.)
 
 msg="\${1:-world}"
 
-IMAGE="alpine:latest"
-COMMAND="/bin/echo Hello $msg"
-
-# ensure that the image is up-to-date
-docker pull $IMAGE
-
-# if using the 'docker' mode, name it with $WM_JOB_ID for windmill to monitor it
-docker run --name $WM_JOB_ID -it -d $IMAGE $COMMAND
+echo "Hello $msg"
+cat /etc/os-release | head -1
 `
 
 const POWERSHELL_INIT_CODE = `param($Msg, [string[]]$Names, [PSCustomObject]$Obj, $Dflt = "default value", [int]$Nb = 3)
@@ -1322,6 +1349,54 @@ main <- function(
     return(toJSON(result, auto_unbox = TRUE))
 }
 `
+
+// A dbt script is a whole dbt project: the descriptor below is the script's
+// content, and the project's own files live in its module bundle (the
+// `<script>__dbt/` folder the CLI syncs). Field names track dbt's vocabulary.
+const DBT_INIT_CODE = `# dbt-core-1x (default) | dbt-core-2x | fusion
+engine: dbt-core-1x
+profile:
+  # A warehouse configured on this workspace (Settings -> dbt), by name. Omitted
+  # takes 'main'. The NAME is also the warehouse's identity in the asset graph:
+  # every model becomes dbt://<warehouse>/<schema>/<name>, which is what gives
+  # this project its lineage, and lets a native script reading one of those
+  # tables share the node. A dbt run does not trigger such a script.
+  # warehouse: main
+  # target: prod
+  # Alternatively, keep the project's own file. It runs unchanged, but names a
+  # warehouse only to say where its assets belong:
+  # profiles_yml: profiles.yml
+# Passed to dbt verbatim — this is dbt's selector grammar, not Windmill's
+select: []
+exclude: []
+# build (models and tests interleaved) | after_all | none
+test_behavior: build
+vars: {}
+threads: 4
+full_refresh: false
+# Resolve a ref() this run does not build through the state the last successful
+# run of this environment published, instead of through the schema it writes
+# into. The default for the run form's toggle: the run that publishes the state
+# and the run that defers to it are two invocations of this one script.
+defer: false
+# Rebuild the nodes a failed build left failed or skipped, in this same job,
+# before reporting failure. dbt confines a failure to its own subtree, so a
+# transient warehouse error costs those nodes rather than the whole project.
+# Not available on agent workers, whose wait could not observe a cancellation.
+# retry_failed_nodes:
+#   attempts: 2
+#   delay_seconds: 30
+# Extra env for the project's own {{ env_var() }} lookups. A $var: value is
+# resolved to that Windmill variable, so secrets stay out of this file.
+# env:
+#   DBT_PASSWORD: $var:u/user/my_warehouse_password
+# Real column schemas — every column typed and in the order the model produces
+# it — from the engine's static analysis, which also records column-level
+# lineage for a later view. Opt-in because it runs a separate dbt compile under
+# --static-analysis strict, which rejects SQL the default accepts; a project it
+# cannot analyze keeps the graph it has. Needs an engine that computes it.
+# column_lineage: true
+`
 // for related places search: ADD_NEW_LANG
 export const INITIAL_CODE = {
 	bun: {
@@ -1420,8 +1495,14 @@ export const INITIAL_CODE = {
 	rlang: {
 		script: R_INIT_CODE
 	},
+	dbt: {
+		script: DBT_INIT_CODE
+	},
 	claudesandbox: {
 		script: CLAUDE_SANDBOX_INIT_CODE
+	},
+	pisandbox: {
+		script: PI_SANDBOX_INIT_CODE
 	},
 	wac_python: {
 		script: WAC_PYTHON_INIT_CODE
@@ -1436,6 +1517,30 @@ export const INITIAL_CODE = {
 		script: CI_TEST_PYTHON_INIT_CODE
 	}
 	// for related places search: ADD_NEW_LANG
+}
+
+/**
+ * Whether a bash script body runs inside a custom container image that does not
+ * ship the `wmill` CLI (nor `jq`), namely `# sandbox <image>` or `# docker`. In
+ * that case editor snippets must fall back to a plain HTTP client instead of `wmill`.
+ *
+ * Mirrors the worker's annotation grammar (backend/windmill-common/src/worker.rs,
+ * `BashAnnotations`): only leading comment lines are scanned, stopping at the first
+ * non-comment line. A bare `# sandbox` (no image) is the nsjail-bash modifier that
+ * still runs on the worker rootfs where `wmill` is available, so it is excluded.
+ */
+export function bashRunsInCustomImage(code: string): boolean {
+	for (const line of code.split('\n')) {
+		const trimmed = line.trim()
+		if (trimmed === '') continue
+		if (!trimmed.startsWith('#')) break
+		const tokens = trimmed.slice(1).trim().split(/\s+/)
+		// `# sandbox <image>` selects a container; bare `# sandbox` does not.
+		if (tokens[0] === 'sandbox' && tokens[1]) return true
+		// `# docker` (v1 daemon runtime) runs in the referenced image, no wmill.
+		if (tokens[0] === 'docker' && tokens.length === 1) return true
+	}
+	return false
 }
 
 export function isInitialCode(content: string): boolean {
@@ -1462,6 +1567,7 @@ export function initialCode(
 		| 'powershell'
 		| 'bunnative'
 		| 'claudesandbox'
+		| 'pisandbox'
 		| 'wac_python'
 		| 'wac_typescript'
 		| 'ci_test_bun'
@@ -1563,10 +1669,14 @@ export function initialCode(
 		return INITIAL_CODE.ruby.script
 	} else if (language == 'rlang') {
 		return INITIAL_CODE.rlang.script
+	} else if (language == 'dbt') {
+		return INITIAL_CODE.dbt.script
 		// for related places search: ADD_NEW_LANG
 	} else if (language == 'bun' || language == 'bunnative') {
 		if (subkind === 'claudesandbox') {
 			return INITIAL_CODE.claudesandbox.script
+		} else if (subkind === 'pisandbox') {
+			return INITIAL_CODE.pisandbox.script
 		} else if (kind == 'trigger') {
 			return INITIAL_CODE.bun.trigger
 		} else if (language == 'bunnative' || subkind === 'bunnative') {
@@ -1608,12 +1718,18 @@ export function getResetCode(
 		| 'powershell'
 		| 'bunnative'
 		| 'claudesandbox'
+		| 'pisandbox'
 		| 'wac_python'
 		| 'wac_typescript'
 		| 'ci_test_bun'
 		| 'ci_test_python'
 		| undefined
 ) {
+	// Every *_INIT_CODE_CLEAR below is a `main` stub, which cannot run under the preprocessor
+	// entrypoint. Preprocessors must go through initialCode to keep theirs.
+	if (kind === 'preprocessor') {
+		return initialCode(language, kind, subkind)
+	}
 	if (language === 'deno') {
 		return DENO_INIT_CODE_CLEAR
 	} else if (language === 'python3') {

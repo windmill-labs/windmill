@@ -1,10 +1,13 @@
 <script lang="ts">
-	import { userStore } from '$lib/stores'
 	import { SettingsIcon } from 'lucide-svelte'
 	import { Button } from './common'
 	import Drawer from './common/drawer/Drawer.svelte'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import DefaultScriptsInner from './DefaultScriptsInner.svelte'
+	import { useOperatingUser } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingUser = useOperatingUser()
+	const actingUser = $derived(operatingUser.current)
 
 	interface Props {
 		placement?: 'left' | 'right'
@@ -17,7 +20,7 @@
 	let drawer: Drawer | undefined = $state()
 </script>
 
-{#if $userStore?.is_admin || $userStore?.is_super_admin}
+{#if actingUser?.is_admin || actingUser?.is_super_admin}
 	<Drawer bind:this={drawer} {placement}>
 		<DrawerContent title="Edit Default Scripts" on:close={drawer?.closeDrawer}>
 			<DefaultScriptsInner />

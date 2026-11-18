@@ -423,3 +423,45 @@ test("elementsToMap: isRemote undefined behaves like local (backward compatible)
   // Base file should be skipped (same behavior as isRemote=false)
   expect(Object.keys(result).includes("f/test.variable.yaml")).toEqual(false);
 });
+
+// =============================================================================
+// REGRESSION TEST: --skip-scripts covers a script's module files
+// A module is deployed as part of its parent script, and the module shortcut
+// runs before every skip filter — so a changed model under a dbt project's
+// `__dbt/` folder pushed the script `--skip-scripts` asked to leave alone.
+// =============================================================================
+
+test("elementsToMap: script modules are excluded when skipScripts is set", async () => {
+  const files: MockFile[] = [
+    { path: "f/analytics/analytics.dbt.yaml", content: "profile: {}\n" },
+    {
+      path: "f/analytics/analytics__dbt/models/stg_orders.sql",
+      content: "select 1",
+    },
+    { path: "f/Shared/Variable/TestVar.variable.yaml", content: "value: test" },
+  ];
+
+  const kept = await elementsToMap(
+    createMockDynFSElement(files),
+    noIgnore,
+    false,
+    defaultSkips,
+  );
+  expect(
+    Object.keys(kept).includes("f/analytics/analytics__dbt/models/stg_orders.sql"),
+  ).toEqual(true);
+
+  const skipped = await elementsToMap(
+    createMockDynFSElement(files),
+    noIgnore,
+    false,
+    { skipScripts: true },
+  );
+  expect(
+    Object.keys(skipped).includes("f/analytics/analytics__dbt/models/stg_orders.sql"),
+  ).toEqual(false);
+  // Everything else is unaffected.
+  expect(
+    Object.keys(skipped).includes("f/Shared/Variable/TestVar.variable.yaml"),
+  ).toEqual(true);
+});

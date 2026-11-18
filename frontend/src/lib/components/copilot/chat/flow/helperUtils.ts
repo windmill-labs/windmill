@@ -1,13 +1,55 @@
-import type { FlowModule, FlowValue, OpenFlow, RawScript } from '$lib/gen'
+import type { FlowModule, FlowNote, FlowValue, OpenFlow, RawScript } from '$lib/gen'
 import { forEachFlowModule } from '$lib/components/flows/dfs'
 import { findModuleInFlow } from '$lib/components/flows/flowTree'
+import {
+	DEFAULT_NOTE_COLOR,
+	MIN_NOTE_HEIGHT,
+	MIN_NOTE_WIDTH,
+	NoteColor
+} from '$lib/components/graph/noteColors'
 import type { InlineScriptSession } from './inlineScriptsUtils'
+import { deepEqual } from 'fast-equals'
+import { FLOW_VALUE_SETTINGS_KEYS, type FlowValueSettings } from './flowValueSettings'
+
+/** Allowed note/group color names — matches the NoteColor palette the note and
+ * group editors use. The note renderer keys `NOTE_COLORS` by these exact names,
+ * so other strings (hex codes, CSS colors) render with no styling at best and
+ * break the color picker UI at worst. */
+const ALLOWED_NOTE_COLORS = new Set<string>(Object.values(NoteColor))
+
+// Free notes render at a fixed height and never grow to fit their content (the
+// renderer's text div overflows the node box), so an AI-created note that omits
+// `size` must be seeded tall enough for its text. Constants below mirror the
+// renderer (text-xs 12px, line-height 1.4, p-4 padding).
+function estimateFreeNoteSize(text: string): { width: number; height: number } {
+	const width = MIN_NOTE_WIDTH
+	const HORIZONTAL_PADDING = 32 // p-4 left + right
+	const VERTICAL_PADDING = 32 // p-4 top + bottom
+	const LINE_HEIGHT = 17 // 12px * 1.4
+	const AVG_CHAR_WIDTH = 6.2 // approx width of a char at 12px
+	const MAX_HEIGHT = 600
+
+	const charsPerLine = Math.max(1, Math.floor((width - HORIZONTAL_PADDING) / AVG_CHAR_WIDTH))
+	const sourceLines = (text ?? '').split('\n')
+	const wrappedLineCount = sourceLines.reduce(
+		(sum, line) => sum + Math.max(1, Math.ceil(line.length / charsPerLine)),
+		0
+	)
+
+	const height = Math.min(
+		MAX_HEIGHT,
+		Math.max(MIN_NOTE_HEIGHT, Math.ceil(wrappedLineCount * LINE_HEIGHT) + VERTICAL_PADDING)
+	)
+
+	return { width, height }
+}
 
 type FlowLike = Pick<OpenFlow, 'value'> & {
 	schema?: Record<string, any>
 }
 
 export type FlowGroup = NonNullable<FlowValue['groups']>[number]
+export type { FlowNote }
 
 export interface FlowJsonUpdate {
 	modules?: FlowModule[]
@@ -15,6 +57,10 @@ export interface FlowJsonUpdate {
 	preprocessorModule?: FlowModule | null
 	failureModule?: FlowModule | null
 	groups?: FlowGroup[] | null
+	notes?: FlowNote[] | null
+	/** Full state of the top-level FlowValue settings: when provided, keys
+	 * absent from it are removed from the flow value. */
+	settings?: FlowValueSettings
 }
 
 export interface FlowJsonUpdateResult {
@@ -71,14 +117,177 @@ export function validateFlowGroups(
 				)
 			}
 		}
+		if (g.color !== undefined && g.color !== null) {
+			if (typeof g.color !== 'string' || !ALLOWED_NOTE_COLORS.has(g.color)) {
+				throw new Error(
+					`Invalid group at index ${index}: color must be one of ${[...ALLOWED_NOTE_COLORS].join(', ')}`
+				)
+			}
+		}
 		return g as unknown as FlowGroup
 	})
+}
+
+/**
+ * Validate the optional array of sticky notes the agent attached to the flow.
+ * Notes are editor-only annotations and do not affect execution.
+ *
+ * `free` notes are the supported kind (standalone canvas annotations). The
+ * `group` note type is deprecated for creation — the chat prompt steers the
+ * agent toward `groups` instead — but it is still ACCEPTED here so flows that
+ * already contain group notes round-trip cleanly through `patch_flow_json` /
+ * `set_flow_json` rather than being rejected. When `moduleIds` is provided,
+ * every `contained_node_ids` entry of a `group` note must reference an existing
+ * module.
+ *
+ * A provided palette `color` is always preserved as-is; the default is only
+ * filled in when a note omits `color` entirely (FlowNote.color is required).
+ *
+ * Free notes are also given a concrete `position` and `size` when missing. A
+ * free note without geometry is not draggable/resizable in the editor (you'd
+ * have to resize it first to give it a size) — UI-created notes always set both,
+ * so agent-created notes must too. Provided geometry is preserved untouched.
+ */
+export function validateFlowNotes(rawNotes: unknown, moduleIds?: Set<string>): FlowNote[] | null {
+	if (rawNotes == null) {
+		return null
+	}
+
+	if (!Array.isArray(rawNotes)) {
+		throw new Error('Flow notes must be an array')
+	}
+
+	const seenIds = new Set<string>()
+	// Column and running y-cursor for auto-placed free notes so consecutive ones
+	// stack below each other by their actual heights instead of overlapping. A
+	// preserved note (explicit geometry) sitting in this column also advances the
+	// cursor, so a later auto-placed note doesn't land on top of it.
+	const AUTO_STACK_X = -(MIN_NOTE_WIDTH + 100)
+	const AUTO_STACK_GAP = 24
+	let autoStackY = 0
+	return rawNotes.map((note, index) => {
+		if (!note || typeof note !== 'object' || Array.isArray(note)) {
+			throw new Error(`Invalid note at index ${index}: must be an object`)
+		}
+		const n = note as Record<string, unknown>
+		if (typeof n.id !== 'string' || !n.id) {
+			throw new Error(`Invalid note at index ${index}: id must be a non-empty string`)
+		}
+		if (seenIds.has(n.id)) {
+			throw new Error(`Invalid note at index ${index}: duplicate note id "${n.id}"`)
+		}
+		seenIds.add(n.id)
+		if (typeof n.text !== 'string') {
+			throw new Error(`Invalid note at index ${index}: text must be a string`)
+		}
+		const type = n.type ?? 'free'
+		if (type !== 'free' && type !== 'group') {
+			throw new Error(`Invalid note at index ${index}: type must be "free" or "group"`)
+		}
+		if (n.color !== undefined && n.color !== null) {
+			if (typeof n.color !== 'string' || !ALLOWED_NOTE_COLORS.has(n.color)) {
+				throw new Error(
+					`Invalid note at index ${index}: color must be one of ${[...ALLOWED_NOTE_COLORS].join(', ')}`
+				)
+			}
+		}
+		if (n.position !== undefined && n.position !== null) {
+			const p = n.position as Record<string, unknown>
+			if (
+				typeof p !== 'object' ||
+				Array.isArray(n.position) ||
+				typeof p.x !== 'number' ||
+				typeof p.y !== 'number'
+			) {
+				throw new Error(
+					`Invalid note at index ${index}: position must be an object with numeric x and y`
+				)
+			}
+		}
+		if (n.size !== undefined && n.size !== null) {
+			const s = n.size as Record<string, unknown>
+			if (
+				typeof s !== 'object' ||
+				Array.isArray(n.size) ||
+				typeof s.width !== 'number' ||
+				typeof s.height !== 'number'
+			) {
+				throw new Error(
+					`Invalid note at index ${index}: size must be an object with numeric width and height`
+				)
+			}
+		}
+		if (type === 'group' && n.contained_node_ids !== undefined) {
+			if (
+				!Array.isArray(n.contained_node_ids) ||
+				n.contained_node_ids.some((id) => typeof id !== 'string')
+			) {
+				throw new Error(
+					`Invalid note at index ${index}: contained_node_ids must be an array of strings`
+				)
+			}
+			if (moduleIds) {
+				for (const id of n.contained_node_ids as string[]) {
+					if (!moduleIds.has(id)) {
+						throw new Error(
+							`Invalid note at index ${index}: contained_node_ids "${id}" does not match any flow module`
+						)
+					}
+				}
+			}
+		}
+		const normalized = {
+			...(n as FlowNote),
+			type,
+			// Preserve a provided color; only seed the default when omitted.
+			color: typeof n.color === 'string' ? n.color : DEFAULT_NOTE_COLOR
+		} as FlowNote
+
+		// Free notes need explicit geometry to be draggable/resizable. Size first
+		// (from text, so tall notes get a tall box), then place any note missing a
+		// position to the left of the flow column, stacking auto-placed notes by
+		// their real heights so several generated notes don't overlap. Group notes
+		// derive their layout from contained nodes, so they are left alone.
+		if (type === 'free') {
+			if (normalized.size == null) {
+				normalized.size = estimateFreeNoteSize(normalized.text)
+			}
+			const height = normalized.size?.height ?? MIN_NOTE_HEIGHT
+			const width = normalized.size?.width ?? MIN_NOTE_WIDTH
+			if (normalized.position == null) {
+				normalized.position = { x: AUTO_STACK_X, y: autoStackY }
+				autoStackY += height + AUTO_STACK_GAP
+			} else if (
+				// A preserved note overlapping the auto-stack column pushes the cursor
+				// below it so a later auto-placed note isn't dropped on top of it.
+				normalized.position.x < AUTO_STACK_X + MIN_NOTE_WIDTH &&
+				normalized.position.x + width > AUTO_STACK_X
+			) {
+				autoStackY = Math.max(autoStackY, normalized.position.y + height + AUTO_STACK_GAP)
+			}
+		}
+
+		return normalized
+	})
+}
+
+/** Whether an AI update's `schema` would change the flow inputs. `patch_flow_json` resends the
+ * schema it was shown, so an unchanged one (in any key order, or absent as `null`) is no change. */
+export function isFlowSchemaChange(
+	current: Record<string, any> | null | undefined,
+	next: Record<string, any> | null | undefined
+): boolean {
+	if (next === undefined) return false
+	return !deepEqual(
+		JSON.parse(JSON.stringify(current ?? null)),
+		JSON.parse(JSON.stringify(next ?? null))
+	)
 }
 
 export function applyFlowJsonUpdate(
 	flow: FlowLike,
 	inlineScriptSession: InlineScriptSession,
-	{ modules, schema, preprocessorModule, failureModule, groups }: FlowJsonUpdate
+	{ modules, schema, preprocessorModule, failureModule, groups, notes, settings }: FlowJsonUpdate
 ): FlowJsonUpdateResult {
 	const emptyInlineScriptModuleIds = new Set<string>()
 
@@ -110,6 +319,20 @@ export function applyFlowJsonUpdate(
 
 	if (groups !== undefined) {
 		flow.value.groups = groups == null || groups.length === 0 ? undefined : groups
+	}
+
+	if (notes !== undefined) {
+		flow.value.notes = notes == null || notes.length === 0 ? undefined : notes
+	}
+
+	if (settings !== undefined) {
+		for (const key of FLOW_VALUE_SETTINGS_KEYS) {
+			if (settings[key] !== undefined) {
+				;(flow.value as Record<string, unknown>)[key] = settings[key]
+			} else {
+				delete (flow.value as Record<string, unknown>)[key]
+			}
+		}
 	}
 
 	return {
@@ -149,7 +372,7 @@ function assertResolvedInlineScripts(
 	}
 }
 
-function replaceNewInlineScriptRefsWithEmptyCode(
+export function replaceNewInlineScriptRefsWithEmptyCode(
 	modules: FlowModule[],
 	emptyInlineScriptModuleIds: Set<string>
 ): void {

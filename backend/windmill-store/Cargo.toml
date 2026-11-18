@@ -7,6 +7,8 @@ edition.workspace = true
 [lib]
 name = "windmill_store"
 path = "src/lib.rs"
+# src/ has no doctests: remove this line before adding one, or cargo test never runs it.
+doctest = false
 
 [features]
 default = []
@@ -19,6 +21,7 @@ mcp = ["dep:windmill-mcp", "windmill-mcp/server", "windmill-mcp/auth"]
 http_trigger = []
 postgres_trigger = []
 mqtt_trigger = []
+amqp_trigger = []
 sqs_trigger = []
 gcp_trigger = []
 azure_trigger = []
@@ -45,9 +48,16 @@ tracing.workspace = true
 uuid.workspace = true
 quick_cache.workspace = true
 lazy_static.workspace = true
+sha2.workspace = true
+hex.workspace = true
 sql-builder.workspace = true
 async-recursion.workspace = true
 futures.workspace = true
 chrono.workspace = true
+dashmap.workspace = true
 reqwest.workspace = true
 anyhow.workspace = true
+base64.workspace = true
+
+[dev-dependencies]
+magic-crypt.workspace = true

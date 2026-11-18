@@ -71,6 +71,22 @@ fn next_worker_name() -> String {
     format!("{id}/worker-{thread_name}")
 }
 
+/// The migration only creates audit partitions for the day it ran and the next three, and the
+/// monitor that rolls new ones does not run in tests. A test database cloned from an older
+/// template therefore has no partition for today, and a failed audit insert fails the request.
+pub async fn ensure_today_audit_partition(db: &Pool<Postgres>) {
+    let today = chrono::Utc::now().date_naive();
+    let next = today + chrono::Duration::days(1);
+    let partition = format!("audit_{}", today.format("%Y%m%d"));
+    sqlx::query(&format!(
+        "CREATE TABLE IF NOT EXISTS \"{partition}\" PARTITION OF audit_partitioned \
+         FOR VALUES FROM ('{today}') TO ('{next}')"
+    ))
+    .execute(db)
+    .await
+    .expect("creating today's audit partition");
+}
+
 pub struct ApiServer {
     pub addr: std::net::SocketAddr,
     #[allow(unused)]
@@ -104,6 +120,7 @@ impl ApiServer {
         server_mode: bool,
         mcp_mode: bool,
     ) -> anyhow::Result<Self> {
+        ensure_today_audit_partition(&db).await;
         let (tx, rx) = tokio::sync::broadcast::channel::<()>(1);
 
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
@@ -158,6 +175,7 @@ pub struct RunJob {
     pub payload: JobPayload,
     pub args: serde_json::Map<String, serde_json::Value>,
     pub scheduled_for_o: Option<chrono::DateTime<chrono::Utc>>,
+    pub username: String,
     pub email: String,
     pub job_id: Option<Uuid>,
     pub workspace_id: String,
@@ -169,6 +187,7 @@ impl From<JobPayload> for RunJob {
             payload,
             args: Default::default(),
             scheduled_for_o: None,
+            username: "test-user".to_string(),
             email: "test@windmill.dev".to_string(),
             job_id: None,
             workspace_id: "test-workspace".to_string(),
@@ -190,7 +209,11 @@ impl RunJob {
         self
     }
 
-    pub fn email(mut self, email: impl Into<String>) -> Self {
+    /// Run as this workspace member. Both halves together, because the job's identity is the
+    /// principal: an address paired with another member's username is re-resolved at push to
+    /// the address that username holds.
+    pub fn as_user(mut self, username: impl Into<String>, email: impl Into<String>) -> Self {
+        self.username = username.into();
         self.email = email.into();
         self
     }
@@ -206,7 +229,8 @@ impl RunJob {
     }
 
     pub async fn push(self, db: &Pool<Postgres>) -> Uuid {
-        let RunJob { payload, args, scheduled_for_o, email, job_id, workspace_id } = self;
+        ensure_today_audit_partition(db).await;
+        let RunJob { payload, args, scheduled_for_o, username, email, job_id, workspace_id } = self;
         let mut hm_args = std::collections::HashMap::new();
         for (k, v) in args {
             hm_args.insert(k, windmill_common::worker::to_raw_value(&v));
@@ -219,10 +243,11 @@ impl RunJob {
             &workspace_id,
             payload,
             windmill_queue::PushArgs::from(&hm_args),
-            /* user */ "test-user",
+            /* user */ &username,
             /* email  */ &email,
-            /* permissioned_as */ "u/test-user".to_string(),
+            /* permissioned_as */ format!("u/{username}"),
             /* token_prefix */ None,
+            /* audit_end_user */ None,
             scheduled_for_o,
             /* schedule_path */ None,
             /* parent_job */ None,
@@ -242,6 +267,7 @@ impl RunJob {
             None,
             None,
             None,
+            None,
         )
         .await
         .expect("push has to succeed");
@@ -252,6 +278,7 @@ impl RunJob {
 
     /// Push the job as a specific user (for testing permissions)
     pub async fn push_as(self, db: &Pool<Postgres>, username: &str, email: &str) -> Uuid {
+        ensure_today_audit_partition(db).await;
         let RunJob { payload, args, scheduled_for_o, job_id, workspace_id, .. } = self;
         let mut hm_args = std::collections::HashMap::new();
         for (k, v) in args {
@@ -269,6 +296,7 @@ impl RunJob {
             email,
             format!("u/{}", username),
             /* token_prefix */ None,
+            /* audit_end_user */ None,
             scheduled_for_o,
             /* schedule_path */ None,
             /* parent_job */ None,
@@ -285,6 +313,7 @@ impl RunJob {
             None,
             None,
             false,
+            None,
             None,
             None,
             None,
@@ -405,24 +434,41 @@ pub async fn in_test_worker<Fut: std::future::Future>(
 ///
 /// The chain contains `?Send` futures (trait objects), so `tokio::spawn`
 /// is not viable; `std::thread::spawn` sidesteps the shared-stack issue.
-pub fn run_in_isolated_thread<F, Fut, R>(f: F) -> R
+///
+/// Await the thread, never `join()` it: the caller's runtime owns the `sqlx`
+/// pool, and sqlx hands a connection's permit back from a task it spawns when
+/// the connection drops. Blocking that runtime holds those permits for as long
+/// as the body runs, so the body's own `push` dies on `PoolTimedOut`.
+///
+/// The thread is detached, so dropping this future leaves the body — including
+/// its worker and its pool handles — running past the end of the test. Don't
+/// wrap the call in `timeout`/`select!`.
+pub async fn run_in_isolated_thread<F, Fut, R>(f: F) -> R
 where
     F: FnOnce() -> Fut + Send + 'static,
     Fut: std::future::Future<Output = R>,
     R: Send + 'static,
 {
+    let (tx, rx) = tokio::sync::oneshot::channel();
     std::thread::Builder::new()
         .stack_size(8 * 1024 * 1024)
         .spawn(move || {
-            let rt = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .expect("build current-thread runtime");
-            rt.block_on(f())
+            let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let rt = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .expect("build current-thread runtime");
+                rt.block_on(f())
+            }));
+            let _ = tx.send(res);
         })
-        .expect("spawn isolated test thread")
-        .join()
-        .expect("isolated test thread panicked")
+        .expect("spawn isolated test thread");
+
+    match rx.await {
+        Ok(Ok(res)) => res,
+        Ok(Err(panic)) => std::panic::resume_unwind(panic),
+        Err(_) => panic!("isolated test thread died without returning"),
+    }
 }
 
 pub fn spawn_test_worker(
@@ -440,7 +486,6 @@ pub fn spawn_test_worker(
     let (tx, rx) = KillpillSender::new(1);
     let worker_instance: &str = "test worker instance";
     let worker_name: String = next_worker_name();
-    let ip: &str = Default::default();
     let conn = conn.to_owned();
 
     let tx2 = tx.clone();
@@ -463,7 +508,6 @@ pub fn spawn_test_worker(
             worker_name,
             1,
             1,
-            ip,
             rx,
             tx2,
             &base_internal_url,
@@ -492,7 +536,6 @@ pub fn spawn_test_worker_dedicated(
     let (tx, rx) = KillpillSender::new(1);
     let worker_instance: &str = "test worker instance";
     let worker_name: String = next_worker_name();
-    let ip: &str = Default::default();
     let conn = conn.to_owned();
 
     let tx2 = tx.clone();
@@ -546,7 +589,6 @@ pub fn spawn_test_worker_dedicated(
             worker_name,
             1,
             1,
-            ip,
             rx,
             tx2,
             &base_internal_url,
@@ -773,7 +815,6 @@ pub async fn assert_lockfile(
                 cache_ttl: None,
                 dedicated_worker: None,
                 description: "".to_string(),
-                draft_only: None,
                 envs: vec![],
                 is_template: None,
                 kind: None,
@@ -796,6 +837,7 @@ pub async fn assert_lockfile(
                 on_behalf_of_email: None,
                 assets: vec![],
                 modules: None,
+                draft_only: None,
             },
         )
         .await
@@ -871,7 +913,6 @@ pub async fn run_deployed_relative_imports(
                 cache_ttl: None,
                 dedicated_worker: None,
                 description: "".to_string(),
-                draft_only: None,
                 envs: vec![],
                 is_template: None,
                 kind: None,
@@ -894,6 +935,7 @@ pub async fn run_deployed_relative_imports(
                 on_behalf_of_email: None,
                 assets: vec![],
                 modules: None,
+                draft_only: None,
             },
         )
         .await
@@ -914,6 +956,26 @@ pub async fn run_deployed_relative_imports(
             .await
             .unwrap();
 
+            // Regression guard for the Deno lock-gen import map (generate_deno_lock):
+            // it must resolve workspace `/f/`/`/u/` imports, otherwise `deno cache --lock`
+            // fails with "not a dependency and not in import map". We match that
+            // specific failure rather than asserting lock_error_logs is empty —
+            // the field also captures benign, non-fatal lock-job output (e.g. Bun's
+            // "empty dependencies, skipping install"). (Runtime query to avoid
+            // touching the sqlx offline cache.)
+            let lock_error: Option<String> =
+                sqlx::query_scalar("SELECT lock_error_logs FROM script WHERE path = $1")
+                    .bind("f/system/test_import")
+                    .fetch_one(&db2)
+                    .await
+                    .unwrap();
+            if let Some(err) = &lock_error {
+                assert!(
+                    !err.contains("not in import map"),
+                    "lock generation failed to resolve a workspace import: {err}"
+                );
+            }
+
             let job = RunJob::from(JobPayload::ScriptHash {
                 path: "f/system/test_import".to_string(),
                 hash: ScriptHash(script.hash),
@@ -928,6 +990,7 @@ pub async fn run_deployed_relative_imports(
                 debouncing_settings:
                     windmill_common::runnable_settings::DebouncingSettings::default(),
                 labels: None,
+                job_token_scopes: None,
             })
             .push(&db2)
             .await;

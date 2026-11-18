@@ -10,14 +10,17 @@ use windmill_api_auth::{
     build_scope_path_predicate, check_scopes, maybe_refresh_folders, require_owner_of_path,
     ApiAuthed,
 };
-use windmill_common::db::DB;
-use windmill_common::workspaces::{check_deploy_rules, RuleCheckResult};
+use windmill_common::db::{Authable, DB};
+use windmill_common::workspaces::{check_deploy_rules, operator_can_draft, RuleCheckResult};
 
 use crate::secret_backend_ext::{
-    delete_secret_from_backend, get_secret_value, is_vault_stored_value, rename_vault_secret,
-    store_secret_value,
+    check_external_ref, delete_secret_from_backend, get_secret_value, http_store_rename_error,
+    is_external_ref_value, is_http_store_stored_value, is_vault_stored_value, parse_external_ref,
+    rename_vault_secret, resolves_externally, store_managed_secret_value, store_secret_value,
 };
-use windmill_common::utils::{escape_ilike_pattern, BulkDeleteRequest};
+use windmill_common::utils::{
+    check_proper_path, escape_ilike_pattern, sanitize_db_error, BulkDeleteRequest,
+};
 use windmill_common::webhook::{WebhookMessage, WebhookShared};
 
 use axum::{
@@ -25,6 +28,7 @@ use axum::{
     routing::{delete, get, post},
     Json, Router,
 };
+use base64::{engine::general_purpose::STANDARD, Engine as _};
 use futures::future::try_join_all;
 use hyper::StatusCode;
 use serde_json::Value;
@@ -35,14 +39,22 @@ use windmill_common::{
     db::{DbWithOptAuthed, UserDB},
     error::{Error, JsonResult, Result},
     scripts::ScriptHash,
-    utils::{not_found_if_none, paginate, Pagination, StripPath, WarnAfterExt},
+    secret_backend::allowed_prefixes,
+    user_drafts::{
+        decrypt_draft_secret_value, delete_all_drafts_for_path, delete_own_draft_for_path,
+        fetch_draft_only, fetch_draft_only_list_rows, maybe_overlay_draft, UserDraftItemKind,
+        WithDraftOverlay, ENCRYPTED_DRAFT_PREFIX,
+    },
+    utils::{not_found_if_none, paginate, require_admin, Pagination, StripPath, WarnAfterExt},
     variables::{
         build_crypt, get_reserved_variables, ContextualVariable, CreateVariable, ListableVariable,
     },
     worker::CLOUD_HOSTED,
 };
 
-use crate::var_resource_cache::{cache_variable, get_cached_variable};
+use crate::var_resource_cache::{
+    auth_identity, cache_variable, get_cached_variable, CachedVariable,
+};
 use lazy_static::lazy_static;
 use serde::Deserialize;
 use sqlx::{Acquire, Postgres, Transaction};
@@ -65,6 +77,10 @@ pub fn workspaced_service() -> Router {
         .route("/delete_bulk", delete(delete_variables_bulk))
         .route("/create", post(create_variable))
         .route("/encrypt", post(encrypt_value))
+        .route(
+            "/external_secret_prefixes",
+            get(list_external_secret_prefixes),
+        )
 }
 
 async fn list_contextual_variables(
@@ -107,11 +123,15 @@ struct ListVariableQuery {
     pub value: Option<String>,
     pub broad_filter: Option<String>,
     pub label: Option<String>,
+    /// When true, append per-user draft-only rows; picker callers leave it off
+    /// to stay deployed-only. See list synthesis in scripts.rs.
+    pub include_draft_only: Option<bool>,
 }
 
 async fn list_variables(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
     Query(lq): Query<ListVariableQuery>,
     Query(pagination): Query<Pagination>,
@@ -124,7 +144,8 @@ async fn list_variables(
         .fields(&[
             "variable.workspace_id",
             "variable.path",
-            "CASE WHEN is_secret IS TRUE THEN null ELSE variable.value::text END as value",
+            // An `$external:` reference names where the secret lives, not the secret.
+            "CASE WHEN is_secret IS TRUE AND variable.value NOT LIKE '$external:%' THEN null ELSE variable.value::text END as value",
             "is_secret",
             "variable.description",
             "variable.extra_perms",
@@ -135,11 +156,20 @@ async fn list_variables(
             "resource.path IS NOT NULL as is_linked",
             "account.refresh_token != '' as is_refreshed",
             "variable.expires_at",
+            "variable.value_valid_until",
             "variable.labels",
+            "folder_labels(variable.workspace_id, variable.path) as inherited_labels",
             "ws_specific.path IS NOT NULL as ws_specific",
             "variable.edited_at",
             "variable.edited_by",
         ])
+        // Scalar EXISTS flags the authed user's per-user draft; see resources.rs.
+        .field(
+            &"EXISTS(SELECT 1 FROM draft WHERE draft.workspace_id = variable.workspace_id \
+              AND draft.path = variable.path AND draft.typ = 'variable' \
+              AND draft.email = ?) as is_draft"
+                .bind(&authed.email),
+        )
         .left()
         .join("account")
         .on("variable.account = account.id AND account.workspace_id = ?".bind(&w_id))
@@ -177,22 +207,27 @@ async fn list_variables(
 
     if let Some(broad_filter) = &lq.broad_filter {
         let pat = format!("%{}%", escape_ilike_pattern(broad_filter));
+        // `binds` fills every `?` in one pass; chained `bind`s would re-scan a `?` in the bound value
         sqlb.and_where(
             "(variable.path ILIKE ? OR variable.description ILIKE ? OR (is_secret = FALSE AND variable.value ILIKE ?))"
-                .bind(&pat).bind(&pat).bind(&pat)
+                .binds(&[&pat]),
         );
     }
 
     if let Some(label) = &lq.label {
         for l in label.split(',') {
-            sqlb.and_where("variable.labels @> ARRAY[?]".bind(&l.trim()));
+            // `binds` fills every `?` in one pass; chained `bind`s would re-scan a `?` in the bound value
+            sqlb.and_where(
+                "(variable.labels @> ARRAY[?] OR folder_labels(variable.workspace_id, variable.path) @> ARRAY[?])"
+                    .binds(&[&l.trim()]),
+            );
         }
     }
 
     let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;
     let mut tx = user_db.begin(&authed).await?;
     let allowed = build_scope_path_predicate(&authed, "variables", "read");
-    let rows = sqlx::query_as::<_, ListableVariable>(&sql)
+    let mut rows = sqlx::query_as::<_, ListableVariable>(&sql)
         .fetch_all(&mut *tx)
         .await?
         .into_iter()
@@ -200,13 +235,108 @@ async fn list_variables(
         .collect::<Vec<_>>();
 
     tx.commit().await?;
+
+    // Append the authed user's draft-only variables; see scripts.rs.
+    if lq.include_draft_only.unwrap_or(false)
+        && offset == 0
+        && lq.path_start.is_none()
+        && lq.path.is_none()
+        && lq.description.is_none()
+        && lq.value.is_none()
+        && lq.broad_filter.is_none()
+        && lq.label.is_none()
+        && operator_can_draft(&db, &w_id, &authed, UserDraftItemKind::Variable).await?
+    {
+        let draft_only_rows =
+            fetch_draft_only_list_rows(&db, &w_id, &authed.email, UserDraftItemKind::Variable)
+                .await?;
+
+        for row in draft_only_rows {
+            let v: serde_json::Value =
+                serde_json::from_str(row.value.0.get()).unwrap_or(serde_json::Value::Null);
+            // VariableEditor's `VariableState`: { path, variable: { value, is_secret, description }, labels?, wsSpecific, value_valid_until? }
+            let path = v
+                .get("path")
+                .and_then(|s| s.as_str())
+                .unwrap_or("")
+                .to_string();
+            if path.is_empty() || !allowed(&path) {
+                continue;
+            }
+            let variable = v
+                .get("variable")
+                .cloned()
+                .unwrap_or(serde_json::Value::Null);
+            let is_secret = variable
+                .get("is_secret")
+                .and_then(|x| x.as_bool())
+                .unwrap_or(false);
+            let description = variable
+                .get("description")
+                .and_then(|x| x.as_str())
+                .unwrap_or("")
+                .to_string();
+            // Secret variables never expose their value in the list response, even from a draft.
+            let value = if is_secret {
+                None
+            } else {
+                variable
+                    .get("value")
+                    .and_then(|x| x.as_str())
+                    .map(|s| s.to_string())
+            };
+            let labels = v.get("labels").and_then(|x| {
+                x.as_array().map(|arr| {
+                    arr.iter()
+                        .filter_map(|s| s.as_str().map(|s| s.to_string()))
+                        .collect::<Vec<_>>()
+                })
+            });
+            let ws_specific = v.get("wsSpecific").and_then(|x| x.as_bool());
+            let value_valid_until = v
+                .get("value_valid_until")
+                .and_then(|x| x.as_str())
+                .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+                .map(|dt| dt.with_timezone(&chrono::Utc));
+
+            rows.push(ListableVariable {
+                workspace_id: w_id.clone(),
+                path,
+                value,
+                is_secret,
+                description,
+                extra_perms: serde_json::Value::Object(serde_json::Map::new()),
+                account: None,
+                is_oauth: None,
+                is_expired: None,
+                is_refreshed: None,
+                refresh_error: None,
+                is_linked: None,
+                expires_at: None,
+                value_valid_until,
+                labels,
+                // No deployed row to inherit folder labels from.
+                inherited_labels: None,
+                ws_specific,
+                edited_at: Some(row.created_at),
+                edited_by: None,
+                draft_only: Some(true),
+                // Synthesized rows are the authed user's draft.
+                is_draft: Some(true),
+            });
+        }
+    }
+
     Ok(Json(rows))
 }
 
+// `get_draft` inlined rather than flattened (axum query bool quirk); see GetScriptByPathQuery in scripts.rs.
 #[derive(Deserialize)]
 struct GetVariableQuery {
     decrypt_secret: Option<bool>,
     include_encrypted: Option<bool>,
+    #[serde(default)]
+    get_draft: bool,
 }
 
 async fn get_variable(
@@ -215,16 +345,17 @@ async fn get_variable(
     Extension(db): Extension<DB>,
     Query(q): Query<GetVariableQuery>,
     Path((w_id, path)): Path<(String, StripPath)>,
-) -> JsonResult<ListableVariable> {
+) -> JsonResult<WithDraftOverlay> {
     let path = path.to_path();
     check_scopes(&authed, || format!("variables:read:{}", path))?;
 
     let mut tx = user_db.begin(&authed).await?;
 
     let variable_o = sqlx::query_as::<_, ListableVariable>(
-        "SELECT variable.workspace_id, variable.path, variable.value, variable.is_secret,
+        "SELECT variable.workspace_id, variable.path, variable.value::text AS value, variable.is_secret,
         variable.description, variable.extra_perms, variable.account, variable.is_oauth,
-        variable.expires_at, variable.labels,
+        variable.expires_at, variable.value_valid_until, variable.labels,
+        folder_labels(variable.workspace_id, variable.path) as inherited_labels,
         variable.edited_at, variable.edited_by,
         (now() > account.expires_at) as is_expired, account.refresh_error,
         resource.path IS NOT NULL as is_linked,
@@ -244,43 +375,54 @@ async fn get_variable(
 
     let variable = if let Some(variable) = variable_o {
         variable
+    } else if q.get_draft {
+        // No deployed row + `get_draft`: fall back to the draft (see scripts.rs).
+        // Drop the user_db tx first since `fetch_draft_only` runs on `db`.
+        tx.commit().await?;
+        if let Some(overlay) =
+            fetch_draft_only(&db, &w_id, &authed.email, UserDraftItemKind::Variable, path).await?
+        {
+            return Ok(Json(overlay));
+        }
+        explain_variable_perm_error(&path, &w_id, &db, Some(&authed)).await?;
+        unreachable!()
     } else {
-        explain_variable_perm_error(&path, &w_id, &db).await?;
+        drop(tx);
+        explain_variable_perm_error(&path, &w_id, &db, Some(&authed)).await?;
         unreachable!()
     };
 
     let decrypt_secret = q.decrypt_secret.unwrap_or(true);
 
-    let r = if variable.is_secret {
-        if decrypt_secret {
-            audit_log(
-                &mut *tx,
-                &authed,
-                "variables.decrypt_secret",
-                ActionKind::Execute,
-                &w_id,
-                Some(&variable.path),
-                None,
-            )
-            .await?;
-        }
+    if variable.is_secret && decrypt_secret {
+        audit_log(
+            &mut *tx,
+            &authed,
+            "variables.decrypt_secret",
+            ActionKind::Execute,
+            &w_id,
+            Some(&variable.path),
+            None,
+        )
+        .await?;
+    }
+    // Everything below reads the pool: holding this connection meanwhile would make each
+    // concurrent request wait on a second one.
+    tx.commit().await?;
 
+    let r = if variable.is_secret {
         let value = variable.value.unwrap_or_else(|| "".to_string());
         ListableVariable {
             value: if variable.is_expired.unwrap_or(false) && variable.account.is_some() {
                 #[cfg(feature = "oauth2")]
                 {
-                    let refresh_tx = db
-                        .begin()
-                        .await
-                        .map_err(|e| Error::InternalErr(e.to_string()))?;
                     Some(
                         crate::oauth_refresh_oss::_refresh_token(
-                            refresh_tx,
                             &variable.path,
                             &w_id,
                             variable.account.unwrap(),
                             &db,
+                            false,
                         )
                         .await?,
                     )
@@ -288,10 +430,9 @@ async fn get_variable(
                 #[cfg(not(feature = "oauth2"))]
                 return Err(Error::internal_err("Require oauth2 feature".to_string()));
             } else if !value.is_empty() && decrypt_secret {
-                let _ = tx.commit().await;
                 // Use secret backend for decryption (supports both DB and Vault)
                 Some(get_secret_value(&db, &w_id, &variable.path, &value).await?)
-            } else if q.include_encrypted.unwrap_or(false) {
+            } else if q.include_encrypted.unwrap_or(false) || is_external_ref_value(&value) {
                 Some(value)
             } else {
                 None
@@ -302,7 +443,17 @@ async fn get_variable(
         variable
     };
 
-    Ok(Json(r))
+    let overlay = maybe_overlay_draft(
+        &db,
+        &w_id,
+        &authed.email,
+        UserDraftItemKind::Variable,
+        path,
+        q.get_draft,
+        r,
+    )
+    .await?;
+    Ok(Json(overlay))
 }
 
 #[derive(Deserialize)]
@@ -326,10 +477,49 @@ async fn get_value(
         .map(Json);
 }
 
+/// The grants alone can't explain a denial: a job started on behalf of another
+/// user is authorized as that user, so the error has to name who was actually
+/// asking or it reads as a grant bug.
+pub(crate) fn describe_authed(authed: Option<&(impl Authable + Sync)>) -> String {
+    match authed {
+        Some(authed) => format!(
+            "username: {}, email: {}, groups: {:?}, folders: {:?}",
+            authed.username(),
+            authed.email(),
+            authed.groups(),
+            authed.folders()
+        ),
+        None => "unauthenticated".to_string(),
+    }
+}
+
+/// `extra_perms` maps a `u/<user>` or `g/<group>` to whether it may write; the raw `true` /
+/// `false` reads as allowed / denied, so name the access level instead.
+pub(crate) fn describe_extra_perms(perms: Option<&Value>) -> String {
+    let Some(perms) = perms else {
+        return "folder not found".to_string();
+    };
+    let Some(map) = perms.as_object().filter(|m| !m.is_empty()) else {
+        return "none".to_string();
+    };
+    map.iter()
+        .map(|(grantee, can_write)| match can_write.as_bool() {
+            Some(true) => format!("{grantee} (read & write)"),
+            Some(false) => format!("{grantee} (read only)"),
+            None => format!("{grantee} ({can_write})"),
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// Including the variable's and its folder's `extra_perms` in the error is intended, not a
+/// leak: who holds access to an item is not secret within a workspace, and it tells the
+/// denied caller whom to ask. Keep the maps in the message.
 async fn explain_variable_perm_error(
     path: &str,
     w_id: &str,
     db: &sqlx::Pool<Postgres>,
+    authed: Option<&(impl Authable + Sync)>,
 ) -> windmill_common::error::Result<()> {
     let extra_perms = sqlx::query_scalar!(
         "SELECT extra_perms from variable WHERE path = $1 AND workspace_id = $2",
@@ -354,13 +544,16 @@ async fn explain_variable_perm_error(
         .fetch_optional(db)
         .await?;
         return Err(Error::NotAuthorized(format!(
-            "Variable exists but you don't have access to it:\nvariable perms: {}\nfolder perms: {}",
-            serde_json::to_string_pretty(&extra_perms).unwrap_or_default(), serde_json::to_string_pretty(&folder_extra_perms).unwrap_or_default()
+            "Variable exists but you don't have access to it:\nvariable perms: {}\nfolder perms: {}\nauthed as: {}",
+            describe_extra_perms(Some(&extra_perms)),
+            describe_extra_perms(folder_extra_perms.as_ref()),
+            describe_authed(authed)
         )));
     } else {
         return Err(Error::NotAuthorized(format!(
-            "Variable exists but you don't have access to it:\nvariable perms: {}",
-            serde_json::to_string_pretty(&extra_perms).unwrap_or_default()
+            "Variable exists but you don't have access to it:\nvariable perms: {}\nauthed as: {}",
+            describe_extra_perms(Some(&extra_perms)),
+            describe_authed(authed)
         )));
     }
 }
@@ -401,6 +594,101 @@ async fn check_path_conflict(db: &DB, w_id: &str, path: &str) -> Result<()> {
     return Ok(());
 }
 
+/// Reject a secret value flagged as already-encrypted (`already_encrypted=true`)
+/// that is not actually workspace-key ciphertext — e.g. plaintext mistakenly
+/// pushed as encrypted. Storing plaintext in the encrypted `value` column
+/// silently bricks the variable: every later read fails to decrypt it.
+///
+/// The check is purely structural and never decrypts, so it cannot act as a
+/// decryption/padding oracle for a caller who can write but not read secrets.
+/// `encrypt` (AES-256-GCM, or legacy AES-256-CBC; see `windmill_common::workspace_crypt`)
+/// always yields standard base64 decoding to a non-zero
+/// multiple of the 16-byte block size; anything else cannot be our ciphertext.
+/// Values stored by an external backend ($vault:/$aws_sm:/$azure_kv:/$http_store: markers)
+/// are not workspace ciphertext and are passed through untouched.
+fn validate_already_encrypted_secret(path: &str, value: &str) -> Result<()> {
+    if resolves_externally(value) {
+        return Ok(());
+    }
+    let looks_like_ciphertext = STANDARD
+        .decode(value)
+        .map(|bytes| !bytes.is_empty() && bytes.len() % 16 == 0)
+        .unwrap_or(false);
+    if !looks_like_ciphertext {
+        return Err(Error::BadRequest(format!(
+            "Variable {path} was sent as already-encrypted (already_encrypted=true) but its \
+             value is not valid workspace-encrypted ciphertext. To push a plaintext secret, \
+             send it without already_encrypted (CLI: use --plain-secrets) so it gets encrypted."
+        )));
+    }
+    Ok(())
+}
+
+/// Creating, repointing or removing an `$external:` reference takes a workspace
+/// admin. Every reference resolves with the instance's one store identity, so
+/// the allow-list cannot tell users apart: any writer could point a variable at
+/// a secret under an allowed prefix and read it.
+fn check_external_ref_change(
+    is_admin: bool,
+    old_ref: Option<&str>,
+    new_ref: Option<&str>,
+) -> Result<()> {
+    if !is_admin && old_ref != new_ref {
+        return Err(Error::PermissionDenied(
+            "Only workspace admins can create, repoint or remove an external secret reference"
+                .to_string(),
+        ));
+    }
+    Ok(())
+}
+
+/// The `value` column for a secret sent to create or update, replacing
+/// `old_ref` when the variable currently holds a reference. An `$external:`
+/// reference is checked against the workspace's allowed prefixes and kept
+/// verbatim, including when pushed as already encrypted by sync; any other
+/// value goes to the configured secret backend, or with `windmill_writes`
+/// (an OAuth token Windmill refreshes) to [`store_managed_secret_value`].
+async fn secret_value_to_store(
+    db: &DB,
+    w_id: &str,
+    path: &str,
+    value: String,
+    already_encrypted: bool,
+    op: &'static str,
+    is_admin: bool,
+    old_ref: Option<&str>,
+    windmill_writes: bool,
+) -> Result<String> {
+    if already_encrypted && !is_external_ref_value(&value) {
+        check_external_ref_change(is_admin, old_ref, None)?;
+        // Stored verbatim, so it must be ciphertext and not plaintext mislabeled as encrypted.
+        validate_already_encrypted_secret(path, &value)?;
+        return Ok(value);
+    }
+    // A restored draft sends the `$encrypted:` marker as-is; decrypt it back
+    // (validating against the workspace key) before storing it.
+    let value = if value.starts_with(ENCRYPTED_DRAFT_PREFIX) {
+        decrypt_draft_secret_value(db, w_id, &value).await?
+    } else {
+        value
+    };
+    check_external_ref_change(
+        is_admin,
+        old_ref,
+        is_external_ref_value(&value).then_some(value.as_str()),
+    )?;
+    if is_external_ref_value(&value) {
+        check_external_ref(db, w_id, &value).await?;
+        windmill_common::feature_usage::log_feature_usage("external_secret_ref", "saved", op);
+        return Ok(value);
+    }
+    if windmill_writes {
+        store_managed_secret_value(db, w_id, path, &value).await
+    } else {
+        store_secret_value(db, w_id, path, &value).await
+    }
+}
+
 async fn create_variable(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -410,7 +698,51 @@ async fn create_variable(
     Query(AlreadyEncrypted { already_encrypted }): Query<AlreadyEncrypted>,
     Json(variable): Json<CreateVariable>,
 ) -> Result<(StatusCode, String)> {
+    let path = variable.path.clone();
+    create_variable_with_account(
+        authed,
+        &db,
+        user_db,
+        &webhook,
+        w_id,
+        variable,
+        already_encrypted.unwrap_or(false),
+        None,
+    )
+    .await?;
+    Ok((StatusCode::CREATED, format!("variable {path} created")))
+}
+
+/// An OAuth account to create with the variable that holds its access token.
+pub struct NewOAuthAccount {
+    pub client: String,
+    pub expires_in: i64,
+    pub refresh_token: Option<String>,
+    pub grant_type: String,
+    pub cc_client_id: Option<String>,
+    pub cc_client_secret: Option<String>,
+    pub cc_token_url: Option<String>,
+    pub mcp_server_url: Option<String>,
+    pub scopes: Option<Vec<String>>,
+}
+
+/// Creates a variable and, given `account`, the OAuth account it refreshes through, linked in the
+/// same transaction. Reading a linked variable refreshes through its account and hands the reader
+/// the fresh token, so this is the only way a variable gets a link: `variable.account` is ignored.
+/// Returns the new account's id.
+pub async fn create_variable_with_account(
+    authed: ApiAuthed,
+    db: &DB,
+    user_db: UserDB,
+    webhook: &WebhookShared,
+    w_id: String,
+    mut variable: CreateVariable,
+    already_encrypted: bool,
+    account: Option<NewOAuthAccount>,
+) -> Result<Option<i32>> {
+    let db = db.clone();
     check_scopes(&authed, || format!("variables:write:{}", variable.path))?;
+    check_proper_path(&variable.path)?;
     if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
         &w_id,
         AuditAuthorable::username(&authed),
@@ -440,32 +772,66 @@ async fn create_variable(
     let authed = maybe_refresh_folders(&variable.path, &w_id, authed, &db).await;
 
     check_path_conflict(&db, &w_id, &variable.path).await?;
-    let value = if variable.is_secret && !already_encrypted.unwrap_or(false) {
-        // Use secret backend for encryption (supports both DB and Vault)
-        store_secret_value(&db, &w_id, &variable.path, &variable.value).await?
+    let value = if variable.is_secret {
+        let value = std::mem::take(&mut variable.value);
+        secret_value_to_store(
+            &db,
+            &w_id,
+            &variable.path,
+            value,
+            already_encrypted,
+            "create",
+            authed.is_admin,
+            None,
+            account.is_some(),
+        )
+        .await?
     } else {
         variable.value
     };
 
     let mut tx = user_db.begin(&authed).await?;
 
+    let account_id = match account {
+        Some(a) => Some(
+            sqlx::query_scalar!(
+                "INSERT INTO account (workspace_id, client, expires_at, refresh_token, grant_type, cc_client_id, cc_client_secret, cc_token_url, mcp_server_url, scopes) VALUES ($1, $2, now() + ($3 || ' seconds')::interval, $4, $5, $6, $7, $8, $9, $10) RETURNING id",
+                &w_id,
+                a.client,
+                a.expires_in.to_string(),
+                a.refresh_token,
+                a.grant_type,
+                a.cc_client_id,
+                a.cc_client_secret,
+                a.cc_token_url,
+                a.mcp_server_url,
+                a.scopes.as_deref()
+            )
+            .fetch_one(&mut *tx)
+            .await?,
+        ),
+        None => None,
+    };
+
     sqlx::query!(
         "INSERT INTO variable
-            (workspace_id, path, value, is_secret, description, account, is_oauth, expires_at, labels, edited_by)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
+            (workspace_id, path, value, is_secret, description, account, is_oauth, expires_at, value_valid_until, labels, edited_by)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
         &w_id,
         variable.path,
         value,
         variable.is_secret,
         variable.description,
-        variable.account,
+        account_id,
         variable.is_oauth.unwrap_or(false),
         variable.expires_at,
+        variable.value_valid_until,
         variable.labels.as_deref() as Option<&[String]>,
         &authed.username
     )
     .execute(&mut *tx)
-    .await?;
+    .await
+    .map_err(sanitize_db_error)?;
 
     if variable.ws_specific.unwrap_or(false) {
         sqlx::query!(
@@ -507,10 +873,16 @@ async fn create_variable(
         WebhookMessage::CreateVariable { workspace: w_id, path: variable.path.clone() },
     );
 
-    Ok((
-        StatusCode::CREATED,
-        format!("variable {} created", variable.path),
-    ))
+    Ok(account_id)
+}
+
+async fn list_external_secret_prefixes(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+) -> JsonResult<Vec<String>> {
+    require_admin(authed.is_admin, &authed.username)?;
+    Ok(Json(allowed_prefixes(&db, &w_id).await?))
 }
 
 async fn encrypt_value(
@@ -546,9 +918,10 @@ async fn delete_variable(
         return Err(Error::PermissionDenied(msg));
     }
 
-    // Check if variable is a secret before deleting (for Vault cleanup)
+    // Check if variable is a secret before deleting (for Vault cleanup). An external reference
+    // is excluded: its path may name a secret Windmill does not own.
     let is_secret = sqlx::query_scalar!(
-        "SELECT is_secret FROM variable WHERE path = $1 AND workspace_id = $2",
+        r#"SELECT is_secret AND value NOT LIKE '$external:%' AS "is_secret!" FROM variable WHERE path = $1 AND workspace_id = $2"#,
         path,
         &w_id
     )
@@ -639,6 +1012,13 @@ async fn delete_variable(
 
     tx.commit().await?;
 
+    // Variable gone for everyone: wipe ALL users' drafts at this path (see resources.rs).
+    // Resource included because variables cascade-delete the linked resource at the same path.
+    delete_all_drafts_for_path(&db, &w_id, UserDraftItemKind::Variable, path).await?;
+    if deleted_linked_resource.is_some() {
+        delete_all_drafts_for_path(&db, &w_id, UserDraftItemKind::Resource, path).await?;
+    }
+
     // If variable was a secret, also delete from Vault backend (if configured)
     if is_secret {
         delete_secret_from_backend(&db, &w_id, path).await?;
@@ -713,9 +1093,9 @@ async fn delete_variables_bulk(
         return Err(Error::PermissionDenied(msg));
     }
 
-    // Query which paths are secrets before deletion (for Vault cleanup)
+    // Query which paths are secrets before deletion (for Vault cleanup), external references excluded
     let secret_paths: Vec<String> = sqlx::query_scalar!(
-        "SELECT path FROM variable WHERE path = ANY($1) AND workspace_id = $2 AND is_secret = true",
+        "SELECT path FROM variable WHERE path = ANY($1) AND workspace_id = $2 AND is_secret = true AND value NOT LIKE '$external:%'",
         &request.paths,
         &w_id
     )
@@ -777,12 +1157,12 @@ async fn delete_variables_bulk(
     )
     .execute(&mut *tx)
     .await?;
-    sqlx::query!(
-        "DELETE FROM resource WHERE path = ANY($1) AND workspace_id = $2",
+    let deleted_resource_paths = sqlx::query_scalar!(
+        "DELETE FROM resource WHERE path = ANY($1) AND workspace_id = $2 RETURNING path",
         &deleted_paths,
         w_id
     )
-    .execute(&mut *tx)
+    .fetch_all(&mut *tx)
     .await?;
 
     sqlx::query!(
@@ -805,6 +1185,14 @@ async fn delete_variables_bulk(
     .await?;
 
     tx.commit().await?;
+
+    // Wipe ALL users' drafts at these paths (and linked resources); see delete_variable.
+    for path in &deleted_paths {
+        delete_all_drafts_for_path(&db, &w_id, UserDraftItemKind::Variable, path).await?;
+    }
+    for path in &deleted_resource_paths {
+        delete_all_drafts_for_path(&db, &w_id, UserDraftItemKind::Resource, path).await?;
+    }
 
     // Delete secrets from Vault backend (if configured)
     for path in &secret_paths {
@@ -846,9 +1234,15 @@ struct EditVariable {
     value: Option<String>,
     is_secret: Option<bool>,
     description: Option<String>,
-    account: Option<i32>,
     labels: Option<Vec<String>>,
     ws_specific: Option<bool>,
+    /// Absent leaves the stored expiry alone and `null` clears it, so a partial update
+    /// never clears it by omission.
+    #[serde(
+        default,
+        deserialize_with = "windmill_common::more_serde::double_option"
+    )]
+    value_valid_until: Option<Option<chrono::DateTime<chrono::Utc>>>,
 }
 
 #[derive(Deserialize)]
@@ -881,6 +1275,13 @@ async fn update_variable(
 
     let path = path.to_path();
     check_scopes(&authed, || format!("variables:write:{}", path))?;
+    // A rename moves the (possibly secret) variable to ns.path, so the
+    // destination must also be within the token's write scope, not just the
+    // source path.
+    if let Some(npath) = ns.path.as_deref() {
+        check_scopes(&authed, || format!("variables:write:{}", npath))?;
+        check_proper_path(npath)?;
+    }
     let authed = maybe_refresh_folders(&path, &w_id, authed, &db).await;
 
     let mut sqlb = SqlBuilder::update_table("variable");
@@ -896,24 +1297,37 @@ async fn update_variable(
     // Determine the target path for storing secrets (use new path if provided)
     let target_path = ns.path.as_deref().unwrap_or(path);
     if let Some(nvalue) = ns.value.clone() {
-        let is_secret = if ns.is_secret.is_some() {
-            ns.is_secret.unwrap()
-        } else {
-            sqlx::query_scalar!(
-                "SELECT is_secret from variable WHERE path = $1 AND workspace_id = $2",
-                &path,
-                &w_id
-            )
-            .fetch_optional(&db)
-            .await?
-            .unwrap_or(false)
-        };
+        let old = sqlx::query!(
+            "SELECT value::text AS \"value!\", is_secret FROM variable WHERE path = $1 AND workspace_id = $2",
+            path,
+            w_id
+        )
+        .fetch_optional(&db)
+        .await?;
+        let is_secret = ns
+            .is_secret
+            .unwrap_or_else(|| old.as_ref().is_some_and(|o| o.is_secret));
+        let old_ref = old
+            .as_ref()
+            .filter(|o| o.is_secret && is_external_ref_value(&o.value))
+            .map(|o| o.value.as_str());
 
-        let value = if is_secret && !already_encrypted.unwrap_or(false) {
-            // Use secret backend for encryption (supports both DB and Vault)
-            // Store at target_path (new path if renaming, otherwise current path)
-            store_secret_value(&db, &w_id, target_path, &nvalue).await?
+        let value = if is_secret {
+            // Stored at target_path (the new path when renaming)
+            secret_value_to_store(
+                &db,
+                &w_id,
+                target_path,
+                nvalue,
+                already_encrypted.unwrap_or(false),
+                "update",
+                authed.is_admin,
+                old_ref,
+                false,
+            )
+            .await?
         } else {
+            check_external_ref_change(authed.is_admin, old_ref, None)?;
             nvalue
         };
         sqlb.set_str("value", &value);
@@ -925,8 +1339,13 @@ async fn update_variable(
         has_sql_updates = true;
     }
 
-    if let Some(account_id) = ns.account {
-        sqlb.set_str("account", account_id);
+    if let Some(nvalue_valid_until) = ns.value_valid_until {
+        // Nothing to reset: the sweep compares the date with `expiration_dispatched_for`, so
+        // moving it re-arms the handler and rewriting the same date does not.
+        match nvalue_valid_until {
+            Some(ts) => sqlb.set("value_valid_until", "?".bind(&ts.to_rfc3339())),
+            None => sqlb.set("value_valid_until", "NULL"),
+        };
         has_sql_updates = true;
     }
 
@@ -948,20 +1367,6 @@ async fn update_variable(
         has_sql_updates = true;
     }
 
-    // Get old account_id if we're updating the account field
-    let old_account_id = if ns.account.is_some() {
-        sqlx::query_scalar!(
-            "SELECT account FROM variable WHERE path = $1 AND workspace_id = $2",
-            &path,
-            &w_id
-        )
-        .fetch_optional(&db)
-        .await?
-        .flatten()
-    } else {
-        None
-    };
-
     let mut tx: Transaction<'_, Postgres> = user_db.begin(&authed).await?;
 
     if let Some(npath) = ns.path.clone() {
@@ -971,7 +1376,7 @@ async fn update_variable(
 
             // Handle Vault secret rename if the variable is a secret stored in Vault
             let current_var = sqlx::query!(
-                "SELECT value, is_secret FROM variable WHERE path = $1 AND workspace_id = $2",
+                "SELECT value::text AS \"value!\", is_secret FROM variable WHERE path = $1 AND workspace_id = $2",
                 path,
                 w_id
             )
@@ -979,6 +1384,9 @@ async fn update_variable(
             .await?;
 
             if let Some(var) = current_var {
+                if var.is_secret && is_http_store_stored_value(&var.value) {
+                    return Err(http_store_rename_error(path));
+                }
                 if var.is_secret && is_vault_stored_value(&var.value) {
                     if ns.value.is_some() {
                         // New value was provided and already stored at new path
@@ -1025,6 +1433,15 @@ async fn update_variable(
             .await?;
 
             sqlx::query!(
+                "UPDATE native_trigger SET connection_path = $1 WHERE workspace_id = $2 AND connection_path = $3",
+                npath,
+                w_id,
+                path
+            )
+            .execute(&mut *tx)
+            .await?;
+
+            sqlx::query!(
                 "UPDATE workspace_integrations SET resource_path = $1 WHERE workspace_id = $2 AND resource_path = $3",
                 npath,
                 w_id,
@@ -1063,7 +1480,10 @@ async fn update_variable(
         sqlb.set_str("edited_by", &authed.username);
         sqlb.returning("path");
         let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;
-        let npath_o: Option<String> = sqlx::query_scalar(&sql).fetch_optional(&mut *tx).await?;
+        let npath_o: Option<String> = sqlx::query_scalar(&sql)
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(sanitize_db_error)?;
         not_found_if_none(npath_o, "Variable", path)?
     } else {
         // `has_sql_updates` is guaranteed true whenever `ns.path` is provided
@@ -1132,36 +1552,31 @@ async fn update_variable(
     )
     .await?;
 
-    // Clean up old account if it's no longer referenced and different from new account
-    if let Some(old_acc_id) = old_account_id {
-        if ns.account.is_some() && ns.account != Some(old_acc_id) {
-            // Check if old account is still referenced by other variables or resources
-            let account_still_used = sqlx::query_scalar!(
-                "SELECT EXISTS(SELECT 1 FROM variable WHERE account = $1 AND workspace_id = $2)",
-                old_acc_id,
-                &w_id
-            )
-            .fetch_one(&mut *tx)
-            .await?
-            .unwrap_or(true);
-
-            if !account_still_used {
-                // Delete the orphaned account
-                sqlx::query!(
-                    "DELETE FROM account WHERE id = $1 AND workspace_id = $2",
-                    old_acc_id,
-                    &w_id
-                )
-                .execute(&mut *tx)
-                .await?;
-            }
-        }
-    }
-
     tx.commit().await?;
 
     // Detect if this was a rename operation
     let old_path_if_renamed = if npath != path { Some(path) } else { None };
+
+    // On rename the old-path draft orphans (see resources.rs); the linked resource
+    // renames alongside the variable, so its old-path draft orphans too.
+    if let Some(old_path) = old_path_if_renamed {
+        delete_own_draft_for_path(
+            &db,
+            &w_id,
+            UserDraftItemKind::Variable,
+            old_path,
+            &authed.email,
+        )
+        .await?;
+        delete_own_draft_for_path(
+            &db,
+            &w_id,
+            UserDraftItemKind::Resource,
+            old_path,
+            &authed.email,
+        )
+        .await?;
+    }
 
     handle_deployment_metadata(
         &authed.email,
@@ -1204,21 +1619,61 @@ fn replace_path(v: serde_json::Value, path: &str, npath: &str) -> Value {
     }
 }
 
+/// Emit the `variables.decrypt_secret` audit event for a secret-variable read. Run on both
+/// the cache-miss and cache-hit paths so `allow_cache` never skips secret-access auditing.
+async fn audit_decrypt_secret(
+    db_with_opt_authed: &DbWithOptAuthed<'_, ApiAuthed>,
+    w_id: &str,
+    path: &str,
+) -> Result<()> {
+    let mut tx = db_with_opt_authed.db().begin().await?;
+    audit_log(
+        &mut *tx,
+        db_with_opt_authed,
+        "variables.decrypt_secret",
+        ActionKind::Execute,
+        w_id,
+        Some(path),
+        None,
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(())
+}
+
 pub async fn get_value_internal<'a>(
     db_with_opt_authed: &'a DbWithOptAuthed<'a, ApiAuthed>,
     w_id: &str,
     path: &str,
     allow_cache: bool,
 ) -> Result<String> {
-    if allow_cache {
-        if let Some(cached_variable) = get_cached_variable(&w_id, &path) {
-            return Ok(cached_variable);
+    // Scope the cache to the caller's full authorization identity (not just email): the
+    // cached value is the decrypted variable, resolved under this caller's RLS context.
+    let cache_identity = allow_cache.then(|| match db_with_opt_authed.authed() {
+        Some(authed) => auth_identity(authed),
+        None => format!("\0system:{}", db_with_opt_authed.email()),
+    });
+
+    if let Some(identity) = cache_identity.as_deref() {
+        if let Some(cached) = get_cached_variable(&w_id, &path, identity) {
+            // A cache hit must be observably equivalent to a miss: re-run the per-read side
+            // effects a secret read performs (the `variables.decrypt_secret` audit and
+            // running-job secret registration) so `allow_cache` never silently skips them.
+            if cached.is_secret {
+                audit_decrypt_secret(db_with_opt_authed, &w_id, &path).await?;
+                if !cached.value.is_empty() {
+                    windmill_common::sensitive_log_masks::register_secret_for_all_running_jobs(
+                        &cached.value,
+                    );
+                }
+            }
+            return Ok(cached.value);
         }
     }
 
     let mut tx = db_with_opt_authed.begin().await?;
     let variable_o = sqlx::query!(
-        "SELECT value, account, (now() > account.expires_at) as is_expired, is_secret, path from variable
+        "SELECT value::text AS \"value!\", account, (now() > account.expires_at) as is_expired, is_secret, path from variable
         LEFT JOIN account ON variable.account = account.id WHERE variable.path = $1 AND variable.workspace_id = $2", path, w_id
     )
     .fetch_optional(&mut *tx)
@@ -1229,40 +1684,33 @@ pub async fn get_value_internal<'a>(
     let variable = if let Some(variable) = variable_o {
         variable
     } else {
-        explain_variable_perm_error(path, w_id, &db_with_opt_authed.db()).await?;
+        explain_variable_perm_error(
+            path,
+            w_id,
+            &db_with_opt_authed.db(),
+            db_with_opt_authed.authed(),
+        )
+        .await?;
         unreachable!()
     };
 
+    // A reference is resolved on every read, so Vault rotation and allow-list changes apply at once.
+    let cacheable = !is_external_ref_value(&variable.value);
+    let whole_secret_ref = is_external_ref_value(&variable.value)
+        && parse_external_ref(&variable.value).is_ok_and(|r| r.key.is_none());
     let r = if variable.is_secret {
-        // let audit_author =
-        let mut tx = db_with_opt_authed.db().begin().await?;
-        audit_log(
-            &mut *tx,
-            db_with_opt_authed,
-            "variables.decrypt_secret",
-            ActionKind::Execute,
-            &w_id,
-            Some(&variable.path),
-            None,
-        )
-        .await?;
-        tx.commit().await?;
+        audit_decrypt_secret(db_with_opt_authed, &w_id, &variable.path).await?;
 
         let value = variable.value;
         if variable.is_expired.unwrap_or(false) && variable.account.is_some() {
             #[cfg(feature = "oauth2")]
             {
-                let db = db_with_opt_authed.db();
-                let refresh_tx = db
-                    .begin()
-                    .await
-                    .map_err(|e| Error::InternalErr(e.to_string()))?;
                 crate::oauth_refresh_oss::_refresh_token(
-                    refresh_tx,
                     &variable.path,
                     &w_id,
                     variable.account.unwrap(),
-                    db,
+                    db_with_opt_authed.db(),
+                    false,
                 )
                 .await?
             }
@@ -1279,13 +1727,89 @@ pub async fn get_value_internal<'a>(
     };
 
     if variable.is_secret && !r.is_empty() {
-        windmill_common::sensitive_log_masks::register_secret_for_all_running_jobs(&r);
+        if whole_secret_ref {
+            windmill_common::sensitive_log_masks::register_secret_and_fields_for_all_running_jobs(
+                &r,
+            );
+        } else {
+            windmill_common::sensitive_log_masks::register_secret_for_all_running_jobs(&r);
+        }
     }
 
-    // Cache the result when explicitly allowed and caching appropriate
-    if allow_cache {
-        cache_variable(&w_id, &path, db_with_opt_authed.email(), r.clone());
+    // Cache the result when explicitly allowed. Secrets are cached too: their per-read side
+    // effects (audit + running-job registration) are re-run on a hit (see the hit path above),
+    // and `is_secret` is stored so the hit knows to do so.
+    if let Some(identity) = cache_identity.as_deref().filter(|_| cacheable) {
+        cache_variable(
+            &w_id,
+            &path,
+            identity,
+            CachedVariable { value: r.clone(), is_secret: variable.is_secret },
+        );
     }
 
     Ok(r)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use magic_crypt::MagicCryptTrait;
+
+    #[test]
+    fn accepts_real_workspace_ciphertext() {
+        // The exact shape produced by `encrypt` (AES-256-CBC, base64).
+        let mc = magic_crypt::new_magic_crypt!("a-test-workspace-key", 256);
+        for plain in [
+            "",
+            "original-secret",
+            "some: plaintext\n",
+            "a".repeat(500).as_str(),
+        ] {
+            let ciphertext = mc.encrypt_str_to_base64(plain);
+            assert!(
+                validate_already_encrypted_secret("f/x/cfg", &ciphertext).is_ok(),
+                "should accept genuine ciphertext for plaintext {plain:?}: {ciphertext}"
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_plaintext_mislabeled_as_encrypted() {
+        // Plaintext mislabeled as encrypted: storing it verbatim would make the
+        // variable undecryptable on every read, so it must be rejected.
+        for plaintext in [
+            "some: plaintext\n",
+            "original-secret",
+            "hunter2",
+            "{\"a\": 1}",
+            "not base64!!",
+            " leading-space",
+        ] {
+            assert!(
+                validate_already_encrypted_secret("f/x/cfg", plaintext).is_err(),
+                "should reject plaintext mislabeled as encrypted: {plaintext:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_empty_and_non_block_aligned() {
+        // Valid base64 but not a whole number of AES blocks -> cannot be our ciphertext.
+        assert!(validate_already_encrypted_secret("p", "").is_err());
+        assert!(validate_already_encrypted_secret("p", "dGVzdA==").is_err()); // "test" -> 4 bytes
+    }
+
+    #[test]
+    fn passes_through_external_backend_markers() {
+        // External secret backends store $-prefixed markers, not workspace ciphertext.
+        for marker in [
+            "$vault:f/x/cfg",
+            "$aws_sm:f/x/cfg",
+            "$azure_kv:f/x/cfg",
+            "$http_store:f/x/cfg",
+        ] {
+            assert!(validate_already_encrypted_secret("f/x/cfg", marker).is_ok());
+        }
+    }
 }

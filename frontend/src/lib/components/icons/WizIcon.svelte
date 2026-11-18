@@ -1,0 +1,23 @@
+<script lang="ts">
+	interface Props {
+		height?: string
+		width?: string
+	}
+
+	let { height = '24px', width = '24px' }: Props = $props()
+</script>
+
+<!-- #0254EC / #FFFFFF per wiz.io/press media kit logo pack (WizLogo_Blue_Vector.svg /
+	WizLogo_White_Vector.svg). -->
+<svg
+	class="text-[#0254EC] dark:text-[#FFFFFF]"
+	{width}
+	{height}
+	viewBox="-1.476 -1.509 35.437 35.437"
+	fill="currentColor"
+	xmlns="http://www.w3.org/2000/svg"
+>
+	<path
+		d="M16.77.312c-.085-.416-.978-.416-1.063 0-.666 3.246-2.05 8.14-4.652 10.741-2.6 2.601-7.498 3.986-10.743 4.652-.416.085-.416.977 0 1.062 3.245.667 8.142 2.051 10.743 4.652 3.4 3.4 4.57 8.038 4.972 10.827.026.177.58.202.615.027.609-2.996 2-8.074 4.78-10.854 2.601-2.6 7.497-3.985 10.743-4.652.416-.085.416-.977 0-1.062-3.246-.666-8.142-2.05-10.744-4.652-2.6-2.6-3.985-7.495-4.651-10.741Z"
+	/>
+</svg>

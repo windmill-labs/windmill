@@ -1,17 +1,35 @@
-use crate::ai::tools::{execute_tool_calls, ToolAbortHandles, ToolExecutionContext};
+use crate::ai::compaction::{
+    memory_within_capacity, persisted_bytes, AgentHistory, CompactionRequest, CompactionTrigger,
+    Compactor,
+};
+use crate::ai::pause::{
+    answer_pause, dropped_answer, dropped_messages, load_checkpoint, park, question_timeout,
+    question_tool, resume_without_approval, AgentCheckpoint, Answer, ParkOutcome, PendingRequest,
+    Resumed, QUESTION_ENABLED_NAME,
+};
+use crate::ai::tools::{
+    execute_tool_calls, take_finished_background_jobs, ApprovalGate, BackgroundJob,
+    ToolAbortHandles, ToolCallsOutcome, ToolExecutionContext,
+};
 use crate::ai::utils::{
     add_message_to_conversation, any_tool_needs_previous_result, cleanup_mcp_clients,
-    filter_schema_by_input_transforms, find_unique_tool_name, get_flow_context,
-    get_flow_job_runnable_and_raw_flow, get_step_name_from_flow, load_mcp_tools,
-    parse_raw_script_schema, update_flow_status_module_with_actions,
+    fail_unfinished_action_successes, filter_schema_by_input_transforms, find_unique_tool_name,
+    get_flow_context, get_flow_job_runnable_and_raw_flow, get_step_name_from_flow, load_mcp_tools,
+    parse_raw_script_schema, reset_flow_status_module_action_successes,
+    set_flow_status_module_action_success_at, update_flow_status_module_with_actions,
     update_flow_status_module_with_actions_success,
 };
-use crate::memory_oss::{read_from_memory, write_to_memory};
+use crate::memory_common::MAX_MEMORY_SIZE_BYTES;
+use crate::memory_oss::{memory_storage_capacity_bytes, read_from_memory, write_to_memory};
 use crate::worker_flow::{get_previous_job_result, get_transform_context};
 use async_recursion::async_recursion;
 use regex::Regex;
 use serde_json::value::RawValue;
-use std::{collections::HashMap, sync::Arc};
+use sha2::Digest;
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 use uuid::Uuid;
 #[cfg(feature = "bedrock")]
 use windmill_ai::ai_bedrock::check_env_credentials;
@@ -22,32 +40,52 @@ use windmill_mcp::McpClient;
 use crate::ai::tools::McpClientStub as McpClient;
 use windmill_ai::{
     ai_providers::AIProvider,
+    decision::{decision_inputs, run_decision, AIDecisionArgs},
     image_handler::upload_image_to_s3,
-    providers::create_query_builder,
-    query_builder::{BuildRequestArgs, ParsedResponse},
+    model_context::model_context_window,
+    providers::{
+        create_chat_completions_query_builder, create_query_builder, is_chat_completions_only,
+        openai::{
+            is_reasoning_summary_unavailable, rejects_reasoning_summary,
+            remember_reasoning_summary_unavailable,
+        },
+        remember_chat_completions_only,
+    },
+    proxy::{
+        common_outbound_headers, needs_unavailable_oauth_exchange, retain_effective_credentials,
+    },
+    query_builder::{BuildRequestArgs, ParsedResponse, StreamEventSink},
+    retry::{as_transient, into_final_error, response_error, send_error, Backoff, MAX_RETRIES},
     types::*,
-    utils::{should_use_structured_output_tool, AI_HTTP_HEADERS},
+    utils::{pinned_ai_client_for, should_use_structured_output_tool},
 };
 use windmill_common::{
     cache,
     client::AuthedClient,
     db::DB,
     error::{self, Error},
-    flow_conversations::MessageType,
+    flow_conversations::{memory_key, MessageExtras, MessageType},
     flow_status::AgentAction,
-    flows::{FlowModule, FlowModuleValue, ToolValue},
+    flows::{AgentTool, FlowModule, FlowModuleValue, InputTransform, ToolValue},
     get_latest_hash_for_path,
     jobs::JobKind,
-    scripts::get_full_hub_script_by_path,
-    utils::{StripPath, HTTP_CLIENT},
+    runnable_ref::RunnableRef,
+    scripts::get_full_hub_script_by_id,
+    utils::HTTP_CLIENT,
     worker::{to_raw_value, Connection},
 };
-use windmill_queue::{cancel_single_job, CanceledBy, MiniPulledJob};
+use windmill_queue::{append_logs, cancel_single_job, CanceledBy, MiniPulledJob};
 
 use crate::{
     ai::stream_event_processor::StreamEventProcessor,
-    common::{build_args_map, resolve_job_timeout, OccupancyMetrics, StreamNotifier},
-    handle_child::{run_future_with_polling_update_job_poller_graceful, GracefulPollOutcome},
+    common::{
+        build_args_map, get_root_job_id, resolve_job_timeout, transform_json_value,
+        OccupancyMetrics, StreamNotifier,
+    },
+    handle_child::{
+        run_future_with_polling_update_job_poller,
+        run_future_with_polling_update_job_poller_graceful, GracefulPollOutcome,
+    },
 };
 
 lazy_static::lazy_static! {
@@ -61,10 +99,31 @@ lazy_static::lazy_static! {
         "required": ["user_message"],
         "additionalProperties": false,
     }));
+
+    // Text only: the model writes the state as it reads the conversation, and a schema offering a
+    // union of types is refused by some providers' strict tool schemas.
+    static ref AI_DECISION_TOOL_SCHEMA: Box<RawValue> = to_raw_value(&serde_json::json!({
+        "type": "object",
+        "properties": {
+            "state": {
+                "type": "string",
+                "description": "What the questions are asked about, with only what they need.",
+            },
+        },
+        "required": ["state"],
+        "additionalProperties": false,
+    }));
 }
 
 const DEFAULT_MAX_AGENT_ITERATIONS: usize = 10;
 const HARD_MAX_AGENT_ITERATIONS: usize = 1000;
+
+/// Partial failures retain action metadata through `Message`: serializing raw
+/// `OpenAIMessage` values would strip the tool names and IDs the viewer needs.
+#[derive(serde::Serialize)]
+struct AgentPartialResult<'a> {
+    messages: Vec<Message<'a>>,
+}
 
 fn strip_system_messages(messages: &[OpenAIMessage]) -> Vec<OpenAIMessage> {
     messages
@@ -98,6 +157,290 @@ fn prepare_auto_memory_messages_for_persistence(
     non_system_messages[start_idx..].to_vec()
 }
 
+/// Provider request settings must follow any endpoint fallback learned during the run.
+struct CompactionContext<'a> {
+    compactor: Option<&'a mut Compactor>,
+    timeout: Option<std::time::Duration>,
+    credentials: &'a windmill_ai::credentials::ProviderCredentials,
+    args: &'a AIAgentArgs,
+    client: &'a AuthedClient,
+    job: &'a MiniPulledJob,
+    conn: &'a Connection,
+}
+
+/// Bills and logs successful checkpoints. Request and persistence policy stay with their callers.
+async fn compact_if_needed(
+    ctx: CompactionContext<'_>,
+    query_builder: &dyn windmill_ai::query_builder::QueryBuilder,
+    include_usage: bool,
+    messages: &mut AgentHistory,
+    trigger: CompactionTrigger,
+    final_usage: &mut Option<TokenUsage>,
+) -> bool {
+    let (Some(compactor), Some(timeout)) = (ctx.compactor, ctx.timeout) else {
+        return false;
+    };
+    let pass = compactor
+        .compact(
+            messages,
+            trigger,
+            &CompactionRequest {
+                query_builder,
+                credentials: ctx.credentials,
+                model: ctx.args.provider.get_model(),
+                timeout,
+                client: ctx.client,
+                workspace_id: &ctx.job.workspace_id,
+                job_id: &ctx.job.id,
+                include_usage,
+            },
+        )
+        .await;
+    if let Some(usage) = pass.usage {
+        match final_usage {
+            Some(existing) => existing.accumulate(&usage),
+            None => *final_usage = Some(usage),
+        }
+    }
+    if pass.changed {
+        append_logs(
+            &ctx.job.id,
+            &ctx.job.workspace_id,
+            "AI agent memory summarized; the run's action results are preserved.\n".to_string(),
+            ctx.conn,
+        )
+        .await;
+    }
+    pass.changed
+}
+
+/// The inputs a linked step supplies for itself; the resource holds the rest of the brain.
+const FLOW_LOCAL_AGENT_KEYS: [&str; 5] = [
+    "user_message",
+    "user_attachments",
+    "enabled_tools",
+    "memory_id",
+    "previous_messages",
+];
+
+/// The flow-local inputs that name a conversation, which a saved agent never carries.
+const STEP_HISTORY_KEYS: [&str; 2] = ["memory_id", "previous_messages"];
+
+/// Where one agent invocation's history comes from.
+#[derive(Debug)]
+enum HistorySource<'a> {
+    /// Supplied by the flow and replayed as is: memory is neither read nor written.
+    Messages(&'a [OpenAIMessage]),
+    Managed {
+        memory_id: Uuid,
+        bound: MemoryBound,
+    },
+    Stateless,
+}
+
+/// What keeps a managed conversation inside the model's context.
+#[derive(Debug, Clone, Copy)]
+enum MemoryBound {
+    /// Only the most recent messages are sent and kept.
+    LastMessages(usize),
+    /// Everything is sent and kept; compaction summarizes what no longer fits.
+    Compaction,
+}
+
+impl MemoryBound {
+    /// How many of the memory's messages a run reads and writes back. Compaction keeps all of
+    /// them: the summary it writes is what bounds the conversation, so truncating on top of it
+    /// would drop the tail that summary was written to precede.
+    fn messages_to_keep(self) -> usize {
+        match self {
+            MemoryBound::LastMessages(context_length) => context_length,
+            MemoryBound::Compaction => usize::MAX,
+        }
+    }
+}
+
+/// A step's memory id counts only as the step authored it. A static empty value is a form
+/// placeholder, so it reads as unset rather than as an expression that evaluated to nothing, which
+/// runs without memory; an AI-filled value would let the model choose which memory the agent reads.
+fn keep_authored_memory_id(
+    args: &mut AIAgentArgs,
+    step_input_transforms: &HashMap<String, InputTransform>,
+) {
+    match step_input_transforms.get("memory_id") {
+        Some(InputTransform::Javascript { .. }) => {}
+        Some(InputTransform::Static { .. }) if args.memory_id.as_deref() != Some("") => {}
+        _ => args.memory_id = None,
+    }
+}
+
+/// A step's own `model` and `reasoning_effort` inputs replace the provider's, which is how a step
+/// linked to a saved agent picks them per run. An empty model keeps the provider's, since a run
+/// needs one; an empty effort is no effort, which is how a model that reasons only on request is
+/// turned off. A reasoning token is per model, so a different model without an effort of its own
+/// runs at its default.
+/// Only an input the step authored counts: the arguments of an agent run as a tool also carry
+/// whatever the calling model sent, which must not choose the model it runs on.
+fn override_provider_model(
+    provider: &mut ProviderWithResource,
+    local_args: &HashMap<String, Box<RawValue>>,
+    step_input_transforms: &HashMap<String, InputTransform>,
+) {
+    let authored = |key: &str| {
+        step_input_transforms
+            .get(key)
+            .filter(|t| {
+                matches!(
+                    t,
+                    InputTransform::Javascript { .. } | InputTransform::Static { .. }
+                )
+            })
+            .map(|t| match t {
+                // A static null is not evaluated for a tool, which leaves the caller's argument
+                // in its place.
+                InputTransform::Static { value } if value.get() == "null" => String::new(),
+                _ => local_args
+                    .get(key)
+                    .and_then(|v| serde_json::from_str::<String>(v.get()).ok())
+                    .map(|s| s.trim().to_string())
+                    .unwrap_or_default(),
+            })
+    };
+    if let Some(model) = authored("model").filter(|m| !m.is_empty()) {
+        if model != provider.model {
+            provider.model = model;
+            provider.reasoning_effort = None;
+        }
+    }
+    if let Some(effort) = authored("reasoning_effort") {
+        provider.reasoning_effort = Some(effort).filter(|e| !e.is_empty());
+    }
+}
+
+/// Reconciles the step's history inputs, the agent's memory policy and the run's memory id. A step
+/// holds one of two shapes: an older `auto` or `manual` memory, read as the editor that wrote it
+/// meant it, or the current setting plus the step's own history inputs. Also returns lines for the
+/// job log: an input that went unused, or a policy that remembers ending up stateless.
+fn resolve_history_source<'a>(
+    args: &'a AIAgentArgs,
+    run_memory_id: Option<Uuid>,
+    workspace_id: &str,
+    flow_path: &str,
+) -> (HistorySource<'a>, Vec<&'static str>) {
+    let mut notes = Vec::new();
+    let managed = |bound: MemoryBound, notes: &mut Vec<&'static str>| {
+        managed_memory_id(args, run_memory_id, workspace_id, flow_path, notes)
+            .map_or(HistorySource::Stateless, |memory_id| {
+                HistorySource::Managed { memory_id, bound }
+            })
+    };
+    match &args.memory {
+        // The step's own history inputs came after these, so a step that still holds one reads it
+        // alone: what it did before the editor offered them is what it keeps doing.
+        Some(Memory::Manual { messages }) => {
+            note_unread_step_inputs(&mut notes, args);
+            (HistorySource::Messages(messages), notes)
+        }
+        Some(Memory::Auto { context_length, memory_id }) => {
+            note_unread_step_inputs(&mut notes, args);
+            // An id baked in at save time only ever applied when the run carried none.
+            match run_memory_id.or(*memory_id) {
+                Some(memory_id) => (
+                    HistorySource::Managed {
+                        memory_id,
+                        bound: MemoryBound::LastMessages(*context_length),
+                    },
+                    notes,
+                ),
+                None => {
+                    notes.push(NO_RUN_MEMORY_ID);
+                    (HistorySource::Stateless, notes)
+                }
+            }
+        }
+        Some(Memory::Window { context_length }) => {
+            let source = managed(MemoryBound::LastMessages(*context_length), &mut notes);
+            (source, notes)
+        }
+        Some(Memory::Compaction { .. }) => {
+            let source = managed(MemoryBound::Compaction, &mut notes);
+            (source, notes)
+        }
+        Some(Memory::Off) | None => {
+            if args.memory_id.as_deref().is_some_and(|id| !id.is_empty()) {
+                notes.push("Managed memory is off, so this step's memory id is ignored.");
+            }
+            match &args.previous_messages {
+                Some(messages) => (HistorySource::Messages(messages), notes),
+                None => (HistorySource::Stateless, notes),
+            }
+        }
+    }
+}
+
+const NO_RUN_MEMORY_ID: &str =
+    "No memory id was passed to this run, so the agent runs without memory.";
+
+/// The memory a step under a current setting reads and writes: its own id where it set one,
+/// otherwise the run's. `None` is a step that ends up stateless, with the reason noted.
+fn managed_memory_id(
+    args: &AIAgentArgs,
+    run_memory_id: Option<Uuid>,
+    workspace_id: &str,
+    flow_path: &str,
+    notes: &mut Vec<&'static str>,
+) -> Option<Uuid> {
+    if args
+        .previous_messages
+        .as_ref()
+        .is_some_and(|messages| !messages.is_empty())
+    {
+        notes.push("Managed memory is on, so this step's previous messages are ignored.");
+    }
+    match args.memory_id.as_deref() {
+        Some("") => {
+            notes.push(
+                "This step's memory id evaluated to an empty value, so the agent runs without memory.",
+            );
+            None
+        }
+        Some(step_memory_id) => Some(memory_key(workspace_id, flow_path, step_memory_id)),
+        None => run_memory_id.or_else(|| {
+            notes.push(NO_RUN_MEMORY_ID);
+            None
+        }),
+    }
+}
+
+/// An older memory setting reads neither history input, which is only visible in the job log: the
+/// editor offers them on a step that has been moved to the current settings.
+fn note_unread_step_inputs(notes: &mut Vec<&'static str>, args: &AIAgentArgs) {
+    if args.memory_id.as_deref().is_some_and(|id| !id.is_empty()) {
+        notes.push("This step uses an older memory setting, so its memory id is not read.");
+    }
+    if args
+        .previous_messages
+        .as_ref()
+        .is_some_and(|messages| !messages.is_empty())
+    {
+        notes
+            .push("This step uses an older memory setting, so its previous messages are not read.");
+    }
+}
+
+/// Whether a request has something to ask the model. Only text output sends previous messages, so
+/// an image prompt comes from the user message alone. An empty list is no conversation, except
+/// under a legacy `manual` memory, which ran on whatever list it held.
+fn has_prompt(
+    history: &HistorySource<'_>,
+    has_user_message: bool,
+    is_text_output: bool,
+    legacy_list: bool,
+) -> bool {
+    has_user_message
+        || (is_text_output
+            && (legacy_list || matches!(history, HistorySource::Messages(m) if !m.is_empty())))
+}
+
 fn find_module_by_id(
     modules: &Vec<FlowModule>,
     target_id: &str,
@@ -113,18 +456,52 @@ fn find_module_by_id(
     Ok(found)
 }
 
-fn find_ai_agent_tool_module_in_parent_agent(
+async fn find_ai_agent_tool_module_in_parent_agent(
     modules: &Vec<FlowModule>,
     parent_agent_step_id: &str,
     tool_module_id: &str,
+    client: &AuthedClient,
 ) -> Result<Option<FlowModule>, Error> {
     let Some(parent_agent_module) = find_module_by_id(modules, parent_agent_step_id)? else {
         return Ok(None);
     };
 
-    let FlowModuleValue::AIAgent { tools, .. } = parent_agent_module.get_value()? else {
+    let FlowModuleValue::AIAgent { tools, agent, tool_inputs, .. } =
+        parent_agent_module.get_value()?
+    else {
         return Ok(None);
     };
+
+    // A linked parent carries no tools on the module (they live in the resource, resolved only in
+    // the main execution branch). Resolve them from the resource here too, so a nested agent tool
+    // of a saved+linked agent can still be located when it runs as its own job.
+    let mut tools = if let Some(agent_ref) = agent.as_deref() {
+        let agent_path = agent_ref
+            .trim_start_matches("$res:")
+            .trim_start_matches("res://");
+        // Definitions only: resolving their defaults here would hit the same inaccessible resources.
+        let resource_value = client.get_agent_value(agent_path).await.map_err(|e| {
+            Error::internal_err(format!(
+                "failed to load ai_agent resource {agent_path}: {e}"
+            ))
+        })?;
+        match resource_value {
+            serde_json::Value::Object(mut map) => match map.remove("tools") {
+                Some(t) => serde_json::from_value::<Vec<AgentTool>>(t).map_err(|e| {
+                    Error::internal_err(format!(
+                        "invalid tools in ai_agent resource {agent_path}: {e}"
+                    ))
+                })?,
+                None => Vec::new(),
+            },
+            _ => Vec::new(),
+        }
+    } else {
+        tools
+    };
+    // The nested job reads its history inputs from the tool's transforms, which must carry the
+    // host flow's bindings as the parent evaluated them.
+    overlay_tool_inputs(&mut tools, &tool_inputs);
 
     for tool in tools {
         if tool.id == tool_module_id {
@@ -133,6 +510,160 @@ fn find_ai_agent_tool_module_in_parent_agent(
     }
 
     Ok(None)
+}
+
+/// Resolve the `description` sent to the model for an AI agent tool, in priority order:
+/// an explicit per-tool description, then one auto-derived from the underlying runnable,
+/// then the tool name as the historical last-resort fallback. Blank/whitespace-only values
+/// at each level are skipped so a lower-priority source can still apply.
+fn resolve_tool_description(
+    user_description: Option<String>,
+    derived_description: Option<String>,
+    tool_name: &str,
+) -> String {
+    fn non_empty(value: Option<String>) -> Option<String> {
+        value
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+    }
+
+    non_empty(user_description)
+        .or_else(|| non_empty(derived_description))
+        .unwrap_or_else(|| tool_name.to_string())
+}
+
+/// Fetch a workspace script's stored description by hash, used to auto-derive an AI agent
+/// tool's description when the user did not provide an explicit one. Returns `None` when the
+/// script has no description or on any lookup error, so the caller falls back to the tool name.
+async fn fetch_script_description(db: &DB, w_id: &str, hash: i64) -> Option<String> {
+    sqlx::query_scalar!(
+        "SELECT description FROM script WHERE hash = $1 AND workspace_id = $2",
+        hash,
+        w_id,
+    )
+    .fetch_optional(db)
+    .await
+    .ok()
+    .flatten()
+    .map(|d| d.trim().to_string())
+    .filter(|d| !d.is_empty())
+}
+
+/// Overlay a linked step's host-local tool wiring onto the agent resource's tools. For each tool
+/// id present in `tool_inputs`, merge its per-input transforms into that tool's `input_transforms`
+/// (step wins). Only `FlowModule` tools carry input transforms; MCP/websearch tools are skipped.
+fn overlay_tool_inputs(
+    tools: &mut [AgentTool],
+    tool_inputs: &HashMap<String, HashMap<String, InputTransform>>,
+) {
+    if tool_inputs.is_empty() {
+        return;
+    }
+    for tool in tools.iter_mut() {
+        let Some(overrides) = tool_inputs.get(&tool.id) else {
+            continue;
+        };
+        let ToolValue::FlowModule(fmv) = &mut tool.value else {
+            continue;
+        };
+        let input_transforms = match fmv {
+            FlowModuleValue::Script { input_transforms, .. }
+            | FlowModuleValue::RawScript { input_transforms, .. }
+            | FlowModuleValue::FlowScript { input_transforms, .. }
+            | FlowModuleValue::AIAgent { input_transforms, .. }
+            | FlowModuleValue::AIDecision { input_transforms, .. } => input_transforms,
+            _ => continue,
+        };
+        for (key, transform) in overrides {
+            input_transforms.insert(key.clone(), transform.clone());
+        }
+    }
+}
+
+/// What every websearch entry is named by, whatever label it carries. Web search reaches the model
+/// as a provider capability rather than a tool, so it has no model-facing name of its own, and the
+/// editor's label is not one: a flow module tool could carry the same one, and enabling that tool
+/// would then silently turn web search on with it.
+///
+/// Reserved, on the `__wm_` prefix this codebase uses for names it keeps for itself, and held that
+/// way by `flow_module_tool_name` refusing to advertise a tool that takes it.
+const WEBSEARCH_ENABLED_NAME: &str = "__wm_web_search";
+
+/// The name a flow module tool is advertised to the model under.
+///
+/// Rejected rather than skipped: a tool the model is never shown is a tool the agent silently does
+/// not have, and a run that quietly drops one is harder to explain than a run that will not start.
+fn flow_module_tool_name(summary: Option<&str>) -> Result<&str, Error> {
+    match summary {
+        Some(name) if name == WEBSEARCH_ENABLED_NAME => Err(Error::internal_err(format!(
+            "Invalid tool name: {name:?} is reserved for enabling web search"
+        ))),
+        Some(name) if name == QUESTION_ENABLED_NAME => Err(Error::internal_err(format!(
+            "Invalid tool name: {name:?} is reserved for the question tool"
+        ))),
+        Some(name) if TOOL_NAME_REGEX.is_match(name) => Ok(name),
+        other => Err(Error::internal_err(format!("Invalid tool name: {other:?}"))),
+    }
+}
+
+/// The name a run enables a roster entry by: the name the model is shown, except for an entry the
+/// model is shown nothing of, which cannot be named by a label others may share. An MCP server is
+/// named by the resource it points at, web search by `WEBSEARCH_ENABLED_NAME`.
+///
+/// The MCP path is bare. The roster stores it as authored, `$res:` and all, but a name is an
+/// argument value and one carrying that prefix is resolved to the resource itself before the worker
+/// is handed its args, so the prefixed form is not something the list can hold.
+fn tool_enabled_name(tool: &AgentTool) -> Option<&str> {
+    match &tool.value {
+        ToolValue::Mcp(mcp) => Some(mcp.resource_path.trim_start_matches("$res:")),
+        ToolValue::Websearch(_) => Some(WEBSEARCH_ENABLED_NAME),
+        ToolValue::Question(_) => Some(QUESTION_ENABLED_NAME),
+        _ => tool.summary.as_deref(),
+    }
+}
+
+/// The roster a run advertises, given the names it enabled.
+///
+/// `None` advertises the whole roster, which is what every agent written before the field existed
+/// relies on; an empty list advertises nothing.
+///
+/// Whole entries, decided before any of them is resolved: an MCP server a run switched off is never
+/// contacted, and reading its resource, refreshing its token and opening a client are each things
+/// that can fail a run. Which tools a server exposes stays its entry's own `include_tools` /
+/// `exclude_tools`, the only place that choice is made.
+fn narrow_roster(tools: Vec<AgentTool>, enabled_tools: Option<&[String]>) -> Vec<AgentTool> {
+    let Some(enabled) = enabled_tools else {
+        return tools;
+    };
+    tools
+        .into_iter()
+        .filter(|t| tool_enabled_name(t).is_some_and(|name| enabled.iter().any(|n| n == name)))
+        .collect()
+}
+
+/// The log line for names in `enabled_tools` that name nothing on the agent, if any. The list can
+/// be computed per run, so a name that has since been renamed away must not fail the step — but it
+/// would otherwise silently narrow the agent, so the run says how many of its names matched nothing.
+///
+/// Counted, never quoted: a name is an argument value, and one written as `$var:path` reaches the
+/// worker already replaced by the variable's own value. Quoting it would write that value to the
+/// job log, where the masks a job registers never reach it — they are applied to a subprocess's
+/// output in `handle_child` and nowhere else, and `append_logs` stores what it is given verbatim.
+fn unmatched_enabled_tools_message(
+    enabled_tools: &[String],
+    advertised: &[&str],
+) -> Option<String> {
+    let unmatched = enabled_tools
+        .iter()
+        .filter(|name| !advertised.contains(&name.as_str()))
+        .count();
+    if unmatched == 0 {
+        return None;
+    }
+    let subject = if unmatched == 1 { "name" } else { "names" };
+    Some(format!(
+        "--- ENABLED TOOLS: {unmatched} {subject} named no tool of this agent and had no effect ---\n"
+    ))
 }
 
 pub async fn handle_ai_agent_job(
@@ -154,16 +685,23 @@ pub async fn handle_ai_agent_job(
     hostname: &str,
     killpill_rx: &mut tokio::sync::broadcast::Receiver<()>,
     has_stream: &mut bool,
+    job_completed_tx: crate::JobCompletedSender,
 ) -> Result<Box<RawValue>, Error> {
     // build_args_map returns None if no $res:/$var: transforms needed, in which case use original args
-    let args = match build_args_map(job, client, conn).await? {
+    let local_args = match build_args_map(job, client, conn).await? {
         Some(transformed) => transformed,
         None => job.args.as_ref().map(|a| a.0.clone()).unwrap_or_default(),
     };
-    let args = serde_json::from_str::<AIAgentArgs>(&serde_json::to_string(&args)?)?;
 
-    // Handle dry_run mode - check credentials without making API calls
-    if args.credentials_check {
+    // Handle dry_run mode - check credentials without making API calls.
+    // The credentials check is always invoked inline (provider present, no agent link and no
+    // parent flow), so it resolves before any flow/agent-resource context is fetched.
+    let is_credentials_check = local_args
+        .get("credentials_check")
+        .map(|v| v.get().trim() == "true")
+        .unwrap_or(false);
+    if is_credentials_check {
+        let args = serde_json::from_str::<AIAgentArgs>(&serde_json::to_string(&local_args)?)?;
         return handle_credentials_check(&args.provider).await;
     }
 
@@ -227,6 +765,22 @@ pub async fn handle_ai_agent_job(
     };
 
     let value = flow_data.value();
+    // Tools resolve their tag against the agent's, so only a custom agent tag needs the walk.
+    let preserve_step_tags = value.preserve_step_tags
+        || (flow_job.parent_job.is_some()
+            && !crate::worker_flow::is_default_flow_tag(
+                &job.tag,
+                &job.workspace_id,
+                windmill_queue::tags::dev_flow_tag_suffix(&job.workspace_id, &job.tag, db)
+                    .await?
+                    .as_deref(),
+            )
+            && crate::worker_flow::enclosing_flow_preserves_step_tags(
+                db,
+                &job.workspace_id,
+                flow_job_id,
+            )
+            .await?);
 
     let module = if direct_parent_job_kind == JobKind::AIAgent {
         let parent_agent_step_id = direct_parent_job_flow_step_id.as_deref().ok_or_else(|| {
@@ -236,7 +790,9 @@ pub async fn handle_ai_agent_job(
             &value.modules,
             parent_agent_step_id,
             flow_step_id,
-        )?
+            client,
+        )
+        .await?
     } else {
         find_module_by_id(&value.modules, flow_step_id)?
     };
@@ -249,21 +805,198 @@ pub async fn handle_ai_agent_job(
 
     let summary = module.summary.clone();
 
-    let FlowModuleValue::AIAgent { tools, omit_output_from_conversation, .. } =
-        module.get_value()?
+    let module_value = module.get_value()?;
+    if let FlowModuleValue::AIDecision { .. } = module_value {
+        return handle_ai_decision(
+            conn,
+            db,
+            job,
+            &local_args,
+            direct_parent_job_kind == JobKind::AIAgent,
+            canceled_by,
+            mem_peak,
+            occupancy_metrics,
+            worker_name,
+        )
+        .await;
+    }
+
+    let FlowModuleValue::AIAgent {
+        tools: module_tools,
+        omit_output_from_conversation,
+        agent,
+        tool_inputs,
+        input_transforms: step_input_transforms,
+        ..
+    } = module_value
     else {
         return Err(Error::internal_err(
             "AI agent module is not an AI agent".to_string(),
         ));
     };
 
+    // A linked step takes its brain and tools from the resource and keeps only its own flow-local
+    // inputs. The brain and the roster stay rigid; what the step binds to this flow is the message
+    // it asks, which of those tools this use may call, the conversation it is part of (its memory
+    // id and previous messages), and the tools' own inputs — the last overlaid from `tool_inputs`
+    // below.
+    let (mut args, tools): (AIAgentArgs, Vec<AgentTool>) = if let Some(agent_ref) = agent.as_deref()
+    {
+        let agent_path = agent_ref
+            .trim_start_matches("$res:")
+            .trim_start_matches("res://");
+        // Read raw and interpolate only the brain below. Interpolating the whole resource would also
+        // resolve each tool's default `$res:`/`$var:`, which a host flow may be overriding and which
+        // may be unreadable to whoever runs this flow — an unused tool could then fail the agent.
+        let resource_value = client.get_agent_value(agent_path).await.map_err(|e| {
+            Error::internal_err(format!(
+                "failed to load ai_agent resource {agent_path}: {e}"
+            ))
+        })?;
+        let mut config = match resource_value {
+            serde_json::Value::Object(map) => map,
+            _ => {
+                return Err(Error::internal_err(format!(
+                    "ai_agent resource {agent_path} must be a JSON object"
+                )))
+            }
+        };
+        let mut tools = match config.remove("tools") {
+            Some(t) => serde_json::from_value::<Vec<AgentTool>>(t).map_err(|e| {
+                Error::internal_err(format!(
+                    "invalid tools in ai_agent resource {agent_path}: {e}"
+                ))
+            })?,
+            None => Vec::new(),
+        };
+        overlay_tool_inputs(&mut tools, &tool_inputs);
+        // The resource is not validated against a schema, so a history input it happens to carry
+        // is dropped before interpolation, where a bad `$res:` in it would fail the step. The
+        // other flow-local keys stay: a resource's own user message is the step's fallback.
+        for key in STEP_HISTORY_KEYS {
+            config.remove(key);
+        }
+        let brain = transform_json_value(
+            "ai_agent",
+            client,
+            &job.workspace_id,
+            serde_json::Value::Object(config),
+            job,
+            conn,
+            0,
+        )
+        .await?;
+        let mut brain = match brain {
+            serde_json::Value::Object(map) => map,
+            _ => {
+                return Err(Error::internal_err(format!(
+                    "ai_agent resource {agent_path} must be a JSON object"
+                )))
+            }
+        };
+        // Only after interpolating the resource: these are caller-controlled and already resolved by
+        // build_args_map, so passing them through it again would expand contextual values —
+        // `$WM_TOKEN` in a user message would reach the model provider.
+        for key in FLOW_LOCAL_AGENT_KEYS {
+            if let Some(v) = local_args.get(key) {
+                brain.insert(
+                    key.to_string(),
+                    serde_json::from_str(v.get()).unwrap_or(serde_json::Value::Null),
+                );
+            }
+        }
+        let args = serde_json::from_value::<AIAgentArgs>(serde_json::Value::Object(brain))
+            .map_err(|e| {
+                Error::internal_err(format!(
+                    "invalid ai_agent resource config {agent_path}: {e}"
+                ))
+            })?;
+        (args, tools)
+    } else {
+        let args = serde_json::from_str::<AIAgentArgs>(&serde_json::to_string(&local_args)?)?;
+        // "Edit" on a linked step clears `agent` but keeps the host's `tool_inputs`, so overlay them
+        // here too: a flow persisted mid-edit must still bind its tools to this flow's context
+        // rather than the agent author's.
+        let mut tools = module_tools;
+        overlay_tool_inputs(&mut tools, &tool_inputs);
+        (args, tools)
+    };
+
+    keep_authored_memory_id(&mut args, &step_input_transforms);
+    override_provider_model(&mut args.provider, &local_args, &step_input_transforms);
+
+    // Nesting is capped at flow → agent → nested agent. When this job is itself a nested tool,
+    // a linked resource's tool set may still contain AIAgent or AIDecision tools (the editor can't
+    // constrain a shared resource); don't advertise them — invoking one would only fail the depth
+    // check as a third level.
+    let tools = if direct_parent_job_kind == JobKind::AIAgent {
+        // A nested agent writes no flow status, so nothing would show a question or an approval
+        // request, and its parent agent holds a worker while it waits: it cannot park either. A
+        // tool that requires approval is dropped rather than run unapproved.
+        let (dropped, tools): (Vec<_>, Vec<_>) =
+            tools.into_iter().partition(|t| t.requires_approval);
+        if !dropped.is_empty() {
+            let names: Vec<&str> = dropped
+                .iter()
+                .map(|t| tool_enabled_name(t).unwrap_or(&t.id))
+                .collect();
+            let message = format!(
+                "Tools that require approval are left out of an agent used as a tool, which cannot \
+                 wait for an answer: {}\n",
+                names.join(", ")
+            );
+            append_logs(&job.id, &job.workspace_id, message, conn).await;
+        }
+        tools
+            .into_iter()
+            .filter(|t| {
+                !matches!(
+                    &t.value,
+                    ToolValue::FlowModule(
+                        FlowModuleValue::AIAgent { .. } | FlowModuleValue::AIDecision { .. }
+                    ) | ToolValue::Question(_)
+                )
+            })
+            .collect()
+    } else {
+        tools
+    };
+
+    // Narrow the roster to the tools this run enabled, before the loop below pays a script or hub
+    // fetch per tool.
+    let enabled_tools = args.enabled_tools.as_deref();
+    // Taken before the narrowing consumes the roster, and only by a run that narrows: they are what
+    // its names are matched against, so they are also what tells it a name matched nothing.
+    let roster_names: Vec<String> = match enabled_tools {
+        Some(_) => tools
+            .iter()
+            .filter_map(|t| tool_enabled_name(t).map(str::to_string))
+            .collect(),
+        None => Vec::new(),
+    };
+    let tools = narrow_roster(tools, enabled_tools);
+
     // Separate Windmill tools from MCP tools, websearch, and extract MCP resource configs
     let mut windmill_modules: Vec<FlowModule> = Vec::new();
+    // Explicit per-tool descriptions keyed by tool id. When set, these override the
+    // description auto-derived from the underlying runnable when building tool definitions.
+    let mut tool_descriptions: HashMap<String, String> = HashMap::new();
+    // A nested agent cannot park to wait for one, so its background tools run like any other.
+    let mut background_tools: HashMap<String, u32> = HashMap::new();
     #[allow(unused_mut)]
     let mut mcp_configs: Vec<crate::ai::utils::McpResourceConfig> = Vec::new();
     let mut has_websearch = false;
+    let mut question_timeout_secs = None;
+    // Flow module tool ids and MCP resource paths whose calls each wait for approval.
+    let mut approval_required: HashSet<String> = HashSet::new();
 
     for tool in tools {
+        if tool.requires_approval {
+            approval_required.insert(match &tool.value {
+                ToolValue::Mcp(mcp) => mcp.resource_path.trim_start_matches("$res:").to_string(),
+                _ => tool.id.clone(),
+            });
+        }
         match &tool.value {
             #[allow(unused_variables)]
             ToolValue::Mcp(mcp_config) => {
@@ -291,6 +1024,24 @@ pub async fn handle_ai_agent_job(
             ToolValue::FlowModule(_) => {
                 // Regular Windmill flow module (script, flow, etc.) - convert to FlowModule
                 tracing::debug!("Windmill module: {:?}", tool.id);
+                if let Some(description) = tool
+                    .description
+                    .as_ref()
+                    .map(|d| d.trim())
+                    .filter(|d| !d.is_empty())
+                {
+                    tool_descriptions.insert(tool.id.clone(), description.to_string());
+                }
+                let background_after_secs = if tool.background {
+                    Some(0)
+                } else {
+                    tool.background_after_secs
+                };
+                if let Some(secs) = background_after_secs {
+                    if direct_parent_job_kind != JobKind::AIAgent {
+                        background_tools.insert(tool.id.clone(), secs);
+                    }
+                }
                 if let Some(flow_module) = Option::<FlowModule>::from(&tool) {
                     windmill_modules.push(flow_module);
                 }
@@ -300,6 +1051,9 @@ pub async fn handle_ai_agent_job(
                 tracing::debug!("WebSearch tool enabled");
                 has_websearch = true;
             }
+            ToolValue::Question(question) => {
+                question_timeout_secs = Some(question_timeout(question));
+            }
         }
     }
 
@@ -308,17 +1062,15 @@ pub async fn handle_ai_agent_job(
         let conn = conn;
         let db = db;
         let job = job;
+        let user_description = tool_descriptions.get(&t.id).cloned();
+        let requires_approval = approval_required.contains(&t.id);
+        let background_after_secs = background_tools.get(&t.id).copied();
         async move {
-            let Some(summary) = t.summary.as_ref().filter(|s| TOOL_NAME_REGEX.is_match(s)) else {
-                return Err(Error::internal_err(format!(
-                    "Invalid tool name: {:?}",
-                    t.summary
-                )));
-            };
+            let summary = flow_module_tool_name(t.summary.as_deref())?;
 
-            // Extract schema and input_transforms from the module value
+            // Extract schema, input_transforms, and an auto-derived description from the module value
             let module_value = t.get_value()?;
-            let (schema, input_transforms) = match &module_value {
+            let (schema, input_transforms, derived_description) = match &module_value {
                 FlowModuleValue::Script {
                     hash,
                     path,
@@ -327,9 +1079,12 @@ pub async fn handle_ai_agent_job(
                     is_trigger,
                     pass_flow_input_directly,
                 } => {
+                    let derived_description: Option<String>;
                     let schema = match hash {
                         Some(hash) => {
                             let (_, metadata) = cache::script::fetch(conn, hash.clone()).await?;
+                            derived_description =
+                                fetch_script_description(db, &job.workspace_id, hash.0).await;
                             Ok::<_, Error>(
                                 metadata
                                     .schema
@@ -339,19 +1094,22 @@ pub async fn handle_ai_agent_job(
                             )
                         }
                         None => {
-                            if path.starts_with("hub/") {
-                                let hub_script = get_full_hub_script_by_path(
-                                    StripPath(path.to_string()),
-                                    &HTTP_CLIENT,
-                                    None,
-                                )
-                                .await?;
+                            let tool = RunnableRef::from_path(path, false)?;
+                            if let Some(hub_id) = tool.hub_id() {
+                                let hub_script =
+                                    get_full_hub_script_by_id(hub_id, &HTTP_CLIENT, None).await?;
+                                // Hub scripts carry their free-text description in `summary`.
+                                derived_description = hub_script
+                                    .summary
+                                    .as_ref()
+                                    .map(|s| s.trim().to_string())
+                                    .filter(|s| !s.is_empty());
                                 Ok(Some(hub_script.schema))
                             } else {
                                 let hash = get_latest_hash_for_path(
-                                    db,
+                                    &mut *db.acquire().await?,
                                     &job.workspace_id,
-                                    path.as_str(),
+                                    tool.path(),
                                     true,
                                 )
                                 .await?
@@ -359,12 +1117,14 @@ pub async fn handle_ai_agent_job(
                                 // update module definition to use a fixed hash so all tool calls match the same schema
                                 t.value = to_raw_value(&FlowModuleValue::Script {
                                     hash: Some(hash),
-                                    path: path.clone(),
+                                    path: tool.path().to_string(),
                                     tag_override: tag_override.clone(),
                                     input_transforms: input_transforms.clone(),
                                     is_trigger: *is_trigger,
                                     pass_flow_input_directly: *pass_flow_input_directly,
                                 });
+                                derived_description =
+                                    fetch_script_description(db, &job.workspace_id, hash.0).await;
                                 let (_, metadata) = cache::script::fetch(conn, hash).await?;
                                 Ok(metadata
                                     .schema
@@ -374,11 +1134,11 @@ pub async fn handle_ai_agent_job(
                             }
                         }
                     }?;
-                    (schema, input_transforms)
+                    (schema, input_transforms, derived_description)
                 }
                 FlowModuleValue::RawScript { content, language, input_transforms, .. } => {
-                    let schema = Some(parse_raw_script_schema(&content, &language)?);
-                    (schema, input_transforms)
+                    let schema = Some(parse_raw_script_schema(&content, &language).await?);
+                    (schema, input_transforms, None)
                 }
                 FlowModuleValue::AIAgent { input_transforms, .. } => {
                     // By convention for AIAgent tools, only user_message is expected to be AI-filled.
@@ -388,6 +1148,19 @@ pub async fn handle_ai_agent_job(
                                 .expect("AI_AGENT_TOOL_SCHEMA should always be valid JSON"),
                         ),
                         input_transforms,
+                        None,
+                    )
+                }
+                FlowModuleValue::AIDecision { input_transforms, .. } => {
+                    // The calling model supplies only the state: the questions are the tool.
+                    let description = decision_tool_description(&input_transforms);
+                    (
+                        Some(
+                            RawValue::from_string(AI_DECISION_TOOL_SCHEMA.get().to_string())
+                                .expect("AI_DECISION_TOOL_SCHEMA should always be valid JSON"),
+                        ),
+                        input_transforms,
+                        description,
                     )
                 }
                 _ => {
@@ -405,12 +1178,15 @@ pub async fn handle_ai_agent_job(
                 None
             };
 
+            let description =
+                resolve_tool_description(user_description, derived_description, summary);
+
             Ok(Tool {
                 def: ToolDef {
                     r#type: "function".to_string(),
                     function: ToolDefFunction {
-                        name: summary.clone(),
-                        description: Some(summary.clone()),
+                        name: summary.to_string(),
+                        description: Some(description),
                         parameters: schema.unwrap_or_else(|| {
                             to_raw_value(&serde_json::json!({
                                 "type": "object",
@@ -420,8 +1196,11 @@ pub async fn handle_ai_agent_job(
                         }),
                     },
                 },
+                requires_approval,
                 module: Some(t),
                 mcp_source: None,
+                question_timeout_secs: None,
+                background_after_secs,
             })
         }
     }))
@@ -432,12 +1211,38 @@ pub async fn handle_ai_agent_job(
 
     let mcp_clients = if !mcp_configs.is_empty() {
         let (clients, mcp_tools) =
-            load_mcp_tools(db, &job.workspace_id, mcp_configs, &client.token).await?;
-        tools.extend(mcp_tools);
+            load_mcp_tools(db, &job.workspace_id, mcp_configs, client).await?;
+        tools.extend(mcp_tools.into_iter().map(|mut tool| {
+            tool.requires_approval = tool
+                .mcp_source
+                .as_ref()
+                .is_some_and(|s| approval_required.contains(&s.resource_path));
+            tool
+        }));
         clients
     } else {
         HashMap::new()
     };
+    if let Some(timeout_secs) = question_timeout_secs {
+        let defs: Vec<ToolDef> = tools.iter().map(|t| t.def.clone()).collect();
+        tools.push(question_tool(timeout_secs, &defs));
+    }
+
+    if let Some(enabled) = enabled_tools {
+        let matchable: Vec<&str> = roster_names.iter().map(|s| s.as_str()).collect();
+        windmill_common::feature_usage::log_feature_usage(
+            "ai_agent",
+            "dynamic_tools",
+            if tools.is_empty() && !has_websearch {
+                "no_tools"
+            } else {
+                "tools"
+            },
+        );
+        if let Some(message) = unmatched_enabled_tools_message(enabled, &matchable) {
+            append_logs(&job.id, &job.workspace_id, message, conn).await;
+        }
+    }
 
     let mut inner_occupancy_metrics = occupancy_metrics.clone();
 
@@ -465,6 +1270,7 @@ pub async fn handle_ai_agent_job(
             db,
             conn,
             job,
+            &flow_job_id,
             flow_status_job.as_ref(),
             Some(flow_step_id.as_str()),
             &args,
@@ -480,9 +1286,13 @@ pub async fn handle_ai_agent_job(
             killpill_rx,
             has_stream,
             has_websearch,
-            omit_output_from_conversation,
+            // A nested agent answers its caller, whose tool message carries that answer into the
+            // chat; its own rows would also be tied to the calling agent's job, not the turn.
+            omit_output_from_conversation || direct_parent_job_kind == JobKind::AIAgent,
+            preserve_step_tags,
             cancel_rx,
             tool_abort_handles.clone(),
+            job_completed_tx,
         );
 
         let mut occupancy_opt = Some(occupancy_metrics);
@@ -501,12 +1311,9 @@ pub async fn handle_ai_agent_job(
             cancel_tx,
             CANCEL_GRACE_PERIOD,
         )
-        .await?
+        .await
     };
     // agent_fut and update_job are now dropped — borrows on mcp_clients and canceled_by released
-
-    // Cleanup MCP clients
-    cleanup_mcp_clients(mcp_clients).await;
 
     let format_cancel_info = |cb: &Option<CanceledBy>| {
         cb.as_ref()
@@ -518,38 +1325,315 @@ pub async fn handle_ai_agent_job(
             })
     };
 
-    match outcome {
-        GracefulPollOutcome::Ok(result) => Ok(result),
-        GracefulPollOutcome::Timeout(ms) => {
-            tracing::error!("AI agent timeout after {}s", ms / 1000);
-            Err(Error::ExecutionErr(format!(
-                "AI agent timeout after (>{}s)",
-                ms / 1000
-            )))
-        }
-        GracefulPollOutcome::Cancelled { canceled_by: cb } => {
-            let (by, reason) = format_cancel_info(&cb);
-            Err(Error::ExecutionErr(format!(
-                "Job cancelled by {by} (reason: {reason})"
-            )))
-        }
-        GracefulPollOutcome::CancelledTimeout { canceled_by: cb } => {
-            let (by, reason) = format_cancel_info(&cb);
-            // Abort any still-running spawned tool tasks
-            // unwrap safe: lock is only held briefly for push/drain, no panic possible inside
-            for handle in tool_abort_handles.lock().unwrap().drain(..) {
-                handle.abort();
+    let result = match outcome {
+        Err(error) => Err(error),
+        Ok(outcome) => match outcome {
+            GracefulPollOutcome::Ok(result) => Ok(result),
+            GracefulPollOutcome::Timeout(ms) => {
+                tracing::error!("AI agent timeout after {}s", ms / 1000);
+                Err(Error::ExecutionErr(format!(
+                    "AI agent timeout after (>{}s)",
+                    ms / 1000
+                )))
             }
-            // Hard timeout: clean up orphaned jobs still stuck in v2_job_queue
-            cleanup_orphaned_tool_jobs(db, &job.id, &job.workspace_id, cb).await;
-            Err(Error::ExecutionErr(format!(
-                "Job cancelled by {by} (reason: {reason}, timed out waiting for tool calls)"
-            )))
+            GracefulPollOutcome::Cancelled { canceled_by: cb } => {
+                let (by, reason) = format_cancel_info(&cb);
+                Err(Error::ExecutionErr(format!(
+                    "Job cancelled by {by} (reason: {reason})"
+                )))
+            }
+            GracefulPollOutcome::CancelledTimeout { canceled_by: cb } => {
+                let (by, reason) = format_cancel_info(&cb);
+                Err(Error::ExecutionErr(format!(
+                    "Job cancelled by {by} (reason: {reason}, timed out waiting for tool calls)"
+                )))
+            }
+            GracefulPollOutcome::AlreadyCompleted => {
+                Err(Error::AlreadyCompleted("Job already completed".to_string()))
+            }
+        },
+    };
+    if result
+        .as_ref()
+        .is_err_and(|e| !matches!(e, Error::WacSuspended(_)))
+    {
+        for handle in tool_abort_handles.lock().unwrap().drain(..) {
+            handle.abort();
         }
-        GracefulPollOutcome::AlreadyCompleted => {
-            Err(Error::AlreadyCompleted("Job already completed".to_string()))
+        cleanup_orphaned_tool_jobs(db, &job.id, &job.workspace_id, canceled_by.clone()).await;
+        if let Some(parent_job) = flow_status_job.as_ref() {
+            if let Err(e) = fail_unfinished_action_successes(db, parent_job).await {
+                tracing::error!("Failed to close the background calls of {}: {e}", job.id);
+            }
         }
     }
+    cleanup_mcp_clients(mcp_clients).await;
+    result
+}
+
+/// Say in the job's logs when storage capacity cut what memory keeps.
+async fn log_memory_fit(
+    conn: &Connection,
+    job: &MiniPulledJob,
+    memory_to_save: Option<&[OpenAIMessage]>,
+    held: usize,
+) {
+    if memory_to_save.is_some_and(|tail| tail.len() < held) {
+        append_logs(&job.id, &job.workspace_id,
+            "AI agent memory exceeds storage capacity; saving only the newest complete exchanges. Older memory was dropped; the answer and run action results are preserved.\n".to_string(), conn).await;
+    } else if memory_to_save.is_none() {
+        append_logs(&job.id, &job.workspace_id,
+            "AI agent memory has no complete user-starting conversation that fits storage capacity and memory was not saved. The answer is preserved; the next run will load the previous saved memory.\n".to_string(), conn).await;
+    }
+}
+
+/// Write `memory_to_save` to the step's managed memory, if it keeps one.
+async fn persist_memory(
+    db: &DB,
+    conn: &Connection,
+    job: &MiniPulledJob,
+    history: &HistorySource<'_>,
+    effective_flow_step_id: Option<&str>,
+    memory_to_save: &[OpenAIMessage],
+) {
+    if let HistorySource::Managed { memory_id, bound } = history {
+        if let Some(step_id) = effective_flow_step_id {
+            if !memory_to_save.is_empty() {
+                let messages_to_persist = prepare_auto_memory_messages_for_persistence(
+                    memory_to_save,
+                    bound.messages_to_keep(),
+                );
+
+                match write_to_memory(
+                    db,
+                    &job.workspace_id,
+                    *memory_id,
+                    step_id,
+                    &messages_to_persist,
+                    matches!(bound, MemoryBound::LastMessages(_)),
+                )
+                .await
+                {
+                    // The conversation outgrew what the database holds and was cut
+                    // from its oldest message. Only the worker's own log says so
+                    // otherwise, so from the flow's side the agent simply starts the
+                    // next run having forgotten how this one began.
+                    Ok(dropped) if dropped > 0 => {
+                        append_logs(
+                            &job.id,
+                            &job.workspace_id,
+                            format!(
+                                "Memory does not fit the {}KB the database holds, so its \
+                                 {dropped} oldest messages were dropped. Configure instance \
+                                 object storage to keep the whole conversation.\n",
+                                MAX_MEMORY_SIZE_BYTES / 1000
+                            ),
+                            conn,
+                        )
+                        .await;
+                    }
+                    Ok(_) => {}
+                    Err(e) => {
+                        tracing::error!(
+                            "Failed to persist {} messages to memory for step {}: {}",
+                            messages_to_persist.len(),
+                            step_id,
+                            e
+                        );
+                        append_logs(&job.id, &job.workspace_id,
+                            "Agent memory could not be saved. The answer is preserved; the next run may load older memory.\n".to_string(), conn).await;
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// A stopped turn keeps what it reached instead of losing the whole exchange: every place it
+/// stops at has each tool call answered. No compaction runs here, since it would call the model
+/// while the cancel waits.
+async fn persist_memory_on_stop(
+    db: &DB,
+    conn: &Connection,
+    job: &MiniPulledJob,
+    history: &HistorySource<'_>,
+    effective_flow_step_id: Option<&str>,
+    output_type: &OutputType,
+    persist_capacity: Option<usize>,
+    handed_over: bool,
+    messages: &AgentHistory,
+) -> Error {
+    // A turn taken over leaves the memory to the run that took it.
+    if handed_over {
+        return Error::ExecutionErr("Job cancelled".to_string());
+    }
+    persist_memory_uncompacted(
+        db,
+        conn,
+        job,
+        history,
+        effective_flow_step_id,
+        output_type,
+        persist_capacity,
+        messages.context(),
+    )
+    .await;
+    Error::ExecutionErr("Job cancelled".to_string())
+}
+
+/// A parked turn saves its conversation, so that a new run of the same memory id taking it over
+/// reads it. An open request's calls read as dropped, which is what they become then. A turn that
+/// resumes instead saves again when it ends.
+async fn persist_memory_at_park(
+    db: &DB,
+    conn: &Connection,
+    job: &MiniPulledJob,
+    history: &HistorySource<'_>,
+    effective_flow_step_id: Option<&str>,
+    output_type: &OutputType,
+    persist_capacity: Option<usize>,
+    checkpoint: &AgentCheckpoint,
+    messages: &AgentHistory,
+) {
+    let mut context = messages.context().to_vec();
+    if let Some(pending) = &checkpoint.pending {
+        context.extend(dropped_messages(pending, &checkpoint.actions));
+    }
+    persist_memory_uncompacted(
+        db,
+        conn,
+        job,
+        history,
+        effective_flow_step_id,
+        output_type,
+        persist_capacity,
+        &context,
+    )
+    .await;
+}
+
+async fn persist_memory_uncompacted(
+    db: &DB,
+    conn: &Connection,
+    job: &MiniPulledJob,
+    history: &HistorySource<'_>,
+    effective_flow_step_id: Option<&str>,
+    output_type: &OutputType,
+    persist_capacity: Option<usize>,
+    context: &[OpenAIMessage],
+) {
+    if matches!(output_type, OutputType::Text) {
+        let memory_to_save = match persist_capacity {
+            Some(limit) => memory_within_capacity(context, limit),
+            None => Some(context),
+        };
+        log_memory_fit(conn, job, memory_to_save, context.len()).await;
+        if let Some(memory_to_save) = memory_to_save {
+            persist_memory(
+                db,
+                conn,
+                job,
+                history,
+                effective_flow_step_id,
+                memory_to_save,
+            )
+            .await;
+        }
+    }
+}
+
+/// The background jobs of a parked turn this run took over, for this step's agent to wait on.
+async fn adopt_handed_jobs(
+    db: &DB,
+    job: &MiniPulledJob,
+    memory_id: Uuid,
+    step_id: &str,
+) -> error::Result<Vec<BackgroundJob>> {
+    let jobs = sqlx::query_scalar!(
+        r#"UPDATE ai_memory_turn t SET handed_jobs = t.handed_jobs - $4::text
+         FROM (SELECT handed_jobs -> $4::text AS jobs FROM ai_memory_turn
+               WHERE workspace_id = $1 AND memory_id = $2 AND job_id = $3) old
+         WHERE t.workspace_id = $1 AND t.memory_id = $2 AND t.job_id = $3
+           AND t.handed_jobs ? $4::text
+         RETURNING old.jobs AS "jobs: sqlx::types::Json<Vec<BackgroundJob>>""#,
+        &job.workspace_id,
+        memory_id,
+        get_root_job_id(job),
+        step_id
+    )
+    .fetch_optional(db)
+    .await?
+    .flatten();
+    let mut jobs = jobs.map(|j| j.0).unwrap_or_default();
+    for adopted in &mut jobs {
+        adopted.adopted = true;
+    }
+    // Under this agent, as the jobs it starts are: its cancel and its cleanup walk its children.
+    let ids: Vec<Uuid> = jobs.iter().map(|j| j.job_id).collect();
+    if !ids.is_empty() {
+        sqlx::query!(
+            "UPDATE v2_job SET parent_job = $2, root_job = $3, flow_innermost_root_job = $4
+             WHERE id = ANY($1) AND workspace_id = $5",
+            &ids,
+            job.id,
+            get_root_job_id(job),
+            job.flow_innermost_root_job.unwrap_or(job.id),
+            &job.workspace_id
+        )
+        .execute(db)
+        .await?;
+    }
+    Ok(jobs)
+}
+
+/// Park the agent, as the error `run_agent` returns. `None` when a background job finished
+/// before the park was written, so the agent goes on instead; never for a park on an approval.
+async fn park_agent(
+    db: &DB,
+    conn: &Connection,
+    job: &MiniPulledJob,
+    checkpoint: &AgentCheckpoint,
+    cancel_rx: &tokio::sync::watch::Receiver<bool>,
+) -> Option<Error> {
+    Some(match park(db, conn, job, checkpoint).await {
+        Ok(ParkOutcome::JobFinished) => return None,
+        Ok(ParkOutcome::Parked) => Error::WacSuspended(format!("AI agent {} parked", job.id)),
+        Ok(ParkOutcome::Cancelled) => {
+            // The cancel is on the queue row but not yet seen by the poller, which is what
+            // completes the job as cancelled rather than failed. Wait for it to notice.
+            let mut cancel_rx = cancel_rx.clone();
+            let _ = tokio::time::timeout(
+                std::time::Duration::from_secs(30),
+                cancel_rx.wait_for(|cancelled| *cancelled),
+            )
+            .await;
+            Error::ExecutionErr("Job cancelled".to_string())
+        }
+        Err(e) => e,
+    })
+}
+
+/// A park on an approval is never stood down by a background job.
+fn approval_park(parked: Option<Error>) -> Error {
+    parked.unwrap_or_else(|| Error::internal_err("AI agent approval park was skipped".to_string()))
+}
+
+/// OpenAI rejects a `prompt_cache_key` over 64 characters
+/// (`Invalid 'prompt_cache_key': string too long`), and a runnable path alone can pass
+/// that. Fold an over-long key into a digest of itself: same step still yields the same
+/// key across runs, which is the whole property that routes them to one cache.
+fn bounded_prompt_cache_key(raw: &str) -> String {
+    const MAX_LEN: usize = 64;
+    if raw.len() <= MAX_LEN {
+        return raw.to_string();
+    }
+    let suffix = hex::encode(&sha2::Sha256::digest(raw.as_bytes())[..16]);
+    // Keep a readable head so a key stays traceable to its workspace in provider logs.
+    let mut head = MAX_LEN - suffix.len() - 1;
+    while head > 0 && !raw.is_char_boundary(head) {
+        head -= 1;
+    }
+    format!("{}:{}", &raw[..head], suffix)
 }
 
 #[async_recursion]
@@ -560,6 +1644,8 @@ pub async fn run_agent(
 
     // agent job and flow data
     job: &MiniPulledJob,
+    // the flow the agent is a step of, past the calling agent for a nested agent tool
+    flow_job_id: &Uuid,
     parent_job: Option<&Uuid>,
     flow_step_id_override: Option<&str>,
     args: &AIAgentArgs,
@@ -578,20 +1664,37 @@ pub async fn run_agent(
     has_stream: &mut bool,
     has_websearch: bool,
     omit_output_from_conversation: bool,
+    preserve_step_tags: bool,
 
     // cancellation signal from parent
     cancel_rx: tokio::sync::watch::Receiver<bool>,
 
     // abort handles for spawned tool tasks
     tool_abort_handles: ToolAbortHandles,
+    job_completed_tx: crate::JobCompletedSender,
 ) -> error::Result<Box<RawValue>> {
     let output_type = args.output_type.as_ref().unwrap_or(&OutputType::Text);
+    if args.provider.kind.is_decision_provider() {
+        return Err(Error::BadRequest(format!(
+            "{:?} serves decision models, which answer typed questions rather than messages: use an AI decision step",
+            args.provider.kind
+        )));
+    }
     let credentials = args.provider.to_provider_credentials(db).await?;
     let base_url = &credentials.base_url;
     let api_key = credentials.api_key.as_deref().unwrap_or("");
 
     // Create the query builder for the provider
-    let query_builder = create_query_builder(&credentials);
+    let mut query_builder = create_query_builder(&credentials, args.provider.get_model());
+    if query_builder.supports_chat_completions_fallback(base_url)
+        && is_chat_completions_only(base_url, args.provider.get_model())
+    {
+        query_builder = create_chat_completions_query_builder(&credentials);
+    }
+    // These outlive the iteration that discovers them: a request shape or a route the
+    // endpoint rejected once stays rejected for the whole step.
+    let mut include_usage = true;
+    let mut include_prompt_cache_key = true;
 
     // Initialize messages
     let mut messages =
@@ -609,11 +1712,72 @@ pub async fn run_agent(
     let effective_flow_step_id: Option<&str> =
         flow_step_id_override.or(job.flow_step_id.as_deref());
 
-    // Fetch flow context for input transforms context, chat and memory
-    let mut flow_context = get_flow_context(db, job).await;
+    // Keyed on the step, not the run: every run of this step opens with the same system
+    // prompt and tool definitions, and each agent-loop iteration extends the previous
+    // one's prefix. Above ~15 requests/minute one key starts missing again, which is a
+    // reason to split it further, never to make it per-run.
+    let prompt_cache_key = bounded_prompt_cache_key(&format!(
+        "{}:{}:{}",
+        job.workspace_id,
+        job.runnable_path(),
+        effective_flow_step_id.unwrap_or_default()
+    ));
 
-    // Determine if we're using manual messages (which bypasses memory)
-    let use_manual_messages = matches!(args.memory, Some(Memory::Manual { .. }));
+    // Fetch flow context for input transforms context, chat and memory
+    let mut flow_context = get_flow_context(db, job, flow_job_id).await;
+    // Set when the job parked on a request or on background jobs and has been pulled again. Read
+    // whatever the roster says now: a linked agent can lose a tool while one of its runs is parked.
+    let resumed = match load_checkpoint(db, &job.id).await? {
+        Some(mut checkpoint) if checkpoint.handed_over => {
+            resume_without_approval(db, &job.id, &mut checkpoint.consumed_resume_rows).await?;
+            // Nothing is left to ask the model: the new run carries the conversation on.
+            checkpoint.background.clear();
+            checkpoint.answered = true;
+            let answer = checkpoint.pending.clone().map(|pending| {
+                let answer = dropped_answer(&pending, &checkpoint.actions);
+                (pending, answer, false)
+            });
+            Some((checkpoint, answer))
+        }
+        Some(mut checkpoint) => {
+            let answer = match checkpoint.pending.clone() {
+                Some(pending) => {
+                    let answer = answer_pause(
+                        db,
+                        &job.id,
+                        &pending,
+                        &checkpoint.actions,
+                        &mut checkpoint.consumed_resume_rows,
+                    )
+                    .await?;
+                    match answer {
+                        Resumed::StillPending => {
+                            let parked = park_agent(db, conn, job, &checkpoint, &cancel_rx).await;
+                            return Err(approval_park(parked));
+                        }
+                        Resumed::Answered(message, success) => Some((pending, message, success)),
+                    }
+                }
+                None => {
+                    resume_without_approval(db, &job.id, &mut checkpoint.consumed_resume_rows)
+                        .await?;
+                    None
+                }
+            };
+            Some((checkpoint, answer))
+        }
+        None => None,
+    };
+
+    // The run's memory id is also the chat conversation id, which a step's own memory id never
+    // replaces.
+    let conversation_id = flow_context.run_status.as_ref().and_then(|fs| fs.memory_id);
+    let (history, history_notes) = resolve_history_source(
+        args,
+        conversation_id,
+        &job.workspace_id,
+        flow_context.flow_path.as_deref().unwrap_or_default(),
+    );
 
     // Check if user_message is provided and non-empty
     let has_user_message = args
@@ -622,74 +1786,83 @@ pub async fn run_agent(
         .map(|m| !m.is_empty())
         .unwrap_or(false);
 
-    // Validate: at least one of memory with manual messages or user_message must be provided
-    if !use_manual_messages && !has_user_message {
-        return Err(Error::internal_err(
-            "Either 'memory' with manual messages or 'user_message' must be provided".to_string(),
-        ));
-    }
-
     let is_text_output = output_type == &OutputType::Text;
 
-    // Flow-level memory_id (from chat mode) takes precedence over step-level memory_id
-    let memory_id = flow_context
-        .flow_status
-        .as_ref()
-        .and_then(|fs| fs.memory_id)
-        .or_else(|| {
-            // Extract memory_id from Memory::Auto if present
-            match &args.memory {
-                Some(Memory::Auto { memory_id, .. }) => *memory_id,
-                _ => None,
-            }
-        });
+    if is_text_output {
+        for note in &history_notes {
+            append_logs(&job.id, &job.workspace_id, format!("{note}\n"), conn).await;
+        }
+    } else if !matches!(args.memory, None | Some(Memory::Off))
+        || args.memory_id.is_some()
+        || args.previous_messages.is_some()
+    {
+        append_logs(
+            &job.id,
+            &job.workspace_id,
+            "Image output sends no history, so memory and previous messages are not read.\n",
+            conn,
+        )
+        .await;
+    }
 
-    // Load messages based on history mode
-    if matches!(output_type, OutputType::Text) {
-        match &args.memory {
-            Some(Memory::Manual { messages: manual_messages }) => {
-                // Use explicitly provided messages (bypass memory)
-                if !manual_messages.is_empty() {
-                    messages.extend(manual_messages.clone());
-                }
-            }
-            Some(Memory::Auto { context_length, .. }) => {
-                // Auto mode: load from memory
+    // A `manual` memory sent whatever list it held, an empty one included, so a step that still has
+    // one keeps running without a user message.
+    let legacy_list = matches!(args.memory, Some(Memory::Manual { .. }));
+    if !has_prompt(&history, has_user_message, is_text_output, legacy_list) {
+        let missing = if !is_text_output {
+            "'user_message' must be provided for image output"
+        } else if matches!(
+            args.memory,
+            Some(Memory::Window { .. } | Memory::Compaction { .. } | Memory::Auto { .. })
+        ) {
+            "'user_message' must be provided while managed memory is on"
+        } else {
+            "Either 'previous_messages' or 'user_message' must be provided"
+        };
+        return Err(Error::internal_err(missing.to_string()));
+    }
+
+    if matches!(output_type, OutputType::Text) && resumed.is_none() {
+        match &history {
+            HistorySource::Messages(provided) => messages.extend(provided.iter().cloned()),
+            HistorySource::Managed { memory_id, bound } => {
                 if let Some(step_id) = effective_flow_step_id {
-                    if let Some(memory_id) = memory_id {
-                        // Read messages from memory
-                        match read_from_memory(db, &job.workspace_id, memory_id, step_id).await {
-                            Ok(Some(loaded_messages)) => {
-                                let messages_to_load = prepare_auto_memory_messages_for_request(
-                                    &loaded_messages,
-                                    *context_length,
-                                );
-                                messages.extend(messages_to_load);
-                            }
-                            Ok(None) => {}
-                            Err(e) => {
-                                tracing::error!(
-                                    "Failed to read memory for step {}: {}",
-                                    step_id,
-                                    e
-                                );
-                            }
+                    match read_from_memory(db, &job.workspace_id, *memory_id, step_id).await {
+                        Ok(Some(loaded_messages)) => {
+                            let messages_to_load = prepare_auto_memory_messages_for_request(
+                                &loaded_messages,
+                                bound.messages_to_keep(),
+                            );
+                            messages.extend(messages_to_load);
+                        }
+                        Ok(None) => {}
+                        Err(e) => {
+                            tracing::error!("Failed to read memory for step {}: {}", step_id, e);
                         }
                     }
                 }
             }
-            _ => {}
+            HistorySource::Stateless => {}
         }
     }
 
     // Extract previous step result only if any tool needs it
     let previous_result = {
         if any_tool_needs_previous_result(&tools) {
-            if let Some(ref flow_status) = flow_context.flow_status {
-                get_previous_job_result(db, &job.workspace_id, flow_status)
-                    .await
-                    .ok()
-                    .flatten()
+            if let Some(ref flow_status) = flow_context.step_flow_status {
+                // As for a regular step, the first step of a flow (a subflow, a loop iteration)
+                // gets that flow's args: no step precedes it.
+                if flow_status.step == 0 {
+                    flow_context
+                        .flow_inputs
+                        .as_ref()
+                        .and_then(|args| serde_json::value::to_raw_value(args).ok())
+                } else {
+                    get_previous_job_result(db, &job.workspace_id, flow_status)
+                        .await
+                        .ok()
+                        .flatten()
+                }
             } else {
                 None
             }
@@ -700,13 +1873,18 @@ pub async fn run_agent(
 
     // Build IdContext for results.stepId syntax
     let id_context = {
-        if let Some(ref flow_status) = flow_context.flow_status {
+        if let Some(ref flow_status) = flow_context.step_flow_status {
             // Get the step ID from the AI agent's flow step
             let previous_id = effective_flow_step_id
                 .map(str::to_string)
                 .unwrap_or_else(|| "unknown".to_string());
 
-            Some(get_transform_context(job, &previous_id, flow_status))
+            let mut id_context = get_transform_context(job, &previous_id, flow_status);
+            // The agent's own root names the calling agent for a nested agent.
+            if let Some(root) = flow_context.root_job_id {
+                id_context.root_flow_job = root;
+            }
+            Some(id_context)
         } else {
             None
         }
@@ -759,9 +1937,40 @@ pub async fn run_agent(
         }
     }
 
-    let mut actions = vec![];
-    let mut content = None;
-    let mut final_usage: Option<TokenUsage> = None;
+    let mut final_events_str = String::new();
+    let mut final_reasoning = String::new();
+    let mut first_iteration = 0;
+    let mut consumed_resume_rows = vec![];
+    let mut resumed_answer = None;
+    let mut background = vec![];
+    let mut answered = false;
+    let mut keep_structured_answer = false;
+    let was_resumed = resumed.is_some();
+    let handed_over = resumed.as_ref().is_some_and(|(c, _)| c.handed_over);
+    if let (None, Some(memory_id), Some(step_id)) =
+        (resumed.as_ref(), conversation_id, effective_flow_step_id)
+    {
+        background = adopt_handed_jobs(db, job, memory_id, step_id).await?;
+    }
+    let (mut messages, mut actions, mut content, mut final_usage) = match resumed {
+        Some((checkpoint, answer)) => {
+            final_events_str = checkpoint.events;
+            final_reasoning = checkpoint.reasoning;
+            first_iteration = checkpoint.next_iteration;
+            consumed_resume_rows = checkpoint.consumed_resume_rows;
+            background = checkpoint.background;
+            answered = checkpoint.answered;
+            keep_structured_answer = checkpoint.structured_answer;
+            resumed_answer = answer;
+            (
+                AgentHistory::from_checkpoint(checkpoint.history),
+                checkpoint.actions,
+                checkpoint.content,
+                checkpoint.usage,
+            )
+        }
+        None => (AgentHistory::new(messages), vec![], None, None),
+    };
 
     // Check if this provider supports tools with the current output type
     let supports_tools = query_builder.supports_tools_with_output_type(output_type);
@@ -798,7 +2007,7 @@ pub async fn run_agent(
                 function: ToolDefFunction {
                     name: unique_tool_name,
                     description: Some(
-                        "This tool MUST be used last to return a structured JSON object as the final output."
+                        "Return the final answer. Always finish by calling this tool exactly once with the answer as its input, instead of replying in plain text."
                             .to_string(),
                     ),
                     parameters: to_raw_value(&schema),
@@ -813,24 +2022,29 @@ pub async fn run_agent(
         // For non-Anthropic providers, response_format is handled by the query builder
     }
 
-    let user_wants_streaming = args.streaming.unwrap_or(false);
+    let user_wants_streaming = streaming_requested(args.streaming);
     *has_stream = user_wants_streaming && is_text_output;
 
-    let mut final_events_str = String::new();
-
     // Always create a StreamEventProcessor for text output (use silent mode if user doesn't want streaming)
-    let stream_event_processor = if is_text_output {
-        if user_wants_streaming {
-            Some(StreamEventProcessor::new(conn, job))
+    // Each streamed event is one line of the accumulated string, so a segment streams on from
+    // where the last one stopped.
+    let new_stream_event_processor = |events: &str| {
+        if !is_text_output {
+            None
+        } else if user_wants_streaming {
+            Some(StreamEventProcessor::new(
+                conn,
+                job,
+                events.lines().count() as i32,
+            ))
         } else {
             Some(StreamEventProcessor::new_silent())
         }
-    } else {
-        None
     };
+    let mut stream_event_processor = new_stream_event_processor(&final_events_str);
 
     let chat_enabled = flow_context
-        .flow_status
+        .run_status
         .as_ref()
         .and_then(|fs| fs.chat_input_enabled)
         .unwrap_or(false);
@@ -843,177 +2057,688 @@ pub async fn run_agent(
         .map(|m| m.clamp(1, HARD_MAX_AGENT_ITERATIONS))
         .unwrap_or(DEFAULT_MAX_AGENT_ITERATIONS);
 
-    // Main agent loop
-    for i in 0..max_iterations {
-        // Check if parent was canceled — stop iterating but let current tool calls finish
-        if *cancel_rx.borrow() {
-            return Err(Error::ExecutionErr("Job cancelled".to_string()));
-        }
-
-        if used_structured_output_tool {
-            break;
-        }
-
-        // Handle AWS Bedrock provider specially using the official SDK
-        let parsed = if credentials.provider == AIProvider::AWSBedrock {
-            #[cfg(feature = "bedrock")]
-            {
-                let region = credentials
-                    .region
-                    .as_deref()
-                    .unwrap_or(windmill_ai::ai_providers::USE_ENV_REGION);
-                // Use Bedrock SDK via dedicated query builder
-                windmill_ai::providers::bedrock::BedrockQueryBuilder::default()
-                    .execute_request(
-                        &messages,
-                        tool_defs.as_deref(),
-                        args.provider.get_model(),
-                        args.temperature,
-                        args.max_completion_tokens,
-                        api_key,
-                        region,
-                        stream_event_processor.as_ref().map(|p| p.boxed_sink()),
-                        client,
-                        &job.workspace_id,
-                        structured_output_tool_name.as_deref(),
-                        credentials.aws_access_key_id.as_deref(),
-                        credentials.aws_secret_access_key.as_deref(),
-                        credentials.aws_session_token.as_deref(),
-                    )
-                    .await?
-            }
-            #[cfg(not(feature = "bedrock"))]
-            {
-                return Err(Error::internal_err(
-                    "AWS Bedrock support is not enabled. Build with 'bedrock' feature.".to_string(),
-                ));
-            }
-        } else {
-            // For all other providers, use the HTTP client approach
-            let build_args = BuildRequestArgs {
-                messages: &messages,
-                tools: tool_defs.as_deref(),
-                model: args.provider.get_model(),
-                temperature: args.temperature,
-                max_tokens: args.max_completion_tokens,
-                output_schema: args.output_schema.as_ref(),
-                output_type,
-                system_prompt: args.system_prompt.as_deref(),
-                user_message: args.user_message.as_deref().unwrap_or(""),
-                attachments: args.user_attachments.as_deref(),
-                has_websearch,
+    let mut compactor = match &args.memory {
+        Some(Memory::Compaction { context_window }) if is_text_output => {
+            let tool_schema_tokens = tool_defs
+                .as_ref()
+                .and_then(|defs| serde_json::to_string(defs).ok())
+                .map(|schemas| schemas.len() / 4)
+                .unwrap_or(0);
+            // An unset window — the usual case — is looked up from the model. The field
+            // is the override for what the lookup cannot serve: a Custom AI deployment,
+            // or an id the table does not list.
+            let context_window = match context_window {
+                0 => model_context_window(args.provider.get_model()),
+                declared => *declared,
             };
+            Some(Compactor::new(
+                context_window,
+                tool_schema_tokens,
+                args.max_completion_tokens,
+            ))
+        }
+        _ => None,
+    };
+    // The store otherwise evicts oldest messages, including the summary. Bound only
+    // persisted context here; the running agent can still use the full model window.
+    let persist_capacity = match (&compactor, &history, effective_flow_step_id) {
+        (Some(_), HistorySource::Managed { .. }, Some(_)) => memory_storage_capacity_bytes().await,
+        _ => None,
+    };
+    // The summarization call runs under the agent's own request timeout, which resolves
+    // from the job alone and so is the same for every iteration.
+    let compaction_timeout = match compactor {
+        Some(_) => Some(
+            resolve_job_timeout(conn, &job.workspace_id, job.id, job.timeout)
+                .await
+                .0,
+        ),
+        None => None,
+    };
+    // Held across iterations so an OIDC role is assumed once for the job and
+    // re-assumed only near expiry, rather than on every model turn.
+    #[cfg(feature = "bedrock")]
+    let mut bedrock_assumed_role: Option<windmill_ai::ai_bedrock::AssumedRoleCredentials> = None;
+    let mut anthropic_federated_token: Option<
+        windmill_ai::providers::anthropic::FederatedAccessToken,
+    > = None;
+    let mut vertex_access_token: Option<windmill_ai::vertex_workload_identity::GcpAccessToken> =
+        None;
 
-            let request_body = query_builder
-                .build_request(&build_args, client, &job.workspace_id)
+    if let (true, Some(parent_job)) = (was_resumed, parent_job) {
+        // Rewritten whole rather than appended: a job restarted after its worker died resumes
+        // from the same checkpoint and must not record anything twice.
+        update_flow_status_module_with_actions(db, parent_job, &actions).await?;
+        let answer = resumed_answer.as_ref().map(|(_, _, success)| *success);
+        let keep = actions.len() - usize::from(answer.is_some());
+        reset_flow_status_module_action_successes(db, parent_job, keep, answer).await?;
+    }
+    if let Some((pending, answer, success)) = resumed_answer {
+        match (pending.request, answer) {
+            (PendingRequest::Question { function_name }, Answer::Question(message)) => {
+                if let (Some(processor), Some(OpenAIContent::Text(result))) =
+                    (stream_event_processor.as_ref(), message.content.as_ref())
+                {
+                    let event = StreamingEvent::ToolResult {
+                        call_id: pending.call_id.clone(),
+                        function_name,
+                        result: result.clone(),
+                        success,
+                    };
+                    processor.send(event, &mut final_events_str).await?;
+                }
+                messages.push(message);
+            }
+            (PendingRequest::Approval { calls }, answer) => {
+                let refusal = match &answer {
+                    Answer::Refuse(refusal) => Some(refusal.as_str()),
+                    _ => None,
+                };
+                let tool_execution_ctx = ToolExecutionContext {
+                    db,
+                    conn,
+                    job,
+                    parent_job,
+                    summary: &summary,
+                    flow_step_id_override,
+                    client,
+                    worker_dir,
+                    base_internal_url,
+                    worker_name,
+                    hostname,
+                    occupancy_metrics,
+                    killpill_rx,
+                    stream_event_processor: stream_event_processor.as_ref(),
+                    flow_context: &mut flow_context,
+                    // Dropped for a turn that took over: in its chat, the row would land after
+                    // that turn's message. The run's own trace keeps the refusal.
+                    omit_output_from_conversation: omit_output_from_conversation || handed_over,
+                    preserve_step_tags,
+                    reasoning: None,
+                    previous_result: &previous_result,
+                    id_context: &id_context,
+                    tool_abort_handles: tool_abort_handles.clone(),
+                    job_completed_tx: job_completed_tx.clone(),
+                };
+                let outcome = execute_tool_calls(
+                    tool_execution_ctx,
+                    &calls,
+                    &tools,
+                    mcp_clients,
+                    &mut actions,
+                    &mut final_events_str,
+                    &structured_output_tool_name,
+                    ApprovalGate::Answered(refusal),
+                )
                 .await?;
+                messages.extend(outcome.messages);
+                background.extend(outcome.started);
+            }
+            (PendingRequest::Question { .. }, _) => {
+                return Err(Error::internal_err(
+                    "A question was answered as an approval".to_string(),
+                ))
+            }
+        }
+    }
 
-            let endpoint =
-                query_builder.get_endpoint(base_url, args.provider.get_model(), output_type);
-            let auth_headers = query_builder.get_auth_headers(api_key, base_url, output_type);
+    // Main agent loop
+    // Advanced by each model call that answers the run's own work; the call that follows a
+    // background result reuses the iteration of the answer it revisits.
+    let mut i = first_iteration;
+    while i < max_iterations {
+        // Check if parent was canceled — stop iterating but let current tool calls finish
+        let cancelled = *cancel_rx.borrow();
+        if cancelled {
+            return Err(persist_memory_on_stop(
+                db,
+                conn,
+                job,
+                &history,
+                effective_flow_step_id,
+                output_type,
+                persist_capacity,
+                handed_over,
+                &messages,
+            )
+            .await);
+        }
 
-            let timeout = resolve_job_timeout(conn, &job.workspace_id, job.id, job.timeout)
-                .await
-                .0;
-
-            let resource_headers = &credentials.custom_headers;
-
-            // Helper to build HTTP request with headers
-            let build_http_request = |body: String| {
-                let mut req = HTTP_CLIENT
-                    .post(&endpoint)
-                    .timeout(timeout)
-                    .header("Content-Type", "application/json");
-
-                for (header_name, header_value) in &auth_headers {
-                    req = req.header(*header_name, header_value.clone());
+        if !background.is_empty() {
+            let finished =
+                take_finished_background_jobs(db, &job.workspace_id, &mut background).await?;
+            if !finished.is_empty() {
+                answered = false;
+                // The model is asked again, but its structured answer stands unless it gives
+                // another one.
+                keep_structured_answer |= used_structured_output_tool;
+                used_structured_output_tool = false;
+            }
+            for finished in finished {
+                messages.push(finished.message());
+                if let (false, Some(parent_job)) = (finished.job.adopted, parent_job) {
+                    set_flow_status_module_action_success_at(
+                        db,
+                        parent_job,
+                        finished.job.action_index,
+                        Some(finished.success),
+                    )
+                    .await?;
                 }
-
-                for (header_name, header_value) in AI_HTTP_HEADERS.iter() {
-                    req = req.header(header_name.as_str(), header_value.as_str());
+                if let Some(processor) = stream_event_processor.as_ref() {
+                    let event = StreamingEvent::ToolResult {
+                        call_id: finished.job.call_id.clone(),
+                        function_name: finished.job.function_name.clone(),
+                        result: finished.content.clone(),
+                        success: finished.success,
+                    };
+                    processor.send(event, &mut final_events_str).await?;
                 }
-
-                for (header_name, header_value) in resource_headers {
-                    req = req.header(header_name.as_str(), header_value.as_str());
-                }
-
-                req.body(body)
-            };
-
-            let resp = build_http_request(request_body.clone())
-                .send()
-                .await
-                .map_err(|e| Error::internal_err(format!("Failed to call API: {}", e)))?;
-
-            // Check if request failed and we should retry without stream_options
-            let resp = match resp.error_for_status_ref() {
-                Ok(_) => resp,
-                Err(e) => {
-                    let status = resp.status();
-                    let text = resp
-                        .text()
-                        .await
-                        .unwrap_or_else(|_| "<failed to read body>".to_string());
-
-                    // Retry without stream_options if provider supports it and error suggests incompatibility
-                    // Common error patterns: 400 Bad Request with mentions of stream_options or include_usage
-                    let should_retry = query_builder.supports_retry_without_usage()
-                        && status.as_u16() == 400
-                        && (text.contains("stream_options")
-                            || text.contains("include_usage")
-                            || text.contains("Additional properties are not allowed"));
-
-                    if should_retry {
-                        tracing::info!(
-                            "Retrying request without stream_options due to provider incompatibility"
+                if let (true, Some(conversation_id)) =
+                    (persist_output_to_conversation, conversation_id)
+                {
+                    let (row, extras) = finished.chat_row();
+                    if let Err(e) = add_message_to_conversation(
+                        db,
+                        &conversation_id,
+                        Some(finished.job.job_id),
+                        get_root_job_id(job),
+                        &row,
+                        MessageType::Tool,
+                        &step_name,
+                        finished.success,
+                        Some(&extras),
+                    )
+                    .await
+                    {
+                        tracing::warn!(
+                            "Failed to add tool message to conversation {conversation_id}: {e}"
                         );
+                    }
+                }
+            }
+        }
 
-                        let retry_body = query_builder
-                            .build_request_without_usage(&build_args, client, &job.workspace_id)
-                            .await?;
+        if answered || used_structured_output_tool {
+            if background.is_empty() {
+                break;
+            }
+            // The model has answered but background jobs still run: wait for one, without a
+            // worker. This iteration runs again, starting with what finished.
+            let mut checkpoint = AgentCheckpoint {
+                history: messages.checkpoint(),
+                actions: actions.clone(),
+                content: content.clone(),
+                usage: final_usage.clone(),
+                events: final_events_str.clone(),
+                reasoning: final_reasoning.clone(),
+                next_iteration: i,
+                pending: None,
+                background: background.clone(),
+                answered: true,
+                structured_answer: keep_structured_answer || used_structured_output_tool,
+                consumed_resume_rows: consumed_resume_rows.clone(),
+                handed_over: false,
+            };
+            persist_memory_at_park(
+                db,
+                conn,
+                job,
+                &history,
+                effective_flow_step_id,
+                output_type,
+                persist_capacity,
+                &checkpoint,
+                &messages,
+            )
+            .await;
+            // Told once the memory is saved, which can take a while: a client sends its next
+            // message over the turn on it, and the claim refuses one until the park is written.
+            if let Some(processor) = stream_event_processor.as_ref() {
+                processor
+                    .send(StreamingEvent::BackgroundWait, &mut final_events_str)
+                    .await?;
+            }
+            if let Some(handle) = stream_event_processor.take().and_then(|p| p.to_handle()) {
+                let _ = handle.await;
+            }
+            checkpoint.events = final_events_str.clone();
+            match park_agent(db, conn, job, &checkpoint, &cancel_rx).await {
+                Some(parked) => return Err(parked),
+                None => {
+                    stream_event_processor = new_stream_event_processor(&final_events_str);
+                    continue;
+                }
+            }
+        }
 
-                        let retry_resp =
-                            build_http_request(retry_body).send().await.map_err(|e| {
-                                Error::internal_err(format!("Failed to call API on retry: {}", e))
-                            })?;
+        compact_if_needed(
+            CompactionContext {
+                compactor: compactor.as_mut(),
+                timeout: compaction_timeout,
+                credentials: &credentials,
+                args,
+                client,
+                job,
+                conn,
+            },
+            query_builder.as_ref(),
+            include_usage,
+            &mut messages,
+            CompactionTrigger::Threshold,
+            &mut final_usage,
+        )
+        .await;
 
-                        match retry_resp.error_for_status_ref() {
-                            Ok(_) => retry_resp,
-                            Err(retry_e) => {
-                                let retry_text = retry_resp
+        let mut retried_context = false;
+        let mut backoff = Backoff::default();
+        let streamed_events = || {
+            stream_event_processor
+                .as_ref()
+                .map_or(0, |processor| processor.streamed_events())
+        };
+        let (parsed, request_message_count) = loop {
+            // How many messages this request carries, so the provider's prompt count can
+            // later be told apart from what the response and its tool results add.
+            let request_message_count = messages.context().len();
+            let streamed_before = streamed_events();
+
+            // Handle AWS Bedrock provider specially using the official SDK
+            let attempt: error::Result<_> = async {
+                let parsed = if credentials.provider == AIProvider::AWSBedrock {
+                    #[cfg(feature = "bedrock")]
+                    {
+                        let region = credentials
+                            .region
+                            .as_deref()
+                            .unwrap_or(windmill_ai::ai_providers::USE_ENV_REGION);
+                        // An OIDC role resolves to ordinary IAM keys, so from here the
+                        // call is identical to the explicit-keys mode.
+                        let assumed = windmill_ai::ai_bedrock::refresh_bedrock_oidc_credentials(
+                            &credentials,
+                            &mut bedrock_assumed_role,
+                            client,
+                            &job.id,
+                        )
+                        .await?;
+                        let (access_key_id, secret_access_key, session_token) = match assumed {
+                            Some(assumed) => (
+                                Some(assumed.access_key_id.as_str()),
+                                Some(assumed.secret_access_key.as_str()),
+                                Some(assumed.session_token.as_str()),
+                            ),
+                            None => (
+                                credentials.aws_access_key_id.as_deref(),
+                                credentials.aws_secret_access_key.as_deref(),
+                                credentials.aws_session_token.as_deref(),
+                            ),
+                        };
+                        // Use Bedrock SDK via dedicated query builder
+                        windmill_ai::providers::bedrock::BedrockQueryBuilder::default()
+                            .execute_request(
+                                messages.context(),
+                                tool_defs.as_deref(),
+                                args.provider.get_model(),
+                                args.temperature,
+                                args.provider.get_reasoning_effort(),
+                                args.max_completion_tokens,
+                                api_key,
+                                region,
+                                stream_event_processor.as_ref().map(|p| p.boxed_sink()),
+                                client,
+                                &job.workspace_id,
+                                structured_output_tool_name.as_deref(),
+                                access_key_id,
+                                secret_access_key,
+                                session_token,
+                            )
+                            .await?
+                    }
+                    #[cfg(not(feature = "bedrock"))]
+                    {
+                        return Err(Error::internal_err(
+                            "AWS Bedrock support is not enabled. Build with 'bedrock' feature.".to_string(),
+                        ));
+                    }
+                } else {
+                    // For all other providers, use the HTTP client approach
+                    let mut build_args = BuildRequestArgs {
+                        messages: messages.context(),
+                        tools: tool_defs.as_deref(),
+                        model: args.provider.get_model(),
+                        temperature: args.temperature,
+                        reasoning_effort: args.provider.get_reasoning_effort(),
+                        max_tokens: args.max_completion_tokens,
+                        output_schema: args.output_schema.as_ref(),
+                        output_type,
+                        system_prompt: args.system_prompt.as_deref(),
+                        user_message: args.user_message.as_deref().unwrap_or(""),
+                        attachments: args.user_attachments.as_deref(),
+                        has_websearch,
+                        prompt_cache_key: include_prompt_cache_key.then_some(prompt_cache_key.as_str()),
+                        reasoning_summary: !is_reasoning_summary_unavailable(
+                            &credentials,
+                            args.provider.get_model(),
+                        ),
+                    };
+
+                    // The exchanged token stands in for the resource's api key, which
+                    // `retain_effective_credentials` checks before keeping a credential header.
+                    let vertex_credentials =
+                        windmill_ai::vertex_workload_identity::refresh_vertex_access_token(
+                            &credentials,
+                            &mut vertex_access_token,
+                            client,
+                        )
+                        .await?
+                        .map(|token| windmill_ai::credentials::ProviderCredentials {
+                            api_key: Some(token.to_string()),
+                            ..credentials.clone()
+                        });
+                    let credentials = vertex_credentials.as_ref().unwrap_or(&credentials);
+                    let api_key = credentials.api_key.as_deref().unwrap_or(api_key);
+
+                    // A worker cannot run the client credentials exchange, so an OAuth resource
+                    // has no token here: the request would carry an empty credential and come
+                    // back 401.
+                    if needs_unavailable_oauth_exchange(
+                        &credentials,
+                        args.provider.resource.token_url.as_deref(),
+                        &query_builder.get_auth_headers(api_key, base_url, output_type),
+                    ) {
+                        return Err(Error::ExecutionErr(format!(
+                            "The {:?} resource authenticates with OAuth, which AI agent steps do not \
+                             support. Set an API key on the resource, or carry the provider's credential \
+                             header in its `headers`.",
+                            credentials.provider
+                        )));
+                    }
+
+                    let federated_token =
+                        windmill_ai::providers::anthropic::refresh_federated_access_token(
+                            &credentials,
+                            &mut anthropic_federated_token,
+                            client,
+                        )
+                        .await?
+                        .map(str::to_string);
+
+                    let timeout = resolve_job_timeout(conn, &job.workspace_id, job.id, job.timeout)
+                        .await
+                        .0;
+
+                    let trailing_headers = common_outbound_headers(&credentials).collect::<Vec<_>>();
+
+                    // `endpoint` derives from the user-controlled provider base_url, so pin
+                    // DNS to the SSRF-validated address: the connect must not rebind to an
+                    // internal IP between the check and the request (TOCTOU).
+                    let pinned_ai_client = pinned_ai_client_for(base_url).await?;
+
+                    // Helper to build HTTP request with headers
+                    let build_http_request =
+                        |endpoint: &str, auth_headers: &[(&'static str, String)], body: String| {
+                            let mut req = pinned_ai_client
+                                .post(endpoint)
+                                .timeout(timeout)
+                                .header("Content-Type", "application/json");
+
+                            for (header_name, header_value) in auth_headers {
+                                req = req.header(*header_name, header_value.clone());
+                            }
+
+                            for (header_name, header_value) in &trailing_headers {
+                                req = req.header(header_name.as_str(), header_value.as_str());
+                            }
+
+                            req.body(body)
+                        };
+
+                    // An endpoint can reject the request shape rather than the model:
+                    // `stream_options` and `prompt_cache_key`, which not every OpenAI-compatible
+                    // gateway accepts, a reasoning summary, which OpenAI refuses to unverified
+                    // organizations, and the route itself, when an Azure resource is outside
+                    // the Responses API's model/region matrix. Each is retried once with that
+                    // part dropped.
+                    // Set where the route is found to be absent, and read once the fallback has
+                    // answered: a rejection it did not resolve says nothing about the deployment.
+                    let mut rerouted_by_a_route_rejection = false;
+                    let resp = loop {
+                        let request_body = if include_usage {
+                            query_builder
+                                .build_request(&build_args, client, &job.workspace_id)
+                                .await?
+                        } else {
+                            query_builder
+                                .build_request_without_usage(&build_args, client, &job.workspace_id)
+                                .await?
+                        };
+                        let endpoint =
+                            query_builder.get_endpoint(base_url, args.provider.get_model(), output_type);
+                        let auth_headers = match federated_token.as_deref() {
+                            Some(token) => {
+                                windmill_ai::providers::anthropic::federated_auth_headers(token)
+                            }
+                            None => retain_effective_credentials(
+                                &credentials,
+                                query_builder.get_auth_headers(api_key, base_url, output_type),
+                            ),
+                        };
+
+                        let resp = build_http_request(&endpoint, &auth_headers, request_body)
+                            .send()
+                            .await
+                            .map_err(|e| send_error(e, "Failed to call API"))?;
+
+                        match resp.error_for_status_ref() {
+                            Ok(_) => {
+                                if rerouted_by_a_route_rejection {
+                                    remember_chat_completions_only(base_url, args.provider.get_model());
+                                }
+                                break resp;
+                            }
+                            Err(e) => {
+                                let status = resp.status();
+                                let headers = resp.headers().clone();
+                                let text = resp
                                     .text()
                                     .await
                                     .unwrap_or_else(|_| "<failed to read body>".to_string());
-                                return Err(Error::internal_err(format!(
-                                    "API error on retry: {} - {}",
-                                    retry_e, retry_text
-                                )));
+
+                                // Common error patterns: 400 Bad Request with mentions of stream_options or include_usage
+                                let rejects_usage_tracking = include_usage
+                                    && query_builder.supports_retry_without_usage()
+                                    && status.as_u16() == 400
+                                    && (text.contains("stream_options")
+                                        || text.contains("include_usage")
+                                        || text.contains("Additional properties are not allowed"));
+
+                                // An OpenAI-compatible gateway that validates the body strictly
+                                // names the offending field, whether it calls it an unrecognized
+                                // argument or an unexpected additional property.
+                                let rejects_prompt_cache_key = build_args.prompt_cache_key.is_some()
+                                    && status.as_u16() == 400
+                                    && text.contains("prompt_cache_key");
+
+                                let summary_refused = build_args.reasoning_summary
+                                    && rejects_reasoning_summary(status.as_u16(), &text);
+
+                                // Only the first call of the step may re-route: an endpoint that
+                                // does not serve this API rejects that one already, whereas a
+                                // rejection once the conversation is under way is about the
+                                // conversation (context length, content filter, tool schema).
+                                let route_unserved = i == 0
+                                    && !windmill_ai::query_builder::is_context_length_error(&text)
+                                    && query_builder.supports_chat_completions_fallback(base_url)
+                                    && matches!(status.as_u16(), 400 | 404)
+                                    && *output_type == OutputType::Text;
+
+                                if rejects_usage_tracking {
+                                    tracing::info!(
+                                        "Retrying request without stream_options due to provider incompatibility"
+                                    );
+                                    include_usage = false;
+                                } else if rejects_prompt_cache_key {
+                                    // Checked before the route fallback: the endpoint serves this
+                                    // route, it just refuses one optional field, and re-routing
+                                    // the whole step over that would give up far more.
+                                    tracing::info!(
+                                        "Retrying request without prompt_cache_key due to provider incompatibility"
+                                    );
+                                    include_prompt_cache_key = false;
+                                    build_args.prompt_cache_key = None;
+                                } else if summary_refused {
+                                    tracing::info!(
+                                        "Retrying request without the reasoning summary the endpoint refused"
+                                    );
+                                    remember_reasoning_summary_unavailable(
+                                        &credentials,
+                                        args.provider.get_model(),
+                                    );
+                                    build_args.reasoning_summary = false;
+                                } else if route_unserved {
+                                    tracing::info!(
+                                        "Endpoint rejected the request ({}), falling back to chat/completions",
+                                        status
+                                    );
+                                    // Only a 404 says the route is absent. A 400 is ambiguous —
+                                    // a deployment that does serve the route rejects tool
+                                    // schemas, blocked hosted tools and filtered content the
+                                    // same way — so it re-routes this step and nothing more.
+                                    rerouted_by_a_route_rejection = status.as_u16() == 404;
+                                    query_builder = create_chat_completions_query_builder(&credentials);
+                                    include_usage = true;
+                                } else {
+                                    let message =
+                                        format!("API error calling {}: {} - {}", endpoint, e, text);
+                                    return Err(response_error(status, &headers, &text, message));
+                                }
                             }
                         }
+                    };
+
+                    if let Some(ref stream_event_processor) = stream_event_processor {
+                        query_builder
+                            .parse_streaming_response(resp, stream_event_processor.boxed_sink())
+                            .await?
                     } else {
-                        return Err(Error::internal_err(format!("API error: {} - {}", e, text)));
+                        query_builder.parse_image_response(resp).await?
+                    }
+                };
+                Ok(parsed.without_nul())
+            }.await;
+
+            match attempt {
+                Ok(parsed) => break (parsed, request_message_count),
+                Err(error)
+                    if !retried_context
+                        && compactor.is_some()
+                        && windmill_ai::query_builder::is_context_length_error(
+                            &error.to_string(),
+                        ) =>
+                {
+                    retried_context = true;
+                    append_logs(
+                        &job.id,
+                        &job.workspace_id,
+                        "Provider rejected the context size; attempting compaction before one retry.\n".to_string(),
+                        conn,
+                    ).await;
+                    let changed = compact_if_needed(
+                        CompactionContext {
+                            compactor: compactor.as_mut(),
+                            timeout: compaction_timeout,
+                            credentials: &credentials,
+                            args,
+                            client,
+                            job,
+                            conn,
+                        },
+                        query_builder.as_ref(),
+                        include_usage,
+                        &mut messages,
+                        CompactionTrigger::ContextRejected,
+                        &mut final_usage,
+                    )
+                    .await;
+                    if !changed {
+                        append_logs(
+                            &job.id,
+                            &job.workspace_id,
+                            "Context compaction could not produce a smaller usable request; returning the provider error without retry.\n".to_string(),
+                            conn,
+                        ).await;
+                        return Err(error);
                     }
                 }
-            };
-
-            if let Some(ref stream_event_processor) = stream_event_processor {
-                query_builder
-                    .parse_streaming_response(resp, stream_event_processor.boxed_sink())
-                    .await?
-            } else {
-                query_builder.parse_image_response(resp).await?
+                Err(error) => {
+                    let Some(transient) = as_transient(&error) else {
+                        return Err(error);
+                    };
+                    // Readers have no way to take back what they were shown, so a call
+                    // that already streamed part of its answer fails as it is.
+                    if streamed_events() != streamed_before {
+                        append_logs(
+                            &job.id,
+                            &job.workspace_id,
+                            "AI provider call failed after part of its answer had streamed; not retried.\n".to_string(),
+                            conn,
+                        )
+                        .await;
+                        return Err(into_final_error(error));
+                    }
+                    let Some(delay) = backoff.next_delay(transient) else {
+                        return Err(into_final_error(error));
+                    };
+                    append_logs(
+                        &job.id,
+                        &job.workspace_id,
+                        format!(
+                            "AI provider call failed: {}. Retrying in {:.1}s (retry {}/{MAX_RETRIES}).\n",
+                            transient.message,
+                            delay.as_secs_f64(),
+                            backoff.retries()
+                        ),
+                        conn,
+                    )
+                    .await;
+                    let mut cancelled = cancel_rx.clone();
+                    let stopped = tokio::select! {
+                        _ = tokio::time::sleep(delay) => false,
+                        Ok(_) = cancelled.wait_for(|cancelled| *cancelled) => true,
+                    };
+                    if stopped {
+                        return Err(persist_memory_on_stop(
+                            db,
+                            conn,
+                            job,
+                            &history,
+                            effective_flow_step_id,
+                            output_type,
+                            persist_capacity,
+                            handed_over,
+                            &messages,
+                        )
+                        .await);
+                    }
+                }
             }
         };
 
         match parsed {
             ParsedResponse::Text {
                 content: response_content,
+                reasoning: response_reasoning,
                 tool_calls,
                 events_str,
                 annotations,
                 used_websearch,
                 usage,
             } => {
+                messages.record_usage(
+                    usage.as_ref().and_then(|u| u.input_tokens),
+                    request_message_count,
+                );
+
                 // Accumulate usage from this iteration
                 if let Some(u) = usage {
                     match &mut final_usage {
@@ -1024,10 +2749,16 @@ pub async fn run_agent(
                 if let Some(events_str) = events_str {
                     final_events_str.push_str(&events_str);
                 }
+                append_reasoning(&mut final_reasoning, response_reasoning.as_deref());
 
                 // Add websearch tool message if websearch was used
                 if used_websearch {
                     actions.push(AgentAction::WebSearch {});
+                    if let Some(parent_job) = parent_job {
+                        update_flow_status_module_with_actions(db, parent_job, &actions).await?;
+                        update_flow_status_module_with_actions_success(db, parent_job, true)
+                            .await?;
+                    }
                     messages.push(OpenAIMessage {
                         role: "tool".to_string(),
                         content: Some(OpenAIContent::Text(
@@ -1037,30 +2768,36 @@ pub async fn run_agent(
                         ..Default::default()
                     });
                     if persist_output_to_conversation {
-                        if let Some(memory_id) = memory_id {
-                            let agent_job_id = job.id;
-                            let db_clone = db.clone();
-                            let message_content = "Used websearch tool successfully".to_string();
-                            let step_name = step_name.clone();
-                            tokio::spawn(async move {
-                                if let Err(e) = add_message_to_conversation(
-                                    &db_clone,
-                                    &memory_id,
-                                    Some(agent_job_id),
-                                    &message_content,
-                                    MessageType::Tool,
-                                    &step_name,
-                                    true,
-                                )
-                                .await
-                                {
-                                    tracing::warn!(
-                                        "Failed to add websearch tool message to conversation {}: {}",
-                                        memory_id,
-                                        e
-                                    );
-                                }
+                        if let Some(conversation_id) = conversation_id {
+                            // The search ran inside the provider's call, so this job's args
+                            // describe the agent, not the search: its sources reach the row
+                            // only if they are written here.
+                            let extras = (!annotations.is_empty()).then(|| MessageExtras {
+                                tool_result: serde_json::to_string(&annotations).ok(),
+                                ..Default::default()
                             });
+                            // Awaited like every row of the loop, so rows commit in turn order.
+                            // Worded like every other tool row, so a reader recovers the tool
+                            // name from the sentence.
+                            if let Err(e) = add_message_to_conversation(
+                                db,
+                                &conversation_id,
+                                Some(job.id),
+                                get_root_job_id(job),
+                                "Used websearch tool",
+                                MessageType::Tool,
+                                &step_name,
+                                true,
+                                extras.as_ref(),
+                            )
+                            .await
+                            {
+                                tracing::warn!(
+                                    "Failed to add websearch tool message to conversation {}: {}",
+                                    conversation_id,
+                                    e
+                                );
+                            }
                         }
                     }
                 }
@@ -1085,42 +2822,44 @@ pub async fn run_agent(
                             .await?;
                     }
 
-                    content = Some(OpenAIContent::Text(response_content.clone()));
+                    if !keep_structured_answer {
+                        content = Some(OpenAIContent::Text(response_content.clone()));
+                    }
 
                     // Add assistant message to conversation if chat_input_enabled
                     if persist_output_to_conversation && !response_content.is_empty() {
-                        if let Some(memory_id) = memory_id {
-                            let agent_job_id = job.id;
-                            let db_clone = db.clone();
-                            let message_content = response_content.clone();
-                            let step_name = step_name.clone();
-
-                            // Spawn task because we do not need to wait for the result
-                            tokio::spawn(async move {
-                                if let Err(e) = add_message_to_conversation(
-                                    &db_clone,
-                                    &memory_id,
-                                    Some(agent_job_id),
-                                    &message_content,
-                                    MessageType::Assistant,
-                                    &step_name,
-                                    true,
-                                )
-                                .await
-                                {
-                                    tracing::warn!(
-                                        "Failed to add assistant message to conversation {}: {}",
-                                        memory_id,
-                                        e
-                                    );
-                                }
+                        if let Some(conversation_id) = conversation_id {
+                            // This iteration's thinking goes on the answer's row; the job
+                            // result only keeps the turn's thinking as one string.
+                            let extras = response_reasoning.clone().map(|reasoning| {
+                                MessageExtras { reasoning: Some(reasoning), ..Default::default() }
                             });
+                            if let Err(e) = add_message_to_conversation(
+                                db,
+                                &conversation_id,
+                                Some(job.id),
+                                get_root_job_id(job),
+                                response_content,
+                                MessageType::Assistant,
+                                &step_name,
+                                true,
+                                extras.as_ref(),
+                            )
+                            .await
+                            {
+                                tracing::warn!(
+                                    "Failed to add assistant message to conversation {}: {}",
+                                    conversation_id,
+                                    e
+                                );
+                            }
                         }
                     }
                 }
 
                 if tool_calls.is_empty() {
-                    break;
+                    answered = true;
+                    continue;
                 } else if i == max_iterations - 1 {
                     #[derive(serde::Serialize)]
                     struct MaxIterError<'a> {
@@ -1128,11 +2867,7 @@ pub async fn run_agent(
                         name: &'static str,
                         #[serde(skip_serializing_if = "Option::is_none")]
                         step_id: Option<&'a str>,
-                        result: MaxIterPartialResult<'a>,
-                    }
-                    #[derive(serde::Serialize)]
-                    struct MaxIterPartialResult<'a> {
-                        messages: &'a [OpenAIMessage],
+                        result: AgentPartialResult<'a>,
                     }
                     return Err(Error::ExecutionRawError(
                         serde_json::value::to_raw_value(&MaxIterError {
@@ -1142,7 +2877,16 @@ pub async fn run_agent(
                             ),
                             name: "ExecutionErr",
                             step_id: effective_flow_step_id,
-                            result: MaxIterPartialResult { messages: &messages },
+                            result: AgentPartialResult {
+                                messages: messages
+                                    .result()
+                                    .iter()
+                                    .map(|m| Message {
+                                        message: m,
+                                        agent_action: m.agent_action.as_ref(),
+                                    })
+                                    .collect(),
+                            },
                         })?,
                     ));
                 }
@@ -1152,6 +2896,18 @@ pub async fn run_agent(
                     tool_calls: Some(tool_calls.clone()),
                     ..Default::default()
                 });
+
+                // A round's thinking is stored on one row, the first the round writes, which is
+                // where the stream shows it: its text row when it wrote text, else the row of
+                // its first call — the answer row below when that call is the structured-output
+                // tool. Two rows carrying it would show it twice after a reload.
+                let call_reasoning = response_reasoning
+                    .clone()
+                    .filter(|_| response_content.as_deref().unwrap_or("").is_empty());
+                let structured_output_first = structured_output_tool_name
+                    .as_ref()
+                    .zip(tool_calls.first())
+                    .map_or(false, |(name, tc)| tc.function.name == *name);
 
                 // Handle tool calls using extracted tools module
                 let tool_execution_ctx = ToolExecutionContext {
@@ -1171,32 +2927,152 @@ pub async fn run_agent(
                     stream_event_processor: stream_event_processor.as_ref(),
                     flow_context: &mut flow_context,
                     omit_output_from_conversation,
+                    preserve_step_tags,
+                    reasoning: if structured_output_first {
+                        None
+                    } else {
+                        call_reasoning.clone()
+                    },
                     previous_result: &previous_result,
                     id_context: &id_context,
                     tool_abort_handles: tool_abort_handles.clone(),
+                    job_completed_tx: job_completed_tx.clone(),
                 };
 
-                let (tool_messages, tool_content, tool_used_structured_output) =
-                    execute_tool_calls(
-                        tool_execution_ctx,
-                        &tool_calls,
-                        &tools,
-                        mcp_clients,
-                        &mut actions,
-                        &mut final_events_str,
-                        &structured_output_tool_name,
-                    )
-                    .await?;
+                let ToolCallsOutcome {
+                    messages: tool_messages,
+                    final_content: tool_content,
+                    used_structured_output_tool: tool_used_structured_output,
+                    pause,
+                    started,
+                } = execute_tool_calls(
+                    tool_execution_ctx,
+                    &tool_calls,
+                    &tools,
+                    mcp_clients,
+                    &mut actions,
+                    &mut final_events_str,
+                    &structured_output_tool_name,
+                    ApprovalGate::Ask,
+                )
+                .await?;
 
                 messages.extend(tool_messages);
+
+                // A structured answer is the arguments of the structured-output tool call,
+                // on which the loop ends without a text iteration, so its row is written here.
+                if tool_used_structured_output && persist_output_to_conversation {
+                    if let (Some(conversation_id), Some(OpenAIContent::Text(answer))) =
+                        (conversation_id, tool_content.as_ref())
+                    {
+                        let extras = call_reasoning
+                            .clone()
+                            .filter(|_| structured_output_first)
+                            .map(|reasoning| MessageExtras {
+                                reasoning: Some(reasoning),
+                                ..Default::default()
+                            });
+                        if let Err(e) = add_message_to_conversation(
+                            db,
+                            &conversation_id,
+                            Some(job.id),
+                            get_root_job_id(job),
+                            answer,
+                            MessageType::Assistant,
+                            &step_name,
+                            true,
+                            extras.as_ref(),
+                        )
+                        .await
+                        {
+                            tracing::warn!(
+                                "Failed to add structured answer to conversation {}: {}",
+                                conversation_id,
+                                e
+                            );
+                        }
+                    }
+                }
+
                 if let Some(tc) = tool_content {
                     content = Some(tc);
                 }
                 used_structured_output_tool = tool_used_structured_output;
+                background.extend(started);
+                if used_structured_output_tool {
+                    // An answer, like a text one: it keeps its iteration for the call that
+                    // revisits it once a background result arrives.
+                    continue;
+                }
+
+                if let Some(mut pending) = pause {
+                    actions.extend(pending.action.take());
+                    // The next segment streams from where this one stops, so this one's events
+                    // must be written first.
+                    if let Some(handle) = stream_event_processor.take().and_then(|p| p.to_handle())
+                    {
+                        let _ = handle.await;
+                    }
+                    let checkpoint = AgentCheckpoint {
+                        history: messages.checkpoint(),
+                        actions: actions.clone(),
+                        content: content.clone(),
+                        usage: final_usage.clone(),
+                        events: final_events_str,
+                        reasoning: final_reasoning,
+                        next_iteration: i + 1,
+                        pending: Some(pending),
+                        background,
+                        answered: false,
+                        structured_answer: keep_structured_answer,
+                        consumed_resume_rows,
+                        handed_over: false,
+                    };
+                    persist_memory_at_park(
+                        db,
+                        conn,
+                        job,
+                        &history,
+                        effective_flow_step_id,
+                        output_type,
+                        persist_capacity,
+                        &checkpoint,
+                        &messages,
+                    )
+                    .await;
+                    let parked =
+                        approval_park(park_agent(db, conn, job, &checkpoint, &cancel_rx).await);
+                    // Written once parked: the run page offers an answer only for a request that
+                    // `resume_suspended` can take. The park is committed, so a failure here only
+                    // costs the page its banner.
+                    if let (Error::WacSuspended(_), Some(parent_job)) = (&parked, parent_job) {
+                        if let Err(e) =
+                            update_flow_status_module_with_actions(db, parent_job, &actions).await
+                        {
+                            tracing::error!(
+                                "Failed to show the pending request of {}: {e}",
+                                job.id
+                            );
+                        }
+                    }
+                    return Err(parked);
+                }
 
                 // Check cancellation after tool calls complete to avoid a wasted LLM call
-                if *cancel_rx.borrow() {
-                    return Err(Error::ExecutionErr("Job cancelled".to_string()));
+                let cancelled = *cancel_rx.borrow();
+                if cancelled {
+                    return Err(persist_memory_on_stop(
+                        db,
+                        conn,
+                        job,
+                        &history,
+                        effective_flow_step_id,
+                        output_type,
+                        persist_capacity,
+                        handed_over,
+                        &messages,
+                    )
+                    .await);
                 }
             }
             ParsedResponse::Image { base64_data } => {
@@ -1208,10 +3084,7 @@ pub async fn run_agent(
 
                 // Add assistant message to conversation if chat_input_enabled
                 if persist_output_to_conversation {
-                    if let Some(memory_id) = memory_id {
-                        let agent_job_id = job.id;
-                        let db_clone = db.clone();
-
+                    if let Some(conversation_id) = conversation_id {
                         // Create extended version with type discriminator for conversation storage
                         // This avoids conflicts with outputs that are of the same format as S3 objects
                         let s3_with_type = S3ObjectWithType {
@@ -1222,26 +3095,25 @@ pub async fn run_agent(
                         let message_content = serde_json::to_string(&s3_with_type)
                             .unwrap_or_else(|_| content.get().to_string());
 
-                        // Spawn task because we do not need to wait for the result
-                        tokio::spawn(async move {
-                            if let Err(e) = add_message_to_conversation(
-                                &db_clone,
-                                &memory_id,
-                                Some(agent_job_id),
-                                &message_content,
-                                MessageType::Assistant,
-                                &step_name,
-                                true,
-                            )
-                            .await
-                            {
-                                tracing::warn!(
-                                    "Failed to add assistant message to conversation {}: {}",
-                                    memory_id,
-                                    e
-                                );
-                            }
-                        });
+                        if let Err(e) = add_message_to_conversation(
+                            db,
+                            &conversation_id,
+                            Some(job.id),
+                            get_root_job_id(job),
+                            &message_content,
+                            MessageType::Assistant,
+                            &step_name,
+                            true,
+                            None,
+                        )
+                        .await
+                        {
+                            tracing::warn!(
+                                "Failed to add assistant message to conversation {}: {}",
+                                conversation_id,
+                                e
+                            );
+                        }
                     }
                 }
 
@@ -1249,10 +3121,50 @@ pub async fn run_agent(
                 return Ok(content);
             }
         }
+        i += 1;
     }
+
+    if !background.is_empty() {
+        // Resumed past its iteration limit, which a linked agent edited while parked can lower:
+        // nothing would read the background jobs' results.
+        cleanup_orphaned_tool_jobs(db, &job.id, &job.workspace_id, None).await;
+        if let Some(parent_job) = parent_job {
+            fail_unfinished_action_successes(db, parent_job).await?;
+        }
+    }
+
+    // A turn taken over leaves the memory to the run that took it, which saved it at park.
+    let persist_capacity = persist_capacity.filter(|_| !handed_over);
+    if let Some(capacity_bytes) =
+        persist_capacity.filter(|limit| persisted_bytes(messages.context()) > *limit)
+    {
+        compact_if_needed(
+            CompactionContext {
+                compactor: compactor.as_mut(),
+                timeout: compaction_timeout,
+                credentials: &credentials,
+                args,
+                client,
+                job,
+                conn,
+            },
+            query_builder.as_ref(),
+            include_usage,
+            &mut messages,
+            CompactionTrigger::Storage { capacity_bytes },
+            &mut final_usage,
+        )
+        .await;
+    }
+    let memory_to_save = match persist_capacity {
+        Some(limit) => memory_within_capacity(messages.context(), limit),
+        None => Some(messages.context()),
+    };
+    log_memory_fit(conn, job, memory_to_save, messages.context().len()).await;
 
     // Return the final result
     let final_messages: Vec<Message> = messages
+        .result()
         .iter()
         .map(|m| Message { message: m, agent_action: m.agent_action.as_ref() })
         .collect();
@@ -1294,43 +3206,19 @@ pub async fn run_agent(
         }
     }
 
-    // Persist complete conversation to memory at the end (only if in auto mode with context length)
-    // Skip memory persistence if using manual messages (bypass memory entirely)
-    // final_messages contains the complete history (old messages + new ones)
-    if matches!(output_type, OutputType::Text) && !use_manual_messages {
-        if let Some(Memory::Auto { context_length, .. }) = &args.memory {
-            if let Some(step_id) = effective_flow_step_id {
-                // Extract OpenAIMessages from final_messages
-                let all_messages: Vec<OpenAIMessage> =
-                    final_messages.iter().map(|m| m.message.clone()).collect();
-
-                if !all_messages.is_empty() {
-                    let messages_to_persist = prepare_auto_memory_messages_for_persistence(
-                        &all_messages,
-                        *context_length,
-                    );
-
-                    if let Some(memory_id) = memory_id {
-                        if let Err(e) = write_to_memory(
-                            db,
-                            &job.workspace_id,
-                            memory_id,
-                            step_id,
-                            &messages_to_persist,
-                        )
-                        .await
-                        {
-                            tracing::error!(
-                                "Failed to persist {} messages to memory for step {}: {}",
-                                messages_to_persist.len(),
-                                step_id,
-                                e
-                            );
-                        }
-                    }
-                }
-            }
-        }
+    // Storage limits affect only the saved suffix, never the returned execution history.
+    if let Some(memory_to_save) =
+        memory_to_save.filter(|_| matches!(output_type, OutputType::Text) && !handed_over)
+    {
+        persist_memory(
+            db,
+            conn,
+            job,
+            &history,
+            effective_flow_step_id,
+            memory_to_save,
+        )
+        .await;
     }
 
     Ok(to_raw_value(&AIAgentResult {
@@ -1341,12 +3229,135 @@ pub async fn run_agent(
         } else {
             None
         },
+        reasoning: (!final_reasoning.is_empty()).then_some(final_reasoning),
         usage: if final_usage.as_ref().map(|u| u.is_empty()).unwrap_or(true) {
             None
         } else {
             final_usage
         },
     }))
+}
+
+/// An AI decision, run as a flow step or as a tool of an agent: its questions answered about its
+/// state in one call, with no loop, tools, memory or stream. It writes no conversation row: it is
+/// not an agent step, so a chat flow posts its result like any other step's.
+async fn handle_ai_decision(
+    conn: &Connection,
+    db: &DB,
+    job: &MiniPulledJob,
+    local_args: &HashMap<String, Box<RawValue>>,
+    as_tool: bool,
+    canceled_by: &mut Option<CanceledBy>,
+    mem_peak: &mut i32,
+    occupancy_metrics: &mut OccupancyMetrics,
+    worker_name: &str,
+) -> error::Result<Box<RawValue>> {
+    let args = serde_json::from_str::<AIDecisionArgs>(&serde_json::to_string(local_args)?)?;
+    if !args.provider.kind.runs_decisions() {
+        return Err(Error::BadRequest(format!(
+            "An AI decision runs on a TypeSafe, Cloudflare, OpenAI or Google AI resource, not {:?}",
+            args.provider.kind
+        )));
+    }
+    let (state, questions) = decision_inputs(args.state.as_ref(), args.questions.as_ref())?;
+    let credentials = args.provider.to_provider_credentials(db).await?;
+    let timeout = resolve_job_timeout(conn, &job.workspace_id, job.id, job.timeout)
+        .await
+        .0;
+    // Under the job poller, so the job keeps its heartbeat and a cancel drops the request.
+    let result = run_future_with_polling_update_job_poller(
+        job.id,
+        job.timeout,
+        conn,
+        mem_peak,
+        canceled_by,
+        run_decision(
+            &credentials,
+            args.provider.get_model(),
+            state,
+            questions,
+            timeout,
+        ),
+        worker_name,
+        &job.workspace_id,
+        &mut Some(occupancy_metrics),
+        Box::pin(futures::stream::once(async { 0 })),
+    )
+    .await?;
+    windmill_common::feature_usage::log_feature_usage(
+        "ai_decision",
+        "run",
+        if as_tool { "tool" } else { "step" },
+    );
+    Ok(to_raw_value(&result))
+}
+
+/// What a decision tool tells the calling model it answers, read off its static questions. None
+/// when they come from an expression, which only a run evaluates.
+fn decision_tool_description(input_transforms: &HashMap<String, InputTransform>) -> Option<String> {
+    let InputTransform::Static { value } = input_transforms.get("questions")? else {
+        return None;
+    };
+    let questions = serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(value.get())
+        .ok()
+        .filter(|questions| !questions.is_empty())?;
+    let described = questions
+        .iter()
+        .map(|(name, question)| {
+            let criteria = question.get("criteria");
+            let kind = match question.get("type").and_then(|t| t.as_str()) {
+                Some("choice") => {
+                    let options = criteria
+                        .and_then(|c| c.as_object())
+                        .map(|c| c.keys().cloned().collect::<Vec<_>>().join(", "))
+                        .unwrap_or_default();
+                    format!("one of {options}")
+                }
+                Some("score") => {
+                    let levels = criteria
+                        .and_then(|c| c.as_array())
+                        .map(|c| {
+                            c.iter()
+                                .filter_map(|l| l.as_str())
+                                .collect::<Vec<_>>()
+                                .join(" < ")
+                        })
+                        .unwrap_or_default();
+                    format!("a score over {levels}")
+                }
+                _ => "yes or no".to_string(),
+            };
+            format!("{name} ({kind})")
+        })
+        .collect::<Vec<_>>()
+        .join("; ");
+    Some(format!(
+        "Answers these questions about the state it is given, with probabilities: {described}."
+    ))
+}
+
+/// Whether the step asked for its answer as it is generated. Absence means on, matching the
+/// schema's own default: a step that never wrote the key never had an opinion, and an answer
+/// arriving as it is written is what people expect. Only an explicit `false` holds it back.
+///
+/// The chat surfaces decide whether to open a stream from their own reading of the same config,
+/// and a surface that opens one for an answer sent in a single piece re-runs the flow when the
+/// connection times out. So this default is half of a contract, not a local preference.
+fn streaming_requested(streaming: Option<bool>) -> bool {
+    streaming.unwrap_or(true)
+}
+
+/// Add one iteration's thinking to the step's. Every iteration thinks, and a tool-call
+/// iteration's thinking is what led to the call, so the result keeps all of them in order,
+/// blank-line separated, rather than only the answering turn's.
+fn append_reasoning(accumulated: &mut String, reasoning: Option<&str>) {
+    let Some(reasoning) = reasoning.map(str::trim).filter(|r| !r.is_empty()) else {
+        return;
+    };
+    if !accumulated.is_empty() {
+        accumulated.push_str("\n\n");
+    }
+    accumulated.push_str(reasoning);
 }
 
 #[cfg(test)]
@@ -1359,6 +3370,650 @@ mod tests {
             content: Some(OpenAIContent::Text(content.to_string())),
             ..Default::default()
         }
+    }
+
+    #[derive(Debug, PartialEq)]
+    enum Resolved {
+        Messages(usize),
+        Window(Uuid, usize),
+        Compaction(Uuid, usize),
+        Stateless { noted: bool },
+    }
+
+    /// Every memory shape a worker may still read, resolved against a run with or without a
+    /// memory id. The hashed id is pinned: changing it detaches memories stored under string ids.
+    #[test]
+    fn history_source_resolves_every_memory_shape() {
+        use serde_json::json;
+        let run = Uuid::from_u128(1);
+        let baked = Uuid::from_u128(2);
+        let cust_1 = Uuid::parse_str("0168fcea-ffa7-5c15-bdb0-7709bb5f540d").unwrap();
+        let window = json!({ "kind": "window", "context_length": 10 });
+        let message = json!([{ "role": "user", "content": "earlier" }]);
+        let two_messages = json!([
+            { "role": "user", "content": "earlier" },
+            { "role": "assistant", "content": "reply" }
+        ]);
+        let cases = [
+            (
+                "absent memory is off",
+                json!({}),
+                Some(run),
+                Resolved::Stateless { noted: false },
+            ),
+            (
+                "legacy off",
+                json!({ "memory": { "kind": "off" } }),
+                Some(run),
+                Resolved::Stateless { noted: false },
+            ),
+            (
+                "legacy auto prefers the run's id",
+                json!({ "memory": { "kind": "auto", "context_length": 4, "memory_id": baked } }),
+                Some(run),
+                Resolved::Window(run, 4),
+            ),
+            (
+                "legacy auto falls back to its baked id",
+                json!({ "memory": { "kind": "auto", "context_length": 4, "memory_id": baked } }),
+                None,
+                Resolved::Window(baked, 4),
+            ),
+            (
+                "legacy auto with an empty baked id uses the run's",
+                json!({ "memory": { "kind": "auto", "context_length": 4, "memory_id": "" } }),
+                Some(run),
+                Resolved::Window(run, 4),
+            ),
+            (
+                "legacy auto with an empty baked id and no run id is stateless",
+                json!({ "memory": { "kind": "auto", "context_length": 4, "memory_id": " " } }),
+                None,
+                Resolved::Stateless { noted: true },
+            ),
+            (
+                "legacy auto without a length is off",
+                json!({ "memory": { "kind": "auto", "memory_id": baked } }),
+                Some(run),
+                Resolved::Stateless { noted: false },
+            ),
+            (
+                "a cleared count is off",
+                json!({ "memory": { "kind": "window", "context_length": null } }),
+                Some(run),
+                Resolved::Stateless { noted: false },
+            ),
+            (
+                "legacy manual replays its messages",
+                json!({ "memory": { "kind": "manual", "messages": message } }),
+                Some(run),
+                Resolved::Messages(1),
+            ),
+            (
+                "window keeps the run's memory",
+                json!({ "memory": window }),
+                Some(run),
+                Resolved::Window(run, 10),
+            ),
+            (
+                "window without a memory id is stateless",
+                json!({ "memory": window }),
+                None,
+                Resolved::Stateless { noted: true },
+            ),
+            (
+                "compaction keeps the run's memory",
+                json!({ "memory": { "kind": "compaction", "context_window": 32000 } }),
+                Some(run),
+                Resolved::Compaction(run, 32000),
+            ),
+            (
+                "a cleared context window is left for the model lookup to fill",
+                json!({ "memory": { "kind": "compaction", "context_window": null } }),
+                Some(run),
+                Resolved::Compaction(run, 0),
+            ),
+            (
+                "a step memory id overrides the run's",
+                json!({ "memory": window, "memory_id": "cust_1" }),
+                Some(run),
+                Resolved::Window(cust_1, 10),
+            ),
+            (
+                "a uuid step memory id is used as is",
+                json!({ "memory": window, "memory_id": baked.to_string() }),
+                Some(run),
+                Resolved::Window(baked, 10),
+            ),
+            (
+                "a step memory id evaluating to null is stateless",
+                json!({ "memory": window, "memory_id": null }),
+                Some(run),
+                Resolved::Stateless { noted: true },
+            ),
+            (
+                "an off policy ignores the step memory id, and says so",
+                json!({ "memory": { "kind": "off" }, "memory_id": "cust_1" }),
+                Some(run),
+                Resolved::Stateless { noted: true },
+            ),
+            (
+                "managed memory ignores the step's previous messages",
+                json!({ "memory": window, "memory_id": "cust_1", "previous_messages": message }),
+                Some(run),
+                Resolved::Window(cust_1, 10),
+            ),
+            (
+                "memory that is off sends the step's previous messages",
+                json!({ "previous_messages": message }),
+                Some(run),
+                Resolved::Messages(1),
+            ),
+            (
+                "a previous messages expression that evaluated to null is no history",
+                json!({ "previous_messages": null }),
+                Some(run),
+                Resolved::Stateless { noted: false },
+            ),
+            (
+                "a legacy manual list ignores the step's previous messages",
+                json!({ "memory": { "kind": "manual", "messages": message }, "previous_messages": two_messages }),
+                Some(run),
+                Resolved::Messages(1),
+            ),
+            (
+                "legacy auto ignores a step memory id",
+                json!({ "memory": { "kind": "auto", "context_length": 4, "memory_id": baked }, "memory_id": "cust_1" }),
+                None,
+                Resolved::Window(baked, 4),
+            ),
+        ];
+        for (name, history, run_memory_id, expected) in cases {
+            let mut raw = json!({ "provider": { "kind": "openai", "resource": {}, "model": "m" } });
+            raw.as_object_mut()
+                .unwrap()
+                .extend(history.as_object().unwrap().clone());
+            let args: AIAgentArgs = serde_json::from_value(raw).unwrap();
+            let resolved = match resolve_history_source(&args, run_memory_id, "ws", "f/flow") {
+                (HistorySource::Messages(m), _) => Resolved::Messages(m.len()),
+                (
+                    HistorySource::Managed {
+                        memory_id,
+                        bound: MemoryBound::LastMessages(context_length),
+                    },
+                    _,
+                ) => Resolved::Window(memory_id, context_length),
+                (HistorySource::Managed { memory_id, bound: MemoryBound::Compaction }, _) => {
+                    match args.memory {
+                        Some(Memory::Compaction { context_window }) => {
+                            Resolved::Compaction(memory_id, context_window)
+                        }
+                        _ => panic!("expected compaction settings"),
+                    }
+                }
+                (HistorySource::Stateless, notes) => {
+                    Resolved::Stateless { noted: !notes.is_empty() }
+                }
+            };
+            assert_eq!(resolved, expected, "{name}");
+        }
+    }
+
+    /// A placeholder the form seeds must not read as a memory id that evaluated to nothing, which
+    /// would turn memory off for the step.
+    #[test]
+    fn only_an_expression_can_set_an_empty_step_memory_id() {
+        let transforms = |memory_id: &str| -> HashMap<String, InputTransform> {
+            HashMap::from([(
+                "memory_id".to_string(),
+                serde_json::from_str(memory_id).unwrap(),
+            )])
+        };
+        let args = || -> AIAgentArgs {
+            serde_json::from_value(serde_json::json!({
+                "provider": { "kind": "openai", "resource": {}, "model": "m" },
+                "memory_id": null,
+            }))
+            .unwrap()
+        };
+        for (transform, expected) in [
+            (r#"{ "type": "static" }"#, None),
+            (r#"{ "type": "static", "value": "" }"#, None),
+            (r#"{ "type": "ai" }"#, None),
+            (
+                r#"{ "type": "javascript", "expr": "flow_input.customer_id" }"#,
+                Some(""),
+            ),
+        ] {
+            let mut args = args();
+            keep_authored_memory_id(&mut args, &transforms(transform));
+            assert_eq!(args.memory_id.as_deref(), expected, "{transform}");
+        }
+    }
+
+    /// Only text output sends previous messages, so they never stand in for an image prompt.
+    #[test]
+    fn previous_messages_never_stand_in_for_an_image_prompt() {
+        let args: AIAgentArgs = serde_json::from_value(serde_json::json!({
+            "provider": { "kind": "openai", "resource": {}, "model": "m" },
+            "previous_messages": [{ "role": "user", "content": "earlier" }],
+        }))
+        .unwrap();
+        let (history, _) = resolve_history_source(&args, None, "ws", "f/flow");
+        assert!(has_prompt(&history, false, true, false));
+        assert!(!has_prompt(&history, false, false, false));
+        assert!(has_prompt(&history, true, false, false));
+        assert!(!has_prompt(
+            &HistorySource::Messages(&[]),
+            false,
+            true,
+            false
+        ));
+        // A legacy `manual` memory ran on an empty list alone, and still does for text output.
+        assert!(has_prompt(&HistorySource::Messages(&[]), false, true, true));
+        assert!(!has_prompt(
+            &HistorySource::Messages(&[]),
+            false,
+            false,
+            true
+        ));
+    }
+
+    #[test]
+    fn reasoning_keeps_every_iteration_in_order() {
+        let mut acc = String::new();
+        append_reasoning(&mut acc, Some("I need both cities.\n\n"));
+        append_reasoning(&mut acc, None);
+        append_reasoning(&mut acc, Some("   "));
+        append_reasoning(&mut acc, Some("Paris is closer."));
+        assert_eq!(acc, "I need both cities.\n\nParis is closer.");
+    }
+
+    #[test]
+    fn an_unwritten_streaming_field_streams() {
+        assert!(streaming_requested(None));
+        assert!(streaming_requested(Some(true)));
+        assert!(!streaming_requested(Some(false)));
+    }
+
+    #[test]
+    fn max_iterations_partial_result_keeps_the_action_tags() {
+        let messages = vec![OpenAIMessage {
+            role: "tool".to_string(),
+            content: Some(OpenAIContent::Text("{\"rows\":2}".to_string())),
+            tool_call_id: Some("call_1".to_string()),
+            agent_action: Some(AgentAction::ToolCall {
+                job_id: uuid::Uuid::nil(),
+                function_name: "list_payouts".to_string(),
+                module_id: "b".to_string(),
+            }),
+            ..Default::default()
+        }];
+
+        let partial = AgentPartialResult {
+            messages: messages
+                .iter()
+                .map(|m| Message { message: m, agent_action: m.agent_action.as_ref() })
+                .collect(),
+        };
+        let json = serde_json::to_value(&partial).unwrap();
+
+        let action = &json["messages"][0]["agent_action"];
+        assert_eq!(action["type"], "tool_call");
+        assert_eq!(action["function_name"], "list_payouts");
+    }
+
+    /// Over 64 characters OpenAI rejects the key outright, which costs a wasted round
+    /// trip per run and silently leaves that step with no prompt caching at all.
+    #[test]
+    fn prompt_cache_key_stays_within_the_provider_bound() {
+        let long = format!("my-workspace:f/{}/agent:step_12", "nested_folder".repeat(8));
+        assert!(long.len() > 64);
+
+        let bounded = bounded_prompt_cache_key(&long);
+
+        assert!(
+            bounded.len() <= 64,
+            "got {} chars: {bounded}",
+            bounded.len()
+        );
+        // Stable for the same step, or every run would land on a different cache.
+        assert_eq!(bounded, bounded_prompt_cache_key(&long));
+        assert_ne!(
+            bounded,
+            bounded_prompt_cache_key(&long.replace("step_12", "step_13"))
+        );
+    }
+
+    #[test]
+    fn prompt_cache_key_passes_short_keys_through_unchanged() {
+        let short = "admins:f/agent/step:a";
+        assert_eq!(bounded_prompt_cache_key(short), short);
+    }
+
+    /// Truncation on a byte index would panic mid-character.
+    #[test]
+    fn prompt_cache_key_truncates_on_a_char_boundary() {
+        let long = format!("workspace:f/{}/agent:step", "é".repeat(80));
+        assert!(bounded_prompt_cache_key(&long).len() <= 64);
+    }
+
+    #[test]
+    fn step_model_and_effort_replace_the_providers() {
+        use serde_json::json;
+        let run = |step: serde_json::Value| {
+            let mut provider: ProviderWithResource = serde_json::from_value(json!({
+                "kind": "openai",
+                "resource": {},
+                "model": "saved-model",
+                "reasoning_effort": "high"
+            }))
+            .unwrap();
+            let local_args: HashMap<String, Box<RawValue>> = serde_json::from_value(step).unwrap();
+            let authored = local_args
+                .keys()
+                .map(|key| {
+                    (
+                        key.clone(),
+                        InputTransform::Javascript { expr: String::new() },
+                    )
+                })
+                .collect();
+            override_provider_model(&mut provider, &local_args, &authored);
+            (provider.model, provider.reasoning_effort)
+        };
+        let saved = ("saved-model".to_string(), Some("high".to_string()));
+
+        // An argument the step did not author is the calling model's, on an agent run as a tool.
+        let mut provider: ProviderWithResource = serde_json::from_value(
+            json!({ "kind": "openai", "resource": {}, "model": "saved-model" }),
+        )
+        .unwrap();
+        let sent = serde_json::from_value(json!({ "model": "other" })).unwrap();
+        override_provider_model(&mut provider, &sent, &HashMap::new());
+        assert_eq!(provider.model, "saved-model");
+        let null = HashMap::from([(
+            "model".to_string(),
+            InputTransform::Static { value: to_raw_value(&serde_json::Value::Null) },
+        )]);
+        override_provider_model(&mut provider, &sent, &null);
+        assert_eq!(provider.model, "saved-model");
+
+        assert_eq!(run(json!({})), saved);
+        assert_eq!(run(json!({ "model": "" })), saved);
+        assert_eq!(run(json!({ "model": "saved-model" })), saved);
+        // An effort the step sets to nothing is no effort, not the saved one.
+        assert_eq!(
+            run(json!({ "reasoning_effort": null })),
+            ("saved-model".to_string(), None)
+        );
+        assert_eq!(
+            run(json!({ "reasoning_effort": "low" })),
+            ("saved-model".to_string(), Some("low".to_string()))
+        );
+        // The saved effort names a level of the saved model, so it does not follow to another one.
+        assert_eq!(
+            run(json!({ "model": "other" })),
+            ("other".to_string(), None)
+        );
+        assert_eq!(
+            run(json!({ "model": "other", "reasoning_effort": "low" })),
+            ("other".to_string(), Some("low".to_string()))
+        );
+    }
+
+    #[test]
+    fn overlay_tool_inputs_binds_matching_flowmodule_tool_only() {
+        fn js(expr: &str) -> InputTransform {
+            InputTransform::Javascript { expr: expr.to_string() }
+        }
+        fn script_tool(id: &str, key: &str, expr: &str) -> AgentTool {
+            let mut its = HashMap::new();
+            its.insert(key.to_string(), js(expr));
+            AgentTool {
+                job_token_scopes: None,
+                requires_approval: false,
+                background: false,
+                background_after_secs: None,
+                id: id.to_string(),
+                summary: None,
+                description: None,
+                value: ToolValue::FlowModule(FlowModuleValue::Script {
+                    input_transforms: its,
+                    path: "u/test/tool".to_string(),
+                    hash: None,
+                    tag_override: None,
+                    is_trigger: None,
+                    pass_flow_input_directly: None,
+                }),
+            }
+        }
+        fn script_its(tool: &AgentTool) -> &HashMap<String, InputTransform> {
+            let ToolValue::FlowModule(FlowModuleValue::Script { input_transforms, .. }) =
+                &tool.value
+            else {
+                panic!("expected script tool")
+            };
+            input_transforms
+        }
+
+        // "a" gets rebound, "b" is left alone, the MCP tool is skipped even though it has an override.
+        let mut tools = vec![
+            script_tool("a", "x", "authoring_flow_expr"),
+            script_tool("b", "y", "keep_me"),
+            AgentTool {
+                job_token_scopes: None,
+                requires_approval: false,
+                background: false,
+                background_after_secs: None,
+                id: "m".to_string(),
+                summary: None,
+                description: None,
+                value: ToolValue::Mcp(windmill_common::flows::McpToolValue {
+                    resource_path: "u/test/mcp".to_string(),
+                    include_tools: vec![],
+                    exclude_tools: vec![],
+                }),
+            },
+        ];
+
+        let mut tool_inputs: HashMap<String, HashMap<String, InputTransform>> = HashMap::new();
+        tool_inputs.insert(
+            "a".to_string(),
+            HashMap::from([
+                ("x".to_string(), js("flow_input.tenant")),
+                ("z".to_string(), js("results.step1")),
+            ]),
+        );
+        tool_inputs.insert(
+            "m".to_string(),
+            HashMap::from([("q".to_string(), js("ignored"))]),
+        );
+
+        overlay_tool_inputs(&mut tools, &tool_inputs);
+
+        // "a": existing key replaced, new key added.
+        let a = script_its(&tools[0]);
+        assert!(
+            matches!(a.get("x"), Some(InputTransform::Javascript { expr }) if expr == "flow_input.tenant")
+        );
+        assert!(
+            matches!(a.get("z"), Some(InputTransform::Javascript { expr }) if expr == "results.step1")
+        );
+        // "b": no override for it, untouched.
+        let b = script_its(&tools[1]);
+        assert!(
+            matches!(b.get("y"), Some(InputTransform::Javascript { expr }) if expr == "keep_me")
+        );
+        // MCP tool: not a FlowModule, left as-is.
+        assert!(matches!(&tools[2].value, ToolValue::Mcp(_)));
+    }
+
+    #[test]
+    fn narrow_roster_keeps_the_entries_a_run_named() {
+        fn named(id: &str, summary: &str) -> AgentTool {
+            AgentTool {
+                job_token_scopes: None,
+                requires_approval: false,
+                background: false,
+                background_after_secs: None,
+                id: id.to_string(),
+                summary: Some(summary.to_string()),
+                description: None,
+                value: ToolValue::FlowModule(FlowModuleValue::Script {
+                    input_transforms: HashMap::new(),
+                    path: "u/test/tool".to_string(),
+                    hash: None,
+                    tag_override: None,
+                    is_trigger: None,
+                    pass_flow_input_directly: None,
+                }),
+            }
+        }
+        fn mcp(id: &str, summary: &str, path: &str) -> AgentTool {
+            AgentTool {
+                job_token_scopes: None,
+                requires_approval: false,
+                background: false,
+                background_after_secs: None,
+                id: id.to_string(),
+                summary: Some(summary.to_string()),
+                description: None,
+                value: ToolValue::Mcp(windmill_common::flows::McpToolValue {
+                    resource_path: path.to_string(),
+                    include_tools: vec![],
+                    exclude_tools: vec![],
+                }),
+            }
+        }
+        fn websearch(id: &str, summary: Option<&str>) -> AgentTool {
+            AgentTool {
+                job_token_scopes: None,
+                requires_approval: false,
+                background: false,
+                background_after_secs: None,
+                id: id.to_string(),
+                summary: summary.map(str::to_string),
+                description: None,
+                value: ToolValue::Websearch(windmill_common::flows::WebsearchToolValue {}),
+            }
+        }
+        let roster = || {
+            vec![
+                named("a", "get_user"),
+                named("b", "send_email"),
+                mcp("c", "github", "$res:u/test/gh"),
+            ]
+        };
+        let names = |tools: &[AgentTool]| -> Vec<String> {
+            tools.iter().filter_map(|t| t.summary.clone()).collect()
+        };
+        let ids =
+            |tools: &[AgentTool]| -> Vec<String> { tools.iter().map(|t| t.id.clone()).collect() };
+
+        // No list at all: the whole roster, as every agent written before the field expects.
+        assert_eq!(
+            names(&narrow_roster(roster(), None)),
+            ["get_user", "send_email", "github"]
+        );
+
+        // An empty list is a list: nothing is advertised, and no server is resolved to find that
+        // out — one that is down must not fail a run that switched it off.
+        assert!(names(&narrow_roster(roster(), Some(&[]))).is_empty());
+
+        let enabled = ["get_user".to_string(), "renamed_away".to_string()];
+        assert_eq!(
+            names(&narrow_roster(roster(), Some(&enabled))),
+            ["get_user"]
+        );
+        // Counted, not quoted: a name is an argument value, and one holding `$var:` arrives as the
+        // variable's own value, which this log is not masked for.
+        assert_eq!(
+            unmatched_enabled_tools_message(&enabled, &["get_user", "send_email", "u/test/gh"])
+                .unwrap(),
+            "--- ENABLED TOOLS: 1 name named no tool of this agent and had no effect ---\n"
+        );
+
+        // A server is named by the resource it points at, bare, and never by its summary: that
+        // label is shown to nobody and two entries may carry the same one.
+        let named_server = ["u/test/gh".to_string()];
+        assert_eq!(
+            names(&narrow_roster(roster(), Some(&named_server))),
+            ["github"]
+        );
+        assert!(unmatched_enabled_tools_message(&named_server, &["u/test/gh"]).is_none());
+        // Alongside a name that does match, so the summary being rejected is what empties it.
+        let summary_and_tool = ["get_user".to_string(), "github".to_string()];
+        assert_eq!(
+            names(&narrow_roster(roster(), Some(&summary_and_tool))),
+            ["get_user"]
+        );
+        assert!(narrow_roster(roster(), Some(&["u/test/other".to_string()])).is_empty());
+
+        // Web search reaches the model as a provider capability rather than a tool, so it has no
+        // name of its own and is enabled by a reserved one, whatever label it was authored with.
+        for label in [None, Some("Web Search")] {
+            let mut with_websearch = roster();
+            with_websearch.push(websearch("w", label));
+            assert_eq!(
+                ids(&narrow_roster(
+                    with_websearch,
+                    Some(&[WEBSEARCH_ENABLED_NAME.to_string()])
+                )),
+                ["w"]
+            );
+        }
+    }
+
+    #[test]
+    fn a_tool_cannot_take_the_name_web_search_is_enabled_by() {
+        // Nothing else in a roster may answer to the reserved name, or enabling that tool would
+        // switch web search on beside it. Held here rather than by the shape of the name, which is
+        // an ordinary identifier: the run refuses to start instead.
+        assert!(TOOL_NAME_REGEX.is_match(WEBSEARCH_ENABLED_NAME));
+        assert!(flow_module_tool_name(Some(WEBSEARCH_ENABLED_NAME)).is_err());
+
+        assert_eq!(flow_module_tool_name(Some("get_user")).unwrap(), "get_user");
+        assert!(flow_module_tool_name(Some("get user")).is_err());
+        assert!(flow_module_tool_name(None).is_err());
+    }
+
+    #[test]
+    fn tool_description_prefers_explicit_over_derived_and_name() {
+        assert_eq!(
+            resolve_tool_description(
+                Some("  Use to look up a user by id  ".to_string()),
+                Some("derived from script".to_string()),
+                "get_user"
+            ),
+            "Use to look up a user by id"
+        );
+    }
+
+    #[test]
+    fn tool_description_falls_back_to_derived_when_no_explicit() {
+        assert_eq!(
+            resolve_tool_description(None, Some("Sync resources".to_string()), "sync_tool"),
+            "Sync resources"
+        );
+        // A blank explicit description must not shadow a usable derived one.
+        assert_eq!(
+            resolve_tool_description(
+                Some("   ".to_string()),
+                Some("Sync resources".to_string()),
+                "sync_tool"
+            ),
+            "Sync resources"
+        );
+    }
+
+    #[test]
+    fn tool_description_falls_back_to_name_when_nothing_usable() {
+        assert_eq!(resolve_tool_description(None, None, "my_tool"), "my_tool");
+        assert_eq!(
+            resolve_tool_description(Some("  ".to_string()), Some("".to_string()), "my_tool"),
+            "my_tool"
+        );
     }
 
     #[test]
@@ -1488,11 +4143,13 @@ async fn cleanup_orphaned_tool_jobs(
             )
         });
 
-    // Find direct child jobs still in v2_job_queue (agent tool jobs are always direct children)
     let orphaned_ids: Vec<Uuid> = match sqlx::query_scalar!(
-        r#"SELECT j.id FROM v2_job j
-            JOIN v2_job_queue q ON q.id = j.id
-            WHERE j.parent_job = $1 AND j.workspace_id = $2"#,
+        r#"WITH RECURSIVE descendants AS (
+            SELECT id FROM v2_job WHERE parent_job = $1 AND workspace_id = $2
+            UNION ALL
+            SELECT j.id FROM v2_job j JOIN descendants d ON j.parent_job = d.id
+            WHERE j.workspace_id = $2
+        ) SELECT d.id AS "id!" FROM descendants d JOIN v2_job_queue q ON q.id = d.id"#,
         parent_job_id,
         w_id,
     )

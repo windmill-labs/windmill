@@ -1,20 +1,24 @@
 use crate::{
     ai_google::{
-        gemini_event_to_openai_sse_chunks, gemini_response_to_openai, openai_messages_to_gemini,
-        openai_tools_to_gemini, parse_gemini_response, parse_gemini_sse_event,
-        sanitize_schema_for_google, GeminiFunctionDeclaration, GeminiGenerationConfig,
-        GeminiImageContent, GeminiImageRequest, GeminiImageResponse, GeminiInlineData, GeminiPart,
-        GeminiPredictContent, GeminiTextRequest, GeminiTool,
+        gemini_completion_tokens, gemini_event_to_openai_sse_chunks, gemini_prompt_tokens,
+        gemini_response_to_openai, openai_messages_to_gemini, openai_tools_to_gemini,
+        parse_gemini_response, parse_gemini_sse_event, sanitize_schema_for_google,
+        GeminiFunctionDeclaration, GeminiGenerationConfig, GeminiImageContent, GeminiImageRequest,
+        GeminiImageResponse, GeminiInlineData, GeminiPart, GeminiPredictContent, GeminiTextRequest,
+        GeminiThinkingConfig, GeminiTool, GeminiTurn,
     },
     image_handler::{download_and_encode_s3_image, prepare_messages_for_api},
     proxy::{ProxyBuildArgs, ProxyRequest},
     query_builder::{BuildRequestArgs, ParsedResponse, QueryBuilder, StreamEventSink},
+    retry::{
+        openai_stream_error_chunk, send_with_retries, transient_error, truncated_stream_error,
+    },
     sse::{GeminiSSEParser, SSEParser},
     types::*,
 };
 use async_trait::async_trait;
 use bytes::Bytes;
-use eventsource_stream::Eventsource;
+use eventsource_stream::{EventStreamError, Eventsource};
 use futures::{stream::BoxStream, StreamExt};
 use http::{header, HeaderMap, HeaderValue, Method, StatusCode};
 use serde::Deserialize;
@@ -153,11 +157,18 @@ impl GoogleAIQueryBuilder {
             (None, None)
         };
 
+        // Map the effort token onto Gemini's native thinking controls; without
+        // one, leave provider defaults untouched.
+        let thinking_config = args
+            .reasoning_effort
+            .map(|effort| gemini_thinking_config(args.model, effort));
+
         build_gemini_generation_config(
             args.temperature,
             args.max_tokens,
             response_mime_type,
             response_schema,
+            thinking_config,
         )
     }
 }
@@ -187,20 +198,70 @@ fn build_gemini_generation_config(
     max_tokens: Option<u32>,
     response_mime_type: Option<String>,
     response_schema: Option<serde_json::Value>,
+    thinking_config: Option<GeminiThinkingConfig>,
 ) -> Option<GeminiGenerationConfig> {
     if temperature.is_some()
         || max_tokens.is_some()
         || response_mime_type.is_some()
         || response_schema.is_some()
+        || thinking_config.is_some()
     {
         Some(GeminiGenerationConfig {
             temperature,
             max_output_tokens: max_tokens,
             response_mime_type,
             response_schema,
+            thinking_config,
         })
     } else {
         None
+    }
+}
+
+/// Map an OpenAI-style `reasoning_effort` token onto Gemini's native thinking
+/// controls. Gemini models think by default, so this is what makes the chat
+/// effort setting (including explicit `none`) actually change model behavior.
+///
+/// - Gemini 3+: `thinkingLevel` takes the token verbatim (provider-native open
+///   vocabulary: `low`/`medium`/`high`, plus `minimal` on Flash). `none` maps to
+///   the lowest supported level — thinking cannot be fully disabled on Pro.
+/// - Gemini 2.5: `thinkingBudget` in tokens, using the same tiering as Google's
+///   own OpenAI-compatibility layer. 2.5 Pro cannot disable thinking and has a
+///   minimum budget of 128; Flash accepts 0 (off). Unknown tokens fall back to
+///   `-1` (dynamic, the provider default).
+fn gemini_thinking_config(model: &str, effort: &str) -> GeminiThinkingConfig {
+    let model = model.to_lowercase();
+    let is_flash = model.contains("flash");
+    let is_gemini_2_5 = model.contains("gemini-2.5");
+    // Thought summaries are free to return (thinking tokens are billed either
+    // way); skip them only when the user explicitly turned reasoning off.
+    let include_thoughts = (effort != "none").then_some(true);
+
+    if is_gemini_2_5 {
+        let budget = match effort {
+            "none" if is_flash => 0,
+            "none" => 128,
+            "low" => 1024,
+            "medium" => 8192,
+            "high" => 24576,
+            _ => -1,
+        };
+        GeminiThinkingConfig {
+            thinking_level: None,
+            thinking_budget: Some(budget),
+            include_thoughts,
+        }
+    } else {
+        let level = match effort {
+            "none" if is_flash => "minimal".to_string(),
+            "none" => "low".to_string(),
+            other => other.to_string(),
+        };
+        GeminiThinkingConfig {
+            thinking_level: Some(level),
+            thinking_budget: None,
+            include_thoughts,
+        }
     }
 }
 
@@ -214,6 +275,11 @@ struct GoogleAIProxyChatRequest {
     temperature: Option<f32>,
     #[serde(default)]
     max_tokens: Option<u32>,
+    /// OpenAI-style effort token from the chat reasoning setting (e.g. `low`,
+    /// `high`, or `none` for an explicit off). Mapped to Gemini's native
+    /// `thinkingConfig` — see [`gemini_thinking_config`].
+    #[serde(default)]
+    reasoning_effort: Option<String>,
     #[serde(default)]
     tools: Option<Vec<GoogleAIProxyChatTool>>,
 }
@@ -273,9 +339,7 @@ pub async fn handle_google_ai_chat_proxy(
 ) -> Result<GoogleAIProxyResponse, Error> {
     let GoogleAIProxyRequest { request, model, stream } = build_google_ai_chat_proxy_request(args)?;
 
-    let response =
-        send_google_ai_proxy_request(client, request, "Failed to send request to Gemini API")
-            .await?;
+    let response = send_google_ai_proxy_request(client, request).await?;
 
     if stream {
         Ok(convert_streaming_response(response, &model))
@@ -293,8 +357,7 @@ pub async fn handle_google_ai_models_proxy(
     args: &ProxyBuildArgs<'_>,
 ) -> Result<GoogleAIProxyResponse, Error> {
     let request = build_google_ai_models_proxy_request(args);
-    let response =
-        send_google_ai_proxy_request(client, request, "Failed to fetch Gemini models").await?;
+    let response = send_google_ai_proxy_request(client, request).await?;
 
     let gemini_resp: GeminiModelsResponse = response.json().await.map_err(|e| {
         Error::internal_err(format!("Failed to parse Gemini models response: {}", e))
@@ -344,10 +407,20 @@ fn build_google_ai_chat_proxy_request(
         vec![GeminiTool { function_declarations: Some(declarations), google_search: None }]
     });
 
+    let thinking_config = request
+        .reasoning_effort
+        .as_deref()
+        .map(|effort| gemini_thinking_config(&request.model, effort));
     let body = build_gemini_text_request_body(
         &request.messages,
         gemini_tools,
-        build_gemini_generation_config(request.temperature, request.max_tokens, None, None),
+        build_gemini_generation_config(
+            request.temperature,
+            request.max_tokens,
+            None,
+            None,
+            thinking_config,
+        ),
     )?
     .into_bytes();
 
@@ -432,26 +505,13 @@ fn add_google_ai_auth_header(headers: &mut Vec<(String, String)>, api_key: &str,
 async fn send_google_ai_proxy_request(
     client: &reqwest::Client,
     proxy_request: ProxyRequest,
-    send_error_message: &str,
 ) -> Result<reqwest::Response, Error> {
     let mut request = client.request(proxy_request.method.clone(), &proxy_request.url);
     for (header_name, header_value) in &proxy_request.headers {
         request = request.header(header_name.as_str(), header_value.as_str());
     }
 
-    let response = request
-        .body(proxy_request.body)
-        .send()
-        .await
-        .map_err(|e| Error::internal_err(format!("{}: {}", send_error_message, e)))?;
-
-    if let Err(e) = response.error_for_status_ref() {
-        let status = e.status().map(|s| s.to_string()).unwrap_or_default();
-        let body = response.text().await.unwrap_or_default();
-        return Err(Error::AIError(format!("{}: {}", status, body)));
-    }
-
-    Ok(response)
+    send_with_retries(request.body(proxy_request.body)).await
 }
 
 fn convert_streaming_response(response: reqwest::Response, model: &str) -> GoogleAIProxyResponse {
@@ -462,10 +522,15 @@ fn convert_streaming_response(response: reqwest::Response, model: &str) -> Googl
     let openai_sse_stream = async_stream::stream! {
         tokio::pin!(gemini_sse_stream);
         let mut tool_call_index: usize = 0;
-        while let Some(event) = gemini_sse_stream.next().await {
+        let mut turn = GeminiTurn::default();
+        let failure = loop {
+            let Some(event) = gemini_sse_stream.next().await else {
+                break (!turn.complete_at_close()).then(truncated_stream_error);
+            };
             match event {
                 Ok(event) => match parse_gemini_sse_event(&event.data) {
                     Ok(Some(parsed)) => {
+                        turn.observe(&parsed);
                         for chunk in gemini_event_to_openai_sse_chunks(
                             &parsed, &id, &model, &mut tool_call_index,
                         ) {
@@ -473,12 +538,23 @@ fn convert_streaming_response(response: reqwest::Response, model: &str) -> Googl
                         }
                     }
                     Ok(None) => {}
-                    Err(e) => tracing::error!("Error parsing Gemini SSE event: {}", e),
+                    Err(e) => break Some(e),
                 },
+                Err(EventStreamError::Transport(_)) if turn.ended() => break None,
+                Err(EventStreamError::Transport(e)) => {
+                    break Some(transient_error(
+                        format!("The connection to Gemini broke off mid-response: {e}"),
+                        None,
+                    ));
+                }
                 Err(e) => tracing::error!("Error reading Gemini SSE stream: {}", e),
             }
-        }
-        yield Ok::<Bytes, reqwest::Error>(Bytes::from("data: [DONE]\n\n"));
+        };
+        let last = match failure {
+            Some(error) => openai_stream_error_chunk(&error),
+            None => "data: [DONE]\n\n".to_string(),
+        };
+        yield Ok::<Bytes, reqwest::Error>(Bytes::from(last));
     }
     .boxed();
 
@@ -594,6 +670,7 @@ impl QueryBuilder for GoogleAIQueryBuilder {
 
         let GeminiSSEParser {
             accumulated_content,
+            accumulated_reasoning,
             accumulated_tool_calls,
             mut events_str,
             stream_event_processor,
@@ -612,12 +689,32 @@ impl QueryBuilder for GoogleAIQueryBuilder {
             stream_event_processor.send(event, &mut events_str).await?;
         }
 
-        let usage = gemini_usage.map(|u| {
-            TokenUsage::new(
-                u.prompt_token_count,
-                u.candidates_token_count,
-                u.total_token_count,
-            )
+        // Through the shared helpers, which fold in the two counts Gemini reports beside
+        // the headline ones: tool-use prompt tokens, disjoint from `promptTokenCount` and
+        // present on every tool-using turn, and thinking tokens. Reading the headline
+        // fields alone under-reports the prompt of exactly the conversations compaction
+        // has to notice.
+        let usage = gemini_usage.and_then(|u| {
+            let has_prompt =
+                u.prompt_token_count.is_some() || u.tool_use_prompt_token_count.is_some();
+            let has_completion =
+                u.candidates_token_count.is_some() || u.thoughts_token_count.is_some();
+            if !has_prompt && !has_completion && u.total_token_count.is_none() {
+                // An endpoint that reported nothing has to stay `None`. A zeroed count
+                // reads downstream as an empty prompt, where absent means "fall back to
+                // estimating the conversation".
+                return None;
+            }
+            let prompt = has_prompt.then(|| gemini_prompt_tokens(&u));
+            let completion = has_completion.then(|| gemini_completion_tokens(&u));
+            Some(TokenUsage::new(
+                prompt,
+                completion,
+                u.total_token_count.or_else(|| match (prompt, completion) {
+                    (Some(p), Some(c)) => Some(p.saturating_add(c)),
+                    _ => None,
+                }),
+            ))
         });
 
         Ok(ParsedResponse::Text {
@@ -626,6 +723,7 @@ impl QueryBuilder for GoogleAIQueryBuilder {
             } else {
                 Some(accumulated_content)
             },
+            reasoning: (!accumulated_reasoning.is_empty()).then_some(accumulated_reasoning),
             tool_calls: accumulated_tool_calls.into_values().collect(),
             events_str: Some(events_str),
             annotations,
@@ -706,8 +804,10 @@ mod tests {
             aws_access_key_id: None,
             aws_secret_access_key: None,
             aws_session_token: None,
+            oidc_role_arn: None,
+            anthropic_federation: None,
+            vertex_workload_identity: None,
             platform,
-            enable_1m_context: false,
             custom_headers: HashMap::new(),
         }
     }
@@ -752,7 +852,106 @@ mod tests {
         let body: serde_json::Value = serde_json::from_slice(&request.request.body).unwrap();
         assert_eq!(body["generationConfig"]["maxOutputTokens"], 123);
         assert_eq!(body["generationConfig"]["temperature"], 0.2);
+        // No reasoning_effort in the request -> no thinkingConfig (provider defaults).
+        assert!(body["generationConfig"].get("thinkingConfig").is_none());
         assert!(body["contents"].is_array());
+    }
+
+    fn proxy_body_for(model: &str, reasoning_effort: &str) -> serde_json::Value {
+        let credentials = credentials(
+            "https://generativelanguage.googleapis.com/v1beta/",
+            AIPlatform::Standard,
+        );
+        let method = Method::POST;
+        let headers = HeaderMap::new();
+        let body = format!(
+            r#"{{
+                "model": "{model}",
+                "messages": [{{"role": "user", "content": "hello"}}],
+                "reasoning_effort": "{reasoning_effort}",
+                "stream": false
+            }}"#
+        );
+
+        let request = build_google_ai_chat_proxy_request(&ProxyBuildArgs {
+            method: &method,
+            path: "chat/completions",
+            headers: &headers,
+            body: body.as_bytes(),
+            credentials: &credentials,
+        })
+        .unwrap();
+
+        serde_json::from_slice(&request.request.body).unwrap()
+    }
+
+    #[test]
+    fn maps_reasoning_effort_to_thinking_level_on_gemini_3() {
+        let body = proxy_body_for("gemini-3-pro-preview", "low");
+        assert_eq!(
+            body["generationConfig"]["thinkingConfig"]["thinkingLevel"],
+            "low"
+        );
+        // Thought summaries are requested whenever reasoning is on...
+        assert_eq!(
+            body["generationConfig"]["thinkingConfig"]["includeThoughts"],
+            true
+        );
+        // ...but not when the user explicitly turned it off.
+        let body = proxy_body_for("gemini-3-pro-preview", "none");
+        assert!(body["generationConfig"]["thinkingConfig"]
+            .get("includeThoughts")
+            .is_none());
+        assert!(body["generationConfig"]["thinkingConfig"]
+            .get("thinkingBudget")
+            .is_none());
+    }
+
+    #[test]
+    fn maps_reasoning_effort_none_per_gemini_3_model() {
+        // Pro cannot disable thinking -> lowest level.
+        let body = proxy_body_for("gemini-3-pro-preview", "none");
+        assert_eq!(
+            body["generationConfig"]["thinkingConfig"]["thinkingLevel"],
+            "low"
+        );
+        // Flash supports `minimal`.
+        let body = proxy_body_for("gemini-3-flash-preview", "none");
+        assert_eq!(
+            body["generationConfig"]["thinkingConfig"]["thinkingLevel"],
+            "minimal"
+        );
+    }
+
+    #[test]
+    fn maps_reasoning_effort_to_thinking_budget_on_gemini_2_5() {
+        let body = proxy_body_for("gemini-2.5-flash", "medium");
+        assert_eq!(
+            body["generationConfig"]["thinkingConfig"]["thinkingBudget"],
+            8192
+        );
+        assert!(body["generationConfig"]["thinkingConfig"]
+            .get("thinkingLevel")
+            .is_none());
+
+        // Off: Flash can fully disable; Pro has a 128-token minimum.
+        let body = proxy_body_for("gemini-2.5-flash", "none");
+        assert_eq!(
+            body["generationConfig"]["thinkingConfig"]["thinkingBudget"],
+            0
+        );
+        let body = proxy_body_for("gemini-2.5-pro", "none");
+        assert_eq!(
+            body["generationConfig"]["thinkingConfig"]["thinkingBudget"],
+            128
+        );
+
+        // Unknown token -> dynamic budget (provider default behavior).
+        let body = proxy_body_for("gemini-2.5-pro", "custom-level");
+        assert_eq!(
+            body["generationConfig"]["thinkingConfig"]["thinkingBudget"],
+            -1
+        );
     }
 
     #[test]
@@ -840,5 +1039,23 @@ mod tests {
         assert!(request
             .headers
             .contains(&("x-goog-api-key".to_string(), "api-key".to_string())));
+    }
+
+    /// Gemini reports a tool-using turn's input across two disjoint fields. Reading only
+    /// the headline one hides the tool results from the agent step's usage — and from the
+    /// compaction trigger, which is what would notice them.
+    #[test]
+    fn gemini_agent_usage_counts_tool_use_and_thinking_tokens() {
+        let usage = crate::ai_google::GeminiUsageMetadata {
+            prompt_token_count: Some(17),
+            candidates_token_count: Some(17),
+            total_token_count: Some(146),
+            tool_use_prompt_token_count: Some(60),
+            thoughts_token_count: Some(52),
+            ..Default::default()
+        };
+
+        assert_eq!(gemini_prompt_tokens(&usage), 77);
+        assert_eq!(gemini_completion_tokens(&usage), 69);
     }
 }

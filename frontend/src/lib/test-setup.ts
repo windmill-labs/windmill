@@ -2,6 +2,10 @@
  * Vitest setup file to mock browser globals for testing
  */
 
+// Provides a real in-memory IndexedDB (indexedDB / IDBKeyRange / structuredClone)
+// under the node test environment so the IndexedDB-backed session list and
+// chat-history stores can be exercised in unit tests.
+import 'fake-indexeddb/auto'
 import { vi } from 'vitest'
 
 // Mock localStorage
@@ -67,7 +71,8 @@ Object.defineProperty(globalThis, 'sessionStorage', {
 if (typeof (globalThis as any).window === 'undefined') {
 	Object.defineProperty(globalThis, 'window', {
 		value: globalThis,
-		writable: true
+		writable: true,
+		configurable: true
 	})
 }
 

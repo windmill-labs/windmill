@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE v2_job_queue\n         SET suspend = $3, suspend_until = now() + make_interval(secs => $4), started_at = null,\n             extras = CASE WHEN started_at IS NULL OR extras ? 'wac_first_started_at' THEN extras\n                 ELSE jsonb_set(COALESCE(extras, '{}'::jsonb), '{wac_first_started_at}', to_jsonb(started_at))\n             END\n         WHERE id = $1 AND workspace_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Int4",
+        "Float8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "9e7a5e1ebba42217092971dd340cd9182a4812b14735e502958eaafeb4c6b33d"
+}

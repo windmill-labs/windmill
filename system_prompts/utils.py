@@ -46,6 +46,7 @@ SCHEMA_MAPPINGS = {
         ('NatsTrigger', 'nats_trigger'),
         ('PostgresTrigger', 'postgres_trigger'),
         ('MqttTrigger', 'mqtt_trigger'),
+        ('AmqpTrigger', 'amqp_trigger'),
         ('SqsTrigger', 'sqs_trigger'),
         ('GcpTrigger', 'gcp_trigger'),
         ('AzureTrigger', 'azure_trigger'),
@@ -70,12 +71,15 @@ CLI_COMMANDS_DIR = CLI_DIR / "src" / "commands"
 
 # Fields stripped by CLI/sync format (to_string_without_metadata equivalent)
 # These are server-managed fields that don't appear in YAML/JSON files pulled via CLI
+# Keep in sync with CLI_EXCLUDED_FIELDS in
+# windmill-yaml-validator/scripts/generate-resource-schemas.js, which drives `wmill lint`
+# and carries the rationale for each entry.
 CLI_EXCLUDED_FIELDS = [
     'workspace_id', 'path', 'name', 'versions', 'id',
     'created_at', 'updated_at', 'created_by', 'updated_by',
     'edited_at', 'edited_by', 'archived', 'has_draft',
     'error', 'last_server_ping', 'server_id',
-    'extra_perms', 'email', 'mode'
+    'extra_perms', 'email', 'mode', 'permissioned_as'
 ]
 
 # =============================================================================
@@ -86,22 +90,22 @@ CLI_EXCLUDED_FIELDS = [
 LANGUAGE_METADATA = {
     'bun': {
         'name': 'TypeScript (Bun)',
-        'description': 'MUST use when writing Bun/TypeScript scripts.',
-        'use_cases': 'TypeScript automation, npm packages, data processing, API integrations'
+        'description': 'MUST use when writing TypeScript scripts. Bun is the default and preferred TypeScript runtime — pick it for TypeScript unless the script specifically needs Deno.',
+        'use_cases': 'TypeScript automation, npm packages, data processing, API integrations — the default choice for TypeScript'
     },
     'deno': {
         'name': 'TypeScript (Deno)',
-        'description': 'MUST use when writing Deno/TypeScript scripts.',
-        'use_cases': 'TypeScript with Deno stdlib, secure sandboxed execution'
+        'description': 'Use ONLY when a TypeScript script specifically requires the Deno runtime (Deno stdlib or deno.land URL imports). For all other TypeScript, use write-script-bun instead.',
+        'use_cases': 'TypeScript that specifically needs the Deno runtime (Deno stdlib or deno.land imports); prefer Bun otherwise'
     },
-    'nativets': {
-        'name': 'Native TypeScript',
-        'description': 'MUST use when writing Native TypeScript scripts.',
-        'use_cases': 'simple API calls, lightweight TypeScript, no dependencies'
-    },
+    # 'nativets' is intentionally omitted: it is a legacy duplicate of
+    # 'bunnative' (a Bun script with a leading //native marker). No
+    # write-script-nativets skill is generated so agents always author native
+    # TypeScript as 'bunnative'. It remains in TS_SDK_LANGUAGES below so the
+    # TypeScript SDK still attaches when editing existing nativets scripts.
     'bunnative': {
         'name': 'Bun Native',
-        'description': 'MUST use when writing Bun Native scripts.',
+        'description': 'MUST use when writing Bun Native scripts. The script must start with //native to run on the native worker.',
         'use_cases': 'simple Bun scripts, lightweight, no dependencies'
     },
     'python3': {
@@ -184,9 +188,16 @@ LANGUAGE_METADATA = {
         'description': 'MUST use when writing R scripts.',
         'use_cases': 'R statistical computing, data analysis, visualization'
     },
+    'ansible': {
+        'name': 'Ansible',
+        'description': 'MUST use when writing Ansible playbooks.',
+        'use_cases': 'infrastructure automation, configuration management, remote execution'
+    },
 }
 
-# Languages that use TypeScript SDK
+# Languages that use TypeScript SDK. 'nativets' is kept here (despite having no
+# write-script skill — see LANGUAGE_METADATA) so the TS SDK still attaches when
+# editing pre-existing legacy nativets scripts.
 TS_SDK_LANGUAGES = ['bun', 'deno', 'nativets', 'bunnative']
 
 # Languages that use Python SDK
@@ -230,6 +241,59 @@ def read_markdown_file(path: Path) -> str:
     if path.exists():
         return path.read_text()
     return ''
+
+
+CONSUMERS = ('cli', 'chat')
+_FENCE_RE = re.compile(r'^<!-- (/?)(cli|chat)-only -->$')
+# Any comment opening with `cli`/`chat`, or closing on `only`, is taken as a fence
+# attempt: a misspelled one would otherwise pass through with the text it guards.
+_FENCE_LIKE_RE = re.compile(
+    r'<!--\s*/?\s*(?:(?:cli|chat)(?![a-z])|[\w-]*only\s*-->)', re.IGNORECASE
+)
+
+
+def render_for(md: str, consumer: str, source: str = '<markdown>') -> str:
+    """Render shared markdown for one consumer ('cli' or 'chat').
+
+    A block between `<!-- cli-only -->` and `<!-- /cli-only -->` (or the
+    `chat-only` pair) is kept for that consumer and dropped for the other; the
+    fence lines themselves never reach either. Fences must sit on their own
+    line and cannot nest. A malformed fence raises rather than leaking a
+    sentence meant for one consumer into the other's prompt.
+    """
+    if consumer not in CONSUMERS:
+        raise ValueError(f"Unknown consumer '{consumer}'")
+    out: list[str] = []
+    open_block: str | None = None
+    # Dropping a block would otherwise leave the blank lines around it doubled.
+    swallow_blank = False
+    for n, line in enumerate(md.splitlines(keepends=True), 1):
+        stripped = line.strip()
+        fence = _FENCE_RE.match(stripped)
+        if fence is None and _FENCE_LIKE_RE.search(stripped):
+            raise ValueError(f"{source}:{n}: malformed fence '{stripped}'")
+        if fence:
+            closing, who = fence.group(1) == '/', fence.group(2)
+            if closing:
+                if open_block != who:
+                    raise ValueError(f"{source}:{n}: '{stripped}' closes no open {who}-only block")
+                swallow_blank = open_block != consumer
+                open_block = None
+            else:
+                if open_block is not None:
+                    raise ValueError(f"{source}:{n}: {who}-only block opened inside a {open_block}-only block")
+                open_block = who
+            continue
+        if open_block is not None and open_block != consumer:
+            continue
+        if swallow_blank and stripped == '' and (not out or out[-1].strip() == ''):
+            swallow_blank = False
+            continue
+        swallow_blank = False
+        out.append(line)
+    if open_block is not None:
+        raise ValueError(f"{source}: {open_block}-only block is never closed")
+    return ''.join(out)
 
 
 # =============================================================================
@@ -345,6 +409,29 @@ def extract_options(text: str, option_pattern: re.Pattern) -> list[dict]:
 # =============================================================================
 
 
+def _resolve_refs(schema, all_schemas: dict, openflow_schemas: dict, seen: tuple[str, ...] = ()):
+    """Inline named schemas so a documented shape never dangles on a `$ref` the reader
+    cannot resolve. A recursive schema stops at a bare object on its second visit."""
+    if isinstance(schema, list):
+        return [_resolve_refs(item, all_schemas, openflow_schemas, seen) for item in schema]
+
+    if not isinstance(schema, dict):
+        return schema
+
+    ref = schema.get('$ref')
+    if ref:
+        ref_name = ref.split('/')[-1]
+        target = all_schemas.get(ref_name) or openflow_schemas.get(ref_name)
+        if ref_name in seen or not target:
+            return {'type': 'object'}
+        return _resolve_refs(target, all_schemas, openflow_schemas, (*seen, ref_name))
+
+    return {
+        key: _resolve_refs(value, all_schemas, openflow_schemas, seen)
+        for key, value in schema.items()
+    }
+
+
 def extract_cli_schema(schema: dict, all_schemas: dict, openflow_schemas: dict | None = None) -> dict:
     """
     Transform an OpenAPI schema to CLI format by removing server-managed fields.
@@ -395,6 +482,13 @@ def extract_cli_schema(schema: dict, all_schemas: dict, openflow_schemas: dict |
                     else:
                         # Other external reference
                         result['properties'][key] = {'type': 'object', 'description': value.get('description', f'See {ref_path}')}
+                elif value.get('type') == 'array' and '$ref' in (value.get('items') or {}):
+                    # An array of a named schema: inline the item shape, otherwise the
+                    # documented type degrades to a bare object
+                    result['properties'][key] = {
+                        **value,
+                        'items': _resolve_refs(value['items'], all_schemas, openflow_schemas),
+                    }
                 else:
                     result['properties'][key] = value
 
@@ -412,6 +506,30 @@ def extract_cli_schema(schema: dict, all_schemas: dict, openflow_schemas: dict |
     result['required'] = [r for r in result['required'] if r in result['properties']]
 
     return result
+
+
+def _describe_array_items(items: dict) -> dict:
+    """Describe array items one level deep. Named schemas the caller could not inline, and
+    the ones a recursive schema refers back to, collapse to a bare object."""
+    variants = items.get('oneOf') or items.get('anyOf')
+    if variants:
+        return {'oneOf': [_describe_array_items(variant) for variant in variants]}
+    if '$ref' in items:
+        return {'type': 'object'}
+    if items.get('type', 'object') == 'object' and items.get('properties'):
+        properties = {
+            key: (
+                {'type': 'array', 'items': _describe_array_items(value.get('items') or {})}
+                if value.get('type') == 'array'
+                else value
+            )
+            for key, value in items['properties'].items()
+        }
+        described = {'type': 'object', 'properties': properties}
+        if items.get('required'):
+            described['required'] = items['required']
+        return described
+    return {'type': items.get('type', 'object')}
 
 
 def format_schema_as_json(schema: dict) -> dict:
@@ -433,13 +551,8 @@ def format_schema_as_json(schema: dict) -> dict:
         # Get type
         prop_type = value.get('type', 'string')
         if prop_type == 'array':
-            items = value.get('items', {})
             prop_def['type'] = 'array'
-            item_type = items.get('type', 'object')
-            if item_type == 'object' and items.get('properties'):
-                prop_def['items'] = {'type': 'object', 'properties': items.get('properties', {})}
-            else:
-                prop_def['items'] = {'type': item_type}
+            prop_def['items'] = _describe_array_items(value.get('items') or {})
         elif '$ref' in value:
             # For refs, just indicate the type
             ref_name = value['$ref'].split('/')[-1]

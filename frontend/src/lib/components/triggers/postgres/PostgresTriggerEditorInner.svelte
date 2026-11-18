@@ -1,20 +1,25 @@
 <script lang="ts">
 	import { Alert, Button, TabContent } from '$lib/components/common'
+	import {
+		clearPageDrawerAnchor,
+		setPageDrawerAnchor
+	} from '$lib/components/sessions/pageDrawerSession'
+	import { TRIGGER_PAGES } from '$lib/components/sessions/previewPaths'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import Path from '$lib/components/Path.svelte'
 	import Required from '$lib/components/Required.svelte'
-	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
+	import TriggerRunnablePicker from '$lib/components/triggers/TriggerRunnablePicker.svelte'
 	import {
 		PostgresTriggerService,
-		type ErrorHandler,
 		type Language,
 		type Relations,
 		type Retry,
 		type TriggerMode
 	} from '$lib/gen'
-	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
-	import { canWrite, emptyString, emptyStringTrimmed, sendUserToast } from '$lib/utils'
+	import { usedTriggerKinds } from '$lib/stores'
+	import { emptyString, emptyStringTrimmed, sendUserToast } from '$lib/utils'
+	import { useEditRights } from '$lib/operatorWriteRights'
 	import { withForkConflictRetry } from '$lib/utils/forkConflict'
 	import Section from '$lib/components/Section.svelte'
 	import { Loader2 } from 'lucide-svelte'
@@ -31,12 +36,12 @@
 	import RelationPicker from './RelationPicker.svelte'
 	import { invalidRelations, savePostgresTriggerFromCfg } from './utils'
 	import CheckPostgresRequirement from './CheckPostgresRequirement.svelte'
-	import { base } from '$lib/base'
 	import { untrack, type Snippet } from 'svelte'
 	import TriggerEditorToolbar from '../TriggerEditorToolbar.svelte'
 	import PermissionedAsLine from '../PermissionedAsLine.svelte'
 	import TestingBadge from '../testingBadge.svelte'
-	import { getHandlerType, handleConfigChange, type Trigger } from '../utils'
+	import { handleConfigChange, type Trigger } from '../utils'
+	import { handlerDraftFromStored, handlerDraftToStored } from '../../handlerDraft.svelte'
 	import TriggerRetriesAndErrorHandler from '../TriggerRetriesAndErrorHandler.svelte'
 	import TriggerAdvancedBadges from '../TriggerAdvancedBadges.svelte'
 	import { fade } from 'svelte/transition'
@@ -46,10 +51,21 @@
 	import TriggerSuspendedJobsModal from '../TriggerSuspendedJobsModal.svelte'
 	import { deepEqual } from 'fast-equals'
 	import { useTriggerDraftSync } from '../useTriggerDraftSync.svelte'
+	import LocalDraftBanner from '$lib/components/LocalDraftBanner.svelte'
 	import { capitalize } from '$lib/utils'
+	import {
+		useOperatingUser,
+		useOperatingWorkspace,
+		useOperatingWorkspaceHref
+	} from '$lib/components/operatingWorkspace.svelte'
+	const editRights = useEditRights()
 
 	interface Props {
 		useDrawer?: boolean
+		/** With `useDrawer`, render the drawer's content in place, filling the parent, with no drawer or close button. */
+		inline?: boolean
+		/** With `inline`, closes whatever hosts the editor; the header has a close button only when set. */
+		onClose?: () => void
 		description?: Snippet | undefined
 		hideTarget?: boolean
 		isEditor?: boolean
@@ -68,6 +84,8 @@
 
 	let {
 		useDrawer = true,
+		inline = false,
+		onClose = undefined,
 		description = undefined,
 		hideTarget = false,
 		isEditor = false,
@@ -83,6 +101,10 @@
 		onDelete = undefined,
 		onReset = undefined
 	}: Props = $props()
+	const operatingWorkspace = useOperatingWorkspace()
+	const operatingUser = useOperatingUser()
+	const operatingHref = useOperatingWorkspaceHref()
+	const wsId = $derived($operatingWorkspace)
 
 	let drawer: Drawer | undefined = $state(undefined)
 	let is_flow: boolean = $state(false)
@@ -95,7 +117,15 @@
 	let path: string = $state('')
 	let pathError = $state('')
 	let dirtyPath: boolean = $state(false)
-	let can_write: boolean = $state(true)
+	let permsPath = $state<string | undefined>(undefined)
+	let permsForWrite = $state<Record<string, boolean> | undefined>(undefined)
+	// The acting user in the operating workspace arrives asynchronously, and an unknown user
+	// refuses — so the editor stays read-only until the lookup lands, which is the safe answer.
+	const can_write = $derived(
+		permsPath === undefined
+			? editRights.roleCanAuthor('trigger')
+			: editRights.canEditItem('trigger', permsPath, permsForWrite)
+	)
 	let drawerLoading: boolean = $state(true)
 	let showLoading: boolean = $state(false)
 	let postgres_resource_path: string = $state('')
@@ -123,9 +153,10 @@
 	let creatingPublication: boolean = $state(false)
 	let pg14: boolean = $derived(postgresVersion.startsWith('14'))
 	let optionTabSelected: 'error_handler' | 'retries' = $state('error_handler')
-	let errorHandlerSelected: ErrorHandler = $state('slack')
-	let error_handler_path: string | undefined = $state()
-	let error_handler_args: Record<string, any> = $state({})
+	let errorHandler = $state(handlerDraftFromStored('error', undefined))
+	const storedErrorHandler = $derived(handlerDraftToStored(errorHandler))
+	const error_handler_path = $derived(storedErrorHandler.path)
+	const error_handler_args = $derived(storedErrorHandler.args)
 	let retry: Retry | undefined = $state()
 	let mode = $state<TriggerMode>('enabled')
 
@@ -167,7 +198,7 @@
 	const draftSync = useTriggerDraftSync({
 		itemKind: 'trigger_postgres',
 		path: () => initialPath,
-		workspace: () => $workspaceStore,
+		workspace: () => wsId,
 		drawerLoading: () => drawerLoading,
 		getCfg: () => postgresConfig,
 		applyCfg: loadTriggerConfig,
@@ -190,7 +221,7 @@
 			const message = await PostgresTriggerService.createPostgresPublication({
 				path: postgres_resource_path,
 				publication: publication_name as string,
-				workspace: $workspaceStore!,
+				workspace: wsId!,
 				requestBody: {
 					transaction_to_track: transaction_to_track,
 					table_to_track: relations
@@ -210,7 +241,7 @@
 			creatingSlot = true
 			const message = await PostgresTriggerService.createPostgresReplicationSlot({
 				path: postgres_resource_path,
-				workspace: $workspaceStore!,
+				workspace: wsId!,
 				requestBody: {
 					name: replication_slot_name
 				}
@@ -227,17 +258,27 @@
 		is_flow = itemKind === 'flow'
 	})
 
+	// Set by `openNew(…, { onSaveDraft })`: the caller keeps the trigger as its own
+	// draft, so Save hands it the config instead of writing it.
+	let saveDraftHandler: ((cfg: Record<string, any>) => boolean) | undefined = $state(undefined)
+
 	export async function openEdit(
 		ePath: string,
 		isFlow: boolean,
-		defaultConfig?: Record<string, any>
+		defaultConfig?: Record<string, any>,
+		fixedScriptPath_?: string
 	) {
+		saveDraftHandler = undefined
+		// A `whoami` that failed earlier would otherwise pin this workspace to "unknown user".
+		operatingUser.forgetFailures()
+		editRights.forgetFailures()
 		let loadingTimeout = setTimeout(() => {
 			showLoading = true
 		}, 100) // Do not show loading spinner for the first 100ms
 		drawerLoading = true
 		try {
 			drawer?.openDrawer()
+			setPageDrawerAnchor(TRIGGER_PAGES.postgres.path, ePath)
 			initialPath = ePath
 			itemKind = isFlow ? 'flow' : 'script'
 			edit = true
@@ -249,12 +290,16 @@
 			relations = []
 			transaction_to_track = []
 			tab = 'basic'
-			await loadTrigger(defaultConfig)
+			fixedScriptPath = fixedScriptPath_ ?? ''
+			const { overlay: draftOverlay, noDeployed } = await loadTrigger(defaultConfig)
+			// Draft-only triggers have no deployed row, so saving must CREATE (update 404s).
+			edit = !noDeployed
+			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
+			if (draftOverlay) loadTriggerConfig(draftOverlay)
 			if (!defaultConfig) {
 				initialConfig = structuredClone($state.snapshot(getSaveCfg()))
 			}
-			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
-			await draftSync.maybeRestore(ePath)
+			await draftSync.maybeRestore()
 		} catch (err) {
 			sendUserToast(`Could not load postgres trigger: ${err.body}`, true)
 		} finally {
@@ -268,8 +313,14 @@
 		nis_flow: boolean,
 		fixedScriptPath_?: string,
 		defaultValues?: Record<string, any>,
-		newDraft?: boolean
+		newDraft?: boolean,
+		opts: {
+			onSaveDraft?: (cfg: Record<string, any>) => boolean
+			/** A config this editor saved before, re-applied over the defaults. */
+			draftConfig?: Record<string, any>
+		} = {}
 	) {
+		saveDraftHandler = opts.onSaveDraft
 		let loadingTimeout = setTimeout(() => {
 			showLoading = true
 		}, 100) // Do not show loading spinner for the first 100ms
@@ -304,15 +355,19 @@
 					table_to_track: []
 				}
 			]
-			error_handler_path = defaultValues?.error_handler_path ?? undefined
-			error_handler_args = defaultValues?.error_handler_args ?? {}
+			errorHandler = handlerDraftFromStored(
+				'error',
+				defaultValues?.error_handler_path,
+				'script',
+				defaultValues?.error_handler_args
+			)
 			retry = defaultValues?.retry ?? undefined
-			errorHandlerSelected = getHandlerType(error_handler_path ?? '')
 			mode = defaultValues?.mode ?? 'enabled'
 			permissionedAs = undefined
 			selectedPermissionedAs = undefined
 			preservePermissionedAs = false
 			originalConfig = undefined
+			if (opts.draftConfig) await loadTriggerConfig(opts.draftConfig)
 		} finally {
 			clearTimeout(loadingTimeout)
 			drawerLoading = false
@@ -346,6 +401,8 @@
 	}
 
 	async function loadTriggerConfig(cfg?: Record<string, any>): Promise<void> {
+		// The loaded trigger says what it runs; an opener's `isFlow` is only its guess.
+		if (cfg?.is_flow !== undefined) itemKind = cfg.is_flow ? 'flow' : 'script'
 		script_path = cfg?.script_path
 		initialScriptPath = cfg?.script_path
 		is_flow = cfg?.is_flow
@@ -353,41 +410,72 @@
 		postgres_resource_path = cfg?.postgres_resource_path
 		publication_name = cfg?.publication_name
 		replication_slot_name = cfg?.replication_slot_name
-		can_write = canWrite(path, cfg?.extra_perms, $userStore)
-		transaction_to_track = [...cfg?.publication?.transaction_to_track]
+		permsPath = path
+		permsForWrite = cfg?.extra_perms
+		transaction_to_track = [...(cfg?.publication?.transaction_to_track ?? [])]
 		relations = cfg?.publication?.table_to_track ?? []
-		error_handler_path = cfg?.error_handler_path
-		error_handler_args = cfg?.error_handler_args ?? {}
+		errorHandler = handlerDraftFromStored(
+			'error',
+			cfg?.error_handler_path,
+			'script',
+			cfg?.error_handler_args
+		)
 		retry = cfg?.retry
-		errorHandlerSelected = getHandlerType(error_handler_path ?? '')
 		mode = cfg?.mode ?? 'enabled'
 		permissionedAs = cfg?.permissioned_as
 		selectedPermissionedAs = cfg?.permissioned_as
 		preservePermissionedAs = !!cfg?.permissioned_as
 	}
 
-	async function loadTrigger(defaultConfig?: Record<string, any>): Promise<void> {
+	/**
+	 * Apply the deployed config to the form, then return the saved-draft overlay
+	 * so the caller captures `originalConfig` BEFORE applying the draft (see
+	 * `NatsTriggerEditorInner.loadTrigger`). Postgres wrinkle: the publication is
+	 * keyed by resource/name the draft may have changed, so it's fetched using
+	 * the effective values to reflect the draft's view.
+	 */
+	async function loadTrigger(
+		defaultConfig?: Record<string, any>
+	): Promise<{ overlay: Record<string, any> | undefined; noDeployed: boolean }> {
 		if (defaultConfig) {
 			loadTriggerConfig(defaultConfig)
 			if (defaultConfig?.publication) {
 				transaction_to_track = [...defaultConfig.publication.transaction_to_track]
 				relations = defaultConfig.publication.table_to_track ?? []
 			}
-			return
-		} else {
-			const s = await PostgresTriggerService.getPostgresTrigger({
-				workspace: $workspaceStore!,
-				path: initialPath
-			})
-
-			const publication_data = await PostgresTriggerService.getPostgresPublication({
-				path: s.postgres_resource_path,
-				workspace: $workspaceStore!,
-				publication: s.publication_name
-			})
-
-			loadTriggerConfig({ ...s, publication: publication_data })
+			return { overlay: undefined, noDeployed: false }
 		}
+		const s = await PostgresTriggerService.getPostgresTrigger({
+			workspace: wsId!,
+			path: initialPath,
+			getDraft: true
+		})
+		const { draft: draftFromBackend, ...deployedTrigger } = (s ?? {}) as any
+		// Draft-only: synthesized stand-in, no row, so saving must CREATE.
+		const noDeployed = !!(s as any)?.no_deployed
+
+		// Deployed config + publication become the `originalConfig` baseline.
+		const deployedPublication = await PostgresTriggerService.getPostgresPublication({
+			path: deployedTrigger.postgres_resource_path,
+			workspace: wsId!,
+			publication: deployedTrigger.publication_name
+		})
+		loadTriggerConfig({ ...deployedTrigger, publication: deployedPublication })
+
+		if (!draftFromBackend) return { overlay: undefined, noDeployed }
+
+		// Refetch the publication for the draft's keys if they differ.
+		const effective = { ...deployedTrigger, ...draftFromBackend }
+		const effectivePublication =
+			effective.postgres_resource_path === deployedTrigger.postgres_resource_path &&
+			effective.publication_name === deployedTrigger.publication_name
+				? deployedPublication
+				: await PostgresTriggerService.getPostgresPublication({
+						path: effective.postgres_resource_path,
+						workspace: wsId!,
+						publication: effective.publication_name
+					})
+		return { overlay: { ...effective, publication: effectivePublication }, noDeployed }
 	}
 
 	function getCaptureConfig() {
@@ -408,6 +496,11 @@
 	}
 
 	async function updateTrigger(): Promise<void> {
+		if (saveDraftHandler) {
+			if (!saveDraftHandler($state.snapshot(getSaveCfg()))) return
+			drawer?.closeDrawer()
+			return
+		}
 		const cfg = postgresConfig
 		if (!cfg) {
 			return
@@ -418,7 +511,7 @@
 			initialPath,
 			cfg,
 			edit,
-			$workspaceStore!,
+			wsId!,
 			usedTriggerKinds
 		)
 		if (isSaved) {
@@ -442,14 +535,14 @@
 		try {
 			loading = true
 			let templateId = await PostgresTriggerService.createTemplateScript({
-				workspace: $workspaceStore!,
+				workspace: wsId!,
 				requestBody: {
 					relations,
 					language,
 					postgres_resource_path
 				}
 			})
-			window.open(`${base}/scripts/add?id=${templateId}`)
+			window.open(operatingHref(`/scripts/add?id=${templateId}`))
 			loading = false
 		} catch (error) {
 			loading = false
@@ -465,7 +558,7 @@
 				(force) =>
 					PostgresTriggerService.setPostgresTriggerMode({
 						path: initialPath,
-						workspace: $workspaceStore ?? '',
+						workspace: wsId ?? '',
 						requestBody: { mode: newMode, force }
 					}),
 				'postgres trigger'
@@ -497,7 +590,7 @@
 		if (postgres_resource_path) {
 			loadingPostgres = true
 			PostgresTriggerService.getPostgresVersion({
-				workspace: $workspaceStore!,
+				workspace: wsId!,
 				path: postgres_resource_path
 			})
 				.then((version: string) => {
@@ -530,19 +623,44 @@
 	/>
 {/if}
 
-{#if useDrawer}
-	<Drawer size="800px" bind:this={drawer}>
-		<DrawerContent
-			title={edit
-				? can_write
-					? `Edit Postgres trigger ${initialPath}`
-					: `Postgres trigger ${initialPath}`
+{#snippet drawerBody()}
+	<DrawerContent
+		hideClose={inline && !onClose}
+		fullScreen={!inline}
+		bannerReserved={draftSync.hasBaseline}
+		title={edit
+			? can_write
+				? `Edit Postgres trigger ${initialPath}`
+				: `Postgres trigger ${initialPath}`
+			: saveDraftHandler
+				? 'Draft Postgres trigger'
 				: 'New Postgres trigger'}
-			on:close={drawer.closeDrawer}
-		>
-			{#snippet actions()}{@render actionsSnippet()}{/snippet}
-			{@render content()}
-		</DrawerContent>
+		on:close={() => (inline ? onClose?.() : drawer?.closeDrawer())}
+	>
+		{#snippet actions()}{@render actionsSnippet()}{/snippet}
+		{#snippet banner()}
+			<LocalDraftBanner
+				show={draftSync.hasDraft}
+				getDeployed={() => draftSync.deployed}
+				reserveSpace={draftSync.hasBaseline}
+				getCurrent={() => draftSync.current}
+				onDiscard={() => draftSync.resetToDeployed(initialPath)}
+				disabled={!can_write}
+			/>
+		{/snippet}
+		{@render content()}
+	</DrawerContent>
+{/snippet}
+
+{#if useDrawer && inline}
+	{@render drawerBody()}
+{:else if useDrawer}
+	<Drawer
+		size="800px"
+		bind:this={drawer}
+		on:close={() => clearPageDrawerAnchor(TRIGGER_PAGES.postgres.path)}
+	>
+		{@render drawerBody()}
 	</Drawer>
 {:else}
 	<Section label={!customLabel ? 'Postgres trigger' : ''} headerClass="grow min-w-0 h-[30px]">
@@ -561,6 +679,8 @@
 {#snippet actionsSnippet()}
 	{#if !drawerLoading}
 		<TriggerEditorToolbar
+			triggerKind="postgres"
+			triggerPath={initialPath}
 			{trigger}
 			permissions={drawerLoading || !can_write ? 'none' : 'create'}
 			{saveDisabled}
@@ -569,6 +689,7 @@
 			isLoading={deploymentLoading}
 			{isDeployed}
 			onUpdate={updateTrigger}
+			saveLabel={saveDraftHandler ? 'Save draft' : undefined}
 			{onReset}
 			{onDelete}
 			{mode}
@@ -590,6 +711,7 @@
 	{:else}
 		<PermissionedAsLine
 			{permissionedAs}
+			disabled={!can_write}
 			{path}
 			onPermissionedAsChange={(pa, preserve) => {
 				selectedPermissionedAs = pa
@@ -616,6 +738,7 @@
 			{/if}
 			<Label label="Path">
 				<Path
+					workspaceOverride={wsId}
 					bind:dirty={dirtyPath}
 					bind:error={pathError}
 					bind:path
@@ -629,43 +752,40 @@
 			</Label>
 			{#if !hideTarget}
 				<Section label="Runnable">
-					<p class="text-xs text-primary">
-						Pick a script or flow to be triggered <Required required={true} />
-					</p>
-					<div class="flex flex-row mb-2">
-						<ScriptPicker
-							disabled={fixedScriptPath != '' || !can_write}
-							initialPath={fixedScriptPath || initialScriptPath}
-							kinds={['script']}
-							allowFlow={true}
-							bind:itemKind
-							bind:scriptPath={script_path}
-							allowRefresh={can_write}
-							allowEdit={!$userStore?.operator}
-							clearable
-						/>
-
-						{#if emptyString(script_path) && is_flow === false}
-							<div class="flex">
-								<Button
-									disabled={!can_write}
-									btnClasses="ml-4"
-									variant="accent"
-									size="xs"
-									on:click={getTemplateScript}
-									target="_blank"
-									{loading}
-									>Create from template
-									<Tooltip light>
-										The conversion requires a <strong>database resource</strong> and at least one
-										<strong>schema</strong>
-										to be set.<br />
-										Please ensure these conditions are met before proceeding.
-									</Tooltip>
-								</Button>
-							</div>
-						{/if}
-					</div>
+					<TriggerRunnablePicker
+						workspace={wsId}
+						{fixedScriptPath}
+						bind:itemKind
+						bind:scriptPath={script_path}
+						{initialScriptPath}
+						canWrite={can_write}
+						allowEdit={editRights.roleCanAuthor(itemKind)}
+						promptText="Pick a script or flow to be triggered "
+						promptClass="text-xs text-primary"
+					>
+						{#snippet createButton()}
+							{#if emptyString(script_path) && is_flow === false}
+								<div class="flex">
+									<Button
+										disabled={!can_write}
+										btnClasses="ml-4"
+										variant="accent"
+										size="xs"
+										on:click={getTemplateScript}
+										target="_blank"
+										{loading}
+										>Create from template
+										<Tooltip light>
+											The conversion requires a <strong>database resource</strong> and at least one
+											<strong>schema</strong>
+											to be set.<br />
+											Please ensure these conditions are met before proceeding.
+										</Tooltip>
+									</Button>
+								</div>
+							{/if}
+						{/snippet}
+					</TriggerRunnablePicker>
 				</Section>
 			{/if}
 
@@ -681,6 +801,7 @@
 				<div class="flex flex-col gap-8">
 					<div class="flex flex-col gap-2">
 						<ResourcePicker
+							workspace={wsId}
 							disabled={!can_write}
 							bind:value={postgres_resource_path}
 							resourceType={'postgresql'}
@@ -772,7 +893,13 @@
 								{#snippet content()}
 									<div class="mt-5 overflow-hidden bg-surface">
 										<TabContent value="basic">
-											<RelationPicker {can_write} bind:pg14 bind:relations disabled={!can_write} />
+											<RelationPicker
+												{can_write}
+												bind:pg14
+												bind:relations
+												{transaction_to_track}
+												disabled={!can_write}
+											/>
 										</TabContent>
 										<TabContent value="advanced">
 											<div class="flex flex-col gap-6"
@@ -883,6 +1010,7 @@
 															bind:pg14
 															{can_write}
 															bind:relations
+															{transaction_to_track}
 															disabled={!can_write}
 														/>
 													</div>
@@ -909,12 +1037,11 @@
 						</Tabs>
 						<div class="mt-4">
 							<TriggerRetriesAndErrorHandler
+								workspace={wsId}
 								{optionTabSelected}
 								{itemKind}
 								{can_write}
-								bind:errorHandlerSelected
-								bind:error_handler_path
-								bind:error_handler_args
+								bind:errorHandler
 								bind:retry
 							/>
 						</div>

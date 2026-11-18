@@ -16,6 +16,7 @@
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import TestingBadge from '../testingBadge.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
 	interface Props {
 		can_write?: boolean
@@ -36,6 +37,9 @@
 		client_id = $bindable(''),
 		showTestingBadge = false
 	}: Props = $props()
+
+	const operatingWorkspace = useOperatingWorkspace()
+	const wsId = $derived($operatingWorkspace)
 
 	const isValidSubscribeTopics = (subscribe_topics: MqttSubscribeTopic[]): boolean => {
 		if (
@@ -61,7 +65,12 @@
 		{/snippet}
 		<div class="flex flex-col w-full gap-12">
 			<Subsection label="Connection setup">
-				<ResourcePicker resourceType="mqtt" disabled={!can_write} bind:value={mqtt_resource_path} />
+				<ResourcePicker
+					workspace={wsId}
+					resourceType="mqtt"
+					disabled={!can_write}
+					bind:value={mqtt_resource_path}
+				/>
 				{#if !emptyStringTrimmed(mqtt_resource_path)}
 					<TestTriggerConnection kind="mqtt" args={{ mqtt_resource_path, client_version }} />
 				{/if}
@@ -119,11 +128,26 @@
 												>
 											</span>
 										</div>
-										<ToggleButtonGroup bind:selected={v.qos}>
-											{#snippet children({ item })}
-												<ToggleButton value={'qos0'} label="At most once (QoS 0)" {item} />
-												<ToggleButton value={'qos1'} label="At least once (QoS 1)" {item} />
-												<ToggleButton value={'qos2'} label="Exactly once (QoS 2)" {item} />
+										<ToggleButtonGroup bind:selected={v.qos} disabled={!can_write}>
+											{#snippet children({ item, disabled })}
+												<ToggleButton
+													value={'qos0'}
+													label="At most once (QoS 0)"
+													{item}
+													{disabled}
+												/>
+												<ToggleButton
+													value={'qos1'}
+													label="At least once (QoS 1)"
+													{item}
+													{disabled}
+												/>
+												<ToggleButton
+													value={'qos2'}
+													label="Exactly once (QoS 2)"
+													{item}
+													{disabled}
+												/>
 											{/snippet}
 										</ToggleButtonGroup>
 									</label>
@@ -150,8 +174,9 @@
 							</div>
 							<button
 								transition:fade|local={{ duration: 100 }}
-								class="rounded-full p-1 bg-surface-secondary duration-200 hover:bg-surface-hover"
+								class="rounded-full p-1 bg-surface-secondary duration-200 hover:bg-surface-hover disabled:opacity-50 disabled:cursor-not-allowed"
 								aria-label="Clear"
+								disabled={!can_write}
 								onclick={() => {
 									subscribe_topics = subscribe_topics.filter((_, index) => index !== i)
 								}}
@@ -166,6 +191,7 @@
 							variant="default"
 							size="xs"
 							btnClasses="mt-1"
+							disabled={!can_write}
 							on:click={() => {
 								subscribe_topics = [
 									...subscribe_topics,

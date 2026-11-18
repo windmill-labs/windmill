@@ -6,6 +6,7 @@ import {
 	HttpTriggerService,
 	KafkaTriggerService,
 	MqttTriggerService,
+	AmqpTriggerService,
 	NatsTriggerService,
 	PostgresTriggerService,
 	ScheduleService,
@@ -15,7 +16,7 @@ import {
 	type WorkspaceDeployUISettings
 } from './gen'
 import type { TriggerKind } from './components/triggers'
-import { base } from './base'
+import { apiBaseUrl } from './apiBaseUrl.svelte'
 
 type DeployUIType = 'script' | 'flow' | 'app' | 'resource' | 'variable' | 'secret' | 'trigger'
 
@@ -36,13 +37,19 @@ export type Kind =
 	| 'nats_trigger'
 	| 'postgres_trigger'
 	| 'mqtt_trigger'
+	| 'amqp_trigger'
 	| 'sqs_trigger'
 	| 'gcp_trigger'
 	| 'azure_trigger'
 	| 'email_trigger'
+	// Data table migration, diffed per `<datatable>/<timestamp>_<name>` path.
+	| 'datatable_migration'
 	// Legacy generic kind used by the cross-workspace `DeployWorkspace` UI,
 	// which carries the trigger sub-kind in `additionalInformation`.
 	| 'trigger'
+	// A data-pipeline draft bundle (drafts list only — not a deployable item;
+	// opens the pipeline view instead).
+	| 'data_pipeline'
 
 export const ALL_DEPLOYABLE: WorkspaceDeployUISettings = {
 	include_path: [],
@@ -89,6 +96,8 @@ export async function existsTrigger(
 		return await KafkaTriggerService.existsKafkaTrigger(data)
 	} else if (triggerKind === 'mqtt') {
 		return await MqttTriggerService.existsMqttTrigger(data)
+	} else if (triggerKind === 'amqp') {
+		return await AmqpTriggerService.existsAmqpTrigger(data)
 	} else if (triggerKind === 'postgres') {
 		return await PostgresTriggerService.existsPostgresTrigger(data)
 	} else if (triggerKind === 'sqs') {
@@ -142,7 +151,10 @@ export async function getTriggersDeployData(
 	kind: TriggerKind,
 	path: string,
 	workspace: string,
-	onBehalfOf?: string
+	onBehalfOf?: string,
+	/** Root URL of the instance the trigger is deployed to, when that is not this one. A GCP or
+	 * Azure push subscription posts to the instance serving the trigger, so it has to name that one. */
+	targetBaseUrl?: string
 ) {
 	const preservePermissionedAs = onBehalfOf !== undefined
 
@@ -191,6 +203,21 @@ export async function getTriggersDeployData(
 			createFn: MqttTriggerService.createMqttTrigger,
 			updateFn: MqttTriggerService.updateMqttTrigger
 		}
+	} else if (kind === 'amqp') {
+		const amqpTrigger = await AmqpTriggerService.getAmqpTrigger({
+			workspace: workspace!,
+			path: path
+		})
+
+		return {
+			data: {
+				...amqpTrigger,
+				permissioned_as: onBehalfOf,
+				preserve_permissioned_as: preservePermissionedAs
+			},
+			createFn: AmqpTriggerService.createAmqpTrigger,
+			updateFn: AmqpTriggerService.updateAmqpTrigger
+		}
 	} else if (kind === 'nats') {
 		const natsTrigger = await NatsTriggerService.getNatsTrigger({
 			workspace: workspace!,
@@ -223,7 +250,9 @@ export async function getTriggersDeployData(
 			...gcpTrigger,
 			delivery_config: gcpTrigger.delivery_config ?? undefined,
 			base_endpoint:
-				gcpTrigger.delivery_type === 'push' ? `${window.location.origin}${base}` : undefined,
+				gcpTrigger.delivery_type === 'push'
+					? (targetBaseUrl ?? apiBaseUrl('push_triggers'))
+					: undefined,
 			permissioned_as: onBehalfOf,
 			preserve_permissioned_as: preservePermissionedAs
 		}
@@ -287,6 +316,11 @@ export async function getTriggersDeployData(
 		return {
 			data: {
 				...azureTrigger,
+				// Not stored on the trigger, but a push subscription is created from it.
+				base_endpoint:
+					azureTrigger.azure_mode === 'namespace_pull'
+						? undefined
+						: (targetBaseUrl ?? apiBaseUrl('push_triggers')),
 				permissioned_as: onBehalfOf,
 				preserve_permissioned_as: preservePermissionedAs
 			},
@@ -334,7 +368,7 @@ export async function getTriggersDeployData(
  * `TRIGGER_COMPARE_IGNORE` and `stripTriggerOrScheduleRuntimeFields` in the
  * shared deploy module.
  */
-const TRIGGER_RUNTIME_IGNORE = new Set([
+export const TRIGGER_RUNTIME_IGNORE = new Set([
 	'workspace_id',
 	'edited_by',
 	'edited_at',
@@ -367,6 +401,8 @@ export async function getTriggerValue(kind: TriggerKind, path: string, workspace
 		trigger = await KafkaTriggerService.getKafkaTrigger({ workspace, path })
 	} else if (kind === 'mqtt') {
 		trigger = await MqttTriggerService.getMqttTrigger({ workspace, path })
+	} else if (kind === 'amqp') {
+		trigger = await AmqpTriggerService.getAmqpTrigger({ workspace, path })
 	} else if (kind === 'nats') {
 		trigger = await NatsTriggerService.getNatsTrigger({ workspace, path })
 	} else if (kind === 'postgres') {
@@ -406,6 +442,9 @@ export async function getTriggerPermissionedAs(
 			return trigger.permissioned_as
 		} else if (kind === 'mqtt') {
 			const trigger = await MqttTriggerService.getMqttTrigger({ workspace, path })
+			return trigger.permissioned_as
+		} else if (kind === 'amqp') {
+			const trigger = await AmqpTriggerService.getAmqpTrigger({ workspace, path })
 			return trigger.permissioned_as
 		} else if (kind === 'nats') {
 			const trigger = await NatsTriggerService.getNatsTrigger({ workspace, path })
@@ -488,6 +527,13 @@ export async function getTriggerDependency(kind: TriggerKind, path: string, work
 		})
 
 		result = retrieveKindsValues({ resource_path: mqtt_resource_path, script_path, is_flow })
+	} else if (kind === 'amqp') {
+		const { amqp_resource_path, script_path, is_flow } = await AmqpTriggerService.getAmqpTrigger({
+			workspace: workspace!,
+			path: path
+		})
+
+		result = retrieveKindsValues({ resource_path: amqp_resource_path, script_path, is_flow })
 	} else if (kind === 'nats') {
 		const { nats_resource_path, script_path, is_flow } = await NatsTriggerService.getNatsTrigger({
 			workspace: workspace!,

@@ -15,6 +15,32 @@ use sqlx::FromRow;
 #[derive(Clone, Debug)]
 pub struct WorkspaceId(pub String);
 
+/// Marker extension inserted by the gateway middleware when an MCP token has no
+/// bound workspace (`workspace_id IS NULL`). Signals the runner to operate in
+/// multi-workspace mode: tools take an explicit `workspace_id` argument and the
+/// per-workspace auth is resolved on demand from the raw token.
+#[derive(Clone, Debug)]
+pub struct MultiWorkspaceMcp;
+
+/// Marker extension: the tools server lists a token's scripts and flows and no endpoint
+/// tools. Set on `/api/mcp`, where the full toolset is what reaches the API.
+#[derive(Clone, Debug)]
+pub struct NoEndpointTools;
+
+/// Raw bearer token wrapper for Axum extensions. In multi-workspace mode the
+/// runner needs the raw token to re-resolve auth for each requested workspace.
+#[derive(Clone, Debug)]
+pub struct McpToken(pub String);
+
+/// Summary of a workspace the caller can access, returned by the
+/// `list_workspaces` tool in multi-workspace mode.
+#[derive(Serialize, Debug, Clone)]
+#[cfg_attr(feature = "server", derive(FromRow))]
+pub struct WorkspaceInfo {
+    pub id: String,
+    pub name: String,
+}
+
 /// Hub API response structure
 #[derive(Serialize, Deserialize, Debug)]
 pub struct HubResponse {
@@ -32,17 +58,49 @@ pub struct HubScriptInfo {
 }
 
 /// Schema type structure for JSON schemas
+///
+/// The `#[serde(default)]` attributes are load-bearing: flow input schemas
+/// legitimately omit `required` (they carry an `order` key instead) and can omit
+/// `type`. Without the defaults, `serde_json::from_str::<SchemaType>` errors on
+/// those schemas and callers fall back to an empty schema, dropping every input.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[cfg_attr(feature = "server", derive(FromRow))]
 pub struct SchemaType {
+    #[serde(default = "default_schema_type")]
     pub r#type: String,
+    #[serde(default)]
     pub properties: HashMap<String, Value>,
+    #[serde(default)]
     pub required: Vec<String>,
+    /// The author's guidance for choosing the inputs. A `Value` so that a schema carrying
+    /// anything but a string here still parses, and never serialized: it belongs in the
+    /// tool description, not in the input schema a client validates arguments against.
+    #[serde(default, skip_serializing)]
+    pub prompt_for_ai: Option<Value>,
+}
+
+fn default_schema_type() -> String {
+    "object".to_string()
 }
 
 impl Default for SchemaType {
     fn default() -> Self {
-        Self { r#type: "object".to_string(), properties: HashMap::new(), required: vec![] }
+        Self {
+            r#type: "object".to_string(),
+            properties: HashMap::new(),
+            required: vec![],
+            prompt_for_ai: None,
+        }
+    }
+}
+
+impl SchemaType {
+    pub fn prompt_for_ai(&self) -> Option<&str> {
+        self.prompt_for_ai
+            .as_ref()
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|prompt| !prompt.is_empty())
     }
 }
 
@@ -92,7 +150,8 @@ pub struct ItemSchema {
 
 /// Trait for objects that can be converted to MCP tools
 pub trait ToolableItem {
-    /// Get the MCP-compatible tool name (path transformed with escaping/hashing)
+    /// Get the `s-`/`f-`/`hs-` encoded tool name (path transformed with escaping/hashing).
+    /// Scripts and flows are listed under `assign_tool_names` instead.
     fn get_transformed_path(&self) -> String;
     /// Get the original full path of this item (for display in tool title)
     fn get_full_path(&self) -> &str;

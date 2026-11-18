@@ -7,24 +7,16 @@ import { GlobalOptions } from "../../types.ts";
 import { getHeaders } from "../../utils/utils.ts";
 import { detectAuthGatewayChallenge } from "../../utils/http_guards.ts";
 
-interface DocContentItem {
-  title: string;
+interface DocsSearchResult {
   url: string;
-  source?: {
-    content?: Array<{ text: string }>;
-  };
+  title: string;
+  score: number;
+  snippets: string[];
 }
 
-interface InkeepResponse {
-  choices?: Array<{
-    message?: {
-      content?: string;
-    };
-  }>;
-}
-
-interface ParsedContent {
-  content?: DocContentItem[];
+interface DocsSearchResponse {
+  text: string;
+  results: DocsSearchResult[];
 }
 
 async function docs(
@@ -34,7 +26,9 @@ async function docs(
   await requireLogin(opts);
   const workspace = await resolveWorkspace(opts);
 
-  const url = `${workspace.remote}api/inkeep`;
+  // The backend self-hosts the docs corpus and does the search, so this works
+  // against any instance (no windmill.dev egress required).
+  const url = `${workspace.remote}api/docs/search?query=${encodeURIComponent(query)}`;
 
   console.log(colors.bold(`\nSearching Windmill docs...\n`));
 
@@ -42,13 +36,11 @@ async function docs(
   let res: Response;
   try {
     res = await fetch(url, {
-      method: "POST",
+      method: "GET",
       headers: {
-        "Content-Type": "application/json",
         Authorization: `Bearer ${workspace.token}`,
         ...extraHeaders,
       },
-      body: JSON.stringify({ query }),
     });
   } catch (e) {
     throw new Error(`Network error connecting to ${workspace.remote}: ${e}`);
@@ -56,43 +48,22 @@ async function docs(
 
   await detectAuthGatewayChallenge(res, url);
 
-  if (res.status === 403) {
-    log.info(
-      "Windmill documentation search is an Enterprise Edition feature. Please upgrade to use this command."
-    );
-    return;
-  }
-
   if (!res.ok) {
     throw new Error(
       `Documentation search failed: ${res.status} ${res.statusText}\n${await res.text()}`
     );
   }
 
-  const data = (await res.json()) as InkeepResponse;
-  const raw = data.choices?.[0]?.message?.content;
-
-  if (!raw) {
-    log.info("No documentation found for this query.");
-    return;
-  }
-
-  let parsed: ParsedContent;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    throw new Error("Failed to parse documentation response.");
-  }
-
-  const items = parsed.content ?? [];
-
-  if (items.length === 0) {
-    log.info("No documentation found for this query.");
-    return;
-  }
+  const data = (await res.json()) as DocsSearchResponse;
+  const items = data.results ?? [];
 
   if (opts.json) {
     console.log(JSON.stringify(items, null, 2));
+    return;
+  }
+
+  if (items.length === 0) {
+    log.info("No documentation found for this query.");
     return;
   }
 
@@ -101,9 +72,7 @@ async function docs(
     if (item.url) {
       console.log(`   ${colors.underline(item.url)}`);
     }
-    const text = item.source?.content?.[0]?.text;
-    if (text) {
-      const snippet = text.length > 500 ? text.slice(0, 500) + "..." : text;
+    for (const snippet of item.snippets ?? []) {
       console.log(`   ${snippet}`);
     }
     console.log();

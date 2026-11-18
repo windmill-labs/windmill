@@ -8,9 +8,10 @@
 	import { BROWSER } from 'esm-env'
 
 	import { buildWsUrl } from '$lib/wsUrl'
+	import { signLspRequest } from '$lib/components/debug/debugUtils'
 	import { sendUserToast } from '$lib/toast'
 
-	import { createEventDispatcher, onDestroy, onMount, untrack } from 'svelte'
+	import { createEventDispatcher, getContext, onDestroy, onMount, tick, untrack } from 'svelte'
 
 	// import libStdContent from '$lib/es6.d.ts.txt?raw'
 	// import domContent from '$lib/dom.d.ts.txt?raw'
@@ -26,7 +27,7 @@
 
 	import { toSocket, WebSocketMessageReader, WebSocketMessageWriter } from 'vscode-ws-jsonrpc'
 	import { CloseAction, ErrorAction, RequestType } from 'vscode-languageclient'
-	import type { DocumentUri, MessageTransports } from 'vscode-languageclient'
+	import type { MessageTransports } from 'vscode-languageclient'
 
 	import { MonacoBinding } from 'y-monaco'
 	import {
@@ -40,8 +41,9 @@
 	} from '$lib/stores'
 
 	import { editorConfig, registerWebviewPaste, updateOptions } from '$lib/editorUtils'
+	import { editorFontSize } from '$lib/editorFontSize.svelte'
 	import { createHash as randomHash } from '$lib/editorLangUtils'
-	import { workspaceStore } from '$lib/stores'
+	import DdlMigrationGuard from './DdlMigrationGuard.svelte'
 	import {
 		type Preview,
 		ResourceService,
@@ -86,6 +88,15 @@
 	import { parseTypescriptDeps } from '$lib/relative_imports'
 
 	import { scriptLangToEditorLang } from '$lib/scripts'
+	import {
+		listWorkspaceMacrosCached,
+		macroDefinitionSql
+	} from '$lib/components/assets/workspaceMacros'
+	import {
+		fetchLatestSchema,
+		normalizeAssetPath,
+		type ContractMarker
+	} from '$lib/components/assets/AssetGraph/schemaContracts'
 	import * as htmllang from '$lib/svelteMonarch'
 	import { conf, language } from '$lib/vueMonarch'
 
@@ -99,7 +110,7 @@
 	import FakeMonacoPlaceHolder from './FakeMonacoPlaceHolder.svelte'
 	import { editorPositionMap } from '$lib/utils'
 	import { extToLang, langToExt } from '$lib/editorLangUtils'
-	import { aiChatManager } from './copilot/chat/AIChatManager.svelte'
+	import { aiChatManager, type AIChatManager } from './copilot/chat/AIChatManager.svelte'
 	import type { Selection } from 'monaco-editor'
 	import { canHavePreprocessor, getPreprocessorModuleCode } from '$lib/script_helpers'
 	import { setMonacoTypescriptOptions } from './monacoLanguagesOptions'
@@ -108,6 +119,10 @@
 	import { rawAppLintStore, type MonacoLintError } from './raw_apps/lintStore'
 	import { MarkerSeverity } from 'monaco-editor'
 	import { resource, useDebounce, watch } from 'runed'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import { registerPendingEditor } from './pendingEditorFlush'
+
+	const operatingWorkspace = useOperatingWorkspace()
 	// import EditorTheme from './EditorTheme.svelte'
 
 	let divEl: HTMLDivElement | null = $state(null)
@@ -127,6 +142,9 @@
 		awareness?: any | undefined
 		folding?: boolean
 		args?: Record<string, any> | undefined
+		/** Schema to complete SQL against when the caller already holds it; otherwise it is
+		 * looked up from `args.database`. */
+		sqlSchema?: DBSchema | undefined
 		useWebsockets?: boolean
 		small?: boolean
 		scriptLang: Preview['language'] | 'bunnative' | 'tsx' | 'jsx' | 'json' | undefined
@@ -135,7 +153,17 @@
 		lineNumbersMinChars?: number
 		files?: Record<string, { code: string; readonly?: boolean }> | undefined
 		extraLib?: string | undefined
+		/** Trailing debounce window (ms) on Monaco's onDidChangeModelContent.
+		 * Each keystroke schedules (or reschedules) an `updateCode` call this
+		 * far in the future. */
 		changeTimeout?: number
+		/** Hard ceiling (ms) on how long `updateCode` can be deferred while
+		 * the user is typing continuously — measured from the FIRST
+		 * keystroke of the burst (the leading fire). Without this cap,
+		 * uninterrupted typing would hold the bindable `code` prop stale
+		 * indefinitely and downstream consumers (autosave, lint, live
+		 * preview) would never see the latest text. */
+		maxChangeTimeout?: number
 		loadAsync?: boolean
 		key?: string | undefined
 		class?: string | undefined
@@ -147,6 +175,11 @@
 		preparedAssetsSqlQueries?: InferAssetsSqlQueryDetails[] | undefined
 		// To execute preview scripts with the right worker group
 		customTag?: string
+		// Live schema-contract diagnostics (pipelines gap #2b): owner-scoped
+		// warning markers computed by the caller (ScriptEditor's contract
+		// mirror) from the buffer's asset refs vs captured producer schemas.
+		// Warning severity only — contracts never block; empty clears.
+		schemaContractMarkers?: ContractMarker[]
 	}
 
 	let {
@@ -162,6 +195,7 @@
 		awareness = undefined,
 		folding = false,
 		args = undefined,
+		sqlSchema = undefined,
 		useWebsockets = true,
 		small = false,
 		scriptLang,
@@ -171,6 +205,7 @@
 		files = {},
 		extraLib = undefined,
 		changeTimeout = 500,
+		maxChangeTimeout = 1000,
 		loadAsync = false,
 		key = undefined,
 		class: clazz = undefined,
@@ -178,7 +213,8 @@
 		enablePreprocessorSnippet = false,
 		rawAppRunnableKey = undefined,
 		preparedAssetsSqlQueries,
-		customTag
+		customTag,
+		schemaContractMarkers = []
 	}: Props = $props()
 
 	$effect.pre(() => {
@@ -195,6 +231,35 @@
 
 	let lang = $state(scriptLangToEditorLang(untrack(() => scriptLang)))
 
+	// On a postgres script targeting a datatable, DDL statements are intercepted
+	// on run (cmd+enter) and offered as migrations instead.
+	let datatableForMigrations = $derived(
+		scriptLang === 'postgresql' &&
+			typeof args?.database === 'string' &&
+			args.database.startsWith('datatable://')
+			? args.database.slice('datatable://'.length).split('/')[0]
+			: undefined
+	)
+	let ddlGuard = $state<DdlMigrationGuard | undefined>(undefined)
+
+	// Run the DDL migration guard against the current code. Returns false when the
+	// user cancels (the run must be aborted); may rewrite the code (migrated
+	// statements stripped). Exported so run paths that bypass the Monaco
+	// Cmd+Enter binding (e.g. the Test button) can guard too.
+	export async function guardDdlBeforeRun(): Promise<boolean> {
+		if (datatableForMigrations && ddlGuard) {
+			const res = await ddlGuard.guard(getCode())
+			if (!res.proceed) return false
+			if (res.code !== getCode()) setCode(res.code)
+		}
+		return true
+	}
+
+	async function runCmdEnterWithDdlGuard() {
+		if (!(await guardDdlBeforeRun())) return
+		cmdEnterAction?.()
+	}
+
 	let filePath = $state(computePath(untrack(() => path)))
 
 	let initialPath: string | undefined = $state(untrack(() => path))
@@ -207,11 +272,22 @@
 	let disposeMethod: (() => void) | undefined
 	const absolutePathExtraLibs = new Map<string, { dispose: () => void }>()
 	const dispatch = createEventDispatcher()
+	// Set by the sessions pane; undefined everywhere else. ⌘L targets it so the
+	// shortcut reaches the chat the user is actually looking at. Read directly
+	// rather than via getAiChatManager(), which collapses "no session" into the
+	// singleton — the distinction is what tells ⌘L whether a pane exists to open.
+	const sessionScopedChatManager = getContext<AIChatManager | undefined>('aiChatManager')
+	// Autocomplete in a session's editor follows the session's workspace, not the tab's.
+	const completionInfo = $derived(
+		sessionScopedChatManager ? sessionScopedChatManager.aiInfo : $copilotInfo
+	)
 	// let graphqlService: MonacoGraphQLAPI | undefined = undefined
 
-	let dbSchema: DBSchema | undefined = $state(undefined)
+	let fetchedDbSchema: DBSchema | undefined = $state(undefined)
+	let dbSchema: DBSchema | undefined = $derived(sqlSchema ?? fetchedDbSchema)
 
 	let destroyed = false
+	let reloadSeq = 0
 	const uri = computeUri(
 		untrack(() => filePath),
 		untrack(() => scriptLang)
@@ -357,23 +433,12 @@
 			code = ncode
 		}
 
-		if (noHistory) {
-			editor?.setValue(ncode)
-		} else {
-			if (editor?.getModel()) {
-				// editor.setValue(ncode)
-				editor.pushUndoStop()
-
-				editor.executeEdits('set', [
-					{
-						range: editor.getModel()!.getFullModelRange(), // full range
-						text: ncode
-					}
-				])
-
-				editor.pushUndoStop()
-			}
-		}
+		// setCode is an authoritative overwrite (reset, AI apply, module switch).
+		// Cancel any in-flight keystroke debounce first: otherwise alignCodeWithEditor
+		// skips on the `timeoutModel` guard (leaving Monaco stale), and the pending
+		// updateCode later reads the old buffer and writes it back over `ncode`.
+		cancelPendingChanges()
+		alignCodeWithEditor(!noHistory)
 		// Dispatch change immediately when code actually changed. This ensures
 		// callers like the Reset button and copilot trigger on:change handlers.
 		// The debounced onDidChangeModelContent handler will no-op since code
@@ -407,8 +472,40 @@
 			return
 		}
 		code = ncode
+		lastEditorCode = ncode
 		dispatch('change', ncode)
 	}
+
+	/** Force-materialize the latest Monaco content into the bindable
+	 * `code` prop right now, bypassing the trailing debounce. Use for
+	 * explicit "save now" shortcuts (Ctrl/Cmd+S) — without this, anything
+	 * the user typed within the last `changeTimeout` ms is still sitting
+	 * in Monaco's buffer and downstream consumers (autosave, lint) won't
+	 * see it. Clears the chain state so the next keystroke after this
+	 * flush is a fresh leading fire. */
+	export function flushPendingChanges(): void {
+		cancelPendingChanges()
+		updateCode()
+	}
+
+	/** Discard any in-flight keystroke debounce without materializing it, so a
+	 * deferred updateCode can't fire later. Resets chain state to a fresh leading
+	 * fire on the next keystroke. */
+	function cancelPendingChanges(): void {
+		if (timeoutModel !== undefined) {
+			clearTimeout(timeoutModel)
+			timeoutModel = undefined
+		}
+		changeChainStart = undefined
+	}
+
+	// Same guards as the unmount flush below: only when a keystroke is actually pending.
+	const unregisterPending = registerPendingEditor({
+		flushPendingChanges: () => {
+			if (editor && timeoutModel !== undefined) flushPendingChanges()
+		}
+	})
+	onDestroy(unregisterPending)
 
 	export function append(code: string): void {
 		if (editor) {
@@ -504,8 +601,6 @@
 		}
 	}
 
-	let command: IDisposable | undefined = undefined
-
 	let sqlTypeCompletor: IDisposable | undefined = $state(undefined)
 	let resultCollectionCompletor: IDisposable | undefined = $state(undefined)
 
@@ -600,24 +695,118 @@
 		})
 	}
 
+	let workspaceMacroCompletor: IDisposable | undefined = undefined
+
+	// Workspace DuckDB macros (deployed `// macros` libraries): suggest each
+	// macro while typing an identifier, with its signature + body as docs and
+	// a snippet insert that parks the cursor inside the call parens. Fetched
+	// via a short-TTL cache — macros are late-bound, so mild staleness is fine.
+	async function addWorkspaceMacroCompletions() {
+		workspaceMacroCompletor?.dispose()
+		const workspace = $operatingWorkspace
+		if (!workspace) return
+		let macros: Awaited<ReturnType<typeof listWorkspaceMacrosCached>> = []
+		try {
+			macros = await listWorkspaceMacrosCached(workspace)
+		} catch (e) {
+			console.error('error listing workspace macros', e)
+			return
+		}
+		if (macros.length === 0) return
+		workspaceMacroCompletor = languages.registerCompletionItemProvider('sql', {
+			provideCompletionItems: function (model, position) {
+				const word = model.getWordUntilPosition(position)
+				const range = {
+					startLineNumber: position.lineNumber,
+					endLineNumber: position.lineNumber,
+					startColumn: word.startColumn,
+					endColumn: word.endColumn
+				}
+				const suggestions = macros.map((m) => ({
+					label: `${m.name}(${m.params})`,
+					kind: m.is_table
+						? languages.CompletionItemKind.Interface
+						: languages.CompletionItemKind.Function,
+					detail: `${m.is_table ? 'table macro' : 'macro'} · ${m.provider_path}`,
+					documentation: {
+						value: '```sql\n' + macroDefinitionSql(m) + '\n```'
+					},
+					insertText: `${m.name}($0)`,
+					insertTextRules: languages.CompletionItemInsertTextRule.InsertAsSnippet,
+					filterText: m.name,
+					range,
+					sortText: 'b' + m.name
+				}))
+				return { suggestions }
+			}
+		})
+	}
+
+	let schemaContractCompletor: IDisposable | undefined = undefined
+
+	// Column-name completion for pipeline annotation refs (`// column out <-
+	// ducklake://lake/orders.|`, `// data_test relationships col ->
+	// ducklake://lake/customers.|`): suggests the referenced asset's *captured*
+	// columns (with types) so a broken ref never gets typed — the prevention
+	// side of the schema-contract check. Only fires on annotation comment lines
+	// with a ducklake URI right before the cursor's `.`; schemas come from the
+	// short-TTL contract cache, so per-keystroke cost is a map lookup.
+	function addSchemaContractCompletions() {
+		schemaContractCompletor?.dispose()
+		schemaContractCompletor = languages.registerCompletionItemProvider(lang, {
+			triggerCharacters: ['.'],
+			provideCompletionItems: async function (model, position) {
+				// Read the store per request, not at registration — the provider
+				// outlives a workspace switch.
+				const workspace = $operatingWorkspace
+				if (!workspace) return { suggestions: [] }
+				const before = model.getLineContent(position.lineNumber).slice(0, position.column - 1)
+				if (!/^\s*(\/\/|--|#)\s*(column|data_test|on|materialize)\b/.test(before)) {
+					return { suggestions: [] }
+				}
+				const uri = before.match(/ducklake:\/\/([\w/.{}-]+?)\.$/)
+				if (!uri) return { suggestions: [] }
+				const schema = await fetchLatestSchema(workspace, normalizeAssetPath(uri[1]))
+				if (!schema) return { suggestions: [] }
+				const word = model.getWordUntilPosition(position)
+				const range = {
+					startLineNumber: position.lineNumber,
+					endLineNumber: position.lineNumber,
+					startColumn: word.startColumn,
+					endColumn: word.endColumn
+				}
+				return {
+					suggestions: schema.columns.map((c) => ({
+						label: c.name,
+						kind: languages.CompletionItemKind.Field,
+						detail: `${c.type} · captured schema v${schema.version}`,
+						insertText: c.name,
+						range,
+						sortText: 'a' + c.name
+					}))
+				}
+			}
+		})
+	}
+
 	let sqlSchemaCompletor: IDisposable | undefined = undefined
 
 	async function updateSchema(newSchemaRes: string | undefined) {
 		if (typeof newSchemaRes === 'string') {
 			const resourcePath = newSchemaRes.replace('$res:', '')
-			dbSchema = $dbSchemas[resourcePath]
-			if (dbSchema === undefined) {
+			fetchedDbSchema = $dbSchemas[resourcePath]
+			if (fetchedDbSchema === undefined) {
 				$dbSchemas[resourcePath] = await getDbSchemas(
 					lang === 'graphql' ? 'graphql' : (scriptLang ?? ''),
 					resourcePath,
-					$workspaceStore,
+					$operatingWorkspace,
 					(e) => console.error(`error getting ${lang} (${scriptLang}) db schema`, e),
 					{ customTag }
 				)
 			}
-			dbSchema = $dbSchemas[resourcePath]
+			fetchedDbSchema = $dbSchemas[resourcePath]
 		} else {
-			dbSchema = undefined
+			fetchedDbSchema = undefined
 		}
 	}
 
@@ -652,6 +841,9 @@
 			sqlSchemaCompletor = languages.registerCompletionItemProvider('sql', {
 				triggerCharacters: ['.', ' ', '('],
 				provideCompletionItems: function (model, position) {
+					// Registered for the whole `sql` language: every other mounted SQL editor
+					// would otherwise add its own schema's suggestions to this one's.
+					if (model !== editor?.getModel()) return { suggestions: [] }
 					const textUntilPosition = model.getValueInRange({
 						startLineNumber: 1,
 						startColumn: 1,
@@ -829,7 +1021,11 @@
 		if (autocompletor) {
 			autocompletor.dispose()
 		}
-		autocompletor = new Autocompletor(editor, scriptLang, { workflowAsCode })
+		const session = sessionScopedChatManager
+		autocompletor = new Autocompletor(editor, scriptLang, {
+			workflowAsCode,
+			sessionTarget: session ? () => session.loadedSessionAiTarget : undefined
+		})
 	}
 
 	const outputChannel = {
@@ -848,17 +1044,13 @@
 	}
 
 	export async function reloadWebsocket() {
+		// closeWebsockets() and the signing round-trip below are both async, so overlapping
+		// (re)connects can interleave. Claim a generation up front; after the awaits, only the
+		// latest proceeds, so a superseded call never opens a second set of language clients.
+		const thisReload = ++reloadSeq
 		await closeWebsockets()
 
-		if (
-			!useWebsockets ||
-			!(
-				(lang == 'typescript' && scriptLang === 'deno') ||
-				lang == 'python' ||
-				lang == 'go' ||
-				lang == 'shell'
-			)
-		) {
+		if (!useWebsockets || !(lang == 'python' || lang == 'go' || lang == 'shell')) {
 			return
 		}
 		console.log('reloadWebsocket')
@@ -984,24 +1176,6 @@
 
 					lastWsAttempt = new Date()
 					nbWsAttempt = 0
-					if (name == 'deno') {
-						command && command.dispose()
-						command = undefined
-						try {
-							command = vscode.commands.registerCommand(
-								'deno.cache',
-								(uris: DocumentUri[] = []) => {
-									languageClient.sendRequest(new RequestType('deno/cache'), {
-										referrer: { uri },
-										uris: uris.map((uri) => ({ uri }))
-									})
-								}
-							)
-						} catch (err) {
-							console.warn(err)
-						}
-					}
-
 					websocketAlive[name] = true
 				}
 			} catch (err) {
@@ -1009,76 +1183,25 @@
 			}
 		}
 
-		const hostname = getHostname()
-
-		let encodedImportMap = ''
-
 		if (useWebsockets) {
-			if (lang == 'typescript' && scriptLang === 'deno') {
-				ata = undefined
-				let root = await genRoot(hostname)
-				const importMap = {
-					imports: {
-						'file:///': root + '/'
-					}
-				}
-				if (filePath && filePath.split('/').length > 2) {
-					let path_splitted = filePath.split('/')
-					for (let c = 0; c < path_splitted.length; c++) {
-						let key = 'file://./'
-						for (let i = 0; i < c; i++) {
-							key += '../'
-						}
-						let url = path_splitted.slice(0, -c - 1).join('/')
-						let ending = c == path_splitted.length - 1 ? '' : '/'
-						importMap['imports'][key] = `${root}/${url}${ending}`
-					}
-				}
-				encodedImportMap = 'data:text/plain;base64,' + btoa(JSON.stringify(importMap))
+			// Signed afresh on every (re)connection: the windmill_extra gateway checks it at
+			// connect time and it expires within a minute. A connection without one is still
+			// attempted, for an extra image that does not require it.
+			let lspToken: string | undefined
+			try {
+				lspToken = await signLspRequest($operatingWorkspace ?? '')
+			} catch (err) {
+				console.warn('could not sign a language server session', err)
+			}
+			// After the signing round-trip, bail if the editor was destroyed (onDestroy tore the
+			// sockets and interval down) or a newer reload superseded this one.
+			if (destroyed || thisReload !== reloadSeq) return
+			const lspUrl = (path: string) =>
+				lspToken ? `${buildWsUrl(path)}?token=${encodeURIComponent(lspToken)}` : buildWsUrl(path)
+
+			if (lang === 'python') {
 				await connectToLanguageServer(
-					buildWsUrl('/ws/deno'),
-					'deno',
-					{
-						certificateStores: null,
-						enablePaths: [],
-						config: null,
-						importMap: encodedImportMap,
-						internalDebug: false,
-						lint: false,
-						path: null,
-						tlsCertificate: null,
-						unsafelyIgnoreCertificateErrors: null,
-						unstable: true,
-						enable: true,
-						codeLens: {
-							implementations: true,
-							references: true,
-							referencesAllFunction: false
-						},
-						suggest: {
-							autoImports: true,
-							completeFunctionCalls: false,
-							names: true,
-							paths: true,
-							imports: {
-								autoDiscover: true,
-								hosts: {
-									'https://deno.land': true
-								}
-							}
-						}
-					},
-					() => {
-						return [
-							{
-								enable: true
-							}
-						]
-					}
-				)
-			} else if (lang === 'python') {
-				await connectToLanguageServer(
-					buildWsUrl('/ws/pyright'),
+					lspUrl('/ws/pyright'),
 					'pyright',
 					{},
 					(params, token, next) => {
@@ -1108,10 +1231,18 @@
 					}
 				)
 
-				connectToLanguageServer(buildWsUrl('/ws/ruff'), 'ruff', {}, undefined)
+				// `ruff server` resolves settings per workspace folder, and the folder registered
+				// below is the document URI rather than a directory containing it, so a ruff.toml
+				// on disk never applies unless named here (written by lsp/pyls_launcher.py).
+				connectToLanguageServer(
+					lspUrl('/ws/ruff'),
+					'ruff',
+					{ settings: { configuration: '/tmp/monaco/ruff.toml' } },
+					undefined
+				)
 			} else if (lang === 'go') {
 				connectToLanguageServer(
-					buildWsUrl('/ws/go'),
+					lspUrl('/ws/go'),
 					'go',
 					{
 						'build.allowImplicitNetworkAccess': true
@@ -1120,7 +1251,7 @@
 				)
 			} else if (lang === 'shell') {
 				connectToLanguageServer(
-					buildWsUrl('/ws/diagnostic'),
+					lspUrl('/ws/diagnostic'),
 					'shellcheck',
 					{
 						linters: {
@@ -1166,13 +1297,13 @@
 						(new Date().getTime() - lastWsAttempt.getTime() > 60000 && nbWsAttempt < 2)
 					) {
 						if (
-							!websocketAlive.deno &&
 							!websocketAlive.pyright &&
 							!websocketAlive.go &&
 							!websocketAlive.shellcheck &&
 							!websocketAlive.ruff &&
 							scriptLang != 'bun' &&
-							scriptLang != 'tsx'
+							scriptLang != 'tsx' &&
+							scriptLang != 'deno'
 						) {
 							console.log('reconnecting to language servers')
 							lastWsAttempt = new Date()
@@ -1207,9 +1338,6 @@
 	}
 
 	async function closeWebsockets() {
-		command && command.dispose()
-		command = undefined
-
 		console.debug(`disposing ${websockets.length} language clients and closing websockets`)
 		for (const x of languageClients) {
 			try {
@@ -1320,6 +1448,10 @@
 	}
 
 	let timeoutModel: number | undefined = undefined
+	/** Wall-clock start (ms) of the current debounce chain. Reset whenever
+	 * the trailing fire lands — so a typing burst → pause → typing burst
+	 * gets a fresh leading fire instead of inheriting the previous cap. */
+	let changeChainStart: number | undefined = undefined
 	async function loadMonaco() {
 		setMonacoTypescriptOptions()
 		console.log('path', uri)
@@ -1331,6 +1463,9 @@
 		} catch (e) {
 			console.log('error initializing services', e)
 		}
+		// Unmounted while the services loaded: the container is detached, and
+		// creating the editor on it throws.
+		if (destroyed || !divEl?.isConnected) return
 
 		// vscode.languages.registerDefinitionProvider('*', {
 		// 	provideDefinition(document, position, token) {
@@ -1374,7 +1509,7 @@
 					$relativeLineNumbers
 				),
 				model,
-				fontSize: !small ? 13.5 : 12,
+				fontSize: small ? editorFontSize.small : editorFontSize.regular,
 				lineNumbersMinChars,
 				// overflowWidgetsDomNode: widgets,
 				tabSize: lang == 'python' ? 4 : 2,
@@ -1426,10 +1561,29 @@
 		let ataModel: number | undefined = undefined
 
 		editor?.onDidChangeModelContent((event) => {
-			timeoutModel && clearTimeout(timeoutModel)
-			timeoutModel = setTimeout(() => {
+			// Leading fire on the first keystroke of a burst: every
+			// downstream consumer (autosave's 1.5s debouncer, the
+			// `bind:code` chain, change listeners) sees text within the
+			// same tick instead of after `changeTimeout` ms of silence.
+			// Subsequent keystrokes within the burst are trailing-only
+			// (debounced by `changeTimeout`), with a hard ceiling at
+			// `chainStart + maxChangeTimeout` so continuous typing still
+			// materializes at least once per `maxChangeTimeout` window.
+			const now = Date.now()
+			if (changeChainStart === undefined) {
 				updateCode()
-			}, changeTimeout)
+				changeChainStart = now
+			}
+			timeoutModel && clearTimeout(timeoutModel)
+			const fireAt = Math.min(now + changeTimeout, changeChainStart + maxChangeTimeout)
+			timeoutModel = setTimeout(
+				() => {
+					updateCode()
+					timeoutModel = undefined
+					changeChainStart = undefined
+				},
+				Math.max(0, fireAt - now)
+			)
 
 			ataModel && clearTimeout(ataModel)
 			ataModel = setTimeout(() => {
@@ -1472,11 +1626,20 @@
 			editor?.addCommand(KeyMod.CtrlCmd | KeyCode.KeyS, function () {
 				updateCode()
 				shouldBindKey && format && format()
+				// Monaco swallows the keydown (addCommand prevents default and
+				// stops propagation), so page-level Ctrl/Cmd+S handlers never
+				// see it. Re-broadcast as a window event so editors that flush
+				// a draft on the shortcut can react regardless of which Monaco
+				// has focus. Only after `tick()`: the autosave payload is parked
+				// by a `$effect`, so dispatching synchronously would make every
+				// listener flush the state from before `updateCode()`.
+				void tick().then(() => window.dispatchEvent(new CustomEvent('wm-monaco-save-shortcut')))
 			})
 
 			editor?.addCommand(KeyMod.CtrlCmd | KeyCode.Enter, function () {
 				updateCode()
-				shouldBindKey && cmdEnterAction && cmdEnterAction()
+				if (!shouldBindKey || !cmdEnterAction) return
+				void runCmdEnterWithDdlGuard()
 			})
 
 			editor?.addCommand(KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.Digit7, function () {
@@ -1491,16 +1654,18 @@
 					selection &&
 					(selection.startLineNumber !== selection.endLineNumber ||
 						selection.startColumn !== selection.endColumn)
+				// Only a session pane has a chat on screen to send the lines to.
+				const chat = sessionScopedChatManager
+				if (!chat) return
 				if (hasSelection && selectedLines) {
-					aiChatManager.addSelectedLinesToContext(
+					chat.addSelectedLinesToContext(
 						selectedLines,
 						selection.startLineNumber,
 						selection.endLineNumber,
 						moduleId
 					)
 				} else {
-					aiChatManager.toggleOpen()
-					aiChatManager.focusInput()
+					chat.focusInput()
 				}
 			})
 
@@ -1520,7 +1685,6 @@
 			})
 
 			if (
-				!websocketAlive.deno &&
 				!websocketAlive.pyright &&
 				!websocketAlive.ruff &&
 				!websocketAlive.shellcheck &&
@@ -1562,9 +1726,9 @@
 	let customTsTypesData = resource([() => lang], async () => {
 		if (lang !== 'typescript') return undefined
 		let datatables = (
-			await WorkspaceService.listDataTables({ workspace: $workspaceStore ?? '' })
+			await WorkspaceService.listDataTables({ workspace: $operatingWorkspace ?? '' })
 		).map((d) => d.name)
-		let ducklakes = await WorkspaceService.listDucklakes({ workspace: $workspaceStore ?? '' })
+		let ducklakes = await WorkspaceService.listDucklakes({ workspace: $operatingWorkspace ?? '' })
 		return { datatables, ducklakes }
 	})
 	function setTypescriptCustomTypes() {
@@ -1605,9 +1769,15 @@
 				scriptLang === 'bunnative' ||
 				scriptLang === 'nativets')
 		) {
-			const resourceTypes = await ResourceService.listResourceType({
-				workspace: $workspaceStore ?? ''
-			})
+			// The generated client resolves `undefined` for any response whose body it
+			// cannot read — `getResponseBody` swallows a parse failure and returns
+			// nothing, which `catchErrorCodes` passes through on a 2xx. Typing says
+			// otherwise, so without this the editor dies on mount rather than losing
+			// its resource-type autocomplete.
+			const resourceTypes =
+				(await ResourceService.listResourceType({
+					workspace: $operatingWorkspace ?? ''
+				})) ?? []
 
 			const namespace = formatResourceTypes(
 				resourceTypes,
@@ -1749,6 +1919,13 @@
 
 	let aiChatInlineWidget: AIChatInlineWidget | null = $state(null)
 
+	$effect(() => {
+		const fontSize = small ? editorFontSize.small : editorFontSize.regular
+		if (editor) {
+			editor.updateOptions({ fontSize })
+		}
+	})
+
 	let loadTimeout: number | undefined = undefined
 	onMount(async () => {
 		if (BROWSER) {
@@ -1762,7 +1939,13 @@
 	})
 
 	onDestroy(() => {
-		console.log('destroying editor')
+		// Flush a pending keystroke debounce, or unmounting discards the last
+		// `changeTimeout` ms of typing. Both guards are load-bearing: without a pending
+		// timer Monaco isn't the newer side (an external write may be), and before init
+		// `getCode()` is '' — flushing either case overwrites real content.
+		if (editor && timeoutModel !== undefined) {
+			updateCode()
+		}
 		valueAfterDispose = getCode()
 		pasteCleanup?.()
 		destroyed = true
@@ -1772,8 +1955,11 @@
 		autocompletor && autocompletor.dispose()
 		sqlTypeCompletor && sqlTypeCompletor.dispose()
 		resultCollectionCompletor && resultCollectionCompletor.dispose()
+		workspaceMacroCompletor && workspaceMacroCompletor.dispose()
+		schemaContractCompletor && schemaContractCompletor.dispose()
 		preprocessorCompletor && preprocessorCompletor.dispose()
 		timeoutModel && clearTimeout(timeoutModel)
+		changeChainStart = undefined
 		loadTimeout && clearTimeout(loadTimeout)
 		aiChatEditorHandler?.clear()
 		absolutePathExtraLibs.forEach((d) => d.dispose())
@@ -1791,7 +1977,7 @@
 			$lspTokenStore = newToken
 			token = newToken
 		}
-		let root = hostname + '/api/scripts_u/tokened_raw/' + $workspaceStore + '/' + token
+		let root = hostname + '/api/scripts_u/tokened_raw/' + $operatingWorkspace + '/' + token
 		return root
 	}
 
@@ -1829,6 +2015,7 @@
 	$effect(() => {
 		lang = scriptLangToEditorLang(scriptLang)
 	})
+
 	$effect(() => {
 		filePath = computePath(path)
 	})
@@ -1843,6 +2030,44 @@
 		initialized && lang === 'sql' && scriptLang
 			? untrack(() => addSqlTypeCompletions())
 			: (sqlTypeCompletor?.dispose(), resultCollectionCompletor?.dispose())
+	})
+
+	$effect(() => {
+		initialized && lang === 'sql' && scriptLang === 'duckdb'
+			? untrack(() => {
+					addWorkspaceMacroCompletions()
+				})
+			: workspaceMacroCompletor?.dispose()
+	})
+
+	// Pipeline annotation grammar is language-agnostic (`//` / `--` / `#`
+	// comment headers), so contract-ref completions register for every script
+	// language that can be a pipeline member. The provider line-gates itself,
+	// so it is inert outside annotation lines.
+	$effect(() => {
+		initialized && ['duckdb', 'python3', 'bun', 'deno', 'nativets'].includes(scriptLang ?? '')
+			? untrack(() => addSchemaContractCompletions())
+			: schemaContractCompletor?.dispose()
+	})
+
+	// Schema-contract markers arrive as a prop because the mirror can finish
+	// computing before Monaco initializes on mount — reacting to `initialized`
+	// re-applies the pending set once the model exists. The ever-set latch
+	// keeps unrelated editors from calling setModelMarkers with [] forever.
+	let contractMarkersEverSet = false
+	$effect(() => {
+		const ms = schemaContractMarkers
+		if (!initialized || (ms.length === 0 && !contractMarkersEverSet)) return
+		contractMarkersEverSet = true
+		untrack(() => {
+			const model = editor?.getModel()
+			if (!model) return
+			meditor.setModelMarkers(
+				model,
+				'schema-contracts',
+				ms.map((m) => ({ ...m, severity: MarkerSeverity.Warning }))
+			)
+		})
 	})
 
 	$effect(() => {
@@ -1874,9 +2099,9 @@
 	})
 	$effect(() => {
 		const currentWorkflowAsCode = workflowAsCode
-		$copilotInfo.enabled &&
+		completionInfo?.enabled &&
 			$codeCompletionSessionEnabled &&
-			Autocompletor.isProviderModelSupported($copilotInfo.codeCompletionModel) &&
+			Autocompletor.isProviderModelSupported(completionInfo.codeCompletionModel) &&
 			initialized &&
 			editor &&
 			scriptLang &&
@@ -1886,7 +2111,7 @@
 		$copilotInfo.enabled && initialized && editor && untrack(() => editor && addChatHandler(editor))
 	})
 	$effect(() => {
-		!$codeCompletionSessionEnabled && autocompletor?.dispose()
+		;(!$codeCompletionSessionEnabled || !completionInfo?.enabled) && autocompletor?.dispose()
 	})
 	$effect(() => {
 		if (yContent && awareness && model && editor) {
@@ -1916,25 +2141,56 @@
 		})
 	})
 
-	// External `code` prop changes should flow into the Monaco editor. The
-	// `untrack` block reads/writes Monaco without subscribing — only the
-	// prop read above is tracked — so the editor's own change handler
-	// (`updateCode`) re-running with the same value short-circuits and we
-	// don't loop.
-	$effect(() => {
-		const next = code ?? ''
+	let applyExternalCode = useDebounce(() => alignCodeWithEditor(true), 800)
+
+	// Last `code` value the editor itself produced or aligned to. Used to tell an
+	// echo (the bindable changed because the user typed — Monaco is already
+	// ahead) from a genuine external write. Without this, a typing burst longer
+	// than the debounce window would sync the lagging `code` back over newer
+	// keystrokes. Must be kept in step with every editor↔`code` sync point.
+	let lastEditorCode = code
+
+	function alignCodeWithEditor(history: boolean) {
 		const ed = editor
 		if (!ed) return
-		untrack(() => {
-			if (ed.getValue() === next) return
-			const model = ed.getModel()
-			if (!model) return
+		const next = code ?? ''
+		const value = ed.getValue()
+		const model = ed.getModel()
+		// Some keystrokes are still being debounced, don't overwrite them.
+		// When the debounce is done, updateCode will be called and the code will be aligned with the editor.
+		if (timeoutModel !== undefined) return
+		if (!model) return
+		lastEditorCode = next
+		if (value === next) return
+		if (history) {
 			ed.pushUndoStop()
 			ed.executeEdits('external', [{ range: model.getFullModelRange(), text: next }])
 			ed.pushUndoStop()
+		} else {
+			ed.setValue(next)
+		}
+		// The write above went through `onDidChangeModelContent`, which arms the
+		// keystroke debounce as if the user had typed. Monaco now holds exactly
+		// `code`, so there is nothing to flush — and leaving the timer armed makes
+		// every "is Monaco the newer side?" check (notably the unmount flush) answer
+		// yes on the strength of our own write.
+		cancelPendingChanges()
+	}
+
+	// External `code` prop changes should flow into the Monaco editor. Skip
+	// echoes: when `code` matches what the editor last produced (`updateCode`)
+	// or aligned to, the change came from the editor itself, so syncing back
+	// would clobber input typed since. Only genuine external writes — where
+	// `code` diverges from `lastEditorCode` — schedule a sync. The `untrack`
+	// block reads/writes Monaco without subscribing, so we don't loop.
+	$effect(() => {
+		;[code, editor]
+		if (!editor) return
+		untrack(() => {
+			if (code === lastEditorCode) return
+			applyExternalCode()
 		})
 	})
-
 	let isTsWorkerInitialized = resource([() => lang, () => initialized], async () => {
 		if (lang !== 'typescript' || !initialized) return false
 		// Use the stable model URI (computed once at mount), not filePath which changes on rename
@@ -1972,6 +2228,13 @@
 
 <svelte:window onkeydown={onKeyDown} />
 <EditorTheme />
+{#if datatableForMigrations && $operatingWorkspace}
+	<DdlMigrationGuard
+		bind:this={ddlGuard}
+		workspace={$operatingWorkspace}
+		datatable={datatableForMigrations}
+	/>
+{/if}
 {#if !editor}
 	<div class="inset-0 absolute overflow-clip">
 		<FakeMonacoPlaceHolder {code} lineNumbersWidth={51} />

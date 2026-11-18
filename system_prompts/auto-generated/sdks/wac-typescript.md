@@ -1,16 +1,52 @@
 ## TypeScript Workflow-as-Code API (windmill-client)
 
-Import: `import { workflow, task, taskScript, taskFlow, step, sleep, waitForApproval, getResumeUrls, parallel } from "windmill-client"`
+Import: `import { workflow, task, taskScript, taskFlow, step, sleep, waitForApproval, getApprovalUrls, getResumeUrls, parallel } from "windmill-client"`
 
 ```typescript
+/**
+ * Re-dispatch policy for a failed task.
+ *
+ * Every attempt is a step of its own (`fetch`, `fetch#2`, `fetch#3`), and the
+ * wait between two of them is a durable sleep, so a retrying task holds no
+ * worker while it backs off.
+ *
+ * A workflow sleeps once per round, so tasks backing off in the same fan-out
+ * wait one after another rather than together: the delay before a fan-out
+ * retries is the sum of every backoff pending in it, not the longest one, and
+ * it grows with both the width of the fan-out and `attempts`. Retries with no
+ * `delay` all go out in a single round.
+ */
+export interface TaskRetry {
+  /** Attempts after the first failure: `2` runs the task at most 3 times.
+  *  A whole number from 0 to 100; anything else is rejected where the policy
+  *  is written. */
+  attempts: number;
+  /** Seconds to wait before the first retry. Default 0, retry immediately.
+  *  Sub-second delays are dropped — a durable sleep resolves to the second. */
+  delay?: number;
+  /** Applied to the delay after each attempt: 1 (the default) keeps it
+  *  constant, 2 doubles it. */
+  multiplier?: number;
+  /** Ceiling for the delay in seconds, for a `multiplier` above 1. */
+  max_delay?: number;
+}
+
 export interface TaskOptions {
   timeout?: number;
   tag?: string;
+  /** Seconds during which a previous result of this task is served instead of
+  *  running it again. A task written inline in the workflow is keyed on its
+  *  step key (its name and call order) and the workflow's input, not on the
+  *  arguments it is called with, so cache one only when whether it runs, and
+  *  what it receives, follow from the workflow's input alone. A `taskScript`
+  *  target is keyed on the arguments it is called with. It has no effect on a
+  *  `taskFlow` target, which keeps its flow's own cache policy. */
   cache_ttl?: number;
   priority?: number;
   concurrency_limit?: number;
   concurrency_key?: string;
   concurrency_time_window_s?: number;
+  retry?: TaskRetry;
 }
 
 /**
@@ -28,11 +64,18 @@ export async function getResumeUrls(approver?: string, flowLevel?: boolean): Pro
  * @example
  * const extract_data = task(async (url: string) => { ... });
  * const run_external = task("f/external_script", async (x: number) => { ... });
+ * const call_api = task(fetchOrders, { retry: { attempts: 3, delay: 30, multiplier: 2 } });
  *
  * Inside a `workflow()`, calling a task dispatches it as a step.
- * Outside a workflow, the function body executes directly.
+ * Outside a workflow, or called from inside another task, the function body
+ * executes directly and {@link TaskOptions} — retry included — does not apply:
+ * a task runs as a single job, so the tasks it calls run in that same job.
+ *
+ * A task runs as its own job, so its result is always encoded as JSON and
+ * decoded back before the caller sees it: a `Date` comes back as a string, a
+ * `Map` as `{}`. {@link JsonifiedFn} is that shape.
  */
-export function task<T extends (...args: any[]) => Promise<any>>(fnOrPath: T | string, maybeFnOrOptions?: T | TaskOptions, maybeOptions?: TaskOptions,): T
+export function task<T extends (...args: any[]) => Promise<any>>(fnOrPath: T | string, maybeFnOrOptions?: T | TaskOptions, maybeOptions?: TaskOptions,): JsonifiedFn<T>
 
 /**
  * Create a task that dispatches to a separate Windmill script.
@@ -63,22 +106,61 @@ export function taskFlow(path: string, options?: TaskOptions): (...args: any[]) 
  */
 export function workflow<T>(fn: (...args: any[]) => Promise<T>)
 
-export async function step<T>(name: string, fn: () => T | Promise<T>): Promise<T>
+/**
+ * Execute `fn` inline and checkpoint the result. On replay the cached value is
+ * returned without re-executing `fn`.
+ *
+ * `fn`'s result is encoded as JSON and decoded back before it is returned, so
+ * the round that runs the body sees the same types every replay sees: a `Date`
+ * comes back as a string, a `Map` as `{}`. {@link Jsonified} is that shape.
+ *
+ * Called from inside a task body, `fn` runs in place and nothing is
+ * checkpointed: a task is a single job and is never replayed.
+ */
+export async function step<T>(name: string, fn: () => T | Promise<T>,): Promise<Jsonified<Awaited<T>>>
 
 export async function sleep(seconds: number): Promise<void>
 
 /**
  * Suspend the workflow and wait for an external approval.
  *
- * Use `getResumeUrls()` (wrapped in `step()`) to obtain resume/cancel/approvalPage
- * URLs before calling this function.
+ * Pass `key` to name the step, then `getApprovalUrls(key)` yields the URLs that
+ * resume exactly this approval — route them through your own channel. Without a
+ * key the steps are named `approval`, `approval_2`, ...
+ *
+ * `skin: "minimal"` shows approvers only the request (form and approve/reject)
+ * instead of the detailed page with the workflow's details. `description` is
+ * shown above the form: a string, or a rich value such as `{ markdown: "..." }`.
  *
  * @example
- * const urls = await step("urls", () => getResumeUrls());
- * await step("notify", () => sendEmail(urls.approvalPage));
- * const { value, approver } = await waitForApproval({ timeout: 3600 });
+ * const urls = await step("urls", () => getApprovalUrls("manager"));
+ * await step("notify", () => sendEmail(urls.resume, urls.cancel));
+ * const { value, approver } = await waitForApproval({ key: "manager", timeout: 3600 });
  */
-export function waitForApproval(options?: { timeout?: number; form?: object; selfApproval?: boolean; }): PromiseLike<{ value: any; approver: string; approved: boolean }>
+export function waitForApproval(options?: { timeout?: number; form?: object; selfApproval?: boolean; key?: string; skin?: "detailed" | "minimal"; description?: string | object; }): PromiseLike<{ value: any; approver: string; approved: boolean }>
+
+/**
+ * Resume/cancel/approval-page URLs bound to one `waitForApproval` step.
+ *
+ * Unlike `getResumeUrls()`, which signs a random nonce, these address the very
+ * `resume_job` record the step's built-in approval buttons use, so they are
+ * stable across replays and safe to embed in a custom notification.
+ *
+ * `stepKey` must match the `key` given to `waitForApproval`. Keys must be unique
+ * within a workflow; reusing one throws rather than silently renaming it. The URL
+ * only resumes while that step is awaiting approval; used at any other moment it is
+ * rejected rather than banking a row a different approval would consume. Send it
+ * ahead of time — approvers just cannot act before the workflow reaches the step.
+ *
+ * `resume` and `cancel` are step-bound; `approvalPage` is not — it opens the job's
+ * approval page, which acts on whichever approval is pending when it is used.
+ *
+ * @example
+ * const urls = await step("urls", () => getApprovalUrls("manager"));
+ * await step("notify", () => sendEmail(urls.resume, urls.cancel));
+ * await waitForApproval({ key: "manager" });
+ */
+export async function getApprovalUrls(stepKey: string = "approval", approver?: string): Promise<{ approvalPage: string; resume: string; cancel: string; }>
 
 /**
  * Process items in parallel with optional concurrency control.

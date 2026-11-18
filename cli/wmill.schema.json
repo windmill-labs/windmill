@@ -10,7 +10,7 @@
         "bun",
         "deno"
       ],
-      "description": "Default TypeScript runtime for new scripts"
+      "description": "TypeScript runtime of a plain .ts script (bun when absent)"
     },
     "includes": {
       "type": "array",
@@ -24,7 +24,7 @@
       "items": {
         "type": "string"
       },
-      "description": "Additional glob patterns merged with includes (useful in branch overrides)"
+      "description": "Additional glob patterns merged with includes (useful in workspace overrides)"
     },
     "excludes": {
       "type": "array",
@@ -69,6 +69,10 @@
       "type": "boolean",
       "description": "Skip syncing workspace dependencies"
     },
+    "skipDatatableMigrations": {
+      "type": "boolean",
+      "description": "Skip syncing data table SQL migrations"
+    },
     "includeSchedules": {
       "type": "boolean",
       "description": "Include schedules in sync"
@@ -89,6 +93,10 @@
       "type": "boolean",
       "description": "Include workspace settings in sync"
     },
+    "includeDatatablePermissions": {
+      "type": "boolean",
+      "description": "With includeSettings, also sync each data table's roles and who may connect as them"
+    },
     "includeKey": {
       "type": "boolean",
       "description": "Include encryption key in sync"
@@ -100,6 +108,10 @@
     "locksRequired": {
       "type": "boolean",
       "description": "Require lock files for all scripts"
+    },
+    "dedupeLockfiles": {
+      "type": "boolean",
+      "description": "Share one lockfile per workspace dependency file (locks/<depfile>.lock), instead of an identical .script.lock per script"
     },
     "lint": {
       "type": "boolean",
@@ -125,6 +137,10 @@
       "type": "boolean",
       "description": "Use __flow/__app/__raw_app suffixes instead of .flow/.app/.raw_app"
     },
+    "syncBehavior": {
+      "type": "string",
+      "description": "Sync behavior version — controls ownership handling during push/pull (v1: preserve permissioned_as on update, strip on_behalf_of_email on pull)"
+    },
     "codebases": {
       "type": "array",
       "description": "Codebase bundling configurations for shared libraries",
@@ -134,6 +150,17 @@
           "relative_path": {
             "type": "string",
             "description": "Path to the codebase directory"
+          },
+          "extra_digest_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Paths outside relative_path that scripts import, relative to wmill.yaml; hashed recursively"
+          },
+          "per_script_digest": {
+            "type": "boolean",
+            "description": "Redeploy a script only when a file it bundles changes, instead of on any change under relative_path. Each push bundles every script of the codebase once to find its inputs, so every one of them must bundle. Files a script reads at runtime rather than imports are not covered: list them in extra_digest_paths"
           },
           "includes": {
             "type": "array",

@@ -1,0 +1,27 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE\n                amqp_trigger\n            SET\n                amqp_resource_path = $1,\n                queue_name = $2,\n                exchange = $3,\n                options = $4,\n                is_flow = $5,\n                edited_by = $6,\n                permissioned_as = $7,\n                script_path = $8,\n                path = $9,\n                edited_at = now(),\n                error = NULL,\n                server_id = NULL,\n                error_handler_path = $12,\n                error_handler_args = $13,\n                retry = $14\n            WHERE\n                workspace_id = $10 AND\n                path = $11\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Jsonb",
+        "Jsonb",
+        "Bool",
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Text",
+        "Text",
+        "Varchar",
+        "Jsonb",
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "5f2e66e53166840c68efbc521fe9393023e79f948976e6ffc0e9bfc94623393c"
+}

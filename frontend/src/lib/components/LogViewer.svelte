@@ -14,17 +14,20 @@
 	import { ClipboardCopy, Download, Expand, Loader2, Timer, Cpu } from 'lucide-svelte'
 	import { Button, Drawer, DrawerContent } from './common'
 	import { copyToClipboard } from '$lib/utils'
-	import { base } from '$lib/base'
 	import { withExternalDomain } from '$lib/externalDomain'
 	import { downloadViaClient, shouldDownloadViaClient } from '$lib/utils/downloadFile'
-	import { workspaceStore } from '$lib/stores'
+	import { appendViewToken } from '$lib/viewToken'
 	import { AnsiUp } from 'ansi_up'
 	import NoWorkerWithTagWarning from './runs/NoWorkerWithTagWarning.svelte'
 	import { JobService } from '$lib/gen'
 	import { WM_LOGS_SKIPPED } from '$lib/consts'
+	import { isReplaying } from './recording/offlineReplay.svelte'
 	import Tooltip from './Tooltip.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import QueuePosition from './QueuePosition.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		content: string | undefined
@@ -86,6 +89,11 @@
 
 	let loadedFromObjectStore = $state('')
 
+	// A replayed job only exists inside the recording: its logs are whatever was
+	// captured, so every path that would go ask the backend for more has to stay
+	// shut. `jobId` still comes through for the reset-on-change bookkeeping.
+	let replaying = $derived(isReplaying())
+
 	// `content` is the WM_LOGS_SKIPPED sentinel when the job was fetched with
 	// no_logs=true. If an older in-memory value accidentally has real bytes
 	// concatenated after the sentinel, treat that as skipped too and refetch.
@@ -93,16 +101,18 @@
 	let resolvedSkippedLogs: string | undefined = $state(undefined)
 	let fetchedSkippedJobId: string | undefined = $state(undefined)
 	let effectiveContent = $derived(isLogsSkipped ? resolvedSkippedLogs : content)
-	let resolvingSkippedLogs = $derived(isLogsSkipped && !!jobId && resolvedSkippedLogs === undefined)
+	let resolvingSkippedLogs = $derived(
+		isLogsSkipped && !!jobId && !replaying && resolvedSkippedLogs === undefined
+	)
 
 	$effect(() => {
-		if (!isLogsSkipped || !jobId || fetchedSkippedJobId === jobId) {
+		if (!isLogsSkipped || !jobId || replaying || fetchedSkippedJobId === jobId) {
 			return
 		}
 		const id = jobId
 		fetchedSkippedJobId = id
 		untrack(() => {
-			JobService.getJob({ workspace: $workspaceStore ?? '', id })
+			JobService.getJob({ workspace: $operatingWorkspace ?? '', id })
 				.then((j) => {
 					if (fetchedSkippedJobId === id) {
 						const logs = (j as { logs?: string })['logs'] ?? ''
@@ -210,7 +220,7 @@
 		if (downloadStartUrl) {
 			scroll = false
 			let res = (await JobService.getLogFileFromStore({
-				workspace: $workspaceStore ?? '',
+				workspace: $operatingWorkspace ?? '',
 				path: downloadStartUrl
 			})) as string
 			LOG_LIMIT += Math.min(LOG_INC, res.length)
@@ -241,13 +251,16 @@
 			fetchedSkippedJobId = undefined
 		}
 	})
-	let logsApiPath = $derived(`/w/${$workspaceStore}/jobs_u/get_logs/${jobId}`)
-	let downloadHref = $derived(withExternalDomain(`${base}/api${logsApiPath}`))
+	let logsApiPath = $derived(appendViewToken(`/w/${$operatingWorkspace}/jobs_u/get_logs/${jobId}`))
+	let downloadHref = $derived(withExternalDomain(`/api${logsApiPath}`))
 	let downloadName = $derived(`windmill_logs_${jobId}.txt`)
 	let truncatedContent = $derived(
 		truncateContent(effectiveContent, loadedFromObjectStore, LOG_LIMIT)
 	)
-	let prefixInfo = $derived(findPrefixInfo(truncatedContent))
+	// The "Show more..." button behind this reads the rest of the logs out of the
+	// instance's object store, which a replay has no access to; leaving `prefixInfo`
+	// unset renders the `[windmill]` line as the plain log line it is.
+	let prefixInfo = $derived(replaying ? undefined : findPrefixInfo(truncatedContent))
 	let downloadStartUrl = $derived(findStartUrl(truncatedContent, prefixInfo))
 	$effect.pre(() => {
 		truncatedContent && scrollToBottom()
@@ -355,14 +368,16 @@
 			>
 				{#if isLoading}
 					<div class="flex gap-2 items-center">
-						<Loader2 class="animate-spin" />
+						<!-- Same size as the Timer icon this swaps out for: an unsized (24px) spinner makes
+						     this header taller than the settled state and shoves the logs down while queued -->
+						<Loader2 size={small ? 10 : 12} class="animate-spin" />
 						{#if tag}
 							<div class="flex flex-row items-center gap-1">
 								<div class="text-secondary text-2xs">{tagLabel ?? 'tag'}: {tag}</div>
 								<NoWorkerWithTagWarning {tagLabel} {tag} />
 							</div>
 						{/if}
-						{#if jobId}
+						{#if jobId && !replaying}
 							<QueuePosition {jobId} />
 						{/if}
 					</div>

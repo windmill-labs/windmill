@@ -9,23 +9,149 @@ import {
 	createOpenAIProxyClient,
 	getAiProxyBaseURL,
 	getProviderAndCompletionConfig,
+	modelSupportsWebSearch,
+	testedCredentialHeaders,
+	usesGlobalAiProxy,
 	workspaceAIClients
 } from '../lib'
-import { processToolCall, type Tool, type ToolCallbacks } from './shared'
+import { applyReasoningToConfig } from '../reasoningRegistry'
+import {
+	appendPendingToolImages,
+	processToolCall,
+	type LiveToolSet,
+	queuedToolStatus,
+	type Tool,
+	type ToolCallbacks,
+	type WebSearchSource
+} from './shared'
+import { OutputTokenLimitError } from './outputTokenLimit'
+import { buildAssistantToolCallMessage } from './openaiReasoning'
 import type { ResponseStream } from 'openai/lib/responses/ResponseStream.mjs'
 import type { AIProviderModel } from '$lib/gen'
-import {
-	openAIResponsesUsageToChatTokenUsage,
-	type ChatTokenUsage
-} from './tokenUsage'
+import type { CopilotInfo } from '$lib/aiStore'
+import { openAIResponsesUsageToChatTokenUsage, type ChatTokenUsage } from './tokenUsage'
 
 interface ParsedCompletionResult {
 	shouldContinue: boolean
 	tokenUsage: ChatTokenUsage
 }
 
+type WebSearchStatus = 'in_progress' | 'searching' | 'completed' | 'failed'
+
+const openAIWebSearchToolId = (itemId: string) => `openai_web_search:${itemId}`
+
+function setOpenAIWebSearchStatus(
+	callbacks: ToolCallbacks & { onMessageEnd: () => void },
+	itemId: string,
+	status: WebSearchStatus,
+	details?: { query?: string; sources?: WebSearchSource[] }
+) {
+	const isLoading = status === 'in_progress' || status === 'searching'
+	const failed = status === 'failed'
+	const sources = details?.sources
+	callbacks.onMessageEnd()
+	callbacks.setToolStatus(openAIWebSearchToolId(itemId), {
+		content: failed
+			? 'Web search failed'
+			: isLoading
+				? 'Searching the web...'
+				: details?.query
+					? `Searched the web for "${details.query}"`
+					: 'Searched the web',
+		error: failed ? 'Web search failed' : undefined,
+		isLoading,
+		isStreamingArguments: false,
+		needsConfirmation: false,
+		toolName: 'web_search',
+		// Sources keep the card expanded (no auto-collapse) so the consulted
+		// pages surface live as each search completes mid-stream.
+		...(sources?.length
+			? { webSearchSources: sources, showDetails: true, autoCollapseDetails: false }
+			: {})
+	})
+}
+
+// Pull query + consulted URLs out of a completed web_search_call item.
+// The pinned SDK types the action shapes (ResponseFunctionWebSearch.Search)
+// but its ResponseFunctionWebSearch interface predates the `action` property
+// itself, so the field must be read untyped and shape-checked.
+export function openAIWebSearchDetails(item: any): {
+	query?: string
+	sources?: WebSearchSource[]
+} {
+	const action = item?.action
+	// The current schema sends a `queries` array and may omit the deprecated
+	// singular `query`; support both so the label never falls back to the bare
+	// "Searched the web".
+	// DeepSeek lists its internal call id among the queries as `ws_call_id=<id>`.
+	const queries: string[] = Array.isArray(action?.queries)
+		? action.queries.filter((q: any) => typeof q === 'string' && q && !q.startsWith('ws_call_id='))
+		: []
+	const query = queries.length
+		? queries.join(', ')
+		: typeof action?.query === 'string' && action.query
+			? action.query
+			: undefined
+	const sources = Array.isArray(action?.sources)
+		? action.sources
+				.filter((s: any) => typeof s?.url === 'string')
+				.map((s: any) => ({ url: s.url }))
+		: undefined
+	return { query, sources }
+}
+
+/**
+ * Function tool names DeepSeek refuses next to its own web search, which calls internal
+ * tools by these names. A tool of the chat's (`open_page`) or of an MCP server (`search`)
+ * goes out under a prefixed name instead, and its calls are mapped back.
+ */
+const DEEPSEEK_SEARCH_RESERVED_NAMES = new Set(['search', 'open_page', 'find_in_page'])
+const DEEPSEEK_RENAMED_TOOL_PREFIX = 'wm_'
+
+function toDeepSeekSearchToolName(name: string): string {
+	return DEEPSEEK_SEARCH_RESERVED_NAMES.has(name) ? DEEPSEEK_RENAMED_TOOL_PREFIX + name : name
+}
+
+export function fromDeepSeekSearchToolName(name: string, tools: Tool<any>[]): string {
+	const original = name.slice(DEEPSEEK_RENAMED_TOOL_PREFIX.length)
+	return name.startsWith(DEEPSEEK_RENAMED_TOOL_PREFIX) &&
+		DEEPSEEK_SEARCH_RESERVED_NAMES.has(original) &&
+		!tools.some((t) => t.def.function.name === name)
+		? original
+		: name
+}
+
 // Conversion utilities for Responses API
-function convertMessagesToResponsesInput(messages: ChatCompletionMessageParam[]): {
+
+/**
+ * Translate Chat-Completions message content to Responses-native content. Strings
+ * pass through; a content-part array maps text→input_text and image_url→input_image
+ * (Responses takes image_url as a plain string, not the {url} object).
+ */
+export function toResponsesContent(content: unknown): unknown {
+	if (!Array.isArray(content)) return content
+	return content.map((part) => {
+		if (part?.type === 'text') return { type: 'input_text', text: part.text }
+		if (part?.type === 'image_url' && part.image_url?.url) {
+			return { type: 'input_image', image_url: part.image_url.url }
+		}
+		return part
+	})
+}
+
+/** A tool-call turn's `reasoning_content` as the reasoning item DeepSeek's Responses API
+ * takes back. OpenAI's would refuse it: it only takes back reasoning items it issued. */
+function toResponsesReasoningItem(m: ChatCompletionMessageParam) {
+	const text = (m as { reasoning_content?: unknown }).reasoning_content
+	return typeof text === 'string' && text
+		? { type: 'reasoning', summary: [], content: [{ type: 'reasoning_text', text }] }
+		: undefined
+}
+
+function convertMessagesToResponsesInput(
+	messages: ChatCompletionMessageParam[],
+	replayReasoning = false
+): {
 	instructions?: string
 	input: Array<any>
 } {
@@ -37,6 +163,10 @@ function convertMessagesToResponsesInput(messages: ChatCompletionMessageParam[])
 	for (const m of nonSystemMessages) {
 		// Handle assistant messages with tool calls
 		if (m.role === 'assistant' && 'tool_calls' in m && m.tool_calls) {
+			const reasoning = replayReasoning ? toResponsesReasoningItem(m) : undefined
+			if (reasoning) {
+				input.push(reasoning)
+			}
 			// First, add the assistant's text content if it exists
 			if ('content' in m && m.content) {
 				input.push({
@@ -77,7 +207,7 @@ function convertMessagesToResponsesInput(messages: ChatCompletionMessageParam[])
 			input.push({
 				type: 'message' as const,
 				role: m.role === 'developer' ? 'developer' : m.role === 'assistant' ? 'assistant' : 'user',
-				content: m.content
+				content: toResponsesContent(m.content)
 			})
 		}
 	}
@@ -93,11 +223,52 @@ function convertMessagesToResponsesInput(messages: ChatCompletionMessageParam[])
 	}
 }
 
+/** OpenAI rejects a key over 64 characters, and an Azure deployment name is user-chosen. */
+const MAX_PROMPT_CACHE_KEY_LENGTH = 64
+
+/** FNV-1a. A routing key needs to be stable and distinct, not cryptographic. */
+function shortHash(value: string): string {
+	let h = 0x811c9dc5
+	for (let i = 0; i < value.length; i++) {
+		h ^= value.charCodeAt(i)
+		h = Math.imul(h, 0x01000193) >>> 0
+	}
+	return h.toString(16).padStart(8, '0')
+}
+
+/**
+ * Routing key for the provider's prompt cache. Built only from what fixes the prompt
+ * prefix (the surface, plus the model) and never from anything per-request, since
+ * requests sharing a prefix must reuse one key to land on the same cache. Workspace
+ * splits traffic across the ~15 requests/minute one key sustains before it starts
+ * missing again.
+ */
+export function buildPromptCacheKey(
+	surface: string,
+	modelProvider: { provider: string; model: string },
+	workspace: string
+): string {
+	const key = [workspace, modelProvider.provider, modelProvider.model, surface].join(':')
+	if (key.length <= MAX_PROMPT_CACHE_KEY_LENGTH) {
+		return key
+	}
+	// Same shape as the backend's `bounded_prompt_cache_key`: a readable head keeps the
+	// key traceable, and the digest carries every distinction the head lost. Truncating
+	// alone would collapse a long workspace's models and surfaces onto one key.
+	const suffix = shortHash(key)
+	return `${key.slice(0, MAX_PROMPT_CACHE_KEY_LENGTH - suffix.length - 1)}:${suffix}`
+}
+
 function convertCompletionConfigToResponsesConfig(
-	config: ChatCompletionCreateParams
+	config: ChatCompletionCreateParams,
+	promptCacheKey?: string
 ): Record<string, any> {
 	const responsesConfig: Record<string, any> = {
 		model: config.model
+	}
+
+	if (promptCacheKey) {
+		responsesConfig.prompt_cache_key = promptCacheKey
 	}
 
 	// Map max_tokens or max_completion_tokens to max_output_tokens
@@ -107,10 +278,6 @@ function convertCompletionConfigToResponsesConfig(
 		responsesConfig.max_output_tokens = config.max_tokens
 	}
 
-	// Keep other relevant fields
-	if (config.temperature !== undefined) {
-		responsesConfig.temperature = config.temperature
-	}
 	if ('tools' in config && config.tools && config.tools.length > 0) {
 		responsesConfig.tools = config.tools.map((tool) => {
 			if (tool.type === 'function' && 'function' in tool) {
@@ -138,16 +305,53 @@ export async function getOpenAIResponsesCompletion(
 	options?: {
 		forceModelProvider?: AIProviderModel
 		openaiClient?: OpenAI
+		webSearch?: boolean
+		reasoningEffort?: string
+		reasoningSummary?: boolean
+		promptCacheKey?: string
+		info?: CopilotInfo
 	}
 ) {
 	const { provider, config } = getProviderAndCompletionConfig({
 		messages,
 		stream: true,
 		tools,
-		forceModelProvider: options?.forceModelProvider
+		forceModelProvider: options?.forceModelProvider,
+		reasoningEffort: options?.reasoningEffort,
+		info: options?.info
 	})
-	const { instructions, input } = convertMessagesToResponsesInput(messages)
-	const responsesConfig = convertCompletionConfigToResponsesConfig(config)
+	const { instructions, input } = convertMessagesToResponsesInput(messages, provider === 'deepseek')
+	const responsesConfig = applyReasoningToConfig(
+		convertCompletionConfigToResponsesConfig(config, options?.promptCacheKey),
+		'responses',
+		options?.reasoningEffort
+	)
+
+	// Reasoning summaries make the model's thinking renderable in the chat, but
+	// OpenAI rejects the request (400 on reasoning.summary) for organizations
+	// that haven't completed verification — callers opt in and fall back.
+	if (options?.reasoningSummary && responsesConfig.reasoning) {
+		responsesConfig.reasoning = { ...responsesConfig.reasoning, summary: 'auto' }
+	}
+
+	// Enable the provider's built-in web search tool. The proxy forwards the body
+	// verbatim, so this reaches the provider as a native server-side tool. Sources
+	// (the URLs each search consulted) are only returned when asked for via
+	// `include` — they feed the expandable source list on the tool card.
+	if (options?.webSearch && modelSupportsWebSearch(provider, config.model)) {
+		if (provider === 'deepseek') {
+			responsesConfig.tools = responsesConfig.tools?.map((tool: any) =>
+				tool.type === 'function' ? { ...tool, name: toDeepSeekSearchToolName(tool.name) } : tool
+			)
+			for (const item of input) {
+				if (item.type === 'function_call') {
+					item.name = toDeepSeekSearchToolName(item.name)
+				}
+			}
+		}
+		responsesConfig.tools = [...(responsesConfig.tools ?? []), { type: 'web_search' }]
+		responsesConfig.include = [...(responsesConfig.include ?? []), 'web_search_call.action.sources']
+	}
 
 	const client = options?.openaiClient ?? workspaceAIClients.getOpenaiClient()
 
@@ -172,13 +376,36 @@ export async function getOpenAIResponsesCompletion(
 export async function* getOpenAIResponsesCompletionStream(
 	messages: ChatCompletionMessageParam[],
 	abortController: AbortController,
-	tools?: OpenAI.Chat.Completions.ChatCompletionTool[]
+	tools?: OpenAI.Chat.Completions.ChatCompletionTool[],
+	options?: {
+		forceModelProvider?: AIProviderModel
+		openaiClient?: OpenAI
+		reasoningEffort?: string
+		maxTokensCap?: number
+		info?: CopilotInfo
+	}
 ): AsyncGenerator<OpenAI.Chat.Completions.ChatCompletionChunk> {
-	const { provider, config } = getProviderAndCompletionConfig({ messages, stream: true, tools })
+	const { provider, config } = getProviderAndCompletionConfig({
+		messages,
+		stream: true,
+		tools,
+		forceModelProvider: options?.forceModelProvider,
+		maxTokensCap: options?.maxTokensCap,
+		reasoningEffort: options?.reasoningEffort,
+		info: options?.info
+	})
 	const { instructions, input } = convertMessagesToResponsesInput(messages)
-	const responsesConfig = convertCompletionConfigToResponsesConfig(config)
+	// No prompt cache key here: a rejected key has to be retried without it, and this is
+	// an async generator, so the caller's try/catch never sees the failure (invoking a
+	// generator runs none of its body). One-shot generations have no repeated prefix to
+	// route anyway; the chat loop is the surface that does, and it can retry.
+	const responsesConfig = applyReasoningToConfig(
+		convertCompletionConfigToResponsesConfig(config),
+		'responses',
+		options?.reasoningEffort
+	)
 
-	const openaiClient = workspaceAIClients.getOpenaiClient()
+	const openaiClient = options?.openaiClient ?? workspaceAIClients.getOpenaiClient()
 
 	const runner = openaiClient.responses.stream(
 		{
@@ -213,6 +440,20 @@ export async function* getOpenAIResponsesCompletionStream(
 					}
 				]
 			} as OpenAI.Chat.Completions.ChatCompletionChunk
+		} else if (event.type === 'response.completed' || event.type === 'response.incomplete') {
+			yield {
+				id: 'chatcmpl-' + Date.now(),
+				object: 'chat.completion.chunk',
+				created: Date.now(),
+				model: responsesConfig.model,
+				choices: [
+					{
+						index: 0,
+						delta: {},
+						finish_reason: event.type === 'response.completed' ? 'stop' : 'length'
+					}
+				]
+			} as OpenAI.Chat.Completions.ChatCompletionChunk
 		}
 	}
 }
@@ -227,7 +468,12 @@ export async function parseOpenAIResponsesCompletion(
 	addedMessages: ChatCompletionMessageParam[],
 	tools: Tool<any>[],
 	helpers: any,
-	options?: { workspace?: string }
+	options?: {
+		workspace?: string
+		provider?: string
+		onTokenUsage?: (usage: ChatTokenUsage) => void
+		live?: LiveToolSet
+	}
 ): Promise<ParsedCompletionResult> {
 	let toolCallsToProcess: ChatCompletionMessageFunctionToolCall[] = []
 	let error: OpenAIError | ResponseErrorEvent | null = null
@@ -246,33 +492,94 @@ export async function parseOpenAIResponsesCompletion(
 		textContent += event.delta
 	})
 
+	// Stream the reasoning summary (present when the request asked for
+	// reasoning.summary) into the thinking display. Summaries arrive as
+	// separate parts; join them as paragraphs.
+	let reasoningSummaryParts = 0
+	runner.on('response.reasoning_summary_part.added', () => {
+		reasoningSummaryParts++
+		if (reasoningSummaryParts > 1) {
+			callbacks.onReasoningDelta?.('\n\n')
+		}
+	})
+	runner.on('response.reasoning_summary_text.delta', (event) => {
+		callbacks.onReasoningDelta?.(event.delta)
+	})
+	// DeepSeek streams its full reasoning rather than a summary, and both of its APIs refuse
+	// a tool-call turn whose reasoning is not passed back, so a turn that carries reasoning
+	// keeps it, with its text, on the tool-call message (see toResponsesReasoningItem).
+	let reasoningText = ''
+	runner.on('response.reasoning_text.delta', (event) => {
+		reasoningText += event.delta
+		callbacks.onReasoningDelta?.(event.delta)
+	})
+
 	// Handle new output items (including function calls)
 	runner.on('response.output_item.added', (event) => {
 		const item = event.item
-		if (item.type === 'function_call' && item.id) {
-			const tool = tools.find((t) => t.def.function.name === item.name)
+		if (item.type === 'reasoning') {
+			// Reasoning models (GPT/o-series) emit a reasoning item but no chain-of-thought
+			// text; surface a live "Thinking" indicator so the user can see it reason.
+			callbacks.onReasoningStart?.()
+		} else if (item.type === 'function_call' && item.id) {
+			const name =
+				options?.provider === 'deepseek' ? fromDeepSeekSearchToolName(item.name, tools) : item.name
+			const tool = tools.find((t) => t.def.function.name === name)
 			const shouldStream = tool?.streamArguments ?? false
 
 			toolCallsMap[item.id] = {
-				name: item.name,
+				name,
 				call_id: item.call_id
 			}
 
 			// Reset streaming state for new tool
 			accumulatedJson = ''
-			currentStreamingTool = { itemId: item.id, shouldStream, toolName: item.name }
+			currentStreamingTool = { itemId: item.id, shouldStream, toolName: name }
 
 			// Show temporary loading state for the tool call
 			callbacks.onMessageEnd()
 			callbacks.setToolStatus(`${item.id}`, {
 				isLoading: true,
-				content: `Calling ${item.name}...`,
-				toolName: item.name,
+				content: tool?.streamingLabel ?? `Preparing ${name}...`,
+				toolName: name,
 				isStreamingArguments: shouldStream,
 				showFade: tool?.showFade,
 				showDetails: tool?.showDetails,
 				autoCollapseDetails: tool?.autoCollapseDetails
 			})
+		} else if (item.type === 'web_search_call' && item.id) {
+			setOpenAIWebSearchStatus(callbacks, item.id, item.status)
+		}
+	})
+
+	runner.on('response.web_search_call.in_progress', (event) => {
+		setOpenAIWebSearchStatus(callbacks, event.item_id, 'in_progress')
+	})
+
+	runner.on('response.web_search_call.searching', (event) => {
+		setOpenAIWebSearchStatus(callbacks, event.item_id, 'searching')
+	})
+
+	runner.on('response.web_search_call.completed', (event) => {
+		setOpenAIWebSearchStatus(callbacks, event.item_id, 'completed')
+	})
+
+	// The completed event above only carries item_id; the full item (with
+	// action.query and the requested action.sources) lands in output_item.done,
+	// mid-stream — surface the source list there rather than at end of turn.
+	// Track surfaced ids so the final-response sweep doesn't re-emit the status
+	// and re-expand a card the user collapsed in the meantime.
+	const surfacedWebSearchCalls = new Set<string>()
+	runner.on('response.output_item.done', (event) => {
+		const item = event.item as any
+		if (item?.type === 'web_search_call' && item.id) {
+			surfacedWebSearchCalls.add(item.id)
+			setOpenAIWebSearchStatus(
+				callbacks,
+				item.id,
+				item.status ?? 'completed',
+				openAIWebSearchDetails(item)
+			)
 		}
 	})
 
@@ -301,11 +608,12 @@ export async function parseOpenAIResponsesCompletion(
 
 	// Handle function call arguments done
 	runner.on('response.function_call_arguments.done', (event) => {
-		// Clear streaming state
+		// Args fully streamed: demote to queued (see queuedToolStatus).
 		currentStreamingTool = undefined
-		callbacks.setToolStatus(`${event.item_id}`, {
-			isStreamingArguments: false
-		})
+		callbacks.setToolStatus(
+			`${event.item_id}`,
+			queuedToolStatus(tools, toolCallsMap[event.item_id]?.name ?? '', event.arguments)
+		)
 
 		// Retrieve tool call metadata from map
 		const metadata = toolCallsMap[event.item_id]
@@ -325,6 +633,13 @@ export async function parseOpenAIResponsesCompletion(
 		})
 	})
 
+	// The stream's final snapshot keeps the in-progress status, so an
+	// incomplete response is only visible through its own event.
+	let hitOutputTokenLimit = false
+	runner.on('response.incomplete', (event) => {
+		hitOutputTokenLimit = event.response.incomplete_details?.reason === 'max_output_tokens'
+	})
+
 	// Handle errors
 	runner.on('error', (err: OpenAIError | ResponseErrorEvent) => {
 		currentStreamingTool = undefined
@@ -335,8 +650,9 @@ export async function parseOpenAIResponsesCompletion(
 	// Wait for completion
 	await runner.done()
 
+	const textGoesOnToolCall = !!reasoningText && toolCallsToProcess.length > 0
 	// Add text message if we got any text
-	if (textContent) {
+	if (textContent && !textGoesOnToolCall) {
 		const assistantMessage = { role: 'assistant' as const, content: textContent }
 		messages.push(assistantMessage)
 		addedMessages.push(assistantMessage)
@@ -349,13 +665,26 @@ export async function parseOpenAIResponsesCompletion(
 
 	const finalResponse = await runner.finalResponse()
 	const tokenUsage = openAIResponsesUsageToChatTokenUsage(finalResponse.usage)
+	options?.onTokenUsage?.(tokenUsage)
+
+	for (const item of finalResponse.output ?? []) {
+		if (item.type === 'web_search_call' && !surfacedWebSearchCalls.has(item.id)) {
+			// Fallback for a call whose output_item.done event was missed.
+			setOpenAIWebSearchStatus(callbacks, item.id, item.status, openAIWebSearchDetails(item))
+		}
+	}
 
 	// Process tool calls if any
 	if (toolCallsToProcess.length > 0) {
-		const assistantWithTools = {
-			role: 'assistant' as const,
-			tool_calls: toolCallsToProcess
+		if (textGoesOnToolCall && textContent) {
+			callbacks.onMessageEnd()
 		}
+		const assistantWithTools = buildAssistantToolCallMessage({
+			content: textGoesOnToolCall ? textContent : '',
+			reasoning: { hasReasoningContent: !!reasoningText, reasoningContent: reasoningText },
+			toolCalls: toolCallsToProcess,
+			provider: options?.provider
+		})
 		messages.push(assistantWithTools)
 		addedMessages.push(assistantWithTools)
 
@@ -366,34 +695,46 @@ export async function parseOpenAIResponsesCompletion(
 				toolCall,
 				helpers,
 				toolCallbacks: callbacks,
-				workspace: options?.workspace
+				workspace: options?.workspace,
+				messages,
+				live: options?.live
 			})
 			messages.push(messageToAdd)
 			addedMessages.push(messageToAdd)
 		}
+		appendPendingToolImages(messages, addedMessages, callbacks)
 		return { shouldContinue: true, tokenUsage }
 	}
 
+	if (hitOutputTokenLimit) {
+		throw new OutputTokenLimitError()
+	}
 	return { shouldContinue: false, tokenUsage }
 }
 
 export async function getNonStreamingOpenAIResponsesCompletion(
 	messages: ChatCompletionMessageParam[],
 	abortController: AbortController,
-	testOptions?: {
+	options?: {
 		apiKey?: string
 		workspace?: string
 		resourcePath?: string
-		forceModelProvider: AIProviderModel
+		resourceValue?: Record<string, any>
+		forceModelProvider?: AIProviderModel
+		maxTokensCap?: number
+		info?: CopilotInfo
 	}
 ): Promise<string> {
 	const { provider, config } = getProviderAndCompletionConfig({
 		messages,
 		stream: false,
-		forceModelProvider: testOptions?.forceModelProvider
+		forceModelProvider: options?.forceModelProvider,
+		maxTokensCap: options?.maxTokensCap,
+		info: options?.info
 	})
 
 	const { instructions, input } = convertMessagesToResponsesInput(messages)
+	// No prompt cache key, for the same reason as the streaming variant above.
 	const responsesConfig = convertCompletionConfigToResponsesConfig(config)
 
 	const fetchOptions: {
@@ -402,26 +743,15 @@ export async function getNonStreamingOpenAIResponsesCompletion(
 	} = {
 		signal: abortController.signal,
 		headers: {
-			'X-Provider': provider
+			'X-Provider': provider,
+			...testedCredentialHeaders(options ?? {})
 		}
 	}
 
-	if (testOptions?.resourcePath) {
-		fetchOptions.headers = {
-			...fetchOptions.headers,
-			'X-Resource-Path': testOptions.resourcePath
-		}
-	} else if (testOptions?.apiKey) {
-		fetchOptions.headers = {
-			...fetchOptions.headers,
-			'X-API-Key': testOptions.apiKey
-		}
-	}
-
-	const openaiClient = testOptions?.apiKey
+	const openaiClient = usesGlobalAiProxy(options ?? {})
 		? createOpenAIProxyClient(getAiProxyBaseURL())
-		: testOptions?.workspace
-			? workspaceAIClients.createOpenaiClient(testOptions.workspace)
+		: options?.workspace
+			? workspaceAIClients.createOpenaiClient(options.workspace)
 			: workspaceAIClients.getOpenaiClient()
 
 	const response = await openaiClient.responses.create(

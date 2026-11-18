@@ -1,6 +1,5 @@
 ARG DEBIAN_IMAGE=debian:bookworm-slim
 ARG RUST_IMAGE=registry.access.redhat.com/ubi8/ubi:latest
-ARG PYTHON_IMAGE=python:3.11.10-slim-bookworm
 
 FROM ${RUST_IMAGE} AS rust_base
 
@@ -34,6 +33,8 @@ COPY /backend/oauth_connect.json /backend/oauth_connect.json
 COPY /openflow.openapi.yaml /openflow.openapi.yaml
 COPY /backend/windmill-api/build_openapi.sh /backend/windmill-api/build_openapi.sh
 COPY /system_prompts/auto-generated /system_prompts/auto-generated
+# The flow chat imports the chat SDK's source (svelte.config.js alias `windmill-chat`).
+COPY /chat-sdk/src /chat-sdk/src
 
 RUN cd /backend/windmill-api && . ./build_openapi.sh
 COPY /backend/parsers/windmill-parser-wasm/pkg/ /backend/parsers/windmill-parser-wasm/pkg/
@@ -42,6 +43,8 @@ COPY /python-client/docs/ /frontend/static/pydocs/
 
 RUN npm run generate-backend-client
 ENV NODE_OPTIONS "--max-old-space-size=8192"
+# Must be declared for the build-arg to reach the bundle. See frontend/svelte.config.js.
+ARG WM_BUILD_VERSION=""
 RUN npm run build
 
 
@@ -85,11 +88,12 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     CARGO_NET_GIT_FETCH_WITH_CLI=true cargo build --release --features "$features"
 
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/local/cargo/git \
     cd windmill-duckdb-ffi-internal && \
     CARGO_NET_GIT_FETCH_WITH_CLI=true cargo build --release
 
 RUN mkdir -p /usr/src/app && \
-    cp windmill-duckdb-ffi-internal/target/release/libwindmill_duckdb_ffi_internal.so /usr/src/app/
+    cp windmill-duckdb-ffi-internal/target/release/windmill_duckdb_runner /usr/src/app/
 
 # Runtime Kerberos packages (installed separately from build deps)
 RUN yum install -y krb5-workstation cyrus-sasl-gssapi

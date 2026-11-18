@@ -16,6 +16,9 @@ export interface ToolCallDetail {
 export interface EvalRunnerOptions {
   backend: WindmillBackendSettings;
   maxIterations?: number;
+  // Scripted answers to the model's questions, one per question in order; a question past
+  // the last one is dismissed. Unset, the run cannot be asked anything.
+  userAnswers?: string[];
   model?: string;
   workspace?: string;
   provider?: AIProvider;
@@ -28,6 +31,8 @@ export interface RawEvalResult<TOutput> {
   output: TOutput;
   error?: string;
   tokenUsage: TokenUsage;
+  /** Input tokens on the last model request of the loop (see BenchmarkAttemptResult.finalContextTokens). */
+  finalContextTokens: number | null;
   toolCallsCount: number;
   toolsCalled: string[];
   toolCallDetails: ToolCallDetail[];

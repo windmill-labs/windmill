@@ -1,0 +1,65 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT v.path, r.created_by AS \"owner?\", true AS \"workspace!\",\n           COALESCE(a.is_workspace_integration, false) AS \"managed!\", a.scopes AS \"scopes?\",\n           NULL::text[] AS \"missing_scopes?\"\n         FROM workspace_integrations wi\n         JOIN variable v ON v.workspace_id = wi.workspace_id AND v.path = wi.resource_path\n         JOIN resource r ON r.workspace_id = v.workspace_id AND r.path = v.path\n         LEFT JOIN account a ON a.workspace_id = v.workspace_id AND a.id = v.account\n         WHERE wi.workspace_id = $1 AND wi.service_name = $2 AND r.resource_type = $3",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "owner?",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "workspace!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 3,
+        "name": "managed!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 4,
+        "name": "scopes?",
+        "type_info": "TextArray"
+      },
+      {
+        "ordinal": 5,
+        "name": "missing_scopes?",
+        "type_info": "TextArray"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        {
+          "Custom": {
+            "name": "native_trigger_service",
+            "kind": {
+              "Enum": [
+                "nextcloud",
+                "google",
+                "github"
+              ]
+            }
+          }
+        },
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      null,
+      null,
+      true,
+      null
+    ]
+  },
+  "hash": "91c3eabd02f1bc5fddbc087b4b002fc484ab5f3d9ed74a18579a067fcd202ef2"
+}

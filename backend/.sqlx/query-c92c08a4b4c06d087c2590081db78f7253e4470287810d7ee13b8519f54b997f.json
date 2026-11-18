@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT ws.git_sync FROM workspace_settings ws\n         JOIN workspace w ON w.id = ws.workspace_id\n         WHERE ws.workspace_id = $1 AND NOT w.deleted",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "git_sync",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "c92c08a4b4c06d087c2590081db78f7253e4470287810d7ee13b8519f54b997f"
+}

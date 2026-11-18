@@ -18,7 +18,6 @@ use crate::teams_oss::{
     connect_teams, edit_teams_command, run_teams_message_test_job,
     workspaces_list_available_teams_channels, workspaces_list_available_teams_ids,
 };
-
 use axum::{
     extract::{Extension, Path},
     routing::{get, post},
@@ -62,6 +61,11 @@ pub fn workspaced_service() -> Router {
         )
         .route("/tarball", get(crate::workspaces_export::tarball_workspace))
         .route("/edit_copilot_config", post(edit_copilot_config))
+        .route(
+            "/settings_document",
+            get(crate::workspace_settings_document::get_settings_document)
+                .post(crate::workspace_settings_document::apply_settings_document),
+        )
         .route("/get_copilot_info", get(get_copilot_info))
         .route("/critical_alerts", get(get_critical_alerts))
         .route(
@@ -86,14 +90,13 @@ pub fn workspaced_service() -> Router {
     router
 }
 
-async fn edit_copilot_config(
+pub(crate) async fn edit_copilot_config(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
-    ApiAuthed { is_admin, username, .. }: ApiAuthed,
     Json(ai_config): Json<AIConfig>,
 ) -> JsonResult<EditCopilotConfigResponse> {
-    require_admin(is_admin, &username)?;
+    require_admin(authed.is_admin, &authed.username)?;
 
     if let Some(ref custom_prompts) = ai_config.custom_prompts {
         for (mode, prompt) in custom_prompts.iter() {
@@ -107,6 +110,10 @@ async fn edit_copilot_config(
             }
         }
     }
+
+    ai_config.validate_model_pricing()?;
+    ai_config.validate_token_limits()?;
+    ai_config.validate_sessions_retention()?;
 
     let mut tx = db.begin().await?;
 
@@ -145,19 +152,40 @@ async fn edit_copilot_config(
     .await?;
 
     let workspace_has_config = ai_config.has_providers();
+    let copilot_disabled = ai_config.copilot_disabled;
+    let sessions_storage_disabled = ai_config.sessions_storage_disabled;
+    let sessions_retention_days = ai_config.sessions_retention_days;
+    let web_search = ai_config.web_search.clone();
     let instance_ai_config =
         sqlx::query_scalar!("SELECT value FROM global_settings WHERE name = 'ai_config'")
             .fetch_optional(&db)
             .await?;
     let settings_state =
         build_copilot_settings_state(workspace_has_config, instance_ai_config.as_ref());
-    let effective_ai_config = if workspace_has_config {
+    // A provider-less instance config (e.g. `{}`) is unconfigured, same as build_copilot_settings_state
+    // treats it — so it must not shadow the free-tier fallback here either.
+    let instance_config_with_providers = instance_ai_config
+        .as_ref()
+        .and_then(|v| serde_json::from_value::<AIConfig>(v.clone()).ok())
+        .filter(|c| c.has_providers());
+    let mut effective_ai_config = if workspace_has_config {
         ai_config
-    } else if let Some(instance_ai_config) = instance_ai_config {
-        serde_json::from_value::<AIConfig>(instance_ai_config).unwrap_or_default()
+    } else if let Some(instance_config) = instance_config_with_providers {
+        instance_config
+    } else if let Some(free_config) =
+        crate::ai_free_tier_oss::free_tier_copilot_config(&db, &authed.email).await?
+    {
+        // Same fallback as get_copilot_info: with nothing configured, surface Windmill's free
+        // tier (EE-only) so clearing a workspace provider activates it immediately, instead of
+        // returning an empty config that disables AI until the next page reload re-fetches it.
+        free_config
     } else {
         AIConfig::default()
     };
+    effective_ai_config.copilot_disabled = copilot_disabled;
+    effective_ai_config.sessions_storage_disabled = sessions_storage_disabled;
+    effective_ai_config.sessions_retention_days = sessions_retention_days;
+    effective_ai_config.web_search = web_search;
 
     Ok(Json(EditCopilotConfigResponse {
         effective_ai_config,
@@ -168,7 +196,7 @@ async fn edit_copilot_config(
 }
 
 #[derive(Serialize)]
-struct EditCopilotConfigResponse {
+pub(crate) struct EditCopilotConfigResponse {
     effective_ai_config: AIConfig,
     has_instance_ai_config: bool,
     uses_instance_ai_config: bool,
@@ -177,6 +205,7 @@ struct EditCopilotConfigResponse {
 }
 
 async fn get_copilot_info(
+    authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
 ) -> JsonResult<AIConfig> {
@@ -192,19 +221,46 @@ async fn get_copilot_info(
         ))
     })?;
 
-    if let Some(workspace_ai_config) = workspace_ai_config.filter(|c| c.0.has_providers()) {
-        Ok(Json(workspace_ai_config.0))
-    } else if let Some(instance_config) =
+    let copilot_disabled = workspace_ai_config
+        .as_ref()
+        .is_some_and(|c| c.0.copilot_disabled);
+    let sessions_storage_disabled = workspace_ai_config
+        .as_ref()
+        .is_some_and(|c| c.0.sessions_storage_disabled);
+    let sessions_retention_days = workspace_ai_config
+        .as_ref()
+        .and_then(|c| c.0.sessions_retention_days);
+    let web_search = workspace_ai_config
+        .as_ref()
+        .and_then(|c| c.0.web_search.clone());
+    let instance_config =
         sqlx::query_scalar!("SELECT value FROM global_settings WHERE name = 'ai_config'")
             .fetch_optional(&db)
             .await?
-    {
-        Ok(Json(
-            serde_json::from_value::<AIConfig>(instance_config).unwrap_or_default(),
-        ))
-    } else {
-        Ok(Json(AIConfig::default()))
-    }
+            .and_then(|v| serde_json::from_value::<AIConfig>(v).ok())
+            // A provider-less instance config (e.g. `{}`) is unconfigured; don't let it shadow the
+            // free-tier fallback, matching the proxy and edit_copilot_config paths.
+            .filter(|c| c.has_providers());
+    let mut effective =
+        if let Some(workspace_ai_config) = workspace_ai_config.filter(|c| c.0.has_providers()) {
+            workspace_ai_config.0
+        } else if let Some(instance_config) = instance_config {
+            instance_config
+        } else if let Some(free_config) =
+            crate::ai_free_tier_oss::free_tier_copilot_config(&db, &authed.email).await?
+        {
+            // Nothing configured: fall back to Windmill's free tier (EE-only). The config
+            // carries a `free_tier` marker even once the user's grant is spent — with no
+            // providers, but telling the client *why* AI is off.
+            free_config
+        } else {
+            AIConfig::default()
+        };
+    effective.copilot_disabled = copilot_disabled;
+    effective.sessions_storage_disabled = sessions_storage_disabled;
+    effective.sessions_retention_days = sessions_retention_days;
+    effective.web_search = web_search;
+    Ok(Json(effective))
 }
 
 #[cfg(feature = "enterprise")]
@@ -214,7 +270,14 @@ pub async fn get_critical_alerts(
     authed: ApiAuthed,
     Query(params): Query<crate::utils::AlertQueryParams>,
 ) -> JsonResult<serde_json::Value> {
-    require_admin_or_devops(authed.is_admin, &authed.username, &authed.email, &db).await?;
+    require_admin_or_devops(
+        authed.is_admin,
+        &authed.username,
+        &authed.email,
+        authed.job_id.is_some(),
+        &db,
+    )
+    .await?;
 
     crate::utils::get_critical_alerts(db, params, Some(w_id)).await
 }
@@ -230,7 +293,14 @@ pub async fn acknowledge_critical_alert(
     Path((w_id, id)): Path<(String, i32)>,
     authed: ApiAuthed,
 ) -> Result<String> {
-    require_admin_or_devops(authed.is_admin, &authed.username, &authed.email, &db).await?;
+    require_admin_or_devops(
+        authed.is_admin,
+        &authed.username,
+        &authed.email,
+        authed.job_id.is_some(),
+        &db,
+    )
+    .await?;
     crate::utils::acknowledge_critical_alert(db, Some(w_id), id).await
 }
 
@@ -261,7 +331,7 @@ pub struct MuteCriticalAlertRequest {
 }
 
 #[cfg(feature = "enterprise")]
-async fn mute_critical_alerts(
+pub(crate) async fn mute_critical_alerts(
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
     authed: ApiAuthed,

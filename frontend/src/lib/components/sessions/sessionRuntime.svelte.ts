@@ -1,0 +1,1781 @@
+import type { PendingRun } from '$lib/components/details/pendingRun'
+import { get } from 'svelte/store'
+import { invalidate as invalidateWorkspaceItems } from '$lib/components/workspacePicker'
+import { invalidateWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
+import { AIChatManager, AIMode } from '$lib/components/copilot/chat/AIChatManager.svelte'
+import { AIWorkMode } from '$lib/components/copilot/chat/workMode'
+import { PipelineEditorState } from '$lib/components/assets/AssetGraph/pipelineEditorState.svelte'
+import { PIPELINE_DRAFT_KIND, pipelineBundlePath, pipelineLocalMirrorKey } from '$lib/pipelinePaths'
+import type { DeployResult } from '$lib/utils_workspace_deploy'
+import { initFlow } from '$lib/components/flows/flowStore.svelte'
+import {
+	ApiError,
+	AppService,
+	FlowService,
+	ScriptService,
+	type Flow,
+	type NewScript,
+	type Script,
+	type UserDraftOverlay
+} from '$lib/gen'
+
+// `get_draft=true` does NOT merge: the top-level fields stay the deployed
+// payload and the user's draft rides in a sibling `.draft` pocket (with
+// `is_draft` / `draft_saved_at` alongside). Hence the `saved.draft ?? saved`
+// fall-throughs below prefer the draft, else the deployed payload.
+// The generated `UserDraftOverlay` types `draft` permissively; locally it's a
+// `NewScript` / `Flow`, so `Omit` and re-add the precise type (assignments from
+// the response type still need an explicit cast).
+type SavedScript = Omit<Script & UserDraftOverlay, 'draft'> & { draft?: NewScript }
+type SavedFlow = Omit<Flow & UserDraftOverlay, 'draft'> & { draft?: Flow }
+import type { HiddenRunnable } from '$lib/components/apps/types'
+import {
+	type RawAppData,
+	DEFAULT_DATA,
+	extractDataConfig
+} from '$lib/components/raw_apps/dataTableRefUtils'
+import { userStore, userWorkspaces, workspaceStore } from '$lib/stores'
+import { findCanonicalDevWorkspace } from '$lib/utils/workspaceHierarchy'
+import {
+	BUILDER_FRAMEWORK_TEMPLATES,
+	react19Template,
+	STARTER_RUNNABLES
+} from '$lib/components/raw_apps/templates'
+import { capabilitiesInWorkspace, workspaceListLoaded } from '$lib/operatorWriteRights'
+import { random_adj } from '$lib/components/random_positive_adjetive'
+import { copilotWorkspace } from '$lib/aiStore'
+import { loadCopilot } from '$lib/components/copilot/loadCopilot'
+import { emptySchema, userPathPrefix, type StateStore } from '$lib/utils'
+import { localRunEnded, localRunStarted, runHeldElsewhere } from './sessionSync.svelte'
+import {
+	commitSessionWorkspace,
+	getEffectiveWorkspaceId,
+	markSessionStateChanged,
+	materializeTransient,
+	sessionState,
+	setGeneratedSessionSummary,
+	setSessionChatId,
+	setSessionPreviewCollapsed,
+	setSessionPreviewSize,
+	setSessionTabs,
+	setSessionWorkMode,
+	setSessionWorkingIn,
+	type Session
+} from './sessionState.svelte'
+import {
+	SessionPreviewTabs,
+	describePreview,
+	hydratePreviewTabs,
+	previewTargetForSessionTarget,
+	selectPreviewTabsToClose,
+	whereIs
+} from './sessionPreviewTabs.svelte'
+import { pageItemKindLabel } from './previewPaths'
+import {
+	pageItemForLocation,
+	pageItemLocation,
+	parsePreviewItemRoute,
+	previewLocationContext,
+	previewLocationLabel,
+	promptSafe,
+	parseRunFormRoute,
+	resolvePreviewTab,
+	pendingRunIdOf,
+	slotShowsPage,
+	type PreviewSlot,
+	type PreviewTarget
+} from './previewRouter'
+import { normalizePipelineFolder } from '$lib/utils/pipelineFolder'
+import { logFeatureUsage } from '$lib/utils/featureUsage'
+import { UserDraft } from '$lib/userDraft.svelte'
+import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
+import { armRestartOnFirstInteraction } from '$lib/userDraftToast'
+import { applyDraftToRuntimeRawApp, runtimeRawAppToDraft, type RawAppDraft } from './appDraftCodec'
+import {
+	setDeployedInSessionHandler,
+	setClosePreviewTabsHandler,
+	setGetPreviewStatusHandler,
+	setGetRuntimeLogsHandler,
+	setGetDomHandler,
+	setListAppRunsHandler,
+	setScreenshotHandler,
+	setOpenPagePreviewHandler,
+	setOpenPreviewHandler
+} from '$lib/components/copilot/chat/global/core'
+import {
+	formatRuntimeLogsForChat,
+	formatBuildFailureForChat,
+	formatBuildLogTailForChat,
+	RAW_APP_BUILD_WAIT_MS,
+	formatAppRunsForChat,
+	type RawAppPreviewLogs,
+	type RawAppRuntimeLogRequester,
+	type RawAppRunSummary,
+	type RawAppRunsProvider,
+	type RawAppScreenshotRequester
+} from '$lib/components/raw_apps/utils'
+import { resolveGlobalDraftStoragePathByKind } from '$lib/components/copilot/chat/global/userDraftAdapter'
+import type {
+	RawAppDomQuery,
+	RawAppDomRequester,
+	RawAppDomResult
+} from '$lib/components/raw_apps/rawAppDom'
+import { generateSessionSummary } from './sessionTitle'
+import { pendingUserAction } from '$lib/components/copilot/chat/shared'
+import {
+	getRuntime,
+	runtimeRoots,
+	runtimes,
+	setPendingUserActionResolver
+} from './sessionRuntimeRegistry.svelte'
+export {
+	disposeRuntime,
+	ensureSessionChatPeek,
+	getRuntime,
+	getSessionChatPeek,
+	getSessionChatStatus,
+	listRuntimes,
+	removeSession,
+	type SessionChatPeek,
+	type SessionChatStatus
+} from './sessionRuntimeRegistry.svelte'
+
+// Per-kind load state for a session's editor target. Pure state container the
+// load methods write into; the editor-target gate reads it to decide between
+// the loading overlay, the not-found state, and a remount of the heavy editor.
+// `loadedPath` flips to the requested path only once the load settles (data
+// ready), which is what lets the gate remount on data-ready rather than on the
+// (synchronous) target swap.
+export interface LoadSlot {
+	loadedPath: string | undefined
+	// The workspace `loadedPath`'s content was fetched from. A session can retarget
+	// the same item path to a different fork, so the cache must key on both — else
+	// the editor keeps the old workspace's content while save/deploy write to the new.
+	loadedWorkspace: string | undefined
+	loading: boolean
+	notFound: boolean
+}
+
+export type SessionTargetKind = 'flow' | 'script' | 'raw_app'
+
+/** What a mounted pipeline editor view offers the rest of the session. */
+export interface PipelineView {
+	/** Deploy all of the folder's drafts; failures stay drafts and are shown in the view. */
+	deployAll(): Promise<DeployResult>
+}
+
+// The live runtime value a raw-app editor cell binds. Legacy drag-and-drop apps
+// are intentionally NOT hosted in the session preview (only code-based raw apps).
+export interface RawAppRuntimeValue {
+	files: Record<string, string>
+	runnables: Record<string, any>
+	data: RawAppData
+	policy: any
+	summary: string
+	path: string
+	custom_path?: string
+	labels?: string[]
+	draft_path?: string
+	/** The app_version this cell's content forked from, carried so the editor's deploy
+	 *  guard and diff drawer compare the same pair the full-page editor does. */
+	parent_version?: number
+}
+// The deployed baseline a raw-app cell diffs against (topbar Diff drawer).
+export interface RawAppSavedValue {
+	value: {
+		files: Record<string, { code: string }>
+		runnables: Record<string, HiddenRunnable>
+	}
+	draft?: any
+	path: string
+	summary: string
+	policy: any
+	draft_only?: boolean
+	/** No deployed counterpart (draft-only); disables the topbar Diff. */
+	no_deployed?: boolean
+	custom_path?: string
+	/** The deployed head at load time, which the editor's deploy guard falls back to when
+	 *  the draft carries no base of its own. */
+	deployed_version?: number
+}
+
+// One editor cell per (kind, path) the session loads: the load slot plus the
+// content/baseline stores for that item. Keying by path lets several items of the
+// same kind stay loaded — and mounted as separate live editors — at once. A tab's
+// editor resolves its own cell via the accessors below.
+export interface FlowCell {
+	slot: LoadSlot
+	store: StateStore<Flow>
+	stateStore: { val: Record<string, any> }
+	saved: { val: SavedFlow | undefined }
+}
+export interface ScriptCell {
+	slot: LoadSlot
+	store: { val: NewScript | undefined }
+	saved: { val: SavedScript | undefined }
+}
+export interface RawAppCell {
+	slot: LoadSlot
+	store: { val: RawAppRuntimeValue | undefined }
+	saved: { val: RawAppSavedValue | undefined }
+}
+
+// `feature_usage` key for a preview tab landing somewhere. The View keys are
+// disjoint from the six a tab open already reports, so the existing counters keep
+// their meaning and `view_*` answers how much the View side is used at all.
+function tabUsageKey(slot: PreviewSlot): string {
+	if (slot.kind === 'editor') return slot.editorKind
+	if (slot.kind === 'viewer') return `view_${slot.viewerKind}`
+	if (slot.kind === 'artifact') return 'artifact'
+	return slot.kind === 'runform' ? 'run_form' : 'page'
+}
+
+export interface SessionRuntime {
+	readonly sessionId: string
+	readonly manager: AIChatManager
+	// Single live owner of this session's preview tabs. Both the sessions page
+	// (renderer) and the open_preview/get_preview_status tools cross it, so the
+	// tab model has exactly one live copy.
+	readonly previewTabs: SessionPreviewTabs
+	// Pipeline editor state per folder — persists across editor remounts and
+	// session switches, so it can't be component-local. Created on first use.
+	pipelineEditor(folder: string): PipelineEditorState
+	// A mounted pipeline editor view offers its deploy here; returns the unregister.
+	registerPipelineView(folder: string, view: PipelineView): () => void
+	// Deploy a folder's pipeline drafts through its editor tab, opening the tab if
+	// needed: the tab hydrates the drafts and shows what deployed and what failed.
+	deployPipeline(folder: string): Promise<DeployResult>
+	// Drop a folder's in-memory drafts once its draft bundle is discarded, so an
+	// open or later-mounted editor does not save them back.
+	forgetPipelineDrafts(folder: string): Promise<void>
+	// For a session changing workspace with its editors closed. A cached editor counts as
+	// hydrated, so it would skip the new workspace's draft and autosave this one's over it.
+	resetPipelineEditors(): void
+	// Per-(kind, path) editor cells (content/baseline stores + load slot), created
+	// on demand. Each editable preview tab resolves its own cell, so several items
+	// stay live at once.
+	flowCell(path: string): FlowCell
+	loadFlow(workspace: string, path: string, force?: boolean): Promise<void>
+	scriptCell(path: string): ScriptCell
+	loadScript(workspace: string, path: string, force?: boolean): Promise<void>
+	rawAppCell(path: string): RawAppCell
+	// Non-creating peek at an editor cell's settled path (undefined when no cell
+	// exists yet for this (kind, path)), so callers can check load state without
+	// the cell accessors' create-on-miss side effect.
+	loadedEditorPath(kind: SessionTargetKind, path: string): string | undefined
+	/** Deploy counter for an item, bumped by `itemDeployed`. A mounted
+	 * viewer refetches when this changes — it reads the deployed version from the
+	 * API, so nothing else tells it the editor beside it just published. */
+	deployedRevision(kind: SessionTargetKind, path: string): number
+	/** The chat tool call a viewer tab was opened to answer, named by that tab's own url. */
+	pendingRunFor(toolCallId: string): PendingRun | undefined
+	/** Record that a preview tab landed on `url`. Fires for a newly opened tab and
+	 * for an existing one switched to the other side of its item. */
+	logTabUsage(url: string): void
+	loadRawApp(
+		workspace: string,
+		path: string,
+		force?: boolean,
+		deployedOnly?: boolean,
+		/** Open the starter template when nothing exists at `path` yet: a new app whose
+		 * setup has not been confirmed. Held in the cell only, nothing is saved. */
+		seedIfMissing?: boolean
+	): Promise<void>
+	/** Keep a new item's draft in this tab, unsaved, until the session's first send saves it:
+	 * an AI start the user never sends leaves nothing behind. */
+	holdDraftUntilSend(workspace: string, kind: SessionTargetKind, path: string): void
+	holdsDraft(workspace: string, kind: SessionTargetKind, path: string): boolean
+	/** Register a mounted raw-app preview's log requester, keyed by app path, like
+	 * `registerDomRequester`: build state is per editor, so reads route to the app edited. */
+	registerRuntimeLogRequester(appPath: string, requester: RawAppRuntimeLogRequester): void
+	unregisterRuntimeLogRequester(appPath: string, requester: RawAppRuntimeLogRequester): void
+	requestRuntimeLogs(
+		limit: number,
+		appPath?: string
+	): Promise<
+		RawAppPreviewLogs | { closedAppPath: string } | { ambiguousAppPaths: string[] } | undefined
+	>
+	/** Register a mounted raw-app preview's DOM requester, keyed by app path.
+	 * ALL mounted preview tabs register (hidden ones stay mounted), so a
+	 * DOM-scoped turn can read its own app even when another tab is visible. */
+	registerDomRequester(appPath: string, requester: RawAppDomRequester): void
+	unregisterDomRequester(appPath: string, requester: RawAppDomRequester): void
+	/** The visible preview — the default target for a query with no app path. */
+	setActiveDomApp(appPath: string, owner: unknown): void
+	releaseActiveDomApp(owner: unknown): void
+	requestDom(query: RawAppDomQuery): Promise<RawAppDomResult | undefined>
+	setAppRunsProvider(provider: RawAppRunsProvider | undefined): void
+	getAppRuns(): RawAppRunSummary[] | undefined
+	setScreenshotRequester(requester: RawAppScreenshotRequester | undefined): void
+	/** Release the slot only if `requester` still owns it. */
+	clearScreenshotRequester(requester: RawAppScreenshotRequester): void
+	requestScreenshot(): Promise<string | undefined>
+	/** Everything this session must do once an item has been deployed from inside it:
+	 * discard the local draft, force-reload the editor so the preview matches what is
+	 * deployed, bump the viewer's revision, and drop the workspace caches whose answers
+	 * the deploy just changed. One call rather than a sequence at each deploy site — a
+	 * caller that remembers three of the four leaves a stale draft count or a picker
+	 * that still calls the item a draft. */
+	itemDeployed(
+		workspace: string,
+		kind: 'script' | 'flow' | 'raw_app',
+		path: string,
+		/** Where the deploy landed, when not at `path`: a new item parked at a
+		 * `draft_<uuid>` storage path deploys under the name it was given. */
+		deployedPath?: string
+	): void
+}
+
+setPendingUserActionResolver(pendingUserAction)
+
+function emptyFlow(): Flow {
+	return {
+		summary: '',
+		value: { modules: [] },
+		path: '',
+		edited_at: '',
+		edited_by: '',
+		archived: false,
+		extra_perms: {},
+		schema: emptySchema()
+	}
+}
+
+function emptyLoadSlot(): LoadSlot {
+	return { loadedPath: undefined, loadedWorkspace: undefined, loading: false, notFound: false }
+}
+
+// Cell factories — a cell starts in the empty-editor state (empty flow / no
+// script / no app) until its first load populates it.
+function makeFlowCell(): FlowCell {
+	const slot: LoadSlot = $state(emptyLoadSlot())
+	const store: StateStore<Flow> = $state({ val: emptyFlow() })
+	const stateStore: { val: Record<string, any> } = $state({ val: {} })
+	const saved: { val: SavedFlow | undefined } = $state({ val: undefined })
+	return { slot, store, stateStore, saved }
+}
+function makeScriptCell(): ScriptCell {
+	const slot: LoadSlot = $state(emptyLoadSlot())
+	const store: { val: NewScript | undefined } = $state({ val: undefined })
+	const saved: { val: SavedScript | undefined } = $state({ val: undefined })
+	return { slot, store, saved }
+}
+function makeRawAppCell(): RawAppCell {
+	const slot: LoadSlot = $state(emptyLoadSlot())
+	const store: { val: RawAppRuntimeValue | undefined } = $state({ val: undefined })
+	const saved: { val: RawAppSavedValue | undefined } = $state({ val: undefined })
+	return { slot, store, saved }
+}
+
+async function generateAndApplySessionSummary(sessionId: string, manager: AIChatManager) {
+	const session = sessionState.sessions.find((s) => s.id === sessionId)
+	if (!session || session.summarySource !== 'placeholder') return
+	const chatId = session.chatId
+	if (!chatId) return
+	const title = await generateSessionSummary(manager)
+	if (!title) return
+	setGeneratedSessionSummary(sessionId, title, chatId)
+}
+
+function createRuntime(session: Session): SessionRuntime {
+	const manager = new AIChatManager()
+	manager.disabledModes = { navigator: true }
+	// Sessions always operate in GLOBAL mode (workspace-item tools across
+	// the session's workspace). The page-level gate already requires the
+	// global-AI flag, so this is always available here. Mode is locked
+	// and the dropdown is hidden in the chat UI.
+	manager.mode = AIMode.GLOBAL
+	// Session chats drive a side-panel preview, so they get the session-only
+	// preview tools (open_preview / get_preview_status); the global side-panel
+	// chat does not.
+	manager.isSessionChat = true
+	// Carried into the tool helpers so this session's preview/deploy tool calls
+	// dispatch to THIS session even when another session is the UI-active one.
+	manager.sessionId = session.id
+	manager.workMode = session.workMode ?? AIWorkMode.BUILD
+	manager.onWorkModeChanged = (mode) => setSessionWorkMode(session.id, mode)
+	manager.workingInResolver = () => {
+		const s = sessionState.sessions.find((x) => x.id === session.id)
+		// Read from the browser's store, so only a list counts.
+		const roots = Array.isArray(s?.workingIn) ? s.workingIn : undefined
+		return { roots, source: roots ? (s?.workingInSource ?? 'default') : 'default' }
+	}
+	manager.onWorkingInChanged = (roots, source) => setSessionWorkingIn(session.id, roots, source)
+	// Cross-tab awareness: heartbeat while this tab runs a turn, composer lock
+	// (and send refusal) while another tab does. The chat id is read at turn
+	// end, not captured at start — the turn may have rotated it, and the other
+	// tabs re-read whichever record it ended on.
+	manager.runHeldElsewhereResolver = () => runHeldElsewhere(session.id)
+	manager.onRunningChanged = (running) => {
+		markSessionStateChanged(session.id)
+		if (running) localRunStarted(session.id, manager.historyManager.getCurrentChatId())
+		else localRunEnded(session.id, manager.historyManager.getCurrentChatId())
+	}
+	// The chat targets the session's OWN (possibly forked) workspace without
+	// switching the global workspaceStore. Resolved live from the session record
+	// so it tracks the pending → committed (and staged-fork) transitions.
+	manager.workspaceResolver = () => {
+		const s = sessionState.sessions.find((x) => x.id === session.id)
+		return s ? getEffectiveWorkspaceId(s) : undefined
+	}
+	// Session facts (fork vs live workspace) for the system prompt. A resolver so
+	// each rebuild reads the current record — the fork commits at first send, and
+	// the user can re-point the session's workspace between sends.
+	manager.sessionContextResolver = () => {
+		const s = sessionState.sessions.find((x) => x.id === session.id)
+		if (!s) return undefined
+		const wsId = getEffectiveWorkspaceId(s)
+		const ws = get(userWorkspaces).find((w) => w.id === wsId)
+		const dev = findCanonicalDevWorkspace(wsId, get(userWorkspaces))
+		return {
+			workspaceId: wsId,
+			parentWorkspaceId: ws?.parent_workspace_id ?? undefined,
+			isDevWorkspace: ws?.is_dev_workspace,
+			// Committed workspace missing from the list: still a fork (mirrors
+			// isForkSession) — the prompt must not call it the live workspace.
+			forkParentUnknown: !ws && !!s.workspace_id,
+			pendingForkOf: s.pending_fork?.parent_workspace_id,
+			devWorkspace: dev && { id: dev.id, name: dev.name }
+		}
+	}
+	// What the side panel is showing, stamped on each user message so the chat
+	// knows the page (and the row whose drawer is open) without spending a
+	// get_preview_status round-trip. Live editors are skipped: they register
+	// themselves as the ACTIVE EDITOR through UserDraft's live-draft registry. A page
+	// item tab is not one of them, and reads as its list page with the item open; a
+	// deployed item's page is not either, and reads as its `/get/` location.
+	manager.activePreviewResolver = () => {
+		const owner = getRuntime(session.id)?.previewTabs
+		// What is on screen, not merely which tab is selected: the rule tells the model
+		// to resolve "this page" and "it" against this block, and a collapsed panel would
+		// point those at a page the user cannot see.
+		const tab = owner?.displayedTab
+		if (!tab || tab.agentEditor) return undefined
+		if (!slotShowsPage(resolvePreviewTab(tab.url).kind)) return undefined
+		return previewLocationContext(whereIs(tab))
+	}
+	// An agent's editor is a resource tab rather than one of the live editors the draft registry
+	// reports, so the tab model says when one is on screen.
+	manager.activeEditorResolver = () => {
+		const tab = getRuntime(session.id)?.previewTabs?.displayedTab
+		if (!tab?.agentEditor) return undefined
+		const slot = resolvePreviewTab(tab.url)
+		if (slot.kind !== 'pageitem') return undefined
+		return { type: 'agent', path: slot.ref.path, storagePath: slot.ref.path, isLiveDraft: true }
+	}
+	// Drafts held by holdDraftUntilSend. Their sync is suspended, so an edit made meanwhile is
+	// in the cell only, so the save sends the current value whatever the mirror last saw.
+	let heldDrafts: { workspace: string; kind: SessionTargetKind; path: string }[] = []
+	// The live editor's value, else the runtime cell's: a collapsed or remounting preview has
+	// released its UserDraft entry, but the cell lives as long as a tab shows the app.
+	function heldDraftValue(workspace: string, kind: SessionTargetKind, path: string) {
+		const live = UserDraft.get(kind, path, { workspace })
+		if (live !== undefined || kind !== 'raw_app') return live
+		const val = rawAppCells.get(path)?.store.val
+		return val ? runtimeRawAppToDraft(val) : undefined
+	}
+	// A draft leaves the list only once saved: a failed send keeps it held, so its retry saves it.
+	async function persistHeldDrafts(): Promise<void> {
+		while (heldDrafts.length > 0) {
+			const { workspace, kind, path } = heldDrafts[0]
+			const value = heldDraftValue(workspace, kind, path)
+			if (value === undefined) throw new Error('the app to save is no longer open')
+			UserDraft.restartSync(kind, path, { workspace })
+			await UserDraftDbSyncer.save({ workspace, itemKind: kind, path, value, immediate: true })
+			const saved = UserDraftDbSyncer.getState({ workspace, itemKind: kind, path })
+			if (saved.state === 'failed') {
+				UserDraft.stopSync(kind, path, { workspace })
+				throw new Error(`the app could not be saved: ${saved.failureMessage ?? 'unknown error'}`)
+			}
+			heldDrafts.shift()
+		}
+	}
+	function isHeldDraft(workspace: string, kind: SessionTargetKind, path: string): boolean {
+		return heldDrafts.some((d) => d.workspace === workspace && d.kind === kind && d.path === path)
+	}
+	function releaseHeldDraft(workspace: string, kind: SessionTargetKind, path: string): void {
+		heldDrafts = heldDrafts.filter(
+			(d) => !(d.workspace === workspace && d.kind === kind && d.path === path)
+		)
+	}
+	// Pre-flight: materialise the (still-transient) session, then commit
+	// the workspace (creating a staged fork if needed) before any send.
+	// AIChatManager awaits this so the first message hits a persisted
+	// session targeting the right workspace. Both calls are idempotent.
+	manager.beforeSend = async () => {
+		// Drafts first: a session stored before its app is saved would reopen onto nothing.
+		await persistHeldDrafts()
+		materializeTransient(session.id)
+		// Session is now persisted → flush any linked files buffered while it was transient.
+		await manager.attachedFiles.flushPending()
+		// Fork creation is the slow part of the pre-flight; label the loading
+		// indicator so the user knows why the send is taking a moment.
+		manager.loadingLabel = 'Creating workspace fork...'
+		const committed = await commitSessionWorkspace(session.id, get(workspaceStore) ?? undefined)
+		manager.loadingLabel = undefined
+		// commitSessionWorkspace returns undefined only when the session did NOT
+		// commit to a workspace — most importantly when a staged fork failed to
+		// materialise (materializeFork is built to toast + return undefined rather
+		// than throw). Throwing here is what makes AIChatManager.sendRequest abort:
+		// otherwise the send proceeds against get(workspaceStore) (the parent for a
+		// staged-new-fork draft), shipping the message + its tool calls to the
+		// wrong workspace while the pending_fork is silently dropped.
+		if (!committed) {
+			throw new Error(
+				'the session workspace could not be created or committed (fork creation may have failed)'
+			)
+		}
+		// The composer may have been enabled by a previous workspace's copilot
+		// config (copilotInfo is global). getCurrentModel() reads it when the
+		// request builds just after this hook, so load the committed workspace's
+		// config first — otherwise a send right after switching workspaces could
+		// pick the old provider/model while the proxy + tools target the new one.
+		// SessionWrapper's active-session load usually already did this; skip the
+		// fetch when it matches (a staged fork commits to a fresh id its load missed).
+		if (get(copilotWorkspace) !== committed) {
+			await loadCopilot(committed)
+		}
+	}
+	manager.afterFirstTurnSaved = () => generateAndApplySessionSummary(session.id, manager)
+
+	// One cell per (kind, path). Created on demand by the load methods; each holds
+	// cached content (KB–MB), not a mounted editor. Bounded to the items open
+	// preview tabs reference: pruneEditorCells (below) drops the rest when the tab
+	// set changes, so re-pointing one tab through many items can't leak cells.
+	const flowCells = new Map<string, FlowCell>()
+	const scriptCells = new Map<string, ScriptCell>()
+	const rawAppCells = new Map<string, RawAppCell>()
+	function flowCell(path: string): FlowCell {
+		let c = flowCells.get(path)
+		if (!c) flowCells.set(path, (c = makeFlowCell()))
+		return c
+	}
+	function scriptCell(path: string): ScriptCell {
+		let c = scriptCells.get(path)
+		if (!c) scriptCells.set(path, (c = makeScriptCell()))
+		return c
+	}
+	function rawAppCell(path: string): RawAppCell {
+		let c = rawAppCells.get(path)
+		if (!c) rawAppCells.set(path, (c = makeRawAppCell()))
+		return c
+	}
+	// Bumped on every deploy of an item, so a mounted viewer — which reads the
+	// deployed version over the API rather than from the editor cell — knows its copy
+	// is stale. Keyed by (kind, path) and never pruned: a counter per item the session
+	// deployed is a few bytes, and dropping one would replay its bump as "unchanged".
+	const deployedRevisions = $state<Record<string, number>>({})
+	const revisionKey = (kind: SessionTargetKind, path: string) => `${kind}:${path}`
+	function deployedRevision(kind: SessionTargetKind, path: string): number {
+		return deployedRevisions[revisionKey(kind, path)] ?? 0
+	}
+	function logTabUsage(url: string): void {
+		logFeatureUsage('ai_session', 'tab', {
+			key: tabUsageKey(resolvePreviewTab(url)),
+			entityId: session.id,
+			workspace: getEffectiveWorkspaceId(session)
+		})
+	}
+	function loadedEditorPath(kind: SessionTargetKind, path: string): string | undefined {
+		const cell =
+			kind === 'flow'
+				? flowCells.get(path)
+				: kind === 'script'
+					? scriptCells.get(path)
+					: rawAppCells.get(path)
+		return cell?.slot.loadedPath
+	}
+	// Drop every editor cell no open preview tab still points at. Called on each
+	// tab-set change: a closed or navigated-away item's cell (and its cached
+	// content) is reclaimed. Deduping keeps at most one editor tab per item, so an
+	// item absent from the open tabs has no live editor to strand.
+	function pruneEditorCells(): void {
+		const keep = { flow: new Set<string>(), script: new Set<string>(), raw_app: new Set<string>() }
+		for (const t of previewTabs.tabs) {
+			const route = parsePreviewItemRoute(t.url)
+			if (!route) continue
+			const kind = route.raw_app ? 'raw_app' : route.kind
+			if (kind === 'flow' || kind === 'script' || kind === 'raw_app') keep[kind].add(route.itemPath)
+		}
+		for (const p of [...flowCells.keys()]) if (!keep.flow.has(p)) flowCells.delete(p)
+		for (const p of [...scriptCells.keys()]) if (!keep.script.has(p)) scriptCells.delete(p)
+		for (const p of [...rawAppCells.keys()]) if (!keep.raw_app.has(p)) rawAppCells.delete(p)
+		// A held app whose tab is gone was dropped before anything was sent: it is not saved.
+		for (const d of heldDrafts.filter((d) => d.kind === 'raw_app' && !keep.raw_app.has(d.path))) {
+			UserDraft.restartSync(d.kind, d.path, { workspace: d.workspace })
+			releaseHeldDraft(d.workspace, d.kind, d.path)
+		}
+	}
+
+	// Hydrate the preview-tab owner from the session record (the durable backing);
+	// from here on the owner is the single live copy and writes back through the
+	// adapter. setSessionTabs / setSessionPreviewCollapsed stay the low-level record
+	// writers (opening/moving a tab is a touch that persists an in-memory draft).
+	const previewTabs = new SessionPreviewTabs(hydratePreviewTabs(session), {
+		persist: (snap) => {
+			setSessionTabs(session.id, snap.tabs, snap.activeId)
+			setSessionPreviewCollapsed(session.id, snap.collapsed)
+			// Only persist a real width; undefined means "never resized" (defaults to 50).
+			if (snap.previewSize != null) setSessionPreviewSize(session.id, snap.previewSize)
+		},
+		// Closing a tab that carried a call is not a refusal: the card still has the form.
+		onTabsChanged: pruneEditorCells,
+		onTabOpened: logTabUsage
+	})
+
+	/** The call a viewer tab was opened to answer, for the page that renders it. Built from
+	 * the id the tab carries rather than from state of our own, so there is nothing to keep in
+	 * step: the tab names the call, and the manager says whether it is still waiting. */
+	function pendingRunFor(toolCallId: string): PendingRun | undefined {
+		if (!manager.isRunFormPending(toolCallId)) return undefined
+		return {
+			toolCallId,
+			// Read here, so the page's `$derived` rebuilds when the posture changes under it.
+			planModeActive: manager.planModeActive,
+			// A getter, not a value: the page reads it once, when it builds the form, and this
+			// object is rebuilt on every keystroke of the card's draft otherwise.
+			get proposedArgs() {
+				return manager.pendingRunFormArgs(toolCallId) ?? {}
+			},
+			adopt: (jobId, args, schema) => manager.handleRunFormJob(toolCallId, jobId, args, schema),
+			decline: () => manager.handleRunFormCancel(toolCallId)
+		}
+	}
+
+	// Let the jobs tray open a run in this session's preview panel (as a tab on
+	// the run's page). The global side-panel chat leaves this unset and
+	// falls back to a new browser tab.
+	manager.openRunInPreview = ({ jobId, workspace, label }) => {
+		previewTabs.open({
+			type: 'page',
+			href: `/run/${jobId}?workspace=${workspace}`,
+			label
+		})
+	}
+
+	// Not a page: the tab mounts the chat's own form on the same tool call, so Run in the
+	// panel is Run in the chat, and the two share one draft rather than being two forms
+	// proposing two jobs.
+	manager.openRunForm = ({ toolCallId, label }) => {
+		previewTabs.open({ type: 'runform', toolCallId, label })
+	}
+	// Show a deployed run on the item's own page. With `carries`, that page answers the call:
+	// the job its Run starts is the one the tool follows.
+	manager.openRunOnDeployedPage = ({
+		toolCallId,
+		kind,
+		path,
+		summary,
+		carries,
+		onlyIfAlreadyOpen
+	}) => {
+		// An agent's deployed page is a page route, which the panel hosts in process; the call
+		// rides in its query, as an item viewer's does.
+		const viewTarget: PreviewTarget | undefined =
+			kind === 'agent'
+				? {
+						type: 'page',
+						href: `/agents/get/${path}${carries ? `?pending_run=${encodeURIComponent(toolCallId)}` : ''}`,
+						label: summary
+					}
+				: (() => {
+						// Through the shared adapter: a session target spells a code-based app `raw_app`
+						// and a workspace item spells it `app` with a flag, and one place should know that.
+						const target = previewTargetForSessionTarget(kind, path)
+						if (target?.type !== 'item') return undefined
+						return {
+							...target,
+							item: { ...target.item, summary },
+							mode: 'view' as const,
+							pendingRunId: carries ? toolCallId : undefined
+						}
+					})()
+		if (!viewTarget) return false
+		// Re-pointed rather than focused: the url is what hands the tab the call, and
+		// rebuilding it also drops whatever version the reader had pinned.
+		const open = previewTabs.tabs.find((t) => {
+			const slot = resolvePreviewTab(t.url)
+			return slot.kind === 'viewer' && slot.viewerKind === kind && slot.path === path
+		})
+		if (open) {
+			// An unasked-for hand-off goes only to the page the reader already has in front of
+			// them. `navigate` below re-points the tab, which reloads it and rebuilds its url:
+			// on a tab they cannot see that silently drops whatever they had typed into its
+			// form and leaves the call on an off-screen page, and on a pinned one it moves them
+			// off the version they chose. Declining leaves the call on the card, which can run
+			// it. A reader who presses Preview is asking for all of that.
+			if (
+				onlyIfAlreadyOpen &&
+				(previewTabs.activeId !== open.id ||
+					previewTabs.collapsed ||
+					new URL(open.url, 'http://x').searchParams.get('version'))
+			) {
+				return false
+			}
+			previewTabs.navigate(viewTarget, open.id)
+			// `navigate` re-points a tab in place and nothing more, while the call is about to
+			// tell the reader the page is open. `open` would have brought it forward and shown
+			// the panel; this path has to do both itself.
+			previewTabs.select(open.id)
+			previewTabs.setCollapsed(false)
+		} else {
+			// Only the item's own page carries a form for this call, so a caller routing a call
+			// that was not asked to open anything gets a no rather than a new tab.
+			if (onlyIfAlreadyOpen) return false
+			previewTabs.open(viewTarget)
+		}
+		return true
+	}
+	manager.closeRunForm = (toolCallId) => {
+		// A page carrying the call outlives it, and stops carrying it because the call stops
+		// being pending. Only the chat's own form tab, which is the call, goes with it.
+		previewTabs.closeRunForm(toolCallId)
+	}
+	manager.showRunInPlaceOfForm = ({ toolCallId, jobId, workspace }) => {
+		const runHref = `/run/${jobId}?workspace=${workspace}`
+		// Either surface the call was waiting on becomes the run it started, in place.
+		const carrying = previewTabs.tabs.find((t) => pendingRunIdOf(t.url) === toolCallId)
+		if (carrying) previewTabs.retargetById(carrying.id, runHref)
+		previewTabs.retargetRunForm(toolCallId, runHref)
+	}
+	// Both read off the tab list rather than the slot's lifecycle: a tab the user has switched
+	// away from is unmounted but still open. Resolvers, like activePreviewResolver: the
+	// reader's own $derived subscribes to `tabs` through them, and the runtime is not inside
+	// an effect root to push from. So a tab closed or re-pointed hands the card back whatever
+	// it had given up.
+	// Either surface — the chat's own form in a tab, or the item's page carrying the call.
+	manager.isRunFormInPreview = (toolCallId) =>
+		previewTabs.tabs.some(
+			(t) =>
+				parseRunFormRoute(t.url)?.toolCallId === toolCallId || pendingRunIdOf(t.url) === toolCallId
+		)
+	// The chat's own form alone. The card's form is exclusive with this one and no other:
+	// both bind the one draft, and SchemaForm reorders in place the schema it is handed, so a
+	// second mount reorders it again. A page builds its own form from a copy of the proposal
+	// and shares nothing, so the card keeps its form while a page carries the call.
+	manager.isRunFormTabOpen = (toolCallId) =>
+		previewTabs.tabs.some((t) => parseRunFormRoute(t.url)?.toolCallId === toolCallId)
+
+	manager.openArtifact = (id, name, version) => {
+		previewTabs.open({ type: 'artifact', id, name, version })
+	}
+	manager.closeArtifact = (id) => previewTabs.closeArtifact(id)
+	// Key the store before any configureGlobalMode runs, so a new session's first create shows at once.
+	void manager.artifacts.setSession(session.id)
+
+	// Assigning `manager.mode` above only records the mode; this builds the tool set
+	// and system prompt from it. Keep it here, after the resolvers and the artifact
+	// store it reads, and not on `changeMode`: a runtime exists per session the
+	// picker lists, so changeMode's network refreshes would fire once per listing.
+	manager.configureGlobalMode()
+
+	const pipelineEditors = new Map<string, PipelineEditorState>()
+	function pipelineEditor(folder: string): PipelineEditorState {
+		const key = normalizePipelineFolder(folder)
+		let editor = pipelineEditors.get(key)
+		if (!editor) {
+			editor = new PipelineEditorState()
+			editor.folder = key
+			pipelineEditors.set(key, editor)
+		}
+		return editor
+	}
+
+	const pipelineViews = new Map<string, PipelineView>()
+	const pipelineViewWaiters = new Map<string, Set<(view: PipelineView) => void>>()
+	function registerPipelineView(folder: string, view: PipelineView): () => void {
+		const key = normalizePipelineFolder(folder)
+		pipelineViews.set(key, view)
+		const waiters = pipelineViewWaiters.get(key)
+		pipelineViewWaiters.delete(key)
+		waiters?.forEach((notify) => notify(view))
+		return () => {
+			if (pipelineViews.get(key) === view) pipelineViews.delete(key)
+		}
+	}
+	function pipelineViewFor(folder: string, timeoutMs = 15000): Promise<PipelineView | undefined> {
+		const mounted = pipelineViews.get(folder)
+		if (mounted) return Promise.resolve(mounted)
+		return new Promise((resolve) => {
+			const waiters = pipelineViewWaiters.get(folder) ?? new Set()
+			pipelineViewWaiters.set(folder, waiters)
+			const notify = (view: PipelineView) => {
+				clearTimeout(timer)
+				resolve(view)
+			}
+			const timer = setTimeout(() => {
+				waiters.delete(notify)
+				resolve(undefined)
+			}, timeoutMs)
+			waiters.add(notify)
+		})
+	}
+	manager.setPipelineReopener((folder) => {
+		const target = previewTargetForSessionTarget('pipeline', folder)
+		if (target) previewTabs.open(target)
+	})
+	async function deployPipeline(folder: string): Promise<DeployResult> {
+		const key = normalizePipelineFolder(folder)
+		const target = previewTargetForSessionTarget('pipeline', key)
+		if (target) previewTabs.open(target)
+		const view = await pipelineViewFor(key)
+		if (!view) return { success: false, error: `The pipeline editor for f/${key} did not open.` }
+		return view.deployAll()
+	}
+	async function forgetPipelineDrafts(folder: string): Promise<void> {
+		const key = normalizePipelineFolder(folder)
+		const editor = pipelineEditors.get(key)
+		if (editor) {
+			// The open pane saves its edits back as a draft when it closes: let it, then
+			// drop that draft with the rest, or it would come back afterwards.
+			await editor.closePane()
+			editor.drafts = new Map()
+			editor.triggerDrafts = new Map()
+			editor.clearLiveOverlays()
+		}
+		// The editor's crash mirror, which its load falls back to when the DB has
+		// no draft: left behind, it would restore what was just discarded.
+		try {
+			localStorage.removeItem(pipelineLocalMirrorKey(key))
+		} catch {
+			// Storage unavailable: nothing was mirrored either.
+		}
+	}
+
+	function resetPipelineEditors(): void {
+		for (const [key, editor] of pipelineEditors) {
+			editor.reset()
+			try {
+				localStorage.removeItem(pipelineLocalMirrorKey(key))
+			} catch {
+				// Storage unavailable: nothing was mirrored either.
+			}
+		}
+	}
+
+	const runtimeLogRequesters = new Map<string, RawAppRuntimeLogRequester>()
+	// appPath → requester, one entry per mounted raw-app preview tab.
+	const domRequesters = new Map<string, RawAppDomRequester>()
+	let activeDomAppPath: string | undefined = undefined
+	let activeDomOwner: unknown = undefined
+	let appRunsProvider: RawAppRunsProvider | undefined = undefined
+	let screenshotRequester: RawAppScreenshotRequester | undefined = undefined
+
+	return {
+		sessionId: session.id,
+		manager,
+		previewTabs,
+		pipelineEditor,
+		registerPipelineView,
+		deployPipeline,
+		forgetPipelineDrafts,
+		resetPipelineEditors,
+		flowCell,
+		loadedEditorPath,
+		deployedRevision,
+		pendingRunFor,
+		logTabUsage,
+
+		async loadFlow(workspace: string, path: string, force = false) {
+			const { slot, store, stateStore, saved } = flowCell(path)
+			if (slot.loadedPath === path && slot.loadedWorkspace === workspace && !force) return
+			// See loadScript: forced reload remounts via the render gate. A workspace
+			// retarget (same path, new fork) drops the stale content the same way so
+			// the editor gate shows loading and outbound sync can't write the old
+			// workspace's content into the new one before the fetch lands.
+			if (force || slot.loadedWorkspace !== workspace) slot.loadedPath = undefined
+			slot.loading = true
+			slot.notFound = false
+			try {
+				// Draft first. UserDraft is the shared authoritative content
+				// source — the chat (write_flow / patch_flow_json /
+				// set_flow_module_code) and the editor's outbound $effect both
+				// write through it. If a draft exists we render from it, even
+				// when the path has never been deployed.
+				const aiDraft = UserDraft.get<Flow>('flow', path, { workspace })
+
+				// Fallback for the head: the payload fetches below carry `version_id`, and
+				// this one covers a response that does not. Best-effort, and a request of
+				// its own, so the same response wins wherever both are available.
+				let deployedVersionId: number | undefined
+				try {
+					deployedVersionId = (await FlowService.getFlowByPath({ workspace, path }))?.version_id
+				} catch {
+					deployedVersionId = undefined
+				}
+
+				if (aiDraft) {
+					// Best-effort fetch the backend baseline for the diff
+					// drawer. Don't fail the load if the path doesn't exist
+					// yet on the backend — draft-only flows are a valid state.
+					try {
+						const result = await FlowService.getFlowByPath({ workspace, path, getDraft: true })
+						// The editor's deploy guard compares against the head, so keep this
+						// response's own and fall back to the one fetched above.
+						saved.val = {
+							...(result as SavedFlow),
+							version_id: (result as SavedFlow).version_id ?? deployedVersionId
+						}
+					} catch {
+						saved.val = undefined
+					}
+					await initFlow(aiDraft, store, stateStore, workspace)
+					slot.loadedPath = path
+					slot.loadedWorkspace = workspace
+					return
+				}
+
+				// No local draft yet — seed from `result.draft ?? result`.
+				const result = await FlowService.getFlowByPath({ workspace, path, getDraft: true })
+				saved.val = {
+					...(result as SavedFlow),
+					version_id: (result as SavedFlow).version_id ?? deployedVersionId
+				}
+				const serverDraft = (result as SavedFlow).draft as Flow | undefined
+				const flow: Flow = (serverDraft ?? (result as Flow)) as Flow
+				// Seed the per-tab last_sync from the server draft's timestamp so the
+				// seeding save below attaches a matching last_sync and the server can
+				// reject stale writes (see loadRawApp). Without this a server draft —
+				// saved from the standalone editor or another device — is clobbered
+				// with a fresh created_at, so the standalone editor's next autosave
+				// (carrying its own last_sync) is rejected as a conflict.
+				UserDraftDbSyncer.recordRemoteSync(
+					{ workspace, itemKind: 'flow', path },
+					(result as SavedFlow).draft_saved_at
+				)
+				UserDraft.save('flow', path, flow, { workspace })
+				await initFlow(flow, store, stateStore, workspace)
+				// A draft keeps the base it forked from, unknown included (it then falls
+				// back to the timestamps); only a fresh checkout takes the head, which is
+				// also what keeps it from always diffing. See loadScript. The head comes
+				// from the response that supplied the payload, so a deploy landing between
+				// the two requests cannot label this checkout as forked from the older one.
+				const head = (result as SavedFlow).version_id ?? deployedVersionId
+				if (head != null && store.val && !serverDraft) store.val.version_id = head
+				slot.loadedPath = path
+				slot.loadedWorkspace = workspace
+			} catch (err) {
+				console.error('Failed to load flow', err)
+				slot.notFound = true
+			} finally {
+				slot.loading = false
+			}
+		},
+
+		scriptCell,
+
+		async loadScript(workspace: string, path: string, force = false) {
+			const { slot, store, saved } = scriptCell(path)
+			if (slot.loadedPath === path && slot.loadedWorkspace === workspace && !force) return
+			// Forced reload: clearing the slot's loadedPath drops us into
+			// SessionEditorTarget's `{:else if slot.loadedPath === undefined}` gate,
+			// which unmounts then remounts the editor — avoids the Monaco init race a
+			// synchronous {#key} would hit.
+			if (force || slot.loadedWorkspace !== workspace) slot.loadedPath = undefined
+			slot.loading = true
+			slot.notFound = false
+			try {
+				// Draft first. UserDraft is the shared authoritative content
+				// source — the chat (write_script / edit_script) and the
+				// editor's outbound $effect both write through it. If a draft
+				// exists we render from it, even when the path has never been
+				// deployed.
+				const aiDraft = UserDraft.get<NewScript>('script', path, { workspace })
+
+				if (aiDraft && typeof aiDraft.content === 'string') {
+					// Best-effort fetch the backend baseline for the diff
+					// drawer + parent_hash. 404 means draft-only — leave
+					// savedScript undefined and skip parent_hash.
+					try {
+						const result = await ScriptService.getScriptByPath({ workspace, path, getDraft: true })
+						saved.val = result as SavedScript
+					} catch {
+						saved.val = undefined
+					}
+					// Clone before layering the AI draft on top, else we'd mutate
+					// `saved.val` in place and lose the pristine diff baseline.
+					const savedDraft = saved.val?.draft as NewScript | undefined
+					const baseline: NewScript = saved.val
+						? (structuredClone(
+								$state.snapshot(savedDraft ?? (saved.val as NewScript))
+							) as NewScript)
+						: {
+								// Seed from the draft's own path (a rename lives in `draft_path`,
+								// else `path`), not the storage key. Otherwise re-seeding a renamed
+								// never-deployed draft (e.g. a script→script switch re-runs loadScript
+								// with the draft still in memory) resets the path to `draft_<uuid>`,
+								// and the next autosave drops `draft_path` — clobbering the rename.
+								path:
+									(aiDraft as NewScript & { draft_path?: string }).draft_path ??
+									aiDraft.path ??
+									path,
+								summary: aiDraft.summary ?? '',
+								content: '',
+								description: '',
+								schema: emptySchema(),
+								language: (aiDraft.language ?? 'bun') as any
+							}
+					// Only a fresh checkout forks from the head; see the branch below.
+					if (!savedDraft && saved.val?.hash) baseline.parent_hash = saved.val.hash
+					baseline.content = aiDraft.content
+					if (aiDraft.language) baseline.language = aiDraft.language
+					if (aiDraft.summary !== undefined) baseline.summary = aiDraft.summary
+					store.val = baseline
+					slot.loadedPath = path
+					slot.loadedWorkspace = workspace
+					return
+				}
+
+				// No local draft yet — seed from `result.draft ?? result`.
+				const result = await ScriptService.getScriptByPath({ workspace, path, getDraft: true })
+				saved.val = result as SavedScript
+				// Clone before mutating, else `baseline` aliases `result` and
+				// `baseline.parent_hash` corrupts the diff baseline.
+				const serverDraft = (result as SavedScript).draft as NewScript | undefined
+				const baseline = structuredClone(serverDraft ?? (result as NewScript))
+				// Only a fresh checkout forks from the head. A draft keeps the base it has,
+				// unknown included: `draft.base` is derived from `parent_hash` on every
+				// save, so stamping the head over it would say this draft is up to date
+				// when it is not. An unknown base falls back to the timestamps.
+				if (!serverDraft) baseline.parent_hash = result.hash
+				// Seed the per-tab last_sync from the server draft's timestamp so the
+				// seeding save below attaches a matching last_sync and the server can
+				// reject stale writes (see loadRawApp). Without this a server draft —
+				// saved from the standalone editor or another device — is clobbered
+				// with a fresh created_at, so the standalone editor's next autosave
+				// (carrying its own last_sync) is rejected as a conflict.
+				UserDraftDbSyncer.recordRemoteSync(
+					{ workspace, itemKind: 'script', path },
+					(result as SavedScript).draft_saved_at
+				)
+				UserDraft.save<NewScript>('script', path, baseline, { workspace })
+				store.val = baseline
+				slot.loadedPath = path
+				slot.loadedWorkspace = workspace
+			} catch (err) {
+				console.error('Failed to load script', err)
+				slot.notFound = true
+			} finally {
+				slot.loading = false
+			}
+		},
+
+		rawAppCell,
+
+		async loadRawApp(
+			workspace: string,
+			path: string,
+			force = false,
+			deployedOnly = false,
+			seedIfMissing = false
+		) {
+			const { slot, store, saved } = rawAppCell(path)
+			if (slot.loadedPath === path && slot.loadedWorkspace === workspace && !force) return
+			// A held draft exists only in this cell: the server has nothing yet, and the preview's
+			// unmount dropped its UserDraft entry, sync suspension included.
+			if (
+				!force &&
+				store.val &&
+				slot.loadedWorkspace === workspace &&
+				isHeldDraft(workspace, 'raw_app', path)
+			) {
+				UserDraft.stopSync('raw_app', path, { workspace })
+				slot.notFound = false
+				slot.loadedPath = path
+				return
+			}
+			// See loadScript: forced reload remounts via the render gate.
+			if (force || slot.loadedWorkspace !== workspace) slot.loadedPath = undefined
+			slot.loading = true
+			slot.notFound = false
+			try {
+				// Draft first. UserDraft is the shared authoritative content
+				// source — the chat (init_app / write_app_file / ...) and the
+				// editor's outbound $effect both write through it. If a draft
+				// exists we render from it, even when the path has never been
+				// deployed.
+				const aiDraft = deployedOnly
+					? undefined
+					: UserDraft.get<RawAppDraft>('raw_app', path, { workspace })
+
+				if (aiDraft) {
+					// Best-effort fetch the backend baseline for the diff
+					// drawer. Don't fail the load if the path doesn't exist
+					// yet on the backend — draft-only apps are a valid state.
+					try {
+						const result = await AppService.getAppByPath({
+							workspace,
+							path,
+							getDraft: true,
+							rawApp: true
+						})
+						// Top-level fields are the deployed payload — the diff
+						// baseline, since the session has its own `aiDraft`.
+						saved.val = {
+							summary: result.summary,
+							value: result.value as any,
+							path: result.path,
+							policy: result.policy,
+							custom_path: result.custom_path,
+							no_deployed: result.no_deployed,
+							deployed_version: Array.isArray(result.versions)
+								? result.versions[result.versions.length - 1]
+								: undefined
+						}
+					} catch {
+						saved.val = undefined
+					}
+					store.val = applyDraftToRuntimeRawApp(
+						{
+							files: {},
+							runnables: {},
+							data: { ...DEFAULT_DATA },
+							policy: undefined,
+							summary: aiDraft.summary ?? '',
+							path
+						},
+						aiDraft
+					)
+					slot.loadedPath = path
+					slot.loadedWorkspace = workspace
+					return
+				}
+
+				// No local draft yet — seed from the server draft if present
+				// (the standalone editor's "Save draft"), else the deployed value.
+				const result = await AppService.getAppByPath({
+					workspace,
+					path,
+					getDraft: !deployedOnly,
+					rawApp: true
+				})
+				// Deployed baseline for the diff drawer (top-level fields).
+				saved.val = {
+					summary: result.summary,
+					value: result.value as any,
+					path: result.path,
+					policy: result.policy,
+					custom_path: result.custom_path,
+					no_deployed: result.no_deployed,
+					deployed_version: Array.isArray(result.versions)
+						? result.versions[result.versions.length - 1]
+						: undefined
+				}
+				// Prefer the server draft over the deployed value (mirrors the
+				// flow/script `result.draft ?? result`). A raw-app draft is already
+				// editor-shaped, same keys the extraction below reads.
+				const draftValue: any = deployedOnly ? undefined : (result as any).draft
+				const sourceValue: any = draftValue ?? result.value
+				const data: RawAppData = extractDataConfig(sourceValue) ?? { ...DEFAULT_DATA }
+				const runtimeValue = {
+					files: (sourceValue?.files ?? {}) as Record<string, string>,
+					runnables: (sourceValue?.runnables ?? {}) as Record<string, any>,
+					data,
+					policy: draftValue?.policy ?? result.policy,
+					summary: draftValue?.summary ?? result.summary ?? '',
+					path: result.path,
+					custom_path: draftValue?.custom_path ?? result.custom_path,
+					labels: draftValue?.labels ?? result.labels,
+					draft_path: draftValue?.draft_path,
+					// Only a fresh checkout forks from the head; a draft keeps its own base,
+					// unknown included, or it would read as up to date. See loadScript.
+					parent_version: draftValue
+						? draftValue.parent_version
+						: Array.isArray(result.versions)
+							? result.versions[result.versions.length - 1]
+							: undefined
+				}
+				// Seed the per-tab last_sync from the server draft's timestamp so
+				// later saves attach a matching last_sync and the server can reject
+				// stale writes (a fresh tab has none, so its first POST is treated
+				// as fresh and overwrites unconditionally).
+				UserDraftDbSyncer.recordRemoteSync(
+					{ workspace, itemKind: 'raw_app', path },
+					(result as any).draft_saved_at as string | undefined
+				)
+				UserDraft.save('raw_app', path, runtimeRawAppToDraft(runtimeValue), { workspace })
+				store.val = runtimeValue
+				slot.loadedPath = path
+				slot.loadedWorkspace = workspace
+			} catch (err) {
+				if (seedIfMissing && !deployedOnly && err instanceof ApiError && err.status === 404) {
+					const user = get(userStore)
+					// A builder can save no inline runnable, so the regular starter could never be saved.
+					await workspaceListLoaded()
+					const builder = capabilitiesInWorkspace(workspace).apps === 'compose'
+					saved.val = undefined
+					store.val = {
+						files: { ...(builder ? BUILDER_FRAMEWORK_TEMPLATES.react19 : react19Template) },
+						runnables: builder ? {} : structuredClone(STARTER_RUNNABLES),
+						data: { ...DEFAULT_DATA },
+						// No run-as user: the deploy dialog resolves it, the folder's default first.
+						policy: {
+							execution_mode: 'publisher',
+							sandbox: true
+						},
+						summary: '',
+						path,
+						// The name a deploy lands on, as the full-page editor suggests one: without
+						// it the app would deploy under its `draft_<uuid>` storage path.
+						draft_path: `${userPathPrefix(user?.username)}${random_adj()}_app`
+					}
+					slot.loadedPath = path
+					slot.loadedWorkspace = workspace
+					return
+				}
+				console.error('Failed to load raw app', err)
+				slot.notFound = true
+			} finally {
+				slot.loading = false
+			}
+		},
+
+		holdDraftUntilSend(workspace, kind, path) {
+			UserDraft.stopSync(kind, path, { workspace })
+			if (!isHeldDraft(workspace, kind, path)) heldDrafts.push({ workspace, kind, path })
+		},
+		holdsDraft: isHeldDraft,
+
+		itemDeployed(workspace, kind, storagePath, deployedPath = storagePath) {
+			// Deployed, it is saved: forcePersist would write a draft over the deployed item.
+			releaseHeldDraft(workspace, kind, storagePath)
+			releaseHeldDraft(workspace, kind, deployedPath)
+			if (deployedPath !== storagePath) {
+				// Nothing is deployed at the storage path, so its editor would go on
+				// creating the item again and its draft would outlive the deploy: drop
+				// the draft and move the tab to where the item now lives.
+				UserDraft.stopSync(kind, storagePath, { workspace })
+				UserDraft.discard(kind, storagePath, undefined, { workspace })
+				previewTabs.retargetEditor({ kind, path: storagePath }, { kind, path: deployedPath })
+			}
+			const path = deployedPath
+			// After deploy the editor state equals the deployed value; the reload
+			// below re-seeds the cell from it, which must NOT POST as a fresh draft.
+			// The full-page editor guards this with discardDraftAfterDeploy, but the
+			// shared header skips that in a session pane (inSessionPane) and routes
+			// post-deploy cleanup here — so apply the same stopSync + arm-restart
+			// bracket. Covers all three kinds since they all funnel through this.
+			UserDraft.stopSync(kind, path, { workspace })
+			UserDraft.discard(kind, path, undefined, { workspace })
+			// The single funnel for editor and chat deploys alike, so one bump here
+			// covers every way this item's deployed version can change from inside.
+			deployedRevisions[revisionKey(kind, path)] = deployedRevision(kind, path) + 1
+			if (kind === 'script') void this.loadScript(workspace, path, true)
+			else if (kind === 'flow') void this.loadFlow(workspace, path, true)
+			else void this.loadRawApp(workspace, path, true)
+			armRestartOnFirstInteraction(workspace, kind, path)
+			// The deploy cleared the item's pending draft and changed what is deployed at
+			// its path, so the two workspace-wide caches that answer those questions are
+			// now wrong: the Draft Count, and the picker rows whose `draftOnly` decides
+			// which side a pick opens. The picker speaks `app` where a session target says
+			// `raw_app`; translating here keeps that spelling out of every deploy site.
+			invalidateWorkspaceDrafts(workspace)
+			invalidateWorkspaceItems(workspace, kind === 'raw_app' ? 'app' : kind)
+		},
+
+		registerRuntimeLogRequester(appPath, requester) {
+			runtimeLogRequesters.set(appPath, requester)
+		},
+		unregisterRuntimeLogRequester(appPath, requester) {
+			if (runtimeLogRequesters.get(appPath) === requester) runtimeLogRequesters.delete(appPath)
+		},
+		async requestRuntimeLogs(limit, appPath) {
+			const path =
+				(appPath && draftStoragePath(session, 'raw_app', appPath)) ??
+				activeDomAppPath ??
+				(runtimeLogRequesters.size === 1 ? [...runtimeLogRequesters.keys()][0] : undefined)
+			if (path === undefined) {
+				return runtimeLogRequesters.size > 1
+					? { ambiguousAppPaths: [...runtimeLogRequesters.keys()] }
+					: undefined
+			}
+			const requester = runtimeLogRequesters.get(path)
+			return requester ? requester(limit) : { closedAppPath: path }
+		},
+		registerDomRequester(appPath, requester) {
+			domRequesters.set(appPath, requester)
+		},
+		unregisterDomRequester(appPath, requester) {
+			// Identity-guarded: a remount may already have replaced this entry.
+			if (domRequesters.get(appPath) === requester) domRequesters.delete(appPath)
+		},
+		setActiveDomApp(appPath, owner) {
+			activeDomAppPath = appPath
+			activeDomOwner = owner
+		},
+		releaseActiveDomApp(owner) {
+			// Owner-guarded so a set/release race between two tabs can't blank the
+			// new active app regardless of effect order.
+			if (activeDomOwner === owner) {
+				activeDomAppPath = undefined
+				activeDomOwner = undefined
+			}
+		},
+		async requestDom(query) {
+			if (domRequesters.size === 0) return undefined
+			// Route to the query's own app when specified (a DOM-scoped turn reads
+			// its element's app even when another tab is now visible), else the
+			// active preview, else the only one open.
+			const path =
+				(query.appPath && draftStoragePath(session, 'raw_app', query.appPath)) ??
+				activeDomAppPath ??
+				(domRequesters.size === 1 ? [...domRequesters.keys()][0] : undefined)
+			if (path === undefined) return undefined
+			const requester = domRequesters.get(path)
+			if (!requester) {
+				return {
+					text: `The preview for "${path}" is no longer open, so its DOM can't be read. Re-open that raw app in the session to inspect it.`
+				}
+			}
+			return requester(query)
+		},
+		setAppRunsProvider(provider) {
+			appRunsProvider = provider
+		},
+		getAppRuns() {
+			return appRunsProvider ? appRunsProvider() : undefined
+		},
+		setScreenshotRequester(requester) {
+			screenshotRequester = requester
+		},
+		clearScreenshotRequester(requester) {
+			// Tabs unmount in any order and several stay mounted at once, so a
+			// departing tab must not unregister whichever one now owns the slot.
+			if (screenshotRequester === requester) {
+				screenshotRequester = undefined
+			}
+		},
+		async requestScreenshot() {
+			return screenshotRequester ? screenshotRequester() : undefined
+		}
+	}
+}
+
+async function initRuntime(runtime: SessionRuntime, session: Session) {
+	const { manager } = runtime
+	await manager.historyManager.init(session)
+	manager.historyManager.setSessionId(session.id)
+	// Restore linked files persisted for this session (live handles re-grant on send;
+	// snapshots restore directly). Non-transient sessions persist immediately.
+	await manager.attachedFiles.restore(session.id, !session.transient)
+
+	// Keep the session record's chatId following the manager's active chat: a
+	// "/clear" rotation or a history switch would otherwise leave it pointing at
+	// the previous chat, and the compare-page handoff (`from_session`) would
+	// preselect the wrong chat's items.
+	manager.onChatRotated = (chatId) => setSessionChatId(session.id, chatId)
+
+	if (session.chatId) {
+		manager.historyManager.setCurrentChatId(session.chatId)
+		await manager.historyManager.tagChatWithSession(session.chatId, session.id)
+		// preserveQueue: restoring a session's own chat is not a conversation switch.
+		// A message queued while the restore ran is unsent user input waiting for it.
+		await manager.loadPastChat(session.chatId, { preserveQueue: true })
+		// loadPastChat only seeds the mask when the chat exists in history; a chatId
+		// pointing at a chat not yet persisted (no turn saved) would leave it
+		// undefined, and the Edits surface would then show every workspace draft.
+		// Start tracking so this session is scoped to its own edits from the outset.
+		if (manager.modifiedItems === undefined) manager.initModifiedItemsTracking()
+	} else {
+		// Brand-new session chat: start tracking modified items now (empty mask)
+		// so the session bar filters to this chat's changes from the first turn.
+		// (loadPastChat handles seeding for the existing-chat branch above.)
+		manager.initModifiedItemsTracking()
+		setSessionChatId(session.id, manager.historyManager.getCurrentChatId())
+	}
+}
+
+export function getOrCreateRuntime(session: Session): SessionRuntime {
+	let runtime = runtimes.get(session.id)
+	if (!runtime) {
+		// The manager's `$derived` fields belong to whatever effect is running when they are
+		// built. A runtime outlives the component that first asked for it (Home hands its
+		// session to /sessions and unmounts), so give it a root of its own; built inside the
+		// component, its deriveds turn inert once that component is gone.
+		let created: SessionRuntime | undefined
+		runtimeRoots.set(
+			session.id,
+			$effect.root(() => {
+				created = createRuntime(session)
+			})
+		)
+		runtime = created!
+		runtimes.set(session.id, runtime)
+		// The gate opens even when the restore fails: a session that cannot read its
+		// history is still usable, and a send that waits forever is not.
+		runtime.manager.setReadyGate(
+			initRuntime(runtime, session).catch((e) => console.error('Failed to init session runtime', e))
+		)
+	}
+	return runtime
+}
+
+/** A pipeline deleted outside the session: every live session on its workspace
+ * drops what it holds of it. Its in-memory drafts would otherwise keep showing the
+ * pipeline in the preview, and autosave would write the deleted draft back. */
+export function forgetDeletedPipeline(workspace: string, folder: string): void {
+	const key = normalizePipelineFolder(folder)
+	for (const runtime of runtimes.values()) {
+		if (runtime.manager.operatingWorkspace !== workspace) continue
+		void runtime.forgetPipelineDrafts(key)
+		void runtime.manager.removeModifiedItem(PIPELINE_DRAFT_KIND, pipelineBundlePath(key))
+	}
+}
+
+// Point a session's preview at a single seed tab. For re-pointing an existing
+// draft session at a new destination ("Open in AI session" / new-session-from-
+// page on a reused transient): its previous tabs — persisted with the draft
+// and/or held by a live owner — would otherwise keep showing the old target.
+// Must write through the live owner when one exists; a bare record write would
+// be clobbered by the owner's next flush.
+export function resetSessionPreviewTabs(sessionId: string, seedUrl: string): void {
+	// A list page seeded on a row's drawer opens that row's own tab, as open() would.
+	const url = pageItemLocation(seedUrl)
+	const tabs = [{ id: 'session', url, loc: url }]
+	const rt = runtimes.get(sessionId)
+	if (rt) {
+		rt.previewTabs.reset(tabs, 'session')
+		// Written to the record now, not after the owner's debounce: the sessions page judges
+		// the arrival by the record's tabs, and a draft without any opens on Home instead.
+		rt.previewTabs.flushNow()
+	} else {
+		setSessionTabs(sessionId, tabs, 'session')
+		setSessionPreviewCollapsed(sessionId, false)
+	}
+}
+
+// The chat calls a new item by its chosen name while its draft is stored at
+// `draft_<uuid>`; resolve the name the way the chat's write tools do.
+function draftStoragePath(
+	session: Session,
+	kind: 'script' | 'flow' | 'raw_app',
+	path: string
+): string {
+	return session.workspace_id
+		? resolveGlobalDraftStoragePathByKind(session.workspace_id, kind, path)
+		: path
+}
+
+// Register the global open_preview tool handler once at module load. It
+// dispatches to the *calling* session (sessionId threaded from the tool ctx),
+// falling back to the UI-active session only when none was passed — so a
+// backgrounded session's tool call opens its OWN preview, not the one the user
+// happens to be viewing. Outside a session there is no calling/active id and
+// the tool returns a polite error.
+setOpenPreviewHandler(async ({ sessionId: callerSessionId, kind, path, mode }) => {
+	const sessionId = callerSessionId ?? sessionState.currentSessionId
+	if (!sessionId) {
+		return 'Error: no active session to open the preview in.'
+	}
+	const session = sessionState.sessions.find((s) => s.id === sessionId)
+	if (!session) {
+		return 'Error: no active session to open the preview in.'
+	}
+	// An agent's editor is its resource tab, and its deployed page the agent's own.
+	if (kind === 'agent') {
+		const view = mode === 'view'
+		const result = getOrCreateRuntime(session).previewTabs.open(
+			view
+				? { type: 'page', href: `/agents/get/${path}`, label: path }
+				: { type: 'pageitem', ref: { kind: 'resource', path } }
+		)
+		const side = view ? 'deployed page' : 'editor'
+		return result.status === 'focused'
+			? `A preview tab is already showing the ${side} of agent "${path}" — focused it.`
+			: `Opened the ${side} of agent "${path}" in a new tab in the side panel.`
+	}
+	const target = previewTargetForSessionTarget(
+		kind,
+		mode === 'view' || kind === 'pipeline' ? path : draftStoragePath(session, kind, path)
+	)
+	if (!target) {
+		return `Error: ${kind} targets cannot be shown in the preview panel.`
+	}
+	const runtime = getOrCreateRuntime(session)
+	// The editor unless the model asked otherwise: this tool's job is showing the user
+	// the draft a write tool just produced. A reference to an item that already exists
+	// reaches the panel as a pill in the transcript, which asks for the deployed page.
+	const resolved = target.type === 'item' ? { ...target, mode: mode ?? 'edit' } : target
+	const result = runtime.previewTabs.open(resolved)
+	// The pipeline editor registers its build_pipeline_node / edit_pipeline_node
+	// tools asynchronously once the canvas mounts. Block the tool result until
+	// they are live so the model's next turn doesn't race ahead and hit an
+	// "Unknown tool call" error on the first node it tries to build.
+	if (kind === 'pipeline') {
+		const folder = normalizePipelineFolder(path)
+		const ready = await runtime.manager.waitForPipelineHelpers(folder)
+		// A session whose page is not mounted never mounts the editor, so it never
+		// registers — don't claim success, or the model calls build_pipeline_node
+		// into the void. Tell it the tools aren't available and how to recover.
+		if (!ready) {
+			return `Opened the pipeline preview for folder "${folder}", but its editor tools (build_pipeline_node / edit_pipeline_node) have not registered — this usually means this session is not the one currently displayed. Do NOT call build_pipeline_node yet: ask the user to open/focus this session's pipeline preview, then retry open_preview.`
+		}
+		// Spell out the node-path prefix: a node built off the folder name alone (or
+		// off the owner path twice over) is rejected by build_pipeline_node.
+		return `${
+			result.status === 'focused' ? 'Focused the' : 'Opened the'
+		} pipeline editor for folder "${folder}" in the side panel. build_pipeline_node, edit_pipeline_node and the other pipeline tools are now in your tool list: call them in your next step. Its nodes go at paths under \`f/${folder}/\` (e.g. \`f/${folder}/<node_name>\`).`
+	}
+	return result.status === 'focused'
+		? `A preview tab is already showing ${kind} "${path}" — focused it.`
+		: `Opened ${kind} preview for ${path} in a new tab in the side panel.`
+})
+
+// open_page dispatches here to show a workspace page (Runs/Schedules) as a page
+// tab in the calling session's preview panel. Returns undefined when there is no
+// session so open_page can fall back to browser navigation.
+setOpenPagePreviewHandler(({ sessionId: callerSessionId, href, label: pageLabel, newTab }) => {
+	const sessionId = callerSessionId ?? sessionState.currentSessionId
+	if (!sessionId) return undefined
+	const session = sessionState.sessions.find((s) => s.id === sessionId)
+	if (!session) return undefined
+	const owner = getOrCreateRuntime(session).previewTabs
+	// A page opened on one item is that item's tab, and the report has to name what opened.
+	const pageItem = pageItemForLocation(href)
+	const label = pageItem
+		? `the ${pageItemKindLabel(pageItem).toLowerCase()} ${promptSafe(pageItem.path)}`
+		: pageLabel
+	// open() owns the whole decision — which tab already shows this page, whether the
+	// requested view differs from what it shows, and whether a forced load is needed to
+	// re-fire a drawer. Deciding any of that again here means two predicates for one
+	// question, and the report going out of step with what actually happened.
+	const result = owner.open({ type: 'page', href, label }, { forceNewTab: newTab })
+	if (result.status === 'focused') {
+		return `A preview tab is already showing ${label} — focused it.`
+	}
+	// The tab count did not change: saying "opened a new tab" would leave the model
+	// believing in a tab that does not exist, and offering to close it.
+	if (result.status === 'retargeted') {
+		return `Updated the ${label} preview tab with the requested view.`
+	}
+	return `Opened ${label} in a new preview tab in the side panel.`
+})
+
+// Companion to the open_preview handler: report the calling session's open
+// preview tabs (the panel is multi-tab), so the assistant can avoid re-opening
+// a tab already showing the item it just edited.
+setGetPreviewStatusHandler((callerSessionId) => {
+	const sessionId = callerSessionId ?? sessionState.currentSessionId
+	if (!sessionId) return 'No active session; the preview panel is unavailable.'
+	const session = sessionState.sessions.find((s) => s.id === sessionId)
+	if (!session) return 'No active session; the preview panel is unavailable.'
+	const owner = getOrCreateRuntime(session).previewTabs
+	// `displayedTab` is the one place that decides what the user can see; the ACTIVE
+	// PREVIEW block reads it too, so the two descriptions cannot contradict each other.
+	return describePreview(owner.tabs, owner.activeId, !!owner.displayedTab)
+})
+
+// close_page dispatches here to close preview tabs in the calling session's
+// panel. `all` clears every tab; otherwise `match` is a case-insensitive
+// substring tested against each tab's page label and stripped path.
+setClosePreviewTabsHandler(({ sessionId: callerSessionId, all, match }) => {
+	const sessionId = callerSessionId ?? sessionState.currentSessionId
+	if (!sessionId) return 'No active session; the preview panel is unavailable.'
+	const session = sessionState.sessions.find((s) => s.id === sessionId)
+	if (!session) return 'No active session; the preview panel is unavailable.'
+	const owner = getOrCreateRuntime(session).previewTabs
+	if (owner.tabs.length === 0) return 'The preview panel has no open tabs.'
+
+	const labelFor = (t: (typeof owner.tabs)[number]) => promptSafe(previewLocationLabel(whereIs(t)))
+	// Resolve the doomed tabs to ids up front — close() re-indexes on each call.
+	const doomed = selectPreviewTabsToClose(owner.tabs, { all, match })
+	if (doomed.length === 0) {
+		const open = owner.tabs.map(labelFor).join(', ')
+		return `No open tab matched "${match}". Open tabs: ${open}.`
+	}
+	const closedLabels = doomed.map(labelFor)
+	for (const t of doomed) owner.close(t.id)
+	return `Closed ${closedLabels.length} preview tab${closedLabels.length === 1 ? '' : 's'} (${closedLabels.join(', ')}).`
+})
+
+// After a chat deploy, reload the calling session's preview — only if it's open
+// showing that exact item.
+setDeployedInSessionHandler(({ sessionId: callerSessionId, kind, storagePath, path }) => {
+	const sessionId = callerSessionId ?? sessionState.currentSessionId
+	if (!sessionId) return
+	const session = sessionState.sessions.find((s) => s.id === sessionId)
+	const runtime = runtimes.get(sessionId)
+	if (!session?.workspace_id || !runtime) return
+	// Peek without creating a cell: a deploy for an item with no open editor tab
+	// must not allocate an empty cell that lingers until the next prune. The caches
+	// still answer for the item, so they are dropped either way.
+	if (runtime.loadedEditorPath(kind, storagePath) !== storagePath) {
+		invalidateWorkspaceDrafts(session.workspace_id)
+		invalidateWorkspaceItems(session.workspace_id, kind === 'raw_app' ? 'app' : kind)
+		return
+	}
+	runtime.itemDeployed(session.workspace_id, kind, storagePath, path)
+})
+
+setGetRuntimeLogsHandler(async ({ sessionId: callerSessionId, limit, appPath }) => {
+	const sessionId = callerSessionId ?? sessionState.currentSessionId
+	const runtime = sessionId ? runtimes.get(sessionId) : undefined
+	if (!runtime) {
+		return {
+			aiResult:
+				'Error: get_app_runtime_logs is only available inside an AI session. Tell the user runtime logs can only be read from a session preview, or switch to a session and open the raw app preview.',
+			uiMessage: 'Runtime logs unavailable',
+			toolResult: 'Runtime logs unavailable'
+		}
+	}
+	const previewLogs = await runtime.requestRuntimeLogs(limit, appPath)
+	if (previewLogs && 'closedAppPath' in previewLogs) {
+		return {
+			aiResult: `The preview for "${previewLogs.closedAppPath}" is not open, so its logs can't be read. Call open_preview with kind="raw_app" and that path, then call get_app_runtime_logs again.`,
+			uiMessage: 'Runtime logs unavailable',
+			toolResult: 'Runtime logs unavailable'
+		}
+	}
+	if (previewLogs && 'ambiguousAppPaths' in previewLogs) {
+		return {
+			aiResult: `Several raw app previews are open (${previewLogs.ambiguousAppPaths.join(', ')}) and none is visible. Call get_app_runtime_logs again with app_path set to the app you want.`,
+			uiMessage: 'Runtime logs unavailable',
+			toolResult: 'Runtime logs unavailable'
+		}
+	}
+	// Checked before `buildError`: while a build is pending, that error belongs to the previous build.
+	if (previewLogs?.buildPending) {
+		const previous = previewLogs.buildError
+			? `\n\nThe PREVIOUS build failed with:\n${previewLogs.buildError}`
+			: ''
+		return {
+			aiResult:
+				`The app is still building (or its build never started, e.g. no index entrypoint file) — no build result arrived within ${RAW_APP_BUILD_WAIT_MS / 1000} seconds, so the preview may still run an older build. Check the bundler logs below, wait, then call get_app_runtime_logs again.${previous}\n\n` +
+				formatBuildLogTailForChat(previewLogs.buildLogs),
+			uiMessage: 'App build still running',
+			toolResult: 'App build still running'
+		}
+	}
+	if (previewLogs?.buildError !== undefined) {
+		const report = formatBuildFailureForChat(previewLogs.buildError, previewLogs.buildLogs)
+		const consoleLogs = previewLogs.entries?.length
+			? `\n\nConsole output of the last successful build still shown in the preview (stale until the build is fixed):\n${formatRuntimeLogsForChat(previewLogs.entries.slice(-limit))}`
+			: ''
+		return {
+			aiResult: `${report}${consoleLogs}`,
+			uiMessage: 'App build failed',
+			toolResult: report
+		}
+	}
+	if (previewLogs?.sdkConsentPending) {
+		return {
+			aiResult:
+				'The app built, but the preview is waiting for the user to approve the permissions the app declares in policy.frontend_sdk_scopes, so its code is not running. This is not a bug in the app: do not change the code. Ask the user to approve the permissions in the preview, then call get_app_runtime_logs again.',
+			uiMessage: 'Waiting for permission approval',
+			toolResult: 'Waiting for permission approval'
+		}
+	}
+	const entries = previewLogs?.entries
+	if (entries === undefined) {
+		return {
+			aiResult:
+				'No runtime logs are available because no raw app preview is running for this session. Next step: call open_preview with kind="raw_app" and the app path, wait for it to load, then call get_app_runtime_logs again. Runtime logs are read live from the running preview and are not persisted.',
+			uiMessage: 'Runtime logs unavailable',
+			toolResult: 'Runtime logs unavailable'
+		}
+	}
+	if (entries.length === 0) {
+		return {
+			aiResult:
+				'The raw app preview is running, but it has not emitted console logs, uncaught errors, or unhandled rejections yet. If the user reported a failure, reproduce the interaction in the preview, then call get_app_runtime_logs again. For backend.<id>() failures, call list_app_runs and then get_run for the relevant job_id.',
+			uiMessage: 'No runtime logs',
+			toolResult: 'No runtime logs'
+		}
+	}
+	const limited = entries.slice(-limit)
+	return {
+		aiResult: formatRuntimeLogsForChat(limited),
+		uiMessage: `Read runtime logs`,
+		toolResult: formatRuntimeLogsForChat(limited)
+	}
+})
+
+setGetDomHandler(async ({ sessionId: callerSessionId, query }) => {
+	const sessionId = callerSessionId ?? sessionState.currentSessionId
+	const runtime = sessionId ? runtimes.get(sessionId) : undefined
+	if (!runtime) {
+		return {
+			aiResult:
+				'Error: search_dom and read_dom are only available inside an AI session. Tell the user the rendered DOM can only be read from a session preview, or switch to a session and open the raw app preview.',
+			uiMessage: 'DOM unavailable',
+			toolResult: 'DOM unavailable'
+		}
+	}
+	const result = await runtime.requestDom(query)
+	if (result === undefined) {
+		return {
+			aiResult:
+				'No raw app preview is running for this session, so the DOM cannot be read. Next step: call open_preview with kind="raw_app" and the app path, wait for it to load, then call search_dom or read_dom again. The DOM is read live from the running preview.',
+			uiMessage: 'DOM unavailable',
+			toolResult: 'DOM unavailable'
+		}
+	}
+	return {
+		aiResult: result.text,
+		uiMessage: query.mode === 'search' ? 'Searched app DOM' : 'Read app DOM',
+		toolResult: result.text
+	}
+})
+
+setListAppRunsHandler(({ sessionId: callerSessionId, limit }) => {
+	const sessionId = callerSessionId ?? sessionState.currentSessionId
+	const runtime = sessionId ? runtimes.get(sessionId) : undefined
+	if (!runtime) {
+		return {
+			aiResult:
+				'Error: list_app_runs is only available inside an AI session. Tell the user app runs can only be read from a session preview.',
+			uiMessage: 'App runs unavailable',
+			toolResult: 'App runs unavailable'
+		}
+	}
+	const runs = runtime.getAppRuns()
+	if (runs === undefined) {
+		return {
+			aiResult:
+				'No raw app preview is open for this session, so no backend runs can be listed. Next step: call open_preview with kind="raw_app" and the app path, let the preview load, then call list_app_runs again.',
+			uiMessage: 'App runs unavailable',
+			toolResult: 'App runs unavailable'
+		}
+	}
+	if (runs.length === 0) {
+		return {
+			aiResult: 'No backend runnable executions are tracked for this raw app preview yet.',
+			uiMessage: 'No app runs',
+			toolResult: 'No app runs'
+		}
+	}
+	const limited = limit > 0 ? runs.slice(0, limit) : runs
+	return {
+		aiResult: formatAppRunsForChat(limited),
+		uiMessage: `Fetched app runs`,
+		toolResult: formatAppRunsForChat(limited)
+	}
+})
+
+setScreenshotHandler(async ({ sessionId: callerSessionId }) => {
+	const sessionId = callerSessionId ?? sessionState.currentSessionId
+	const runtime = sessionId ? runtimes.get(sessionId) : undefined
+	if (!runtime) {
+		return {
+			error:
+				'Error: take_screenshot is only available inside an AI session. Tell the user screenshots can only be captured from a session preview.',
+			uiMessage: 'Screenshot unavailable'
+		}
+	}
+	try {
+		const dataUrl = await runtime.requestScreenshot()
+		if (dataUrl === undefined) {
+			return {
+				error:
+					'No raw app preview is open for this session, so there is nothing to screenshot. Next step: call open_preview with kind="raw_app" and the app path, wait for it to load, then call take_screenshot again.',
+				uiMessage: 'Screenshot unavailable'
+			}
+		}
+		return { dataUrl }
+	} catch (e) {
+		return {
+			error: `Could not capture the app preview: ${e instanceof Error ? e.message : String(e)}`,
+			uiMessage: 'Screenshot failed'
+		}
+	}
+})

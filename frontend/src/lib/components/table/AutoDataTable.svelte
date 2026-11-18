@@ -21,10 +21,11 @@
 	import DownloadCsv from './DownloadCsv.svelte'
 	interface Props {
 		objects?: Array<Record<string, any>>
+		headerOrder?: string[]
 		class?: string
 	}
 
-	let { objects = [], class: className }: Props = $props()
+	let { objects = [], headerOrder, class: className }: Props = $props()
 
 	let currentPage = $state(1)
 	let perPage = $state(25)
@@ -37,7 +38,7 @@
 	let headers: string[] = $state([])
 
 	function recomputeObjectsAndHeaders(objects: Array<Record<string, any>>) {
-		;[headers, structuredObjects] = computeStructuredObjectsAndHeaders(objects)
+		;[headers, structuredObjects] = computeStructuredObjectsAndHeaders(objects, headerOrder)
 	}
 
 	function adjustCurrentPage() {

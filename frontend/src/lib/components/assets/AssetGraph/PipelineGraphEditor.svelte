@@ -1,0 +1,857 @@
+<script lang="ts">
+	import { untrack, type Snippet } from 'svelte'
+	import { MousePointerClick } from 'lucide-svelte'
+	import Disposable from '$lib/components/common/drawer/Disposable.svelte'
+	import Portal from '$lib/components/Portal.svelte'
+	import { getOverlayHost } from '$lib/components/common/overlayHost.svelte'
+	import { useFlowPanelMode } from '$lib/components/flows/flowPanelMode.svelte'
+	import {
+		PIPELINE_DRAFT_KIND,
+		pipelineBundlePath,
+		pipelineLocalMirrorKey
+	} from '$lib/pipelinePaths'
+	import { Loader2 } from 'lucide-svelte'
+	import { Pane, Splitpanes } from 'svelte-splitpanes'
+	import { DraftService } from '$lib/gen'
+	import { decodeState, encodeState } from '$lib/utils'
+	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
+	import { extractReads, extractWrites } from '$lib/components/assets/lib'
+	import type { PipelineDraft } from './pipelineAiHelpers'
+	import type { ColumnLineageGraph } from './columnLineageGraph'
+	import HideButton from '$lib/components/apps/editor/settingsPanel/HideButton.svelte'
+	import AssetGraphCanvas from './AssetGraphCanvas.svelte'
+	import { TRIGGER_NODE_STYLE } from './TriggerNode.svelte'
+	import { describeSchedule } from '$lib/utils/describeCron'
+	import type { UpstreamTriggerAction } from './upstreamScriptItems'
+	import type { AssetUpstreamDelete } from './assetsOnlyView'
+	import type { NodeFixSpec } from './NodeFixButton.svelte'
+	import AssetGraphDetailsPane from './AssetGraphDetailsPane.svelte'
+	import PipelineEventLog from './PipelineEventLog.svelte'
+	import type {
+		AssetGraphResponse,
+		AssetGraphSelection,
+		NativeTriggerKind,
+		PipelineMode,
+		PipelineTriggerDraft,
+		DbtAssetProvenance
+	} from './types'
+	import { isDraftableTriggerKind, triggerDraftKey } from './pipelineTriggerDrafts'
+	import type { AssetKind, Script, ScriptLang } from '$lib/gen'
+	import type { RunnableRunState, PipelineEvent } from './activeRunnables.svelte'
+	import type { PipelineOutputKind } from './pipelineTemplates'
+	import type { PipelineEditorState } from './pipelineEditorState.svelte'
+	import type { SchemaContractGraphContext } from './schemaContracts'
+
+	type RunProducer = { kind: 'script' | 'flow'; path: string; unsaved?: boolean; cascade?: boolean }
+
+	let {
+		editor,
+		displayGraph,
+		mode,
+		workspace,
+		folder,
+		viewportFitKey = undefined,
+		stackBelow = 680,
+		persistDrafts = false,
+		pathPrefix,
+		defaultPathSuffix = 'new_pipeline_script',
+		panelHidden = false,
+		onTogglePanelHidden,
+		modalPanel = false,
+		prefetchingAssets = false,
+		hoveredPaths = [],
+		selectedRunPaths = [],
+		activeRunnable,
+		activeRunnableIds,
+		runStates,
+		eventLogEvents = [],
+		runsRefreshKey = 0,
+		runsPendingJobId,
+		boundPick,
+		validStartPaths,
+		onStartBoundedRun,
+		onPickEnd,
+		panToNodeId,
+		boundBar,
+		onCreateMissingTrigger,
+		onEditTrigger,
+		onDeleteTrigger,
+		onOpenWebhook,
+		onOpenDataUpload,
+		onSelect,
+		onAddScriptForAsset,
+		onAddPipelineScript,
+		onRunnableMenuRemove,
+		onDeleteAssetUpstream,
+		nodeFixes,
+		assetDeleteVerb,
+		onEdgeAction,
+		onAddAssetTrigger,
+		onRunProducer,
+		idlePane,
+		onRequestEdit,
+		canRunByPath = false,
+		onRunByPath,
+		onRunCascadeByPath,
+		runFormInitialArgs,
+		onRunFormArgsChange,
+		inputsOnly = false,
+		onRunInputs,
+		onShowScript,
+		readyDataUploadPaths,
+		resolveLocalScript,
+		localScriptsVersion,
+		selectionProducers = [],
+		selectionColumnGraph,
+		selectionColumnLoading = false,
+		selectionColumnTruncated = false,
+		selectionColumnFailed = false,
+		selectionDbt,
+		schemaCanEvolve = true,
+		selectionForkMaterialization = undefined,
+		schemaContractContext = undefined,
+		downstreamSubscribers = 0,
+		onStartBoundedRunForOpen,
+		canBoundedRunOpenScript = false,
+		onRunCompleted,
+		onTestStateChange,
+		requestRemoveSignal = 0,
+		requestRunSignal = 0,
+		requestRunCascadeSignal = 0,
+		focusUploadSignal = 0,
+		onDraftPathChange,
+		onClose = () => {},
+		onDiscard,
+		onDraftSaved,
+		onPersistedSaved,
+		onScriptRenamed,
+		onScriptRemoved
+	}: {
+		editor: PipelineEditorState
+		displayGraph: AssetGraphResponse
+		mode: PipelineMode
+		workspace: string | undefined
+		/** Folder the pipeline is scoped to — drives the autosave draft path. */
+		folder: string
+		/** Folder whose graph is actually *loaded* (not the route param). On an
+		 * in-place folder switch the stale graph stays rendered while the new
+		 * fetch is in flight, so keying the canvas's one-shot initial fit on
+		 * `folder` would consume the new folder's fit on the old graph. Pages
+		 * that stale-while-revalidate should pass the folder captured when the
+		 * fetch resolved; defaults to `folder`. */
+		viewportFitKey?: string
+		/** Below this container width (px) the graph/details split stacks
+		 * vertically instead of side-by-side — for narrow side panels / AI
+		 * session previews. Defaults to 680. */
+		stackBelow?: number
+		/** Persist drafts as a per-folder `data_pipeline` DraftService bundle (enabled
+		 * by both the route page and the in-session preview). FlowBuilder's autosave
+		 * analogue. */
+		persistDrafts?: boolean
+		pathPrefix: string
+		defaultPathSuffix?: string
+		panelHidden?: boolean
+		/** Let the details pane open as a modal over a full-width graph when the editor
+		 * is too narrow to dock it — the flow editor's step panel rule. */
+		modalPanel?: boolean
+		onTogglePanelHidden?: () => void
+		prefetchingAssets?: boolean
+		hoveredPaths?: string[]
+		selectedRunPaths?: string[]
+		activeRunnable?: { kind: 'script' | 'flow'; path: string } | undefined
+		activeRunnableIds?: ReadonlySet<string>
+		runStates?: ReadonlyMap<string, RunnableRunState>
+		eventLogEvents?: PipelineEvent[]
+		runsRefreshKey?: any
+		runsPendingJobId?: string | undefined
+		boundPick?: any
+		validStartPaths?: Set<string>
+		onStartBoundedRun?: (path: string) => void
+		onPickEnd?: (id: string) => void
+		panToNodeId?: string | undefined
+		boundBar?: Snippet
+		onCreateMissingTrigger?: (kind: NativeTriggerKind, scriptPath: string) => void
+		onEditTrigger?: (...args: any[]) => void
+		onDeleteTrigger?: (...args: any[]) => void
+		onOpenWebhook?: (...args: any[]) => void
+		onOpenDataUpload?: (...args: any[]) => void
+		onSelect: (selection: AssetGraphSelection | undefined) => void
+		onAddScriptForAsset?: (
+			asset: { kind: AssetKind; path: string },
+			language: ScriptLang,
+			scriptPath: string,
+			outputKind: PipelineOutputKind,
+			options?: import('./PipelineInsertMenu.svelte').PipelineInsertOptions
+		) => void
+		onAddPipelineScript?: (
+			language: ScriptLang,
+			path: string,
+			source: { kind: NativeTriggerKind; path: string | undefined },
+			outputKind: PipelineOutputKind,
+			options?: import('./PipelineInsertMenu.svelte').PipelineInsertOptions
+		) => void
+		onRunnableMenuRemove?: (...args: any[]) => void
+		onDeleteAssetUpstream?: (target: AssetUpstreamDelete) => void
+		nodeFixes?: ReadonlyMap<string, NodeFixSpec>
+		assetDeleteVerb?: 'Delete' | 'Archive'
+		onEdgeAction?: (a: {
+			action: 'listen' | 'stop'
+			targets: Array<{ script: string; asset: { kind: AssetKind; path: string }; reads: boolean }>
+		}) => void
+		onAddAssetTrigger?: (a: {
+			scripts: Array<{ script: string; reads: boolean }>
+			asset: { kind: AssetKind; path: string }
+		}) => void
+		onRunProducer?: (producer: RunProducer) => Promise<string | undefined>
+		idlePane?: Snippet
+		onRequestEdit?: () => void
+		canRunByPath?: boolean
+		onRunByPath?: (path: string, args: Record<string, any>) => Promise<string | undefined>
+		// Run the open script AND its downstream closure (dev preview only; the
+		// deployed pane leaves this unset — its single run cascades via the backend).
+		onRunCascadeByPath?: (path: string, args: Record<string, any>) => Promise<string | undefined>
+		// Persisted run-form args for the currently-open data-upload entry, and a
+		// callback to persist them as they change — see the page's dataUploadArgs.
+		runFormInitialArgs?: Record<string, any>
+		onRunFormArgsChange?: (path: string, args: Record<string, any>, isValid: boolean) => void
+		/** See AssetGraphDetailsPane's `inputsOnly`. */
+		inputsOnly?: boolean
+		onRunInputs?: (
+			path: string,
+			args: Record<string, any>,
+			live?: { content: string; language: ScriptLang }
+		) => Promise<string | undefined>
+		onShowScript?: () => void
+		// Data-upload entry scripts whose staged upload is ready (green node).
+		readyDataUploadPaths?: ReadonlySet<string>
+		/** Local-dev (`/pipeline_dev`): resolve a node to its working-tree content
+		 * so the details pane skips the (nonexistent) deployed-script fetch. May
+		 * be async (to infer the args schema for the run form). */
+		resolveLocalScript?: (path: string) => Script | undefined | Promise<Script | undefined>
+		/** Bumped on each `pipeline dev` bundle so the open details pane re-resolves
+		 * the selected node's source on live-reload. */
+		localScriptsVersion?: unknown
+		selectionProducers?: Array<{ kind: 'script' | 'flow'; path: string; unsaved?: boolean }>
+		/** Transitive column-lineage trace for the selected asset (route page). */
+		selectionColumnGraph?: ColumnLineageGraph
+		/** That trace still being fetched — a dbt relation's is a request of its
+		 *  own, so it arrives after the selection does. */
+		selectionColumnLoading?: boolean
+		/** That trace cut at the part nearest the selection. */
+		selectionColumnTruncated?: boolean
+		/** That trace could not be fetched. Distinguished from an empty one: a
+		 *  project without the analysis pass draws nothing either. */
+		selectionColumnFailed?: boolean
+		/** dbt provenance of the selected relation — carries its SQL. */
+		selectionDbt?: DbtAssetProvenance
+		schemaCanEvolve?: boolean
+		/** Fork workspaces: data-environment state of the selected ducklake asset (route page). */
+		selectionForkMaterialization?: 'fork' | 'deferred'
+		/** Producer-side facts for the editor's live schema-contract diagnostics
+		 * (ignore suppression + scd2 `_current` fallback), from the route page. */
+		schemaContractContext?: SchemaContractGraphContext
+		downstreamSubscribers?: number
+		onStartBoundedRunForOpen?: (path: string) => void
+		canBoundedRunOpenScript?: boolean
+		onRunCompleted?: () => void
+		onTestStateChange?: (running: boolean) => void
+		requestRemoveSignal?: number
+		requestRunSignal?: number
+		requestRunCascadeSignal?: number
+		focusUploadSignal?: number
+		onDraftPathChange?: (oldPath: string, newPath: string) => boolean | string
+		onClose?: () => void
+		onDiscard?: () => void
+		onDraftSaved?: (savedPath: string) => void
+		onPersistedSaved?: (savedPath: string) => void
+		onScriptRenamed?: (oldPath: string, newPath: string) => void
+		onScriptRemoved?: (removedPath: string) => void
+	} = $props()
+
+	let leftPaneSize = $state(60)
+	let rightPaneSize = $state(40)
+	// 0 = "no user-chosen size yet" so the orientation-aware default (55% stacked /
+	// 40% side-by-side) applies on first open; a real drag overwrites it below.
+	let storedRightPaneSize = $state(0)
+
+	// Container width drives the split orientation: stack vertically (graph over
+	// details) when too narrow for a comfortable side-by-side split.
+	let containerWidth = $state(0)
+	let stacked = $derived(containerWidth > 0 && containerWidth < stackBelow)
+
+	let effectiveSelection = $derived<AssetGraphSelection | undefined>(
+		editor.activeDraftPath
+			? { kind: 'runnable', runnable_kind: 'script', path: editor.activeDraftPath }
+			: editor.selection
+	)
+	let activeDraft = $derived(editor.activeDraft)
+	// Edit mode opens the right pane only for a selection/draft; view mode keeps it
+	// open permanently (it shows the activity idlePane when nothing is selected,
+	// and swaps to the details pane on node select). Matches the route page's
+	// original behaviour — NOT "always open in edit mode".
+	let detailsPaneOpen = $derived(
+		mode === 'edit'
+			? (editor.selection != undefined || editor.activeDraftPath != undefined) && !panelHidden
+			: !panelHidden
+	)
+	// Docked beside the graph, or in a modal over it (modal mode). In modal mode the
+	// details only show once asked for: a double-click on a node, a click on the
+	// node already selected, or a script's open button — never on a selection the
+	// editor makes itself (an AI-built node), which would pop a modal unasked.
+	const panelController = useFlowPanelMode({ enabled: () => modalPanel })
+	$effect(() => panelController.measure(containerWidth))
+	const panelMode = $derived(panelController.mode)
+	let panelModalOpen = $state(false)
+	const dockedPaneOpen = $derived(detailsPaneOpen && panelMode === 'docked')
+	$effect(() => {
+		if (untrack(() => panelModalOpen) && (panelMode === 'docked' || !detailsPaneOpen)) {
+			panelModalOpen = false
+		}
+	})
+	let panelDisposable: Disposable | undefined = $state(undefined)
+	// Disposable joins the overlay stack through its methods, not by watching `open`.
+	$effect(() => {
+		panelModalOpen
+		untrack(() => {
+			panelModalOpen ? panelDisposable?.openDrawer() : panelDisposable?.closeDrawer()
+		})
+	})
+	const overlayHost = getOverlayHost()
+	const modalHost = $derived(overlayHost?.el())
+
+	function selectableNodeAt(e: MouseEvent): HTMLElement | null {
+		return (e.target as HTMLElement | null)?.closest('.svelte-flow__node.selectable') ?? null
+	}
+	// Read in the capture phase: once the click bubbles, the canvas has applied
+	// its selection and a first click looks like a click on the selected node.
+	let clickStartedOnSelected = false
+	function noteSelectionBeforeClick(e: MouseEvent) {
+		clickStartedOnSelected = !!selectableNodeAt(e)?.classList.contains('selected')
+	}
+	function openPanelModalIfReselected(e: MouseEvent) {
+		if (clickStartedOnSelected && selectableNodeAt(e)) panelModalOpen = true
+	}
+	function openPanelModalFromGraph(e: MouseEvent) {
+		if (selectableNodeAt(e)) panelModalOpen = true
+	}
+	// A button in the pane that ends it closes the modal in the same update: left to
+	// the effect above, the modal would first render the pane without its selection.
+	function closePanelModal() {
+		if (panelMode === 'modal') panelModalOpen = false
+	}
+	function handleCanvasSelect(s: AssetGraphSelection | undefined, opts?: { open?: boolean }) {
+		onSelect(s)
+		if (opts?.open && s && panelMode === 'modal') panelModalOpen = true
+	}
+	// A data-upload node's click asks for its run form; in modal mode nothing shows
+	// it unless the modal opens too.
+	$effect(() => {
+		if (focusUploadSignal > 0 && untrack(() => panelMode) === 'modal') {
+			untrack(() => (panelModalOpen = true))
+		}
+	})
+	const showNodeHint = $derived(panelMode === 'modal' && !panelModalOpen)
+	const nodeHintText = $derived(
+		effectiveSelection
+			? 'Click the selected node to open it'
+			: 'Double click a node to open it'
+	)
+
+	let idleView = $derived(
+		mode !== 'edit' && editor.selection == undefined && editor.activeDraftPath == undefined
+	)
+
+	// Wrap the writes (and the rightPaneSize read in the else branch) in untrack so
+	// the effect tracks only `dockedPaneOpen` / `storedRightPaneSize` — without it,
+	// the Pane `bind:size` feedback loops the effect and pegs the main thread.
+	$effect(() => {
+		// Stacked (vertical) splits give the details pane more room — the run
+		// form + result need height more than the graph needs it.
+		const fallback = stacked ? 55 : 40
+		if (dockedPaneOpen) {
+			const restore = storedRightPaneSize
+			untrack(() => {
+				rightPaneSize = restore > 0 ? restore : fallback
+				leftPaneSize = 100 - (restore > 0 ? restore : fallback)
+			})
+		} else {
+			untrack(() => {
+				if (rightPaneSize > 0) storedRightPaneSize = rightPaneSize
+				leftPaneSize = 100
+			})
+		}
+	})
+
+	// The selected asset's producing scripts, named and iconed from the graph, for
+	// the pane's "Edit script".
+	let producerScripts = $derived(
+		selectionProducers
+			.filter((p) => p.kind === 'script')
+			.map((p) => {
+				const r = displayGraph.runnables.find((x) => x.usage_kind === 'script' && x.path === p.path)
+				return { path: p.path, summary: r?.summary, language: r?.language }
+			})
+	)
+	// The selected asset's upstream triggers that can be opened from here, each
+	// with the same action its trigger node has: edit (edit mode), create a
+	// missing one (edit mode), or the webhook / data-upload drawers.
+	let producerTriggers = $derived.by((): UpstreamTriggerAction[] => {
+		const scripts = new Set(producerScripts.map((p) => p.path))
+		const seen = new Set<string>()
+		const out: UpstreamTriggerAction[] = []
+		for (const t of displayGraph.triggers ?? []) {
+			if (t.trigger_kind === 'asset' || !scripts.has(t.runnable_path)) continue
+			const kind = t.trigger_kind
+			const rowless = kind === 'webhook' || kind === 'data_upload'
+			const key = `${kind}:${rowless || t.missing ? t.runnable_path : t.path}`
+			if (seen.has(key)) continue
+			seen.add(key)
+			const label = TRIGGER_NODE_STYLE[kind]?.label ?? kind
+			const script = t.runnable_path
+			let action: UpstreamTriggerAction | undefined
+			if (kind === 'webhook') {
+				if (onOpenWebhook)
+					action = { label: 'Open webhook', detail: script, onOpen: () => onOpenWebhook(script) }
+			} else if (kind === 'data_upload') {
+				if (onOpenDataUpload)
+					action = { label: 'Upload data', detail: script, onOpen: () => onOpenDataUpload(script) }
+			} else if (t.missing && !rowless) {
+				if (onCreateMissingTrigger)
+					action = {
+						label: `Create ${label} trigger`,
+						detail: script,
+						onOpen: () => onCreateMissingTrigger(kind, script)
+					}
+			} else if (t.path && onEditTrigger) {
+				const path = t.path
+				action = {
+					label: kind === 'schedule' ? 'Edit schedule' : `Edit ${label} trigger`,
+					detail:
+						kind === 'schedule' && t.schedule
+							? (t.summary ?? describeSchedule(t.schedule, t.timezone) ?? path)
+							: path,
+					onOpen: () => onEditTrigger(kind, path, script)
+				}
+			}
+			if (action) out.push(action)
+		}
+		return out
+	})
+
+	function editProducerScript(path: string) {
+		if (mode !== 'edit') onRequestEdit?.()
+		onSelect({ kind: 'runnable', runnable_kind: 'script', path })
+	}
+
+	// ===================== Draft autosave (persistDrafts only) =====================
+	// All of this folder's in-flight drafts live in ONE per-user DB draft (typ
+	// `data_pipeline`) keyed at the folder, syncing across devices + surfacing in
+	// the global drafts list. localStorage is a synchronous crash mirror, READ only
+	// for the one-time migration below; the DB is the source of truth on load.
+	// FlowBuilder's autosave analogue — gated by `persistDrafts`.
+	let pipelineDraftPath = $derived(pipelineBundlePath(folder))
+	let storageKey = $derived(pipelineLocalMirrorKey(folder))
+	type PipelineDraftBundle = {
+		drafts: Array<[string, PipelineDraft]>
+		activeDraftPath?: string
+		triggerDrafts?: PipelineTriggerDraft[]
+	}
+	// Hydration is tracked on the editor instance (`editor.hydratedFromDb`), not a
+	// component flag: the in-session preview reuses one instance across editor
+	// hide/show, and it must hydrate ONCE per instance, not on every remount.
+	let lastPersistedBundle: string | undefined = undefined
+	// What decides whether the bundle needs saving: its drafts, not which one is
+	// open. Opening a draft is not an edit, so it rides along with the next real
+	// change instead of saving (and spinning the sync indicator) on a click.
+	const persistKey = (b: PipelineDraftBundle | undefined) =>
+		b ? JSON.stringify({ drafts: b.drafts, triggerDrafts: b.triggerDrafts }) : undefined
+
+	function restoreBundle(bundle: PipelineDraftBundle) {
+		if (Array.isArray(bundle.drafts)) {
+			const loaded = new Map<string, PipelineDraft>()
+			for (const entry of bundle.drafts) {
+				if (entry && typeof entry[0] === 'string' && entry[1]?.script) {
+					const d = entry[1] as PipelineDraft
+					if (typeof d.localId !== 'string' || d.localId === '')
+						d.localId = editor.newDraftLocalId()
+					loaded.set(entry[0], d)
+				}
+			}
+			if (loaded.size > 0) editor.drafts = loaded
+		}
+		if (typeof bundle.activeDraftPath === 'string') editor.activeDraftPath = bundle.activeDraftPath
+		if (Array.isArray(bundle.triggerDrafts)) {
+			editor.triggerDrafts = new Map(
+				bundle.triggerDrafts
+					.filter(
+						(d) =>
+							isDraftableTriggerKind(d?.kind) &&
+							typeof d.config?.path === 'string' &&
+							typeof d.config?.script_path === 'string'
+					)
+					.map((d) => [triggerDraftKey(d.kind, d.config.path), d])
+			)
+		}
+	}
+
+	function readLocalBundle(): PipelineDraftBundle | undefined {
+		if (typeof localStorage === 'undefined') return undefined
+		const raw = localStorage.getItem(storageKey)
+		if (!raw) return undefined
+		try {
+			const s = decodeState(raw)
+			if (s && (Array.isArray(s.drafts) || typeof s.activeDraftPath === 'string')) {
+				return {
+					drafts: Array.isArray(s.drafts) ? s.drafts : [],
+					activeDraftPath: typeof s.activeDraftPath === 'string' ? s.activeDraftPath : undefined,
+					triggerDrafts: Array.isArray(s.triggerDrafts) ? s.triggerDrafts : undefined
+				}
+			}
+		} catch (e) {
+			console.warn('failed to read local pipeline state', e)
+		}
+		return undefined
+	}
+
+	async function hydrateDrafts() {
+		const ws = workspace
+		const path = pipelineDraftPath
+		try {
+			let bundle: PipelineDraftBundle | undefined
+			let serverSavedAt: string | undefined
+			let fromServer = false
+			if (ws) {
+				const row = await DraftService.getOwnDraft({
+					workspace: ws,
+					kind: PIPELINE_DRAFT_KIND,
+					path
+				})
+				if (row?.value) {
+					bundle = row.value as PipelineDraftBundle
+					serverSavedAt = row.created_at
+					fromServer = true
+				}
+			}
+			// A folder switch during the await (the route page's header switcher)
+			// changed the target and reset hydratedFromDb. Don't
+			// apply this now-stale folder's bundle or mark the new folder hydrated —
+			// otherwise the stale result blocks the new folder's hydrate and its
+			// drafts bleed across folders.
+			if (path !== pipelineDraftPath) return
+			let migratedFromLocal = false
+			if (!bundle) {
+				const local = readLocalBundle()
+				if (local) {
+					bundle = local
+					migratedFromLocal = true
+				}
+			}
+			if (fromServer) editor.loadedFromDbDraft = true
+			if (bundle) restoreBundle(bundle)
+			UserDraftDbSyncer.recordRemoteSync(
+				{ workspace: ws ?? '', itemKind: PIPELINE_DRAFT_KIND, path },
+				migratedFromLocal ? undefined : serverSavedAt
+			)
+			if (!migratedFromLocal) lastPersistedBundle = persistKey(bundle)
+		} catch (e) {
+			console.warn('failed to load pipeline drafts', e)
+		} finally {
+			if (path === pipelineDraftPath) editor.hydratedFromDb = true
+		}
+	}
+
+	// Hydrate when persistence is on and this editor instance hasn't been hydrated
+	// for the current folder yet. An effect (not onMount) so a folder retarget —
+	// which resets `hydratedFromDb` — re-hydrates the new folder's draft bundle.
+	$effect(() => {
+		if (!persistDrafts || editor.hydratedFromDb) return
+		void hydrateDrafts()
+	})
+
+	$effect(() => {
+		if (!persistDrafts) return
+		// For the active draft, snapshot the latest live body writes + editor buffer
+		// at serialize time so edits since the last pane-transition aren't lost on reload.
+		const liveWritesSnapshot =
+			editor.liveBodyAssets.scriptPath != undefined &&
+			editor.drafts.has(editor.liveBodyAssets.scriptPath)
+				? extractWrites(editor.liveBodyAssets.assets)
+				: undefined
+		const liveReadsSnapshot =
+			editor.liveBodyAssets.scriptPath != undefined &&
+			editor.drafts.has(editor.liveBodyAssets.scriptPath)
+				? extractReads(editor.liveBodyAssets.assets)
+				: undefined
+		const liveWritesPath = editor.liveBodyAssets.scriptPath
+		const liveContentPath =
+			editor.liveContent.scriptPath != undefined && editor.drafts.has(editor.liveContent.scriptPath)
+				? editor.liveContent.scriptPath
+				: undefined
+		const liveContentValue = editor.liveContent.content
+		const serialized = Array.from(editor.drafts.entries()).map(([p, d]) => {
+			const outputAssets =
+				liveWritesSnapshot != undefined && liveWritesPath === p
+					? liveWritesSnapshot.length > 0
+						? liveWritesSnapshot
+						: undefined
+					: d.outputAssets
+			const inputAssets =
+				liveReadsSnapshot != undefined && liveWritesPath === p ? liveReadsSnapshot : d.inputAssets
+			const script =
+				liveContentPath === p && d.script.content !== liveContentValue
+					? { ...d.script, content: liveContentValue }
+					: d.script
+			if (script === d.script && outputAssets === d.outputAssets && inputAssets === d.inputAssets)
+				return [p, d] as [string, PipelineDraft]
+			return [p, { ...d, script, outputAssets, inputAssets }] as [string, PipelineDraft]
+		})
+		// A deployed script being edited is only promoted to a draft when its pane
+		// closes; until then its buffer is saved as the draft it will become.
+		const { scriptPath: livePath, content: liveBody, base } = editor.liveContent
+		if (
+			livePath != undefined &&
+			base &&
+			!editor.drafts.has(livePath) &&
+			liveBody !== (base.content ?? '')
+		) {
+			const live = editor.liveBodyAssets.scriptPath === livePath
+			const writes = live ? extractWrites(editor.liveBodyAssets.assets) : []
+			serialized.push([
+				livePath,
+				{
+					localId: editor.promotedDraftLocalId(livePath),
+					script: { ...base, content: liveBody },
+					outputAssets: writes.length > 0 ? writes : undefined,
+					inputAssets: live ? extractReads(editor.liveBodyAssets.assets) : undefined
+				}
+			])
+		}
+		const activePath = editor.activeDraftPath
+		const triggerDrafts = [...editor.triggerDrafts.values()]
+		const key = storageKey
+		const ws = workspace
+		const path = pipelineDraftPath
+		const hydrated = editor.hydratedFromDb
+		untrack(() => {
+			if (!hydrated) return
+			const isEmpty = serialized.length === 0 && !activePath && triggerDrafts.length === 0
+			const bundle: PipelineDraftBundle | undefined = isEmpty
+				? undefined
+				: {
+						drafts: serialized,
+						activeDraftPath: activePath,
+						...(triggerDrafts.length > 0 ? { triggerDrafts } : {})
+					}
+			try {
+				if (typeof localStorage !== 'undefined') {
+					if (isEmpty) localStorage.removeItem(key)
+					else localStorage.setItem(key, encodeState(bundle))
+				}
+			} catch (e) {
+				console.warn('failed to mirror pipeline state', e)
+			}
+			const serializedBundle = persistKey(bundle)
+			if (serializedBundle === lastPersistedBundle) return
+			lastPersistedBundle = serializedBundle
+			if (!ws) return
+			void UserDraftDbSyncer.save({
+				workspace: ws,
+				itemKind: PIPELINE_DRAFT_KIND,
+				path,
+				value: bundle ?? null,
+				auto: true
+			})
+		})
+	})
+</script>
+
+{#snippet detailsBody(ws: string)}
+	{#if idleView && idlePane}
+		{@render idlePane()}
+	{:else}
+		<AssetGraphDetailsPane
+			{mode}
+			{onRequestEdit}
+			{canRunByPath}
+			{onRunByPath}
+			{onRunCascadeByPath}
+			{runFormInitialArgs}
+			{onRunFormArgsChange}
+			{inputsOnly}
+			{onRunInputs}
+			{onShowScript}
+			{resolveLocalScript}
+			{localScriptsVersion}
+			selection={activeDraft ? undefined : editor.selection}
+			selectionProducers={activeDraft ? [] : selectionProducers}
+			{producerScripts}
+			onEditScript={editProducerScript}
+			{producerTriggers}
+			{selectionColumnGraph}
+			{selectionColumnLoading}
+			{selectionColumnTruncated}
+			{selectionColumnFailed}
+			{selectionDbt}
+			{schemaCanEvolve}
+			{selectionForkMaterialization}
+			{schemaContractContext}
+			{runsRefreshKey}
+			{runsPendingJobId}
+			{activeRunnable}
+			{downstreamSubscribers}
+			onStartBoundedRun={canBoundedRunOpenScript &&
+			editor.openScriptPath &&
+			onStartBoundedRunForOpen
+				? () => onStartBoundedRunForOpen?.(editor.openScriptPath!)
+				: undefined}
+			{onRunCompleted}
+			{onTestStateChange}
+			{requestRemoveSignal}
+			{requestRunSignal}
+			{requestRunCascadeSignal}
+			{focusUploadSignal}
+			draftScript={activeDraft?.script}
+			draftOutputAssets={activeDraft?.outputAssets}
+			draftInputAssets={activeDraft?.inputAssets}
+			{onDraftPathChange}
+			onDraftMetaChange={editor.setDraftMeta}
+			{pathPrefix}
+			workspace={ws}
+			onAnnotationsChange={editor.handleAnnotationsChange}
+			onAssetsChange={editor.handleAssetsChange}
+			onContentChange={editor.handleContentChange}
+			onDraftPersist={editor.handleDraftPersist}
+			onclose={() => {
+				closePanelModal()
+				onClose()
+			}}
+			onHide={onTogglePanelHidden &&
+				(() => {
+					closePanelModal()
+					onTogglePanelHidden()
+				})}
+			{onDiscard}
+			{onDraftSaved}
+			{onPersistedSaved}
+			{onScriptRenamed}
+			{onScriptRemoved}
+		/>
+	{/if}
+{/snippet}
+
+<div class="relative h-full w-full" bind:clientWidth={containerWidth}>
+	<Splitpanes class="!h-full" horizontal={stacked}>
+		<Pane bind:size={leftPaneSize}>
+			<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+			<div
+				class="relative h-full"
+				ondblclick={panelMode === 'modal' ? openPanelModalFromGraph : undefined}
+				onpointerdowncapture={panelMode === 'modal' ? noteSelectionBeforeClick : undefined}
+				onclick={panelMode === 'modal' ? openPanelModalIfReselected : undefined}
+			>
+				<AssetGraphCanvas
+					graph={displayGraph}
+					selection={effectiveSelection}
+					{hoveredPaths}
+					{selectedRunPaths}
+					{activeRunnable}
+					{activeRunnableIds}
+					{runStates}
+					{pathPrefix}
+					{defaultPathSuffix}
+					{onCreateMissingTrigger}
+					{onEditTrigger}
+					{onDeleteTrigger}
+					{onOpenWebhook}
+					{onOpenDataUpload}
+					{readyDataUploadPaths}
+					onselect={handleCanvasSelect}
+					{onAddScriptForAsset}
+					{onAddPipelineScript}
+					{onRunnableMenuRemove}
+					{onDeleteAssetUpstream}
+					{nodeFixes}
+					{assetDeleteVerb}
+					{onEdgeAction}
+					{onAddAssetTrigger}
+					{onRunProducer}
+					{validStartPaths}
+					{onStartBoundedRun}
+					{boundPick}
+					{onPickEnd}
+					{panToNodeId}
+					showMinimap={!stacked}
+					viewportFitKey={viewportFitKey ?? folder}
+					assetsOnlyToggle
+					assetsOnlyFolder={workspace ? `${workspace}/${folder}` : undefined}
+				/>
+				{#if boundBar}{@render boundBar()}{/if}
+				{#if mode === 'edit'}
+					<PipelineEventLog events={eventLogEvents} />
+				{/if}
+				{#if prefetchingAssets}
+					<div
+						class="absolute top-2 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1.5 px-2 py-1 rounded-md bg-surface/95 backdrop-blur-sm border border-gray-200 dark:border-gray-700 text-2xs text-secondary shadow-sm"
+						title="Inferring assets for every script in this folder so the graph is complete"
+					>
+						<Loader2 size={11} class="animate-spin" />
+						Parsing assets…
+					</div>
+				{/if}
+				{#if onTogglePanelHidden && (mode !== 'edit' || editor.selection != undefined || editor.activeDraftPath != undefined)}
+					<div
+						class="absolute top-2 right-2 z-50 rounded-md bg-surface shadow-sm border border-gray-200 dark:border-gray-700"
+					>
+						<HideButton
+							hidden={panelHidden}
+							direction={stacked ? 'bottom' : 'right'}
+							on:click={onTogglePanelHidden}
+						/>
+					</div>
+				{/if}
+			</div></Pane
+		>
+		{#if dockedPaneOpen && workspace}
+			<Pane bind:size={rightPaneSize} minSize={25}>
+				{@render detailsBody(workspace)}
+			</Pane>
+		{/if}
+	</Splitpanes>
+	{#if showNodeHint}
+		<!-- Above the event log's bar, which owns the canvas's bottom edge. -->
+		<div
+			class="pointer-events-none absolute bottom-10 left-3 z-30 flex items-center gap-1.5 text-xs text-hint"
+		>
+			<MousePointerClick size={13} />
+			{nodeHintText}
+		</div>
+	{/if}
+</div>
+
+<!-- Portalled to the host's overlay anchor (a session preview tab) so the modal covers
+     that tab rather than the whole page; Disposable owns its place in the overlay stack
+     and its Escape. -->
+<Disposable bind:open={panelModalOpen} bind:this={panelDisposable}>
+	{#snippet children({ zIndex })}
+		{#if panelMode === 'modal' && panelModalOpen && workspace}
+			<Portal target={modalHost ?? 'body'} class="contents">
+				<!-- svelte-ignore a11y_click_events_have_key_events -->
+				<!-- svelte-ignore a11y_no_static_element_interactions -->
+				<div
+					class="{modalHost ? 'absolute' : 'fixed'} inset-0 flex justify-center px-2 py-6"
+					style="z-index: {zIndex}"
+					role="dialog"
+				>
+					<div class="absolute inset-0 bg-black/20" onclick={() => (panelModalOpen = false)}></div>
+					<div
+						class="relative flex w-full max-w-4xl flex-col overflow-hidden rounded-md border bg-surface shadow-xl"
+					>
+						<div class="min-h-0 flex-1 overflow-auto">
+							{@render detailsBody(workspace)}
+						</div>
+					</div>
+				</div>
+			</Portal>
+		{/if}
+	{/snippet}
+</Disposable>

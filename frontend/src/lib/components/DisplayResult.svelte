@@ -3,10 +3,13 @@
 
 	import { Highlight } from 'svelte-highlight'
 	import { json } from 'svelte-highlight/languages'
+	import DbtRunResult from '$lib/components/dbt/DbtRunResult.svelte'
+	import { parseDbtRun } from '$lib/components/dbt/parseDbtRun'
 	import { copyToClipboard, parseS3Object, roughSizeOfObject } from '$lib/utils'
-	import { base } from '$lib/base'
+	import ExpandableImage from '$lib/components/common/image/ExpandableImage.svelte'
 	import { downloadViaClient, shouldDownloadViaClient } from '$lib/utils/downloadFile'
-	import { Button, Drawer, DrawerContent } from './common'
+	import { appendViewToken } from '$lib/viewToken'
+	import { Badge, Button, Drawer, DrawerContent } from './common'
 	import {
 		ClipboardCopy,
 		Download,
@@ -15,8 +18,10 @@
 		Braces,
 		Highlighter,
 		ArrowDownFromLine,
+		Database,
 		Loader2
 	} from 'lucide-svelte'
+	import DataTestsResult from './DataTestsResult.svelte'
 	import Portal from '$lib/components/Portal.svelte'
 	import DisplayResultControlBar from './DisplayResultControlBar.svelte'
 
@@ -25,6 +30,7 @@
 	import Alert from './common/alert/Alert.svelte'
 	import AutoDataTable from './table/AutoDataTable.svelte'
 	import Markdown from 'svelte-exmarkdown'
+	import { markdownProse } from './markdownProse'
 	import Toggle from './Toggle.svelte'
 	import FileDownload from './common/fileDownload/FileDownload.svelte'
 
@@ -32,6 +38,8 @@
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import MapResult from './MapResult.svelte'
+	import ChartResult from './display/ChartResult.svelte'
+	import { isChartResult } from './display/displayCatalog'
 	import DownloadCsv from './table/DownloadCsv.svelte'
 	import { convertJsonToCsv } from './table/tableUtils'
 	import Tooltip from './Tooltip.svelte'
@@ -40,8 +48,17 @@
 	import { getContext, hasContext, createEventDispatcher, onDestroy, untrack } from 'svelte'
 	import { toJsonStr } from '$lib/utils'
 	import { userStore } from '$lib/stores'
+	import { isOfflineReplay, isReplaying } from './recording/offlineReplay.svelte'
 	import ResultStreamDisplay from './ResultStreamDisplay.svelte'
 	import { twMerge } from 'tailwind-merge'
+	import DOMPurify from 'dompurify'
+	import MarkupApprovalGate from './MarkupApprovalGate.svelte'
+	import type { MarkupTrust } from './apps/markupTrust'
+	import AgentResultDisplay from './AgentResultDisplay.svelte'
+	import AgentStreamDisplay from './AgentStreamDisplay.svelte'
+	import AgentTrace from './AgentTrace.svelte'
+	import { isAgentStream, parseAgentErrorMessages, parseAgentResult } from './aiAgentResult'
+	import { buildAgentTrace } from './agentTrace'
 
 	const TABLE_MAX_SIZE = 5000000
 	const DISPLAY_MAX_SIZE = 100000
@@ -67,23 +84,48 @@
 		| 'filename'
 		| 's3object'
 		| 's3object-list'
+		| 'materialized'
 		| 'plain'
 		| 'markdown'
 		| 'map'
 		| 'nondisplayable'
 		| 'pdf'
+		| 'aiagent'
+		| 'chart'
 		| undefined
 	let resultKind: ResultKind = $state()
+	/** Kinds whose renderer leaves the page: S3/ducklake previews fetch the file or
+	 * table, and `approval` renders buttons that `fetch` URLs carried in the result.
+	 * A recording is caller-supplied, so on the public page those would aim a
+	 * credentialed request at an arbitrary origin. */
+	const REPLAY_INERT_KINDS: ResultKind[] = ['s3object', 's3object-list', 'materialized', 'approval']
+	/** Kinds whose markup pulls subresources: DOMPurify stops scripting but keeps
+	 * `<img src>` and SVG `<image href>`, and `map` tiles are requests by
+	 * construction. Kinds absent here carry their bytes as `data:` and reach nothing,
+	 * or render through a component that is itself inert on the public page —
+	 * `aiagent` is the second case, via `GfmMarkdown`, which is why it renders
+	 * markdown yet is not listed while `markdown` still is.
+	 * Inert only on the public page, which promises to issue no requests. */
+	const OFFLINE_INERT_KINDS: ResultKind[] = ['markdown', 'html', 'svg', 'map']
 	let length = $state(1)
 
 	let hasBigInt = $state(false)
 
 	interface Props {
 		result: any
-		requireHtmlApproval?: boolean
+		/** How to treat `result.html` / `result.svg`. Defaults to sanitizing, which is
+		 * what every non-app caller wants. Low-code app display components pass
+		 * `getAppMarkupTrust()`. */
+		markupTrust?: MarkupTrust
 		filename?: string | undefined
 		disableExpand?: boolean
 		jobId?: string | undefined
+		/**
+		 * Which run this result belongs to. Separate from `jobId`, which the replay
+		 * page withholds so nothing fetches: the agent views still have to tell one
+		 * run from the next, or a second one continues the first one's fold.
+		 */
+		runKey?: string | undefined
 		workspaceId?: string | undefined
 		hideAsJson?: boolean
 		noControls?: boolean
@@ -105,10 +147,11 @@
 
 	let {
 		result,
-		requireHtmlApproval = false,
+		markupTrust = 'sanitize',
 		filename = undefined,
 		disableExpand = false,
 		jobId = undefined,
+		runKey = undefined,
 		workspaceId = undefined,
 		hideAsJson = false,
 		noControls = false,
@@ -127,8 +170,36 @@
 		loading = false,
 		growVertical = false
 	}: Props = $props()
-	let enableHtml = $state(false)
 	let s3FileDisplayRawMode = $state(false)
+	/** What a max-iterations failure got through before it gave up, if this is one.
+	 *  Empty for a run that failed before the worker tagged anything, and for one
+	 *  that predates the tags reaching this payload at all — in which case the
+	 *  section is not rendered rather than heading an empty box. */
+	let agentErrorTrace = $derived.by(() => {
+		const messages = parseAgentErrorMessages(result)
+		if (!messages) return undefined
+		const entries = buildAgentTrace(messages)
+		return entries.length > 0 ? entries : undefined
+	})
+
+	// Build the image/PDF source URL for an S3 object. When `appPath` is set
+	// (deployed app view) the read is authorized on-behalf of the app author via
+	// the provenance-gated `apps_u/download_s3_file/{appPath}` endpoint; otherwise
+	// (editor/preview) it uses the viewer-scoped `job_helpers/load_image_preview`.
+	function s3DisplayUrl(s3object: { s3: string; storage?: string; presigned?: string }): string {
+		const endpoint = appPath
+			? `apps_u/download_s3_file/${appPath}`
+			: 'job_helpers/load_image_preview'
+		const keyParam = appPath ? 's3' : 'file_key'
+		let url = `/api/w/${workspaceId}/${endpoint}?${keyParam}=${encodeURIComponent(s3object.s3)}`
+		if (s3object.storage) {
+			url += `&storage=${s3object.storage}`
+		}
+		if (appPath && s3object.presigned) {
+			url += `&${s3object.presigned}`
+		}
+		return url
+	}
 
 	function isTableRow(result: any): boolean {
 		return Array.isArray(result) && result.every((x) => Array.isArray(x))
@@ -176,14 +247,16 @@
 
 	let resultApiPath = $derived(
 		workspaceId && jobId
-			? nodeId
-				? `/w/${workspaceId}/jobs/result_by_id/${jobId}/${nodeId}`
-				: `/w/${workspaceId}/jobs_u/completed/get_result/${jobId}`
+			? appendViewToken(
+					nodeId
+						? `/w/${workspaceId}/jobs/result_by_id/${jobId}/${nodeId}`
+						: `/w/${workspaceId}/jobs_u/completed/get_result/${jobId}`
+				)
 			: undefined
 	)
 	let resultDownloadHref = $derived(
 		resultApiPath
-			? `${base}/api${resultApiPath}`
+			? `/api${resultApiPath}`
 			: `data:text/json;charset=utf-8,${encodeURIComponent(toJsonStr(result))}`
 	)
 	let resultDownloadName = $derived(`${filename ?? 'result'}.json`)
@@ -192,6 +265,28 @@
 		return keys.includes('s3') && typeof result.s3 === 'string'
 	}
 
+	// The materialize-run summary — `[{ materialized: 'ducklake://…', rows,
+	// snapshot_id }]` or the bare object. The shape is narrow (a `ducklake://`
+	// value plus a `snapshot_id` key) so an ordinary user result isn't hijacked.
+	function parseMaterializedResult(
+		res: any
+	):
+		| { materialized: string; partition?: string; rows?: number; snapshot_id?: number | null }
+		| undefined {
+		const obj = Array.isArray(res) && res.length === 1 ? res[0] : res
+		if (
+			obj &&
+			typeof obj === 'object' &&
+			typeof obj.materialized === 'string' &&
+			obj.materialized.startsWith('ducklake://') &&
+			'snapshot_id' in obj
+		) {
+			return obj
+		}
+		return undefined
+	}
+
+	let showMaterializedPreview = $state(true)
 	let is_render_all = $state(false)
 	let download_as_csv = $state(false)
 	function inferResultKind(result: any) {
@@ -218,6 +313,24 @@
 			}
 			try {
 				let keys = result && typeof result === 'object' ? Object.keys(result) : []
+
+				if (parseMaterializedResult(result)) {
+					largeObject = false
+					is_render_all = false
+					return 'materialized'
+				}
+
+				// Classified before the size caps below: an agent's answer stays small
+				// however long its conversation grows, so a run with a long trace
+				// must not fall back to the JSON tree that hides the answer inside it.
+				// `largeObject` is still set honestly, so switching to JSON gets the
+				// same too-big handling as any other oversized result.
+				if (parseAgentResult(result)) {
+					is_render_all = false
+					largeObject = roughSizeOfObject(result) > DISPLAY_MAX_SIZE
+					return 'aiagent'
+				}
+
 				is_render_all =
 					keys.length == 1 && keys.includes('render_all') && Array.isArray(result['render_all'])
 
@@ -268,7 +381,11 @@
 				}
 
 				if (keys.length != 0) {
-					if (
+					// Only a chart the catalog accepts: any other `{ chart }` result stays JSON. The
+					// catalog caps its rows, so it is exempt from the display size limit.
+					if (keys.length == 1 && keys[0] === 'chart' && isChartResult(result)) {
+						return 'chart'
+					} else if (
 						keys.length == 1 &&
 						[...IMG_KINDS, 'html', 'map', 'pdf', 'file', 'error'].includes(keys[0])
 					) {
@@ -289,7 +406,10 @@
 						keys.includes('filename') &&
 						keys.includes('autodownload')
 					) {
-						if (result.autodownload) {
+						// Not via REPLAY_INERT_KINDS: this download is a side effect *inside* kind
+						// inference, already done by the time a caller could reclassify. Replaying
+						// must never write caller-chosen bytes into the viewer's downloads.
+						if (result.autodownload && !isReplaying()) {
 							const a = document.createElement('a')
 
 							a.href = 'data:application/octet-stream;base64,' + result.file
@@ -378,6 +498,15 @@
 		}
 	}
 
+	// An html/svg result is attacker-authored: any member can return one and a
+	// higher-privileged user may view it. Every `{@html}` of result markup must go
+	// through here, or it becomes stored XSS (GHSA-gh2j-49rx-4464). `approval` renders
+	// verbatim too, so it must stay behind MarkupApprovalGate at the call site.
+	function renderResultMarkup(markup: string | { filename: string; content: string } | undefined) {
+		const str = contentOrRootString(markup) || ''
+		return markupTrust === 'sanitize' ? DOMPurify.sanitize(str) : str
+	}
+
 	function handleArrayOfObjectsHeaders(json: any) {
 		// handle possible a first row of headers
 		if (
@@ -405,6 +534,23 @@
 		}
 
 		return json
+	}
+
+	// The explicit column order from a leading header row (see
+	// handleArrayOfObjectsHeaders). Returned as an array so the order survives:
+	// baking it into object keys loses integer-like names like "1234", which JS
+	// enumerates first in ascending numeric order.
+	function getForcedColumnOrder(json: any): string[] | undefined {
+		if (
+			Array.isArray(json) &&
+			json.length > 0 &&
+			Array.isArray(json[0]) &&
+			json[0].length > 0 &&
+			json[0].every((item) => typeof item === 'string')
+		) {
+			return json[0]
+		}
+		return undefined
 	}
 
 	type InputObject = { [key: string]: number[] }
@@ -496,8 +642,19 @@
 
 	$effect(() => {
 		;[result]
+		const replaying = isReplaying()
+		const offlineReplay = isOfflineReplay()
 		untrack(() => {
 			resultKind = inferResultKind(result)
+			// A recording carries the result JSON, nothing the result points at, and a
+			// replay has no session to go get it: show the recorded value instead.
+			const inert =
+				(replaying && REPLAY_INERT_KINDS.includes(resultKind)) ||
+				(offlineReplay && OFFLINE_INERT_KINDS.includes(resultKind))
+			if (inert) {
+				resultKind = 'json'
+				largeObject = false
+			}
 		})
 	})
 	$effect(() => {
@@ -512,16 +669,117 @@
 			resultHeaderHeight
 		)
 	})
+
+	// Per-test breakdown of a managed `// materialize` run. On success it rides the
+	// result as `data_tests`; on failure the job result is the error, whose message
+	// is the worker's breakdown text, parsed back into the same shape so the
+	// checklist shows either way. Inert for every other DisplayResult use.
+	let dataTests = $derived.by(() => {
+		// `DataTestsResult` renders an item per entry, and the message-derived branch
+		// below builds them from *lines of text*, so no bound on the result's structure
+		// can see them. A run with this many tests is unreadable anyway, and the cap has
+		// to live where the parse happens rather than be predicted from the payload.
+		const MAX_RENDERED = 1000
+		// A per-test `sample` arrives as its own JSON string, so nothing that measures
+		// the enclosing result's structure can see inside it — parsing an 8 MB string of
+		// `{}` would allocate millions of objects before any row cap applied. Bound the
+		// text first, then the rows.
+		const MAX_SAMPLE_CHARS = 256 * 1024
+		const MAX_SAMPLE_ROWS = 1000
+		const capped = <T,>(tests: T[]): T[] =>
+			tests.length > MAX_RENDERED ? tests.slice(0, MAX_RENDERED) : tests
+		// Both shapes carry `[{ test, violating, sample? }]`. The sample may arrive as
+		// a JSON string and is optional by contract, so anything malformed degrades to
+		// no sample — never to a dropped checklist.
+		const normalize = (
+			dt: any
+		): Array<{ test: string; violating: number; sample?: Record<string, any>[] }> | undefined => {
+			if (typeof dt === 'string') {
+				try {
+					dt = JSON.parse(dt)
+				} catch {
+					return undefined
+				}
+			}
+			if (
+				!Array.isArray(dt) ||
+				dt.length === 0 ||
+				!dt.every((x) => x && typeof x.test === 'string' && typeof x.violating === 'number')
+			) {
+				return undefined
+			}
+			return dt.map((x) => {
+				let sample = x.sample
+				if (typeof sample === 'string') {
+					try {
+						sample = sample.length > MAX_SAMPLE_CHARS ? undefined : JSON.parse(sample)
+					} catch {
+						sample = undefined
+					}
+				}
+				if (!Array.isArray(sample) || !sample.every((r) => r && typeof r === 'object')) {
+					sample = undefined
+				} else if (sample.length > MAX_SAMPLE_ROWS) {
+					sample = sample.slice(0, MAX_SAMPLE_ROWS)
+				}
+				return { test: x.test, violating: x.violating, sample }
+			})
+		}
+		// Success: structured column on the summary row.
+		const row = Array.isArray(result) ? (result as any)?.[0] : (result as any)
+		const fromRow = normalize(row?.data_tests)
+		if (fromRow) return capped(fromRow)
+		// Failure: the worker attaches the same structured breakdown (plus
+		// per-failed-test samples) to the error payload.
+		const fromError = normalize((result as any)?.error?.data_tests)
+		if (fromError) return capped(fromError)
+		// Failure fallback for results predating the structured error payload:
+		// parse the worker's breakdown out of the error message.
+		const msg = (result as any)?.error?.message
+		if (typeof msg === 'string' && msg.includes('data tests failed on')) {
+			const out: Array<{ test: string; violating: number }> = []
+			for (const line of msg.split('\n')) {
+				if (out.length >= MAX_RENDERED) break
+				const fail = line.match(/^\s*✗\s*(.+?)\s*—\s*(\d+)\s+violating/)
+				const pass = line.match(/^\s*✓\s*(.+?)\s*$/)
+				if (fail) out.push({ test: fail[1], violating: parseInt(fail[2], 10) })
+				else if (pass) out.push({ test: pass[1], violating: 0 })
+			}
+			if (out.length > 0) return out
+		}
+		return undefined
+	})
+
+	// Per-node breakdown of a dbt invocation, rendered above the raw result. On
+	// success it IS the result; on failure the worker puts the same JSON in the
+	// error message after the exit-status line, and that is the case worth
+	// rendering — the failing node is what the user came for. Inert (undefined)
+	// for every other DisplayResult use.
+	let dbtRun = $derived(parseDbtRun(result))
 </script>
 
 <HighlightTheme />
+
+{#if dataTests}
+	<DataTestsResult tests={dataTests} />
+{/if}
+
+{#if dbtRun}
+	<DbtRunResult run={dbtRun} />
+{/if}
 
 {#if result_stream && result == undefined}
 	<div class="flex flex-col w-full gap-2">
 		<div class="flex items-center gap-2 text-secondary text-xs">
 			<Loader2 class="animate-spin" size={14} /> Streaming result
 		</div>
-		<ResultStreamDisplay {result_stream} />
+		{#if isAgentStream(result_stream)}
+			<!-- An agent streams one JSON event per line, so the raw stream is a wall of
+			     event objects rather than the answer being written. -->
+			<AgentStreamDisplay raw={result_stream} streamKey={runKey ?? jobId} />
+		{:else}
+			<ResultStreamDisplay {result_stream} />
+		{/if}
 	</div>
 {:else if is_render_all}
 	<div class="flex flex-col w-full gap-2">
@@ -545,12 +803,13 @@
 				<DisplayResult
 					{noControls}
 					result={res}
-					{requireHtmlApproval}
+					{markupTrust}
 					{filename}
 					{disableExpand}
 					{jobId}
 					{nodeId}
 					{workspaceId}
+					{appPath}
 					forceJson={globalForceJson}
 					hideAsJson={true}
 				/>
@@ -603,7 +862,6 @@
 							{workspaceId}
 							{jobId}
 							{nodeId}
-							{base}
 							{result}
 							{disableTooltips}
 							on:open-drawer={() => openDrawer()}
@@ -640,35 +898,24 @@
 							? 'absolute inset-0 [&>div]:h-full [&>div]:min-h-[10rem]'
 							: ''}
 						objects={handleArrayOfObjectsHeaders(data)}
+						headerOrder={getForcedColumnOrder(data)}
 					/>
 				{:else if !forceJson && resultKind === 'html'}
 					<div class="h-full">
-						{#if !requireHtmlApproval || enableHtml}
-							{@html result.html}
+						{#if markupTrust === 'approval'}
+							<MarkupApprovalGate>
+								{#snippet children()}
+									<!-- eslint-disable-next-line svelte/no-at-html-tags -->
+									{@html renderResultMarkup(result.html)}
+								{/snippet}
+							</MarkupApprovalGate>
 						{:else}
-							<div class="font-main text-sm">
-								<div class="flex flex-col">
-									<div class="bg-red-400 py-1 rounded-t text-white font-bold text-center">
-										Warning
-									</div>
-									<p
-										class="text-primary mb-2 text-left border-2 !border-t-0 rounded-b border-red-400 overflow-auto p-1"
-										>Rendering HTML can expose you to <a
-											href="https://owasp.org/www-community/attacks/xss/"
-											target="_blank"
-											rel="noreferrer"
-											class="hover:underline">XSS attacks</a
-										>. Only enable it if you trust the author of the script.
-									</p>
-								</div>
-								<div class="center-center">
-									<Button unifiedSize="md" variant="default" on:click={() => (enableHtml = true)}>
-										Enable HTML rendering
-									</Button>
-								</div>
-							</div>
+							<!-- eslint-disable-next-line svelte/no-at-html-tags -->
+							{@html renderResultMarkup(result.html)}
 						{/if}
 					</div>
+				{:else if !forceJson && resultKind === 'chart'}
+					<ChartResult chart={result.chart} />
 				{:else if !forceJson && resultKind === 'map'}
 					<div class="h-full" data-interactive>
 						<MapResult
@@ -680,7 +927,7 @@
 					</div>
 				{:else if !forceJson && resultKind === 'png'}
 					<div class="h-full">
-						<img
+						<ExpandableImage
 							alt="png rendered"
 							class="w-auto h-full"
 							src="data:image/png;base64,{contentOrRootString(result.png)}"
@@ -688,21 +935,36 @@
 					</div>
 				{:else if !forceJson && resultKind === 'jpeg'}
 					<div class="h-full">
-						<img
+						<ExpandableImage
 							alt="jpeg rendered"
 							class="w-auto h-full"
 							src="data:image/jpeg;base64,{contentOrRootString(result.jpeg)}"
 						/>
 					</div>
 				{:else if !forceJson && resultKind === 'svg'}
-					<div
-						><a download="windmill.svg" href="data:text/plain;base64,{btoa(result.svg)}">Download</a
+					{@const svgMarkup = contentOrRootString(result.svg) || ''}
+					<div>
+						<a
+							download="windmill.svg"
+							href="data:image/svg+xml;charset=utf-8,{encodeURIComponent(svgMarkup)}">Download</a
 						>
 					</div>
-					<div class="h-full overflow-auto">{@html result.svg} </div>
+					<div class="h-full overflow-auto">
+						{#if markupTrust === 'approval'}
+							<MarkupApprovalGate>
+								{#snippet children()}
+									<!-- eslint-disable-next-line svelte/no-at-html-tags -->
+									{@html renderResultMarkup(result.svg)}
+								{/snippet}
+							</MarkupApprovalGate>
+						{:else}
+							<!-- eslint-disable-next-line svelte/no-at-html-tags -->
+							{@html renderResultMarkup(result.svg)}
+						{/if}
+					</div>
 				{:else if !forceJson && resultKind === 'gif'}
 					<div class="h-full">
-						<img
+						<ExpandableImage
 							alt="gif rendered"
 							class="w-auto h-full"
 							src="data:image/gif;base64,{contentOrRootString(result.gif)}"
@@ -760,6 +1022,16 @@
 						{/if}
 						{@render children?.()}
 					</div>
+					{#if agentErrorTrace}
+						<!-- A run stopped by max_iterations fails, so the error above is what it
+						     returned. What it managed to do rides inside that error and is the
+						     whole reason to look at such a run, so it is added under the error
+						     rather than replacing it. -->
+						<div class="flex flex-col gap-1 pt-4 w-full min-w-0">
+							<span class="text-emphasis text-xs font-semibold">Trace</span>
+							<AgentTrace entries={agentErrorTrace} {workspaceId} />
+						</div>
+					{/if}
 					{#if !isTest && language === 'bun'}
 						<div class="pt-20"></div>
 						<Alert size="xs" type="info" title="Seeing an odd error?">
@@ -811,6 +1083,47 @@
 							></div
 						>
 					</div>
+				{:else if !forceJson && resultKind === 'materialized'}
+					{@const m = parseMaterializedResult(result)}
+					{#if m}
+						<div class="flex flex-col gap-2 w-full">
+							<div class="flex items-center gap-2 flex-wrap text-xs">
+								<Database size={14} class="text-tertiary shrink-0" />
+								<span class="font-mono text-emphasis break-all">{m.materialized}</span>
+								{#if m.partition}
+									<Badge color="blue">partition {m.partition}</Badge>
+								{/if}
+								{#if typeof m.rows === 'number'}
+									<Badge color="green">
+										{m.rows}
+										{m.rows === 1 ? 'row' : 'rows'}{m.partition ? ' in partition' : ''}
+									</Badge>
+								{/if}
+								{#if m.snapshot_id != null}
+									<Badge color="gray">snapshot {m.snapshot_id}</Badge>
+								{/if}
+							</div>
+							<Toggle
+								class="flex"
+								bind:checked={showMaterializedPreview}
+								size="xs"
+								options={{ right: 'Preview rows' }}
+							/>
+							{#if showMaterializedPreview}
+								<div class="border rounded-md h-80 min-h-0 overflow-hidden">
+									<!-- Dynamic: the DuckDB preview reaches ~450 modules (data table editor, low-code
+									     components), and every page that shows a job result imports this file. -->
+									{#await import('./assets/AssetGraph/DucklakeResultPreview.svelte') then DucklakeResultPreview}
+										<DucklakeResultPreview.default
+											assetUri={m.materialized}
+											partition={m.partition}
+											class="h-full"
+										/>
+									{/await}
+								</div>
+							{/if}
+						</div>
+					{/if}
 				{:else if !forceJson && resultKind === 's3object'}
 					{@const s3object = parseS3Object(result) as typeof result}
 					<div
@@ -868,29 +1181,24 @@
 							{/if}
 						</div>
 						{#if typeof s3object?.s3 === 'string'}
-							{#if !appPath && (s3object?.s3?.endsWith('.parquet') || s3object?.s3?.endsWith('.csv'))}
+							{#if s3object?.s3?.endsWith('.parquet') || s3object?.s3?.endsWith('.csv')}
 								{#key s3object.s3}
 									<ParqetTableRenderer
 										disable_download={s3object?.disable_download}
 										{workspaceId}
+										{appPath}
 										s3resource={s3object?.s3}
 										storage={s3object?.storage}
+										presigned={s3object?.presigned}
 									/>
 								{/key}
 							{:else if s3object?.s3?.endsWith('.png') || s3object?.s3?.endsWith('.jpeg') || s3object?.s3?.endsWith('.jpg') || s3object?.s3?.endsWith('.webp')}
 								<div class="h-full mt-2">
-									<img
+									<ExpandableImage
 										alt="preview rendered"
+										title={s3object?.s3}
 										class="w-auto h-full"
-										src="{`/api/w/${workspaceId}/${
-											appPath
-												? 'apps_u/download_s3_file/' + appPath
-												: 'job_helpers/load_image_preview'
-										}?${appPath ? 's3' : 'file_key'}=${encodeURIComponent(s3object.s3)}` +
-											(s3object.storage ? `&storage=${s3object.storage}` : '')}{appPath &&
-										s3object.presigned
-											? `&${s3object.presigned}`
-											: ''}"
+										src={s3DisplayUrl(s3object)}
 									/>
 								</div>
 							{:else if s3object?.s3?.endsWith('.pdf')}
@@ -898,18 +1206,7 @@
 									{#await import('$lib/components/display/PdfViewer.svelte')}
 										<Loader2 class="animate-spin" />
 									{:then Module}
-										<Module.default
-											allowFullscreen
-											source="{`/api/w/${workspaceId}/${
-												appPath
-													? 'apps_u/download_s3_file/' + appPath
-													: 'job_helpers/load_image_preview'
-											}?${appPath ? 's3' : 'file_key'}=${encodeURIComponent(s3object.s3)}` +
-												(s3object.storage ? `&storage=${s3object.storage}` : '')}{appPath &&
-											s3object.presigned
-												? `&${s3object.presigned}`
-												: ''}"
-										/>
+										<Module.default allowFullscreen source={s3DisplayUrl(s3object)} />
 									{/await}
 								</div>
 							{/if}
@@ -951,8 +1248,10 @@
 										<ParqetTableRenderer
 											disable_download={s3object?.disable_download}
 											{workspaceId}
+											{appPath}
 											s3resource={s3object?.s3}
 											storage={s3object?.storage}
+											presigned={s3object?.presigned}
 										/>{:else}
 										<button
 											class="text-primary whitespace-nowrap flex gap-2 items-center"
@@ -965,12 +1264,11 @@
 								{:else if s3object?.s3?.endsWith('.png') || s3object?.s3?.endsWith('.jpeg') || s3object?.s3?.endsWith('.jpg') || s3object?.s3?.endsWith('.webp')}
 									{#if seeS3PreviewFileFromList == s3object?.s3}
 										<div class="h-full mt-2">
-											<img
+											<ExpandableImage
 												alt="preview rendered"
+												title={s3object?.s3}
 												class="w-auto h-full"
-												src={`/api/w/${workspaceId}/job_helpers/load_image_preview?file_key=${encodeURIComponent(
-													s3object.s3
-												)}` + (s3object.storage ? `&storage=${s3object.storage}` : '')}
+												src={s3DisplayUrl(s3object)}
 											/>
 										</div>
 									{:else}
@@ -987,20 +1285,36 @@
 										{#await import('$lib/components/display/PdfViewer.svelte')}
 											<Loader2 class="animate-spin" />
 										{:then Module}
-											<Module.default
-												allowFullscreen
-												source={`/api/w/${workspaceId}/job_helpers/load_image_preview?file_key=${encodeURIComponent(
-													s3object.s3
-												)}` + (s3object.storage ? `&storage=${s3object.storage}` : '')}
-											/>
+											<Module.default allowFullscreen source={s3DisplayUrl(s3object)} />
 										{/await}
 									</div>
 								{/if}
 							{/each}
 						</div>
 					</div>
+				{:else if !forceJson && resultKind === 'aiagent'}
+					{@const agentResult = parseAgentResult(result)}
+					{#if agentResult}
+						<AgentResultDisplay result={agentResult} {workspaceId} runKey={runKey ?? jobId}>
+							{#snippet structuredOutput(output)}
+								<DisplayResult
+									noControls
+									hideAsJson
+									result={output}
+									{markupTrust}
+									{filename}
+									{disableExpand}
+									{jobId}
+									{nodeId}
+									{workspaceId}
+									{appPath}
+									growVertical
+								/>
+							{/snippet}
+						</AgentResultDisplay>
+					{/if}
 				{:else if !forceJson && resultKind === 'markdown'}
-					<div class="prose-xs dark:prose-invert !list-disc !list-outside">
+					<div class={markdownProse.sm}>
 						<Markdown md={result?.md ?? result?.markdown} />
 					</div>
 				{:else if largeObject || hasBigInt}
@@ -1016,9 +1330,7 @@
 						{#if largeObject}
 							<div class="text-xs text-emphasis"
 								>{#if resultApiPath && shouldDownloadViaClient()}
-									<button
-										onclick={() => downloadViaClient(resultApiPath!, resultDownloadName)}
-									>
+									<button onclick={() => downloadViaClient(resultApiPath!, resultDownloadName)}>
 										Download {filename ? '' : 'as JSON'}
 									</button>
 								{:else}
@@ -1125,11 +1437,12 @@
 				<DisplayResult
 					{noControls}
 					{result}
-					{requireHtmlApproval}
+					{markupTrust}
 					{filename}
 					{jobId}
 					{nodeId}
 					{workspaceId}
+					{appPath}
 					{hideAsJson}
 					{forceJson}
 					disableExpand={true}

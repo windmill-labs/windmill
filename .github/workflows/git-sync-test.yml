@@ -9,6 +9,11 @@ on:
       - "backend/windmill-api-integration-tests/tests/git_sync*"
       - "backend/ee-repo-ref.txt"
       - "backend/windmill-common/src/workspaces.rs"
+      - "frontend/src/lib/hubPaths.json"
+      - "backend/windmill-worker/src/result_processor.rs"
+      - "backend/windmill-api-workspaces/**"
+      - "cli/src/commands/sync/**"
+      - "cli/src/utils/git.ts"
       - "integration_tests/test/git_sync_test.py"
       - ".github/workflows/git-sync-test.yml"
   pull_request:
@@ -18,6 +23,11 @@ on:
       - "backend/windmill-api-integration-tests/tests/git_sync*"
       - "backend/ee-repo-ref.txt"
       - "backend/windmill-common/src/workspaces.rs"
+      - "frontend/src/lib/hubPaths.json"
+      - "backend/windmill-worker/src/result_processor.rs"
+      - "backend/windmill-api-workspaces/**"
+      - "cli/src/commands/sync/**"
+      - "cli/src/utils/git.ts"
       - "integration_tests/test/git_sync_test.py"
       - ".github/workflows/git-sync-test.yml"
 
@@ -31,7 +41,7 @@ jobs:
     outputs:
       should_run: ${{ steps.check.outputs.should_run }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4.4.0
         with:
           fetch-depth: 0
 
@@ -50,8 +60,8 @@ jobs:
           echo "Changed files:"
           echo "$CHANGED_FILES"
 
-          # Direct git sync file changes — always relevant
-          if echo "$CHANGED_FILES" | grep -qE '^(backend/windmill-git-sync/|backend/windmill-api-integration-tests/tests/git_sync|backend/windmill-common/src/workspaces\.rs|integration_tests/test/git_sync|\.github/workflows/git-sync-test\.yml)'; then
+          # Direct git sync file changes — always relevant.
+          if echo "$CHANGED_FILES" | grep -qE '^(backend/windmill-git-sync/|backend/windmill-worker/src/result_processor\.rs|backend/windmill-api-workspaces/|backend/windmill-api-integration-tests/tests/git_sync|backend/windmill-common/src/workspaces\.rs|frontend/src/lib/hubPaths\.json|cli/src/commands/sync/|cli/src/utils/git\.ts|integration_tests/test/git_sync|\.github/workflows/git-sync-test\.yml)'; then
             echo "should_run=true" >> "$GITHUB_OUTPUT"
             echo "Relevant: direct git sync file changes"
             exit 0
@@ -97,7 +107,7 @@ jobs:
           --health-retries 5
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4.4.0
         with:
           ref: ${{ github.ref }}
           fetch-depth: 0
@@ -106,7 +116,7 @@ jobs:
         run: |
           echo "ee_repo_ref=$(cat ./backend/ee-repo-ref.txt)" >> "$GITHUB_ENV"
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4.4.0
         with:
           repository: windmill-labs/windmill-ee-private
           path: ./windmill-ee-private
@@ -118,20 +128,20 @@ jobs:
         run: |
           cd backend && ./substitute_ee_code.sh --copy --dir ./windmill-ee-private
 
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - uses: actions-rust-lang/setup-rust-toolchain@v1.17.0
         with:
           cache-workspaces: backend
-          toolchain: 1.93.0
+          toolchain: 1.97.0
 
-      - uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@v2.2.0
         with:
-          bun-version: 1.3.10
+          bun-version: 1.4.4
 
-      - uses: denoland/setup-deno@v2
+      - uses: denoland/setup-deno@v2.0.5
         with:
           deno-version: v2.x
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7.1.0
         with:
           node-version: "20"
 
@@ -180,6 +190,9 @@ jobs:
           DENO_PATH: deno
           BUN_PATH: bun
           NODE_BIN_PATH: node
+          # The auto-pull poller's SSRF guard rejects localhost git remotes;
+          # the tests' Gitea runs on localhost.
+          ALLOW_LOCAL_GIT_REMOTES: "true"
         run: |
           ./target/debug/windmill &
           echo "Waiting for Windmill to be ready..."
@@ -203,7 +216,7 @@ jobs:
           cd integration_tests && ../.venv/bin/python -m unittest -v test.git_sync_test
 
       - name: Archive logs
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v4.6.2
         if: always()
         with:
           name: Git Sync Integration Tests Logs

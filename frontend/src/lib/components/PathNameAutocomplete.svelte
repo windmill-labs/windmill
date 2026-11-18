@@ -87,7 +87,9 @@
 <script lang="ts">
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
-	import { workspaceStore } from '$lib/stores'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 	import { untrack } from 'svelte'
 
 	type Props = {
@@ -101,6 +103,9 @@
 		error?: string | boolean
 		textInputClass?: string
 		onkeyup?: (e: KeyboardEvent) => void
+		/** Workspace whose paths feed the autocomplete. Defaults to the operating workspace
+		 *  (see `useOperatingWorkspace`). */
+		workspace?: string
 	}
 
 	let {
@@ -113,8 +118,11 @@
 		size = 'md',
 		error,
 		textInputClass,
-		onkeyup
+		onkeyup,
+		workspace = undefined
 	}: Props = $props()
+
+	let ws = $derived(workspace ?? $operatingWorkspace)
 
 	let inputEl: TextInput | undefined = $state(undefined)
 	export function focus() {
@@ -258,12 +266,12 @@
 	async function loadPaths(workspace: string) {
 		const paths = await fetchWorkspacePaths(workspace)
 		// Guard against workspace changing during the in-flight fetch.
-		if ($workspaceStore === workspace) allPaths = paths
+		if (ws === workspace) allPaths = paths
 	}
 
 	$effect(() => {
-		const ws = $workspaceStore
-		if (ws) void loadPaths(ws)
+		const w = ws
+		if (w) void loadPaths(w)
 	})
 
 	$effect(() => {
@@ -300,7 +308,7 @@
 	function onInputFocus() {
 		hasFocus = true
 		// Opportunistic refresh if the cache is stale.
-		if ($workspaceStore) void loadPaths($workspaceStore)
+		if (ws) void loadPaths(ws)
 	}
 	function onInputBlur() {
 		setTimeout(() => {

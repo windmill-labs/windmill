@@ -6,4 +6,5 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+pub mod asset_inference;
 pub mod scripts;

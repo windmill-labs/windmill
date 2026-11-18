@@ -10,6 +10,7 @@
 	import Badge from '../common/badge/Badge.svelte'
 	import Alert from '../common/alert/Alert.svelte'
 	import { Pen, Trash } from 'lucide-svelte'
+	import { MCP_SESSION } from '../mcp/McpAccessPicker.svelte'
 
 	// --- Props ---
 	interface Props {
@@ -35,7 +36,13 @@
 	let tokenPage = $state(1)
 	let newTokenLabel = $state<string | undefined>(untrack(() => defaultNewTokenLabel))
 	let editingToken = $state<
-		{ prefix: string; scopes: string[] | undefined; workspaceId: string | undefined } | undefined
+		| {
+				prefix: string
+				label: string | undefined
+				scopes: string[] | undefined
+				workspaceId: string | undefined
+		  }
+		| undefined
 	>(undefined)
 	let editModalOpen = $state(false)
 
@@ -43,16 +50,22 @@
 		listTokens()
 	})
 
-	// When updating this filter, also update:
-	// - `is_user_token` in backend/src/monitor.rs
-	// - `register_token_expiry_notification` in backend/windmill-api-auth/src/lib.rs
+	// Mirror of the canonical `is_user_token` in backend/windmill-common/src/auth.rs.
+	// When updating this filter, also update that function and the SQL `WHERE`
+	// mirror in `update_token_label` (backend/windmill-api-users/src/users.rs).
 	function isUserToken(label: string | undefined): boolean {
 		if (!label) return true
 		return (
 			label !== 'session' &&
+			label !== 'guest_session' &&
 			!label.toLowerCase().startsWith('ephemeral') &&
 			label !== 'debugger-token' &&
-			!label.startsWith('mcp-oauth-')
+			!label.startsWith('mcp-oauth-') &&
+			!label.startsWith('embed_app:') &&
+			!label.startsWith('sdk_app:') &&
+			!label.startsWith('impersonation:') &&
+			!label.startsWith('cli-login:') &&
+			!label.startsWith('remote-deploy:')
 		)
 	}
 
@@ -102,20 +115,26 @@
 		listTokens()
 	}
 
+	function shownScopes(scopes: string[] | null | undefined): string {
+		return (scopes ?? []).filter((s) => s !== MCP_SESSION).join(', ')
+	}
+
 	function handleEditClick(
 		tokenPrefix: string,
+		tokenLabel: string | undefined,
 		tokenScopes: string[] | undefined,
 		tokenWorkspaceId: string | undefined
 	) {
 		editingToken = {
 			prefix: tokenPrefix,
+			label: tokenLabel,
 			scopes: tokenScopes,
 			workspaceId: tokenWorkspaceId
 		}
 		editModalOpen = true
 	}
 
-	async function listTokens(): Promise<void> {
+	export async function listTokens(): Promise<void> {
 		tokens = await UserService.listTokens({
 			excludeEphemeral: true,
 			page: tokenPage,
@@ -185,22 +204,24 @@
 								</td>
 								<td
 									class="min-w-0 max-w-48 truncate text-xs text-secondary"
-									title={scopes?.join(', ') ?? ''}
+									title={shownScopes(scopes)}
 								>
 									<div class="flex items-center gap-1.5 truncate">
 										{#if read_only}
 											<Badge color="blue" small>Read-only</Badge>
 										{/if}
-										<span class="truncate">{scopes?.join(', ') ?? ''}</span>
+										<span class="truncate">{shownScopes(scopes)}</span>
 									</div>
 								</td>
 								<td class="w-24 text-center">
 									<div class="flex items-center justify-center gap-1">
 										<Button
 											variant="subtle"
+											title="Edit token"
 											on:click={() =>
 												handleEditClick(
 													token_prefix,
+													label ?? undefined,
 													scopes ?? undefined,
 													workspace_id ?? undefined
 												)}
@@ -244,6 +265,8 @@
 <EditTokenScopesModal
 	bind:open={editModalOpen}
 	tokenPrefix={editingToken?.prefix}
+	initialLabel={editingToken?.label}
+	labelEditable={isUserToken(editingToken?.label)}
 	initialScopes={editingToken?.scopes}
 	tokenWorkspaceId={editingToken?.workspaceId}
 	onSaved={listTokens}

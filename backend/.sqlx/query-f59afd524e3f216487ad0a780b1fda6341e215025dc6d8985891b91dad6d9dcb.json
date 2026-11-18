@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO eval_dataset\n            (workspace_id, path, summary, scorers, created_by, edited_by)\n         VALUES ($1, $2, $3, $4, $5, $5)\n         ON CONFLICT (workspace_id, path) DO NOTHING\n         RETURNING path",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "path",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Jsonb",
+        "Varchar"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "f59afd524e3f216487ad0a780b1fda6341e215025dc6d8985891b91dad6d9dcb"
+}

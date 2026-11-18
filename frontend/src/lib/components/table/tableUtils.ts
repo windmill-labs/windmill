@@ -8,7 +8,10 @@ export function isEmail(value: string) {
 	return value?.includes('@')
 }
 
-export function computeStructuredObjectsAndHeaders(objects: Array<Record<string, any>>): [
+export function computeStructuredObjectsAndHeaders(
+	objects: Array<Record<string, any>>,
+	headerOrder?: string[]
+): [
 	string[],
 	{
 		_id: number
@@ -18,7 +21,10 @@ export function computeStructuredObjectsAndHeaders(objects: Array<Record<string,
 	if (Array.isArray(objects)) {
 		let nextId = 1
 
-		let hds: string[] = []
+		// Seed headers from the explicit order when provided. Object key order
+		// can't be trusted here: integer-like keys (e.g. "1234") are enumerated
+		// first in ascending numeric order regardless of insertion order.
+		let hds: string[] = headerOrder ? [...headerOrder] : []
 		let objs = objects.map((obj) => {
 			let rowData = obj && typeof obj == 'object' ? obj : {}
 			if (Array.isArray(rowData)) {

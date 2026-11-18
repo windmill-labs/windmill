@@ -19,7 +19,6 @@
 		TriggerMode
 	} from '$lib/gen/types.gen'
 	import Button from '../common/button/Button.svelte'
-	import { workspaceStore } from '$lib/stores'
 	import { JobService, TriggerService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import Cell from '$lib/components/table/Cell.svelte'
@@ -33,11 +32,14 @@
 	import { twMerge } from 'tailwind-merge'
 	import Badge from '../common/badge/Badge.svelte'
 	import Tooltip from '../meltComponents/Tooltip.svelte'
+	import { useTriggerLock } from '$lib/operatorWriteRights'
 	import { deepEqual } from 'fast-equals'
 	import {
 		errorHandlerArgs,
 		slackErrorHandlerHubPathEnding
 	} from '../ErrorOrRecoveryHandler.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	const triggerLock = useTriggerLock()
 
 	type Props = {
 		triggerPath: string
@@ -48,13 +50,15 @@
 	}
 
 	let { triggerKind, triggerPath, onToggleMode, hasChanged, runnableConfig }: Props = $props()
+	const operatingWorkspace = useOperatingWorkspace()
+	const wsId = $derived($operatingWorkspace)
 
 	let shouldShowModal = $state(false)
 	let queuedJobs = $state<QueuedJob[]>([])
 	let selectedJobs = $state<Set<string>>(new Set())
 	let loading = $state(false)
 	let processingAction = $state(false)
-	let workspace = $workspaceStore!
+	const workspace = $derived(wsId!)
 	let currentPage = $state(1)
 	let perPage = $state(20)
 	let hasMorePages = $derived(queuedJobs.length === perPage)
@@ -428,11 +432,8 @@
 								runnableConfig.kind !== mapJobKindToRunnableKind(job.job_kind) ||
 								runnableConfig.path !== job.script_path}
 
-							<Row
-								hoverable
-								on:click={() => window.open(`/run/${job.id}?workspace=${workspace}`, '_blank')}
-							>
-								<Cell class="w-12 sm:pl-3" shouldStopPropagation>
+							<Row>
+								<Cell class="w-12 sm:pl-3">
 									<div class="h-4 w-4">
 										<input
 											type="checkbox"
@@ -444,7 +445,15 @@
 									</div>
 								</Cell>
 
-								<Cell wrap>{displayDate(job.created_at)}</Cell>
+								<Cell wrap>
+									<a
+										href={`/run/${job.id}?workspace=${workspace}`}
+										target="_blank"
+										rel="noopener noreferrer"
+										title="Open run in a new tab"
+										class="text-accent hover:underline">{displayDate(job.created_at)}</a
+									>
+								</Cell>
 
 								<Cell wrap class="flex flex-row gap-2 items-center">
 									{@render runnable({
@@ -473,13 +482,17 @@
 		</div>
 
 		<!-- Bottom right conditional buttons -->
+		<!-- Releasing or discarding a suspended trigger's parked jobs is a trigger write: whoever
+		     cannot leave suspended mode must not override it. Gated here, the one modal both entry
+		     points open. -->
 		<div class="flex justify-end gap-2">
 			{#if hasSelectedJobs}
 				<!-- Jobs selected - show Discard Selected and Run Selected -->
 				<Button
 					startIcon={{ icon: Trash2 }}
 					size="sm"
-					disabled={processingAction}
+					disabled={processingAction || !!$triggerLock}
+					title={$triggerLock}
 					on:click={discardSelectedJobs}
 				>
 					Discard Selected ({selectedJobs.size})
@@ -487,7 +500,8 @@
 				<Button
 					startIcon={{ icon: Play }}
 					size="sm"
-					disabled={processingAction || hasChanged}
+					disabled={processingAction || hasChanged || !!$triggerLock}
+					title={$triggerLock}
 					on:click={runSelectedJobs}
 				>
 					Resume selected ({selectedJobs.size})
@@ -496,7 +510,8 @@
 				<Button
 					startIcon={{ icon: Trash2 }}
 					size="sm"
-					disabled={processingAction || queuedJobs.length === 0}
+					disabled={processingAction || queuedJobs.length === 0 || !!$triggerLock}
+					title={$triggerLock}
 					on:click={discardAllJobs}
 				>
 					Discard all jobs{action === 'disable'
@@ -508,7 +523,8 @@
 				<Button
 					startIcon={{ icon: Play }}
 					size="sm"
-					disabled={processingAction || hasChanged || queuedJobs.length === 0}
+					disabled={processingAction || hasChanged || queuedJobs.length === 0 || !!$triggerLock}
+					title={$triggerLock}
 					on:click={runAllJobs}
 				>
 					Resume all jobs{action === 'disable'

@@ -3,26 +3,34 @@ use axum::{
     Extension,
 };
 use bytes::Bytes;
+use hmac::{Hmac, Mac};
 use http::HeaderMap;
 use hyper::StatusCode;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use sha2::Sha256;
 use sqlx::types::Uuid;
 use std::collections::HashMap;
-use windmill_common::error::Error;
-use windmill_common::variables::get_secret_value_as_admin;
+use windmill_common::error::{to_anyhow, Error};
+use windmill_common::flows::ApprovalSkin;
+use windmill_common::utils::truncate_with_ellipsis;
+use windmill_common::variables::{get_secret_value_as_admin, get_workspace_key};
 
 use crate::db::{ApiAuthed, DB};
 use crate::jobs::{QueryApprover, ResumeUrls};
 use crate::{
     approvals::{
-        extract_w_id_from_resume_url, handle_resume_action, ApprovalFormDetails, FieldType,
-        MessageFormat, QueryButtonText, QueryDefaultArgsJson, QueryDynamicEnumJson,
-        QueryFlowStepId, QueryMessage, ResumeFormField, ResumeSchema,
+        extract_w_id_from_resume_url, get_approval_step_skin, handle_resume_action,
+        ApprovalFormDetails, FieldType, MessageFormat, QueryButtonText, QueryDefaultArgsJson,
+        QueryDynamicEnumJson, QueryFlowStepId, QueryMessage, ResumeFormField, ResumeSchema,
     },
     auth::OptTokened,
 };
+
+// Slack rejects a button value over 2000 characters, and with it the whole post. The button value
+// carries the message on to the modal, so the message is shortened to fit.
+const SLACK_BUTTON_VALUE_MAX_CHARS: usize = 2000;
 
 #[derive(Deserialize, Debug)]
 pub struct SlackFormData {
@@ -111,6 +119,9 @@ struct ModalActionValue {
     dynamic_enums_json: Option<String>,
     resume_button_text: Option<String>,
     cancel_button_text: Option<String>,
+    // HMAC over (w_id, job_id, path) keyed on the workspace key; minted by
+    // `send_slack_message`, required by the OpenModal callback branch.
+    signature: Option<String>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -119,28 +130,132 @@ struct PrivateMetadata {
     resource_path: String,
     container: Container,
     hide_cancel: Option<bool>,
+    // HMAC over (w_id, resource_path) keyed on the workspace key; minted when the modal is
+    // built, required by `handle_submission` before the resource_path is decrypted.
+    signature: Option<String>,
+    // Only selects the wording of the updated channel message, so it is left unsigned.
+    #[serde(default)]
+    skin: ApprovalSkin,
 }
 
-#[cfg(feature = "oauth2")]
-fn verify_slack_callback_signature(headers: &HeaderMap, body: &str) -> Result<(), Error> {
-    if let Some(sv) = crate::SLACK_SIGNING_SECRET.as_ref() {
-        let sig = headers
-            .get("X-Slack-Signature")
-            .and_then(|v| v.to_str().ok())
-            .unwrap_or("");
-        let ts = headers
-            .get("X-Slack-Request-Timestamp")
-            .and_then(|v| v.to_str().ok())
-            .unwrap_or("");
-        sv.verify(ts, body, sig)
-            .map_err(|_| Error::BadRequest("Slack signature verification failed".to_string()))?;
+/// Slack's signature over a callback, checked once the workspace it belongs to is known.
+#[cfg_attr(not(feature = "oauth2"), allow(dead_code))]
+struct SlackCallbackSignature {
+    sig: String,
+    ts: String,
+    body: String,
+}
+
+impl SlackCallbackSignature {
+    fn new(headers: &HeaderMap, body: &str) -> Self {
+        let header = |name: &str| {
+            headers
+                .get(name)
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or("")
+                .to_string()
+        };
+        Self {
+            sig: header("X-Slack-Signature"),
+            ts: header("X-Slack-Request-Timestamp"),
+            body: body.to_string(),
+        }
     }
-    Ok(())
+}
+
+// Transport-level check, which also defeats replay. It is NOT the primary defense: authorization of
+// the sensitive actions is anchored on a per-workspace HMAC over the callback payload itself (see
+// `verify_slack_payload`). Only an approval sent through the workspace's Slack connection comes from
+// an app whose secret Windmill knows; any other resource may belong to any Slack app, so its
+// callbacks are left to the HMAC.
+#[cfg(feature = "oauth2")]
+async fn verify_slack_callback_signature(
+    db: &DB,
+    w_id: &str,
+    resource_path: &str,
+    request: &SlackCallbackSignature,
+) -> Result<(), Error> {
+    if resource_path != windmill_common::oauth2::WORKSPACE_SLACK_BOT_TOKEN_PATH {
+        return Ok(());
+    }
+    crate::slack_agents::verify_approval_slack_request(
+        db,
+        w_id,
+        &request.sig,
+        &request.ts,
+        &request.body,
+    )
+    .await
 }
 
 #[cfg(not(feature = "oauth2"))]
-fn verify_slack_callback_signature(_headers: &HeaderMap, _body: &str) -> Result<(), Error> {
+async fn verify_slack_callback_signature(
+    _db: &DB,
+    _w_id: &str,
+    _resource_path: &str,
+    _request: &SlackCallbackSignature,
+) -> Result<(), Error> {
     Ok(())
+}
+
+/// HMAC keyed on the per-workspace encryption key (the same trust anchor as resume-URL
+/// signatures). Used to authenticate the `/api/slack` callback payload itself so the
+/// unauthenticated route cannot be driven into decrypting arbitrary workspace variables,
+/// whether or not a Slack signing secret is set.
+type SlackPayloadHmac = Hmac<Sha256>;
+
+/// Domain-separation tag prepended to every Slack-payload MAC. The workspace key is also used
+/// for resume-secret signatures (`create_signature` in `jobs.rs`), and those secrets are
+/// distributed to approvers in resume URLs — so a fixed, scheme-specific prefix makes the two
+/// MAC families non-interchangeable by construction rather than relying on their byte layouts
+/// happening to differ. Bump the version suffix if the signed layout ever changes.
+const SLACK_PAYLOAD_HMAC_DOMAIN: &[u8] = b"slack_payload_v1\0";
+
+/// Sign the security-sensitive fields of a Slack callback payload with the workspace key.
+/// Parts are joined with a `\0` delimiter (absent from paths/UUIDs) so distinct field tuples
+/// cannot collide into the same MAC.
+async fn sign_slack_payload(db: &DB, w_id: &str, parts: &[&[u8]]) -> Result<String, Error> {
+    let key = get_workspace_key(w_id, db).await?;
+    let mut mac = SlackPayloadHmac::new_from_slice(key.as_bytes()).map_err(to_anyhow)?;
+    mac.update(SLACK_PAYLOAD_HMAC_DOMAIN);
+    mac.update(w_id.as_bytes());
+    for part in parts {
+        mac.update(b"\0");
+        mac.update(part);
+    }
+    Ok(hex::encode(mac.finalize().into_bytes()))
+}
+
+/// Verify a signature produced by [`sign_slack_payload`] in constant time. A missing or
+/// malformed signature is rejected: an attacker cannot forge one without the workspace key.
+async fn verify_slack_payload(
+    db: &DB,
+    w_id: &str,
+    parts: &[&[u8]],
+    signature: Option<&str>,
+) -> Result<(), Error> {
+    let signature = signature.ok_or_else(|| {
+        Error::NotAuthorized("Slack callback rejected: missing payload signature".to_string())
+    })?;
+    let provided = hex::decode(signature).map_err(|_| {
+        Error::NotAuthorized("Slack callback rejected: malformed payload signature".to_string())
+    })?;
+    // Map a missing workspace key (e.g. non-existent workspace) to the same generic 401 as a
+    // bad signature, so an unauthenticated caller cannot use the status code (500 vs 401) as a
+    // workspace-existence oracle.
+    let key = get_workspace_key(w_id, db).await.map_err(|_| {
+        Error::NotAuthorized("Slack callback rejected: invalid payload signature".to_string())
+    })?;
+    let mut mac = SlackPayloadHmac::new_from_slice(key.as_bytes()).map_err(to_anyhow)?;
+    mac.update(SLACK_PAYLOAD_HMAC_DOMAIN);
+    mac.update(w_id.as_bytes());
+    for part in parts {
+        mac.update(b"\0");
+        mac.update(part);
+    }
+    mac.verify_slice(&provided).map_err(|_| {
+        Error::NotAuthorized("Slack callback rejected: invalid payload signature".to_string())
+    })
 }
 
 pub async fn slack_app_callback_handler(
@@ -150,8 +265,7 @@ pub async fn slack_app_callback_handler(
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<StatusCode, Error> {
-    let body_str = String::from_utf8_lossy(&body);
-    verify_slack_callback_signature(&headers, &body_str)?;
+    let request = SlackCallbackSignature::new(&headers, &String::from_utf8_lossy(&body));
 
     let form_data: SlackFormData = serde_urlencoded::from_bytes(&body)
         .map_err(|e| Error::BadRequest(format!("invalid form data: {}", e)))?;
@@ -162,10 +276,10 @@ pub async fn slack_app_callback_handler(
 
     match payload.r#type {
         PayloadType::ViewSubmission => {
-            handle_submission(authed, opt_tokened, db, &payload, "resume").await?
+            handle_submission(authed, opt_tokened, db, &payload, &request, "resume").await?
         }
         PayloadType::ViewClosed => {
-            handle_submission(authed, opt_tokened, db, &payload, "cancel").await?
+            handle_submission(authed, opt_tokened, db, &payload, &request, "cancel").await?
         }
         _ => {
             if let Some(actions) = &payload.actions {
@@ -188,7 +302,31 @@ pub async fn slack_app_callback_handler(
                             let job_id = Uuid::parse_str(&parsed_value.job_id)?;
                             let flow_step_id = parsed_value.flow_step_id.as_deref();
 
-                            let slack_token = get_slack_token(&db, path, w_id).await?;
+                            // Authorize the request before any privileged read: the button
+                            // payload was minted by `send_slack_message` with an HMAC over
+                            // (w_id, job_id, path) keyed on the workspace key. Without a valid
+                            // signature an unauthenticated caller cannot reach the decryption
+                            // below for an arbitrary variable, even when no Slack signing
+                            // secret is set.
+                            verify_slack_payload(
+                                &db,
+                                w_id,
+                                &[parsed_value.job_id.as_bytes(), path.as_bytes()],
+                                parsed_value.signature.as_deref(),
+                            )
+                            .await?;
+                            verify_slack_callback_signature(&db, w_id, path, &request).await?;
+
+                            // Map any lookup/decryption failure to a generic error: the
+                            // raw error echoes the probed `path`/`w_id` back, which would be
+                            // a cross-workspace existence oracle. Log the detail server-side.
+                            let slack_token =
+                                get_slack_token(&db, path, w_id).await.map_err(|e| {
+                                    tracing::warn!(
+                                        "Failed to resolve slack token for {w_id}/{path}: {e:#}"
+                                    );
+                                    Error::BadRequest("Invalid Slack callback request".to_string())
+                                })?;
                             let client = Client::new();
                             let container = payload.container.ok_or_else(|| {
                                 Error::BadRequest("No container found.".to_string())
@@ -281,6 +419,7 @@ pub async fn request_slack_approval(
 
     send_slack_message(
         &client,
+        &db,
         slack_token.as_str(),
         channel_id.as_str(),
         &w_id,
@@ -305,6 +444,7 @@ async fn handle_submission(
     opt_tokened: OptTokened,
     db: DB,
     payload: &Payload,
+    request: &SlackCallbackSignature,
     action: &str,
 ) -> Result<(), Error> {
     let view = payload
@@ -334,11 +474,22 @@ async fn handle_submission(
     let resource_path = private_metadata.resource_path;
     let container: Container = private_metadata.container;
     let hide_cancel = private_metadata.hide_cancel;
+    let signature = private_metadata.signature;
+    let skin = private_metadata.skin;
 
     // If hide_cancel is true, we don't need to extract information from the private_metadata
     if hide_cancel.unwrap_or(false) && action == "cancel" {
         return Ok(());
     }
+
+    let w_id = extract_w_id_from_resume_url(&resume_url)?;
+    // Authorize the submission BEFORE taking any action. `resource_path` comes from the
+    // (client-held) modal metadata and is not covered by the resume-URL signature, so a
+    // tampered/unsigned submission must be rejected up front — otherwise it could still drive
+    // the resume/cancel and reach the decryption below with a swapped path. Require the
+    // workspace-keyed HMAC minted when the modal was built.
+    verify_slack_payload(&db, w_id, &[resource_path.as_bytes()], signature.as_deref()).await?;
+    verify_slack_callback_signature(&db, w_id, &resource_path, request).await?;
 
     // Use the common handler to process the resume/cancel action
     handle_resume_action(
@@ -351,9 +502,13 @@ async fn handle_submission(
     )
     .await?;
 
-    let w_id = extract_w_id_from_resume_url(&resume_url)?;
-    let slack_token = get_slack_token(&db, &resource_path, w_id).await?;
-    update_original_slack_message(action, slack_token, container).await?;
+    let slack_token = get_slack_token(&db, &resource_path, w_id)
+        .await
+        .map_err(|e| {
+            tracing::warn!("Failed to resolve slack token for {w_id}/{resource_path}: {e:#}");
+            Error::BadRequest("Invalid Slack callback request".to_string())
+        })?;
+    update_original_slack_message(action, slack_token, container, skin).await?;
     Ok(())
 }
 
@@ -365,14 +520,19 @@ async fn transform_schemas(
     required: Option<Vec<String>>,
     default_args_json: Option<&serde_json::Value>,
     dynamic_enums_json: Option<&serde_json::Value>,
+    skin: ApprovalSkin,
 ) -> Result<serde_json::Value, Error> {
     tracing::debug!("Resume urls: {:#?}", urls);
 
+    let link_label = match skin {
+        ApprovalSkin::Detailed => "Flow suspension details",
+        ApprovalSkin::Minimal => "View in Windmill",
+    };
     let mut blocks = vec![serde_json::json!({
         "type": "section",
         "text": {
             "type": "mrkdwn",
-            "text": format!("{}\n<{}|Flow suspension details>", text, urls.approvalPage),
+            "text": format!("{}\n<{}|{link_label}>", text, urls.approvalPage),
         }
     })];
 
@@ -780,6 +940,7 @@ async fn get_slack_token(db: &DB, slack_resource_path: &str, w_id: &str) -> anyh
 // Sends a Slack message with a button that opens a modal
 async fn send_slack_message(
     client: &Client,
+    db: &DB,
     bot_token: &str,
     channel_id: &str,
     w_id: &str,
@@ -807,10 +968,6 @@ async fn send_slack_message(
         value["approver"] = serde_json::json!(approver);
     }
 
-    if let Some(message) = message {
-        value["message"] = serde_json::json!(message);
-    }
-
     if let Some(default_args_json) = default_args_json {
         value["default_args_json"] = default_args_json.clone();
     }
@@ -827,33 +984,20 @@ async fn send_slack_message(
         value["cancel_button_text"] = serde_json::json!(cancel_button_text);
     }
 
-    let payload = serde_json::json!({
-        "channel": channel_id,
-        "text": "A flow has been suspended. Please approve or reject the flow.",
-        "blocks": [
-            {
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": "A flow has been suspended. Please approve or reject the flow."
-                }
-            },
-            {
-                "type": "actions",
-                "elements": [
-                    {
-                        "type": "button",
-                        "text": {
-                            "type": "plain_text",
-                            "text": "View"
-                        },
-                        "action_id": "open_modal",
-                        "value": value.to_string()
-                    }
-                ]
-            }
-        ]
-    });
+    // Authenticate the button payload so the unauthenticated callback cannot be driven into
+    // decrypting an arbitrary variable: bind (w_id, job_id, path) with the workspace key.
+    // `job_id` is signed over its string form to match how it is parsed back on callback.
+    let signature = sign_slack_payload(
+        db,
+        w_id,
+        &[job_id.to_string().as_bytes(), resource_path.as_bytes()],
+    )
+    .await
+    .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
+    value["signature"] = serde_json::json!(signature);
+
+    let skin = get_approval_step_skin(db, w_id, job_id, flow_step_id).await;
+    let payload = channel_message_payload(channel_id, skin, message, value);
 
     tracing::debug!("Payload: {:?}", payload);
 
@@ -877,6 +1021,88 @@ async fn send_slack_message(
     Ok(StatusCode::OK)
 }
 
+/// The channel post announcing the approval. Its button hands `button_value` to the modal, with
+/// `message` added, shortened to what Slack's button value limit leaves room for.
+fn channel_message_payload(
+    channel_id: &str,
+    skin: ApprovalSkin,
+    message: Option<&str>,
+    mut button_value: serde_json::Value,
+) -> serde_json::Value {
+    let message = message.map(|m| message_fitting_button_value(&button_value, m));
+    if let Some(message) = &message {
+        button_value["message"] = serde_json::json!(message);
+    }
+    let (text, section, button_label) = match skin {
+        ApprovalSkin::Detailed => {
+            let text = "A flow has been suspended. Please approve or reject the flow.";
+            (text, text.to_string(), "View")
+        }
+        ApprovalSkin::Minimal => {
+            let mut section = "*Approval requested*".to_string();
+            if let Some(message) = &message {
+                section.push('\n');
+                section.push_str(message);
+            }
+            ("Approval requested", section, "Review")
+        }
+    };
+
+    serde_json::json!({
+        "channel": channel_id,
+        "text": text,
+        "blocks": [
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": section
+                }
+            },
+            {
+                "type": "actions",
+                "elements": [
+                    {
+                        "type": "button",
+                        "text": {
+                            "type": "plain_text",
+                            "text": button_label
+                        },
+                        "action_id": "open_modal",
+                        "value": button_value.to_string()
+                    }
+                ]
+            }
+        ]
+    })
+}
+
+/// The longest prefix of `message` that keeps `button_value` carrying it within Slack's limit.
+fn message_fitting_button_value(button_value: &serde_json::Value, message: &str) -> String {
+    let mut with_message = button_value.clone();
+    let mut fits = |max_chars: usize| {
+        let fitted = truncate_with_ellipsis(message, max_chars);
+        with_message["message"] = serde_json::json!(fitted);
+        (with_message.to_string().chars().count() <= SLACK_BUTTON_VALUE_MAX_CHARS).then_some(fitted)
+    };
+    if let Some(whole) = fits(usize::MAX) {
+        return whole;
+    }
+    // Searched on the serialized length, which escaping makes longer than the raw prefix, and
+    // which grows with every character kept.
+    let (mut shortest, mut longest) =
+        (0, message.chars().count().min(SLACK_BUTTON_VALUE_MAX_CHARS));
+    while shortest < longest {
+        let mid = (shortest + longest + 1) / 2;
+        if fits(mid).is_some() {
+            shortest = mid;
+        } else {
+            longest = mid - 1;
+        }
+    }
+    fits(shortest).unwrap_or_else(|| truncate_with_ellipsis(message, 0))
+}
+
 async fn get_modal_blocks(
     db: DB,
     w_id: &str,
@@ -893,6 +1119,12 @@ async fn get_modal_blocks(
     resume_button_text: Option<&str>,
     cancel_button_text: Option<&str>,
 ) -> Result<axum::Json<serde_json::Value>, Error> {
+    // Bind the resource_path embedded in the modal's private_metadata to the workspace key so
+    // it cannot be tampered with on the way back in `handle_submission`. Computed before `db`
+    // is moved into `get_approval_form_details`.
+    let private_metadata_signature =
+        sign_slack_payload(&db, w_id, &[resource_path.as_bytes()]).await?;
+
     let approval_details = crate::approvals::get_approval_form_details(
         db,
         w_id,
@@ -905,7 +1137,7 @@ async fn get_modal_blocks(
     )
     .await?;
 
-    let ApprovalFormDetails { message_str, urls, schema } = approval_details;
+    let ApprovalFormDetails { message_str, urls, schema, skin } = approval_details;
 
     // Get the card content
     let card_content = transform_schemas(
@@ -934,6 +1166,7 @@ async fn get_modal_blocks(
             }),
         default_args_json,
         dynamic_enums_json,
+        skin,
     )
     .await?;
 
@@ -947,6 +1180,8 @@ async fn get_modal_blocks(
         container,
         resume_button_text,
         cancel_button_text,
+        &private_metadata_signature,
+        skin,
     )))
 }
 
@@ -959,27 +1194,33 @@ fn construct_payload(
     container: Container,
     resume_button_text: Option<&str>,
     cancel_button_text: Option<&str>,
+    signature: &str,
+    skin: ApprovalSkin,
 ) -> serde_json::Value {
+    let (title, resume_label, cancel_label) = match skin {
+        ApprovalSkin::Detailed => ("Workflow Suspended", "Resume Workflow", "Cancel Workflow"),
+        ApprovalSkin::Minimal => ("Approval request", "Approve", "Reject"),
+    };
     let mut view = serde_json::json!({
         "type": "modal",
         "callback_id": "submit_form",
         "notify_on_close": true,
         "title": {
             "type": "plain_text",
-            "text": "Workflow Suspended"
+            "text": title
         },
         "blocks": blocks,
         "submit": {
             "type": "plain_text",
-            "text": resume_button_text.unwrap_or("Resume Workflow")
+            "text": resume_button_text.unwrap_or(resume_label)
         },
-        "private_metadata": serde_json::json!({ "resume_url": resume_url, "resource_path": resource_path, "container": container, "hide_cancel": hide_cancel }).to_string(),
+        "private_metadata": serde_json::json!({ "resume_url": resume_url, "resource_path": resource_path, "container": container, "hide_cancel": hide_cancel, "signature": signature, "skin": skin }).to_string(),
     });
 
     if !hide_cancel {
         view["close"] = serde_json::json!({
             "type": "plain_text",
-            "text": cancel_button_text.unwrap_or("Cancel Workflow")
+            "text": cancel_button_text.unwrap_or(cancel_label)
         });
     }
 
@@ -1062,11 +1303,13 @@ async fn update_original_slack_message(
     action: &str,
     token: String,
     container: Container,
+    skin: ApprovalSkin,
 ) -> Result<(), Error> {
-    let message = if action == "resume" {
-        "\n\n*Workflow has been resumed!* :white_check_mark:"
-    } else {
-        "\n\n*Workflow has been canceled!* :x:"
+    let message = match (skin, action == "resume") {
+        (ApprovalSkin::Detailed, true) => "\n\n*Workflow has been resumed!* :white_check_mark:",
+        (ApprovalSkin::Detailed, false) => "\n\n*Workflow has been canceled!* :x:",
+        (ApprovalSkin::Minimal, true) => "*Approved* :white_check_mark:",
+        (ApprovalSkin::Minimal, false) => "*Rejected* :x:",
     };
 
     let final_blocks = vec![serde_json::json!({
@@ -1110,4 +1353,67 @@ async fn update_original_slack_message(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn long_message_keeps_the_channel_post_within_slack_limits() {
+        let button_value = serde_json::json!({
+            "w_id": "demo",
+            "job_id": Uuid::nil(),
+            "path": "u/admin/slack",
+            "channel": "C0123456789",
+            "flow_step_id": "a",
+            "signature": "f".repeat(64),
+        });
+        let carried = |skin, message: &str| {
+            let payload = channel_message_payload("C1", skin, Some(message), button_value.clone());
+            let button = payload["blocks"][1]["elements"][0]["value"]
+                .as_str()
+                .unwrap()
+                .to_string();
+            assert!(button.chars().count() <= SLACK_BUTTON_VALUE_MAX_CHARS);
+            let section = payload["blocks"][0]["text"]["text"].as_str().unwrap();
+            assert!(section.chars().count() <= 3000);
+            serde_json::from_str::<ModalActionValue>(&button)
+                .unwrap()
+                .message
+                .unwrap()
+        };
+        // Quotes and newlines each cost two characters once escaped into the button value.
+        let message = "Expense \"offsite\" line\n".repeat(1000);
+        for skin in [ApprovalSkin::Detailed, ApprovalSkin::Minimal] {
+            let kept = carried(skin, &message);
+            let kept = kept.strip_suffix("...").unwrap();
+            assert!(message.starts_with(kept));
+            assert!(kept.chars().count() > 1_000);
+            assert_eq!(carried(skin, "Short message"), "Short message");
+        }
+    }
+
+    #[test]
+    fn minimal_skin_survives_the_modal_round_trip() {
+        let container = Container { message_ts: "1".to_string(), channel_id: "C1".to_string() };
+        let payload = construct_payload(
+            serde_json::json!([]),
+            false,
+            "trigger",
+            "https://example.com/resume",
+            "u/admin/slack",
+            container,
+            None,
+            None,
+            "signature",
+            ApprovalSkin::Minimal,
+        );
+        let view = &payload["view"];
+        assert_eq!(view["submit"]["text"], "Approve");
+        assert_eq!(view["close"]["text"], "Reject");
+        let metadata: PrivateMetadata =
+            serde_json::from_str(view["private_metadata"].as_str().unwrap()).unwrap();
+        assert_eq!(metadata.skin, ApprovalSkin::Minimal);
+    }
 }

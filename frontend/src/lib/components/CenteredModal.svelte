@@ -1,29 +1,37 @@
 <script lang="ts">
 	import { setLicense } from '$lib/enterpriseUtils'
-	import { enterpriseLicense, whitelabelNameStore } from '$lib/stores'
 	import { twMerge } from 'tailwind-merge'
-	import WindmillIcon from './icons/WindmillIcon.svelte'
+	import { Loader2 } from 'lucide-svelte'
 	import LoginPageHeader from './LoginPageHeader.svelte'
 
 	interface Props {
 		subtitle?: string | undefined
+		/** Rendered under the title, for a subtitle that needs markup (a link, say).
+		 * Sits below `subtitle` when both are given. */
+		subtitleSnippet?: import('svelte').Snippet
 		title?: string
-		disableLogo?: boolean
 		large?: boolean
 		centerVertically?: boolean
 		loading?: boolean
 		containOverflow?: boolean
+		/** The Windmill version and update notice in the header. */
+		showVersion?: boolean
+		/** Set on the pages that render inside the app shell, under the page header: there the
+		 * window is not the card's box, and taking the whole of it pushes 44px past the bottom. */
+		inPage?: boolean
 		children?: import('svelte').Snippet
 	}
 
 	let {
 		subtitle = undefined,
+		subtitleSnippet = undefined,
 		title = 'Windmill',
-		disableLogo = false,
 		large = false,
 		centerVertically = true,
 		loading = false,
 		containOverflow = false,
+		showVersion = true,
+		inPage = false,
 		children
 	}: Props = $props()
 
@@ -33,7 +41,9 @@
 </script>
 
 <div
-	class="flex justify-center h-screen p-4 relative bg-surface-secondary {containOverflow
+	class="flex justify-center {inPage
+		? 'h-full'
+		: 'h-screen'} p-4 relative bg-surface-secondary {containOverflow
 		? 'overflow-hidden'
 		: 'overflow-auto'}"
 	class:items-center={centerVertically}
@@ -47,24 +57,24 @@
 			containOverflow ? '' : height > 1080 ? 'pt-28' : 'pt-12'
 		)}
 	>
-		{#if (!disableLogo && !$enterpriseLicense) || !$whitelabelNameStore}
-			<div class="hidden lg:block">
-				<div>
-					<WindmillIcon size={centerVertically ? 64 : 48} spin={loading ? 'fast' : 'slow'} />
-				</div>
-			</div>
-		{:else}
-			<div class="pt-8"></div>
-		{/if}
-
 		<div class="mb-4">
-			<h1 class="text-center text-lg text-emphasis font-semibold">
+			<!-- The mark moved to the header, so a page that is only waiting (logging out,
+				redirecting) needs its own thing that moves. -->
+			<h1
+				class="flex items-center justify-center gap-2 text-center text-lg text-emphasis font-semibold"
+			>
 				{title}
+				{#if loading}
+					<Loader2 size={16} class="animate-spin shrink-0 text-secondary" />
+				{/if}
 			</h1>
 			{#if subtitle}
 				<p class="text-xs font-normal text-primary text-center mt-2">
 					{subtitle}
 				</p>
+			{/if}
+			{#if subtitleSnippet}
+				<div class="text-center mt-2">{@render subtitleSnippet()}</div>
 			{/if}
 		</div>
 
@@ -81,5 +91,5 @@
 		{/if}
 	</div>
 
-	<LoginPageHeader />
+	<LoginPageHeader {showVersion} />
 </div>

@@ -1,5 +1,5 @@
 export function load() {
 	return {
-		stuff: { title: 'Compare / Deploy to main workspace' }
+		stuff: { title: 'Compare & Deploy' }
 	}
 }

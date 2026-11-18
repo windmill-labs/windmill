@@ -19,6 +19,13 @@ INSERT INTO token(token_hash, token_prefix, token, email, label, super_admin) VA
 INSERT INTO token(token_hash, token_prefix, token, email, label, super_admin, scopes) VALUES
 	(encode(sha256('APPS_RUN_TOKEN'::bytea), 'hex'), 'APPS_RUN_T', 'APPS_RUN_TOKEN', 'test2@windmill.dev', 'apps:run scoped token', false, '{apps:run}');
 
+-- Path-qualified app scopes, as the token scope picker mints them. Both must be
+-- confined to `u/test-user/vapp` on the execution route (`apps:write` covers run
+-- for the same app, never for another one).
+INSERT INTO token(token_hash, token_prefix, token, email, label, super_admin, scopes) VALUES
+	(encode(sha256('APPS_RUN_VAPP_TOKEN'::bytea), 'hex'), 'APPS_RUN_V', 'APPS_RUN_VAPP_TOKEN', 'test2@windmill.dev', 'apps:run path-scoped token', false, '{apps:run:u/test-user/vapp}'),
+	(encode(sha256('APPS_WRITE_VAPP_TOKEN'::bytea), 'hex'), 'APPS_WRIT_', 'APPS_WRITE_VAPP_TOKEN', 'test2@windmill.dev', 'apps:write path-scoped token', false, '{apps:write:u/test-user/vapp}');
+
 -- A private app owned by `test-user` with a persisted inline script. Used to
 -- assert that `test-user-2` cannot preview-execute another app's app_script id.
 INSERT INTO app (id, workspace_id, path, summary, policy, versions) VALUES
@@ -32,3 +39,11 @@ INSERT INTO app (id, workspace_id, path, summary, policy, versions) VALUES
 	(999002, 'test-workspace', 'u/test-user-2/ownapp', 'own app', '{}'::jsonb, '{}');
 INSERT INTO app_script (id, app, hash, code, code_sha256) VALUES
 	(999778, 999002, repeat('c', 64), 'export function main(){ return "ok" }', repeat('d', 64));
+
+-- A deployed empty Viewer-mode app owned by `test-user` with NO runnables pinned
+-- in `triggerables_v2`. Used to assert run mode rejects caller-supplied inline
+-- `raw_code` whose sha is not publisher-pinned (the CVE-2026-22683 residual:
+-- the Viewer default fallback let any caller / an operator run arbitrary code).
+INSERT INTO app (id, workspace_id, path, summary, policy, versions) VALUES
+	(999003, 'test-workspace', 'u/test-user/vapp', 'empty viewer app',
+	 '{"execution_mode": "viewer", "triggerables_v2": {}}'::jsonb, '{}');

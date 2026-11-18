@@ -1,0 +1,13 @@
+{
+  "workspace": {
+    "aiProviders": [
+      {
+        "path": "f/evals/global/anthropic_main",
+        "kind": "anthropic",
+        "models": ["claude-sonnet-5", "claude-opus-5", "claude-haiku-4-5"],
+        "configuredModels": ["claude-sonnet-5"],
+        "isDefault": true
+      }
+    ]
+  }
+}

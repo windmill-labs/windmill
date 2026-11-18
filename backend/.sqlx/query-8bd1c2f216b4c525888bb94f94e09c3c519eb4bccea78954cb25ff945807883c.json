@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM email_to_igroup o WHERE o.email = $1 AND EXISTS (SELECT 1 FROM email_to_igroup n WHERE n.email = $2 AND n.igroup = o.igroup)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "8bd1c2f216b4c525888bb94f94e09c3c519eb4bccea78954cb25ff945807883c"
+}

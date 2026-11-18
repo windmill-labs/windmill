@@ -143,7 +143,7 @@ Copied from source bundle.
     });
   });
 
-  test("AGENTS.cli.md gets the skills reference from copied directory names", async () => {
+  test("AGENTS.wmill.md gets the skills reference from copied directory names", async () => {
     await withTempDir(async (tempDir) => {
       const sourceSkillsDir = join(tempDir, "source-skills");
       await writeSkill(
@@ -163,7 +163,7 @@ Copied from source bundle.
         skillsSourcePath: sourceSkillsDir,
       });
 
-      const agentsCli = await readFile(join(tempDir, "AGENTS.cli.md"), "utf8");
+      const agentsCli = await readFile(join(tempDir, "AGENTS.wmill.md"), "utf8");
       expect(agentsCli).toContain(".agents/skills/custom-folder/SKILL.md");
       expect(agentsCli).not.toContain(".agents/skills/write-flow/SKILL.md");
       // The skill reference points at the .agents/ tree — not .claude/ —
@@ -172,7 +172,7 @@ Copied from source bundle.
     });
   });
 
-  test("AGENTS.cli.md and CLAUDE.md are written even if skills creation fails", async () => {
+  test("AGENTS.wmill.md and CLAUDE.md are written even if skills creation fails", async () => {
     await withTempDir(async (tempDir) => {
       // Create a file at .claude so mkdir of .claude/skills throws.
       await writeFile(join(tempDir, ".claude"), "not a directory\n", "utf8");
@@ -181,11 +181,11 @@ Copied from source bundle.
         writeAiGuidanceFiles({ targetDir: tempDir })
       ).rejects.toThrow();
 
-      expect(await readFile(join(tempDir, "AGENTS.cli.md"), "utf8")).toContain(
+      expect(await readFile(join(tempDir, "AGENTS.wmill.md"), "utf8")).toContain(
         ".agents/skills/"
       );
       expect(await readFile(join(tempDir, "AGENTS.md"), "utf8")).toContain(
-        "@AGENTS.cli.md"
+        "@AGENTS.wmill.md"
       );
       expect(await readFile(join(tempDir, "CLAUDE.md"), "utf8")).toContain(
         "@AGENTS.md"
@@ -195,20 +195,20 @@ Copied from source bundle.
 });
 
 describe("writeAiGuidanceFiles — AGENTS.md reconciliation", () => {
-  test("creates a skeleton AGENTS.md (with @AGENTS.cli.md include) when none exists", async () => {
+  test("creates a skeleton AGENTS.md (with @AGENTS.wmill.md include) when none exists", async () => {
     await withTempDir(async (tempDir) => {
       const result = await writeAiGuidanceFiles({ targetDir: tempDir });
       expect(result.agentsCreated).toBe(true);
       expect(result.agentsMigration).toBe("not-applicable");
 
       const agentsMd = await readFile(join(tempDir, "AGENTS.md"), "utf8");
-      expect(agentsMd).toContain("@AGENTS.cli.md");
+      expect(agentsMd).toContain("@AGENTS.wmill.md");
     });
   });
 
-  test("leaves an existing AGENTS.md alone when it already references @AGENTS.cli.md", async () => {
+  test("leaves an existing AGENTS.md alone when it already references @AGENTS.wmill.md", async () => {
     await withTempDir(async (tempDir) => {
-      const original = "# My AGENTS.md\n\nlocal stuff\n\n@AGENTS.cli.md\n";
+      const original = "# My AGENTS.md\n\nlocal stuff\n\n@AGENTS.wmill.md\n";
       await writeFile(join(tempDir, "AGENTS.md"), original, "utf8");
 
       const result = await writeAiGuidanceFiles({ targetDir: tempDir });
@@ -219,7 +219,7 @@ describe("writeAiGuidanceFiles — AGENTS.md reconciliation", () => {
     });
   });
 
-  test("appends @AGENTS.cli.md when the resolver returns 'append'", async () => {
+  test("appends @AGENTS.wmill.md when the resolver returns 'append'", async () => {
     await withTempDir(async (tempDir) => {
       const original = "# Existing custom AGENTS.md\n\nproject rules here.\n";
       await writeFile(join(tempDir, "AGENTS.md"), original, "utf8");
@@ -233,7 +233,7 @@ describe("writeAiGuidanceFiles — AGENTS.md reconciliation", () => {
 
       const updated = await readFile(join(tempDir, "AGENTS.md"), "utf8");
       expect(updated).toStartWith(original);
-      expect(updated).toContain("@AGENTS.cli.md");
+      expect(updated).toContain("@AGENTS.wmill.md");
     });
   });
 
@@ -251,7 +251,7 @@ describe("writeAiGuidanceFiles — AGENTS.md reconciliation", () => {
 
       const updated = await readFile(join(tempDir, "AGENTS.md"), "utf8");
       expect(updated).not.toBe(original);
-      expect(updated).toContain("@AGENTS.cli.md");
+      expect(updated).toContain("@AGENTS.wmill.md");
     });
   });
 
@@ -281,7 +281,7 @@ describe("writeAiGuidanceFiles — AGENTS.md reconciliation", () => {
 
       const updated = await readFile(join(tempDir, "AGENTS.md"), "utf8");
       expect(updated).toStartWith(original);
-      expect(updated).toContain("@AGENTS.cli.md");
+      expect(updated).toContain("@AGENTS.wmill.md");
     });
   });
 });
@@ -385,19 +385,78 @@ describe("writeAiGuidanceFiles — CLAUDE.md reconciliation", () => {
   });
 });
 
+describe("writeAiGuidanceFiles — legacy AGENTS.cli.md migration", () => {
+  test("removes a legacy AGENTS.cli.md and rewrites the @AGENTS.cli.md include", async () => {
+    await withTempDir(async (tempDir) => {
+      // Simulate a project initialized by an older CLI.
+      await writeFile(
+        join(tempDir, "AGENTS.cli.md"),
+        "# old managed file\n",
+        "utf8"
+      );
+      await writeFile(
+        join(tempDir, "AGENTS.md"),
+        "# My AGENTS.md\n\nlocal stuff\n\n@AGENTS.cli.md\n",
+        "utf8"
+      );
+
+      const result = await writeAiGuidanceFiles({ targetDir: tempDir });
+
+      // Legacy file is gone; the new managed file is present.
+      expect(result.legacyManagedRemoved).toBe(true);
+      await expect(
+        readFile(join(tempDir, "AGENTS.cli.md"), "utf8")
+      ).rejects.toThrow();
+      expect(
+        await readFile(join(tempDir, "AGENTS.wmill.md"), "utf8")
+      ).toContain(".agents/skills/");
+
+      // The include was rewritten in place (so it reads as already-linked,
+      // not a duplicate append).
+      const agentsMd = await readFile(join(tempDir, "AGENTS.md"), "utf8");
+      expect(agentsMd).toContain("@AGENTS.wmill.md");
+      expect(agentsMd).not.toContain("@AGENTS.cli.md");
+      expect(result.agentsMigration).toBe("already-linked");
+    });
+  });
+
+  test("legacyManagedRemoved is false when there is no legacy file", async () => {
+    await withTempDir(async (tempDir) => {
+      const result = await writeAiGuidanceFiles({ targetDir: tempDir });
+      expect(result.legacyManagedRemoved).toBe(false);
+    });
+  });
+
+  test("does not rewrite a @AGENTS.cli.md.backup lookalike token", async () => {
+    await withTempDir(async (tempDir) => {
+      await writeFile(
+        join(tempDir, "AGENTS.md"),
+        "see @AGENTS.cli.md.backup\n\n@AGENTS.wmill.md\n",
+        "utf8"
+      );
+
+      await writeAiGuidanceFiles({ targetDir: tempDir });
+
+      const agentsMd = await readFile(join(tempDir, "AGENTS.md"), "utf8");
+      // The standalone backup reference (a different file) is preserved.
+      expect(agentsMd).toContain("@AGENTS.cli.md.backup");
+    });
+  });
+});
+
 describe("writeAiGuidanceFiles — referencesAgentsCli (via reconciliation)", () => {
   test.each([
-    ["bare line", "@AGENTS.cli.md"],
-    ["between blank lines", "before\n\n@AGENTS.cli.md\n\nafter"],
-    ["leading whitespace then include", "  @AGENTS.cli.md\n"],
-    ["CRLF line endings", "line one\r\n@AGENTS.cli.md\r\nline three"],
+    ["bare line", "@AGENTS.wmill.md"],
+    ["between blank lines", "before\n\n@AGENTS.wmill.md\n\nafter"],
+    ["leading whitespace then include", "  @AGENTS.wmill.md\n"],
+    ["CRLF line endings", "line one\r\n@AGENTS.wmill.md\r\nline three"],
     // Mid-sentence include: this is how our own CLAUDE.md default looks
     // ("Instructions are in @AGENTS.md"). A strict line-equality check made
     // `wmill refresh prompts` re-prompt every run on files wmill wrote.
-    ["mid-sentence include", "Instructions are in @AGENTS.cli.md\n"],
+    ["mid-sentence include", "Instructions are in @AGENTS.wmill.md\n"],
     // `>` blockquote prefix doesn't disable Claude's `@`-import expansion,
     // so we treat it as a reference too.
-    ["blockquoted include", "> @AGENTS.cli.md"],
+    ["blockquoted include", "> @AGENTS.wmill.md"],
   ])("treats %s as a reference (no append)", async (_label, content) => {
     await withTempDir(async (tempDir) => {
       await writeFile(join(tempDir, "AGENTS.md"), content, "utf8");
@@ -408,11 +467,11 @@ describe("writeAiGuidanceFiles — referencesAgentsCli (via reconciliation)", ()
   });
 
   test.each([
-    ["@AGENTS.cli.md.backup", "@AGENTS.cli.md.backup"],
-    ["@AGENTS.cli.mdx", "@AGENTS.cli.mdx"],
+    ["@AGENTS.wmill.md.backup", "@AGENTS.wmill.md.backup"],
+    ["@AGENTS.wmill.mdx", "@AGENTS.wmill.mdx"],
     ["@AGENTS-cli-md (lookalike)", "@AGENTS-cli-md"],
-    ["@AGENTS.cli.md without surrounding whitespace", "foo@AGENTS.cli.md"],
-    ["commented-out include", "<!-- @AGENTS.cli.md -->"],
+    ["@AGENTS.wmill.md without surrounding whitespace", "foo@AGENTS.wmill.md"],
+    ["commented-out include", "<!-- @AGENTS.wmill.md -->"],
   ])("does not treat %s as a reference (append happens)", async (_label, content) => {
     await withTempDir(async (tempDir) => {
       await writeFile(join(tempDir, "AGENTS.md"), content, "utf8");
@@ -426,10 +485,10 @@ describe("writeAiGuidanceFiles — referencesAgentsCli (via reconciliation)", ()
 });
 
 describe("prompts freshness — hash marker", () => {
-  test("AGENTS.cli.md written by writeAiGuidanceFiles carries a hash marker", async () => {
+  test("AGENTS.wmill.md written by writeAiGuidanceFiles carries a hash marker", async () => {
     await withTempDir(async (tempDir) => {
       await writeAiGuidanceFiles({ targetDir: tempDir });
-      const agentsCli = await readFile(join(tempDir, "AGENTS.cli.md"), "utf8");
+      const agentsCli = await readFile(join(tempDir, "AGENTS.wmill.md"), "utf8");
       const hash = extractPromptsHash(agentsCli);
       expect(hash).not.toBeNull();
       expect(hash).toMatch(/^[0-9a-f]{12}$/);
@@ -441,7 +500,7 @@ describe("prompts freshness — hash marker", () => {
       // writeAiGuidanceFiles defaults nonDottedPaths to `false` (matching
       // core/conf.ts's missing-key default).
       await writeAiGuidanceFiles({ targetDir: tempDir });
-      const agentsCli = await readFile(join(tempDir, "AGENTS.cli.md"), "utf8");
+      const agentsCli = await readFile(join(tempDir, "AGENTS.wmill.md"), "utf8");
       expect(extractPromptsHash(agentsCli)).toBe(currentPromptsHash(false));
     });
   });
@@ -516,9 +575,9 @@ describe("prompts freshness — additional invariants", () => {
 
   test("warnIfPromptsStale writes to stderr (never stdout)", async () => {
     await withTempDir(async (tempDir) => {
-      // Write a tampered AGENTS.cli.md so the freshness check trips.
+      // Write a tampered AGENTS.wmill.md so the freshness check trips.
       await writeFile(
-        join(tempDir, "AGENTS.cli.md"),
+        join(tempDir, "AGENTS.wmill.md"),
         "# Windmill CLI Agent Instructions\n<!-- wmill-prompts-hash: 000000000000 -->\nbody\n",
         "utf8"
       );
@@ -553,6 +612,66 @@ describe("prompts freshness — additional invariants", () => {
       const stdoutJoined = stdoutWrites.join("");
       expect(stderrJoined).toContain("out of date");
       expect(stdoutJoined).not.toContain("out of date");
+    });
+  });
+
+  // Back-compat: a legacy AGENTS.cli.md is still hash-checked, and we do NOT
+  // warn merely because of the old filename — only when it's actually stale.
+  test("warnIfPromptsStale stays silent for an up-to-date legacy AGENTS.cli.md", async () => {
+    await withTempDir(async (tempDir) => {
+      const content = injectPromptsHashMarker(
+        "# Windmill CLI Agent Instructions\nbody\n",
+        currentPromptsHash(false)
+      );
+      await writeFile(join(tempDir, "AGENTS.cli.md"), content, "utf8");
+
+      const stderrWrites: string[] = [];
+      const originalStderr = process.stderr.write.bind(process.stderr);
+      // @ts-expect-error — overriding write for the test
+      process.stderr.write = (chunk: any) => {
+        stderrWrites.push(String(chunk));
+        return true;
+      };
+      try {
+        await warnIfPromptsStale({
+          cwd: tempDir,
+          nonDottedPaths: false,
+          argv: ["node", "wmill", "sync", "push"],
+        });
+      } finally {
+        process.stderr.write = originalStderr;
+      }
+      expect(stderrWrites.join("")).toBe("");
+    });
+  });
+
+  test("warnIfPromptsStale warns (naming the legacy file) for a stale AGENTS.cli.md", async () => {
+    await withTempDir(async (tempDir) => {
+      await writeFile(
+        join(tempDir, "AGENTS.cli.md"),
+        "# Windmill CLI Agent Instructions\n<!-- wmill-prompts-hash: 000000000000 -->\nbody\n",
+        "utf8"
+      );
+
+      const stderrWrites: string[] = [];
+      const originalStderr = process.stderr.write.bind(process.stderr);
+      // @ts-expect-error — overriding write for the test
+      process.stderr.write = (chunk: any) => {
+        stderrWrites.push(String(chunk));
+        return true;
+      };
+      try {
+        await warnIfPromptsStale({
+          cwd: tempDir,
+          nonDottedPaths: false,
+          argv: ["node", "wmill", "sync", "push"],
+        });
+      } finally {
+        process.stderr.write = originalStderr;
+      }
+      const out = stderrWrites.join("");
+      expect(out).toContain("out of date");
+      expect(out).toContain("AGENTS.cli.md");
     });
   });
 });

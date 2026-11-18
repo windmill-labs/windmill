@@ -223,7 +223,7 @@ function restoreInlineScriptReferences(
 	})
 }
 
-function findUnresolvedInlineScriptRefs(modules: FlowModule[]): string[] {
+export function findUnresolvedInlineScriptRefs(modules: FlowModule[]): string[] {
 	const unresolvedRefs: string[] = []
 
 	function checkModule(module: FlowModule) {

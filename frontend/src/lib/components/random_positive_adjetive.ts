@@ -960,3 +960,10 @@ const adjectives = ["abundant",
     "zippy"]
 
 export function random_adj() { return adjectives[Math.floor(Math.random() * adjectives.length)] }
+/** Whether a path's last segment is a placeholder name, `<adjective>_<kind>`, rather than one
+ *  someone chose. */
+export function isPlaceholderName(path: string): boolean {
+	const name = path.split('/').pop() ?? ''
+	const m = /^([a-z]+)_(flow|script|app)$/.exec(name)
+	return !!m && adjectives.includes(m[1])
+}

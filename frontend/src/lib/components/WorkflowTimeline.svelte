@@ -1,6 +1,5 @@
 <script lang="ts">
-	import { base } from '$lib/base'
-	import { displayDate, msToSec, emptyString } from '$lib/utils'
+	import { displayDate, msToCompactDuration, emptyString } from '$lib/utils'
 	import { onDestroy } from 'svelte'
 	import { getDbClockNow } from '$lib/forLater'
 	import { ChevronDown, ChevronRight, Loader2, Moon, ShieldCheck } from 'lucide-svelte'
@@ -9,11 +8,19 @@
 	import ObjectViewer from './propertyPicker/ObjectViewer.svelte'
 	import { CheckCircle2, XCircle } from 'lucide-svelte'
 	import { JobService, type Job, type WorkflowStatus } from '$lib/gen'
-	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
+	import { enterpriseLicense } from '$lib/stores'
 	import { Button } from '$lib/components/common'
 	import { Alert } from '$lib/components/common'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
 	import { sendUserToast } from '$lib/toast'
+	import {
+		useOperatingUser,
+		useOperatingWorkspace
+	} from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
+	const operatingUser = useOperatingUser()
+	const actingUser = $derived(operatingUser.current)
 
 	interface Props {
 		flow_status: Record<string, WorkflowStatus>
@@ -97,7 +104,7 @@
 	}
 
 	async function fetchChildJob(id: string) {
-		const ws = $workspaceStore
+		const ws = $operatingWorkspace
 		if (!ws) return
 		loadingJobs[id] = true
 		try {
@@ -126,7 +133,7 @@
 	let approvalFormArgs: Record<string, Record<string, any>> = $state({})
 
 	async function handleApprove(key: string, formSchema: any) {
-		const ws = $workspaceStore
+		const ws = $operatingWorkspace
 		if (!ws || !jobId) return
 		approvalLoading[key] = true
 		try {
@@ -147,7 +154,7 @@
 
 	let cancelLoading = $state(false)
 	async function handleCancel() {
-		const ws = $workspaceStore
+		const ws = $operatingWorkspace
 		if (!ws || !jobId) return
 		cancelLoading = true
 		try {
@@ -172,13 +179,13 @@
 			<div class="col-span-11 pt-1 px-2 flex text-2xs text-secondary justify-between">
 				<div>{min ? displayDate(new Date(min), true) : ''}</div>
 				{#if max && min}
-					<div class="hidden lg:block">{msToSec(max - min)}s</div>
+					<div class="hidden lg:block">{msToCompactDuration(max - min, 1)}</div>
 				{/if}
 				<div class="flex gap-1 items-center font-mono">
 					{max ? displayDate(new Date(max), true) : ''}
 					{#if !max && min}
 						{#if now}
-							{msToSec(now - min, 3)}s
+							{msToCompactDuration(now - min, 1)}
 						{/if}
 						<Loader2 size={14} class="animate-spin" />
 					{/if}
@@ -257,10 +264,10 @@
 									</div>
 								{/if}
 							{:else}
-								<span class="text-tertiary">{msToSec(v.duration_ms ?? 0)}s</span>
+								<span class="text-tertiary">{msToCompactDuration(v.duration_ms ?? 0)}</span>
 							{/if}
 						</div>
-						{#if canApprove && selfApprovalDisabled && $userStore?.is_admin}
+						{#if canApprove && selfApprovalDisabled && actingUser?.is_admin}
 							<div class="mt-1 ml-5 text-yellow-600 text-2xs">
 								Self-approval is disabled but allowed because you are an admin/owner
 							</div>
@@ -307,7 +314,7 @@
 								<a
 									target="_blank"
 									class="inline-flex gap-2 items-baseline hover:underline whitespace-nowrap"
-									href="{base}/run/{k}"
+									href="/run/{k}"
 									onclick={(e) => e.stopPropagation()}
 								>
 									{v.name ?? k}
@@ -347,6 +354,7 @@
 											{total}
 											{min}
 											gray
+											followedByBar={!!startedAt}
 											started_at={scheduledFor}
 											len={waitingLen < 100 ? 0 : waitingLen - 100}
 											running={!flowDone && startedAt == undefined}

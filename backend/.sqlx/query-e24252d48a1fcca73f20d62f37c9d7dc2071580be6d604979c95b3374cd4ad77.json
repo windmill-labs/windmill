@@ -1,0 +1,173 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        WITH scanned AS (\n          SELECT a.* FROM (\n            SELECT value FROM flow\n            WHERE archived = false AND pg_column_size(value) < $1\n            LIMIT $2\n          ) f,\n          LATERAL (\n            SELECT\n              bool_or(m->'value'->>'type' = 'forloopflow')                  AS forloop,\n              bool_or(m->'value'->>'type' = 'whileloopflow')                AS whileloop,\n              bool_or(m->'value'->>'type' = 'branchall')                    AS branchall,\n              bool_or(m->'value'->>'type' = 'branchall'\n                      AND m->'value'->>'parallel' = 'false')                AS branchall_seq,\n              bool_or(m->'value'->>'type' = 'branchone')                    AS branchone,\n              bool_or(m->'value'->>'type' = 'aiagent')                      AS aiagent,\n              bool_or(m->'value'->>'type' = 'flow')                         AS subflow,\n              bool_or(m->'value'->>'type' = 'identity')                     AS identity,\n              bool_or(m->'value'->>'is_trigger' = 'true')                   AS trigger_step,\n              bool_or(m->'value'->>'squash' = 'true')                       AS squash,\n              bool_or(m->'value'->>'type' IN ('forloopflow', 'whileloopflow')\n                      AND m->'value'->>'parallel' = 'true')                 AS parallel_loop,\n              bool_or(m->'value'->>'type' IN ('forloopflow', 'whileloopflow')\n                      AND m->'value'->>'skip_failures' = 'false')           AS keep_failures,\n              bool_or(m->'value' ? 'parallelism')                           AS parallelism,\n              bool_or(m ? 'sleep')                                          AS sleep,\n              bool_or(m ? 'cache_ttl')                                      AS cache,\n              bool_or(m->'mock'->>'enabled' = 'true')                       AS mock,\n              bool_or(m ? 'suspend')                                        AS suspend,\n              bool_or(m ? 'retry')                                          AS retry,\n              bool_or(m ? 'timeout')                                        AS timeout,\n              bool_or(m ? 'priority')                                       AS priority,\n              bool_or(m ? 'debouncing')                                     AS debounce,\n              bool_or(m ? 'delete_after_secs')                              AS lifetime,\n              bool_or(m->>'continue_on_error' = 'true')                     AS continue_on_error,\n              bool_or(m ? 'stop_after_if' OR m ? 'stop_after_all_iters_if') AS early_stop,\n              bool_or(m ? 'skip_if')                                        AS skip\n            FROM jsonb_path_query(f.value, '$.**.modules[*]') m\n          ) a\n        )\n        SELECT\n          COUNT(*)::BIGINT                                   AS \"flows_scanned!\",\n          COUNT(*) FILTER (WHERE forloop)::BIGINT            AS \"forloopflow!\",\n          COUNT(*) FILTER (WHERE whileloop)::BIGINT          AS \"whileloopflow!\",\n          COUNT(*) FILTER (WHERE branchall)::BIGINT          AS \"branchall!\",\n          COUNT(*) FILTER (WHERE branchall_seq)::BIGINT      AS \"branchall_sequential!\",\n          COUNT(*) FILTER (WHERE branchone)::BIGINT          AS \"branchone!\",\n          COUNT(*) FILTER (WHERE aiagent)::BIGINT            AS \"aiagent!\",\n          COUNT(*) FILTER (WHERE subflow)::BIGINT            AS \"subflow!\",\n          COUNT(*) FILTER (WHERE identity)::BIGINT           AS \"identity!\",\n          COUNT(*) FILTER (WHERE trigger_step)::BIGINT       AS \"trigger_step!\",\n          COUNT(*) FILTER (WHERE squash)::BIGINT             AS \"squash!\",\n          COUNT(*) FILTER (WHERE parallel_loop)::BIGINT      AS \"parallel_loop!\",\n          COUNT(*) FILTER (WHERE keep_failures)::BIGINT      AS \"keep_failures!\",\n          COUNT(*) FILTER (WHERE parallelism)::BIGINT        AS \"parallelism!\",\n          COUNT(*) FILTER (WHERE sleep)::BIGINT              AS \"sleep!\",\n          COUNT(*) FILTER (WHERE cache)::BIGINT              AS \"cache!\",\n          COUNT(*) FILTER (WHERE mock)::BIGINT               AS \"mock!\",\n          COUNT(*) FILTER (WHERE suspend)::BIGINT            AS \"suspend!\",\n          COUNT(*) FILTER (WHERE retry)::BIGINT              AS \"retry!\",\n          COUNT(*) FILTER (WHERE timeout)::BIGINT            AS \"timeout!\",\n          COUNT(*) FILTER (WHERE priority)::BIGINT           AS \"priority!\",\n          COUNT(*) FILTER (WHERE debounce)::BIGINT           AS \"debounce!\",\n          COUNT(*) FILTER (WHERE lifetime)::BIGINT           AS \"lifetime!\",\n          COUNT(*) FILTER (WHERE continue_on_error)::BIGINT  AS \"continue_on_error!\",\n          COUNT(*) FILTER (WHERE early_stop)::BIGINT         AS \"early_stop!\",\n          COUNT(*) FILTER (WHERE skip)::BIGINT               AS \"skip!\"\n        FROM scanned\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "flows_scanned!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "forloopflow!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "whileloopflow!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "branchall!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 4,
+        "name": "branchall_sequential!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "branchone!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 6,
+        "name": "aiagent!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 7,
+        "name": "subflow!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 8,
+        "name": "identity!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 9,
+        "name": "trigger_step!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 10,
+        "name": "squash!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 11,
+        "name": "parallel_loop!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 12,
+        "name": "keep_failures!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 13,
+        "name": "parallelism!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 14,
+        "name": "sleep!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 15,
+        "name": "cache!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 16,
+        "name": "mock!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 17,
+        "name": "suspend!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 18,
+        "name": "retry!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 19,
+        "name": "timeout!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 20,
+        "name": "priority!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 21,
+        "name": "debounce!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 22,
+        "name": "lifetime!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 23,
+        "name": "continue_on_error!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 24,
+        "name": "early_stop!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 25,
+        "name": "skip!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "e24252d48a1fcca73f20d62f37c9d7dc2071580be6d604979c95b3374cd4ad77"
+}

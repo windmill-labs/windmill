@@ -3,11 +3,14 @@
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { ChevronDown } from 'lucide-svelte'
 
-	let opened = $state(false);
-	
+	let { hint = undefined }: { hint?: string } = $props()
+
+	let opened = $state(false)
 </script>
 
-<div class="text-xs flex flex-row-reverse">
+<!-- Pulled up against the input above: it reads as a footnote on that field rather than
+     as the next thing in the form. -->
+<div class="text-2xs flex flex-row-reverse items-start justify-between gap-2 -mt-2">
 	<Button
 		on:click={() => {
 			opened = !opened
@@ -16,10 +19,14 @@
 		variant="divider"
 		size="xs2"
 		endIcon={{ icon: ChevronDown, classes: `rotate-0 duration-300 ${opened ? '!rotate-180' : ''}` }}
-		btnClasses="text-hint text-2xs font-normal pt-1"
+		btnClasses="text-hint !text-2xs font-normal py-0"
 	>
 		Help
 	</Button>
+	{#if hint}
+		<!-- The 4px a hint keeps from its input; the toggle stays flush against it. -->
+		<span class="mt-1 text-hint">{hint}</span>
+	{/if}
 </div>
 
 {#if opened}

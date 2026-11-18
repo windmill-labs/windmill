@@ -1,12 +1,12 @@
 <script lang="ts">
 	import Section from '$lib/components/Section.svelte'
 	import Subsection from '$lib/components/Subsection.svelte'
-	import { workspaceStore } from '$lib/stores'
 	import ResourcePicker from '$lib/components/ResourcePicker.svelte'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
 	import TestTriggerConnection from '../TestTriggerConnection.svelte'
 	import TestingBadge from '../testingBadge.svelte'
 	import { createEventDispatcher, untrack } from 'svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
 	interface Props {
 		defaultValues?: Record<string, any> | undefined
@@ -34,6 +34,8 @@
 		can_write = true,
 		showTestingBadge = false
 	}: Props = $props()
+	const operatingWorkspace = useOperatingWorkspace()
+	const wsId = $derived($operatingWorkspace)
 
 	let otherArgsValid = $state(false)
 	let globalError = $derived(
@@ -80,7 +82,7 @@
 				customErrorMessage: 'Invalid consumer name',
 				showExpr: 'fields.use_jetstream',
 				description:
-					'Required is using JetStream. If a consumer with the same name already exists, it will be overwritten. It is also used as the deliver subject.'
+					'Required if using JetStream. If a consumer with the same name already exists, it will be overwritten. It is also used as the deliver subject.'
 			}
 		},
 		required: ['subjects', 'use_jetstream', 'stream_name', 'consumer_name']
@@ -99,10 +101,10 @@
 
 	function setStreamAndConsumerNames() {
 		if (!natsCfg.stream_name) {
-			natsCfg.stream_name = `windmill_stream-${$workspaceStore}-${path.replaceAll('/', '__')}`
+			natsCfg.stream_name = `windmill_stream-${wsId}-${path.replaceAll('/', '__')}`
 		}
 		if (!natsCfg.consumer_name) {
-			natsCfg.consumer_name = `windmill_consumer-${$workspaceStore}-${path.replaceAll('/', '__')}`
+			natsCfg.consumer_name = `windmill_consumer-${wsId}-${path.replaceAll('/', '__')}`
 		}
 	}
 
@@ -124,6 +126,7 @@
 			<div class="block grow w-full">
 				<Subsection label="Connection">
 					<ResourcePicker
+						workspace={wsId}
 						resourceType="nats"
 						bind:value={natsResourcePath}
 						{defaultValues}

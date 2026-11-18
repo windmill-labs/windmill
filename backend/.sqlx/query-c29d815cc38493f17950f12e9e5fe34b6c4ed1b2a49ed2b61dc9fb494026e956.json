@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO ai_free_token_usage (email, cost_nanos, updated_at)\n         VALUES ($1, $2::bigint, now())\n         ON CONFLICT (email) DO UPDATE\n         SET cost_nanos = ai_free_token_usage.cost_nanos + $2::bigint,\n             updated_at = now()\n         RETURNING cost_nanos",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "cost_nanos",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "c29d815cc38493f17950f12e9e5fe34b6c4ed1b2a49ed2b61dc9fb494026e956"
+}

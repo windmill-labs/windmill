@@ -16,11 +16,12 @@
 		registerWebviewPaste,
 		updateOptions
 	} from '$lib/editorUtils'
+	import { editorFontSize } from '$lib/editorFontSize.svelte'
 	import { createHash } from '$lib/editorLangUtils'
 
 	import libStdContent from '$lib/es6.d.ts.txt?raw'
 	import { editor as meditor, Uri as mUri, languages, Range, KeyMod, KeyCode } from 'monaco-editor'
-	import { createEventDispatcher, getContext, onDestroy, onMount, untrack } from 'svelte'
+	import { createEventDispatcher, getContext, onDestroy, onMount, tick, untrack } from 'svelte'
 	import type { AppViewerContext } from './apps/types'
 	import { writable } from 'svelte/store'
 	// import '@codingame/monaco-vscode-standalone-languages'
@@ -391,6 +392,10 @@
 		fontSize?: number
 		loadAsync?: boolean
 		class?: string | undefined
+		/** Height the editor opens at, in lines, for a field that expects more than a phrase. */
+		minRows?: number
+		/** Shown over the empty editor. Monaco has no placeholder of its own. */
+		placeholder?: string
 	}
 
 	let {
@@ -400,12 +405,26 @@
 		extraLib = '',
 		autoHeight = true,
 		fixedOverflowWidgets = true,
-		fontSize = 12,
+		fontSize,
 		loadAsync = false,
-		class: clazz = ''
+		class: clazz = '',
+		minRows = undefined,
+		placeholder = undefined
 	}: Props = $props()
 
+	let effectiveFontSize = $derived(fontSize ?? editorFontSize.regular)
+
 	let yPadding = MONACO_Y_PADDING
+
+	// Monaco derives an unset line height as 1.5x the font size, rounded. Reproducing it here lets
+	// the box stand at its final height before the editor exists, so opening a field does not jump.
+	let minHeightPx = $derived(
+		minRows ? minRows * Math.round(1.5 * effectiveFontSize) + yPadding * 2 : 0
+	)
+
+	/** Whether the live model is empty, for the placeholder. Tracked apart from `code`, which the
+	 *  editor only writes back on a debounce. */
+	let editorEmpty = $state(true)
 
 	if (typeof code != 'string') {
 		code = ''
@@ -472,7 +491,7 @@
 				// lineNumbers: 'on',
 				lineDecorationsWidth: 0,
 				lineNumbersMinChars: 2,
-				fontSize,
+				fontSize: effectiveFontSize,
 				suggestOnTriggerCharacters: true,
 				renderLineHighlight: 'none',
 				lineNumbers: 'off',
@@ -502,7 +521,13 @@
 		editor.onDidFocusEditorText(() => {
 			dispatch('focus')
 
-			editor?.addCommand(KeyMod.CtrlCmd | KeyCode.KeyS, function () {})
+			editor?.addCommand(KeyMod.CtrlCmd | KeyCode.KeyS, function () {
+				updateCode()
+				// See Editor.svelte — re-broadcast the swallowed shortcut for
+				// page-level draft-flush handlers, after `tick()` so they see
+				// the value `updateCode()` just materialized.
+				void tick().then(() => window.dispatchEvent(new CustomEvent('wm-monaco-save-shortcut')))
+			})
 
 			editor?.addCommand(KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.Digit7, function () {})
 		})
@@ -517,6 +542,9 @@
 		}
 
 		editor.onDidChangeModelContent((event) => {
+			// Undebounced, unlike `code`: the placeholder sits over the editor, so waiting would leave
+			// it covering the first characters typed into an empty field.
+			editorEmpty = (editor?.getModel()?.getValue() ?? '') === ''
 			timeoutModel && clearTimeout(timeoutModel)
 			timeoutModel = setTimeout(() => {
 				updateCode()
@@ -529,7 +557,7 @@
 			const updateHeight = () => {
 				const contentHeight = Math.min(1000, editor?.getContentHeight() ?? 0)
 				if (divEl) {
-					divEl.style.height = `${contentHeight}px`
+					divEl.style.height = `${Math.max(contentHeight, minHeightPx)}px`
 				}
 			}
 			editor.onDidContentSizeChange(updateHeight)
@@ -688,21 +716,43 @@
 	$effect(() => {
 		mounted && extraLib && initialized && untrack(() => loadExtraLib())
 	})
+
+	$effect(() => {
+		const next = effectiveFontSize
+		if (editor) {
+			editor.updateOptions({ fontSize: next })
+		}
+	})
 </script>
 
 <EditorTheme />
 
 <div
-	class={twMerge(inputBorderClass({ forceFocus: isFocus }), 'rounded-md overflow-auto pl-2', clazz)}
+	class={twMerge(
+		inputBorderClass({ forceFocus: isFocus }),
+		'relative rounded-md overflow-auto pl-2',
+		clazz
+	)}
+	style={minHeightPx ? `min-height: ${minHeightPx}px` : undefined}
 >
 	{#if !editor}
-		<FakeMonacoPlaceHolder autoheight showNumbers={false} {code} {fontSize} />
+		<FakeMonacoPlaceHolder autoheight showNumbers={false} {code} fontSize={effectiveFontSize} />
 	{/if}
 	<div
 		bind:this={divEl}
-		style="height: 18px;"
+		style="height: {Math.max(18, minHeightPx)}px;"
 		class="template nonmain-editor rounded-md overflow-clip {!editor ? 'hidden' : ''}"
 	></div>
+	{#if placeholder && !code && (!editor || editorEmpty)}
+		<div
+			class="absolute inset-0 px-2 pointer-events-none whitespace-pre-wrap text-hint font-mono"
+			style="font-size: {effectiveFontSize}px; line-height: {Math.round(
+				1.5 * effectiveFontSize
+			)}px; padding-top: {yPadding}px;"
+		>
+			{placeholder}
+		</div>
+	{/if}
 </div>
 
 <style>

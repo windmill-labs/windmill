@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT EXISTS(\n            SELECT 1 FROM password WHERE lower(email) = $1 AND email <> $2\n            UNION ALL SELECT 1 FROM usr WHERE lower(email) = $1 AND email <> $2)",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "exists",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "ececc8132f985b3e2d8301d5dc24356953e6e6cd71f28384b6f51231a35c7947"
+}

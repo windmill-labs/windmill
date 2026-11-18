@@ -20,14 +20,26 @@
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import SimpleEditor from './SimpleEditor.svelte'
 	import CriticalAlertChannels from './instanceSettings/CriticalAlertChannels.svelte'
+	import RetentionPeriodOverrides from './instanceSettings/RetentionPeriodOverrides.svelte'
+	import AgentWorkloadIdentityIssuers from './instanceSettings/AgentWorkloadIdentityIssuers.svelte'
+	import McpExternalIdp from './instanceSettings/McpExternalIdp.svelte'
+	import WorkspaceRolesSetting from './instanceSettings/WorkspaceRolesSetting.svelte'
 	import SmtpSettings from './instanceSettings/SmtpSettings.svelte'
 	import SecretBackendConfig from './instanceSettings/SecretBackendConfig.svelte'
+	import ExternalSecretsConfig from './instanceSettings/ExternalSecretsConfig.svelte'
+	import ExternalInstancePgSettings from './instanceSettings/ExternalInstancePgSettings.svelte'
+	import InstancePgSettings from './instanceSettings/InstancePgSettings.svelte'
 	import GhesAppSettings from './instanceSettings/GhesAppSettings.svelte'
+	import WebhookBaseUrlSetting from './instanceSettings/WebhookBaseUrlSetting.svelte'
+	import ApiBaseUrlSetting from './instanceSettings/ApiBaseUrlSetting.svelte'
 	import WsConnectivityTest from './instanceSettings/WsConnectivityTest.svelte'
+	import InstanceBannerSetting from './instanceSettings/InstanceBannerSetting.svelte'
+	import AccentColorSetting from './instanceSettings/AccentColorSetting.svelte'
 	import IndexerMemorySettings from './instanceSettings/IndexerMemorySettings.svelte'
 	import IndexerJobIndexSettings from './instanceSettings/IndexerJobIndexSettings.svelte'
 	import IndexerLogIndexSettings from './instanceSettings/IndexerLogIndexSettings.svelte'
 	import TextInput from './text_input/TextInput.svelte'
+	import Description from './Description.svelte'
 	import SettingCard from './instanceSettings/SettingCard.svelte'
 
 	interface Props {
@@ -38,6 +50,7 @@
 		openSmtpSettings?: () => void
 		oauths?: Record<string, any>
 		warning?: string
+		markSettingSaved?: (key: string) => void
 	}
 
 	let {
@@ -47,7 +60,8 @@
 		loading = true,
 		openSmtpSettings,
 		oauths,
-		warning
+		warning,
+		markSettingSaved
 	}: Props = $props()
 	const dispatch = createEventDispatcher()
 
@@ -127,8 +141,6 @@
 			})
 			sendUserToast('Key renewal successful')
 			reloadLicenseKey()
-		} catch (err) {
-			throw err
 		} finally {
 			reloadKeyrenewalAttemptInfo()
 			renewing = false
@@ -326,6 +338,14 @@
 				</div>
 			</SettingCard>
 		{/if}
+	{:else if setting.fieldType == 'retention_overrides'}
+		<!-- Discrete inline control (no section header) — sits right under the retention field.
+		     Disabled until `loading` finishes so the editor can't be interacted with before
+		     getInstanceConfig() has populated the persisted overrides (which would let a save drop
+		     them). -->
+		<RetentionPeriodOverrides {values} disabled={!$enterpriseLicense || loading} />
+	{:else if setting.fieldType == 'workspace_roles'}
+		<WorkspaceRolesSetting {values} {loading} unlicensed={!$enterpriseLicense} />
 	{:else}
 		<SettingCard
 			label={setting.key === 'disable_stats'
@@ -614,6 +634,10 @@
 							</Button>
 						</div>
 					</div>
+				{:else if setting.fieldType == 'agent_workload_identity_issuers'}
+					<AgentWorkloadIdentityIssuers {values} disabled={!$enterpriseLicense} />
+				{:else if setting.fieldType == 'mcp_external_idp'}
+					<McpExternalIdp {values} disabled={!$enterpriseLicense} />
 				{:else if setting.fieldType == 'critical_error_channels'}
 					<CriticalAlertChannels {values} {openSmtpSettings} {oauths} />
 				{:else if setting.fieldType == 'otel'}
@@ -685,6 +709,13 @@
 									<option value="http/protobuf">http/protobuf</option>
 								</select>
 							</div>
+							<Description
+								class="text-2xs text-secondary"
+								link="https://www.windmill.dev/docs/misc/guides/otel#environment-variables"
+							>
+								Service name, environment, resource attributes, metrics temporality and other
+								options are set with environment variables.
+							</Description>
 						{/if}
 					</div>
 				{:else if setting.fieldType == 'otel_tracing_proxy'}
@@ -746,6 +777,51 @@
 									upstream relay (e.g. through a corporate proxy).
 								</p>
 							</div>
+							<div class="flex flex-col gap-1">
+								<label
+									for="otel_tracing_proxy_insecure_upstream_hosts"
+									class="block text-xs font-semibold text-emphasis"
+								>
+									Insecure upstream hosts (skip TLS verification)
+								</label>
+								<TextInput
+									inputProps={{
+										type: 'text',
+										placeholder: '10.0.0.5,*.internal,git.corp.example',
+										id: 'otel_tracing_proxy_insecure_upstream_hosts',
+										disabled: !$enterpriseLicense
+									}}
+									bind:value={$values[setting.key].insecure_upstream_hosts}
+								/>
+								<p class="text-xs text-tertiary">
+									Comma-separated host/IP patterns the proxy still traces but for which it skips
+									upstream TLS certificate verification. Use for internal endpoints with self-signed
+									or otherwise untrusted certificates — unlike NO_PROXY above, these requests stay
+									traced. Same matching as NO_PROXY (<code>example.com</code> matches subdomains;
+									<code>.example.com</code> matches subdomains only).
+								</p>
+							</div>
+							<div class="flex flex-col gap-1">
+								<label
+									for="otel_tracing_proxy_upstream_ca_certs"
+									class="block text-xs font-semibold text-emphasis"
+								>
+									Upstream CA certificates (PEM)
+								</label>
+								<textarea
+									id="otel_tracing_proxy_upstream_ca_certs"
+									disabled={!$enterpriseLicense}
+									rows="4"
+									placeholder={'-----BEGIN CERTIFICATE-----\n...\n-----END CERTIFICATE-----'}
+									bind:value={$values[setting.key].upstream_ca_certs}
+								></textarea>
+								<p class="text-xs text-tertiary">
+									Extra CA certificates added to the proxy's upstream trust store, on top of the
+									system roots. Use this to trace internal endpoints signed by a private CA while
+									keeping certificate verification enabled — preferred over the insecure list above
+									when you have the CA.
+								</p>
+							</div>
 						{/if}
 					</div>
 				{:else if setting.fieldType == 'object_store_config'}
@@ -793,9 +869,7 @@
 				{:else if setting.fieldType == 'seconds'}
 					<div>
 						<SecondsInput
-							max={setting.ee_only != undefined && !$enterpriseLicense
-								? 60 * 60 * 24 * 30
-								: undefined}
+							max={!$enterpriseLicense ? setting.ceMaxSeconds : undefined}
 							bind:seconds={$values[setting.key]}
 							clearable
 						/>
@@ -804,10 +878,32 @@
 					<SmtpSettings {values} disabled={loading} />
 				{:else if setting.fieldType == 'secret_backend'}
 					<SecretBackendConfig {values} disabled={loading} />
+				{:else if setting.fieldType == 'external_secrets'}
+					<ExternalSecretsConfig {values} disabled={loading} />
+				{:else if setting.fieldType == 'external_instance_pg'}
+					<ExternalInstancePgSettings
+						{values}
+						{markSettingSaved}
+						disabled={loading || !$enterpriseLicense}
+					/>
+				{:else if setting.fieldType == 'instance_pg'}
+					<InstancePgSettings {values} {markSettingSaved} disabled={loading} />
 				{:else if setting.fieldType == 'github_enterprise_app'}
 					<GhesAppSettings {values} disabled={loading || !$enterpriseLicense} />
+				{:else if setting.fieldType == 'api_base_url'}
+					<ApiBaseUrlSetting
+						{values}
+						placeholder={setting.placeholder}
+						disabled={loading || !$enterpriseLicense}
+					/>
+				{:else if setting.fieldType == 'webhook_base_url'}
+					<WebhookBaseUrlSetting {values} disabled={loading || !$enterpriseLicense} />
 				{:else if setting.fieldType == 'ws_connectivity'}
 					<WsConnectivityTest {values} />
+				{:else if setting.fieldType == 'instance_banner'}
+					<InstanceBannerSetting {values} disabled={loading || !$enterpriseLicense} />
+				{:else if setting.fieldType == 'accent_color'}
+					<AccentColorSetting {values} disabled={loading || !$enterpriseLicense} />
 				{/if}
 				{#if hasError}
 					<span class="text-red-600 dark:text-red-400 text-xs">

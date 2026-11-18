@@ -18,6 +18,7 @@ import { requireLogin } from "../../core/auth.ts";
 import { createWorkspaceFork, deleteWorkspaceFork } from "./fork.ts";
 import { mergeWorkspaces } from "./merge.ts";
 import { connectSlack, disconnectSlack } from "./slack.ts";
+import { applySettings, getSettings } from "./settings.ts";
 
 import * as wmill from "../../../gen/services.gen.ts";
 
@@ -86,6 +87,29 @@ export async function getWorkspaceByName(
   return undefined;
 }
 
+// When the current git branch is a fork branch (wm-fork/<base>/<id>), commands
+// resolve the fork workspace from the branch name and ignore the active
+// profile — surface that wherever we display the active workspace, so users
+// don't act on the wrong "Active:" line.
+async function forkBranchAutoTargetNote(): Promise<string | undefined> {
+  const {
+    getCurrentGitBranch,
+    getOriginalBranchForWorkspaceForks,
+    getWorkspaceIdForWorkspaceForkFromBranchName,
+  } = await import("../../utils/git.ts");
+  const branch = getCurrentGitBranch();
+  if (!branch || !getOriginalBranchForWorkspaceForks(branch)) {
+    return undefined;
+  }
+  const forkWorkspaceId = getWorkspaceIdForWorkspaceForkFromBranchName(branch);
+  if (!forkWorkspaceId) {
+    return undefined;
+  }
+  return (
+    `Note: you are on fork branch \`${branch}\` — wmill commands automatically target the fork workspace \`${forkWorkspaceId}\` here, regardless of the active profile. Use --workspace to override.`
+  );
+}
+
 export async function list(opts: GlobalOptions) {
   const workspaces = await allWorkspaces(opts.configDir);
   const activeName = await getActiveWorkspaceName(opts);
@@ -107,6 +131,11 @@ export async function list(opts: GlobalOptions) {
     .render();
 
   log.info("Active: " + colors.green.bold(activeName || "none"));
+
+  const forkNote = await forkBranchAutoTargetNote();
+  if (forkNote) {
+    log.info(colors.yellow(forkNote));
+  }
 }
 
 async function switchC(opts: GlobalOptions, workspaceName: string) {
@@ -140,6 +169,10 @@ async function switchC(opts: GlobalOptions, workspaceName: string) {
       `Switched to workspace ${workspaceName} (${workspace?.workspaceId} on ${workspace?.remote})`
     )
   );
+  const forkNote = await forkBranchAutoTargetNote();
+  if (forkNote) {
+    log.info(colors.yellow(forkNote));
+  }
   return;
 }
 
@@ -149,6 +182,47 @@ export async function setActiveWorkspace(
 ) {
   const file = await getActiveWorkspaceConfigFilePath(configDirOverride);
   await writeFile(file, workspaceName, "utf-8");
+}
+
+const CLOUD_REMOTE = "https://app.windmill.dev/";
+
+// Cliffy's list only previews the highlighted entry: Enter submits the typed
+// text (empty, so the default) unless Tab was pressed first.
+class PickableInput extends Input {
+  protected override getValue(): string {
+    const highlighted = this.suggestions[this.suggestionsIndex];
+    if (!this.inputValue && highlighted !== undefined) {
+      return highlighted.toString();
+    }
+    return super.getValue();
+  }
+}
+
+async function knownRemotes(
+  opts: GlobalOptions
+): Promise<{ suggestions: string[]; defaultRemote: string }> {
+  const remotes: string[] = [];
+  for (const w of await allWorkspaces(opts.configDir)) {
+    try {
+      const remote = new URL(w.remote).toString();
+      if (!remotes.includes(remote)) remotes.push(remote);
+    } catch {
+      // skip a malformed profile
+    }
+  }
+  const active = await getActiveWorkspace(opts);
+  let defaultRemote = CLOUD_REMOTE;
+  try {
+    if (active) defaultRemote = new URL(active.remote).toString();
+  } catch {
+    // keep the cloud default
+  }
+  const suggestions = [
+    defaultRemote,
+    ...remotes.filter((r) => r !== defaultRemote),
+  ];
+  if (!suggestions.includes(CLOUD_REMOTE)) suggestions.push(CLOUD_REMOTE);
+  return { suggestions, defaultRemote };
 }
 
 export async function add(
@@ -192,11 +266,14 @@ export async function add(
       remote = url.toString();
     } catch {
       // not a url
+      const { suggestions, defaultRemote } = await knownRemotes(opts);
       remote = new URL(
-        await Input.prompt({
+        await PickableInput.prompt({
           message: "Enter the Remote URL",
-          suggestions: ["https://app.windmill.dev/"],
-          default: "https://app.windmill.dev/",
+          suggestions,
+          list: suggestions.length > 1,
+          info: suggestions.length > 1,
+          default: defaultRemote,
         })
       ).toString();
     }
@@ -669,6 +746,26 @@ async function bind(
     }
     (config.workspaces as any)[wsName] = entry;
 
+    // Drop empty `{}` placeholder entries (older `wmill init` scaffolded one):
+    // they resolve to nothing (no baseUrl) yet count as configured workspaces,
+    // so leaving one beside the real binding makes every later command demand
+    // --workspace to disambiguate.
+    for (const [name, e] of Object.entries(
+      config.workspaces as Record<string, unknown>
+    )) {
+      if (
+        name !== wsName &&
+        !!e &&
+        typeof e === "object" &&
+        Object.keys(e).length === 0
+      ) {
+        delete (config.workspaces as any)[name];
+        log.info(
+          colors.gray(`Removed empty placeholder workspace entry '${name}'`)
+        );
+      }
+    }
+
     log.info(
       colors.green(
         `✓ Bound workspace '${wsName}'` +
@@ -801,7 +898,15 @@ const command = new Command()
   .option("--workspace <name:string>", "Workspace to unbind")
   .action((opts) => bind(opts as any, false))
   .command("fork")
-  .description("Create a forked workspace")
+  .description(
+    `Create a forked workspace from its parent workspace.
+
+The parent is resolved from your current git branch, not from the active profile: run this from a git repo checked out on the branch mapped to the parent workspace in wmill.yaml's \`workspaces:\` section (a fork branch of it resolves to the same parent). \`wmill workspace switch\` does not change which workspace is forked.
+
+Arguments (omit both to be prompted interactively):
+  [workspace_name]  Friendly display name for the fork, shown in the UI. May contain spaces, so quote it in the shell (e.g. "My Fork"). Max 50 chars. Defaults to "<parent workspace name>'s fork".
+  [workspace_id]    Id for the fork. Must be a slug (no spaces or special characters) and is automatically prefixed with \`wm-fork-\`, so pass just the bare slug (e.g. \`my-fork\` becomes \`wm-fork-my-fork\`). This id also determines the fork's git branch name. Defaults to a slug derived from the name — or, when you are converting an existing branch into the fork branch, from that branch.`
+  )
   .arguments("[workspace_name:string] [workspace_id:string]")
   .option(
     "--create-workspace-name <workspace_name:string>",
@@ -812,10 +917,14 @@ const command = new Command()
     "--datatable-behavior <behavior:string>",
     "How to handle datatables: skip, schema_only, or schema_and_data (default: interactive prompt)"
   )
-  .option("-y --yes", "Skip interactive prompts (defaults datatable behavior to 'skip')")
+  .option(
+    "--from-branch <branch:string>",
+    "Non-interactive override for the 'turn my current working branch into the fork' workflow: base the fork on <branch> (its bound workspace is the parent) and rename the current branch onto wm-fork/<branch>/<id>. Usually unneeded — from a working branch `wmill workspace fork` offers this interactively; from a base branch it creates a fresh fork branch."
+  )
+  .option("-y --yes", "Skip interactive prompts (defaults datatable behavior to 'skip'). On a non-base branch, requires --from-branch since the base branch can't be prompted for.")
   .action(createWorkspaceFork as any)
   .command("delete-fork")
-  .description("Delete a forked workspace and git branch")
+  .description("Delete a forked workspace")
   .arguments("<fork_name:string>")
   .option("-y --yes", "Skip confirmation prompt")
   .action(deleteWorkspaceFork as any)
@@ -841,6 +950,22 @@ const command = new Command()
   .description(
     "Clear slack_team_id / slack_name on the active workspace (marks the workspace as disconnected). Does NOT remove the bot token variable/resource/folder/group — delete those from the local sync folder and run 'wmill sync push' to tear them down. Does NOT remove the workspace-level OAuth override — set slack_oauth_client_id/_secret to '' in settings.yaml and push."
   )
-  .action(disconnectSlack as any);
+  .action(disconnectSlack as any)
+  .command("get-settings")
+  .description(
+    "Print the active workspace's settings in the layout of the settings.yaml that 'wmill sync' writes. Secrets show as __SENSITIVE_AND_UNCHANGED__ unless --encrypted. Admin only."
+  )
+  .option("--encrypted", "Write secrets encrypted with the workspace key, as 'wmill sync pull' does")
+  .option("--json", "Output as JSON")
+  .action(getSettings as any)
+  .command("apply-settings")
+  .description(
+    "Apply a settings document (YAML or JSON, in the layout of settings.yaml) to the active workspace. Only the settings the file states are changed, unless --replace; a setting set to null is cleared. A secret left as __SENSITIVE_AND_UNCHANGED__ keeps its value. Shows the changes and asks before applying. Admin only."
+  )
+  .arguments("<file:string>")
+  .option("--dry-run", "Only show the changes")
+  .option("--replace", "Also clear the settings the file omits, as 'wmill sync push' does")
+  .option("-y --yes", "Apply without asking")
+  .action(applySettings as any);
 
 export default command;

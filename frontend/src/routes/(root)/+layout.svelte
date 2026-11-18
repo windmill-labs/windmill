@@ -1,23 +1,46 @@
 <script lang="ts">
+	// First, so its rules precede every component's.
+	import '$lib/assets/app.css'
 	import { goto } from '$lib/navigation'
 	import { page } from '$app/state'
 	import { UserService, WorkspaceService } from '$lib/gen'
 	import { logoutWithRedirect } from '$lib/logoutKit'
-	import { userStore, usersWorkspaceStore, workspaceStore } from '$lib/stores'
+	import { noteSessionEmail } from '$lib/onboardingProfile'
+	import {
+		clearWorkspaceFromStorage,
+		userStore,
+		usersWorkspaceStore,
+		workspaceStore
+	} from '$lib/stores'
 	import { getUserExt } from '$lib/user'
 	import { sendUserToast } from '$lib/toast'
+	import { switchWorkspace } from '$lib/storeUtils'
+	import { forgetForkParent, getRememberedForkParent } from '$lib/forkParentMemory'
 	import { onDestroy, onMount } from 'svelte'
 
 	import { refreshSuperadmin } from '$lib/refreshUser'
+	import { isInstanceRoute } from '$lib/instanceRoutes'
 	// import EditorTheme from '$lib/components/EditorTheme.svelte'
 	import { computeDrift } from '$lib/forLater'
 	import { setLicense } from '$lib/enterpriseUtils'
+	import { applyDarkModeVariant } from '$lib/darkModeVariant'
 	import { deepEqual } from 'fast-equals'
 	interface Props {
 		children?: import('svelte').Snippet
 	}
 
 	let { children }: Props = $props()
+
+	// A lazy chunk that failed to load: Chromium, Firefox, Safari, then Vite's CSS preload.
+	const chunkLoadErrors = [
+		'Failed to fetch dynamically imported',
+		'error loading dynamically imported module',
+		'Importing a module script failed',
+		'Unable to preload CSS'
+	]
+	// One failed component rejects once per chunk and stylesheet it needed: one toast per
+	// page, keyed on the path since this layout outlives client-side navigation.
+	let chunkLoadToastPath: string | undefined = undefined
 
 	const monacoEditorUnhandledErrors = [
 		'Model not found',
@@ -32,8 +55,112 @@
 		"Client got disposed and can't be restarted."
 	]
 
+	// The only load of the workspace list for the whole session, and an empty `$userWorkspaces`
+	// degrades silently rather than erroring — the edit-in-dev affordance, the no-direct-deploy
+	// alert and the fork banner all quietly lose their dev workspace. Retry rather than strand
+	// the tab in that state.
+	const WORKSPACE_LIST_RETRY_DELAYS_MS = [1000, 3000, 8000]
 	async function setUserWorkspaceStore() {
-		$usersWorkspaceStore = await WorkspaceService.listUserWorkspaces()
+		for (let attempt = 0; ; attempt++) {
+			try {
+				$usersWorkspaceStore = await WorkspaceService.listUserWorkspaces()
+				return
+			} catch (e) {
+				if (attempt >= WORKSPACE_LIST_RETRY_DELAYS_MS.length) throw e
+				console.error('could not load workspace list, retrying', e)
+				await new Promise((r) => setTimeout(r, WORKSPACE_LIST_RETRY_DELAYS_MS[attempt]))
+			}
+		}
+	}
+
+	// A fork deleted remotely while the tab was open leaves the client pointing at a
+	// dead workspace id: every request 404s and members get logged out. The fork's
+	// parent linkage lived only in its own (now deleted) row, so we mirror it to
+	// localStorage while the fork is reachable (see forkParentMemory) and use it here
+	// to send the user back to the parent. Returns true when it handled the situation
+	// so the caller skips normal loading.
+	async function tryRecoverFromDeletedWorkspace(workspaceId: string): Promise<boolean> {
+		// Only forks are recoverable, identified two ways: the `wm-fork-` id prefix, or
+		// a remembered parent. Neither alone is sufficient — dev-workspace forks carry
+		// no prefix (only a remembered parent), while a non-member superadmin's fork has
+		// the prefix but no remembered parent (the recorder only sees the user's own
+		// membership-gated list). A workspace that is neither is left to normal loading.
+		const parentId = getRememberedForkParent(workspaceId)
+		if (parentId == undefined && !workspaceId.startsWith('wm-fork-')) return false
+
+		// `exists` is not membership-gated, so it settles "is this workspace gone?"
+		// identically for members, non-members and superadmins, and it requires a valid
+		// session. Only a conclusive `false` means deleted: any rejection (expired
+		// session, transient failure) is inconclusive and must leave the normal loading
+		// path — including its genuine auth handling — untouched.
+		let exists: boolean
+		try {
+			exists = await WorkspaceService.existsWorkspace({ requestBody: { id: workspaceId } })
+		} catch {
+			return false
+		}
+		if (exists) return false
+
+		forgetForkParent(workspaceId)
+
+		// Send the user to the remembered parent when we have one; otherwise (unknown or
+		// inaccessible parent) fall back to the picker rather than the forced-logout path
+		// this recovery exists to avoid.
+		if (parentId != undefined) {
+			switchWorkspace(parentId)
+			const parentUser = await getUserExt(parentId)
+			if (parentUser) {
+				$userStore = parentUser
+				sendUserToast(
+					`Workspace ${workspaceId} not found, switched to parent workspace ${parentId}.`,
+					'warning'
+				)
+				await goto('/')
+				return true
+			}
+		}
+
+		forgetWorkspace()
+		sendUserToast(
+			`Workspace ${workspaceId} is no longer available, please pick a workspace.`,
+			'warning'
+		)
+		await goto('/user/workspaces')
+		return true
+	}
+
+	// Storage is what a reload reads the workspace back from, so dropping only the store
+	// leaves the same dead id waiting for the next load (see getWorkspaceFromStorage).
+	function forgetWorkspace() {
+		try {
+			clearWorkspaceFromStorage()
+		} catch (e) {
+			console.error('Could not clear workspace storage', e)
+		}
+		workspaceStore.set(undefined)
+	}
+
+	// Throws on any `globalWhoami` rejection, which is the caller's cue to log out. The picker
+	// redirect waits on that answer: navigating first leaves the logout's `rd` pointing at the
+	// picker rather than at where the user was headed.
+	async function loadWithoutWorkspace() {
+		let user = await UserService.globalWhoami()
+		noteSessionEmail(user.email)
+		console.log(`Welcome back ${user.email}`)
+		if (
+			(!page.url.pathname.startsWith('/user/') || page.url.pathname.startsWith('/user/cli')) &&
+			// The MCP consent page carries its own workspace picker, so it is left to
+			// run without one. Nothing sets `$userStore` on this branch, which is why
+			// that page must stay outside the (logged) layout — see its `@(root)` name.
+			!page.url.pathname.startsWith('/oauth/mcp_authorize') &&
+			// The hub import wizard asks for the destination itself, and may end in a
+			// workspace that does not exist yet — bouncing it to the picker would
+			// force the very choice it exists to make.
+			!page.url.pathname.startsWith('/projects/import') &&
+			!((user.devops || user.super_admin) && isInstanceRoute(page.url.pathname))
+		) {
+			goto(`/user/workspaces?rd=${encodeURIComponent(page.url.href.replace(page.url.origin, ''))}`)
+		}
 	}
 
 	async function loadUser() {
@@ -41,25 +168,33 @@
 			await refreshSuperadmin()
 
 			if ($workspaceStore) {
+				if (await tryRecoverFromDeletedWorkspace($workspaceStore)) {
+					return
+				}
 				if ($userStore) {
 					console.log(`Welcome back ${$userStore.username} to ${$workspaceStore}`)
 				} else {
-					$userStore = await getUserExt($workspaceStore)
-					if (!$userStore) {
-						throw Error('Not logged in')
+					const ws = $workspaceStore
+					const user = await getUserExt(ws)
+					// A switch mid-flight means this answers for the workspace we left, and
+					// that switch has already started the fetch answering for the active
+					// one: neither this role nor its failure describes where we are now.
+					if ($workspaceStore !== ws) {
+						return
 					}
+					if (!user) {
+						// The persisted workspace outlives the session that chose it: a login link
+						// signs a different account in while storage still names a workspace that
+						// account is not a member of. This lookup answers about the workspace, never
+						// about the session, so throwing here would log the new session out blind.
+						forgetWorkspace()
+						await loadWithoutWorkspace()
+						return
+					}
+					$userStore = user
 				}
 			} else {
-				if (
-					(!page.url.pathname.startsWith('/user/') || page.url.pathname.startsWith('/user/cli')) &&
-					!page.url.pathname.startsWith('/oauth/mcp_authorize')
-				) {
-					goto(
-						`/user/workspaces?rd=${encodeURIComponent(page.url.href.replace(page.url.origin, ''))}`
-					)
-				}
-				let user = await UserService.globalWhoami()
-				console.log(`Welcome back ${user.email}`)
+				await loadWithoutWorkspace()
 			}
 		} catch (e) {
 			console.error(e)
@@ -79,6 +214,22 @@
 			if (event.reason?.message) {
 				const { message, body, status } = event.reason
 
+				// A chunk gone from the server, typically a tab left open across an upgrade: a
+				// component loaded on demand would otherwise silently never appear.
+				if (chunkLoadErrors.some((m) => message.startsWith(m))) {
+					console.warn(message)
+					// In dev nothing is ever stale: this is a compile error, already on Vite's overlay.
+					if (!import.meta.env.PROD || chunkLoadToastPath === location.pathname) return
+					chunkLoadToastPath = location.pathname
+					sendUserToast(
+						'Part of the page failed to load, Windmill may have been updated',
+						true,
+						[{ label: 'Reload', callback: () => location.reload() }],
+						undefined,
+						15000
+					)
+					return
+				}
 				if (message === 'Missing service editorService') {
 					console.error('Reloading the page to fix a Monaco Editor bug')
 					location.reload()
@@ -87,7 +238,6 @@
 				// Unhandled errors from Monaco Editor don't logout the user
 				if (
 					monacoEditorUnhandledErrors.includes(message) ||
-					message.startsWith('Failed to fetch dynamically imported') ||
 					message.startsWith('Unable to figure out browser width and height') ||
 					message.startsWith('Unable to read file') ||
 					message.startsWith('Could not find source file')
@@ -131,7 +281,7 @@
 		computeDrift()
 
 		if (page.url.pathname != '/user/login') {
-			setUserWorkspaceStore()
+			setUserWorkspaceStore().catch((e) => console.error('could not load workspace list', e))
 			loadUser()
 			UserService.refreshUserToken({ ifExpiringInLessThanS: 30 * 60 })
 		}
@@ -154,7 +304,11 @@
 
 					if (workspace && user) {
 						const newUser = await getUserExt(workspace)
-						if (!deepEqual(newUser, $userStore)) {
+						// Refreshes the workspace that was active when the tick started; a
+						// switch mid-flight makes this answer describe the one we left.
+						if ($workspaceStore !== workspace) {
+							console.debug('workspace changed during user refresh, dropping')
+						} else if (!deepEqual(newUser, $userStore)) {
 							userStore.set(newUser)
 							console.info('refreshed user')
 						} else {
@@ -182,6 +336,8 @@
 	} else {
 		document.documentElement.classList.remove('dark')
 	}
+
+	applyDarkModeVariant()
 </script>
 
 {@render children?.()}

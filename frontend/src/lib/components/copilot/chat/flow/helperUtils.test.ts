@@ -2,8 +2,10 @@ import { describe, expect, it, vi } from 'vitest'
 import type { FlowModule } from '$lib/gen'
 import {
 	applyFlowJsonUpdate,
+	isFlowSchemaChange,
 	updateRawScriptModuleContent,
-	validateFlowGroups
+	validateFlowGroups,
+	validateFlowNotes
 } from './helperUtils'
 import { createInlineScriptSession } from './inlineScriptsUtils'
 
@@ -52,6 +54,39 @@ function makeAiAgentWithTool(agentId: string, toolId: string, toolContent: strin
 }
 
 describe('applyFlowJsonUpdate', () => {
+	it('leaves top-level flow settings untouched when settings is not provided', () => {
+		const flow = {
+			value: {
+				modules: [makeRawScriptModule('step_a', 'code a')],
+				chat_input_enabled: true,
+				same_worker: true
+			}
+		}
+
+		applyFlowJsonUpdate(flow as any, createInlineScriptSession(), {
+			modules: [makeRawScriptModule('step_b', 'code b')]
+		})
+
+		expect((flow.value as any).chat_input_enabled).toBe(true)
+		expect((flow.value as any).same_worker).toBe(true)
+	})
+
+	it('applies full-state settings: sets provided keys and removes absent ones', () => {
+		const flow = {
+			value: {
+				modules: [makeRawScriptModule('step_a', 'code a')],
+				chat_input_enabled: true
+			}
+		}
+
+		applyFlowJsonUpdate(flow as any, createInlineScriptSession(), {
+			settings: { same_worker: true }
+		})
+
+		expect((flow.value as any).same_worker).toBe(true)
+		expect('chat_input_enabled' in flow.value).toBe(false)
+	})
+
 	it('accepts new self-referenced inline scripts and initializes them as empty', () => {
 		const flow = {
 			value: {
@@ -222,6 +257,70 @@ describe('applyFlowJsonUpdate', () => {
 		expect((flow.value as any).groups).toEqual(existingGroups)
 	})
 
+	it('persists notes passed in the flow json update', () => {
+		const flow = {
+			value: {
+				modules: [makeRawScriptModule('fetch_data', 'existing code')]
+			}
+		}
+		const inlineScriptSession = createInlineScriptSession()
+		inlineScriptSession.set('fetch_data', 'existing code')
+
+		applyFlowJsonUpdate(flow as any, inlineScriptSession, {
+			notes: [
+				{
+					id: 'note_1',
+					text: 'Remember to set the API key',
+					color: 'yellow',
+					type: 'free'
+				} as any
+			]
+		})
+
+		expect((flow.value as any).notes).toEqual([
+			{
+				id: 'note_1',
+				text: 'Remember to set the API key',
+				color: 'yellow',
+				type: 'free'
+			}
+		])
+	})
+
+	it('clears notes when an empty array or null is passed', () => {
+		const flow = {
+			value: {
+				modules: [],
+				notes: [{ id: 'n', text: 't', color: 'yellow', type: 'free' }]
+			}
+		}
+		const inlineScriptSession = createInlineScriptSession()
+
+		applyFlowJsonUpdate(flow as any, inlineScriptSession, { notes: [] })
+		expect((flow.value as any).notes).toBeUndefined()
+		;(flow.value as any).notes = [{ id: 'n', text: 't', color: 'yellow', type: 'free' }]
+		applyFlowJsonUpdate(flow as any, inlineScriptSession, { notes: null })
+		expect((flow.value as any).notes).toBeUndefined()
+	})
+
+	it('leaves notes untouched when not provided in the update', () => {
+		const existingNotes = [{ id: 'n', text: 't', color: 'yellow', type: 'free' }]
+		const flow = {
+			value: {
+				modules: [makeRawScriptModule('a', 'existing code')],
+				notes: existingNotes
+			}
+		}
+		const inlineScriptSession = createInlineScriptSession()
+		inlineScriptSession.set('a', 'existing code')
+
+		applyFlowJsonUpdate(flow as any, inlineScriptSession, {
+			modules: [makeRawScriptModule('a', 'inline_script.a')]
+		})
+
+		expect((flow.value as any).notes).toEqual(existingNotes)
+	})
+
 	it('updates ai agent rawscript tools in place when changing module code', () => {
 		const flow = {
 			value: {
@@ -298,5 +397,261 @@ describe('validateFlowGroups', () => {
 		const moduleIds = new Set(['a', 'b', 'c'])
 		const result = validateFlowGroups([{ start_id: 'a', end_id: 'c', summary: 'G' }], moduleIds)
 		expect(result).toEqual([{ start_id: 'a', end_id: 'c', summary: 'G' }])
+	})
+
+	it('rejects an unknown color name', () => {
+		expect(() => validateFlowGroups([{ start_id: 'a', end_id: 'b', color: '#ff00aa' }])).toThrow(
+			/color must be one of/
+		)
+		expect(() => validateFlowGroups([{ start_id: 'a', end_id: 'b', color: 'magenta' }])).toThrow(
+			/color must be one of/
+		)
+	})
+
+	it('accepts a known color name', () => {
+		const result = validateFlowGroups([{ start_id: 'a', end_id: 'b', color: 'blue' }])
+		expect(result).toEqual([{ start_id: 'a', end_id: 'b', color: 'blue' }])
+	})
+
+	it('accepts a group with no color', () => {
+		const result = validateFlowGroups([{ start_id: 'a', end_id: 'b' }])
+		expect(result).toEqual([{ start_id: 'a', end_id: 'b' }])
+	})
+})
+
+describe('validateFlowNotes', () => {
+	it('returns null for null/undefined input', () => {
+		expect(validateFlowNotes(null)).toBeNull()
+		expect(validateFlowNotes(undefined)).toBeNull()
+	})
+
+	it('rejects non-array input', () => {
+		expect(() => validateFlowNotes({})).toThrow('Flow notes must be an array')
+	})
+
+	it('rejects a note that is not an object', () => {
+		expect(() => validateFlowNotes(['nope'])).toThrow('Invalid note at index 0: must be an object')
+	})
+
+	it('rejects a note with a missing or non-string id', () => {
+		expect(() => validateFlowNotes([{ text: 't' }])).toThrow(
+			'Invalid note at index 0: id must be a non-empty string'
+		)
+		expect(() => validateFlowNotes([{ id: '', text: 't' }])).toThrow(
+			'Invalid note at index 0: id must be a non-empty string'
+		)
+	})
+
+	it('rejects duplicate note ids', () => {
+		expect(() =>
+			validateFlowNotes([
+				{ id: 'n', text: 'a' },
+				{ id: 'n', text: 'b' }
+			])
+		).toThrow('Invalid note at index 1: duplicate note id "n"')
+	})
+
+	it('rejects a non-string text', () => {
+		expect(() => validateFlowNotes([{ id: 'n', text: 42 }])).toThrow(
+			'Invalid note at index 0: text must be a string'
+		)
+	})
+
+	it('rejects an invalid type', () => {
+		expect(() => validateFlowNotes([{ id: 'n', text: 't', type: 'sticky' }])).toThrow(
+			'Invalid note at index 0: type must be "free" or "group"'
+		)
+	})
+
+	it('rejects an unknown color name', () => {
+		expect(() => validateFlowNotes([{ id: 'n', text: 't', color: '#ffff00' }])).toThrow(
+			/color must be one of/
+		)
+	})
+
+	it('defaults type to free and color to the default note color', () => {
+		const [note] = validateFlowNotes([{ id: 'n', text: 't' }])!
+		expect(note).toMatchObject({ id: 'n', text: 't', type: 'free', color: 'green' })
+	})
+
+	it('preserves a provided palette color rather than overriding it', () => {
+		const [note] = validateFlowNotes([{ id: 'n', text: 't', color: 'purple' }])!
+		expect(note).toMatchObject({ id: 'n', text: 't', type: 'free', color: 'purple' })
+	})
+
+	it('gives a free note missing geometry a concrete position and size', () => {
+		const [note] = validateFlowNotes([{ id: 'n', text: 't' }])!
+		expect(note.position).toEqual({ x: expect.any(Number), y: expect.any(Number) })
+		expect(note.size).toEqual({ width: expect.any(Number), height: expect.any(Number) })
+		expect(note.size!.width).toBeGreaterThan(0)
+		expect(note.size!.height).toBeGreaterThan(0)
+	})
+
+	it('sizes a geometry-less free note tall enough for its text so it does not overflow', () => {
+		const [short] = validateFlowNotes([{ id: 's', text: 'hi' }])!
+		const longText = Array.from({ length: 20 }, (_, i) => `Line ${i} of note content`).join('\n')
+		const [long] = validateFlowNotes([{ id: 'l', text: longText }])!
+		expect(long.size!.height).toBeGreaterThan(short.size!.height)
+	})
+
+	it('clamps a short free note to the minimum height and a huge one to the max', () => {
+		const [short] = validateFlowNotes([{ id: 's', text: 'hi' }])!
+		expect(short.size!.height).toBe(60) // MIN_NOTE_HEIGHT
+		const hugeText = Array.from({ length: 500 }, (_, i) => `Line ${i}`).join('\n')
+		const [huge] = validateFlowNotes([{ id: 'h', text: hugeText }])!
+		expect(huge.size!.height).toBe(600) // MAX_HEIGHT
+	})
+
+	it('staggers the default y position of multiple geometry-less free notes', () => {
+		const notes = validateFlowNotes([
+			{ id: 'a', text: 't' },
+			{ id: 'b', text: 't' }
+		])!
+		expect(notes[0].position!.y).not.toEqual(notes[1].position!.y)
+	})
+
+	it('stacks auto-placed notes by their real heights so tall notes do not overlap', () => {
+		const longText = Array.from({ length: 20 }, (_, i) => `Line ${i} of note content`).join('\n')
+		const notes = validateFlowNotes([
+			{ id: 'a', text: longText },
+			{ id: 'b', text: 'short' }
+		])!
+		// Second note must start at or below the bottom of the first (tall) note.
+		expect(notes[1].position!.y).toBeGreaterThanOrEqual(
+			notes[0].position!.y + notes[0].size!.height
+		)
+	})
+
+	it('does not drop an auto-placed note on top of a preserved note in the same column', () => {
+		// A round-tripped note keeps its existing auto-column geometry {-375, 0};
+		// a freshly added geometry-less note must stack below it, not overlap.
+		const notes = validateFlowNotes([
+			{
+				id: 'existing',
+				text: 'kept',
+				position: { x: -375, y: 0 },
+				size: { width: 275, height: 120 }
+			},
+			{ id: 'new', text: 'added' }
+		])!
+		expect(notes[1].position!.y).toBeGreaterThanOrEqual(
+			notes[0].position!.y + notes[0].size!.height
+		)
+	})
+
+	it('grows a note whose single source line wraps across many display lines', () => {
+		const short = validateFlowNotes([{ id: 's', text: 'hi' }])![0]
+		const oneLongLine = 'word '.repeat(200).trim() // no newlines, wraps many times
+		const wrapped = validateFlowNotes([{ id: 'w', text: oneLongLine }])![0]
+		expect(wrapped.size!.height).toBeGreaterThan(short.size!.height)
+	})
+
+	it('does not override a free note that already has geometry', () => {
+		const [note] = validateFlowNotes([
+			{ id: 'n', text: 't', position: { x: 5, y: 6 }, size: { width: 400, height: 90 } }
+		])!
+		expect(note.position).toEqual({ x: 5, y: 6 })
+		expect(note.size).toEqual({ width: 400, height: 90 })
+	})
+
+	it('does not add geometry to group notes', () => {
+		const [note] = validateFlowNotes([
+			{ id: 'n', text: 't', type: 'group', contained_node_ids: [] }
+		])!
+		expect(note.position).toBeUndefined()
+		expect(note.size).toBeUndefined()
+	})
+
+	it('rejects a malformed position', () => {
+		expect(() => validateFlowNotes([{ id: 'n', text: 't', position: { x: 1 } }])).toThrow(
+			'Invalid note at index 0: position must be an object with numeric x and y'
+		)
+		expect(() => validateFlowNotes([{ id: 'n', text: 't', position: [1, 2] }])).toThrow(
+			'Invalid note at index 0: position must be an object with numeric x and y'
+		)
+	})
+
+	it('rejects a malformed size', () => {
+		expect(() => validateFlowNotes([{ id: 'n', text: 't', size: { width: '10' } }])).toThrow(
+			'Invalid note at index 0: size must be an object with numeric width and height'
+		)
+	})
+
+	it('accepts a free note with valid position and size', () => {
+		const result = validateFlowNotes([
+			{
+				id: 'n',
+				text: 't',
+				color: 'blue',
+				position: { x: 10, y: 20 },
+				size: { width: 300, height: 80 }
+			}
+		])
+		expect(result).toEqual([
+			{
+				id: 'n',
+				text: 't',
+				type: 'free',
+				color: 'blue',
+				position: { x: 10, y: 20 },
+				size: { width: 300, height: 80 }
+			}
+		])
+	})
+
+	it('rejects group note contained_node_ids that are not strings', () => {
+		expect(() =>
+			validateFlowNotes([{ id: 'n', text: 't', type: 'group', contained_node_ids: [1] }])
+		).toThrow('Invalid note at index 0: contained_node_ids must be an array of strings')
+	})
+
+	it('rejects group note contained_node_ids that do not match a module', () => {
+		const moduleIds = new Set(['a', 'b'])
+		expect(() =>
+			validateFlowNotes(
+				[{ id: 'n', text: 't', type: 'group', contained_node_ids: ['missing'] }],
+				moduleIds
+			)
+		).toThrow(
+			'Invalid note at index 0: contained_node_ids "missing" does not match any flow module'
+		)
+	})
+
+	it('accepts a valid group note whose contained ids are all modules', () => {
+		const moduleIds = new Set(['a', 'b'])
+		const result = validateFlowNotes(
+			[{ id: 'n', text: 't', color: 'blue', type: 'group', contained_node_ids: ['a', 'b'] }],
+			moduleIds
+		)
+		expect(result).toEqual([
+			{ id: 'n', text: 't', color: 'blue', type: 'group', contained_node_ids: ['a', 'b'] }
+		])
+	})
+})
+
+describe('isFlowSchemaChange', () => {
+	const schema = { type: 'object', properties: { a: { type: 'string' } }, required: ['a'] }
+
+	it('treats a resent schema as no change, whatever its key order', () => {
+		expect(isFlowSchemaChange(schema, undefined)).toBe(false)
+		expect(isFlowSchemaChange(schema, structuredClone(schema))).toBe(false)
+		expect(
+			isFlowSchemaChange(schema, {
+				required: ['a'],
+				properties: { a: { type: 'string' } },
+				type: 'object'
+			})
+		).toBe(false)
+		expect(isFlowSchemaChange(undefined, null)).toBe(false)
+	})
+
+	it('flags an added, changed or removed input', () => {
+		const added = structuredClone(schema)
+		added.properties['b'] = { type: 'string' }
+		expect(isFlowSchemaChange(schema, added)).toBe(true)
+		expect(isFlowSchemaChange(schema, { ...schema, properties: { a: { type: 'number' } } })).toBe(
+			true
+		)
+		expect(isFlowSchemaChange(schema, null)).toBe(true)
 	})
 })

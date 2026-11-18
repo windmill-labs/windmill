@@ -1,0 +1,352 @@
+import { describe, expect, it, vi } from 'vitest'
+import type { ChatCompletionMessageParam } from 'openai/resources/index.mjs'
+
+vi.mock('monaco-editor', () => ({
+	editor: {}
+}))
+
+vi.mock('$lib/stores', () => ({
+	workspaceStore: { subscribe: () => () => undefined }
+}))
+
+vi.mock('$lib/components/flows/flowTree', () => ({
+	findModuleInModules: () => undefined
+}))
+
+vi.mock('$lib/gen', () => ({
+	OpenAPI: {},
+	ResourceService: {},
+	ScriptService: {},
+	FlowService: {},
+	JobService: {},
+	ScheduleService: {},
+	HttpTriggerService: {},
+	WebsocketTriggerService: {},
+	KafkaTriggerService: {},
+	NatsTriggerService: {},
+	PostgresTriggerService: {},
+	MqttTriggerService: {},
+	SqsTriggerService: {},
+	GcpTriggerService: {},
+	AzureTriggerService: {}
+}))
+
+vi.mock('$lib/utils', () => ({
+	emptyString: (value: string | undefined | null) => !value,
+	generateRandomString: () => 'generated_id'
+}))
+
+vi.mock('$lib/scripts', () => ({
+	scriptLangToEditorLang: (language: string) => language
+}))
+
+vi.mock('$lib/aiStore', () => ({
+	getCurrentModel: () => undefined,
+	getMetadataModel: () => undefined,
+	copilotInfo: {
+		subscribe: (run: (value: unknown) => void) => {
+			run({})
+			return () => undefined
+		}
+	}
+}))
+
+vi.mock('@leeoniya/ufuzzy', () => ({
+	default: class {
+		search() {
+			return [[], [], []]
+		}
+	}
+}))
+
+function streamOf(chunks: unknown[]): any {
+	return (async function* () {
+		for (const chunk of chunks) {
+			yield chunk
+		}
+	})()
+}
+
+function toolCallChunk(delta: Record<string, unknown>) {
+	return { choices: [{ delta: { tool_calls: [{ index: 0, ...delta }] } }] }
+}
+
+function createCallbacks() {
+	return {
+		onNewToken: vi.fn(),
+		onMessageEnd: vi.fn(),
+		setToolStatus: vi.fn(),
+		removeToolStatus: vi.fn()
+	}
+}
+
+function createTool(fn = vi.fn().mockResolvedValue('tool ok')) {
+	return {
+		def: {
+			type: 'function' as const,
+			function: { name: 'patch_app_file', parameters: { type: 'object' } }
+		},
+		fn
+	}
+}
+
+describe('parseOpenAICompletion tool call arguments', () => {
+	it('does not execute nor persist a tool call whose streamed arguments are truncated', async () => {
+		const { parseOpenAICompletion } = await import('./lib')
+		const fn = vi.fn()
+		const callbacks = createCallbacks()
+		const messages: ChatCompletionMessageParam[] = []
+		const addedMessages: ChatCompletionMessageParam[] = []
+
+		const result = await parseOpenAICompletion(
+			streamOf([
+				toolCallChunk({
+					id: 'call_1',
+					function: { name: 'patch_app_file', arguments: '{"path": "u/admin/app", ' }
+				}),
+				// The stream ends mid-arguments (e.g. output token limit or dropped connection)
+				toolCallChunk({ function: { arguments: '"old_string": "setMessages(prev' } })
+			]),
+			callbacks,
+			messages,
+			addedMessages,
+			[createTool(fn)] as any,
+			{},
+			undefined,
+			{ workspace: 'test' }
+		)
+
+		expect(fn).not.toHaveBeenCalled()
+		expect(result.shouldContinue).toBe(true)
+
+		const assistant = messages.find((m) => m.role === 'assistant') as any
+		// Persisting the truncated arguments string would make every follow-up
+		// request fail provider-side JSON parsing, bricking the session.
+		expect(assistant.tool_calls[0].function.arguments).toBe('{}')
+
+		const toolResult = messages.find((m) => m.role === 'tool') as any
+		expect(toolResult.tool_call_id).toBe('call_1')
+		expect(toolResult.content).toContain('NOT executed')
+		expect(callbacks.setToolStatus).toHaveBeenCalledWith(
+			'call_1',
+			expect.objectContaining({ error: expect.stringContaining('invalid or truncated') })
+		)
+		expect(addedMessages).toEqual(messages)
+	})
+
+	it('keeps braces inside string arguments out of the object-depth count', async () => {
+		const { parseOpenAICompletion } = await import('./lib')
+		const fn = vi.fn().mockResolvedValue('tool ok')
+		const messages: ChatCompletionMessageParam[] = []
+
+		await parseOpenAICompletion(
+			streamOf([
+				toolCallChunk({
+					id: 'call_1',
+					function: { name: 'patch_app_file', arguments: '{"new_string": ' }
+				}),
+				toolCallChunk({ function: { arguments: '"hello } goodbye \\" } "}' } })
+			]),
+			createCallbacks(),
+			messages,
+			[],
+			[createTool(fn)] as any,
+			{},
+			undefined,
+			{ workspace: 'test' }
+		)
+
+		expect(fn).toHaveBeenCalledWith(
+			expect.objectContaining({ args: { new_string: 'hello } goodbye " } ' } })
+		)
+		const assistant = messages.find((m) => m.role === 'assistant') as any
+		expect(assistant.tool_calls[0].function.arguments).toBe(
+			'{"new_string": "hello } goodbye \\" } "}'
+		)
+	})
+
+	it('marks only the executing tool call as loading when one message has several', async () => {
+		const { parseOpenAICompletion } = await import('./lib')
+		const statuses: Record<string, any> = {}
+		const callbacks = createCallbacks()
+		callbacks.setToolStatus.mockImplementation((id: string, patch: any) => {
+			statuses[id] = { ...statuses[id], ...patch }
+		})
+		// Snapshot both cards' statuses at each execution start: tools run
+		// sequentially, so the not-yet-started call must read as queued, not loading.
+		const seen: any[] = []
+		const fn = vi.fn().mockImplementation(async () => {
+			seen.push({ call_1: { ...statuses['call_1'] }, call_2: { ...statuses['call_2'] } })
+			return 'tool ok'
+		})
+
+		await parseOpenAICompletion(
+			streamOf([
+				toolCallChunk({
+					index: 0,
+					id: 'call_1',
+					function: { name: 'patch_app_file', arguments: '{}' }
+				}),
+				toolCallChunk({
+					index: 1,
+					id: 'call_2',
+					function: { name: 'patch_app_file', arguments: '{}' }
+				})
+			]),
+			callbacks,
+			[],
+			[],
+			[createTool(fn)] as any,
+			{},
+			undefined,
+			{ workspace: 'test' }
+		)
+
+		expect(seen).toHaveLength(2)
+		expect(seen[0].call_1).toMatchObject({ isLoading: true, isQueued: false })
+		// Queued header is the humanized tool name, not the "-ing" streaming label.
+		expect(seen[0].call_2).toMatchObject({
+			isLoading: false,
+			isQueued: true,
+			content: 'Patch app file'
+		})
+		expect(seen[1].call_1).toMatchObject({ isLoading: false })
+		expect(seen[1].call_2).toMatchObject({ isLoading: true, isQueued: false })
+	})
+
+	it('never leaves a call both queued and loading when deltas interleave', async () => {
+		const { parseOpenAICompletion } = await import('./lib')
+		const statuses: Record<string, any> = {}
+		// Merged state after every patch: a call demoted to queued then re-promoted
+		// by an interleaved delta must never keep both flags set at once.
+		const timeline: Array<{ id: string; isLoading: any; isQueued: any }> = []
+		const callbacks = createCallbacks()
+		callbacks.setToolStatus.mockImplementation((id: string, patch: any) => {
+			statuses[id] = { ...statuses[id], ...patch }
+			timeline.push({ id, isLoading: statuses[id].isLoading, isQueued: statuses[id].isQueued })
+		})
+
+		await parseOpenAICompletion(
+			streamOf([
+				toolCallChunk({
+					index: 0,
+					id: 'call_1',
+					function: { name: 'patch_app_file', arguments: '{"path": ' }
+				}),
+				toolCallChunk({
+					index: 1,
+					id: 'call_2',
+					function: { name: 'patch_app_file', arguments: '{}' }
+				}),
+				// call_1 resumes streaming after call_2 started: re-promotion must clear isQueued
+				toolCallChunk({ index: 0, function: { arguments: '"u/admin/app"}' } })
+			]),
+			callbacks,
+			[],
+			[],
+			[createTool()] as any,
+			{},
+			undefined,
+			{ workspace: 'test' }
+		)
+
+		const bothFlags = timeline.filter((s) => s.isLoading === true && s.isQueued === true)
+		expect(bothFlags).toEqual([])
+	})
+
+	it('executes a tool call with valid streamed arguments and keeps them verbatim', async () => {
+		const { parseOpenAICompletion } = await import('./lib')
+		const fn = vi.fn().mockResolvedValue('tool ok')
+		const messages: ChatCompletionMessageParam[] = []
+
+		const result = await parseOpenAICompletion(
+			streamOf([
+				toolCallChunk({
+					id: 'call_1',
+					function: { name: 'patch_app_file', arguments: '{"path": ' }
+				}),
+				toolCallChunk({ function: { arguments: '"u/admin/app"}' } })
+			]),
+			createCallbacks(),
+			messages,
+			[],
+			[createTool(fn)] as any,
+			{},
+			undefined,
+			{ workspace: 'test' }
+		)
+
+		expect(fn).toHaveBeenCalledWith(expect.objectContaining({ args: { path: 'u/admin/app' } }))
+		expect(result.shouldContinue).toBe(true)
+
+		const assistant = messages.find((m) => m.role === 'assistant') as any
+		expect(assistant.tool_calls[0].function.arguments).toBe('{"path": "u/admin/app"}')
+		const toolResult = messages.find((m) => m.role === 'tool') as any
+		expect(toolResult.content).toBe('tool ok')
+	})
+})
+
+describe('output token limit', () => {
+	it('follows the model through every host that serves it', async () => {
+		const { getModelMaxTokens } = await import('./lib')
+		expect(getModelMaxTokens('deepseek', 'deepseek-flash')).toBe(131072)
+		expect(getModelMaxTokens('azure_foundry', 'DeepSeek-V4-Pro')).toBe(131072)
+		expect(getModelMaxTokens('openrouter', 'deepseek/deepseek-v4-pro')).toBe(131072)
+		// gpt-oss reasons whether or not the chat sends an effort.
+		expect(getModelMaxTokens('groq', 'openai/gpt-oss-120b')).toBe(16000)
+		expect(getModelMaxTokens('openrouter', 'openai/o3')).toBe(100000)
+		// A legacy `/thinking` selection is its base model, not the `thinking` row.
+		expect(getModelMaxTokens('anthropic', 'claude-sonnet-4-5/thinking')).toBe(64000)
+	})
+
+	it('gives a model outside the table room to think only when the request asks it to', async () => {
+		const { getModelMaxTokens } = await import('./lib')
+		expect(getModelMaxTokens('openrouter', 'x-ai/grok-4.3', 'high')).toBe(32768)
+		expect(getModelMaxTokens('openrouter', 'x-ai/grok-4.3', 'none')).toBe(8192)
+		expect(getModelMaxTokens('openrouter', 'x-ai/grok-4.3')).toBe(8192)
+		// The registry does not know Custom AI models, so an effort says nothing about them.
+		expect(getModelMaxTokens('customai', 'local-model', 'high')).toBe(8192)
+		// A self-hosted open-weight model runs at its operator's context length, not the
+		// vendor's, while a Custom AI proxy in front of a hosted model keeps its row.
+		expect(getModelMaxTokens('customai', 'deepseek-v4-pro', 'high')).toBe(8192)
+		expect(getModelMaxTokens('customai', 'gpt-5')).toBe(128000)
+		// GLM's own API (z.ai) is only reachable through Custom AI.
+		expect(getModelMaxTokens('customai', 'glm-5.1')).toBe(32768)
+		expect(getModelMaxTokens('customai', 'glm-4.5v')).toBe(8192)
+	})
+
+	it('sizes the budget from the effort the same request carries', async () => {
+		const { getCompletion } = await import('./lib')
+		const create = vi.fn()
+
+		await getCompletion([], new AbortController(), undefined, {
+			forceModelProvider: { provider: 'mistral', model: 'mistral-medium-latest' },
+			openaiClient: { chat: { completions: { create } } } as any,
+			reasoningEffort: 'high'
+		})
+
+		expect(create.mock.calls[0][0]).toMatchObject({ max_tokens: 32768, reasoning_effort: 'high' })
+	})
+
+	it('fails a response cut off at the output token limit instead of ending the turn', async () => {
+		const { parseOpenAICompletion } = await import('./lib')
+		const { OutputTokenLimitError } = await import('./chat/outputTokenLimit')
+
+		// Thinking counts toward max_tokens, so the cap can land before any answer.
+		const parsed = parseOpenAICompletion(
+			streamOf([
+				{ choices: [{ delta: { reasoning_content: 'I need to plan the flow so each' } }] },
+				{ choices: [{ delta: {}, finish_reason: 'length' }] }
+			]),
+			createCallbacks(),
+			[],
+			[],
+			[],
+			{},
+			undefined,
+			{ workspace: 'test' }
+		)
+
+		await expect(parsed).rejects.toBeInstanceOf(OutputTokenLimitError)
+	})
+})

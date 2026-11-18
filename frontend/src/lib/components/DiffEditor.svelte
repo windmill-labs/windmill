@@ -8,13 +8,12 @@
 	import { editor as meditor, KeyMod, KeyCode } from 'monaco-editor'
 
 	import { initializeVscode } from './vscode'
+	import { editorFontSize } from '$lib/editorFontSize.svelte'
 	import { registerWebviewPaste } from '$lib/editorUtils'
 	import EditorTheme from './EditorTheme.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { twMerge } from 'tailwind-merge'
-	import type { ButtonProp } from './diffEditorTypes'
-
-	const SIDE_BY_SIDE_MIN_WIDTH = 700
+	import { SIDE_BY_SIDE_MIN_WIDTH, type ButtonProp } from './diffEditorTypes'
 
 	interface Props {
 		open?: boolean
@@ -29,6 +28,10 @@
 		buttons?: ButtonProp[]
 		modifiedModel?: meditor.ITextModel | meditor.IEditorModel
 		inlineDiff?: boolean
+		// Opt out of Monaco's auto-inline fallback (see useInlineViewWhenSpaceIsLimited
+		// below). Only set this when the consumer fully owns the inline/side-by-side
+		// decision; otherwise the default keeps Monaco's built-in narrow fallback.
+		disableAutoInline?: boolean
 	}
 
 	let {
@@ -43,7 +46,8 @@
 		readOnly = false,
 		buttons = [],
 		modifiedModel,
-		inlineDiff = false
+		inlineDiff = false,
+		disableAutoInline = false
 	}: Props = $props()
 
 	let diffEditor: meditor.IStandaloneDiffEditor | undefined = $state(undefined)
@@ -61,6 +65,12 @@
 		diffEditor = meditor.createDiffEditor(diffDivEl!, {
 			automaticLayout,
 			renderSideBySide: inlineDiff ? false : editorWidth >= SIDE_BY_SIDE_MIN_WIDTH,
+			// Monaco forces the inline view below renderSideBySideInlineBreakpoint (900px),
+			// overriding our SIDE_BY_SIDE_MIN_WIDTH gate. Consumers that fully own the
+			// inline/side-by-side decision (e.g. the diff drawer's toggle) opt out via
+			// disableAutoInline; everyone else keeps Monaco's auto-inline fallback so
+			// narrow panels (inline scripts, flow modules) stay readable in unified view.
+			useInlineViewWhenSpaceIsLimited: !disableAutoInline,
 			originalEditable: false,
 			readOnly,
 			minimap: {
@@ -70,6 +80,7 @@
 			scrollBeyondLastLine: false,
 			lineDecorationsWidth: 15,
 			lineNumbersMinChars: 2,
+			fontSize: editorFontSize.regular,
 			scrollbar: { alwaysConsumeMouseWheel: false }
 		})
 
@@ -172,6 +183,13 @@
 			diffEditor.updateOptions({
 				renderSideBySide: inlineDiff ? false : editorWidth >= SIDE_BY_SIDE_MIN_WIDTH
 			})
+		}
+	})
+
+	$effect(() => {
+		const fontSize = editorFontSize.regular
+		if (diffEditor) {
+			diffEditor.updateOptions({ fontSize })
 		}
 	})
 

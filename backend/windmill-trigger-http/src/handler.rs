@@ -7,17 +7,18 @@ use axum::{extract::Path, routing::post, Extension, Json, Router};
 use http::StatusCode;
 use sqlx::PgConnection;
 use std::collections::HashSet;
-use windmill_api_auth::ApiAuthed;
+use windmill_api_auth::{check_scopes, ApiAuthed};
 use windmill_audit::{audit_oss::audit_log, ActionKind};
-use windmill_common::global_settings::HTTP_ROUTE_WORKSPACED_ROUTE;
+use windmill_common::global_settings::{validate_allowed_origins, HTTP_ROUTE_WORKSPACED_ROUTE};
 use windmill_common::{
     db::UserDB,
     error::{Error, Result},
+    utils::check_proper_path,
     worker::CLOUD_HOSTED,
     DB,
 };
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
-use windmill_trigger::{Trigger, TriggerCrud, TriggerData};
+use windmill_trigger::{handler::trigger_save_runnables, Trigger, TriggerCrud, TriggerData};
 
 pub async fn increase_trigger_version(tx: &mut PgConnection) -> Result<()> {
     sqlx::query!("SELECT nextval('http_trigger_version_seq')")
@@ -189,6 +190,7 @@ pub async fn insert_new_trigger_into_db(
                 authentication_resource_path,
                 wrap_body,
                 raw_string,
+                allowed_origins,
                 script_path,
                 summary,
                 description,
@@ -207,7 +209,7 @@ pub async fn insert_new_trigger_into_db(
                 retry
             )
             VALUES (
-                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, now(), $20, $21, $22, $23
+                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, now(), $21, $22, $23, $24
             )
             "#,
             w_id,
@@ -218,6 +220,7 @@ pub async fn insert_new_trigger_into_db(
             trigger.config.authentication_resource_path,
             trigger.config.wrap_body.unwrap_or(false),
             trigger.config.raw_string.unwrap_or(false),
+            trigger.config.allowed_origins.as_deref(),
             trigger.base.script_path,
             trigger.config.summary,
             trigger.config.description,
@@ -244,7 +247,7 @@ pub async fn create_many_http_triggers(
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
-    Json(new_http_triggers): Json<Vec<TriggerData<HttpConfigRequest>>>,
+    Json(mut new_http_triggers): Json<Vec<TriggerData<HttpConfigRequest>>>,
 ) -> Result<(StatusCode, String)> {
     // Admin check for instance-wide routes is done per-trigger in insert_new_trigger_into_db
 
@@ -261,11 +264,46 @@ pub async fn create_many_http_triggers(
 
     let mut route_path_keys = Vec::with_capacity(new_http_triggers.len());
 
-    for new_http_trigger in new_http_triggers.iter() {
+    for new_http_trigger in new_http_triggers.iter_mut() {
+        // Per-item write scope, matching the single-create handler. The bulk
+        // endpoint must not let a path-scoped token create triggers outside it.
+        check_scopes(&authed, || {
+            format!("http_triggers:write:{}", &new_http_trigger.base.path)
+        })?;
+        check_proper_path(&new_http_trigger.base.path)?;
+
+        // This route inserts directly, bypassing the shared create handler.
+        // `error_wrapper` would turn the rejection into a 500.
+        new_http_trigger.error_handling.validate().map_err(|err| {
+            Error::BadRequest(format!(
+                "Error occurred for HTTP route at route path: {}, error: {}",
+                new_http_trigger.config.route_path, err
+            ))
+        })?;
+        new_http_trigger
+            .base
+            .normalize_script_path()
+            .map_err(|err| {
+                Error::BadRequest(format!(
+                    "Error occurred for HTTP route at route path: {}, error: {}",
+                    new_http_trigger.config.route_path, err
+                ))
+            })?;
+
         handler
             .validate_new(&db, &w_id, &new_http_trigger.config)
             .await
             .map_err(|err| error_wrapper(&new_http_trigger.config.route_path, err))?;
+        let new = trigger_save_runnables::<HttpTrigger>(new_http_trigger)?;
+        windmill_api_auth::composed::check_new_hub_paths(&new, &[], &authed, &db, &w_id)
+            .await
+            .map_err(|err| match err {
+                Error::PermissionDenied(msg) => Error::PermissionDenied(format!(
+                    "Error occurred for HTTP route at route path: {}, error: {msg}",
+                    new_http_trigger.config.route_path
+                )),
+                err => err,
+            })?;
 
         let route_path_key =
             check_if_route_exist(&db, &new_http_trigger.config, &w_id, None).await?;
@@ -300,6 +338,37 @@ pub async fn create_many_http_triggers(
             .await
             .map_err(|err| error_wrapper(&new_http_trigger.config.route_path, err.into()))?;
         }
+
+        // Bulk create is still authoring, so it records like the single-create
+        // route rather than being the one way to make a trigger appear with no
+        // history behind it.
+        let created = windmill_common::trigger_history::snapshot_row(
+            &mut *tx,
+            "http_trigger",
+            &w_id,
+            &new_http_trigger.base.path,
+        )
+        .await
+        .map_err(|err| error_wrapper(&new_http_trigger.config.route_path, err))?;
+        windmill_common::trigger_history::record(
+            &mut *tx,
+            windmill_common::trigger_history::TriggerHistoryEvent {
+                workspace_id: &w_id,
+                trigger_kind: HttpTrigger::TRIGGER_TYPE,
+                path: &new_http_trigger.base.path,
+                operation: windmill_common::trigger_history::TriggerOperation::Create,
+                source: windmill_common::trigger_history::TriggerSource::of_request(
+                    authed.is_session_token,
+                ),
+                username: Some(&authed.username),
+                changes: windmill_common::trigger_history::summarize_changes(
+                    None,
+                    created.as_ref(),
+                ),
+            },
+        )
+        .await
+        .map_err(|err| error_wrapper(&new_http_trigger.config.route_path, err))?;
 
         audit_log(
             &mut *tx,
@@ -373,6 +442,8 @@ impl TriggerCrud for HttpTrigger {
 
     const TABLE_NAME: &'static str = "http_trigger";
     const TRIGGER_TYPE: &'static str = "http";
+    const DRAFT_KIND: windmill_common::user_drafts::UserDraftItemKind =
+        windmill_common::user_drafts::UserDraftItemKind::TriggerHttp;
     const SUPPORTS_SERVER_STATE: bool = false;
     const SUPPORTS_TEST_CONNECTION: bool = false;
     const ROUTE_PREFIX: &'static str = "/http_triggers";
@@ -396,6 +467,7 @@ impl TriggerCrud for HttpTrigger {
         "workspaced_route",
         "wrap_body",
         "raw_string",
+        "allowed_origins",
     ];
 
     fn get_deployed_object(path: String, parent_path: Option<String>) -> DeployedObject {
@@ -426,6 +498,8 @@ impl TriggerCrud for HttpTrigger {
 
         validate_authentication_method(new.authentication_method, new.raw_string)?;
 
+        validate_allowed_origins(new.allowed_origins.as_deref().unwrap_or_default())?;
+
         Ok(())
     }
 
@@ -443,6 +517,8 @@ impl TriggerCrud for HttpTrigger {
         }
 
         validate_authentication_method(edit.authentication_method, edit.raw_string)?;
+
+        validate_allowed_origins(edit.allowed_origins.as_deref().unwrap_or_default())?;
 
         Ok(())
     }
@@ -506,33 +582,35 @@ impl TriggerCrud for HttpTrigger {
                 workspaced_route = $3,
                 wrap_body = $4,
                 raw_string = $5,
-                authentication_resource_path = $6,
-                script_path = $7,
-                path = $8,
-                is_flow = $9,
-                mode = $10,
-                http_method = $11,
-                static_asset_config = $12,
-                edited_by = $13,
-                permissioned_as = $14,
-                request_type = $15,
-                authentication_method = $16,
-                summary = $17,
-                description = $18,
+                allowed_origins = $6,
+                authentication_resource_path = $7,
+                script_path = $8,
+                path = $9,
+                is_flow = $10,
+                mode = $11,
+                http_method = $12,
+                static_asset_config = $13,
+                edited_by = $14,
+                permissioned_as = $15,
+                request_type = $16,
+                authentication_method = $17,
+                summary = $18,
+                description = $19,
                 edited_at = now(),
-                is_static_website = $19,
-                error_handler_path = $20,
-                error_handler_args = $21,
-                retry = $22
+                is_static_website = $20,
+                error_handler_path = $21,
+                error_handler_args = $22,
+                retry = $23
             WHERE
-                workspace_id = $23 AND
-                path = $24
+                workspace_id = $24 AND
+                path = $25
             "#,
                 route_path,
                 &route_path_key,
                 Some(effective_workspaced),
-                trigger.config.wrap_body,
-                trigger.config.raw_string,
+                trigger.config.wrap_body.unwrap_or(false),
+                trigger.config.raw_string.unwrap_or(false),
+                trigger.config.allowed_origins.as_deref(),
                 trigger.config.authentication_resource_path,
                 trigger.base.script_path,
                 trigger.base.path,
@@ -565,30 +643,32 @@ impl TriggerCrud for HttpTrigger {
             SET
                 wrap_body = $1,
                 raw_string = $2,
-                authentication_resource_path = $3,
-                script_path = $4,
-                path = $5,
-                is_flow = $6,
-                mode = $7,
-                http_method = $8,
-                static_asset_config = $9,
-                edited_by = $10,
-                permissioned_as = $11,
-                request_type = $12,
-                authentication_method = $13,
-                summary = $14,
-                description = $15,
+                allowed_origins = $3,
+                authentication_resource_path = $4,
+                script_path = $5,
+                path = $6,
+                is_flow = $7,
+                mode = $8,
+                http_method = $9,
+                static_asset_config = $10,
+                edited_by = $11,
+                permissioned_as = $12,
+                request_type = $13,
+                authentication_method = $14,
+                summary = $15,
+                description = $16,
                 edited_at = now(),
-                is_static_website = $16,
-                error_handler_path = $17,
-                error_handler_args = $18,
-                retry = $19
+                is_static_website = $17,
+                error_handler_path = $18,
+                error_handler_args = $19,
+                retry = $20
             WHERE
-                workspace_id = $20 AND
-                path = $21
+                workspace_id = $21 AND
+                path = $22
             "#,
-                trigger.config.wrap_body,
-                trigger.config.raw_string,
+                trigger.config.wrap_body.unwrap_or(false),
+                trigger.config.raw_string.unwrap_or(false),
+                trigger.config.allowed_origins.as_deref(),
                 trigger.config.authentication_resource_path,
                 trigger.base.script_path,
                 trigger.base.path,

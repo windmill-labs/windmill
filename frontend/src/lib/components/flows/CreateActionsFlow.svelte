@@ -1,6 +1,5 @@
 <script lang="ts">
-	import { goto } from '$lib/navigation'
-	import { base } from '$lib/base'
+	import { goto, isNewTabClick } from '$lib/navigation'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 
 	import { Button } from '$lib/components/common'
@@ -9,14 +8,11 @@
 	import { importFlowStore } from '$lib/components/flows/flowStore.svelte'
 	import { importScriptStore } from '$lib/components/scripts/scriptStore.svelte'
 	import Modal from '$lib/components/common/modal/Modal.svelte'
-	import Toggle from '$lib/components/Toggle.svelte'
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
 	import Tab from '$lib/components/common/tabs/Tab.svelte'
 	import { PythonIcon, TypeScriptIcon } from '$lib/components/common/languageIcons'
 	import { Code2, Loader2, Plus } from 'lucide-svelte'
 	import YAML from 'yaml'
-
-	const SKIP_FLOW_MODAL_KEY = 'windmill_skip_flow_modal'
 
 	let drawer: Drawer | undefined = $state(undefined)
 	let wacDrawer: Drawer | undefined = $state(undefined)
@@ -26,14 +22,11 @@
 	let wacImportType: 'yaml' | 'json' = $state('yaml')
 	let flowModalOpen = $state(false)
 	let wacHovered = $state(false)
-	let skipModal = $state(
-		typeof localStorage !== 'undefined' && localStorage.getItem(SKIP_FLOW_MODAL_KEY) === 'true'
-	)
 
 	async function importRaw() {
 		$importFlowStore =
 			importType === 'yaml' ? YAML.parse(pendingRaw ?? '') : JSON.parse(pendingRaw ?? '')
-		await goto('/flows/add?nodraft=true')
+		await goto('/flows/add')
 		drawer?.closeDrawer?.()
 	}
 
@@ -41,36 +34,16 @@
 		const parsed =
 			wacImportType === 'yaml' ? YAML.parse(pendingWacRaw ?? '') : JSON.parse(pendingWacRaw ?? '')
 		$importScriptStore = parsed
-		await goto(`${base}/scripts/add?import=true&nodraft=true`)
+		await goto('/scripts/add?import=true')
 		wacDrawer?.closeDrawer?.()
 	}
 
 	function handleFlowClick() {
-		if (skipModal) {
-			goto(`${base}/flows/add?nodraft=true`)
-		} else {
-			flowModalOpen = true
-		}
+		flowModalOpen = true
 	}
 
-	function selectFlowEditor() {
-		flowModalOpen = false
-		goto(`${base}/flows/add?nodraft=true`)
-	}
-
-	function selectWacPython() {
-		flowModalOpen = false
-		goto(`${base}/scripts/add?nodraft=true&wac=python`)
-	}
-
-	function selectWacTypescript() {
-		flowModalOpen = false
-		goto(`${base}/scripts/add?nodraft=true&wac=typescript`)
-	}
-
-	function toggleSkipModal() {
-		skipModal = !skipModal
-		localStorage.setItem(SKIP_FLOW_MODAL_KEY, String(skipModal))
+	function closeUnlessNewTab(e: MouseEvent) {
+		if (!isNewTabClick(e)) flowModalOpen = false
 	}
 </script>
 
@@ -94,17 +67,21 @@
 			},
 			{
 				label: 'Workflow-as-Code in TypeScript',
-				onClick: () => selectWacTypescript()
+				href: '/scripts/add?wac=typescript'
 			},
 			{
 				label: 'Workflow-as-Code in Python',
-				onClick: () => selectWacPython()
+				href: '/scripts/add?wac=python'
 			},
 			{
 				label: 'Import Workflow-as-Code',
 				onClick: () => {
 					wacDrawer?.toggleDrawer?.()
 				}
+			},
+			{
+				label: 'Pipeline (alpha)',
+				href: '/pipeline'
 			}
 		]}
 	>
@@ -113,13 +90,16 @@
 </div>
 
 <!-- Flow Type Selection Modal -->
-<Modal bind:open={flowModalOpen} title="Create a new flow">
+<!-- kind="X" replaces the bottom Cancel button with a top-right close (X)
+     so the action area is purely the tile buttons. -->
+<Modal bind:open={flowModalOpen} title="Create a new flow" class="sm:max-w-3xl" kind="X">
 	<div class="flex flex-col gap-4 pr-4">
-		<div class="grid grid-cols-2 gap-8">
+		<div class="grid grid-cols-2 gap-6">
 			<!-- Flow Editor option -->
-			<button
+			<a
+				href="/flows/add"
 				class="flex flex-col items-center gap-3 p-6 rounded-lg border-2 border-gray-200 dark:border-gray-700 hover:border-blue-500 dark:hover:border-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-all cursor-pointer group"
-				onclick={selectFlowEditor}
+				onclick={closeUnlessNewTab}
 			>
 				<div
 					class="w-32 h-32 rounded-xl bg-blue-100 dark:bg-blue-900/40 flex items-center justify-center group-hover:bg-blue-200 dark:group-hover:bg-blue-800/50 transition-colors"
@@ -133,7 +113,7 @@
 						handling.
 					</p>
 				</div>
-			</button>
+			</a>
 
 			<!-- Workflow-as-Code option -->
 			<!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -165,9 +145,10 @@
 					class="flex flex-col h-full transition-all duration-300"
 					style="opacity: {wacHovered ? 1 : 0}; transform: scale({wacHovered ? 1 : 0.95})"
 				>
-					<button
+					<a
+						href="/scripts/add?wac=typescript"
 						class="flex-1 flex items-center justify-center gap-3 p-4 hover:bg-purple-100 dark:hover:bg-purple-900/40 transition-colors border-b border-gray-200 dark:border-gray-700"
-						onclick={selectWacTypescript}
+						onclick={closeUnlessNewTab}
 					>
 						<div
 							class="w-12 h-12 rounded-xl bg-purple-100 dark:bg-purple-900/40 flex items-center justify-center"
@@ -175,10 +156,11 @@
 							<TypeScriptIcon width={24} height={24} />
 						</div>
 						<span class="font-semibold text-sm text-primary">TypeScript</span>
-					</button>
-					<button
+					</a>
+					<a
+						href="/scripts/add?wac=python"
 						class="flex-1 flex items-center justify-center gap-3 p-4 hover:bg-purple-100 dark:hover:bg-purple-900/40 transition-colors"
-						onclick={selectWacPython}
+						onclick={closeUnlessNewTab}
 					>
 						<div
 							class="w-12 h-12 rounded-xl bg-purple-100 dark:bg-purple-900/40 flex items-center justify-center"
@@ -186,14 +168,9 @@
 							<PythonIcon width={24} height={24} />
 						</div>
 						<span class="font-semibold text-sm text-primary">Python</span>
-					</button>
+					</a>
 				</div>
 			</div>
-		</div>
-
-		<div class="flex items-center gap-2 px-1">
-			<Toggle size="xs" checked={skipModal} on:change={toggleSkipModal} />
-			<span class="text-2xs text-tertiary">Always use the Flow editor (skip this modal)</span>
 		</div>
 	</div>
 </Modal>

@@ -1,11 +1,12 @@
 import type { Job } from '$lib/gen'
 
-export type JobStatusKind = 'running' | 'success' | 'failure'
+export type JobStatusKind = 'running' | 'success' | 'failure' | 'canceled'
 
 const STATUS_COLORS: Record<JobStatusKind, string> = {
 	running: '#eab308',
 	success: '#22c55e',
-	failure: '#ef4444'
+	failure: '#ef4444',
+	canceled: '#6b7280'
 }
 
 const DEFAULT_FAVICON = '/logo.svg'
@@ -29,12 +30,13 @@ function faviconLink(): HTMLLinkElement {
 	return link
 }
 
-/** Maps a job to one of the three favicon status colors, following the same
- * discrimination as JobStatusIcon (`'success' in job` => completed). */
+/** Maps a job to one of the favicon status colors, following the same
+ * discrimination as JobStatusIcon (`'success' in job` => completed). A job that
+ * is still running while being canceled stays 'running' until it completes. */
 export function getJobStatusKind(job: Job | undefined): JobStatusKind | undefined {
 	if (!job) return undefined
+	if (job.canceled && 'success' in job) return 'canceled'
 	if ('success' in job) return job.success ? 'success' : 'failure'
-	if (job.canceled) return 'failure'
 	return 'running'
 }
 

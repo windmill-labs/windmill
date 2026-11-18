@@ -5,6 +5,7 @@
 	import CopyableCodeBlock from '$lib/components/details/CopyableCodeBlock.svelte'
 	import { Bot, ExternalLink, Terminal } from 'lucide-svelte'
 	import { shell } from 'svelte-highlight/languages'
+	import { apiBaseUrl } from '$lib/apiBaseUrl.svelte'
 
 	type ConnectTab = 'cli' | 'mcp'
 
@@ -12,7 +13,7 @@
 	let selectedTab: ConnectTab = $state('cli')
 	let openVersion = $state(0)
 
-	const origin = $derived(typeof window === 'undefined' ? '' : window.location.origin)
+	const origin = $derived(typeof window === 'undefined' ? '' : `${apiBaseUrl('cli')}/`)
 	const workspaceId = $derived($workspaceStore ?? '<workspace>')
 	const cliCommands = $derived(`npm install -g windmill-cli
 wmill workspace add ${workspaceId} ${workspaceId} ${origin}
@@ -49,7 +50,8 @@ wmill sync pull`)
 												<h3 class="text-sm font-semibold text-emphasis">Local setup</h3>
 												<p class="text-xs text-secondary max-w-xl">
 													Run this in your local repo to bind the current workspace, create
-													<code class="rounded bg-surface-secondary px-1 py-0.5 font-mono text-2xs text-emphasis"
+													<code
+														class="rounded bg-surface-secondary px-1 py-0.5 font-mono text-2xs text-emphasis"
 														>wmill.yaml</code
 													>, and pull the latest files.
 												</p>
@@ -74,15 +76,18 @@ wmill sync pull`)
 										/>
 
 										<p class="text-2xs text-secondary">
-											<code class="rounded bg-surface-secondary px-1 py-0.5 font-mono text-2xs text-emphasis"
+											<code
+												class="rounded bg-surface-secondary px-1 py-0.5 font-mono text-2xs text-emphasis"
 												>wmill workspace add</code
 											>
 											will handle authentication,
-											<code class="rounded bg-surface-secondary px-1 py-0.5 font-mono text-2xs text-emphasis"
+											<code
+												class="rounded bg-surface-secondary px-1 py-0.5 font-mono text-2xs text-emphasis"
 												>wmill init</code
 											>
 											bootstraps the local config, and
-											<code class="rounded bg-surface-secondary px-1 py-0.5 font-mono text-2xs text-emphasis"
+											<code
+												class="rounded bg-surface-secondary px-1 py-0.5 font-mono text-2xs text-emphasis"
 												>wmill sync pull</code
 											>
 											fetches the workspace content.
@@ -94,10 +99,12 @@ wmill sync pull`)
 									<div class="flex flex-col gap-4">
 										<div class="flex items-start justify-between gap-3 flex-wrap">
 											<div class="flex flex-col gap-1">
-												<h3 class="text-sm font-semibold text-emphasis">MCP URL</h3>
+												<h3 class="text-sm font-semibold text-emphasis"
+													>Build and run from your AI client</h3
+												>
 												<p class="text-xs text-secondary max-w-xl">
-													Generate an MCP server URL for the current workspace and choose which
-													scripts, flows, and endpoints the client can access.
+													Connect Claude, ChatGPT or Cursor to Windmill: build scripts, flows and
+													apps, run your automations and check their runs, from your chat.
 												</p>
 											</div>
 

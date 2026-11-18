@@ -13,12 +13,14 @@
 	import DropdownV2Inner from './DropdownV2Inner.svelte'
 	import { pointerDownOutside } from '$lib/utils'
 	import { createDropdownMenu, melt, createSync } from '@melt-ui/svelte'
+	import { overlayPortalTarget } from '$lib/components/common/overlayHost.svelte'
+	import type { MenubarMenuElements } from '@melt-ui/svelte'
 	import ResolveOpen from '$lib/components/common/menu/ResolveOpen.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 	import { untrack } from 'svelte'
-	import { fly } from 'svelte/transition'
+	import { placementFly } from '$lib/utils/placementFly'
 	import { ButtonType } from './common/button/model'
 
 	interface Props {
@@ -29,6 +31,10 @@
 		placement?: Placement
 		usePointerDownOutside?: boolean
 		closeOnOtherDropdownOpen?: boolean
+		// When false the menu stays open after an item is selected (melt's closeOnItemClick).
+		// Consumers that keep the menu open must close it themselves where appropriate.
+		// Read once at menu creation (like `placement`); changing it after mount has no effect.
+		closeOnItemClick?: boolean
 		fixedHeight?: boolean
 		hidePopup?: boolean
 		open?: boolean
@@ -40,7 +46,18 @@
 		size?: ButtonType.UnifiedSize
 		btnText?: string
 		buttonReplacement?: import('svelte').Snippet
-		menu?: import('svelte').Snippet
+		// In customMenu mode the snippet receives the melt-ui `item` action store
+		// (so consumers can wrap rows in <MenuItem> for arrow-key navigation + aria)
+		// and `builders` (so they can compose melt submenus, e.g. via DropdownSubmenuItem).
+		menu?: import('svelte').Snippet<
+			[
+				{
+					item: MenubarMenuElements['item']
+					close: () => void
+					builders: ReturnType<typeof createDropdownMenu>['builders']
+				}
+			]
+		>
 		maxHeight?: string | undefined
 	}
 
@@ -52,6 +69,7 @@
 		placement = 'bottom-end',
 		usePointerDownOutside = false,
 		closeOnOtherDropdownOpen = true,
+		closeOnItemClick = true,
 		fixedHeight = true,
 		hidePopup = false,
 		open = $bindable(false),
@@ -69,15 +87,24 @@
 
 	let buttonEl: HTMLButtonElement | undefined = $state(undefined)
 
+	// Overlays belong to the enclosing pane when there is one — see overlayHost.
+	const hostPortal = overlayPortalTarget('body')
+
 	const {
 		elements: { menu: menuEl, item, trigger },
 		builders,
 		states,
+		options: { portal: portalOption },
 		ids: { menu: dropdownId }
 	} = createDropdownMenu({
+		portal: untrack(() => hostPortal()),
 		positioning: {
-			placement: untrack(() => placement)
+			placement: untrack(() => placement),
+			// Caps the menu at the room the viewport has left, so a list taller than that scrolls
+			// instead of flipping past the screen edge. A custom menu sizes itself.
+			fitViewport: untrack(() => !customMenu)
 		},
+		closeOnItemClick: untrack(() => closeOnItemClick),
 		loop: true,
 		onOpenChange: ({ next }) => {
 			if (closeOnOtherDropdownOpen) {
@@ -96,6 +123,10 @@
 		}
 	})
 
+	$effect(() => {
+		$portalOption = hostPortal()
+	})
+
 	const sync = createSync(states)
 	$effect(() => {
 		open
@@ -104,19 +135,22 @@
 		})
 	})
 
-	export function close() {
+	export function close(afterClose?: () => void) {
 		open = false
+		if (afterClose) setTimeout(afterClose, 10)
 	}
 
-	async function computeItems(): Promise<Item[]> {
-		if (typeof items === 'function') {
-			const result = await items()
-			return Array.isArray(result) ? result.filter((item) => !item.hide) : []
-		} else {
-			return items.filter((item) => !item.hide)
-		}
+	function visible(result: Item[] | undefined): Item[] {
+		return Array.isArray(result) ? result.filter((item) => !item.hide) : []
+	}
+	function computeItems(): Item[] | Promise<Item[]> {
+		const result = typeof items === 'function' ? items() : items
+		return result instanceof Promise ? result.then(visible) : visible(result)
 	}
 	async function getMenuElements(): Promise<HTMLElement[]> {
+		// Runs on every pointerdown anywhere, for every mounted dropdown. Skip the
+		// whole-document query when the outside handler below cannot act anyway.
+		if (!usePointerDownOutside || !open) return []
 		return Array.from(document.querySelectorAll('[data-menu]')) as HTMLElement[]
 	}
 </script>
@@ -168,17 +202,17 @@
 	<div
 		use:melt={$menuEl}
 		data-menu
-		class="z-[6000] transition-all duration-100"
-		transition:fly={{ duration: enableFlyTransition ? 100 : 0, y: -16 }}
+		class="z-[6000] transition-all duration-100 flex flex-col"
+		transition:placementFly={{ duration: enableFlyTransition ? 100 : 0, placement }}
 	>
 		{#if customMenu}
-			{@render menu?.()}
+			{@render menu?.({ item, close, builders })}
 		{:else}
 			<div
-				class="bg-surface-tertiary dark:border w-56 origin-top-right rounded-lg shadow-lg focus:outline-none overflow-y-auto py-1"
-				style={`${customWidth ? `width: ${customWidth}px;` : ''} max-height: ${maxHeight || '50vh'};`}
+				class="bg-surface-tertiary dark:border w-56 min-h-0 origin-top-right rounded-lg shadow-lg focus:outline-none overflow-y-auto py-1"
+				style={`${customWidth ? `width: ${customWidth}px;` : ''} max-height: ${maxHeight || '80vh'};`}
 			>
-				<DropdownV2Inner {aiId} items={computeItems} meltItem={item} {builders} />
+				<DropdownV2Inner {aiId} items={computeItems} meltItem={item} {builders} {close} />
 			</div>
 		{/if}
 	</div>

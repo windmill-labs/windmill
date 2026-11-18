@@ -16,7 +16,7 @@ use crate::{
     runnable_settings::{ConcurrencySettings, DebouncingSettings},
 };
 
-#[derive(Serialize, Deserialize, Debug, Clone, Hash)]
+#[derive(Serialize, Deserialize, Debug, Clone, Hash, PartialEq, Eq)]
 pub struct ScriptModule {
     pub content: String,
     pub language: ScriptLang,
@@ -66,6 +66,7 @@ pub enum ScriptLang {
     Java,
     Ruby,
     Rlang,
+    Dbt,
     // for related places search: ADD_NEW_LANG
 }
 
@@ -96,6 +97,7 @@ impl ScriptLang {
             ScriptLang::Java => "java",
             ScriptLang::Ruby => "ruby",
             ScriptLang::Rlang => "rlang",
+            ScriptLang::Dbt => "dbt",
             // for related places search: ADD_NEW_LANG
         }
     }
@@ -134,7 +136,7 @@ impl ScriptLang {
         use ScriptLang::*;
         match self {
             Nativets | Bun | Bunnative | Deno | Go | Php | CSharp | Java => "//",
-            Python3 | Bash | Powershell | Graphql | Ansible | Nu | Ruby | Rlang => "#",
+            Python3 | Bash | Powershell | Graphql | Ansible | Nu | Ruby | Rlang | Dbt => "#",
             Postgresql | Mysql | Bigquery | Snowflake | Mssql | OracleDB | DuckDb => "--",
             Rust => "//!",
             // for related places search: ADD_NEW_LANG
@@ -170,6 +172,7 @@ impl FromStr for ScriptLang {
             "java" => ScriptLang::Java,
             "ruby" => ScriptLang::Ruby,
             "rlang" => ScriptLang::Rlang,
+            "dbt" => ScriptLang::Dbt,
             // for related places search: ADD_NEW_LANG
             language => return Err(anyhow::anyhow!("{} is currently not supported", language)),
         };
@@ -323,11 +326,12 @@ pub fn id_to_codebase_info(id: &str) -> CodebaseInfo {
 pub const SCRIPT_COLUMNS: &str = concat!(
     "workspace_id, hash, path, parent_hashes, summary, description, content, ",
     "created_by, created_at, archived, schema, deleted, is_template, extra_perms, ",
-    "lock, lock_error_logs, language, kind, tag, draft_only, envs, ",
+    "lock, lock_error_logs, language, kind, tag, envs, ",
     "dedicated_worker, ws_error_handler_muted, priority, cache_ttl, cache_ignore_s3_path, ",
     "timeout, delete_after_use, delete_after_secs, restart_unless_cancelled, ",
-    "visible_to_runner_only, auto_kind, codebase, has_preprocessor, on_behalf_of_email, ",
-    "assets, modules, labels, concurrency_key, concurrent_limit, ",
+    "visible_to_runner_only, auto_kind, codebase, has_preprocessor, ",
+    "on_behalf_of, ",
+    "assets, modules, labels, job_token_scopes, concurrency_key, concurrent_limit, ",
     "concurrency_time_window_s, debounce_key, debounce_delay_s, runnable_settings_handle",
 );
 
@@ -354,8 +358,6 @@ pub struct Script<SR> {
     pub language: ScriptLang,
     pub kind: ScriptKind,
     pub tag: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub draft_only: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub envs: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -384,8 +386,13 @@ pub struct Script<SR> {
     pub codebase: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub has_preprocessor: Option<bool>,
+    /// Derived from `on_behalf_of` on the read paths, not selected. Kept in the response so
+    /// clients written against the old shape keep working.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[sqlx(default)]
     pub on_behalf_of_email: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub on_behalf_of: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[sqlx(json(nullable))]
     pub assets: Option<Vec<AssetWithAltAccessType>>,
@@ -394,6 +401,13 @@ pub struct Script<SR> {
     pub modules: Option<HashMap<String, ScriptModule>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub labels: Option<Vec<String>>,
+    /// Caps the scopes of the token minted for each job of this script; `None` = unrestricted.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub job_token_scopes: Option<Vec<String>>,
+    /// Labels inherited from the parent folder, computed at read time. Not stored on the script row.
+    #[sqlx(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub inherited_labels: Option<Vec<String>>,
     #[serde(flatten)]
     #[sqlx(flatten)]
     pub runnable_settings: SR,
@@ -445,8 +459,10 @@ pub struct ListableScript {
     pub tag: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub has_draft: Option<bool>,
+    /// `Some(true)` only on rows synthesised from the `draft` table (never-deployed
+    /// items the user owns a draft for); `None` on deployed rows. Kept on the public
+    /// response so consumers checking `draft_only === true` keep working.
+    #[sqlx(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub draft_only: Option<bool>,
     pub has_deploy_errors: bool,
@@ -461,6 +477,26 @@ pub struct ListableScript {
     pub kind: ScriptKind,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub labels: Option<Vec<String>>,
+    /// `true` when this entry is the authed user's draft — draft-only, or a deployed
+    /// row the user has saved a draft on top of. Distinguishes user state from team state.
+    #[serde(skip_serializing_if = "is_false")]
+    pub is_draft: bool,
+    /// User-typed staged path, so the home list shows a meaningful name over the
+    /// autogenerated `u/{user}/draft_{uuid}`. Sourced from the draft JSON: scripts use
+    /// `value.path` (the Path widget binds `script.path`); flows/apps/raw apps use an
+    /// explicit `value.draft_path` written only when it differs from deployed. `None` = unchanged.
+    #[sqlx(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub draft_path: Option<String>,
+    /// Per-path draft owners (`{ username }`, `None` for the legacy NULL-email row),
+    /// driving the home-page avatar circles. `None` when no drafts; never an empty array.
+    #[sqlx(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub draft_users: Option<sqlx::types::Json<Vec<crate::user_drafts::DraftUserRef>>>,
+    /// Labels inherited from the parent folder, computed at read time.
+    #[sqlx(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub inherited_labels: Option<Vec<String>>,
 }
 
 fn is_false(x: &bool) -> bool {
@@ -474,6 +510,10 @@ pub struct ScriptHistory {
     pub deployment_msg: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub created_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// Who deployed this version — the version picker names it, so a reader can
+    /// tell their own deploys from a teammate's.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub created_by: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -508,7 +548,6 @@ pub struct NewScript {
     pub language: ScriptLang,
     pub kind: Option<ScriptKind>,
     pub tag: Option<String>,
-    pub draft_only: Option<bool>,
     pub envs: Option<Vec<String>>,
     #[serde(flatten)]
     pub concurrency_settings: ConcurrencySettings,
@@ -531,6 +570,10 @@ pub struct NewScript {
     pub codebase: Option<String>,
     pub has_preprocessor: Option<bool>,
     pub on_behalf_of_email: Option<String>,
+    /// Authorization identity to run as, paired with `on_behalf_of_email`. Both move
+    /// together under the same `preserve_on_behalf_of` gate and must name the same user
+    /// or group; `None` has it derived from that email rather than left unset.
+    pub on_behalf_of: Option<String>,
     pub preserve_on_behalf_of: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub assets: Option<Vec<AssetWithAltAccessType>>,
@@ -540,9 +583,27 @@ pub struct NewScript {
     pub auto_parent: Option<bool>,
     #[serde(default)]
     pub labels: Option<Vec<String>>,
+    /// Absent keeps the parent version's value, so a client unaware of the setting
+    /// cannot drop a restriction by redeploying; `null` clears it.
+    #[serde(
+        default,
+        deserialize_with = "crate::more_serde::double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub job_token_scopes: Option<Option<Vec<String>>>,
+    /// Caller-intent flag (set by the CLI / git sync): when true, deploying
+    /// this script must NOT delete an existing user draft at the same path.
+    /// Transient — never persisted. Deliberately excluded from `impl Hash`
+    /// below (it must not affect the version hash) and from the no-op
+    /// comparison in the deploy handler (it isn't part of what the script
+    /// *is*). See `is_noop_deploy_against_parent`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skip_draft_deletion: Option<bool>,
 }
 
 // IMPORTANT: update this Hash impl when adding fields to NewScript
+// (exception: caller-intent flags like `skip_draft_deletion` are intentionally
+// omitted — they must not influence the computed version hash)
 impl Hash for NewScript {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.path.hash(state);
@@ -556,7 +617,6 @@ impl Hash for NewScript {
         self.language.hash(state);
         self.kind.hash(state);
         self.tag.hash(state);
-        self.draft_only.hash(state);
         self.envs.hash(state);
         self.concurrency_settings.hash(state);
         self.debouncing_settings.hash(state);
@@ -567,6 +627,7 @@ impl Hash for NewScript {
         self.priority.hash(state);
         self.timeout.hash(state);
         self.delete_after_use.hash(state);
+        self.delete_after_secs.hash(state);
         self.restart_unless_cancelled.hash(state);
         self.deployment_message.hash(state);
         self.visible_to_runner_only.hash(state);
@@ -574,9 +635,11 @@ impl Hash for NewScript {
         self.codebase.hash(state);
         self.has_preprocessor.hash(state);
         self.on_behalf_of_email.hash(state);
+        self.on_behalf_of.hash(state);
         self.preserve_on_behalf_of.hash(state);
         self.assets.hash(state);
         self.labels.hash(state);
+        self.job_token_scopes.hash(state);
         if let Some(modules) = &self.modules {
             let mut sorted: Vec<_> = modules.iter().collect();
             sorted.sort_by_key(|(k, _)| *k);

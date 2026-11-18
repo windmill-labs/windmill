@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT\n             (SELECT COUNT(*) FROM script\n              WHERE dedicated_worker = true AND archived = false AND deleted = false)::BIGINT AS \"scripts!\",\n             (SELECT COUNT(*) FROM flow WHERE dedicated_worker = true AND archived = false)::BIGINT AS \"flows!\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "scripts!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "flows!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "7b3eadb62ddd07e5e12eb8b5150ddce33008b61bbdab4006194ca7ef5b754802"
+}

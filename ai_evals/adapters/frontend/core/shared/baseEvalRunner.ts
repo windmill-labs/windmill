@@ -38,10 +38,20 @@ export interface RunEvalParams<THelpers, TOutput> {
   helpers: THelpers;
   /** API key for the provider */
   apiKey: string;
-  /** Function to get the current output state */
-  getOutput: () => TOutput;
+  /** Function to get the current output state. May be async — global mode reads
+   * DB-backed drafts back through the (mocked) backend to build its output. */
+  getOutput: () => TOutput | Promise<TOutput>;
   /** Model and Windmill backend configuration */
   options: EvalRunnerOptions;
+  /** Drives the production plan-mode gate in processToolCall. Absent leaves it inert,
+   * which is what every mode but an opted-in global case wants. */
+  isPlanModeActive?: () => boolean;
+  /** Which of `tools` the model is offered on this request. Absent offers all of them. */
+  isToolAvailable?: (name: string) => boolean;
+  /** Re-read before every request, as production's systemMessage getter is. Needed when a
+   * tool changes what the prompt should say — plan mode's instructions have to come back
+   * out once the plan is approved. Falls back to the fixed `systemMessage`. */
+  getSystemMessage?: () => ChatCompletionSystemMessageParam;
   onAssistantMessageStart?: () => void;
   onAssistantToken?: (token: string) => void;
   onAssistantMessageEnd?: () => void;
@@ -67,11 +77,15 @@ export async function runEval<THelpers, TOutput>(
     onAssistantToken,
     onAssistantMessageEnd,
     onToolCall,
+    isPlanModeActive,
+    isToolAvailable,
+    getSystemMessage,
   } = params;
   let shouldEmitMessageStart = true;
 
   const model = options.model ?? "gpt-4o";
   const maxIterations = options.maxIterations ?? 20;
+  const pendingAnswers = options.userAnswers && [...options.userAnswers];
   const workspace = options.workspace ?? "test-workspace";
   const provider = toFrontendEvalProvider(options.provider);
 
@@ -85,9 +99,11 @@ export async function runEval<THelpers, TOutput>(
   // Wrap tools to intercept fn calls for tracking.
   // Cast to ProductionTool since the eval Tool has a narrower toolCallbacks type
   // but the actual callbacks passed at runtime will satisfy both interfaces.
+  // `fn` forwards `this`: the chat loop calls it on a per-iteration copy carrying the def the
+  // model was sent, and a tool reading `this.def` must see that one, as it does in production.
   const wrappedTools = tools.map((tool) => ({
     ...tool,
-    fn: async (p: any) => {
+    fn: async function (this: unknown, p: any) {
       toolCallsCount++;
       toolsCalled.push(tool.def.function.name);
       let argumentsText = "";
@@ -107,7 +123,7 @@ export async function runEval<THelpers, TOutput>(
         toolName: tool.def.function.name,
         argumentsText,
       });
-      return tool.fn(p);
+      return tool.fn.call(this, p);
     },
   }));
 
@@ -118,6 +134,17 @@ export async function runEval<THelpers, TOutput>(
   } = {
     setToolStatus: () => {},
     removeToolStatus: () => {},
+    isPlanModeActive,
+    // Accepts the run form exactly as the model prefilled it: there is nobody here to
+    // edit the arguments, so a case can assert what the model proposed but never how
+    // it reacts to the user changing something.
+    requestRunArgs: async (_toolId, form) => ({ kind: "args", args: form.args }),
+    ...(pendingAnswers && {
+      requestUserQuestion: async () => {
+        const answer = pendingAnswers.shift();
+        return answer === undefined ? undefined : [answer];
+      },
+    }),
     onNewToken: (token: string) => {
       if (shouldEmitMessageStart) {
         onAssistantMessageStart?.();
@@ -139,8 +166,17 @@ export async function runEval<THelpers, TOutput>(
     try {
       const result = await runChatLoop({
         messages,
-        systemMessage,
-        tools: wrappedTools,
+        get systemMessage() {
+          return getSystemMessage?.() ?? systemMessage;
+        },
+        // Re-derived per request, as `systemMessage` is: a tool the posture has withdrawn
+        // must leave the schema too, or the model keeps being offered a call the run has
+        // moved past — and the token counts a case reports include a tool it cannot use.
+        get tools() {
+          return isToolAvailable
+            ? wrappedTools.filter((t) => isToolAvailable(t.def.function.name))
+            : wrappedTools;
+        },
         helpers,
         abortController,
         callbacks,
@@ -154,9 +190,10 @@ export async function runEval<THelpers, TOutput>(
       if (result.hitMaxIterations) {
         return {
           success: false,
-          output: getOutput(),
+          output: (await getOutput()) as TOutput,
           error: `Reached max turns (${maxIterations})`,
           tokenUsage: result.tokenUsage,
+          finalContextTokens: result.lastIterationUsage?.prompt ?? null,
           toolCallsCount,
           toolsCalled,
           toolCallDetails,
@@ -170,8 +207,9 @@ export async function runEval<THelpers, TOutput>(
 
       return {
         success: true,
-        output: getOutput(),
+        output: (await getOutput()) as TOutput,
         tokenUsage: result.tokenUsage,
+        finalContextTokens: result.lastIterationUsage?.prompt ?? null,
         toolCallsCount,
         toolsCalled,
         toolCallDetails,
@@ -191,9 +229,10 @@ export async function runEval<THelpers, TOutput>(
 
       return {
         success: false,
-        output: getOutput(),
+        output: (await getOutput()) as TOutput,
         error: errorMessage,
         tokenUsage: { prompt: 0, completion: 0, total: 0 },
+        finalContextTokens: null,
         toolCallsCount,
         toolsCalled,
         toolCallDetails,

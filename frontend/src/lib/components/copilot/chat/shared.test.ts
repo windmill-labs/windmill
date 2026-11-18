@@ -1,12 +1,34 @@
 import { describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
+import type { DisplayMessage, ToolDisplayMessage } from './shared'
+import { openItemPreviewAction, webSearchResultOf } from './shared'
 
 vi.mock('monaco-editor', () => ({
 	editor: {}
 }))
 
+vi.mock('$lib/utils/featureUsage', () => ({
+	logFeatureUsage: vi.fn(),
+	logHubScriptPick: vi.fn()
+}))
+
+const userHolder = vi.hoisted(() => ({
+	current: { is_super_admin: true } as { is_super_admin: boolean }
+}))
+
 vi.mock('$lib/stores', () => ({
-	workspaceStore: { subscribe: () => () => undefined }
+	workspaceStore: { subscribe: () => () => undefined },
+	userStore: {
+		subscribe: (run: (value: { is_super_admin: boolean }) => void) => {
+			run(userHolder.current)
+			return () => {}
+		}
+	}
+}))
+
+vi.mock('$lib/components/triggers/email/utils', () => ({
+	getEmailAddress: (localPart: string, _wlp: boolean, _wsId: string, domain: string) =>
+		`${localPart}@${domain}`
 }))
 
 vi.mock('$lib/components/flows/flowTree', () => ({
@@ -16,7 +38,8 @@ vi.mock('$lib/components/flows/flowTree', () => ({
 vi.mock('$lib/gen', () => ({
 	ScriptService: {},
 	FlowService: {},
-	JobService: {},
+	IntegrationService: {},
+	JobService: { getJob: vi.fn(), getJobUpdates: vi.fn() },
 	ScheduleService: {
 		previewSchedule: vi.fn(),
 		createSchedule: vi.fn()
@@ -29,7 +52,13 @@ vi.mock('$lib/gen', () => ({
 	MqttTriggerService: { createMqttTrigger: vi.fn() },
 	SqsTriggerService: { createSqsTrigger: vi.fn() },
 	GcpTriggerService: { createGcpTrigger: vi.fn() },
-	AzureTriggerService: { createAzureTrigger: vi.fn() }
+	AzureTriggerService: { createAzureTrigger: vi.fn() },
+	AmqpTriggerService: { createAmqpTrigger: vi.fn() },
+	EmailTriggerService: { createEmailTrigger: vi.fn() },
+	SettingService: { getGlobal: vi.fn() },
+	ResourceService: {
+		getResourceValue: vi.fn(async ({ path }: { path: string }) => ({ content: `body of ${path}` }))
+	}
 }))
 
 vi.mock('$lib/utils', () => ({
@@ -52,6 +81,12 @@ vi.mock('@leeoniya/ufuzzy', () => ({
 	}
 }))
 
+// deriveChatJobStatus's scheduled branch calls forLater; stub it deterministically
+// (a real one pulls in stores/db-clock drift) — "later" = >5s in the future.
+vi.mock('$lib/forLater', () => ({
+	forLater: (scheduled: string | number | Date) => new Date(scheduled).getTime() > Date.now() + 5000
+}))
+
 describe('createToolDef', () => {
 	it('builds the create_trigger schema without top-level composition', async () => {
 		const { createToolDef } = await import('./shared')
@@ -65,7 +100,9 @@ describe('createToolDef', () => {
 		expect(parameters?.oneOf).toBeUndefined()
 		expect(parameters?.allOf).toBeUndefined()
 		expect(parameters?.properties?.kind?.enum).toContain('http')
-		expect(parameters?.properties?.config?.anyOf?.length).toBeGreaterThan(1)
+		// config stays open-ended; get_trigger_schema serves the per-kind schemas instead.
+		expect(parameters?.properties?.config?.anyOf).toBeUndefined()
+		expect(JSON.stringify(toolDef).length).toBeLessThan(2000)
 	})
 
 	it('disables strict mode for schemas with optional properties', async () => {
@@ -103,19 +140,34 @@ describe('createToolDef', () => {
 
 	it('does not expose runnable target fields on workspace mutation tools', async () => {
 		const { createWorkspaceMutationTools } = await import('./workspaceTools')
-		const [scheduleTool, triggerTool] = createWorkspaceMutationTools()
+		const { triggerConfigSchemas } = await import('./workspaceToolsZod.gen')
+		const [scheduleTool] = createWorkspaceMutationTools()
 
 		const scheduleParameters = scheduleTool.def.function.parameters as any
 		expect(scheduleParameters?.properties?.script_path).toBeUndefined()
 		expect(scheduleParameters?.properties?.is_flow).toBeUndefined()
 
-		const triggerParameters = triggerTool.def.function.parameters as any
-		const triggerConfigVariants = triggerParameters?.properties?.config?.anyOf ?? []
-		expect(triggerConfigVariants.length).toBeGreaterThan(1)
-		for (const variant of triggerConfigVariants) {
-			expect(variant?.properties?.script_path).toBeUndefined()
-			expect(variant?.properties?.is_flow).toBeUndefined()
+		// These come from the runnable the chat is editing, so the model must not see them
+		// on any kind, including in the schemas get_trigger_schema serves on demand.
+		const getTriggerSchema = createWorkspaceMutationTools().find(
+			(tool) => tool.def.function.name === 'get_trigger_schema'
+		)!
+		for (const kind of Object.keys(triggerConfigSchemas)) {
+			const served = JSON.parse(await getTriggerSchema.fn({ args: { kind } } as any))
+			expect(served.properties?.script_path).toBeUndefined()
+			expect(served.properties?.is_flow).toBeUndefined()
+			expect(served.properties?.path).toBeUndefined()
 		}
+
+		// Same for the schedule options served on demand. The runnable target still wins
+		// on merge, so this is about not advertising a field the model cannot influence.
+		const getScheduleSchema = createWorkspaceMutationTools().find(
+			(tool) => tool.def.function.name === 'get_schedule_schema'
+		)!
+		const schedule = JSON.parse(await getScheduleSchema.fn({ args: {} } as any))
+		expect(schedule.properties?.script_path).toBeUndefined()
+		expect(schedule.properties?.is_flow).toBeUndefined()
+		expect(schedule.properties).toHaveProperty('retry')
 	})
 })
 
@@ -135,20 +187,182 @@ describe('buildContextString', () => {
 				path: 'f/flows/reporting',
 				title: 'f/flows/reporting',
 				summary: 'Reporting flow'
+			},
+			{
+				type: 'workspace_app',
+				path: 'f/apps/dashboard',
+				title: 'f/apps/dashboard',
+				summary: 'Dashboard raw app'
 			}
 		])
 
 		expect(context).toContain('SELECTED WORKSPACE ITEMS:')
 		expect(context).toContain('- type: script, path: f/scripts/report')
 		expect(context).toContain('- type: flow, path: f/flows/reporting')
+		expect(context).toContain('- type: raw_app, path: f/apps/dashboard')
 		expect(context).not.toContain('Report script')
 		expect(context).not.toContain('Reporting flow')
+		expect(context).not.toContain('Dashboard raw app')
 		expect(context).not.toContain('Code:')
 		expect(context).not.toContain('Value:')
 	})
 })
 
 describe('processToolCall', () => {
+	it('delivers folder instructions once, holding back a change until they are read', async () => {
+		const { createToolDef, processToolCall } = await import('./shared')
+		const read = vi.fn(async () => 'read ok')
+		const write = vi.fn(async () => 'write ok')
+		const tools = [
+			{ def: createToolDef(z.object({}), 'read_item', 'Read'), planModeSafe: true, fn: read },
+			{ def: createToolDef(z.object({}), 'write_item', 'Write'), fn: write }
+		]
+		const folderInstructions = {
+			list: () => [
+				{ path: 'f/billing/AGENTS', scope: 'f/billing/' },
+				{ path: 'f/billing/eu/AGENTS', scope: 'f/billing/eu/' },
+				{ path: 'f/other/AGENTS', scope: 'f/other/' },
+				{ path: 'g/ops/AGENTS', scope: 'g/ops/' }
+			],
+			deliveredBy: new Map<string, { workspace: string; paths: readonly string[] }>(),
+			inPrompt: undefined as (() => string[]) | undefined
+		}
+		const messages: any[] = []
+		const call = async (
+			id: string,
+			name: string,
+			path: string | object,
+			workspace = 'test-workspace'
+		) => {
+			const message = await processToolCall({
+				tools,
+				toolCall: {
+					id,
+					type: 'function',
+					function: {
+						name,
+						arguments: JSON.stringify(typeof path === 'string' ? { path } : path)
+					}
+				},
+				helpers: {},
+				workspace,
+				messages,
+				toolCallbacks: { setToolStatus: vi.fn(), removeToolStatus: vi.fn(), folderInstructions }
+			})
+			messages.push(message)
+			return message.content as string
+		}
+		const turn = () => messages.push({ role: 'assistant', content: '' })
+
+		turn()
+		const readResult = await call('c1', 'read_item', 'f/billing/eu/invoice')
+		expect(read).toHaveBeenCalledTimes(1)
+		expect(readResult.startsWith('read ok')).toBe(true)
+		// Outermost first, so the nested folder's instructions read as the specific ones.
+		expect(readResult.indexOf('body of f/billing/AGENTS')).toBeLessThan(
+			readResult.indexOf('body of f/billing/eu/AGENTS')
+		)
+		// Same batch: the model has not read c1's result yet, so the write still waits,
+		// pointed at that result rather than handed the bodies twice.
+		const sameBatch = await call('c2', 'write_item', 'f/billing/eu/invoice')
+		expect(write).not.toHaveBeenCalled()
+		expect(sameBatch).not.toContain('body of f/billing/AGENTS')
+		expect(sameBatch).toContain('earlier result of this same batch')
+
+		turn()
+		expect(await call('c3', 'write_item', 'f/billing/eu/invoice')).toBe('write ok')
+
+		const held = await call('c4', 'write_item', 'f/other/x')
+		expect(write).toHaveBeenCalledTimes(1)
+		expect(held).toContain('body of f/other/AGENTS')
+		expect(held).not.toContain('body of f/billing/AGENTS')
+
+		turn()
+		expect(await call('c5', 'write_item', 'f/other/x')).toBe('write ok')
+
+		expect(await call('g1', 'read_item', 'g/ops/runbook')).toContain('body of g/ops/AGENTS')
+
+		// The same path in another workspace is another resource, delivered afresh.
+		expect(await call('w1', 'read_item', 'f/other/x', 'other-workspace')).toContain(
+			'body of f/other/AGENTS'
+		)
+
+		// A delivery lost from the conversation (compaction) is made again.
+		messages.splice(0)
+		turn()
+		expect(await call('c6', 'read_item', 'f/billing/y')).toContain('body of f/billing/AGENTS')
+
+		// A trigger names its target inside its config.
+		messages.splice(0)
+		turn()
+		const nested = await call('t1', 'write_item', { kind: 'http', config: { path: 'f/other/t' } })
+		expect(nested).toContain('body of f/other/AGENTS')
+		expect(write).toHaveBeenCalledTimes(2)
+
+		// A call stopped mid-run is answered with a placeholder under its id: no delivery.
+		messages.splice(0)
+		folderInstructions.deliveredBy.set('stopped', {
+			workspace: 'test-workspace',
+			paths: ['f/billing/AGENTS']
+		})
+		messages.push({ role: 'tool', tool_call_id: 'stopped', content: 'Interrupted' })
+		turn()
+		expect(await call('c7', 'read_item', 'f/billing/y')).toContain('body of f/billing/AGENTS')
+
+		// The scoped folder's instructions are in the system prompt: never delivered on touch.
+		messages.splice(0)
+		turn()
+		folderInstructions.inPrompt = () => ['f/other/AGENTS']
+		expect(await call('p1', 'write_item', 'f/other/x')).toBe('write ok')
+	})
+
+	it('stops a change outside the scope on the user, whatever YOLO says, and never a run', async () => {
+		const { createToolDef, processToolCall } = await import('./shared')
+		const { WorkingScope, scopeAllowedNote, scopeStoppedResult } = await import('./workingScope')
+		const write = vi.fn(async () => 'write ok')
+		const run = vi.fn(async () => 'run ok')
+		const tools = [
+			{ def: createToolDef(z.object({}), 'write_item', 'Write'), fn: write },
+			{ def: createToolDef(z.object({}), 'run_script', 'Run'), fn: run }
+		]
+		let decision: 'once' | 'add' | undefined = undefined
+		const requestDecision = vi.fn(async () => decision)
+		const add = vi.fn()
+		const scope = new WorkingScope(['f/crm'], { username: 'alice', folders: ['analytics'] })
+		const call = (path: string, name = 'write_item') =>
+			processToolCall({
+				tools,
+				toolCall: {
+					id: `${name}:${path}`,
+					type: 'function',
+					function: { name, arguments: JSON.stringify({ path }) }
+				},
+				helpers: {},
+				workspace: 'test-workspace',
+				toolCallbacks: {
+					setToolStatus: vi.fn(),
+					removeToolStatus: vi.fn(),
+					shouldAutoAcceptToolConfirmations: () => true,
+					workingScope: { scope: () => scope, requestDecision, add, recordWrite: vi.fn() }
+				}
+			}).then((m) => m.content)
+
+		expect(await call('f/crm/x')).toBe('write ok')
+		expect(await call('f/analytics/x', 'run_script')).toBe('run ok')
+		expect(requestDecision).not.toHaveBeenCalled()
+
+		expect(await call('f/analytics/x')).toBe(scopeStoppedResult('f/analytics/x', 'f/crm'))
+		expect(write).toHaveBeenCalledTimes(1)
+
+		decision = 'once'
+		expect(await call('f/analytics/y')).toBe(
+			`write ok\n\n${scopeAllowedNote('f/analytics/y', 'f/analytics', 'f/crm', 'once')}`
+		)
+		decision = 'add'
+		await call('f/analytics/z')
+		expect(add).toHaveBeenCalledWith('f/analytics')
+	})
+
 	it('returns pre-confirmation validation errors without asking for confirmation', async () => {
 		const { createToolDef, processToolCall } = await import('./shared')
 		const error = 'the script needs to be deployed before doing this action'
@@ -196,6 +410,69 @@ describe('processToolCall', () => {
 		expect(result.content).toBe(error)
 	})
 
+	it('surfaces the real error in the tool status when the tool throws', async () => {
+		const { createToolDef, processToolCall } = await import('./shared')
+		const apiError = Object.assign(new Error('Bad Request'), {
+			status: 400,
+			body: { error: { message: 'script not found at path f/scripts/missing' } }
+		})
+		const setToolStatus = vi.fn()
+
+		const result = await processToolCall({
+			tools: [
+				{
+					def: createToolDef(z.object({}), 'run_script', 'Run script'),
+					fn: vi.fn().mockRejectedValue(apiError)
+				}
+			],
+			toolCall: {
+				id: 'call_err',
+				type: 'function',
+				function: { name: 'run_script', arguments: '{}' }
+			},
+			helpers: {},
+			workspace: 'test-workspace',
+			toolCallbacks: {
+				setToolStatus,
+				removeToolStatus: vi.fn()
+			}
+		})
+
+		const expectedError = 'script not found at path f/scripts/missing'
+		expect(setToolStatus).toHaveBeenLastCalledWith(
+			'call_err',
+			expect.objectContaining({
+				isLoading: false,
+				error: expectedError
+			})
+		)
+		expect(result.content).toBe(`Error while calling tool: ${expectedError}`)
+	})
+
+	it('resolves a tool registered earlier in the same batch from the live set', async () => {
+		const { createToolDef, processToolCall } = await import('./shared')
+		const fn = vi.fn().mockResolvedValue('built')
+		const registered = {
+			def: createToolDef(z.object({}), 'build_pipeline_node', 'Build node'),
+			fn
+		}
+		const result = await processToolCall({
+			tools: [],
+			live: () => ({ tools: [registered], helpers: { pipelines: true } }),
+			toolCall: {
+				id: 'call_live',
+				type: 'function',
+				function: { name: 'build_pipeline_node', arguments: '{}' }
+			},
+			helpers: {},
+			workspace: 'test-workspace',
+			toolCallbacks: { setToolStatus: vi.fn(), removeToolStatus: vi.fn() }
+		})
+
+		expect(result.content).toBe('built')
+		expect(fn).toHaveBeenCalledWith(expect.objectContaining({ helpers: { pipelines: true } }))
+	})
+
 	it('continues to confirmation when pre-confirmation validation passes', async () => {
 		const { createToolDef, processToolCall } = await import('./shared')
 		const fn = vi.fn().mockResolvedValue('ok')
@@ -228,7 +505,7 @@ describe('processToolCall', () => {
 			}
 		})
 
-		expect(requestConfirmation).toHaveBeenCalledWith('call_2')
+		expect(requestConfirmation).toHaveBeenCalledWith('call_2', 'create_schedule')
 		expect(fn).toHaveBeenCalled()
 		expect(setToolStatus).toHaveBeenCalledWith(
 			'call_2',
@@ -337,6 +614,89 @@ describe('processToolCall', () => {
 
 		expect(flowResult.content).toBe('the flow needs to be deployed before doing this action')
 		expect(requestConfirmation).not.toHaveBeenCalled()
+	})
+
+	// create_schedule duplicates the global `advanced` merge and guard, so it needs its
+	// own coverage: the fold must reach the request body and a mis-shape must stop the
+	// write rather than create a schedule with an inert policy.
+	it('folds advanced schedule options into create_schedule and refuses a mis-shaped one', async () => {
+		const gen = (await import('$lib/gen')) as any
+		const { processToolCall } = await import('./shared')
+		const { createWorkspaceMutationTools } = await import('./workspaceTools')
+		const workspaceMutationTools = createWorkspaceMutationTools()
+
+		gen.ScheduleService.previewSchedule.mockReset()
+		gen.ScheduleService.createSchedule.mockReset()
+		gen.ScheduleService.previewSchedule.mockResolvedValue({})
+		gen.ScheduleService.createSchedule.mockResolvedValue('schedule-created')
+
+		const target = {
+			getWorkspaceMutationTarget: () => ({
+				kind: 'script' as const,
+				path: 'f/scripts/current',
+				deployed: true
+			})
+		}
+		const callbacks = () => ({
+			setToolStatus: vi.fn(),
+			removeToolStatus: vi.fn(),
+			requestConfirmation: vi.fn().mockResolvedValue(true)
+		})
+
+		await processToolCall({
+			tools: workspaceMutationTools,
+			toolCall: {
+				id: 'call_adv',
+				type: 'function',
+				function: {
+					name: 'create_schedule',
+					arguments: JSON.stringify({
+						path: 'f/schedules/adv',
+						schedule: '0 0 12 * * *',
+						timezone: 'UTC',
+						args: null,
+						advanced: { tag: 'nightly', retry: { constant: { attempts: 2, seconds: 30 } } }
+					})
+				}
+			},
+			helpers: target,
+			workspace: 'test-workspace',
+			toolCallbacks: callbacks()
+		})
+
+		expect(gen.ScheduleService.createSchedule).toHaveBeenCalledWith({
+			workspace: 'test-workspace',
+			requestBody: expect.objectContaining({
+				tag: 'nightly',
+				retry: { constant: { attempts: 2, seconds: 30 } }
+			})
+		})
+
+		gen.ScheduleService.createSchedule.mockReset()
+		const badStatus = vi.fn()
+		await processToolCall({
+			tools: workspaceMutationTools,
+			toolCall: {
+				id: 'call_bad',
+				type: 'function',
+				function: {
+					name: 'create_schedule',
+					arguments: JSON.stringify({
+						path: 'f/schedules/bad',
+						schedule: '0 0 12 * * *',
+						timezone: 'UTC',
+						args: null,
+						advanced: { retry: { constant: { attempts: 2, seconds_typo: 30 } } }
+					})
+				}
+			},
+			helpers: target,
+			workspace: 'test-workspace',
+			toolCallbacks: { ...callbacks(), setToolStatus: badStatus }
+		})
+
+		expect(gen.ScheduleService.createSchedule).not.toHaveBeenCalled()
+		expect(JSON.stringify(badStatus.mock.calls)).toContain('get_schedule_schema')
 	})
 
 	it('injects runnable target fields into schedule and trigger requests', async () => {
@@ -500,6 +860,118 @@ describe('processToolCall', () => {
 		)
 	})
 
+	it('email trigger: guides the user to set up email triggering when unconfigured', async () => {
+		const gen = (await import('$lib/gen')) as any
+		const { processToolCall } = await import('./shared')
+		const { createWorkspaceMutationTools } = await import('./workspaceTools')
+		const tools = createWorkspaceMutationTools()
+
+		gen.SettingService.getGlobal.mockReset()
+		gen.SettingService.getGlobal.mockResolvedValue(null)
+		gen.EmailTriggerService.createEmailTrigger.mockReset()
+
+		const call = (id: string) =>
+			processToolCall({
+				tools,
+				toolCall: {
+					id,
+					type: 'function',
+					function: {
+						name: 'create_trigger',
+						arguments: JSON.stringify({
+							kind: 'email',
+							path: 'f/triggers/email_current',
+							config: { local_part: 'orders' }
+						})
+					}
+				},
+				helpers: {
+					getWorkspaceMutationTarget: () => ({
+						kind: 'flow',
+						path: 'f/flows/current',
+						deployed: true
+					})
+				},
+				workspace: 'test-workspace',
+				toolCallbacks: {
+					setToolStatus: vi.fn(),
+					removeToolStatus: vi.fn(),
+					requestConfirmation: vi.fn().mockResolvedValue(true)
+				}
+			})
+
+		userHolder.current = { is_super_admin: true }
+		const superadminResult = await call('call_email_super')
+		expect(gen.EmailTriggerService.createEmailTrigger).not.toHaveBeenCalled()
+		expect(superadminResult.content).toContain('not set up')
+		expect(superadminResult.content).toContain('As a superadmin')
+
+		userHolder.current = { is_super_admin: false }
+		const memberResult = await call('call_email_member')
+		expect(gen.EmailTriggerService.createEmailTrigger).not.toHaveBeenCalled()
+		expect(memberResult.content).toContain('Ask an instance superadmin')
+	})
+
+	it('email trigger: creates it and reports the address when email triggering is configured', async () => {
+		const gen = (await import('$lib/gen')) as any
+		const { processToolCall } = await import('./shared')
+		const { createWorkspaceMutationTools } = await import('./workspaceTools')
+		const tools = createWorkspaceMutationTools()
+
+		gen.SettingService.getGlobal.mockReset()
+		gen.SettingService.getGlobal.mockResolvedValue('mail.example.com')
+		gen.EmailTriggerService.createEmailTrigger.mockReset()
+		gen.EmailTriggerService.createEmailTrigger.mockResolvedValue('email-created')
+
+		const result = await processToolCall({
+			tools,
+			toolCall: {
+				id: 'call_email_ok',
+				type: 'function',
+				function: {
+					name: 'create_trigger',
+					arguments: JSON.stringify({
+						kind: 'email',
+						path: 'f/triggers/email_current',
+						config: { local_part: 'orders' }
+					})
+				}
+			},
+			helpers: {
+				getWorkspaceMutationTarget: () => ({
+					kind: 'flow',
+					path: 'f/flows/current',
+					deployed: true
+				})
+			},
+			workspace: 'test-workspace',
+			toolCallbacks: {
+				setToolStatus: vi.fn(),
+				removeToolStatus: vi.fn(),
+				requestConfirmation: vi.fn().mockResolvedValue(true)
+			}
+		})
+
+		expect(gen.EmailTriggerService.createEmailTrigger).toHaveBeenCalledWith({
+			workspace: 'test-workspace',
+			requestBody: expect.objectContaining({
+				local_part: 'orders',
+				// defaulted before the request is sent; the backend column is NOT NULL
+				workspaced_local_part: false,
+				script_path: 'f/flows/current',
+				is_flow: true
+			})
+		})
+		expect(JSON.parse(result.content as string)).toEqual(
+			expect.objectContaining({
+				success: true,
+				kind: 'email',
+				email_address: 'orders@mail.example.com',
+				backend_result: 'email-created'
+			})
+		)
+	})
+
 	it('surfaces workspace mutation tool execution errors to the user', async () => {
 		const gen = (await import('$lib/gen')) as any
 		const { processToolCall } = await import('./shared')
@@ -616,5 +1088,1244 @@ describe('processToolCall', () => {
 				error: 'An error occurred while calling the tool'
 			})
 		)
+	})
+
+	// The counter is silently dropped by the backend when the key is malformed, so nothing
+	// here fails loudly if a path stops logging or logs the wrong status.
+	it('logs one feature-usage outcome per tool call, keyed <tool>:<status>', async () => {
+		const { createToolDef, processToolCall } = await import('./shared')
+		const { logFeatureUsage } = await import('$lib/utils/featureUsage')
+
+		const outcomeKeys = async (
+			tool: Partial<import('./shared').Tool<any>> = {},
+			toolCallbacks: Partial<import('./shared').ToolCallbacks> = {}
+		) => {
+			vi.mocked(logFeatureUsage).mockClear()
+			await runToolCall(
+				{
+					def: createToolDef(z.object({}), 'run_script', 'Run script'),
+					fn: vi.fn().mockResolvedValue('done'),
+					...tool
+				},
+				toolCallbacks
+			)
+			return vi
+				.mocked(logFeatureUsage)
+				.mock.calls.map(([feature, kind, opts]) => [feature, kind, opts?.key])
+		}
+
+		expect(await outcomeKeys()).toEqual([['ai_chat', 'tool', 'run_script:ok']])
+		expect(await outcomeKeys({ fn: vi.fn().mockRejectedValue(new Error('boom')) })).toEqual([
+			['ai_chat', 'tool', 'run_script:error']
+		])
+		expect(await outcomeKeys({ validateBeforeConfirmation: () => 'not deployed' })).toEqual([
+			['ai_chat', 'tool', 'run_script:rejected']
+		])
+		expect(
+			await outcomeKeys(
+				{ requiresConfirmation: true },
+				{ requestConfirmation: vi.fn().mockResolvedValue(false) }
+			)
+		).toEqual([['ai_chat', 'tool', 'run_script:declined']])
+		// A tool that runs its own consent surface (the run form) declines by settling
+		// the card, then returns normally — that must not read as a successful run.
+		expect(
+			await outcomeKeys({
+				fn: vi.fn(async ({ toolCallbacks, toolId }: any) => {
+					toolCallbacks.setToolStatus(toolId, { declinedByUser: true })
+					return 'cancelled'
+				})
+			})
+		).toEqual([['ai_chat', 'tool', 'run_script:declined']])
+		expect(await outcomeKeys({}, { isPlanModeActive: () => true })).toEqual([
+			['ai_chat', 'tool', 'run_script:blocked_plan_mode']
+		])
+
+		// A name the model invented resolves to no tool, and must never reach telemetry.
+		vi.mocked(logFeatureUsage).mockClear()
+		await processToolCall({
+			tools: [{ def: createToolDef(z.object({}), 'run_script', 'Run script'), fn: vi.fn() }],
+			toolCall: {
+				id: 'call_ghost',
+				type: 'function',
+				function: { name: 'hallucinated_tool', arguments: '{}' }
+			},
+			helpers: {},
+			workspace: 'test-workspace',
+			toolCallbacks: { setToolStatus: vi.fn(), removeToolStatus: vi.fn() }
+		})
+		expect(logFeatureUsage).not.toHaveBeenCalled()
+	})
+})
+
+async function runToolCall(
+	tool: Partial<import('./shared').Tool<any>> & {
+		def: import('./shared').Tool<any>['def']
+		fn: import('./shared').Tool<any>['fn']
+	},
+	toolCallbacks: Partial<import('./shared').ToolCallbacks>,
+	args: Record<string, unknown> = {}
+) {
+	const { processToolCall } = await import('./shared')
+	return processToolCall({
+		tools: [tool as import('./shared').Tool<any>],
+		toolCall: {
+			id: 'call_plan',
+			type: 'function',
+			function: { name: tool.def.function.name, arguments: JSON.stringify(args) }
+		},
+		helpers: {},
+		workspace: 'test-workspace',
+		toolCallbacks: {
+			setToolStatus: vi.fn(),
+			removeToolStatus: vi.fn(),
+			...toolCallbacks
+		}
+	})
+}
+
+describe('processToolCall plan-mode gate', () => {
+	it('blocks an untagged tool while plan mode is active', async () => {
+		const { createToolDef } = await import('./shared')
+		const fn = vi.fn().mockResolvedValue('ran')
+		const onToolBlockedByPlanMode = vi.fn()
+
+		const result = await runToolCall(
+			{ def: createToolDef(z.object({}), 'write_script', 'Write script'), fn },
+			{ isPlanModeActive: () => true, onToolBlockedByPlanMode }
+		)
+
+		expect(fn).not.toHaveBeenCalled()
+		expect(onToolBlockedByPlanMode).toHaveBeenCalledOnce()
+		expect(result.content).toContain('plan mode is active')
+	})
+
+	it('blocks a mutating tool before its own validator gets to run', async () => {
+		const { createToolDef } = await import('./shared')
+		const fn = vi.fn().mockResolvedValue('ran')
+		const validateBeforeConfirmation = vi.fn().mockResolvedValue('target is undeployed')
+		const onToolBlockedByPlanMode = vi.fn()
+
+		const result = await runToolCall(
+			{
+				def: createToolDef(z.object({}), 'write_script', 'Write script'),
+				validateBeforeConfirmation,
+				fn
+			},
+			{ isPlanModeActive: () => true, onToolBlockedByPlanMode }
+		)
+
+		expect(validateBeforeConfirmation).not.toHaveBeenCalled()
+		expect(onToolBlockedByPlanMode).toHaveBeenCalledOnce()
+		expect(result.content).toContain('plan mode is active')
+	})
+
+	it('allows a plan-mode-safe tool while plan mode is active', async () => {
+		const { createToolDef } = await import('./shared')
+		const fn = vi.fn().mockResolvedValue('ok')
+
+		const result = await runToolCall(
+			{ def: createToolDef(z.object({}), 'read_file', 'Read file'), planModeSafe: true, fn },
+			{ isPlanModeActive: () => true }
+		)
+
+		expect(fn).toHaveBeenCalled()
+		expect(result.content).toBe('ok')
+	})
+
+	it('runs an untagged tool normally when plan mode is inactive', async () => {
+		const { createToolDef } = await import('./shared')
+		const fn = vi.fn().mockResolvedValue('ran')
+
+		const result = await runToolCall(
+			{ def: createToolDef(z.object({}), 'write_script', 'Write script'), fn },
+			{ isPlanModeActive: () => false }
+		)
+
+		expect(fn).toHaveBeenCalled()
+		expect(result.content).toBe('ran')
+	})
+
+	it('does not block an unknown tool name — falls through to the unknown-tool error', async () => {
+		const { processToolCall } = await import('./shared')
+		const result = await processToolCall({
+			tools: [],
+			toolCall: {
+				id: 'call_unknown',
+				type: 'function',
+				function: { name: 'made_up_tool', arguments: '{}' }
+			},
+			helpers: {},
+			workspace: 'test-workspace',
+			toolCallbacks: {
+				setToolStatus: vi.fn(),
+				removeToolStatus: vi.fn(),
+				isPlanModeActive: () => true
+			}
+		})
+
+		expect(result.content).not.toContain('plan mode is active')
+		expect(result.content).toContain('Unknown tool call')
+	})
+
+	it('returns the tool cancellationMessage when the user rejects the confirmation', async () => {
+		const { createToolDef } = await import('./shared')
+		const fn = vi.fn()
+		const setToolStatus = vi.fn()
+
+		const result = await runToolCall(
+			{
+				def: createToolDef(z.object({ summary: z.string() }), 'exit_plan_mode', 'Exit plan mode'),
+				planModeSafe: true,
+				requiresConfirmation: true,
+				cancellationMessage: 'keep planning',
+				fn
+			},
+			{
+				isPlanModeActive: () => true,
+				requestConfirmation: vi.fn().mockResolvedValue(false),
+				setToolStatus
+			}
+		)
+
+		expect(fn).not.toHaveBeenCalled()
+		expect(result.content).toBe('keep planning')
+		// The one place a decline is recorded: planCardState reads it to tell a plan the
+		// user turned down apart from a call that merely errored.
+		expect(setToolStatus).toHaveBeenCalledWith(
+			'call_plan',
+			expect.objectContaining({ declinedByUser: true })
+		)
+	})
+
+	it('blocks a mutating tool if plan mode is entered while its confirmation is pending', async () => {
+		const { createToolDef } = await import('./shared')
+		const fn = vi.fn().mockResolvedValue('ran')
+		let planActive = false
+		// The user switches into plan mode while the confirmation card is open, then
+		// approves it: requestConfirmation flips the posture, then resolves true.
+		const requestConfirmation = vi.fn().mockImplementation(async () => {
+			planActive = true
+			return true
+		})
+
+		const result = await runToolCall(
+			{
+				def: createToolDef(z.object({}), 'write_script', 'Write script'),
+				requiresConfirmation: true,
+				fn
+			},
+			{ isPlanModeActive: () => planActive, requestConfirmation }
+		)
+
+		expect(requestConfirmation).toHaveBeenCalled()
+		expect(fn).not.toHaveBeenCalled()
+		expect(result.content).toContain('plan mode is active')
+	})
+
+	it('refuses only the arguments a tagged tool names, in its own words', async () => {
+		const { createToolDef } = await import('./shared')
+		const fn = vi.fn().mockResolvedValue('ran')
+		const setToolStatus = vi.fn()
+		const tool = {
+			def: createToolDef(z.object({ id: z.string() }), 'update_doc', 'Update a doc'),
+			planModeSafe: true,
+			refuseInPlanMode: ({ args }: { args: any }) =>
+				args.id === 'the-plan'
+					? { label: 'Not that one', result: 'Write anything but the plan.' }
+					: undefined,
+			fn
+		}
+
+		const refused = await runToolCall(
+			tool,
+			{ isPlanModeActive: () => true, setToolStatus },
+			{
+				id: 'the-plan'
+			}
+		)
+		expect(fn).not.toHaveBeenCalled()
+		expect(refused.content).toBe('Write anything but the plan.')
+		expect(setToolStatus).toHaveBeenCalledWith(
+			'call_plan',
+			expect.objectContaining({ content: 'Not that one', blockedByPlanMode: true })
+		)
+
+		const allowed = await runToolCall(tool, { isPlanModeActive: () => true }, { id: 'a-note' })
+		expect(fn).toHaveBeenCalled()
+		expect(allowed.content).toBe('ran')
+	})
+
+	it('never asks a tool which arguments it refuses once plan mode is over', async () => {
+		// The posture is the only thing that makes this hook relevant: consulted outside it, a
+		// tool that narrows itself for planning would narrow itself for every other mode too.
+		const { createToolDef } = await import('./shared')
+		const fn = vi.fn().mockResolvedValue('ran')
+		const refuseInPlanMode = vi.fn().mockReturnValue('refused')
+
+		const result = await runToolCall(
+			{
+				def: createToolDef(z.object({ id: z.string() }), 'update_doc', 'Update a doc'),
+				planModeSafe: true,
+				refuseInPlanMode,
+				fn
+			},
+			{ isPlanModeActive: () => false },
+			{ id: 'the-plan' }
+		)
+
+		expect(refuseInPlanMode).not.toHaveBeenCalled()
+		expect(fn).toHaveBeenCalled()
+		expect(result.content).toBe('ran')
+	})
+})
+
+describe('isActiveUserQuestion', () => {
+	function toolMessage(overrides: Partial<ToolDisplayMessage> = {}): ToolDisplayMessage {
+		return {
+			role: 'tool',
+			tool_call_id: 'call_q',
+			content: 'asking a question',
+			isLoading: true,
+			userQuestion: { question: 'Pick one', choices: ['a', 'b'] },
+			...overrides
+		}
+	}
+
+	it('is true for a loading tool message with an unanswered question', async () => {
+		const { isActiveUserQuestion } = await import('./shared')
+		expect(isActiveUserQuestion(toolMessage())).toBe(true)
+	})
+
+	it('is false once choices have been selected', async () => {
+		const { isActiveUserQuestion } = await import('./shared')
+		expect(
+			isActiveUserQuestion(
+				toolMessage({
+					userQuestion: { question: 'Pick one', choices: ['a', 'b'], selectedChoices: ['a'] }
+				})
+			)
+		).toBe(false)
+	})
+
+	it('is false once a legacy scalar selectedChoice is present', async () => {
+		const { isActiveUserQuestion } = await import('./shared')
+		expect(
+			isActiveUserQuestion(
+				toolMessage({
+					userQuestion: { question: 'Pick one', choices: ['a', 'b'], selectedChoice: 'a' }
+				})
+			)
+		).toBe(false)
+	})
+
+	it('stays active when selectedChoices is present but empty', async () => {
+		const { isActiveUserQuestion } = await import('./shared')
+		expect(
+			isActiveUserQuestion(
+				toolMessage({
+					userQuestion: { question: 'Pick one', choices: ['a', 'b'], selectedChoices: [] }
+				})
+			)
+		).toBe(true)
+	})
+
+	it('is false when the question was canceled', async () => {
+		const { isActiveUserQuestion } = await import('./shared')
+		expect(
+			isActiveUserQuestion(
+				toolMessage({ userQuestion: { question: 'Pick one', choices: ['a', 'b'], canceled: true } })
+			)
+		).toBe(false)
+	})
+
+	it('is false when the tool errored', async () => {
+		const { isActiveUserQuestion } = await import('./shared')
+		expect(isActiveUserQuestion(toolMessage({ error: 'boom' }))).toBe(false)
+	})
+
+	it('is false when the tool is no longer loading', async () => {
+		const { isActiveUserQuestion } = await import('./shared')
+		expect(isActiveUserQuestion(toolMessage({ isLoading: false }))).toBe(false)
+	})
+
+	it('is false for a tool message without a question', async () => {
+		const { isActiveUserQuestion } = await import('./shared')
+		expect(isActiveUserQuestion(toolMessage({ userQuestion: undefined }))).toBe(false)
+	})
+
+	it('is false for non-tool messages and undefined', async () => {
+		const { isActiveUserQuestion } = await import('./shared')
+		const userMessage: DisplayMessage = { role: 'user', index: 0, content: 'hi' }
+		const assistantMessage: DisplayMessage = { role: 'assistant', content: 'hi' }
+		expect(isActiveUserQuestion(undefined)).toBe(false)
+		expect(isActiveUserQuestion(userMessage)).toBe(false)
+		expect(isActiveUserQuestion(assistantMessage)).toBe(false)
+	})
+})
+
+describe('isActiveRunForm', () => {
+	const runForm = { path: 'f/a/b', schema: {}, args: { name: 'ada' } }
+	function toolMessage(overrides: Partial<ToolDisplayMessage> = {}): ToolDisplayMessage {
+		return {
+			role: 'tool',
+			tool_call_id: 'call_r',
+			content: 'waiting for arguments',
+			isLoading: true,
+			runForm,
+			...overrides
+		}
+	}
+
+	// Either flag unmounts the card, so the loop must stop waiting on it.
+	it('is false once submitted or cancelled', async () => {
+		const { isActiveRunForm } = await import('./shared')
+		expect(isActiveRunForm(toolMessage())).toBe(true)
+		expect(isActiveRunForm(toolMessage({ runForm: { ...runForm, submitted: true } }))).toBe(false)
+		expect(isActiveRunForm(toolMessage({ runForm: { ...runForm, canceled: true } }))).toBe(false)
+	})
+})
+
+describe('pendingUserAction', () => {
+	const toolMessage = (overrides: Partial<ToolDisplayMessage> = {}): ToolDisplayMessage => ({
+		role: 'tool',
+		tool_call_id: 'call_p',
+		content: 'running',
+		isLoading: true,
+		...overrides
+	})
+
+	const question = toolMessage({ userQuestion: { question: 'Pick one', choices: ['a'] } })
+
+	it('distinguishes an unanswered question from a staged confirmation', async () => {
+		const { pendingUserAction } = await import('./shared')
+		expect(pendingUserAction([question])).toBe('question')
+		expect(pendingUserAction([toolMessage({ needsConfirmation: true })])).toBe('confirmation')
+	})
+
+	// A run form asks for arguments rather than a yes/no, but it blocks the loop the
+	// same way, so the chat reports it as a confirmation.
+	it('reports an unsubmitted run form as a confirmation', async () => {
+		const { pendingUserAction } = await import('./shared')
+		expect(
+			pendingUserAction([toolMessage({ runForm: { path: 'f/a/b', schema: {}, args: {} } })])
+		).toBe('confirmation')
+	})
+
+	it('is undefined for a tool the AI is running on its own', async () => {
+		const { pendingUserAction } = await import('./shared')
+		expect(pendingUserAction([toolMessage()])).toBe(undefined)
+		expect(pendingUserAction([toolMessage({ needsConfirmation: true, isLoading: false })])).toBe(
+			undefined
+		)
+	})
+
+	// A multi-tool turn creates every card before running the calls one at a time,
+	// so the blocked card is not the last message.
+	it('finds a blocked card sitting behind queued ones', async () => {
+		const { pendingUserAction } = await import('./shared')
+		expect(pendingUserAction([question, toolMessage(), toolMessage()])).toBe('question')
+		expect(pendingUserAction([toolMessage({ needsConfirmation: true }), toolMessage()])).toBe(
+			'confirmation'
+		)
+	})
+
+	// Text emitted between two tool calls lands as an assistant card between them.
+	it('finds a blocked card behind an interleaved assistant card', async () => {
+		const { pendingUserAction } = await import('./shared')
+		const assistant: DisplayMessage = { role: 'assistant', content: 'and also…' }
+		expect(pendingUserAction([question, assistant, toolMessage()])).toBe('question')
+	})
+
+	it('stops at the previous turn rather than reviving its resolved cards', async () => {
+		const { pendingUserAction } = await import('./shared')
+		const userMessage: DisplayMessage = { role: 'user', index: 0, content: 'go on' }
+		expect(pendingUserAction([question, userMessage, toolMessage()])).toBe(undefined)
+	})
+
+	// The composer answers the parked question by id, so the scan must name the
+	// blocked card and not one of the queued ones sharing the turn.
+	it('names the blocked card so a caller can resolve it', async () => {
+		const { pendingUserActionDetail } = await import('./shared')
+		const blocked = toolMessage({
+			tool_call_id: 'call_ask',
+			userQuestion: { question: 'Pick one', choices: ['a'] }
+		})
+		expect(pendingUserActionDetail([blocked, toolMessage({ tool_call_id: 'call_next' })])).toEqual({
+			action: 'question',
+			toolCallId: 'call_ask'
+		})
+	})
+})
+
+describe('pollJobCompletion detach', () => {
+	function makeCallbacks() {
+		return {
+			setToolStatus: vi.fn(),
+			removeToolStatus: vi.fn(),
+			onJobStatus: vi.fn()
+		}
+	}
+
+	it('detaches immediately (no polling) when detachAfterMs is 0', async () => {
+		const { pollJobCompletion } = await import('./shared')
+		const { JobService } = await import('$lib/gen')
+		const getJob = vi.mocked(JobService.getJob)
+		getJob.mockReset()
+		const cbs = makeCallbacks()
+
+		const outcome = await pollJobCompletion('job1', 'w', 'tool1', cbs as any, { detachAfterMs: 0 })
+
+		expect(outcome).toBe('detached')
+		expect(getJob).not.toHaveBeenCalled()
+	})
+
+	it('detaches after the inline budget when the job is still running', async () => {
+		vi.useFakeTimers()
+		try {
+			const { pollJobCompletion } = await import('./shared')
+			const { JobService } = await import('$lib/gen')
+			const getJob = vi.mocked(JobService.getJob)
+			getJob.mockReset()
+			getJob.mockResolvedValue({ type: 'QueuedJob', running: true } as any)
+			const getJobUpdates = vi.mocked(JobService.getJobUpdates)
+			getJobUpdates.mockReset()
+			getJobUpdates.mockResolvedValue({ running: true, completed: false } as any)
+			const cbs = makeCallbacks()
+
+			// detachAfterMs 2000 → 2 polls at 1s each, then detach.
+			const promise = pollJobCompletion('job1', 'w', 'tool1', cbs as any, { detachAfterMs: 2000 })
+			await vi.advanceTimersByTimeAsync(2000)
+
+			expect(await promise).toBe('detached')
+			// Status is reported as running during the wait (alongside the trimmed
+			// Job snapshot that feeds JobStatusIcon).
+			expect(cbs.onJobStatus).toHaveBeenCalledWith(
+				'job1',
+				expect.objectContaining({ status: 'running' })
+			)
+		} finally {
+			vi.useRealTimers()
+		}
+	})
+
+	it('returns the completed job when it finishes within the inline budget', async () => {
+		vi.useFakeTimers()
+		try {
+			const { pollJobCompletion } = await import('./shared')
+			const { JobService } = await import('$lib/gen')
+			const getJob = vi.mocked(JobService.getJob)
+			getJob.mockReset()
+			const completed = { type: 'CompletedJob', success: true, result: 42, logs: 'ran' }
+			getJob.mockResolvedValue(completed as any)
+			// Still landing on a tick the updates endpoint calls unfinished: the job can
+			// complete between the two calls, and `getJob` is what says so.
+			const getJobUpdates = vi.mocked(JobService.getJobUpdates)
+			getJobUpdates.mockReset()
+			getJobUpdates.mockResolvedValue({ completed: false, running: true } as any)
+			const cbs = makeCallbacks()
+
+			const promise = pollJobCompletion('job1', 'w', 'tool1', cbs as any, { detachAfterMs: 15000 })
+			await vi.advanceTimersByTimeAsync(1000)
+
+			const landed = await promise
+			expect(landed).toBe(completed)
+			// Fetched again with its logs rather than settled on the logless tick fetch,
+			// which would reach the model as "No logs available".
+			expect((landed as any).logs).toBe('ran')
+		} finally {
+			vi.useRealTimers()
+		}
+	})
+
+	// Streaming rides on a second endpoint; landing the job must not. A failing updates
+	// endpoint costs live logs, never the run.
+	it('returns the completed job with its logs when the updates endpoint fails', async () => {
+		vi.useFakeTimers()
+		try {
+			const { pollJobCompletion } = await import('./shared')
+			const { JobService } = await import('$lib/gen')
+			const getJob = vi.mocked(JobService.getJob)
+			getJob.mockReset()
+			const completed = { type: 'CompletedJob', success: true, result: 42, logs: 'ran' }
+			getJob.mockResolvedValue(completed as any)
+			const getJobUpdates = vi.mocked(JobService.getJobUpdates)
+			getJobUpdates.mockReset()
+			getJobUpdates.mockRejectedValue(new Error('updates unavailable'))
+			const cbs = makeCallbacks()
+
+			const promise = pollJobCompletion('job1', 'w', 'tool1', cbs as any, { detachAfterMs: 15000 })
+			await vi.advanceTimersByTimeAsync(1000)
+
+			const landed = await promise
+			expect(landed).toBe(completed)
+			expect((landed as any).logs).toBe('ran')
+		} finally {
+			vi.useRealTimers()
+		}
+	})
+
+	it('legacy mode (no detach) throws a timeout error when the job never completes', async () => {
+		vi.useFakeTimers()
+		try {
+			const { pollJobCompletion } = await import('./shared')
+			const { JobService } = await import('$lib/gen')
+			const getJob = vi.mocked(JobService.getJob)
+			getJob.mockReset()
+			getJob.mockResolvedValue({ type: 'QueuedJob', running: true } as any)
+			const getJobUpdates = vi.mocked(JobService.getJobUpdates)
+			getJobUpdates.mockReset()
+			getJobUpdates.mockResolvedValue({ running: true, completed: false } as any)
+			const cbs = makeCallbacks()
+
+			const promise = pollJobCompletion('job1', 'w', 'tool1', cbs as any)
+			const assertion = expect(promise).rejects.toThrow('timed out')
+			await vi.advanceTimersByTimeAsync(60000)
+			await assertion
+			expect(cbs.setToolStatus).toHaveBeenCalledWith(
+				'tool1',
+				expect.objectContaining({ error: expect.any(String) })
+			)
+		} finally {
+			vi.useRealTimers()
+		}
+	})
+})
+
+describe('executeTestRun result note', () => {
+	// A failed run's card lands on the error, with the logs a tab away: the model must stay
+	// free to quote them, so only a success says the user already sees the run.
+	it('tells the model not to repeat a successful result, and not a failed one', async () => {
+		vi.useFakeTimers()
+		try {
+			const { executeTestRun } = await import('./shared')
+			const { JobService } = await import('$lib/gen')
+			const getJobUpdates = vi.mocked(JobService.getJobUpdates)
+			getJobUpdates.mockReset()
+			getJobUpdates.mockResolvedValue({ completed: true, running: false } as any)
+			const run = async (success: boolean) => {
+				vi.mocked(JobService.getJob).mockReset()
+				vi.mocked(JobService.getJob).mockResolvedValue({
+					type: 'CompletedJob',
+					success,
+					result: [1, 2],
+					logs: 'ran'
+				} as any)
+				const promise = executeTestRun({
+					jobStarter: async () => 'job1',
+					workspace: 'w',
+					toolId: 'tool1',
+					startMessage: 'Starting...',
+					contextName: 'script',
+					// The job hooks are what mark the global/sessions chat.
+					toolCallbacks: {
+						setToolStatus: vi.fn(),
+						removeToolStatus: vi.fn(),
+						onJobStatus: vi.fn(),
+						onJobStarted: vi.fn()
+					} as any
+				})
+				await vi.advanceTimersByTimeAsync(1000)
+				return promise
+			}
+			expect(await run(true)).toContain('Do not repeat')
+			expect(await run(false)).not.toContain('Do not repeat')
+		} finally {
+			vi.useRealTimers()
+		}
+	})
+})
+
+describe('deriveChatJobStatus', () => {
+	// CompletedJob is discriminated by the presence of a `success` key; the branch
+	// order deliberately mirrors JobStatusIcon so the badge and scalar never drift.
+	it('maps a canceled completed job to canceled (canceled wins over success=false)', async () => {
+		const { deriveChatJobStatus } = await import('./shared')
+		expect(deriveChatJobStatus({ success: false, canceled: true } as any)).toBe('canceled')
+	})
+
+	it('maps a successful completed job to success', async () => {
+		const { deriveChatJobStatus } = await import('./shared')
+		expect(deriveChatJobStatus({ success: true, canceled: false } as any)).toBe('success')
+	})
+
+	it('maps a non-canceled failed completed job to failure', async () => {
+		const { deriveChatJobStatus } = await import('./shared')
+		expect(deriveChatJobStatus({ success: false, canceled: false } as any)).toBe('failure')
+	})
+
+	it('maps a running suspended queued job to suspended', async () => {
+		const { deriveChatJobStatus } = await import('./shared')
+		expect(deriveChatJobStatus({ running: true, suspend: 1 } as any)).toBe('suspended')
+	})
+
+	it('maps a running queued job to running', async () => {
+		const { deriveChatJobStatus } = await import('./shared')
+		expect(deriveChatJobStatus({ running: true } as any)).toBe('running')
+	})
+
+	it('maps a future-scheduled queued job to scheduled', async () => {
+		const { deriveChatJobStatus } = await import('./shared')
+		const future = new Date(Date.now() + 3_600_000).toISOString()
+		expect(deriveChatJobStatus({ running: false, scheduled_for: future } as any)).toBe('scheduled')
+	})
+
+	it('maps a plain (non-running, non-scheduled) queued job to queued', async () => {
+		const { deriveChatJobStatus } = await import('./shared')
+		expect(deriveChatJobStatus({ running: false } as any)).toBe('queued')
+	})
+})
+
+describe('trimJob', () => {
+	const HEAVY = ['logs', 'args', 'result', 'raw_code', 'raw_flow', 'flow_status']
+
+	it('preserves the ABSENCE of a success key on a queued job (JobStatusIcon in-operator invariant)', async () => {
+		const { trimJob } = await import('./shared')
+		const queued = {
+			id: 'j1',
+			running: true,
+			logs: 'x',
+			args: {},
+			result: 1,
+			raw_code: 'c',
+			raw_flow: {},
+			flow_status: {}
+		}
+		const trimmed = trimJob(queued as any)
+		// The load-bearing invariant: a running/queued job must NOT gain a `success`
+		// key, or deriveChatJobStatus/JobStatusIcon would misread it as completed.
+		expect('success' in trimmed).toBe(false)
+		expect(trimmed.running).toBe(true)
+		expect(trimmed.id).toBe('j1')
+	})
+
+	it('deletes the six heavy fields but keeps the status-discriminant scalar', async () => {
+		const { trimJob } = await import('./shared')
+		const job = {
+			id: 'j1',
+			success: true,
+			logs: 'x',
+			args: { a: 1 },
+			result: [1],
+			raw_code: 'c',
+			raw_flow: { modules: [] },
+			flow_status: { step: 0 }
+		}
+		const trimmed = trimJob(job as any) as Record<string, unknown>
+		for (const k of HEAVY) expect(k in trimmed).toBe(false)
+		expect('success' in trimmed).toBe(true)
+		expect(trimmed.success).toBe(true)
+	})
+
+	it('does not mutate the input job', async () => {
+		const { trimJob } = await import('./shared')
+		const job = { id: 'j1', success: true, result: 42 }
+		trimJob(job as any)
+		expect(job.result).toBe(42)
+	})
+})
+
+describe('processToolCall preAction', () => {
+	// preAction's "-ing" label must land at execution start, not stream time —
+	// firing it earlier would relabel a still-queued card as active.
+	it('invokes preAction at promotion, before the tool fn runs', async () => {
+		const { processToolCall } = await import('./shared')
+		const calls: string[] = []
+		const tool = {
+			def: { type: 'function' as const, function: { name: 'patch_app_file', parameters: {} } },
+			preAction: () => calls.push('preAction'),
+			fn: vi.fn().mockImplementation(async () => {
+				calls.push('fn')
+				return 'ok'
+			})
+		}
+		await processToolCall({
+			tools: [tool] as any,
+			toolCall: {
+				id: 'call_1',
+				type: 'function',
+				function: { name: 'patch_app_file', arguments: '{}' }
+			},
+			helpers: {},
+			toolCallbacks: { setToolStatus: vi.fn() } as any,
+			workspace: 'test'
+		})
+		expect(calls).toEqual(['preAction', 'fn'])
+	})
+})
+
+describe('queuedToolStatus', () => {
+	const tool = (extra: Record<string, unknown> = {}) => ({
+		def: { type: 'function' as const, function: { name: 'run_script', parameters: {} } },
+		fn: vi.fn(),
+		...extra
+	})
+
+	it('humanizes snake_case and camelCase tool names by default', async () => {
+		const { queuedToolStatus } = await import('./shared')
+		expect(queuedToolStatus([], 'run_script', '{}')).toMatchObject({
+			isLoading: false,
+			isQueued: true,
+			isStreamingArguments: false,
+			content: 'Run script'
+		})
+		expect(queuedToolStatus([], 'askUserQuestion', '{}').content).toBe('Ask user question')
+	})
+
+	it('derives the label from parsed args via queuedLabel', async () => {
+		const { queuedToolStatus } = await import('./shared')
+		const t = tool({ queuedLabel: (args: any) => `Test ${args.path}` })
+		expect(queuedToolStatus([t] as any, 'run_script', '{"path": "u/admin/x"}').content).toBe(
+			'Test u/admin/x'
+		)
+	})
+
+	it('falls back to the humanized name when args are truncated', async () => {
+		const { queuedToolStatus } = await import('./shared')
+		const t = tool({ queuedLabel: (args: any) => `Test ${args.path}` })
+		expect(queuedToolStatus([t] as any, 'run_script', '{"path": "u/adm').content).toBe('Run script')
+	})
+})
+
+describe('appendPendingToolImages', () => {
+	// Tool results are string-only, so tool-produced images ride a follow-up
+	// user message appended after the whole tool batch. It must land in BOTH
+	// arrays (messages = sent next iteration, addedMessages = committed to
+	// history) and drain the buffer exactly once — a second flush appending the
+	// same screenshots again would duplicate them in history.
+	it('appends one user message to both arrays and drains the buffer once', async () => {
+		const { appendPendingToolImages } = await import('./shared')
+		let pending = [{ dataUrl: 'data:image/png;base64,SHOT', mediaType: 'image/png' as const }]
+		const toolCallbacks = {
+			setToolStatus: vi.fn(),
+			takePendingToolImages: () => {
+				const taken = pending
+				pending = []
+				return taken
+			}
+		}
+		const messages: any[] = []
+		const addedMessages: any[] = []
+
+		appendPendingToolImages(messages, addedMessages, toolCallbacks as any)
+
+		expect(messages).toHaveLength(1)
+		expect(messages[0]).toBe(addedMessages[0])
+		expect(messages[0].role).toBe('user')
+		expect(messages[0].content[1]).toEqual({
+			type: 'image_url',
+			image_url: { url: 'data:image/png;base64,SHOT' }
+		})
+
+		appendPendingToolImages(messages, addedMessages, toolCallbacks as any)
+		expect(messages).toHaveLength(1)
+		expect(addedMessages).toHaveLength(1)
+	})
+})
+
+describe('openItemPreviewAction', () => {
+	// The action's `type` is the key the sessions page registers its handler under,
+	// so it must stay 'open_item_preview'; `previewKind`/`path` are passed verbatim
+	// to previewTargetForSessionTarget.
+	it('carries the kind and path through to the dispatch action', () => {
+		expect(openItemPreviewAction('flow', 'f/team/etl')).toEqual({
+			id: 'open-item-preview:flow:edit:f/team/etl',
+			type: 'open_item_preview',
+			label: 'Open flow preview',
+			previewKind: 'flow',
+			path: 'f/team/etl',
+			mode: 'edit'
+		})
+	})
+
+	// The side is part of the id: a transcript can offer the same path both ways —
+	// a write card opening its draft's editor, a prose mention opening the deployed
+	// page — and one id would collapse them into a single action.
+	it('distinguishes the two sides of the same item', () => {
+		const edit = openItemPreviewAction('flow', 'f/team/etl')
+		const view = openItemPreviewAction('flow', 'f/team/etl', 'view')
+		expect(view.mode).toBe('view')
+		expect(view.id).not.toBe(edit.id)
+	})
+
+	// raw_app is the internal kind; the user-facing label says "app".
+	it('labels raw_app as "app"', () => {
+		expect(openItemPreviewAction('raw_app', 'u/me/dash').label).toBe('Open app preview')
+	})
+})
+
+describe('createSearchHubScriptsTool', () => {
+	const hit = (version_id: number, app: string, summary: string) => ({
+		version_id,
+		app,
+		summary,
+		ask_id: version_id,
+		id: version_id,
+		kind: 'script' as const,
+		score: 1
+	})
+
+	async function runWithContent(getHubScriptByPath: ReturnType<typeof vi.fn>) {
+		const { ScriptService } = await import('$lib/gen')
+		Object.assign(ScriptService, {
+			queryHubScripts: vi.fn(async () => [
+				hit(1, 'discord', 'Send a message'),
+				hit(2, 'slack', 'Post a message')
+			]),
+			getHubScriptByPath
+		})
+		const { createSearchHubScriptsTool } = await import('./shared')
+		const raw = await createSearchHubScriptsTool(true).fn({
+			args: { query: 'send a message' },
+			toolId: 't1',
+			toolCallbacks: { setToolStatus: vi.fn() }
+		} as any)
+		return JSON.parse(raw).results
+	}
+
+	it('reports each script language alongside its content', async () => {
+		const results = await runWithContent(
+			vi.fn(async ({ path }: { path: string }) => ({
+				content: `// ${path}`,
+				language: path.startsWith('hub/1/') ? 'bunnative' : 'python3'
+			}))
+		)
+
+		expect(results).toEqual([
+			{
+				path: 'hub/1/discord/send_a_message',
+				summary: 'Send a message',
+				integration: 'discord',
+				language: 'bunnative',
+				content: '// hub/1/discord/send_a_message'
+			},
+			{
+				path: 'hub/2/slack/post_a_message',
+				summary: 'Post a message',
+				integration: 'slack',
+				language: 'python3',
+				content: '// hub/2/slack/post_a_message'
+			}
+		])
+	})
+
+	it('keeps the other results when one content fetch fails', async () => {
+		const results = await runWithContent(
+			vi.fn(async ({ path }: { path: string }) => {
+				if (path.startsWith('hub/1/')) throw new Error('hub unreachable')
+				return { content: 'ok', language: 'python3' }
+			})
+		)
+
+		expect(results[0].error).toContain('hub unreachable')
+		expect(results[0].content).toBeUndefined()
+		expect(results[1].content).toBe('ok')
+	})
+
+	// Browsing by app is what surfaces an integration's other scripts as examples,
+	// and only the top-scripts endpoint takes no query and applies no similarity
+	// floor, so the near-misses worth reading survive instead of being cut.
+	it('lists an integration through the top-scripts endpoint, with descriptions', async () => {
+		const { ScriptService } = await import('$lib/gen')
+		const getTopHubScripts = vi.fn(async () => ({
+			asks: [{ ...hit(3, 'stripe', 'Create a Payout'), description: 'Send funds to your bank' }]
+		}))
+		Object.assign(ScriptService, { queryHubScripts: vi.fn(async () => []), getTopHubScripts })
+
+		const { createSearchHubScriptsTool } = await import('./shared')
+		const raw = await createSearchHubScriptsTool().fn({
+			args: { integration: 'stripe' },
+			toolId: 't1',
+			toolCallbacks: { setToolStatus: vi.fn() }
+		} as any)
+
+		expect(getTopHubScripts).toHaveBeenCalledWith({ app: 'stripe', kind: 'script', limit: 20 })
+		expect(ScriptService.queryHubScripts).not.toHaveBeenCalled()
+		expect(JSON.parse(raw).results).toEqual([
+			{
+				path: 'hub/3/stripe/create_a_payout',
+				summary: 'Create a Payout',
+				integration: 'stripe',
+				description: 'Send funds to your bank'
+			}
+		])
+	})
+
+	// Narrowing a query to a slug is the only thing that searches an integration the
+	// user named: ranking alone surfaces other integrations whose scripts merely mention
+	// it, so a query that drops `app` silently searches the whole hub instead.
+	it('narrows a query to the integration it was given', async () => {
+		const { ScriptService } = await import('$lib/gen')
+		const queryHubScripts = vi.fn(async () => [hit(9, 'salesforce', 'SOSL Search')])
+		Object.assign(ScriptService, { queryHubScripts, getTopHubScripts: vi.fn() })
+
+		const { createSearchHubScriptsTool } = await import('./shared')
+		const raw = await createSearchHubScriptsTool().fn({
+			args: { query: 'look up an account', integration: 'salesforce' },
+			toolId: 't1',
+			toolCallbacks: { setToolStatus: vi.fn() }
+		} as any)
+
+		expect(queryHubScripts).toHaveBeenCalledWith({
+			text: 'look up an account',
+			kind: 'script',
+			app: 'salesforce'
+		})
+		expect(ScriptService.getTopHubScripts).not.toHaveBeenCalled()
+		expect(JSON.parse(raw).results.map((r: any) => r.integration)).toEqual(['salesforce'])
+	})
+
+	// A search below the similarity floor otherwise dead-ends; the slug is what
+	// lets the model fall back to browsing the integration.
+	it('suggests matching integrations when the search finds nothing', async () => {
+		const { ScriptService, IntegrationService } = await import('$lib/gen')
+		Object.assign(ScriptService, { queryHubScripts: vi.fn(async () => []) })
+		Object.assign(IntegrationService, {
+			listHubIntegrations: vi.fn(async () => [{ name: 'stripe' }, { name: 'slack' }])
+		})
+
+		const { createSearchHubScriptsTool, clearHubIntegrationsCache } = await import('./shared')
+		clearHubIntegrationsCache()
+		const raw = await createSearchHubScriptsTool().fn({
+			args: { query: 'refund a stripe charge' },
+			toolId: 't1',
+			toolCallbacks: { setToolStatus: vi.fn() }
+		} as any)
+
+		expect(JSON.parse(raw)).toEqual({ results: [], suggested_integrations: ['stripe'] })
+	})
+
+	// Matching a query word anywhere inside a slug turns every short English word into
+	// a hit — `for` in salesforce, `the` in basis_theory — so a task that names no
+	// integration came back with a confident-looking list of them.
+	it('suggests nothing for a request that names no integration', async () => {
+		const { ScriptService, IntegrationService } = await import('$lib/gen')
+		Object.assign(ScriptService, { queryHubScripts: vi.fn(async () => []) })
+		Object.assign(IntegrationService, {
+			listHubIntegrations: vi.fn(async () => [
+				{ name: 'salesforce' },
+				{ name: 'basis_theory' },
+				{ name: 'hackernews' },
+				{ name: 's3' },
+				// A slug that is an ordinary word with a letter in front of it: matching
+				// one character in would read "node" as this integration.
+				{ name: 'enode' }
+			])
+		})
+
+		const { createSearchHubScriptsTool, clearHubIntegrationsCache } = await import('./shared')
+		clearHubIntegrationsCache()
+		const raw = await createSearchHubScriptsTool().fn({
+			args: { query: 'list all the invoices for the new month in a node script' },
+			toolId: 't1',
+			toolCallbacks: { setToolStatus: vi.fn() }
+		} as any)
+
+		expect(JSON.parse(raw).suggested_integrations).toEqual([])
+	})
+
+	// Google's integrations compress the vendor to a `g`, so the word a user says
+	// appears in the name the hub curates and nowhere in the slug.
+	it('reaches an integration whose slug compresses the vendor name', async () => {
+		const { ScriptService, IntegrationService } = await import('$lib/gen')
+		Object.assign(ScriptService, { queryHubScripts: vi.fn(async () => []) })
+		Object.assign(IntegrationService, {
+			listHubIntegrations: vi.fn(async () => [
+				{ name: 'gsheets', display_name: 'Google Sheets' },
+				{ name: 'gdrive', display_name: 'Google Drive' },
+				{ name: 'smartsheet', display_name: null }
+			])
+		})
+
+		const { createSearchHubScriptsTool, clearHubIntegrationsCache } = await import('./shared')
+		clearHubIntegrationsCache()
+		const raw = await createSearchHubScriptsTool().fn({
+			args: { query: 'add a row to a google sheet' },
+			toolId: 't1',
+			toolCallbacks: { setToolStatus: vi.fn() }
+		} as any)
+
+		// "google" names both products, and a suggestion list is allowed to offer both.
+		expect(JSON.parse(raw).suggested_integrations).toEqual(['gsheets', 'gdrive'])
+	})
+
+	// The hub names only the slugs its own titleisation gets wrong, so the ones it
+	// leaves null are still named here.
+	it('falls back to the local name table for a slug the hub does not name', async () => {
+		const { ScriptService, IntegrationService } = await import('$lib/gen')
+		Object.assign(ScriptService, { queryHubScripts: vi.fn(async () => []) })
+		Object.assign(IntegrationService, {
+			listHubIntegrations: vi.fn(async () => [{ name: 'gcloud', display_name: null }])
+		})
+
+		const { createSearchHubScriptsTool, clearHubIntegrationsCache } = await import('./shared')
+		clearHubIntegrationsCache()
+		const raw = await createSearchHubScriptsTool().fn({
+			args: { query: 'deploy a service to google cloud' },
+			toolId: 't1',
+			toolCallbacks: { setToolStatus: vi.fn() }
+		} as any)
+
+		expect(JSON.parse(raw).suggested_integrations).toEqual(['gcloud'])
+	})
+
+	// A slug shorter than the token floor is only reachable by an exact match.
+	it('still reaches a two-character integration slug', async () => {
+		const { ScriptService, IntegrationService } = await import('$lib/gen')
+		Object.assign(ScriptService, { queryHubScripts: vi.fn(async () => []) })
+		Object.assign(IntegrationService, {
+			listHubIntegrations: vi.fn(async () => [{ name: 's3' }, { name: 'salesforce' }])
+		})
+
+		const { createSearchHubScriptsTool, clearHubIntegrationsCache } = await import('./shared')
+		clearHubIntegrationsCache()
+		const raw = await createSearchHubScriptsTool().fn({
+			args: { query: 'upload a file to s3' },
+			toolId: 't1',
+			toolCallbacks: { setToolStatus: vi.fn() }
+		} as any)
+
+		expect(JSON.parse(raw).suggested_integrations).toEqual(['s3'])
+	})
+
+	// Only about one hub integration in twelve carries authored provider knowledge,
+	// and a search result is where the model first sees a slug — so the mark has to
+	// ride along, or nothing tells it which integrations have verified notes to read.
+	it('marks the integrations get_hub_integration has knowledge for', async () => {
+		const { ScriptService, IntegrationService } = await import('$lib/gen')
+		Object.assign(ScriptService, {
+			queryHubScripts: vi.fn(async () => [
+				hit(1, 'confluence', 'Create page'),
+				hit(2, 'notion', 'Create page')
+			])
+		})
+		Object.assign(IntegrationService, {
+			listHubIntegrations: vi.fn(async () => [
+				{ name: 'Confluence', documented: true },
+				{ name: 'notion', documented: false }
+			])
+		})
+
+		const { createSearchHubScriptsTool, clearHubIntegrationsCache } = await import('./shared')
+		clearHubIntegrationsCache()
+		const raw = await createSearchHubScriptsTool().fn({
+			args: { query: 'create a wiki page' },
+			toolId: 't1',
+			toolCallbacks: { setToolStatus: vi.fn() }
+		} as any)
+
+		const results = JSON.parse(raw).results
+		// the hub's slugs are case-sensitive, so the two casings are one integration
+		expect(results.find((r: any) => r.integration === 'confluence').documented).toBe(true)
+		expect(results.find((r: any) => r.integration === 'notion').documented).toBeUndefined()
+	})
+
+	// A hub predating the flag sends no `documented` at all; reading that as "yes"
+	// would send the model after notes that are not coming.
+	it('claims no knowledge when the hub does not report any', async () => {
+		const { ScriptService, IntegrationService } = await import('$lib/gen')
+		Object.assign(ScriptService, {
+			queryHubScripts: vi.fn(async () => [hit(1, 'confluence', 'Create page')])
+		})
+		Object.assign(IntegrationService, {
+			listHubIntegrations: vi.fn(async () => [{ name: 'confluence' }])
+		})
+
+		const { createSearchHubScriptsTool, clearHubIntegrationsCache } = await import('./shared')
+		clearHubIntegrationsCache()
+		const raw = await createSearchHubScriptsTool().fn({
+			args: { query: 'create a wiki page' },
+			toolId: 't1',
+			toolCallbacks: { setToolStatus: vi.fn() }
+		} as any)
+
+		expect(JSON.parse(raw).results[0].documented).toBeUndefined()
+	})
+})
+
+describe('getHubIntegrationTool', () => {
+	// The plan-mode gate fails closed, so a read-only tool that is not tagged is
+	// silently unusable while planning.
+	it('is usable while planning, like the hub search beside it', async () => {
+		const { getHubIntegrationTool, createSearchHubScriptsTool } = await import('./shared')
+		expect(getHubIntegrationTool.planModeSafe).toBe(true)
+		expect(createSearchHubScriptsTool().planModeSafe).toBe(true)
+	})
+})
+
+describe('processToolCall confirmation hooks', () => {
+	async function hookedTool() {
+		const { createToolDef } = await import('./shared')
+		return {
+			def: createToolDef(z.object({}), 'apply_change', 'Apply change'),
+			requiresConfirmation: true,
+			fn: vi.fn().mockResolvedValue('ok'),
+			onConfirmationRequested: vi.fn()
+		}
+	}
+
+	it('requests before the card resolves', async () => {
+		const tool = await hookedTool()
+		let requestedBeforeResolve = false
+		const requestConfirmation = vi.fn(async () => {
+			requestedBeforeResolve = tool.onConfirmationRequested.mock.calls.length === 1
+			return false
+		})
+
+		await runToolCall(tool, { requestConfirmation })
+
+		expect(requestedBeforeResolve).toBe(true)
+		// The hook needs the id and callbacks to attach what it sets up to this card.
+		expect(tool.onConfirmationRequested).toHaveBeenCalledWith(
+			expect.objectContaining({ toolId: 'call_plan', toolCallbacks: expect.any(Object) })
+		)
+		expect(tool.fn).not.toHaveBeenCalled()
+	})
+
+	it('fires no hook when the confirmation is auto-accepted', async () => {
+		const tool = await hookedTool()
+
+		await runToolCall(tool, {
+			requestConfirmation: vi.fn(async () => true),
+			shouldAutoAcceptToolConfirmations: () => true
+		})
+
+		expect(tool.onConfirmationRequested).not.toHaveBeenCalled()
+		expect(tool.fn).toHaveBeenCalled()
+	})
+})
+
+// Any tool gets the web search card by returning this shape. The card renders urls and
+// titles only, so a result carrying anything more must keep its JSON pane.
+describe('webSearchResultOf', () => {
+	it('reads the shape, from the value or its JSON text', () => {
+		const result = { sources: [{ url: 'https://a.dev', title: 'A' }], query: 'a' }
+		expect(webSearchResultOf(result)).toEqual(result)
+		expect(webSearchResultOf(JSON.stringify(result))).toEqual(result)
+	})
+
+	// A Python tool serializes an absent optional as null, and the card has nothing to tell
+	// its author why an almost-right result fell back to JSON.
+	it('reads null on an optional field as absent', () => {
+		expect(
+			webSearchResultOf({ sources: [{ url: 'https://a.dev', title: null }], query: null })
+		).toEqual({
+			sources: [{ url: 'https://a.dev', title: undefined }],
+			query: undefined
+		})
+	})
+
+	it.each([
+		['an extra key', { sources: [{ url: 'https://a.dev' }], summary: 'x' }],
+		['an extra source field', { sources: [{ url: 'https://a.dev', snippet: 'x' }] }],
+		['a source without url', { sources: [{ title: 'A' }] }],
+		// The card renders no relative or javascript: link, so a result whose urls it would
+		// drop keeps its own JSON rather than showing an empty source list.
+		['a relative url', { sources: [{ url: '/docs/pg17', title: 'PG 17' }] }],
+		['a javascript: url', { sources: [{ url: 'javascript:alert(1)' }] }],
+		['no sources', { sources: [] }],
+		['a bare list of links', [{ url: 'https://a.dev' }]]
+	])('rejects %s', (_, result) => {
+		expect(webSearchResultOf(result)).toBeUndefined()
 	})
 })

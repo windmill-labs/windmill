@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT 1 FROM script\n              WHERE workspace_id = $1 AND path = $2\n                AND deleted = false AND archived = false AND language = 'dbt'\n                AND (hash = $3 OR $3 = ANY(parent_hashes))\n              FOR SHARE",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "?column?",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "58ec340c78af046a40296b15543beeedc63b4a941e5b17ab7bb5d3c259f05147"
+}

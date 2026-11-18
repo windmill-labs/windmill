@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO flow_version\n                (workspace_id, path, value, schema, created_by)\n\n                SELECT v.workspace_id, v.path, v.value, v.schema, v.created_by\n                FROM flow_version v\n                JOIN flow f ON f.workspace_id = v.workspace_id AND f.path = v.path\n                WHERE v.path = $1 AND v.workspace_id = $2 AND v.id = $3\n                FOR SHARE OF f\n\n                RETURNING id\n                ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "0deba337ceb95584bfd4fa280310eb31e21c1f7b23210bc65595a86b53c2908d"
+}

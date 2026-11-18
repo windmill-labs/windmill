@@ -54,6 +54,7 @@ export type TriggerKind =
 	| 'nats'
 	| 'postgres'
 	| 'mqtt'
+	| 'amqp'
 	| 'sqs'
 	| 'gcp'
 	| 'azure'
@@ -78,6 +79,8 @@ export function captureTriggerKindToTriggerKind(kind: CaptureTriggerKind): Trigg
 			return 'nats'
 		case 'mqtt':
 			return 'mqtt'
+		case 'amqp':
+			return 'amqp'
 		case 'sqs':
 			return 'sqs'
 		case 'postgres':

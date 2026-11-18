@@ -1,0 +1,313 @@
+import { tick } from 'svelte'
+import type { AssetKind, Script } from '$lib/gen'
+import type { AssetWithAltAccessType } from '$lib/components/assets/lib'
+import type { AssetGraphSelection, PipelineTriggerDraft } from './types'
+import { defaultTriggerPath, triggerDraftKey } from './pipelineTriggerDrafts'
+import {
+	parsePipelineAnnotations,
+	type ColumnLineage,
+	type PipelineAnnotations
+} from './parsePipelineAnnotations'
+import type { PipelineDraft } from './pipelineAiHelpers'
+
+// ============================================================================
+// Externalized pipeline-editor state — the data-pipeline analogue of the flow
+// editor's `flowStore` / `flowStateStore`. It owns the in-flight draft Map, the
+// live editor overlays, and the current selection: the substrate the route page
+// editor and the in-session preview both render through (via the shared
+// <PipelineGraphEditor>). Persistence, graph resolution, run dispatch, and deploy
+// stay with the consumer; this is a plain reactive bag so a consumer can
+// read/mutate it without prop plumbing.
+// ============================================================================
+
+const EMPTY_ANNOTATIONS: PipelineAnnotations = parsePipelineAnnotations('')
+
+type LiveAnnotations = { scriptPath: string | undefined; annotations: PipelineAnnotations }
+type LiveBodyAssets = {
+	scriptPath: string | undefined
+	assets: AssetWithAltAccessType[]
+	columnLineage?: ColumnLineage[]
+}
+type LiveContent = {
+	scriptPath: string | undefined
+	content: string
+	/** The deployed script the buffer was opened from; unset for a draft. */
+	base?: Script
+}
+
+export class PipelineEditorState {
+	/** In-flight drafts keyed by script path (manual + AI-staged). */
+	drafts = $state<Map<string, PipelineDraft>>(new Map())
+	/** Undeployed triggers keyed by `triggerDraftKey`, persisted in the same bundle. */
+	triggerDrafts = $state<Map<string, PipelineTriggerDraft>>(new Map())
+	/** Draft open in the details pane (mutually exclusive with `selection`). */
+	activeDraftPath = $state<string | undefined>(undefined)
+	/** The persisted node/asset selected on the canvas. */
+	selection = $state<AssetGraphSelection | undefined>(undefined)
+
+	/** Live-parsed annotations of the open script (refreshed per keystroke). */
+	liveAnnotations = $state<LiveAnnotations>({
+		scriptPath: undefined,
+		annotations: EMPTY_ANNOTATIONS
+	})
+	/** Live-inferred body read/write assets of the open script. */
+	liveBodyAssets = $state<LiveBodyAssets>({ scriptPath: undefined, assets: [] })
+	/** The open draft's live editor buffer. */
+	liveContent = $state<LiveContent>({ scriptPath: undefined, content: '' })
+
+	/** Set true once a draft bundle was restored from the DB on load — drives the
+	 * route toolbar's one-shot "Loaded from draft" hint. Written by the editor's
+	 * autosave hydrate when persistence is enabled. */
+	loadedFromDbDraft = $state(false)
+
+	/** Folder this state is scoped to. The route page compares it on a folder
+	 * switch and resets, so one folder's drafts don't bleed into the next. */
+	folder = $state<string | undefined>(undefined)
+
+	/** True once the DB draft bundle for the current folder has been hydrated
+	 * into this instance. Gated per-instance (not per component mount) so an AI
+	 * session's folder hydrates ONCE and then keeps its in-memory drafts across
+	 * editor remounts — re-reading the DB on every remount would race a
+	 * not-yet-flushed autosave and drop a just-staged draft. `reset` clears it
+	 * so a new folder re-hydrates. */
+	hydratedFromDb = $state(false)
+
+	/** Clear all in-flight state, for the route page switching folders. */
+	reset = () => {
+		this.drafts = new Map()
+		this.triggerDrafts = new Map()
+		this.activeDraftPath = undefined
+		this.selection = undefined
+		this.clearLiveOverlays()
+		this.loadedFromDbDraft = false
+		// Force a re-hydrate from the DB draft of the newly-targeted folder.
+		this.hydratedFromDb = false
+	}
+
+	#nextDraftLocalId = 0
+	// Arrow fields so `pe.method` can be passed straight as a callback (the
+	// details pane takes onDraftPersist / onAnnotationsChange / … by reference).
+	newDraftLocalId = (): string => {
+		this.#nextDraftLocalId += 1
+		return `pe-${this.#nextDraftLocalId}`
+	}
+
+	// A deployed script with unsaved edits is autosaved as a draft before the pane
+	// promotes it, so both must give it the same id.
+	#promotedLocalIds = new Map<string, string>()
+	promotedDraftLocalId = (path: string): string => {
+		let id = this.#promotedLocalIds.get(path)
+		if (!id) {
+			id = this.newDraftLocalId()
+			this.#promotedLocalIds.set(path, id)
+		}
+		return id
+	}
+
+	handleAnnotationsChange = (scriptPath: string | undefined, annotations: PipelineAnnotations) => {
+		this.liveAnnotations = { scriptPath, annotations }
+	}
+	handleAssetsChange = (
+		scriptPath: string | undefined,
+		assets: AssetWithAltAccessType[],
+		columnLineage?: ColumnLineage[]
+	) => {
+		this.liveBodyAssets = { scriptPath, assets, columnLineage }
+	}
+	handleContentChange = (scriptPath: string | undefined, content: string, base?: Script) => {
+		this.liveContent = { scriptPath, content, base }
+	}
+
+	/** The open deployed script's unsaved edits, which live only in `liveContent`
+	 * until its pane closes: the path, or undefined when there are none. */
+	get liveEditPath(): string | undefined {
+		const { scriptPath, content, base } = this.liveContent
+		if (scriptPath == undefined || !base || this.drafts.has(scriptPath)) return undefined
+		return content !== (base.content ?? '') ? scriptPath : undefined
+	}
+
+	/** Closes the open pane and waits for its edits to land as a draft, as closing
+	 * it by hand does: what is deployed or discarded next then includes them, and
+	 * no pane is left holding a stale copy. Returns the path the pane was on. */
+	closePane = async (): Promise<string | undefined> => {
+		const path =
+			this.activeDraftPath ?? (this.selection?.kind === 'runnable' ? this.selection.path : undefined)
+		if (this.activeDraftPath === undefined && this.selection === undefined) return undefined
+		this.activeDraftPath = undefined
+		this.selection = undefined
+		// The pane unmounts on the next flush; its save-back commits a microtask later.
+		await tick()
+		await new Promise<void>((resolve) => queueMicrotask(resolve))
+		// Its buffer now lives in the draft; left here, autosave would serialize it
+		// again once that draft is deployed or discarded.
+		this.clearLiveOverlays()
+		return path
+	}
+
+	clearLiveOverlays = () => {
+		this.liveAnnotations = { scriptPath: undefined, annotations: EMPTY_ANNOTATIONS }
+		this.liveBodyAssets = { scriptPath: undefined, assets: [] }
+		this.liveContent = { scriptPath: undefined, content: '' }
+	}
+
+	/** Drop per-path editor state when a path goes away. Does NOT touch
+	 * consumer-owned per-path state (e.g. the route page's save errors — the
+	 * route layers that on in its own wrapper). */
+	forgetPath = (path: string) => {
+		if (this.activeDraftPath === path) this.activeDraftPath = undefined
+		if (this.selection?.kind === 'runnable' && this.selection.path === path)
+			this.selection = undefined
+		if (this.liveAnnotations.scriptPath === path)
+			this.liveAnnotations = { scriptPath: undefined, annotations: EMPTY_ANNOTATIONS }
+		if (this.liveBodyAssets.scriptPath === path)
+			this.liveBodyAssets = { scriptPath: undefined, assets: [] }
+		if (this.liveContent.scriptPath === path)
+			this.liveContent = { scriptPath: undefined, content: '' }
+	}
+
+	discardDraft = (path: string) => {
+		if (!this.drafts.has(path)) return
+		const next = new Map(this.drafts)
+		next.delete(path)
+		this.drafts = next
+		this.forgetPath(path)
+		this.discardTriggerDraftsFor(path)
+	}
+
+	/** Summary and labels of a script draft, edited from the pane header. */
+	setDraftMeta = (path: string, meta: { summary: string; labels: string[] | undefined }) => {
+		const d = this.drafts.get(path)
+		if (!d) return
+		this.drafts = new Map(this.drafts).set(path, {
+			...d,
+			script: { ...d.script, summary: meta.summary, labels: meta.labels }
+		})
+	}
+
+	/** Add or replace a trigger draft; `previousKey` is the entry being edited, which
+	 * a rename drops. False, and nothing changes, when the path is another draft's:
+	 * both would deploy to one trigger. */
+	setTriggerDraft = (d: PipelineTriggerDraft, previousKey?: string): boolean => {
+		const key = triggerDraftKey(d.kind, d.config.path)
+		if (key !== previousKey && this.triggerDrafts.has(key)) return false
+		const next = new Map(this.triggerDrafts)
+		if (previousKey) next.delete(previousKey)
+		next.set(key, d)
+		this.triggerDrafts = next
+		return true
+	}
+
+	discardTriggerDraft = (key: string) => {
+		if (!this.triggerDrafts.has(key)) return
+		const next = new Map(this.triggerDrafts)
+		next.delete(key)
+		this.triggerDrafts = next
+	}
+
+	/** A trigger draft cannot outlive the script draft it was configured with:
+	 * deploying it would target a path nothing is deployed at. */
+	discardTriggerDraftsFor = (scriptPath: string) => {
+		const next = new Map(
+			[...this.triggerDrafts].filter(([, d]) => d.config.script_path !== scriptPath)
+		)
+		if (next.size !== this.triggerDrafts.size) this.triggerDrafts = next
+	}
+
+	/** Follow a script draft rename, keeping default `<script>_<kind>` names in step. */
+	/** Returns the trigger path another draft already holds, and changes nothing,
+	 * when a renamed default name would land on it. */
+	retargetTriggerDrafts = (oldScriptPath: string, newScriptPath: string): string | undefined => {
+		const moved = new Map<string, PipelineTriggerDraft>()
+		const kept = new Map<string, PipelineTriggerDraft>()
+		for (const [k, d] of this.triggerDrafts) {
+			if (d.config.script_path !== oldScriptPath) {
+				kept.set(k, d)
+				continue
+			}
+			const path =
+				d.config.path === defaultTriggerPath(oldScriptPath, d.kind)
+					? defaultTriggerPath(newScriptPath, d.kind)
+					: d.config.path
+			moved.set(triggerDraftKey(d.kind, path), {
+				...d,
+				config: { ...d.config, path, script_path: newScriptPath }
+			})
+		}
+		if (moved.size === 0) return undefined
+		for (const [k, d] of moved) if (kept.has(k)) return d.config.path
+		this.triggerDrafts = new Map([...kept, ...moved])
+		return undefined
+	}
+
+	/** Commit body edits + inferred outputs back into the drafts Map on pane
+	 * teardown (deferred a microtask so a same-batch discard doesn't resurrect the
+	 * entry). Verbatim port of the route page's `handleDraftPersist`. */
+	handleDraftPersist = (
+		p: string,
+		snapshot: {
+			content: string
+			writes: { kind: AssetKind; path: string }[]
+			// Optional: undefined = reads not captured by this caller — keep
+			// whatever the draft already carries.
+			reads?: { kind: AssetKind; path: string }[]
+			script?: Script
+		}
+	) => {
+		queueMicrotask(() => {
+			const d = this.drafts.get(p)
+			if (!d) {
+				if (!snapshot.script) return
+				const next = new Map(this.drafts)
+				next.set(p, {
+					localId: this.promotedDraftLocalId(p),
+					script: snapshot.script,
+					outputAssets: snapshot.writes.length > 0 ? snapshot.writes : undefined,
+					inputAssets: snapshot.reads
+				})
+				this.drafts = next
+				return
+			}
+			// `?? 0` is load-bearing: an undefined `outputAssets` (a no-output draft)
+			// vs an empty inferred `writes` both mean "no writes". Without the
+			// coalesce, `undefined === 0` is false, so this never short-circuits —
+			// every persist re-writes the drafts Map with an equivalent object,
+			// re-triggering the pane's emit → graph re-derive → persist, an infinite
+			// microtask loop (hangs the tab without an effect-depth throw).
+			const refsEqual = (
+				a: Array<{ kind: AssetKind; path: string }>,
+				b: Array<{ kind: AssetKind; path: string }>
+			) =>
+				a.length === b.length && a.every((x, i) => x.kind === b[i]?.kind && x.path === b[i]?.path)
+			const writesEqual = refsEqual(d.outputAssets ?? [], snapshot.writes)
+			// An uncaptured entry (`inputAssets` undefined) is never "equal" to an
+			// incoming capture — even `reads: []` must be recorded, or the entry
+			// stays on the legacy fallback (session cache) and can keep stale read
+			// edges after the pane closes.
+			const readsEqual =
+				snapshot.reads == undefined ||
+				(d.inputAssets != undefined && refsEqual(d.inputAssets, snapshot.reads))
+			if (d.script.content === snapshot.content && writesEqual && readsEqual) return
+			const next = new Map(this.drafts)
+			next.set(p, {
+				...d,
+				script: { ...d.script, content: snapshot.content },
+				outputAssets: snapshot.writes.length > 0 ? snapshot.writes : undefined,
+				inputAssets: snapshot.reads ?? d.inputAssets
+			})
+			this.drafts = next
+		})
+	}
+
+	/** The draft open in the pane, if any. */
+	get activeDraft(): PipelineDraft | undefined {
+		return this.activeDraftPath ? this.drafts.get(this.activeDraftPath) : undefined
+	}
+
+	/** Whichever script is open — the active draft, or a selected persisted script. */
+	get openScriptPath(): string | undefined {
+		if (this.activeDraftPath) return this.activeDraftPath
+		if (this.selection?.kind === 'runnable' && this.selection.runnable_kind === 'script')
+			return this.selection.path
+		return undefined
+	}
+}

@@ -13,7 +13,17 @@
 	import { fieldTypeToTsType } from '../apps/utils'
 	import type { InputType } from '../apps/inputType'
 	import Select from '$lib/components/select/Select.svelte'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { Alert } from '$lib/components/common'
+	import { userStore } from '$lib/stores'
+	import {
+		useOperatingUser,
+		useOperatingWorkspace
+	} from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
+	const operatingUser = useOperatingUser()
+	const actingUser = $derived(operatingUser.current)
+	let opWs = $derived($operatingWorkspace)
 
 	// Build ctx properties with current user's actual values
 	let ctxProperties = $derived([
@@ -26,12 +36,12 @@
 		{
 			value: 'groups',
 			label: 'Groups',
-			subtitle: `string[] — ${JSON.stringify($userStore?.groups ?? [])}`
+			subtitle: `string[] — ${JSON.stringify(actingUser?.groups ?? [])}`
 		},
 		{
 			value: 'workspace',
 			label: 'Workspace',
-			subtitle: `string — "${$workspaceStore ?? 'unknown'}"`
+			subtitle: `string — "${opWs ?? 'unknown'}"`
 		},
 		{ value: 'author', label: 'Author', subtitle: `string — "${$userStore?.email ?? 'unknown'}"` }
 	])
@@ -58,6 +68,8 @@
 		allowTypeChange?: boolean
 		loading?: boolean
 		documentationLink?: string | undefined
+		/** Warn that this input, left as a frontend input, is open to any value a viewer sends. */
+		suggestCtx?: boolean
 	}
 
 	let {
@@ -76,7 +88,8 @@
 		displayType = false,
 		allowTypeChange = true,
 		loading = false,
-		documentationLink = undefined
+		documentationLink = undefined,
+		suggestCtx = false
 	}: Props = $props()
 
 	run(() => {
@@ -184,6 +197,11 @@
 			</div>
 		{:else if componentInput?.type === 'user' || componentInput?.type == undefined}
 			<span class="text-2xs italic text-primary">Field's value is a frontend input</span>
+			{#if suggestCtx}
+				<Alert type="warning" size="xs" title="A viewer can send any value">
+					If this identifies the viewer, switch it to context so the server fills it.
+				</Alert>
+			{/if}
 		{/if}
 		{#if componentInput?.type === 'user' && ((fieldType == 'object' && format?.startsWith('resource-') && format !== 'resource-s3_object') || fieldType == 'resource')}
 			<div class="flex flex-row items-center">

@@ -385,3 +385,21 @@ const changelogs: Changelog[] = [
 ]
 
 export { changelogs }
+// Single owner of the "which changelogs are new" localStorage key — every
+// menu surfacing changelogs must read/stamp through these, or two surfaces
+// with independent state would fight over the same key.
+const LAST_OPENED_KEY = 'changelogsLastOpened'
+
+export function readRecentChangelogs(): { recent: Changelog[]; hasNew: boolean } {
+	const lastOpened = localStorage.getItem(LAST_OPENED_KEY)
+	const recent = lastOpened
+		? changelogs.filter((changelog) => changelog.date > lastOpened)
+		: changelogs.slice(0, 3)
+	const hasNew =
+		lastOpened != null && recent.length > 0 && lastOpened !== new Date().toISOString().split('T')[0]
+	return { recent, hasNew }
+}
+
+export function markChangelogsOpened(): void {
+	localStorage.setItem(LAST_OPENED_KEY, new Date().toISOString().split('T')[0])
+}

@@ -1,10 +1,9 @@
 <script lang="ts">
-	import { createBubbler } from 'svelte/legacy'
-
-	const bubble = createBubbler()
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
+	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
 	import Tab from '$lib/components/common/tabs/Tab.svelte'
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
+	import StepSettingsBadges from './StepSettingsBadges.svelte'
 	import Editor from '$lib/components/Editor.svelte'
 	import EditorBar, {
 		EDITOR_BAR_WIDTH_THRESHOLD,
@@ -16,49 +15,43 @@
 
 	import type { FlowModule, FlowModuleValue, RawScript, ScriptLang } from '$lib/gen'
 	import FlowCard from '../common/FlowCard.svelte'
+	import { nextMock } from '../flowMock'
 	import FlowModuleHeader from './FlowModuleHeader.svelte'
 	import { getLatestHashForScript, scriptLangToEditorLang } from '$lib/scripts'
 	import PropPickerWrapper from '../propPicker/PropPickerWrapper.svelte'
 	import { getContext, onDestroy, tick, untrack } from 'svelte'
 	import type { FlowEditorContext, FlowGraphAssetContext } from '../types'
 	import FlowModuleScript from './FlowModuleScript.svelte'
-	import FlowModuleEarlyStop from './FlowModuleEarlyStop.svelte'
-	import FlowModuleSuspend from './FlowModuleSuspend.svelte'
-	import FlowModuleCache from './FlowModuleCache.svelte'
-	import FlowModuleDeleteAfterUse from './FlowModuleDeleteAfterUse.svelte'
-	import FlowRetries from './FlowRetries.svelte'
+	import FlowRunSettings from './FlowRunSettings.svelte'
 	import { getFailureStepPropPicker, getStepPropPicker } from '../previousResults'
 	import { deepEqual } from 'fast-equals'
 	import Section from '$lib/components/Section.svelte'
-
-	import Button from '$lib/components/common/button/Button.svelte'
-	import Alert from '$lib/components/common/alert/Alert.svelte'
-	import FlowModuleSleep from './FlowModuleSleep.svelte'
-	import FlowPathViewer from './FlowPathViewer.svelte'
-	import InputTransformSchemaForm from '$lib/components/InputTransformSchemaForm.svelte'
-	import FlowModuleMockTransitionMessage from './FlowModuleMockTransitionMessage.svelte'
-	import Tooltip from '$lib/components/Tooltip.svelte'
-	import { SecondsInput } from '$lib/components/common'
-	import DiffEditor from '$lib/components/DiffEditor.svelte'
-	import type { ButtonProp } from '$lib/components/diffEditorTypes'
-	import FlowModuleTimeout from './FlowModuleTimeout.svelte'
-	import HighlightCode from '$lib/components/HighlightCode.svelte'
+	import SecondsInput from '$lib/components/common/seconds/SecondsInput.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
-	import s3Scripts from './s3Scripts/lib'
-	import Label from '$lib/components/Label.svelte'
-	import { enterpriseLicense } from '$lib/stores'
-	import { isCloudHosted } from '$lib/cloud'
+
+	import Button from '$lib/components/common/button/Button.svelte'
+	import FlowPathViewer from './FlowPathViewer.svelte'
+	import InputTransformSchemaForm from '$lib/components/InputTransformSchemaForm.svelte'
+	import AgentResourceBar from './AgentResourceBar.svelte'
+	import AiAgentStepInputs from './AiAgentStepInputs.svelte'
+	import AgentToolBindings from './AgentToolBindings.svelte'
+	import { getLinkedAgentTools, linkedToolsScope } from '../linkedAgentToolsStore.svelte'
+	import { linkedAgentStepSchema } from '../agentResourceUtils'
+	import { AI_AGENT_TOOL_AI_KEYS, AI_DECISION_TOOL_AI_KEYS } from '../agentToolUtils'
+	import { setAiDecisionStep } from '../aiDecisionBranching'
+	import DiffEditor from '$lib/components/DiffEditor.svelte'
+	import type { ButtonProp } from '$lib/components/diffEditorTypes'
 	import { loadSchemaFromModule } from '../flowInfers'
-	import FlowModuleSkip from './FlowModuleSkip.svelte'
-	import FlowModuleDebounce from './FlowModuleDebounce.svelte'
 	import { type Job } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
+	import { useRoleCapabilities } from '$lib/operatorWriteRights'
 	import { checkIfParentLoop } from '../utils.svelte'
+	import { useWorkspaceScriptSettings } from '../useWorkspaceScriptSettings.svelte'
+	import ScriptSettingsBadges from '$lib/components/ScriptSettingsBadges.svelte'
+	import { getActiveScriptSettingsBadges } from '$lib/components/scriptSettings'
 	import ModulePreviewResultViewer from '$lib/components/ModulePreviewResultViewer.svelte'
 	import LogViewer from '$lib/components/LogViewer.svelte'
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
-	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
 	import { getStepHistoryLoaderContext } from '$lib/components/stepHistoryLoader.svelte'
 	import AssetsDropdownButton from '$lib/components/assets/AssetsDropdownButton.svelte'
 	import { useUiIntent } from '$lib/components/copilot/chat/flow/useUiIntent'
@@ -82,8 +75,14 @@
 		signDebugRequest,
 		getDebugErrorMessage
 	} from '$lib/components/debug'
-	import { Bug, Terminal } from 'lucide-svelte'
+	import { Bug, Hand, Hourglass, Terminal } from 'lucide-svelte'
+	import Popover from '$lib/components/Popover.svelte'
 	import { sendUserToast } from '$lib/utils'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
+	const roleCaps = useRoleCapabilities()
+	const composeOnlyFlows = $derived($roleCaps.flows === 'compose')
 
 	const {
 		selectionManager,
@@ -94,10 +93,28 @@
 		pathStore,
 		saveDraft,
 		customUi,
-		executionCount
+		executionCount,
+		opWorkspace,
+		agentEditorHost,
+		workspaceScriptSettingsDrawer
 	} = getContext<FlowEditorContext>('FlowEditorContext')
 
-	const selectedId = $derived(selectionManager.getSelectedId())
+	// The agent editor's save guard uses the `tools` array identity to tell "same step" from "step
+	// replaced mid-save", so a module carrying no `tools` must read as one stable array — but a
+	// distinct one per module value, or a wholesale edit that keeps the module id would look
+	// unchanged. Keyed by the value object, which a replacement always renews.
+	type AgentTools = NonNullable<Extract<FlowModule['value'], { type: 'aiagent' }>['tools']>
+	const noToolsByValue = new WeakMap<object, AgentTools>()
+	function noTools(value: object): AgentTools {
+		let empty = noToolsByValue.get(value)
+		if (!empty) {
+			empty = []
+			noToolsByValue.set(value, empty)
+		}
+		return empty
+	}
+
+	let opWs = $derived(opWorkspace?.() ?? $operatingWorkspace)
 
 	interface Props {
 		flowModule: FlowModule
@@ -105,7 +122,7 @@
 		preprocessorModule?: boolean
 		parentModule?: FlowModule | undefined
 		previousModule: FlowModule | undefined
-		scriptKind?: 'script' | 'trigger' | 'approval'
+		scriptKind?: 'script' | 'trigger' | 'approval' | 'preprocessor'
 		scriptTemplate?: 'pgsql' | 'mysql' | 'script' | 'docker' | 'powershell'
 		noEditor: boolean
 		enableAi: boolean
@@ -113,6 +130,20 @@
 		forceTestTab?: boolean
 		highlightArg?: string
 		isAgentTool?: boolean
+		/** Offer only values that stand on their own: no connect button, no expression option, no
+		 *  prop picker column. For a tool of a saved agent, whose inputs are stored on the resource
+		 *  and so cannot name any one flow's `flow_input` or `results`. A flow binds those on the
+		 *  step instead, through `tool_inputs`. */
+		staticOnly?: boolean
+		/** Lets the agent's Tools section add a tool through the graph's own insert path. */
+		flowModuleSchemaMap?: import('../map/FlowModuleSchemaMap.svelte').default
+		toolDescription?: string | undefined
+		/** The tool's `requires_approval` setting; only an agent tool has one. */
+		toolRequiresApproval?: boolean
+		/** The tool's `background` setting; only an agent tool has one. */
+		toolBackground?: boolean
+		/** The tool's `background_after_secs` setting; only an agent tool has one. */
+		toolBackgroundAfterSecs?: number
 		siblingToolNames?: string[]
 	}
 
@@ -130,8 +161,41 @@
 		forceTestTab = false,
 		highlightArg = undefined,
 		isAgentTool = false,
+		staticOnly = false,
+		flowModuleSchemaMap = undefined,
+		toolDescription = $bindable(undefined),
+		toolRequiresApproval = $bindable(),
+		toolBackground = $bindable(),
+		toolBackgroundAfterSecs = $bindable(),
 		siblingToolNames = undefined
 	}: Props = $props()
+
+	const DEFAULT_BACKGROUND_AFTER_SECS = 30
+	type BackgroundMode = 'never' | 'after' | 'always'
+	let backgroundMode: BackgroundMode = $derived(
+		toolBackground ? 'always' : toolBackgroundAfterSecs != undefined ? 'after' : 'never'
+	)
+	function setBackgroundMode(mode: BackgroundMode) {
+		toolBackground = mode === 'always'
+		toolBackgroundAfterSecs = mode === 'after' ? DEFAULT_BACKGROUND_AFTER_SECS : undefined
+	}
+
+	setAiDecisionStep({
+		get id() {
+			return flowModule.value.type === 'aidecision' && !isAgentTool ? flowModule.id : undefined
+		}
+	})
+
+	// Key for the linked-agent tools store. Ancestry-qualified for a nested agent tool, whose id
+	// comes from a resource and is not flow-global — it could otherwise alias a top-level step and
+	// read, then overwrite, that step's tools. Flow modules keep their bare id, which is what the
+	// graph looks them up by.
+	let linkedToolsModuleId = $derived(
+		parentModule?.value?.type === 'aiagent' ? `${parentModule.id}/${flowModule.id}` : flowModule.id
+	)
+
+	// Which step's open agent fields to remember, and which the test form reads back.
+	let agentFieldsKey = $derived(`${$pathStore}:${linkedToolsModuleId}`)
 
 	let workspaceScriptTag: string | undefined = $state(undefined)
 	let workspaceScriptLang: ScriptLang | undefined = $state(undefined)
@@ -157,6 +221,11 @@
 		shellcheck: false
 	})
 
+	// `scriptKind` only records how a step was created this session, so it is back to 'script' on
+	// any remount. Being a preprocessor is a property of the slot, and the editor bar's reset code
+	// and script library depend on it, so derive it rather than reading the stale state.
+	let editorScriptKind = $derived(preprocessorModule ? 'preprocessor' : scriptKind)
+
 	let selected = $state(untrack(() => preprocessorModule) ? 'test' : 'inputs')
 	let canShowChatTab = $derived(
 		!preprocessorModule &&
@@ -164,9 +233,16 @@
 			flowModule.value.type === 'aiagent'
 	)
 	let visibleSelected = $derived(selected === 'chat' && !canShowChatTab ? 'inputs' : selected)
-	let advancedSelected = $state('retries')
-	let advancedRuntimeSelected = $state('concurrency')
-	let s3Kind = $state('s3_client')
+	let runSettings: FlowRunSettings | undefined = $state()
+	let agentLinked = $derived(flowModule.value.type === 'aiagent' && Boolean(flowModule.value.agent))
+	// A tool row drills in by selecting that tool's graph node, and the graph draws tool nodes only
+	// for a step's own agent (`computeAIToolNodes`). An agent used as a tool has none, so its rows
+	// would offer a click that lands nowhere.
+	let onSelectToolInGraph = $derived(
+		isAgentTool
+			? undefined
+			: (toolId: string) => selectionManager.selectId(toolId, { openPanel: true })
+	)
 	let validCode = $state(true)
 	let width = $state(1200)
 	let testJob: Job | undefined = $state(undefined)
@@ -175,6 +251,62 @@
 
 	let assets = $derived((flowModule.value.type === 'rawscript' && flowModule.value.assets) || [])
 	const flowGraphAssetsCtx = getContext<FlowGraphAssetContext | undefined>('FlowGraphAssetContext')
+
+	// For workspace-script steps, load the referenced script's advanced settings so
+	// the delegating settings tabs (concurrency, cache, ...) can show current values
+	// and offer an "Edit script settings" shortcut instead of a bare warning.
+	const referencedScriptSettings = useWorkspaceScriptSettings(
+		() => (flowModule.value.type === 'script' ? flowModule.value.path : undefined),
+		() => (flowModule.value.type === 'script' ? flowModule.value.hash : undefined),
+		() => opWs
+	)
+	// Hub scripts, hash-pinned steps, and embeddings that disable script editing
+	// can't have their settings edited from here. The drawer must also be mounted:
+	// local-dev editors (Dev.svelte / flows/dev) provide the context store but never
+	// render the drawer, so editing there would be a no-op — keep values read-only.
+	let canEditWorkspaceScriptSettings = $derived(
+		flowModule.value.type === 'script' &&
+			!flowModule.value.path?.startsWith('hub/') &&
+			flowModule.value.hash == undefined &&
+			customUi?.scriptEdit != false &&
+			!composeOnlyFlows &&
+			$workspaceScriptSettingsDrawer != undefined
+	)
+	// Same rule as the graph node's Run button (FlowModuleSchemaItem).
+	let builderCannotTestStep = $derived(composeOnlyFlows && flowModule.value.type === 'script')
+	let workspaceScriptNoEditReason = $derived(
+		flowModule.value.type !== 'script' || canEditWorkspaceScriptSettings
+			? undefined
+			: flowModule.value.path?.startsWith('hub/')
+				? 'Hub scripts cannot be edited from here.'
+				: flowModule.value.hash != undefined
+					? 'Steps pinned to a specific version cannot be edited from here.'
+					: 'Editing script settings is not available in this editor.'
+	)
+	// Non-positive concurrent_limit / cache_ttl are treated as unset by the runtime (legacy rows).
+	let referencedConcurrentLimit = $derived(
+		referencedScriptSettings.settings?.concurrent_limit != undefined &&
+			referencedScriptSettings.settings.concurrent_limit > 0
+			? referencedScriptSettings.settings.concurrent_limit
+			: undefined
+	)
+	let referencedCacheTtl = $derived(
+		referencedScriptSettings.settings?.cache_ttl != undefined &&
+			referencedScriptSettings.settings.cache_ttl > 0
+			? referencedScriptSettings.settings.cache_ttl
+			: undefined
+	)
+	function openWorkspaceScriptSettings() {
+		if (flowModule.value.type !== 'script') return
+		$workspaceScriptSettingsDrawer?.openDrawer(
+			flowModule.value.path,
+			flowModule.value.hash,
+			async () => {
+				await referencedScriptSettings.reload()
+				forceReload++
+			}
+		)
+	}
 
 	// UI Intent handling for AI tool control
 	useUiIntent(`flow-${flowModule.id}`, {
@@ -193,19 +325,22 @@
 	}
 
 	function onKeyDown(event: KeyboardEvent) {
-		if ((event.ctrlKey || event.metaKey) && event.key == 'Enter') {
+		if ((event.ctrlKey || event.metaKey) && event.key == 'Enter' && !builderCannotTestStep) {
 			event.preventDefault()
 			selected = 'test'
 			modulePreview?.runTestWithStepArgs()
 		}
 	}
-	let inputTransformSchemaForm: InputTransformSchemaForm | undefined = $state(undefined)
+	let inputTransformSchemaForm: { setArgs: (nargs: Record<string, any>) => void } | undefined =
+		$state(undefined)
+	// The linked agent's memory, which decides which history inputs the step offers.
+	let linkedAgentConfig: { memory: unknown; provider?: unknown } | undefined = $state(undefined)
 
 	let reloadError: string | undefined = $state(undefined)
 	async function reload(flowModule: FlowModule) {
 		reloadError = undefined
 		try {
-			const { input_transforms, schema } = await loadSchemaFromModule(flowModule)
+			const { input_transforms, schema } = await loadSchemaFromModule(flowModule, opWs)
 			validCode = true
 
 			if (inputTransformSchemaForm) {
@@ -215,7 +350,8 @@
 					flowModule.value.type == 'rawscript' ||
 					flowModule.value.type == 'script' ||
 					flowModule.value.type == 'flow' ||
-					flowModule.value.type == 'aiagent'
+					flowModule.value.type == 'aiagent' ||
+					flowModule.value.type == 'aidecision'
 				) {
 					if (!deepEqual(flowModule.value.input_transforms, input_transforms)) {
 						flowModule.value.input_transforms = input_transforms
@@ -244,7 +380,7 @@
 
 	function selectAdvanced(subtab: string) {
 		selected = 'advanced'
-		advancedSelected = subtab
+		tick().then(() => runSettings?.openSetting(subtab))
 	}
 
 	function setOmitOutputFromConversation(omit: boolean) {
@@ -261,14 +397,33 @@
 
 	let forceReload = $state(0)
 	let editorPanelSize = $state(
-		untrack(() => noEditor) ? 0 : flowModule.value.type == 'script' ? 30 : 50
+		untrack(() => noEditor) ? 0 : flowModule.value.type == 'script' ? 30 : 40
 	)
 	let editorSettingsPanelSize = $state(100 - untrack(() => editorPanelSize))
 	let stepHistoryLoader = getStepHistoryLoaderContext()
 
 	function onSelectedIdChange() {
-		if (!flowStateStore?.val?.[selectedId]?.schema && flowModule) {
+		if (!flowStateStore?.val?.[flowModule.id]?.schema && flowModule) {
 			reload(flowModule)
+		}
+	}
+
+	// Reached from both headers: the card header owns the script-path actions, the module
+	// header the subflow ones.
+	async function reloadModule() {
+		if (flowModule.value.type == 'script') {
+			if (flowModule.value.hash != undefined) {
+				flowModule.value.hash = await getLatestHashForScript(flowModule.value.path, opWs)
+			}
+			forceReload++
+			// Keep the surfaced concurrency/cache values and badges in sync after a
+			// settings/code save from the header (path/hash may be unchanged).
+			await referencedScriptSettings.reload()
+			await reload(flowModule)
+		}
+		if (flowModule.value.type == 'flow') {
+			forceReload++
+			await reload(flowModule)
 		}
 	}
 
@@ -279,7 +434,10 @@
 		if (model == undefined) return
 		diffMode = true
 
-		diffEditor?.showWithModelAndOriginal((savedModule?.value as RawScript).content ?? '', model)
+		diffEditor?.showWithModelAndOriginal(
+			(savedModule?.value as RawScript | undefined)?.content ?? '',
+			model
+		)
 		editor?.hide()
 	}
 
@@ -305,7 +463,7 @@
 	)
 
 	$effect.pre(() => {
-		selectedId && untrack(() => onSelectedIdChange())
+		flowModule.id && untrack(() => onSelectedIdChange())
 	})
 	let parentLoop = $derived(
 		flowStore.val && flowModule ? checkIfParentLoop(flowStore.val, flowModule.id) : undefined
@@ -397,8 +555,8 @@
 	}
 
 	let preparedSqlQueries = usePreparedAssetSqlQueries(
-		() => flowGraphAssetsCtx?.val.sqlQueries[selectedId],
-		() => $workspaceStore
+		() => flowGraphAssetsCtx?.val.sqlQueries[flowModule.id],
+		() => opWs
 	)
 
 	// Debug mode state
@@ -532,16 +690,12 @@
 			resetDAPClient()
 			dapClient = getDAPClient(dapServerUrl)
 
-			const env = await fetchContextualVariables($workspaceStore ?? '')
+			const env = await fetchContextualVariables(opWs ?? '')
 			const code = flowModule.value.content
 
 			let signedPayload
 			try {
-				signedPayload = await signDebugRequest(
-					$workspaceStore ?? '',
-					code ?? '',
-					rawScriptLang ?? 'python3'
-				)
+				signedPayload = await signDebugRequest(opWs ?? '', code ?? '', rawScriptLang ?? 'python3')
 				debugSessionJobId = signedPayload.job_id
 			} catch (signError) {
 				sendUserToast(getDebugErrorMessage(signError), true)
@@ -724,17 +878,20 @@
 	<div class="h-full bg-surface" bind:clientWidth={width}>
 		<FlowCard
 			flowModuleValue={flowModule?.value}
-			on:reload={() => {
-				forceReload++
-				reload(flowModule)
-			}}
 			{noEditor}
 			on:setHash={(e) => {
 				if (flowModule.value.type == 'script') {
 					flowModule.value.hash = e.detail
 				}
 			}}
+			on:fork={async () => {
+				const [module, state] = await fork(flowModule, opWs)
+				flowModule = module
+				flowStateStore.val[module.id] = state
+			}}
+			on:reload={reloadModule}
 			bind:summary={flowModule.summary}
+			bind:description={toolDescription}
 			{isAgentTool}
 			{siblingToolNames}
 		>
@@ -746,42 +903,22 @@
 						console.log('tagChange', e.detail)
 						if (flowModule.value.type == 'script') {
 							flowModule.value.tag_override = e.detail
-						} else if (flowModule.value.type == 'rawscript') {
+						} else if (
+							flowModule.value.type == 'rawscript' ||
+							flowModule.value.type == 'aiagent' ||
+							flowModule.value.type == 'aidecision'
+						) {
 							flowModule.value.tag = e.detail
 						}
 					}}
-					on:toggleSuspend={() => selectAdvanced('suspend')}
-					on:toggleSleep={() => selectAdvanced('sleep')}
-					on:toggleMock={() => selectAdvanced('mock')}
-					on:toggleRetry={() => selectAdvanced('retries')}
-					on:togglePin={() => (selected = 'test')}
-					on:toggleConcurrency={() => selectAdvanced('runtime')}
-					on:toggleCache={() => selectAdvanced('cache')}
-					on:toggleStopAfterIf={() => selectAdvanced('early-stop')}
-					on:fork={async () => {
-						const [module, state] = await fork(flowModule)
-						flowModule = module
-						flowStateStore.val[module.id] = state
-					}}
-					on:reload={async () => {
-						if (flowModule.value.type == 'script') {
-							if (flowModule.value.hash != undefined) {
-								flowModule.value.hash = await getLatestHashForScript(flowModule.value.path)
-							}
-							forceReload++
-							await reload(flowModule)
-						}
-						if (flowModule.value.type == 'flow') {
-							forceReload++
-							await reload(flowModule)
-						}
-					}}
+					on:reload={reloadModule}
 					on:createScriptFromInlineScript={async () => {
 						const [module, state] = await createScriptFromInlineScript(
 							flowModule,
-							selectedId,
+							flowModule.id,
 							flowStateStore.val[flowModule.id]?.schema,
-							$pathStore
+							$pathStore,
+							opWs
 						)
 						if (flowModule.value.type == 'rawscript') {
 							module.value.input_transforms = flowModule.value.input_transforms
@@ -797,13 +934,14 @@
 					<div class="shadow-sm px-1 border-b-1 border-gray-200 dark:border-gray-700">
 						<EditorBar
 							customUi={customUi?.editorBar}
+							workspace={opWs}
 							{validCode}
 							{editor}
 							lang={flowModule.value['language'] ?? 'deno'}
 							{websocketAlive}
 							iconOnly={width < EDITOR_BAR_WIDTH_THRESHOLD}
 							compactHelpers={width < EDITOR_BAR_HELPERS_INLINE_THRESHOLD}
-							kind={scriptKind}
+							kind={editorScriptKind}
 							template={scriptTemplate}
 							args={Object.entries(flowModule.value.input_transforms).reduce((acc, [key, obj]) => {
 								acc[key] = obj.type === 'static' ? obj.value : undefined
@@ -871,13 +1009,11 @@
 														automaticLayout={true}
 														cmdEnterAction={async () => {
 															selected = 'test'
-															if (selectedId == flowModule.id) {
-																if (flowModule.value.type === 'rawscript' && editor) {
-																	flowModule.value.content = editor.getCode()
-																}
-																await reload(flowModule)
-																modulePreview?.runTestWithStepArgs()
+															if (flowModule.value.type === 'rawscript' && editor) {
+																flowModule.value.content = editor.getCode()
 															}
+															await reload(flowModule)
+															modulePreview?.runTestWithStepArgs()
 														}}
 														on:change={async (event) => {
 															const content = event.detail
@@ -903,7 +1039,7 @@
 															},
 															{}
 														)}
-														key={`flow-inline-${$workspaceStore}-${$pathStore}-${flowModule.id}`}
+														key={`flow-inline-${opWs}-${$pathStore}-${flowModule.id}`}
 														moduleId={flowModule.id}
 														preparedAssetsSqlQueries={preparedSqlQueries.current}
 														customTag={flowModule.value.tag}
@@ -915,7 +1051,7 @@
 													client={dapClient}
 													currentFrameId={currentDebugFrameId}
 													onClose={() => (showDebugConsole = false)}
-													workspace={$workspaceStore}
+													workspace={opWs}
 													jobId={debugSessionJobId ?? undefined}
 												/>
 											</Pane>
@@ -934,13 +1070,11 @@
 												automaticLayout={true}
 												cmdEnterAction={async () => {
 													selected = 'test'
-													if (selectedId == flowModule.id) {
-														if (flowModule.value.type === 'rawscript' && editor) {
-															flowModule.value.content = editor.getCode()
-														}
-														await reload(flowModule)
-														modulePreview?.runTestWithStepArgs()
+													if (flowModule.value.type === 'rawscript' && editor) {
+														flowModule.value.content = editor.getCode()
 													}
+													await reload(flowModule)
+													modulePreview?.runTestWithStepArgs()
 												}}
 												on:change={async (event) => {
 													const content = event.detail
@@ -966,7 +1100,7 @@
 													},
 													{}
 												)}
-												key={`flow-inline-${$workspaceStore}-${$pathStore}-${flowModule.id}`}
+												key={`flow-inline-${opWs}-${$pathStore}-${flowModule.id}`}
 												moduleId={flowModule.id}
 												preparedAssetsSqlQueries={preparedSqlQueries.current}
 												customTag={flowModule.value.tag}
@@ -988,6 +1122,16 @@
 						{:else if flowModule.value.type === 'script'}
 							{#if !noEditor && (customUi?.hubCode != false || !flowModule?.value?.path?.startsWith('hub/'))}
 								<div class="border-t">
+									{#if referencedScriptSettings.settings && getActiveScriptSettingsBadges(referencedScriptSettings.settings).length > 0}
+										<div class="flex flex-row items-center gap-2 px-2 pt-2 flex-wrap">
+											<ScriptSettingsBadges
+												settings={referencedScriptSettings.settings}
+												onclick={canEditWorkspaceScriptSettings
+													? openWorkspaceScriptSettings
+													: undefined}
+											/>
+										</div>
+									{/if}
 									{#key forceReload}
 										<FlowModuleScript
 											bind:tag={workspaceScriptTag}
@@ -1017,10 +1161,14 @@
 										}}
 										wrapperClass="shrink-0"
 									>
+										<!-- A tool's inputs are arguments of the tool, not of a step in the flow;
+										     `tool_inputs` is what the rest of the codebase calls them. -->
 										{#if !preprocessorModule}
-											<Tab value="inputs" label="Step Input" />
+											<Tab value="inputs" label={isAgentTool ? 'Tool input' : 'Step Input'} />
 										{/if}
-										<Tab value="test" label="Test this step" />
+										{#if !builderCannotTestStep}
+											<Tab value="test" label={isAgentTool ? 'Test this tool' : 'Test this step'} />
+										{/if}
 										{#if canShowChatTab && flowModule.value.type === 'aiagent'}
 											<Tab
 												value="chat"
@@ -1028,16 +1176,47 @@
 												label="Chat"
 											/>
 										{/if}
+										{#if isAgentTool}
+											<Tab value="tool_settings" label="Tool settings">
+												{#snippet extra()}
+													{#if toolRequiresApproval || backgroundMode !== 'never'}
+														<div class="flex flex-row items-center gap-1 text-secondary">
+															{#if toolRequiresApproval}
+																<Popover notClickable>
+																	<Hand size={12} />
+																	{#snippet text()}Require approval · On{/snippet}
+																</Popover>
+															{/if}
+															{#if backgroundMode !== 'never'}
+																<Popover notClickable>
+																	<Hourglass size={12} />
+																	{#snippet text()}Run in background · {backgroundMode === 'always'
+																			? 'Always'
+																			: `After ${toolBackgroundAfterSecs}s`}{/snippet}
+																</Popover>
+															{/if}
+														</div>
+													{/if}
+												{/snippet}
+											</Tab>
+										{/if}
 										{#if !preprocessorModule && !isAgentTool}
-											<Tab value="advanced" label="Advanced" />
+											<Tab value="advanced" label="Run settings">
+												{#snippet extra()}
+													<StepSettingsBadges {flowModule} />
+												{/snippet}
+											</Tab>
 										{/if}
 									</Tabs>
-									{#if visibleSelected === 'inputs' && (flowModule.value.type == 'rawscript' || flowModule.value.type == 'script' || flowModule.value.type == 'flow' || flowModule.value.type == 'aiagent')}
+									{#if visibleSelected === 'inputs' && (flowModule.value.type == 'rawscript' || flowModule.value.type == 'script' || flowModule.value.type == 'flow' || flowModule.value.type == 'aiagent' || flowModule.value.type == 'aidecision')}
 										<div class="flex-1 overflow-auto" id="flow-editor-step-input">
+											<!-- `sidePane` under `staticOnly`: that column only opens on a connect,
+											     and there is no connect button to open it. -->
 											<PropPickerWrapper
 												pickableProperties={stepPropPicker.pickableProperties}
 												error={failureModule}
 												noPadding
+												sidePane={staticOnly}
 											>
 												{#if reloadError}
 													<div
@@ -1045,39 +1224,176 @@
 														class="absolute left-2 top-2 rounded-full w-2 h-2 bg-red-300"
 													></div>
 												{/if}
-												<InputTransformSchemaForm
-													class="px-2 xl:px-4 pb-8"
-													bind:this={inputTransformSchemaForm}
-													pickableProperties={stepPropPicker.pickableProperties}
-													schema={flowStateStore.val[selectedId]?.schema ?? {}}
-													previousModuleId={previousModule?.id}
-													bind:args={
-														() => {
-															// @ts-ignore
-															return flowModule?.value?.input_transforms
-														},
-														(v) => {
-															if (
-																typeof flowModule?.value === 'object' &&
-																flowModule?.value !== null
-															) {
-																// @ts-ignore
-																flowModule.value.input_transforms = v
+												{#if flowModule.value.type === 'aiagent'}
+													<!-- Inside the wrapper so the card scrolls with the inputs (a single
+													scroll region) instead of stacking a second scrollbar above it. -->
+													<AgentResourceBar
+														moduleId={linkedToolsModuleId}
+														opWorkspace={opWs}
+														flowPath={$pathStore}
+														fromAgentEditor={agentEditorHost?.() != undefined}
+														bind:linkedAgent={linkedAgentConfig}
+														chatInputEnabled={flowStore.val.value?.chat_input_enabled ?? false}
+														bind:agent={
+															() =>
+																flowModule.value.type === 'aiagent'
+																	? flowModule.value.agent
+																	: undefined,
+															(v) => {
+																if (flowModule.value.type === 'aiagent') {
+																	flowModule.value.agent = v
+																}
 															}
 														}
-													}
-													extraLib={stepPropPicker.extraLib}
-													{enableAi}
-													{isAgentTool}
-													allowedAiTransforms={isAgentTool && flowModule.value.type === 'aiagent'
-														? ['user_message']
-														: undefined}
-													helperScript={retrieveDynCodeAndLang(flowModule.value)}
-													chatInputEnabled={flowStore.val.value?.chat_input_enabled ?? false}
-												/>
+														bind:inputTransforms={
+															() => (flowModule.value as any).input_transforms,
+															(v) => {
+																if (flowModule.value.type === 'aiagent') {
+																	;(flowModule.value as any).input_transforms = v
+																}
+															}
+														}
+														bind:tools={
+															() =>
+																flowModule.value.type === 'aiagent'
+																	? (flowModule.value.tools ?? noTools(flowModule.value))
+																	: noTools(flowModule),
+															(v) => {
+																if (flowModule.value.type === 'aiagent') {
+																	flowModule.value.tools = v
+																}
+															}
+														}
+														bind:toolInputs={
+															() =>
+																flowModule.value.type === 'aiagent'
+																	? (flowModule.value.tool_inputs ?? {})
+																	: {},
+															(v) => {
+																if (flowModule.value.type === 'aiagent') {
+																	// An emptied map reverts to absent so the doc matches its pre-override state.
+																	flowModule.value.tool_inputs =
+																		Object.keys(v).length > 0 ? v : undefined
+																}
+															}
+														}
+													/>
+												{/if}
+												{#if flowModule.value.type === 'aiagent'}
+													<AiAgentStepInputs
+														class="px-2 xl:px-4 pb-8"
+														bind:this={inputTransformSchemaForm}
+														pickableProperties={stepPropPicker.pickableProperties}
+														schema={agentLinked
+															? linkedAgentStepSchema(
+																	flowStateStore.val[flowModule.id]?.schema ?? {}
+																)
+															: (flowStateStore.val[flowModule.id]?.schema ?? {})}
+														previousModuleId={previousModule?.id}
+														bind:args={
+															() => {
+																// @ts-ignore
+																return flowModule?.value?.input_transforms
+															},
+															(v) => {
+																if (
+																	typeof flowModule?.value === 'object' &&
+																	flowModule?.value !== null
+																) {
+																	// @ts-ignore
+																	flowModule.value.input_transforms = v
+																}
+															}
+														}
+														extraLib={stepPropPicker.extraLib}
+														{enableAi}
+														{isAgentTool}
+														noConnect={staticOnly}
+														noJavascript={staticOnly}
+														allowedAiTransforms={isAgentTool ? AI_AGENT_TOOL_AI_KEYS : undefined}
+														helperScript={retrieveDynCodeAndLang(flowModule.value)}
+														chatInputEnabled={flowStore.val.value?.chat_input_enabled ?? false}
+														workspace={opWs}
+														visibilityKey={agentFieldsKey}
+														linkedAgent={agentLinked ? linkedAgentConfig : undefined}
+														{agentLinked}
+														tools={agentLinked
+															? getLinkedAgentTools(
+																	linkedToolsScope(opWs, $pathStore),
+																	linkedToolsModuleId
+																)
+															: (flowModule.value.tools ?? [])}
+														onSelectTool={onSelectToolInGraph}
+														onAddTool={flowModuleSchemaMap
+															? (detail) =>
+																	flowModuleSchemaMap?.addToolToAgent(flowModule.id, detail)
+															: undefined}
+													/>
+												{:else}
+													<InputTransformSchemaForm
+														class="px-2 xl:px-4 pb-8"
+														bind:this={inputTransformSchemaForm}
+														pickableProperties={stepPropPicker.pickableProperties}
+														schema={flowStateStore.val[flowModule.id]?.schema ?? {}}
+														previousModuleId={previousModule?.id}
+														bind:args={
+															() => {
+																// @ts-ignore
+																return flowModule?.value?.input_transforms
+															},
+															(v) => {
+																if (
+																	typeof flowModule?.value === 'object' &&
+																	flowModule?.value !== null
+																) {
+																	// @ts-ignore
+																	flowModule.value.input_transforms = v
+																}
+															}
+														}
+														extraLib={stepPropPicker.extraLib}
+														{enableAi}
+														{isAgentTool}
+														noConnect={staticOnly}
+														noJavascript={staticOnly}
+														allowedAiTransforms={isAgentTool &&
+														flowModule.value.type === 'aidecision'
+															? AI_DECISION_TOOL_AI_KEYS
+															: undefined}
+														helperScript={retrieveDynCodeAndLang(flowModule.value)}
+														chatInputEnabled={flowStore.val.value?.chat_input_enabled ?? false}
+														workspace={opWs}
+													/>
+												{/if}
+												{#if agentLinked}
+													<!-- Linked agent: the resource's tools with their inputs rebindable to this
+													flow; overrides persist on the step as tool_inputs (diff from the resource). -->
+													<AgentToolBindings
+														tools={getLinkedAgentTools(
+															linkedToolsScope(opWs, $pathStore),
+															linkedToolsModuleId
+														)}
+														pickableProperties={stepPropPicker.pickableProperties}
+														extraLib={stepPropPicker.extraLib}
+														workspace={opWs}
+														bind:toolInputs={
+															() =>
+																flowModule.value.type === 'aiagent'
+																	? (flowModule.value.tool_inputs ?? {})
+																	: {},
+															(v) => {
+																if (flowModule.value.type === 'aiagent') {
+																	// An emptied map reverts to absent so the doc matches its pre-override state.
+																	flowModule.value.tool_inputs =
+																		Object.keys(v).length > 0 ? v : undefined
+																}
+															}
+														}
+													/>
+												{/if}
 											</PropPickerWrapper>
 										</div>
-									{:else if visibleSelected === 'test'}
+									{:else if visibleSelected === 'test' && !builderCannotTestStep}
 										{#if debugMode && isDebuggableScript}
 											<div transition:slide={{ duration: 200 }}>
 												<DebugToolbar
@@ -1102,13 +1418,16 @@
 											bind:this={modulePreview}
 											mod={flowModule}
 											{noEditor}
-											schema={flowStateStore.val[selectedId]?.schema ?? {}}
+											schema={agentLinked
+												? linkedAgentStepSchema(flowStateStore.val[flowModule.id]?.schema ?? {})
+												: (flowStateStore.val[flowModule.id]?.schema ?? {})}
 											bind:testJob
 											bind:testIsLoading
 											bind:scriptProgress
 											focusArg={highlightArg}
 											{onJobDone}
 											hideRunButton={debugMode && isDebuggableScript}
+											openFieldsKey={agentFieldsKey}
 										/>
 									{:else if visibleSelected === 'chat' && canShowChatTab && flowModule.value.type === 'aiagent'}
 										<div class="flex-1 overflow-auto p-4">
@@ -1127,282 +1446,85 @@
 												/>
 											</Section>
 										</div>
-									{:else if visibleSelected === 'advanced'}
-										<Tabs bind:selected={advancedSelected} wrapperClass="shrink-0">
-											<Tab
-												value="retries"
-												active={flowModule.retry !== undefined || flowModule.continue_on_error}
-												label="Error handling"
-											/>
-											{#if !selectedId.includes('failure')}
-												<Tab value="runtime" label="Runtime" />
-												<Tab value="cache" active={Boolean(flowModule.cache_ttl)} label="Cache" />
-												<Tab
-													value="early-stop"
-													active={Boolean(
-														flowModule.stop_after_if || flowModule.stop_after_all_iters_if
-													)}
-													label="Early Stop"
+									{:else if visibleSelected === 'tool_settings' && isAgentTool}
+										<div class="flex flex-1 flex-col gap-6 overflow-auto p-4">
+											<Section label="Approval">
+												<Toggle
+													size="xs"
+													textClass="text-xs font-normal text-primary"
+													disabled={noEditor}
+													bind:checked={
+														() => toolRequiresApproval ?? false, (v) => (toolRequiresApproval = v)
+													}
+													options={{
+														right: 'Require approval',
+														rightTooltip:
+															'Each call waits for someone to approve or reject it from the run page or the chat, without holding a worker. Other calls in the same turn run right away. A rejected call is reported to the agent as not run. An agent used as a tool of another agent cannot wait, so it leaves such tools out.'
+													}}
 												/>
-												<Tab value="skip" active={Boolean(flowModule.skip_if)} label="Skip" />
-												<Tab value="suspend" active={Boolean(flowModule.suspend)} label="Suspend" />
-												<Tab value="sleep" active={Boolean(flowModule.sleep)} label="Sleep" />
-												<Tab
-													value="debounce"
-													active={Boolean(flowModule.debouncing?.debounce_delay_s)}
-													label="Debounce"
-												/>
-												<Tab value="mock" active={Boolean(flowModule.mock?.enabled)} label="Mock" />
-												<Tab value="same_worker" label="Shared Directory" />
-												{#if flowModule.value['language'] === 'python3' || flowModule.value['language'] === 'deno'}
-													<Tab value="s3" label="S3" />
-												{/if}
-											{/if}
-										</Tabs>
-										{#if advancedSelected === 'runtime'}
-											<Tabs bind:selected={advancedRuntimeSelected} wrapperClass="shrink-0">
-												<Tab value="concurrency" label="Concurrency" />
-												<Tab value="timeout" label="Timeout" />
-												<Tab value="priority" label="Priority" />
-												<Tab value="lifetime" label="Lifetime" />
-											</Tabs>
-										{/if}
-										<div class="flex-1 overflow-auto p-4">
-											{#if advancedSelected === 'retries'}
-												<Section label="Continue on error">
-													{#snippet header()}
-														<Tooltip>
-															When enabled, the flow will continue to the next step even if this
-															step fails (after exhausting all retries, if any). This enables to
-															process the error in a branch one for instance.
-														</Tooltip>
-													{/snippet}
-													<Toggle
-														size="xs"
-														bind:checked={flowModule.continue_on_error}
-														options={{
-															left: 'Stop on error and propagate error up',
-															right: "Continue on error with error as step's return"
-														}}
-													/>
-												</Section>
-												<div class="mt-4"></div>
-												<Section label="Retries">
-													{#snippet header()}
-														<Tooltip
-															documentationLink="https://www.windmill.dev/docs/flows/retries"
-														>
-															If defined, upon error this step will be retried with a delay and a
-															maximum number of attempts as defined below.
-														</Tooltip>
-													{/snippet}
-													<FlowRetries bind:flowModuleRetry={flowModule.retry} bind:flowModule />
-												</Section>
-											{:else if advancedSelected === 'runtime' && advancedRuntimeSelected === 'concurrency'}
-												<Section label="Concurrency limits" class="flex flex-col gap-4" eeOnly>
-													{#snippet header()}
-														<Tooltip>Allowed concurrency within a given timeframe</Tooltip>
-													{/snippet}
-													{#if flowModule.value.type == 'rawscript'}
-														<Label label="Max number of executions within the time window">
-															<div class="flex flex-row gap-2 max-w-sm whitespace-nowrap">
-																<input
-																	disabled={!$enterpriseLicense}
-																	bind:value={flowModule.value.concurrent_limit}
-																	type="number"
-																/>
-																<Button
-																	size="xs"
-																	variant="default"
-																	on:click={() => {
-																		if (flowModule.value.type == 'rawscript') {
-																			flowModule.value.concurrent_limit = undefined
-																		}
-																	}}
-																>
-																	<div class="flex flex-row gap-2"> Remove Limits </div>
-																</Button>
-															</div>
-														</Label>
-														<Label label="Time window in seconds">
-															<SecondsInput
-																disabled={!$enterpriseLicense}
-																bind:seconds={flowModule.value.concurrency_time_window_s}
-																clearable
+											</Section>
+											<Section
+												label="Run in background"
+												tooltip="A call in the background answers the agent with its job id, and the agent keeps working. The result reaches it in a later message. If it finishes its answer first, it waits for the result without holding a worker."
+											>
+												<div class="flex flex-col gap-2">
+													<ToggleButtonGroup
+														disabled={noEditor}
+														selected={backgroundMode}
+														onSelected={setBackgroundMode}
+													>
+														{#snippet children({ item })}
+															<ToggleButton
+																value="never"
+																label="Never"
+																tooltip="The agent waits for the result."
+																{item}
 															/>
-														</Label>
-														<Label label="Custom concurrency key (optional)">
-															{#snippet header()}
-																<Tooltip>
-																	Concurrency keys are global, you can have them be workspace
-																	specific using the variable `$workspace`. You can also use an
-																	argument's value using `$args[name_of_arg]`</Tooltip
-																>
-															{/snippet}
-															<!-- svelte-ignore a11y_autofocus -->
-															<input
-																type="text"
-																autofocus
-																disabled={!$enterpriseLicense}
-																bind:value={flowModule.value.custom_concurrency_key}
-																placeholder={`$workspace/script/${$pathStore}-$args[foo]`}
+															<ToggleButton
+																value="after"
+																label="After a delay"
+																tooltip="The agent waits for the result up to a delay, then the call continues in the background."
+																{item}
 															/>
-														</Label>
-													{:else}
-														<Alert type="warning" title="Limitation" size="xs">
-															The concurrency limit of a workspace script is only settable in the
-															script metadata itself. For hub scripts, this feature is non available
-															yet.
-														</Alert>
-													{/if}
-												</Section>
-											{:else if advancedSelected === 'runtime' && advancedRuntimeSelected === 'timeout'}
-												<div>
-													<FlowModuleTimeout
-														previousModuleId={previousModule?.id}
-														bind:flowModule
-													/>
-												</div>
-											{:else if advancedSelected === 'runtime' && advancedRuntimeSelected === 'priority'}
-												<Section label="Priority" class="flex flex-col gap-4">
-													<!-- TODO: Add EE-only badge when we have it -->
-													<Toggle
-														disabled={!$enterpriseLicense || isCloudHosted()}
-														checked={flowModule.priority !== undefined && flowModule.priority > 0}
-														on:change={() => {
-															if (flowModule.priority) {
-																flowModule.priority = undefined
-															} else {
-																flowModule.priority = 100
-															}
-														}}
-														options={{
-															right: 'Enabled high priority flow step',
-															rightTooltip: `Jobs scheduled from this step when the flow is executed are labeled as high priority and take precedence over the other jobs in the jobs queue. ${
-																!$enterpriseLicense
-																	? 'This is a feature only available on enterprise edition.'
-																	: ''
-															}`
-														}}
-													/>
-													<Label label="Priority number">
-														{#snippet header()}
-															<Tooltip>The higher the number, the higher the priority.</Tooltip>
+															<ToggleButton
+																value="always"
+																label="Always"
+																tooltip="The agent is answered as soon as the job starts."
+																{item}
+															/>
 														{/snippet}
-														<input
-															type="number"
-															class="!w-24"
-															disabled={flowModule.priority === undefined}
-															bind:value={flowModule.priority}
-															onfocus={bubble('focus')}
-															onchange={() => {
-																if (flowModule.priority && flowModule.priority > 100) {
-																	flowModule.priority = 100
-																} else if (flowModule.priority && flowModule.priority < 0) {
-																	flowModule.priority = 0
-																}
-															}}
+													</ToggleButtonGroup>
+													{#if backgroundMode === 'after'}
+														<SecondsInput
+															disabled={noEditor}
+															bind:seconds={
+																() => toolBackgroundAfterSecs ?? DEFAULT_BACKGROUND_AFTER_SECS,
+																(v) => (toolBackgroundAfterSecs = Math.max(1, v ?? 1))
+															}
 														/>
-													</Label>
-
-													<Alert type="warning" title="Limitation" size="xs">
-														Setting priority is only available for enterprise edition and not
-														available on the cloud.
-													</Alert>
-												</Section>
-											{:else if advancedSelected === 'runtime' && advancedRuntimeSelected === 'lifetime'}
-												<div>
-													<FlowModuleDeleteAfterUse
-														bind:flowModule
-														disabled={!$enterpriseLicense}
-													/>
+													{/if}
 												</div>
-											{:else if advancedSelected === 'cache'}
-												<div>
-													<FlowModuleCache bind:flowModule />
-												</div>
-											{:else if advancedSelected === 'early-stop'}
-												<FlowModuleEarlyStop bind:flowModule />
-											{:else if advancedSelected === 'skip'}
-												<FlowModuleSkip bind:flowModule {parentModule} {previousModule} />
-											{:else if advancedSelected === 'suspend'}
-												<div>
-													<FlowModuleSuspend
-														previousModuleId={previousModule?.id}
-														bind:flowModule
-													/>
-												</div>
-											{:else if advancedSelected === 'sleep'}
-												<div>
-													<FlowModuleSleep previousModuleId={previousModule?.id} bind:flowModule />
-												</div>
-											{:else if advancedSelected === 'debounce'}
-												<div>
-													<FlowModuleDebounce bind:flowModule {selectedId} />
-												</div>
-											{:else if advancedSelected === 'mock'}
-												<div>
-													<FlowModuleMockTransitionMessage />
-												</div>
-											{:else if advancedSelected === 'same_worker'}
-												<div>
-													<Alert type="info" title="Share a directory between steps">
-														If shared directory is set, will share a folder that will be mounted on
-														`./shared` for each of them to pass data between each other.
-													</Alert>
-													<Button
-														btnClasses="mt-4"
-														on:click={() => {
-															selectionManager.selectId('settings-same-worker')
-														}}
-													>
-														Set shared directory in the flow settings
-													</Button>
-												</div>
-											{:else if advancedSelected === 's3'}
-												<div>
-													<h2 class="pb-4">
-														S3 snippets
-														<Tooltip>
-															Read/Write object from/to S3 and leverage Polars and DuckDB to run
-															efficient ETL processes.
-														</Tooltip>
-													</h2>
-												</div>
-												<div class="flex gap-2 justify-between mb-4 items-center">
-													<div class="flex gap-2">
-														<ToggleButtonGroup bind:selected={s3Kind} class="w-auto">
-															{#snippet children({ item })}
-																{#if flowModule.value['language'] === 'deno'}
-																	<ToggleButton
-																		value="s3_client"
-																		small
-																		label="S3 lite client"
-																		{item}
-																	/>
-																{:else}
-																	<ToggleButton value="s3_client" small label="Boto3" {item} />
-																	<ToggleButton value="polars" small label="Polars" {item} />
-																	<ToggleButton value="duckdb" small label="DuckDB" {item} />
-																{/if}
-															{/snippet}
-														</ToggleButtonGroup>
-													</div>
-
-													<Button
-														size="xs"
-														on:click={() =>
-															editor?.setCode(s3Scripts[flowModule.value['language']][s3Kind])}
-													>
-														Apply snippet
-													</Button>
-												</div>
-												<HighlightCode
-													language={flowModule.value['language']}
-													code={s3Scripts[flowModule.value['language']][s3Kind]}
-												/>
-											{/if}
+											</Section>
 										</div>
+									{:else if visibleSelected === 'advanced'}
+										<FlowRunSettings
+											bind:this={runSettings}
+											onApplyS3Snippet={(code) => editor?.setCode(code)}
+											bind:flowModule
+											{isAgentTool}
+											{parentModule}
+											{previousModule}
+											selectedId={flowModule.id}
+											{referencedConcurrentLimit}
+											referencedConcurrencyTimeWindowS={referencedScriptSettings.settings
+												?.concurrency_time_window_s}
+											workspaceScriptCacheTtl={referencedCacheTtl}
+											loadingWorkspaceScript={referencedScriptSettings.loading}
+											workspaceScriptError={referencedScriptSettings.error}
+											canEditWorkspaceScript={canEditWorkspaceScriptSettings}
+											{workspaceScriptNoEditReason}
+											onEditWorkspaceScript={openWorkspaceScriptSettings}
+										/>
 									{/if}
 								</div>
 							</Pane>
@@ -1483,7 +1605,7 @@
 												? { type: 'inside', flow: parentLoop.type }
 												: undefined}
 											onUpdateMock={(detail) => {
-												flowModule.mock = detail
+												flowModule.mock = nextMock(flowModule.mock, detail)
 												flowModule = flowModule
 												refreshStateStore(flowStore)
 											}}
@@ -1503,7 +1625,7 @@
 						</Splitpanes>
 					{/snippet}
 
-					{#if flowModule.value.type === 'aiagent' || (noEditor && flowModule.value.type !== 'flow')}
+					{#if flowModule.value.type === 'aiagent' || flowModule.value.type === 'aidecision' || (noEditor && flowModule.value.type !== 'flow')}
 						<!-- Top pane has no content to show (aiagent has no editor; rawscript/script
 						gate their content on !noEditor). Skip the Splitpanes wrapper entirely so
 						there's no orphan splitter. type === 'flow' still renders FlowPathViewer

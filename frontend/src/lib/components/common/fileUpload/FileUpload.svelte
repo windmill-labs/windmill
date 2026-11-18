@@ -4,7 +4,6 @@
 
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { sendUserToast } from '$lib/toast'
-	import { workspaceStore } from '$lib/stores'
 	import { AppService, HelpersService } from '$lib/gen'
 	import { OpenAPI } from '$lib/gen/core/OpenAPI'
 	import { writable, type Writable } from 'svelte/store'
@@ -12,6 +11,9 @@
 	import { twMerge } from 'tailwind-merge'
 	import { createEventDispatcher, onDestroy } from 'svelte'
 	import { emptyString } from '$lib/utils'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		acceptedFileTypes?: string[] | undefined
@@ -237,7 +239,7 @@
 
 		try {
 			// const response = await HelpersService.multipartFileUpload({
-			// 	workspace: $workspaceStore!,
+			// 	workspace: $operatingWorkspace!,
 			// 	fileKey: path,
 			// 	fileExtension: fileExtension,
 			// 	s3ResourcePath: customS3ResourcePath?.split(':')[1],
@@ -280,7 +282,7 @@
 			}
 
 			// let response = await fetch(
-			// 	`/api/w/${$workspaceStore}/job_helpers/multipart_upload_s3_file?${params.toString()}`,
+			// 	`/api/w/${$operatingWorkspace}/job_helpers/multipart_upload_s3_file?${params.toString()}`,
 			// 	{
 			// 		method: 'POST',
 			// 		headers: {
@@ -327,10 +329,10 @@
 					'POST',
 					appPath
 						? `/api/w/${
-								workspace ?? $workspaceStore
+								workspace ?? $operatingWorkspace
 							}/apps_u/upload_s3_file/${appPath}?${params.toString()}`
 						: `/api/w/${
-								workspace ?? $workspaceStore
+								workspace ?? $operatingWorkspace
 							}/job_helpers/upload_s3_file?${params.toString()}`,
 					true
 				)
@@ -376,12 +378,12 @@
 		try {
 			if (deleteToken) {
 				await AppService.deleteS3FileFromApp({
-					workspace: workspace ?? $workspaceStore!,
+					workspace: workspace ?? $operatingWorkspace!,
 					deleteToken: deleteToken
 				})
 			} else {
 				await HelpersService.deleteS3File({
-					workspace: workspace ?? $workspaceStore!,
+					workspace: workspace ?? $operatingWorkspace!,
 					fileKey: fileKey
 				})
 			}

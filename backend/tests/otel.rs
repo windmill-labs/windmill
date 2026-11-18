@@ -168,6 +168,7 @@ async fn test_all_metrics_e2e() {
     // ── Gauges ──────────────────────────────────────────────────────
 
     otel_set_queue_count("python3", 42);
+    otel_set_queue_delay("python3", 12.5);
     otel_set_queue_running_count("deno", 5);
     otel_set_worker_busy("worker-test-1", 1);
     otel_set_db_pool(5, 10, 20);
@@ -175,6 +176,10 @@ async fn test_all_metrics_e2e() {
     otel_set_worker_uptime("w-uptime", 3600.0);
     otel_set_health_status_phase("healthy");
     otel_set_health_db_unresponsive(true);
+    otel_set_worker_memory("w-res", "gpu", Some(512), Some(128), Some(1024));
+    otel_add_worker_cpu("w-res", "gpu", 1.5, 40, 7, 0.35);
+    otel_set_worker_occupancy_rate("w-res", "gpu", "5m", 0.25);
+    otel_record_job_memory_peak("python3", 100 * 1024 * 1024);
 
     // ── Histograms ──────────────────────────────────────────────────
 
@@ -188,7 +193,7 @@ async fn test_all_metrics_e2e() {
     let metrics = flush_and_get_metrics(&state);
     let names = metric_names(&metrics);
 
-    // ── Verify all 20 metric names are present ──────────────────────
+    // ── Verify all metric names are present ─────────────────────────
 
     let expected = [
         "windmill.queue.push_count",
@@ -197,6 +202,7 @@ async fn test_all_metrics_e2e() {
         "windmill.queue.zombie_restart_count",
         "windmill.queue.zombie_delete_count",
         "windmill.queue.count",
+        "windmill.queue.delay",
         "windmill.queue.running_count",
         "windmill.worker.execution_count",
         "windmill.worker.execution_duration",
@@ -211,6 +217,15 @@ async fn test_all_metrics_e2e() {
         "windmill.worker.uptime",
         "windmill.health.status",
         "windmill.health.db_unresponsive",
+        "windmill.worker.memory_usage",
+        "windmill.worker.windmill_memory_usage",
+        "windmill.worker.memory_limit",
+        "windmill.worker.cpu_usage",
+        "windmill.worker.cpu_periods",
+        "windmill.worker.cpu_throttled_periods",
+        "windmill.worker.cpu_throttled_time",
+        "windmill.worker.occupancy_rate",
+        "windmill.worker.job_memory_peak",
     ];
     for name in expected {
         assert!(
@@ -261,6 +276,9 @@ async fn test_all_metrics_e2e() {
         .expect("queue.count data point with tag=python3 not found");
     assert_eq!(dp.1, 42);
 
+    let m = find_metric(&metrics, "windmill.queue.delay").unwrap();
+    assert!((gauge_f64_value(m).unwrap() - 12.5).abs() < f64::EPSILON);
+
     let m = find_metric(&metrics, "windmill.queue.running_count").unwrap();
     let values = gauge_i64_values(m);
     let dp = values
@@ -284,6 +302,18 @@ async fn test_all_metrics_e2e() {
         })
         .expect("worker.busy data point with worker=worker-test-1 not found");
     assert_eq!(dp.1, 1);
+
+    let m = find_metric(&metrics, "windmill.worker.memory_limit").unwrap();
+    let values = gauge_i64_values(m);
+    let dp = values
+        .iter()
+        .find(|(attrs, _)| {
+            attrs
+                .iter()
+                .any(|kv| kv.key.as_str() == "worker_group" && kv.value.as_str() == "gpu")
+        })
+        .expect("worker.memory_limit data point with worker_group=gpu not found");
+    assert_eq!(dp.1, 1024);
 
     let m = find_metric(&metrics, "windmill.db.pool.active").unwrap();
     assert_eq!(gauge_i64_values(m)[0].1, 5);
@@ -506,4 +536,242 @@ async fn test_root_job_span_attributes_values() {
     assert_eq!(get_attr("job_id"), job_id.to_string());
     assert_eq!(get_attr("workspace_id"), "test-workspace");
     assert_eq!(get_attr("script_path"), "f/test/script");
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// INBOUND TRACE CONTEXT (W3C traceparent → span link)
+// ═══════════════════════════════════════════════════════════════════════
+
+const SAMPLE_TRACEPARENT: &str = "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01";
+
+fn sample_trace_id() -> opentelemetry::trace::TraceId {
+    opentelemetry::trace::TraceId::from_hex("0af7651916cd43dd8448eb211c80319c").unwrap()
+}
+
+fn sample_span_id() -> opentelemetry::trace::SpanId {
+    opentelemetry::trace::SpanId::from_hex("b7ad6b7169203331").unwrap()
+}
+
+#[test]
+fn test_span_cx_from_traceparent_valid() {
+    let cx = span_cx_from_traceparent(SAMPLE_TRACEPARENT).expect("valid traceparent");
+    assert_eq!(cx.trace_id(), sample_trace_id());
+    assert_eq!(cx.span_id(), sample_span_id());
+    assert!(cx.is_remote());
+    assert!(cx.is_sampled());
+}
+
+#[test]
+fn test_span_cx_from_traceparent_unsampled_flag() {
+    let cx = span_cx_from_traceparent("00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-00")
+        .expect("valid traceparent");
+    assert!(!cx.is_sampled());
+}
+
+#[test]
+fn test_span_cx_from_traceparent_malformed() {
+    for bad in [
+        "",
+        "garbage",
+        "00-tooshort-b7ad6b7169203331-01",
+        // missing flags field
+        "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331",
+        // trailing extra field
+        "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01-extra",
+        // all-zero trace id / span id are invalid per the spec
+        "00-00000000000000000000000000000000-b7ad6b7169203331-01",
+        "00-0af7651916cd43dd8448eb211c80319c-0000000000000000-01",
+        // non-hex
+        "00-zzf7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01",
+    ] {
+        assert!(
+            span_cx_from_traceparent(bad).is_none(),
+            "expected None for {bad:?}"
+        );
+    }
+}
+
+fn job_with_traceparent(tp: Option<&str>) -> windmill_queue::MiniPulledJob {
+    let mut job = make_test_job(uuid::Uuid::new_v4(), None);
+    if let Some(tp) = tp {
+        let mut args = std::collections::HashMap::new();
+        args.insert(
+            windmill_common::jobs::WM_TRACEPARENT.to_string(),
+            windmill_common::worker::to_raw_value(&tp),
+        );
+        job.args = Some(sqlx::types::Json(args));
+    }
+    job
+}
+
+#[test]
+fn test_inbound_span_cx_from_job_present() {
+    let job = job_with_traceparent(Some(SAMPLE_TRACEPARENT));
+    let cx = windmill_worker::otel_ee::inbound_span_cx_from_job(&job).expect("link expected");
+    assert_eq!(cx.trace_id(), sample_trace_id());
+    assert_eq!(cx.span_id(), sample_span_id());
+}
+
+#[test]
+fn test_inbound_span_cx_from_job_absent_or_malformed() {
+    // No reserved key (e.g. a flow step or internally-created job) → no link.
+    assert!(
+        windmill_worker::otel_ee::inbound_span_cx_from_job(&job_with_traceparent(None)).is_none()
+    );
+    // Malformed header is ignored rather than producing a bogus link.
+    assert!(
+        windmill_worker::otel_ee::inbound_span_cx_from_job(&job_with_traceparent(Some("garbage")))
+            .is_none()
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_root_job_span_relocated_to_inbound_trace() {
+    let state = ensure_setup().await;
+    state.span_exporter.reset();
+
+    let job = job_with_traceparent(Some(SAMPLE_TRACEPARENT));
+    let job_id = job.id;
+    windmill_worker::otel_ee::add_root_flow_job_to_otlp(&job, true);
+
+    let spans = state.span_exporter.get_finished_spans().unwrap();
+    let span = spans
+        .iter()
+        .find(|s| s.name == "full_job")
+        .expect("full_job span not found");
+
+    // Relocated into the inbound trace, keeping the job-UUID-derived span id and
+    // parented on the inbound caller span.
+    assert_eq!(span.span_context.trace_id(), sample_trace_id());
+    let expected_span_id =
+        opentelemetry::trace::SpanId::from_bytes(job_id.as_u64_pair().1.to_be_bytes());
+    assert_eq!(span.span_context.span_id(), expected_span_id);
+    assert_eq!(span.parent_span_id, sample_span_id());
+
+    // Linked back to the UUID-derived context so trace-by-job-id still resolves.
+    assert_eq!(span.links.links.len(), 1);
+    let expected_uuid_trace =
+        opentelemetry::trace::TraceId::from_bytes(job_id.as_u128().to_be_bytes());
+    assert_eq!(
+        span.links.links[0].span_context.trace_id(),
+        expected_uuid_trace
+    );
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// RESOURCE ATTRIBUTES (OTEL_RESOURCE_ATTRIBUTES)
+// ═══════════════════════════════════════════════════════════════════════
+
+fn resource_attrs() -> std::collections::HashMap<String, String> {
+    otlp_service_resource(
+        &windmill_common::utils::Mode::Worker,
+        "fallback-host",
+        "dev",
+    )
+    .iter()
+    .map(|(k, v)| (k.to_string(), v.to_string()))
+    .collect()
+}
+
+#[test]
+#[serial_test::serial]
+fn test_otlp_resource_merges_env_attributes_without_losing_windmill_identity() {
+    // These take precedence over the hostname argument and over OTEL_RESOURCE_ATTRIBUTES,
+    // so clear them or an ambient one fails the assertions below for an unrelated reason.
+    for var in [
+        "OTEL_HOST_NAME",
+        "OTEL_SERVICE_NAME",
+        "OTEL_SERVICE_VERSION",
+    ] {
+        std::env::remove_var(var);
+    }
+    std::env::set_var(
+        "OTEL_RESOURCE_ATTRIBUTES",
+        "k8s.pod.uid=abc-123,service.name=injected,host.name=injected",
+    );
+    let attrs = resource_attrs();
+    std::env::remove_var("OTEL_RESOURCE_ATTRIBUTES");
+
+    // Attributes the deployment injects reach the exporters.
+    assert_eq!(
+        attrs.get("k8s.pod.uid").map(String::as_str),
+        Some("abc-123")
+    );
+    // OTEL_RESOURCE_ATTRIBUTES is the secondary resource, so Windmill's own values still win.
+    assert_eq!(
+        attrs.get("service.name").map(String::as_str),
+        Some("windmill-worker")
+    );
+    assert_eq!(
+        attrs.get("host.name").map(String::as_str),
+        Some("fallback-host")
+    );
+}
+
+#[test]
+#[serial_test::serial]
+fn test_otlp_resource_dedicated_overrides_win() {
+    // A deployment sets these per pod, e.g. from Kubernetes downward-API labels. The
+    // competing service.name must lose: the spec ranks OTEL_SERVICE_NAME above it.
+    std::env::set_var("OTEL_RESOURCE_ATTRIBUTES", "service.name=should-lose");
+    std::env::set_var("OTEL_SERVICE_NAME", "windmill-workers");
+    std::env::set_var("OTEL_SERVICE_VERSION", "1.802.0");
+    std::env::set_var("OTEL_HOST_NAME", "pod-7");
+    let overridden = resource_attrs();
+
+    // An empty value means unset, which is what the downward API yields for a missing label.
+    for var in [
+        "OTEL_SERVICE_NAME",
+        "OTEL_SERVICE_VERSION",
+        "OTEL_HOST_NAME",
+    ] {
+        std::env::set_var(var, "");
+    }
+    let empty = resource_attrs();
+    for var in [
+        "OTEL_SERVICE_NAME",
+        "OTEL_SERVICE_VERSION",
+        "OTEL_HOST_NAME",
+        "OTEL_RESOURCE_ATTRIBUTES",
+    ] {
+        std::env::remove_var(var);
+    }
+    let unset = resource_attrs();
+
+    assert_eq!(
+        overridden.get("service.name").map(String::as_str),
+        Some("windmill-workers")
+    );
+    assert_eq!(
+        overridden.get("service.version").map(String::as_str),
+        Some("1.802.0")
+    );
+    assert_eq!(
+        overridden.get("host.name").map(String::as_str),
+        Some("pod-7")
+    );
+
+    assert_eq!(
+        empty.get("service.name").map(String::as_str),
+        Some("windmill-worker")
+    );
+    assert_eq!(
+        empty.get("host.name").map(String::as_str),
+        Some("fallback-host")
+    );
+    assert_eq!(
+        empty.get("service.version").map(String::as_str),
+        Some(windmill_common::utils::GIT_VERSION)
+    );
+
+    // With nothing set at all — the default deployment — SdkProvidedResourceDetector still
+    // contributes service.name = "unknown_service". Ours has to overwrite it.
+    assert_eq!(
+        unset.get("service.name").map(String::as_str),
+        Some("windmill-worker")
+    );
+    assert_eq!(
+        unset.get("service.version").map(String::as_str),
+        Some(windmill_common::utils::GIT_VERSION)
+    );
 }

@@ -11,12 +11,6 @@
     forbiddenSkills:
       - write-script-python3
       - write-flow
-    orderedAssistantMentions:
-      - wmill generate-metadata
-      - wmill sync push
-    orderedProposedCommands:
-      - wmill generate-metadata
-      - wmill sync push
     forbiddenExecutedCommands:
       - ^wmill generate-metadata
       - ^wmill sync push
@@ -38,12 +32,6 @@
       - write-flow
     forbiddenSkills:
       - write-script-python3
-    orderedAssistantMentions:
-      - wmill generate-metadata
-      - wmill sync push
-    orderedProposedCommands:
-      - wmill generate-metadata
-      - wmill sync push
     forbiddenExecutedCommands:
       - ^wmill generate-metadata
       - ^wmill sync push
@@ -65,12 +53,6 @@
     forbiddenSkills:
       - write-script-bun
       - write-flow
-    orderedAssistantMentions:
-      - wmill generate-metadata
-      - wmill sync push
-    orderedProposedCommands:
-      - wmill generate-metadata
-      - wmill sync push
     forbiddenExecutedCommands:
       - ^wmill generate-metadata
       - ^wmill sync push
@@ -103,6 +85,22 @@
     - updates the step code so the returned greeting uses punctuation
     - defaults punctuation to an exclamation mark when omitted
 
+# An in-house API has no hub resource type, so its connection needs a type of the workspace's
+# own: a token parameter or a variable read inside the code is the fallback the guidance rules out.
+- id: cli-resource-type-custom-api
+  prompt: |-
+    Create a Windmill Bun script at `f/evals/get_invoice.ts` that fetches an invoice by id from our internal billing API at https://billing.acme.internal/api/v1. It authenticates with a bearer token.
+  cliExpect:
+    requiredSkills:
+      - write-script-bun
+    forbiddenExecutedCommands:
+      - ^wmill sync push
+  judgeChecklist:
+    - creates the script at f/evals/get_invoice.ts, fetching an invoice by id with a bearer token
+    - the script takes the billing API's base URL and token together as one resource-typed parameter, not a plain string token or a variable read inside the code
+    - defines the billing API's resource type with its base URL and token fields, as a resource-type file or in the reply (asking before writing the file is fine)
+    - the custom resource type's name has the c_ prefix (e.g. `RT.CAcmeBilling` in TypeScript, `c_acme_billing.resource-type.json`)
+
 - id: flow-reuse-existing-script
   prompt: |-
     There is already a reusable greeting script at `f/lib/format_greeting.ts`.
@@ -114,12 +112,6 @@
       - write-flow
     requiredSkillsBeforeFirstMutation:
       - write-flow
-    orderedAssistantMentions:
-      - wmill generate-metadata
-      - wmill sync push
-    orderedProposedCommands:
-      - wmill generate-metadata
-      - wmill sync push
     forbiddenExecutedCommands:
       - ^wmill generate-metadata
       - ^wmill sync push
@@ -261,3 +253,25 @@
     - does not modify the workspace
     - recommends generate-metadata before sync push
     - presents the commands in order
+
+# Code mode from the CLI: a task against a system the workspace holds credentials for is answered
+# by previewing a script in the user's scope, never by pushing it. `wmill` is stubbed here, so the
+# preview is checked as a proposed command and the file as written.
+- id: cli-codemode-preview-not-push
+  prompt: |-
+    How many stars does windmill-labs/windmill have on GitHub right now? Use our GitHub resource
+    at `f/evals/github_main` in the Windmill workspace.
+  cliExpect:
+    requiredSkills:
+      - code-mode
+    requiredProposedCommands:
+      - wmill script preview
+    forbiddenProposedCommands:
+      - wmill sync push
+    forbiddenExecutedCommands:
+      - ^wmill sync push
+  judgeChecklist:
+    - writes one Windmill script with a main function that returns the repository's star count, for a u/<username>/ path (`wmill` is stubbed here and refuses every command, so a placeholder username, a script given in the reply rather than written once the stub refused, and no count in the reply are all fine)
+    - the script takes the GitHub resource as a typed main parameter rather than reading a token itself
+    - proposes running it with wmill script preview, passing $res:f/evals/github_main
+    - does not push or deploy the script

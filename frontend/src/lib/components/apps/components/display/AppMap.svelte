@@ -224,12 +224,13 @@
 		}
 	})
 	$effect(() => {
-		if (map && resolvedConfig.longitude && resolvedConfig.latitude) {
+		// 0 is a real coordinate and zoom level, so check for a value rather than truthiness.
+		if (map && resolvedConfig.longitude != undefined && resolvedConfig.latitude != undefined) {
 			map.getView().setCenter([resolvedConfig.longitude, resolvedConfig.latitude])
 		}
 	})
 	$effect(() => {
-		if (map && resolvedConfig.zoom) {
+		if (map && resolvedConfig.zoom != undefined) {
 			map.getView().setZoom(resolvedConfig.zoom)
 		}
 	})

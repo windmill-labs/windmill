@@ -4,24 +4,17 @@
 </script>
 
 <script lang="ts">
-	import { isCloudHosted } from '$lib/cloud'
 	import { sendUserToast } from '$lib/toast'
 	import FlowScriptPickerQuick from '../pickers/FlowScriptPickerQuick.svelte'
-	import { defaultScriptLanguages, processLangs } from '$lib/scripts'
-	import {
-		defaultScripts,
-		enterpriseLicense,
-		hubBaseUrlStore,
-		userStore,
-		workspaceStore
-	} from '$lib/stores'
+	import { defaultScriptLanguages, processInlineLangs } from '$lib/scripts'
+	import { defaultScripts, enterpriseLicense, hubBaseUrlStore } from '$lib/stores'
+	import { useRoleCapabilities } from '$lib/operatorWriteRights'
 	import type { SupportedLanguage } from '$lib/common'
-	import { createEventDispatcher, getContext, onDestroy, onMount, untrack } from 'svelte'
+	import { createEventDispatcher, getContext, untrack } from 'svelte'
 	import type { FlowBuilderWhitelabelCustomUi } from '$lib/components/custom_ui'
 	import { type Script, type ScriptLang, type HubScriptKind } from '$lib/gen'
 	import ListFiltersQuick from '$lib/components/home/ListFiltersQuick.svelte'
 	import { ExternalLink, Folder, User, X } from 'lucide-svelte'
-	import type { FlowEditorContext } from '../../flows/types'
 	import { fade } from 'svelte/transition'
 	import { flip } from 'svelte/animate'
 	import { Button } from '$lib/components/common'
@@ -36,6 +29,16 @@
 		canHaveApproval,
 		canHaveFailure
 	} from '$lib/script_helpers'
+	import {
+		useOperatingUser,
+		useOperatingWorkspace
+	} from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
+	const roleCaps = useRoleCapabilities()
+	const composeOnlyFlows = $derived($roleCaps.flows === 'compose')
+	const operatingUser = useOperatingUser()
+	const actingUser = $derived(operatingUser.current)
 
 	const dispatch = createEventDispatcher()
 
@@ -67,12 +70,14 @@
 		refreshCount = 0
 	}: Props = $props()
 
-	if ($workspaceStore && cachedOwners?.[$workspaceStore]) {
-		owners = cachedOwners[$workspaceStore]
+	if ($operatingWorkspace && cachedOwners?.[$operatingWorkspace]) {
+		owners = cachedOwners[$operatingWorkspace]
 	}
 	type HubCompletion = {
 		path: string
 		summary: string
+		/** The hub's own wording, before `summary` is rewritten as the display label. */
+		hubSummary: string
 		id: number
 		version_id: number
 		ask_id: number
@@ -85,8 +90,6 @@
 	let filteredWorkspaceItems: (Script & { marked?: string })[] = $state([])
 
 	let hubCompletions: HubCompletion[] = $state([])
-
-	const { insertButtonOpen } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	let selected: { kind: 'owner' | 'integrations'; name: string | undefined } | undefined =
 		$state(undefined)
@@ -147,7 +150,7 @@
 
 	let inlineScripts: [string, SupportedLanguage | 'docker'][] = $state([])
 
-	const enterpriseLangs = ['bigquery', 'snowflake', 'mssql', 'oracledb']
+	const enterpriseLangs = ['mssql', 'oracledb']
 
 	function computeInlineScriptChoices(
 		funcDesc: string,
@@ -155,7 +158,10 @@
 		preFilter: 'all' | 'workspace' | 'hub',
 		selectedKind: 'script' | 'flow' | 'approval' | 'trigger' | 'preprocessor' | 'failure'
 	) {
-		if (['script', 'trigger', 'failure', 'approval', 'preprocessor'].includes(selectedKind)) {
+		if (
+			!composeOnlyFlows &&
+			['script', 'trigger', 'failure', 'approval', 'preprocessor'].includes(selectedKind)
+		) {
 			if (!selected && preFilter == 'all') {
 				inlineScripts = langs.filter((lang) => {
 					return (
@@ -176,7 +182,12 @@
 		['While loop', 'whileloop'],
 		['Branch to one', 'branchone'],
 		['Branch to all', 'branchall'],
-		...(customUi?.aiAgent != false ? ([['AI Agent', 'aiagent']] as [string, string][]) : [])
+		...(customUi?.aiAgent != false
+			? ([
+					['AI Agent', 'aiagent'],
+					['AI Decision', 'aidecision']
+				] as [string, string][])
+			: [])
 	]
 
 	let topLevelNodes: [string, string][] = $state([])
@@ -201,12 +212,7 @@
 
 	let scrollable: HTMLElement | undefined = $state()
 	function onKeyDown(e: KeyboardEvent) {
-		let length =
-			topLevelNodes?.length +
-			inlineScripts.length +
-			aiLength +
-			filteredWorkspaceItems.length +
-			hubCompletions.length
+		let length = hubOffset + (hubCompletions?.length ?? 0)
 		if (e.key === 'ArrowDown') {
 			selectedByKeyboard = (selectedByKeyboard + 1) % length
 			scrollable?.scrollTo({ top: selectedByKeyboard * 32, behavior: 'smooth' })
@@ -218,15 +224,15 @@
 		}
 	}
 
-	onMount(() => {
-		$insertButtonOpen = true
-	})
+	// Mouse and keyboard share this one index, so rows report hover on mousemove rather than
+	// mouseenter: arrow keys scroll the list, which slides a row under a stationary cursor and
+	// fires mouseenter, which would otherwise hijack the selection mid-navigation.
+	function hover(index: number) {
+		selectedByKeyboard = index
+	}
 
-	onDestroy(() => {
-		$insertButtonOpen = false
-	})
 	let langs = $derived(
-		processLangs(undefined, $defaultScripts?.order ?? Object.keys(defaultScriptLanguages))
+		processInlineLangs(undefined, $defaultScripts?.order ?? Object.keys(defaultScriptLanguages))
 			.map((l) => [defaultScriptLanguages[l], l])
 			.filter(
 				(x) => $defaultScripts?.hidden == undefined || !$defaultScripts.hidden.includes(x[1])
@@ -248,9 +254,59 @@
 		preFilter
 		untrack(() => onPrefilterChange(preFilter))
 	})
-	let aiLength = $derived(
-		funcDesc?.length > 0 && !disableAi && selectedKind != 'flow' && preFilter == 'all' ? 2 : 0
+	// Gates the two AI rows and their slots in the index space; both must agree or arrow keys land
+	// on indices that render nothing.
+	let showAiRows = $derived(
+		!disableAi &&
+			!$copilotInfo.workspaceDisabled &&
+			!composeOnlyFlows &&
+			funcDesc?.length > 0 &&
+			kind != 'failure' &&
+			kind != 'preprocessor' &&
+			(selectedKind == 'script' || selectedKind == 'trigger') &&
+			preFilter == 'all'
 	)
+	let aiLength = $derived(showAiRows ? 2 : 0)
+
+	const aiSandboxHeading = 'AI Sandbox'
+	const aiSandboxes = [
+		{ label: 'Claude Code', subkind: 'claudesandbox' },
+		{ label: 'Pi', subkind: 'pisandbox' }
+	] as const
+	// A query matching the heading keeps every sandbox, otherwise only the ones it names.
+	let matchingAiSandboxes = $derived.by(() => {
+		const query = funcDesc?.trim().toLowerCase() ?? ''
+		const matches = (term: string) => {
+			const lowered = term.toLowerCase()
+			return lowered.startsWith(query) || lowered.split(' ').some((w) => w.startsWith(query))
+		}
+		if (query.length == 0 || matches(aiSandboxHeading)) {
+			return aiSandboxes
+		}
+		return aiSandboxes.filter((s) => matches(s.label))
+	})
+	// Gates the AI Sandbox rows and their slots in the index space; both must agree or arrow keys
+	// land on an index that renders nothing.
+	let aiSandboxRows = $derived(
+		selectedKind === 'script' &&
+			preFilter === 'all' &&
+			!selected &&
+			customUi?.aiSandbox != false &&
+			!composeOnlyFlows
+			? matchingAiSandboxes
+			: []
+	)
+
+	// The server adds a hub path only for a role that has code, whatever its flows level.
+	let showHub = $derived($roleCaps.code)
+
+	// Every result row lives in one keyboard index space, and hovering a row moves that index, so
+	// mouse and keyboard can never highlight two different rows. Offsets follow the render order.
+	let inlineOffset = $derived(topLevelNodes.length)
+	let aiOffset = $derived(inlineOffset + (inlineScripts?.length ?? 0))
+	let workspaceOffset = $derived(aiOffset + aiLength)
+	let aiSandboxOffset = $derived(workspaceOffset + (filteredWorkspaceItems?.length ?? 0))
+	let hubOffset = $derived(aiSandboxOffset + aiSandboxRows.length)
 </script>
 
 <svelte:window onkeydown={onKeyDown} />
@@ -282,8 +338,9 @@
 										icon: owner.startsWith('f/') ? Folder : User,
 										props: { width: 14, height: 14 }
 									}}
+									title={owner.slice(2)}
 								>
-									{owner.slice(2)}
+									<span class="truncate">{owner.slice(2)}</span>
 								</Button>
 							</div>
 						{/each}
@@ -295,7 +352,7 @@
 					{/if}
 				{/if}
 
-				{#if preFilter === 'hub' || preFilter === 'all'}
+				{#if showHub && (preFilter === 'hub' || preFilter === 'all')}
 					{#if preFilter == 'all'}
 						<div class="pb-0 text-2xs font-normal text-secondary ml-2 pt-1">Integrations</div>
 					{/if}
@@ -356,6 +413,7 @@
 					}}
 					{label}
 					selected={selectedByKeyboard === i}
+					onHover={() => hover(i)}
 				/>
 			{/each}
 		{/if}
@@ -365,7 +423,7 @@
 				<div class="text-2xs font-normal text-secondary ml-2"
 					>New {selectedKind != 'script' ? selectedKind + ' ' : ''}script</div
 				>
-				{#if $userStore?.is_admin || $userStore?.is_super_admin}
+				{#if actingUser?.is_admin || actingUser?.is_super_admin}
 					{#if !openScriptSettings}
 						<Button
 							onClick={() => (openScriptSettings = true)}
@@ -396,29 +454,12 @@
 			{#each inlineScripts as [label, lang], i (lang)}
 				<FlowScriptPickerQuick
 					eeRestricted={!$enterpriseLicense && enterpriseLangs.includes(lang)}
-					selected={selectedByKeyboard === i + topLevelNodes.length}
+					selected={selectedByKeyboard === i + inlineOffset}
+					onHover={() => hover(i + inlineOffset)}
 					{enterpriseLangs}
 					{label}
 					lang={lang == 'docker' ? 'bash' : lang}
 					on:click={() => {
-						if (lang == 'docker') {
-							if (isCloudHosted()) {
-								sendUserToast(
-									'You cannot use Docker scripts on the multi-tenant platform. Use a dedicated instance or self-host windmill instead.',
-									true,
-									[
-										{
-											label: 'Learn more',
-											callback: () => {
-												window.open('https://www.windmill.dev/docs/advanced/docker', '_blank')
-											}
-										}
-									]
-								)
-								return
-							}
-						}
-
 						dispatch('new', {
 							kind: selectedKind,
 							inlineScript: {
@@ -438,13 +479,14 @@
 			{/each}
 		{/if}
 
-		{#if !disableAi && funcDesc?.length > 0 && kind != 'failure' && kind != 'preprocessor' && (selectedKind == 'script' || selectedKind == 'trigger') && preFilter == 'all'}
+		{#if showAiRows}
 			<ul class="transition-all">
 				<li
 					><GenAiQuick
 						{funcDesc}
 						lang="TypeScript"
-						selected={selectedByKeyboard === inlineScripts?.length + topLevelNodes.length}
+						selected={selectedByKeyboard === aiOffset}
+						onHover={() => hover(aiOffset)}
 						on:click={() => {
 							lang = 'bun'
 							onGenerate()
@@ -455,7 +497,8 @@
 					<GenAiQuick
 						{funcDesc}
 						lang="Python"
-						selected={selectedByKeyboard === inlineScripts?.length + topLevelNodes.length + 1}
+						selected={selectedByKeyboard === aiOffset + 1}
+						onHover={() => hover(aiOffset + 1)}
 						on:click={() => {
 							lang = 'python3'
 							onGenerate()
@@ -474,7 +517,7 @@
 					bind:owners={
 						() => owners,
 						(v) => {
-							$workspaceStore && (cachedOwners[$workspaceStore] = v)
+							$operatingWorkspace && (cachedOwners[$operatingWorkspace] = v)
 							owners = v
 						}
 					}
@@ -482,37 +525,41 @@
 					bind:filteredWithOwner={filteredWorkspaceItems}
 					{filter}
 					kind={selectedKind}
-					selected={selectedByKeyboard - inlineScripts?.length - aiLength - topLevelNodes.length}
+					selected={selectedByKeyboard - workspaceOffset}
 					on:pickScript
 					on:pickFlow
 					{displayPath}
 					{refreshCount}
+					onHover={(i) => hover(workspaceOffset + i)}
 				/>
 			{/await}
 			<div class="pb-1"></div>
 		{/if}
-		{#if selectedKind === 'script' && preFilter === 'all' && !selected && customUi?.aiSandbox != false}
-			<div class="pb-0 text-2xs font-normal text-secondary ml-2">AI Sandbox</div>
-			<FlowScriptPickerQuick
-				eeRestricted={false}
-				selected={false}
-				enterpriseLangs={[]}
-				label="Claude Code"
-				lang="claudesandbox"
-				on:click={() => {
-					dispatch('new', {
-						kind: selectedKind,
-						inlineScript: {
-							language: 'bun',
+		{#if aiSandboxRows.length > 0}
+			<div class="pb-0 text-2xs font-normal text-secondary ml-2">{aiSandboxHeading}</div>
+			{#each aiSandboxRows as sandbox, i (sandbox.subkind)}
+				<FlowScriptPickerQuick
+					eeRestricted={false}
+					selected={selectedByKeyboard === aiSandboxOffset + i}
+					onHover={() => hover(aiSandboxOffset + i)}
+					enterpriseLangs={[]}
+					label={sandbox.label}
+					lang={sandbox.subkind}
+					on:click={() => {
+						dispatch('new', {
 							kind: selectedKind,
-							subkind: 'claudesandbox',
-							summary
-						}
-					})
-				}}
-			/>
+							inlineScript: {
+								language: 'bun',
+								kind: selectedKind,
+								subkind: sandbox.subkind,
+								summary
+							}
+						})
+					}}
+				/>
+			{/each}
 		{/if}
-		{#if selectedKind != 'preprocessor' && selectedKind != 'flow'}
+		{#if showHub && selectedKind != 'preprocessor' && selectedKind != 'flow'}
 			{#if (!selected || selected?.kind === 'integrations') && (preFilter === 'hub' || preFilter === 'all')}
 				{#if !selected && preFilter !== 'hub'}
 					<div class=" pb-0 text-2xs font-normal text-secondary ml-2">Hub</div>
@@ -530,15 +577,12 @@
 						}
 						appFilter={selected?.name}
 						kind={selectedKind}
-						selected={selectedByKeyboard -
-							inlineScripts?.length -
-							aiLength -
-							filteredWorkspaceItems?.length -
-							topLevelNodes.length}
+						selected={selectedByKeyboard - hubOffset}
 						on:pickScript
 						bind:loading
 						{displayPath}
 						{refreshCount}
+						onHover={(i) => hover(hubOffset + i)}
 					/>
 				{/await}
 			{/if}

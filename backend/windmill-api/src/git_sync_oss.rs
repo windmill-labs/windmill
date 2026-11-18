@@ -11,6 +11,11 @@ pub fn workspaced_service() -> Router {
 }
 
 #[cfg(not(feature = "private"))]
+pub fn workspaced_git_sync_service() -> Router {
+    Router::new()
+}
+
+#[cfg(not(feature = "private"))]
 pub fn global_service() -> Router {
     Router::new()
 }

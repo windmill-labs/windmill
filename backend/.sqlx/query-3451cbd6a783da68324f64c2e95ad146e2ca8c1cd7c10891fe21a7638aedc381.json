@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH RECURSIVE up AS (\n               SELECT id, parent_workspace_id, 0 AS depth FROM workspace WHERE id = $1\n               UNION ALL\n               SELECT w.id, w.parent_workspace_id, up.depth + 1\n               FROM workspace w JOIN up ON w.id = up.parent_workspace_id\n               WHERE up.depth < 10\n           )\n           SELECT git_sync FROM workspace_settings\n           WHERE workspace_id = (SELECT id FROM up WHERE parent_workspace_id IS NULL LIMIT 1)",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "git_sync",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "3451cbd6a783da68324f64c2e95ad146e2ca8c1cd7c10891fe21a7638aedc381"
+}

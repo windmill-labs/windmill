@@ -1,0 +1,31 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT COALESCE(r.value->'run_on_behalf_of' = 'true'::jsonb\n                    AND r.value->'slack_anyone' = 'true'::jsonb, false) AS \"anyone!\",\n                r.value->>'on_behalf_of' AS on_behalf_of\n         FROM slack_agent_channel c\n         JOIN resource r ON r.workspace_id = c.workspace_id AND r.path = c.agent_path\n         WHERE c.slack_team_id = $1 AND c.channel_id = $2 AND c.workspace_id = $3\n           AND c.agent_path = $4 AND r.resource_type = 'ai_agent'",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "anyone!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 1,
+        "name": "on_behalf_of",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "97b7a06758129c918392886eb05aac8df983a410e2e75f4bd4d29147a4f48b17"
+}

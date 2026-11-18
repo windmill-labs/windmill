@@ -2,7 +2,6 @@
 	import { Alert } from '$lib/components/common'
 	import Required from '$lib/components/Required.svelte'
 	import Section from '$lib/components/Section.svelte'
-	import { userStore, workspaceStore } from '$lib/stores'
 	// import { page } from '$app/state'
 	import { getEmailAddress, getEmailDomain } from './utils'
 	import { isCloudHosted } from '$lib/cloud'
@@ -11,6 +10,12 @@
 	import { untrack } from 'svelte'
 	import { EmailTriggerService } from '$lib/gen'
 	import ClipboardPanel from '$lib/components/details/ClipboardPanel.svelte'
+	import {
+		useOperatingUser,
+		useOperatingWorkspace
+	} from '$lib/components/operatingWorkspace.svelte'
+	import { useTriggerLock } from '$lib/operatorWriteRights'
+	const triggerLock = useTriggerLock()
 	interface Props {
 		initialTriggerPath?: string | undefined
 		dirtyLocalPart?: boolean
@@ -34,6 +39,10 @@
 		isDraftOnly = true,
 		showTestingBadge = false
 	}: Props = $props()
+	const operatingWorkspace = useOperatingWorkspace()
+	const operatingUser = useOperatingUser()
+	const actingUser = $derived(operatingUser.current)
+	const wsId = $derived($operatingWorkspace)
 
 	let validateTimeout: number | undefined = undefined
 
@@ -49,7 +58,11 @@
 			if (!localPart || !/^[a-z0-9._]{1,64}$/.test(localPart)) {
 				addressError =
 					'Local part not valid, only accepts lowercase alphanumeric characters, dots and underscores, and must be between 1 and 64 characters'
-			} else if (await emailTriggerExists(localPart, workspaced_local_part)) {
+			} else if (
+				// A POST read the write gate refuses, fired on open: see RouteEditorConfigSection.
+				!$triggerLock &&
+				(await emailTriggerExists(localPart, workspaced_local_part))
+			) {
 				addressError = 'Email address already taken'
 			} else {
 				addressError = ''
@@ -59,7 +72,7 @@
 	}
 	async function emailTriggerExists(local_part: string, workspaced_local_part: boolean) {
 		return await EmailTriggerService.existsEmailLocalPart({
-			workspace: $workspaceStore!,
+			workspace: wsId!,
 			requestBody: {
 				local_part,
 				trigger_path: initialTriggerPath,
@@ -85,14 +98,14 @@
 	})
 
 	let fullEmailAddress = $derived(
-		getEmailAddress(local_part, workspaced_local_part, $workspaceStore ?? '', emailDomain ?? '')
+		getEmailAddress(local_part, workspaced_local_part, wsId ?? '', emailDomain ?? '')
 	)
 
 	$effect.pre(() => {
 		local_part === undefined && (local_part = '')
 	})
 
-	let userIsAdmin = $derived($userStore?.is_admin || $userStore?.is_super_admin)
+	let userIsAdmin = $derived(actingUser?.is_admin || actingUser?.is_super_admin)
 	let userCanEditConfig = $derived(userIsAdmin || isDraftOnly) // User can edit config if they are admin or if the trigger is a draft which will not be saved
 </script>
 
@@ -103,9 +116,9 @@
 				<TestingBadge />
 			{/if}
 		{/snippet}
-		{#if !userCanEditConfig && isDraftOnly}
+		{#if actingUser && !userCanEditConfig}
 			<Alert type="info" title="Admin only" collapsible size="xs">
-				Email triggers can only be edited by workspace admins
+				The local part and workspace prefix can only be changed by workspace admins
 			</Alert>
 			<div class="my-2"></div>
 		{/if}

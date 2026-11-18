@@ -1,23 +1,31 @@
 <script lang="ts">
-	import { Markdown, type Plugin } from 'svelte-exmarkdown'
-	import { gfmPlugin } from 'svelte-exmarkdown/gfm'
-	import rehypeRaw from 'rehype-raw'
-	import { rehypeGithubAlerts } from 'rehype-github-alerts'
+	import { Markdown } from 'svelte-exmarkdown'
+	import { markdownPlugins as plugins } from './markdownPlugins'
+	import { markdownProse, type MarkdownProseSize } from './markdownProse'
+	import { isOfflineReplay } from './recording/offlineReplay.svelte'
 	interface Props {
 		md: string
 		noPadding?: boolean
+		/** Shared prose stack to render with. */
+		prose?: MarkdownProseSize
 	}
 
-	let { md, noPadding }: Props = $props()
-	const plugins: Plugin[] = [
-		gfmPlugin(),
-		{ rehypePlugin: [rehypeRaw] },
-		{ rehypePlugin: [rehypeGithubAlerts] }
-	]
+	let { md, noPadding, prose = 'sm' }: Props = $props()
+
+	// Rendering markdown turns `![](url)` into a real `<img>`, i.e. a request. On the
+	// public replay page the source is a recording from an arbitrary origin and the
+	// page promises to issue none, so show the text instead. Gated here rather than
+	// at each call site because every recorded annotation (flow notes, group notes,
+	// step descriptions) reaches markdown through this one component.
+	let asPlainText = $derived(isOfflineReplay())
 </script>
 
-<div class="!prose-xs {noPadding ? '' : 'pgap'}">
-	<Markdown {md} {plugins} />
+<div class="{markdownProse[prose]} {noPadding ? '' : 'pgap'}">
+	{#if asPlainText}
+		<p class="whitespace-pre-wrap">{md}</p>
+	{:else}
+		<Markdown {md} {plugins} />
+	{/if}
 </div>
 
 <style global>

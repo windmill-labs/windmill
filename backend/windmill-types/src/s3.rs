@@ -3,6 +3,18 @@ use serde::de::Visitor;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::fmt;
 
+/// The name of a workspace's PRIMARY file storage. Reserved: a secondary storage may not carry
+/// it (`edit_large_file_storage_config` rejects that), because everything that resolves a
+/// storage name — the s3-proxy URL, the clients' fallback, `get_secondary_storage_names` — reads
+/// it as the primary one.
+pub const DEFAULT_STORAGE: &str = "_default_";
+
+/// The s3-proxy path segment under which a request names the storage's real bucket
+/// (`s3_proxy/_wm_bucket_/{storage}/{bucket}/{key}`), for S3 clients that address
+/// `s3://<bucket>/<key>`. Reserved like `DEFAULT_STORAGE`: a secondary storage of that name
+/// would be shadowed by the bucket-addressed routes.
+pub const BUCKET_ADDRESSED_SEGMENT: &str = "_wm_bucket_";
+
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct FilesystemSettings {
     pub root_path: String,
@@ -364,13 +376,11 @@ mod tests {
         assert_eq!(deserialized, S3Permission::READ | S3Permission::WRITE);
 
         // Unknown permissions are silently ignored
-        let deserialized: S3Permission =
-            serde_json::from_str("\"read,unknown,delete\"").unwrap();
+        let deserialized: S3Permission = serde_json::from_str("\"read,unknown,delete\"").unwrap();
         assert_eq!(deserialized, S3Permission::READ | S3Permission::DELETE);
 
         // All four permissions
-        let all: S3Permission =
-            serde_json::from_str("\"read,write,delete,list\"").unwrap();
+        let all: S3Permission = serde_json::from_str("\"read,write,delete,list\"").unwrap();
         assert_eq!(
             all,
             S3Permission::READ | S3Permission::WRITE | S3Permission::DELETE | S3Permission::LIST
@@ -409,20 +419,15 @@ mod tests {
         );
 
         // Region set, endpoint empty → use region
-        let with_region = S3Resource {
-            region: "ap-southeast-1".to_string(),
-            ..resource.clone()
-        };
+        let with_region = S3Resource { region: "ap-southeast-1".to_string(), ..resource.clone() };
         assert_eq!(
             with_region.endpoint_with_region_fallback(Some("ignored".to_string())),
             "s3.ap-southeast-1.amazonaws.com"
         );
 
         // Endpoint set → return as-is
-        let with_endpoint = S3Resource {
-            endpoint: "custom.s3.endpoint.com".to_string(),
-            ..resource.clone()
-        };
+        let with_endpoint =
+            S3Resource { endpoint: "custom.s3.endpoint.com".to_string(), ..resource.clone() };
         assert_eq!(
             with_endpoint.endpoint_with_region_fallback(Some("ignored".to_string())),
             "custom.s3.endpoint.com"
@@ -431,10 +436,8 @@ mod tests {
 
     #[test]
     fn test_lfs_methods_filesystem() {
-        let rules = vec![S3PermissionRule {
-            pattern: "**/*.csv".to_string(),
-            allow: S3Permission::READ,
-        }];
+        let rules =
+            vec![S3PermissionRule { pattern: "**/*.csv".to_string(), allow: S3Permission::READ }];
         let lfs = LargeFileStorage::FilesystemStorage(FilesystemStorage {
             root_path: "/data/workspace".to_string(),
             public_resource: Some(true),

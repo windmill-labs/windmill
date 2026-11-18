@@ -5,6 +5,7 @@
 	import FlowModuleComponent from './FlowModuleComponent.svelte'
 	import McpToolEditor from './McpToolEditor.svelte'
 	import WebsearchToolDisplay from './WebsearchToolDisplay.svelte'
+	import QuestionToolDisplay from './QuestionToolDisplay.svelte'
 
 	interface Props {
 		tool: AgentTool
@@ -15,6 +16,9 @@
 		forceTestTab?: Record<string, boolean>
 		highlightArg?: Record<string, string | undefined>
 		siblingToolNames?: string[]
+		/** See `FlowModuleComponent`: set when the tool belongs to a saved agent rather than to a
+		 *  step of this flow. */
+		staticOnly?: boolean
 	}
 
 	let {
@@ -25,15 +29,27 @@
 		previousModule = undefined,
 		forceTestTab,
 		highlightArg,
-		siblingToolNames = undefined
+		siblingToolNames = undefined,
+		staticOnly = false
 	}: Props = $props()
 </script>
 
 {#if isFlowModuleTool(tool)}
 	<!-- FlowModule tool - use existing FlowModuleComponent -->
+	<!-- "Save to workspace" and "Fork" replace the module wholesale, so the binding must be
+	     two-way or the deploy writes the pre-replacement tool. Merged rather than assigned: they
+	     build a plain step, which carries none of the fields only a tool has. -->
 	<FlowModuleComponent
 		{noEditor}
-		flowModule={tool as FlowModule}
+		bind:flowModule={
+			() => tool as FlowModule,
+			(v) =>
+				(tool = {
+					...tool,
+					...v,
+					value: { tool_type: tool.value?.tool_type, ...v.value }
+				} as unknown as AgentTool)
+		}
 		{parentModule}
 		{previousModule}
 		failureModule={false}
@@ -45,11 +61,22 @@
 		forceTestTab={forceTestTab?.[tool.id]}
 		highlightArg={highlightArg?.[tool.id]}
 		isAgentTool={true}
+		{staticOnly}
+		bind:toolDescription={tool.description}
+		bind:toolRequiresApproval={
+			() => tool.requires_approval, (v) => (tool.requires_approval = v || undefined)
+		}
+		bind:toolBackground={() => tool.background, (v) => (tool.background = v || undefined)}
+		bind:toolBackgroundAfterSecs={
+			() => tool.background_after_secs, (v) => (tool.background_after_secs = v)
+		}
 		{siblingToolNames}
 	/>
 {:else if isMcpTool(tool)}
 	<!-- MCP tool - use McpToolEditor -->
-	<McpToolEditor bind:tool />
+	<McpToolEditor bind:tool {noEditor} />
 {:else if isWebsearchTool(tool)}
-	<WebsearchToolDisplay />
+	<WebsearchToolDisplay {noEditor} />
+{:else if tool.value?.tool_type === 'question'}
+	<QuestionToolDisplay bind:tool {noEditor} />
 {/if}

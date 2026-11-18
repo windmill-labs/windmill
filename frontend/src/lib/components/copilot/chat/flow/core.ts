@@ -1,10 +1,4 @@
-import {
-	ScriptService,
-	type FlowModule,
-	type InputTransform,
-	type RawScript,
-	JobService
-} from '$lib/gen'
+import { type FlowModule, type InputTransform, type RawScript } from '$lib/gen'
 import type {
 	ChatCompletionSystemMessageParam,
 	ChatCompletionUserMessageParam
@@ -30,24 +24,36 @@ import {
 	formatScriptLintResult,
 	type ScriptLintResult,
 	createSearchWorkspaceTool,
-	createGetRunnableDetailsTool
+	createGetRunnableDetailsTool,
+	executeFlowStepTestRun
 } from '../shared'
 import { createWorkspaceMutationTools } from '../workspaceTools'
 import type { ContextElement } from '../context'
 import type { ExtendedOpenFlow } from '$lib/components/flows/types'
 import { findModuleInFlow, findModuleInModules } from '$lib/components/flows/flowTree'
 import { createInlineScriptSession, type InlineScriptSession } from './inlineScriptsUtils'
-import { validateFlowGroups, type FlowGroup, type FlowJsonUpdateResult } from './helperUtils'
+import {
+	validateFlowGroups,
+	validateFlowNotes,
+	type FlowGroup,
+	type FlowNote,
+	type FlowJsonUpdateResult
+} from './helperUtils'
 import { flowModuleSchema } from './openFlowZod.gen'
 import { collectAllFlowModuleIdsFromModules } from '$lib/components/flows/flowTree'
 import {
 	buildEditableFlowJson as buildEditableFlowJsonBase,
+	FLOW_VALUE_SETTINGS_KEYS,
+	pickFlowValueSettings,
 	validateEditableFlowJson,
 	validateFlowModules,
 	validateFlowSchema,
-	type EditableFlowJson
+	type EditableFlowJson,
+	type FlowValueSettings
 } from './editableFlowJson'
 import { FLOW_CHAT_SPECIAL_MODULES, getFlowPrompt } from '$system_prompts'
+import { getAiAgentProviderCatalogFor } from './aiAgentProviderCatalog'
+import { formatAiAgentProviderWarnings } from './aiAgentProviders'
 
 type FlowJsonUpdate = {
 	modules?: FlowModule[]
@@ -55,6 +61,10 @@ type FlowJsonUpdate = {
 	preprocessorModule?: FlowModule | null
 	failureModule?: FlowModule | null
 	groups?: FlowGroup[] | null
+	notes?: FlowNote[] | null
+	/** Full state of the top-level FlowValue settings: when provided, keys
+	 * absent from it are removed from the flow value. */
+	settings?: FlowValueSettings
 }
 
 function formatEmptyInlineScriptWarning({
@@ -110,6 +120,9 @@ export interface FlowAIChatHelpers {
 	setCode: (id: string, code: string) => Promise<void>
 	setFlowJson: (update: FlowJsonUpdate) => Promise<FlowJsonUpdateResult>
 	getFlowInputsSchema: () => Promise<Record<string, any>>
+	/** False when the host locked the flow inputs (`customUi.aiFlowInputs`): `setFlowJson` then
+	 * refuses any schema change. */
+	canEditFlowInputs: () => boolean
 	/** Update exprsToSet store for InputTransformForm components (only if module is selected) */
 	updateExprsToSet: (id: string, inputTransforms: Record<string, InputTransform>) => void
 
@@ -125,6 +138,10 @@ export interface FlowAIChatHelpers {
 
 	/** Run a test of the current flow using the UI's preview mechanism */
 	testFlow: (args?: Record<string, any>, conversationId?: string) => Promise<string | undefined>
+
+	/** The path this editor's draft is stored under. Tells a caller which of several mounted
+	 * editors is the one an active-editor context names. */
+	getStoragePath: () => string | undefined
 
 	/** Get lint errors from a specific module (focuses it first, waits for Monaco to analyze) */
 	getLintErrors: (moduleId: string) => Promise<ScriptLintResult>
@@ -183,7 +200,14 @@ const setFlowJsonToolSchema = z.object({
 		.optional()
 		.nullable()
 		.describe(
-			'JSON string containing the optional array of semantic flow groups (summary, note, autocollapse, start_id, end_id, color). Pass null to clear groups.'
+			'JSON string containing the optional array of semantic flow groups. Each group has summary, note, autocollapse, start_id, end_id, color. color MUST be one of: yellow, blue, green, purple, pink, orange, red, cyan, lime, gray — never hex codes or other strings. Pass null to clear groups.'
+		),
+	notes: z
+		.string()
+		.optional()
+		.nullable()
+		.describe(
+			'JSON string containing the optional array of free-floating sticky notes attached to the flow. Use notes to surface important flow-wide information (what the flow does, key assumptions, warnings, TODOs). Each note has id (unique string), text (markdown), color (one of: yellow, blue, green, purple, pink, orange, red, cyan, lime, gray — never hex codes), and optional position {x,y} and size {width,height} — omit both and the editor places and sizes the note automatically. Always use type "free". The "group" note type is DEPRECATED — to segment a complex flow into labelled, colored sections use the `groups` field instead (each group carries its own note and color). Pass null to clear notes.'
 		)
 })
 
@@ -281,7 +305,7 @@ const patchFlowJsonToolDef = createToolDef(
 	'patch_flow_json',
 	'Make a quick exact text edit in the current compact flow JSON. Prefer this for small localized changes; use set_flow_json for larger structural rewrites.'
 )
-// Will be overridden by setSchema
+// Replaced per chat by schemaFor
 const testRunFlowSchema = z.object({
 	args: z
 		.object({})
@@ -351,6 +375,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 	...createWorkspaceMutationTools<FlowAIChatHelpers>(),
 	{
 		def: resourceTypeToolDef,
+		planModeSafe: true,
 		fn: async ({ args, toolId, workspace, toolCallbacks }) => {
 			const parsedArgs = resourceTypeToolSchema.parse(args)
 			toolCallbacks.setToolStatus(toolId, {
@@ -369,6 +394,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 	},
 	{
 		def: getInstructionsForCodeGenerationToolDef,
+		planModeSafe: true,
 		fn: async ({ args, toolId, toolCallbacks }) => {
 			const parsedArgs = getInstructionsForCodeGenerationToolSchema.parse(args)
 			const langContext = getLangContext(parsedArgs.language, {
@@ -412,14 +438,14 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 				contextName: 'flow'
 			})
 		},
-		setSchema: async function (helpers: FlowAIChatHelpers) {
-			await buildSchemaForTool(this.def, async () => {
-				const flowInputsSchema = await helpers.getFlowInputsSchema()
-				return flowInputsSchema
-			})
+		schemaFor: async (helpers: FlowAIChatHelpers) => {
+			const def = structuredClone(testRunFlowToolDef)
+			await buildSchemaForTool(def, () => helpers.getFlowInputsSchema())
+			return def
 		},
 		requiresConfirmation: true,
-		confirmationMessage: 'Run flow test',
+		confirmAction: 'run',
+		confirmationMessage: 'Run a test of the current flow',
 		showDetails: true,
 		autoCollapseDetails: false
 	},
@@ -442,107 +468,36 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 			const stepId = args.stepId
 			const stepArgs = args.args || {}
 
-			// Find the step in the flow (includes preprocessor/failure modules)
-			let targetModule: FlowModule | undefined = findModuleInFlow(flow.value, stepId) ?? undefined
-
-			if (!targetModule) {
+			// An agent step runs on the step's own configuration with this run's changes on top, which
+			// the global chat's run form assembles; this tool sends only what the model named.
+			if (findModuleInFlow(flow.value, stepId)?.value.type === 'aiagent') {
 				toolCallbacks.setToolStatus(toolId, {
-					content: `Step '${stepId}' not found in flow`,
-					error: `Step with id '${stepId}' does not exist in the current flow`
+					content: `Step "${stepId}" is an AI agent step`,
+					error: 'AI agent steps cannot be tested from this chat'
 				})
 				throw new Error(
-					`Step with id '${stepId}' not found in flow. Available steps: ${(flow.value.modules ?? []).map((m: FlowModule) => m.id).join(', ')}`
+					'AI agent steps cannot be tested from this chat. Test it from the step\'s "Test this step" tab.'
 				)
 			}
 
-			const module = targetModule
-			const moduleValue = module.value
-
-			if (moduleValue.type === 'rawscript') {
-				// Test raw script step
-
-				return executeTestRun({
-					jobStarter: () =>
-						JobService.runScriptPreview({
-							workspace: workspace,
-							requestBody: {
-								content: moduleValue.content ?? '',
-								language: moduleValue.language,
-								args:
-									module.id === SPECIAL_MODULE_IDS.PREPROCESSOR
-										? { _ENTRYPOINT_OVERRIDE: 'preprocessor', ...stepArgs }
-										: stepArgs
-							}
-						}),
-					workspace,
-					toolCallbacks,
-					toolId,
-					startMessage: `Starting test run of step '${stepId}'...`,
-					contextName: 'script'
-				})
-			} else if (moduleValue.type === 'script') {
-				// Test script step - need to get the script content
-				const script = moduleValue.hash
-					? await ScriptService.getScriptByHash({
-							workspace: workspace,
-							hash: moduleValue.hash
-						})
-					: await ScriptService.getScriptByPath({
-							workspace: workspace,
-							path: moduleValue.path
-						})
-
-				return executeTestRun({
-					jobStarter: () =>
-						JobService.runScriptPreview({
-							workspace: workspace,
-							requestBody: {
-								content: script.content,
-								language: script.language,
-								args:
-									module.id === SPECIAL_MODULE_IDS.PREPROCESSOR
-										? { _ENTRYPOINT_OVERRIDE: 'preprocessor', ...stepArgs }
-										: stepArgs
-							}
-						}),
-					workspace,
-					toolCallbacks,
-					toolId,
-					startMessage: `Starting test run of script step '${stepId}'...`,
-					contextName: 'script'
-				})
-			} else if (moduleValue.type === 'flow') {
-				// Test flow step
-				return executeTestRun({
-					jobStarter: () =>
-						JobService.runFlowByPath({
-							workspace: workspace,
-							path: moduleValue.path,
-							requestBody: stepArgs
-						}),
-					workspace,
-					toolCallbacks,
-					toolId,
-					startMessage: `Starting test run of flow step '${stepId}'...`,
-					contextName: 'flow'
-				})
-			} else {
-				toolCallbacks.setToolStatus(toolId, {
-					content: `Step type '${moduleValue.type}' not supported for testing`,
-					error: `Cannot test step of type '${moduleValue.type}'`
-				})
-				throw new Error(
-					`Cannot test step of type '${moduleValue.type}'. Supported types: rawscript, script, flow`
-				)
-			}
+			return executeFlowStepTestRun({
+				flowValue: flow.value,
+				stepId,
+				args: stepArgs,
+				workspace,
+				toolCallbacks,
+				toolId
+			})
 		},
 		requiresConfirmation: true,
-		confirmationMessage: 'Run flow step test',
+		confirmAction: 'run',
+		confirmationMessage: (args) => `Run a test of step "${args?.stepId ?? ''}"`,
 		showDetails: true,
 		autoCollapseDetails: false
 	},
 	{
 		def: inspectInlineScriptToolDef,
+		planModeSafe: true,
 		fn: async ({ args, helpers, toolCallbacks, toolId }) => {
 			const parsedArgs = inspectInlineScriptSchema.parse(args)
 			const moduleId = parsedArgs.moduleId
@@ -600,7 +555,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 		streamArguments: true,
 		showDetails: true,
 		showFade: true,
-		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
+		fn: async ({ args, helpers, toolId, toolCallbacks, workspace }) => {
 			const parsedArgs = patchFlowJsonSchema.parse(args)
 			const { old_string: oldString, new_string: newString, replace_all: replaceAll } = parsedArgs
 			const { flow, selectedId } = helpers.getFlowAndSelectedId()
@@ -621,13 +576,24 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 				'current flow JSON'
 			)
 
-			let parsedFlow: EditableFlowJson
+			let patchedValue: unknown
 			try {
-				parsedFlow = validateEditableFlowJson(JSON.parse(updatedFlowJson))
+				patchedValue = JSON.parse(updatedFlowJson)
 			} catch (error) {
 				const message = error instanceof Error ? error.message : String(error)
 				throw new Error(`Invalid JSON after replacement: ${message}`)
 			}
+			const aiProviders = await getAiAgentProviderCatalogFor(
+				workspace,
+				(patchedValue as { modules?: unknown } | null)?.modules
+			)
+			const aiProviderWarnings: string[] = []
+			// Validation errors carry their own diagnosis (a bad module, a provider the workspace
+			// does not have); only a parse failure is about the replacement's JSON.
+			const parsedFlow: EditableFlowJson = validateEditableFlowJson(patchedValue, {
+				aiProviders,
+				aiProviderWarnings
+			})
 
 			for (const [moduleId, content] of Object.entries(inlineScriptSession.getAll())) {
 				helpers.inlineScriptSession.set(moduleId, content)
@@ -638,7 +604,9 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 				schema: parsedFlow.schema,
 				preprocessorModule: parsedFlow.preprocessor_module,
 				failureModule: parsedFlow.failure_module,
-				groups: parsedFlow.groups
+				groups: parsedFlow.groups,
+				notes: parsedFlow.notes,
+				settings: pickFlowValueSettings(parsedFlow)
 			})
 			const warning = formatEmptyInlineScriptWarning(updateResult)
 
@@ -656,7 +624,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 				result: 'Success'
 			})
 
-			return `Flow JSON updated.${warning}`
+			return `Flow JSON updated.${warning}${formatAiAgentProviderWarnings(aiProviderWarnings)}`
 		}
 	},
 	{
@@ -740,14 +708,15 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 		streamArguments: true,
 		showDetails: true,
 		showFade: true,
-		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
-			const { modules, schema, preprocessor_module, failure_module, groups } = args
+		fn: async ({ args, helpers, toolId, toolCallbacks, workspace }) => {
+			const { modules, schema, preprocessor_module, failure_module, groups, notes } = args
 
 			let parsedModules: FlowModule[] | null | undefined
 			let parsedSchema: Record<string, any> | null | undefined
 			let parsedPreprocessorModule: FlowModule | null | undefined
 			let parsedFailureModule: FlowModule | null | undefined
 			let parsedGroups: FlowGroup[] | null | undefined
+			let parsedNotes: FlowNote[] | null | undefined
 
 			// Parse JSON strings
 			parsedModules = parseOptionalJsonArg(modules, 'modules') as FlowModule[] | null | undefined
@@ -764,6 +733,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 				| null
 				| undefined
 			parsedGroups = parseOptionalJsonArg(groups, 'groups') as FlowGroup[] | null | undefined
+			parsedNotes = parseOptionalJsonArg(notes, 'notes') as FlowNote[] | null | undefined
 			if (parsedModules === null) {
 				parsedModules = undefined
 			}
@@ -771,8 +741,10 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 				parsedSchema = undefined
 			}
 
+			const aiProviderWarnings: string[] = []
 			if (parsedModules !== undefined) {
-				parsedModules = validateFlowModules(parsedModules)
+				const aiProviders = await getAiAgentProviderCatalogFor(workspace, parsedModules)
+				parsedModules = validateFlowModules(parsedModules, { aiProviders, aiProviderWarnings })
 				const reservedIds = collectAllFlowModuleIdsFromModules(parsedModules).filter(
 					(id) => id === SPECIAL_MODULE_IDS.PREPROCESSOR || id === SPECIAL_MODULE_IDS.FAILURE
 				)
@@ -792,11 +764,16 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 			)
 			parsedFailureModule = validateSpecialFlowModule(parsedFailureModule, 'failure_module')
 
-			if (parsedGroups !== undefined) {
+			if (parsedGroups !== undefined || parsedNotes !== undefined) {
 				const effectiveModules =
 					parsedModules ?? helpers.getFlowAndSelectedId().flow.value.modules ?? []
 				const moduleIdsForGroups = new Set(collectAllFlowModuleIdsFromModules(effectiveModules))
-				parsedGroups = validateFlowGroups(parsedGroups, moduleIdsForGroups)
+				if (parsedGroups !== undefined) {
+					parsedGroups = validateFlowGroups(parsedGroups, moduleIdsForGroups)
+				}
+				if (parsedNotes !== undefined) {
+					parsedNotes = validateFlowNotes(parsedNotes, moduleIdsForGroups)
+				}
 			}
 
 			const ids = [
@@ -819,7 +796,8 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 					? { preprocessorModule: parsedPreprocessorModule }
 					: {}),
 				...(parsedFailureModule !== undefined ? { failureModule: parsedFailureModule } : {}),
-				...(parsedGroups !== undefined ? { groups: parsedGroups } : {})
+				...(parsedGroups !== undefined ? { groups: parsedGroups } : {}),
+				...(parsedNotes !== undefined ? { notes: parsedNotes } : {})
 			})
 			const warning = formatEmptyInlineScriptWarning(updateResult)
 
@@ -851,11 +829,12 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 				content: `Flow updated`,
 				result: 'Success'
 			})
-			return `Flow updated.${warning}`
+			return `Flow updated.${warning}${formatAiAgentProviderWarnings(aiProviderWarnings)}`
 		}
 	},
 	{
 		def: getLintErrorsToolDef,
+		planModeSafe: true,
 		fn: async ({ args, helpers, toolCallbacks, toolId }) => {
 			const parsedArgs = getLintErrorsSchema.parse(args)
 
@@ -880,7 +859,9 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 ]
 
 export function prepareFlowSystemMessage(customPrompt?: string): ChatCompletionSystemMessageParam {
-	// Get base flow documentation from centralized prompts (includes FLOW_BASE, OPENFLOW_SCHEMA, RESOURCE_TYPES)
+	// Flow domain guidance (module shapes, loops, groups, AI agent tools…) is FLOW_BASE, shared with
+	// global mode and the CLI's write-flow skill: it belongs in system_prompts/base/flow-base.md.
+	// This prompt adds only the flow editor's tools.
 	const flowBaseContext = getFlowPrompt()
 
 	// Chat-specific tool instructions
@@ -921,7 +902,7 @@ export function prepareFlowSystemMessage(customPrompt?: string): ChatCompletionS
 Use \`patch_flow_json\` for small, localized changes when you can target an exact snippet from the \`CURRENT FLOW JSON COMPACT\` block below.
 
 Always copy the exact search text from the \`CURRENT FLOW JSON COMPACT\` block below.
-The compact JSON is a single object with \`modules\`, \`schema\`, \`preprocessor_module\`, \`failure_module\`, and \`groups\` keys.
+The compact JSON is a single object with \`modules\`, \`schema\`, \`preprocessor_module\`, \`failure_module\`, \`groups\`, and \`notes\` keys, plus any top-level flow settings that are set (${FLOW_VALUE_SETTINGS_KEYS.join(', ')}). Settings can be added, edited, or removed with \`patch_flow_json\` as top-level keys — e.g. \`chat_input_enabled: true\` marks the flow as chat-style (flow-as-chat); keep it intact when restructuring such a flow. \`set_flow_json\` never changes these settings.
 
 **Parameters:**
 - \`old_string\`: Exact JSON text to find
@@ -949,7 +930,8 @@ Use the \`set_flow_json\` tool to set the entire flow structure at once. Provide
 - \`schema\`: Flow input schema in JSON Schema format (optional)
 - \`preprocessor_module\`: Special module that runs before \`modules\` (optional, separate from \`modules\`)
 - \`failure_module\`: Special module that runs on failure (optional, separate from \`modules\`)
-- \`groups\`: Array of semantic groups for organizing modules in the editor (optional). Each group has \`summary\` (display name), \`note\` (markdown description shown below the group header — attached directly to the group, not a separate sticky note), \`autocollapse\`, \`start_id\`, \`end_id\`, and \`color\`. \`start_id\` and \`end_id\` must reference existing module IDs in the flow (not \`preprocessor\` or \`failure\`). Groups do not affect execution — they provide naming and collapsibility in the editor. Pass \`null\` to clear existing groups.
+- \`groups\`: Array of semantic groups (optional, but add them to any non-trivial flow without being asked; see "Organizing Flows: Groups and Notes" below). Pass \`null\` to clear existing groups.
+- \`notes\`: Array of free-floating sticky notes (optional; see the same section). Pass \`null\` to clear existing notes.
 
 **Example - Simple flow:**
 \`\`\`javascript
@@ -1029,6 +1011,48 @@ set_flow_json({
       }
     }
   ]
+})
+\`\`\`
+
+**Example - Flow with while loop:**
+
+In a while loop, \`flow_input.iter.value\` equals \`flow_input.iter.index\` (a plain number: 0, 1, 2, ...) — it never carries state, so \`flow_input.iter.value.count\` is always undefined and a counter built on it never advances. To carry state across iterations, a step reads its own previous-iteration result via \`results.<its_own_id>\` with a first-iteration fallback (e.g. \`results.tick ?? flow_input.start\`) — but then the loop's \`stop_after_if\` MUST sit on that inner step: a body that is exactly one plain step with the stop condition on the loop module runs on a fast path where \`results.<step_id>\` is null every iteration and the loop never terminates (bodies with 2+ steps, or whose single step has its own \`stop_after_if\`, retry or similar, resolve \`results\` across iterations regardless of stop placement). For plain counters, deriving from \`flow_input.iter.index\` works in every configuration. \`stop_after_if\` is evaluated after each iteration — on the loop module \`result\` is the last iteration's result (the return of the iteration's final step); on an inner step it is that step's result.
+
+\`\`\`javascript
+set_flow_json({
+  modules: [
+    {
+      id: "count_up",
+      summary: "Increment until target",
+      value: {
+        type: "whileloopflow",
+        skip_failures: false,
+        modules: [
+          {
+            id: "tick",
+            summary: "Compute current count",
+            value: {
+              type: "rawscript",
+              language: "bun",
+              content: "export async function main(count: number, target: number) { return { count, done: count >= target }; }",
+              input_transforms: {
+                count: { type: "javascript", expr: "flow_input.iter.index + 1" },
+                target: { type: "javascript", expr: "flow_input.target" }
+              }
+            }
+          }
+        ]
+      },
+      stop_after_if: { expr: "result.done", skip_if_stopped: false }
+    }
+  ],
+  schema: {
+    type: "object",
+    properties: {
+      target: { type: "number", description: "Stop when the count reaches this value" }
+    },
+    required: ["target"]
+  }
 })
 \`\`\`
 
@@ -1153,43 +1177,6 @@ Example: Before writing TypeScript/Bun code, call \`get_instructions_for_code_ge
 
 3. **After making code changes, ALWAYS use \`get_lint_errors\` to check for issues.** Fix any errors before proceeding with testing.
 
-### AI Agent Modules
-
-AI agents can use tools to accomplish tasks. When creating an AI agent module:
-
-\`\`\`javascript
-{
-  id: "support_agent",
-  summary: "AI agent for customer support",
-  value: {
-    type: "aiagent",
-    input_transforms: {
-      provider: { type: "static", value: "$res:f/ai_providers/openai" },
-      output_type: { type: "static", value: "text" },
-      user_message: { type: "javascript", expr: "flow_input.query" },
-      system_prompt: { type: "static", value: "You are a helpful assistant." }
-    },
-    tools: [
-      {
-        id: "search_docs",
-        summary: "Search_documentation",
-        value: {
-          tool_type: "flowmodule",
-          type: "rawscript",
-          language: "bun",
-          content: "export async function main(query: string) { return ['doc1', 'doc2']; }",
-          input_transforms: { query: { type: "static", value: "" } }
-        }
-      }
-    ]
-  }
-}
-\`\`\`
-
-- **Tool IDs**: Cannot contain spaces - use underscores
-- **Tool summaries**: Cannot contain spaces - use underscores
-- **Tool types**: \`flowmodule\` for scripts/flows, \`mcp\` for MCP server tools
-
 ### Contexts
 
 You have access to the following contexts:
@@ -1215,7 +1202,8 @@ export function prepareFlowUserMessage(
 	instructions: string,
 	flowAndSelectedId?: { flow: ExtendedOpenFlow; selectedId: string },
 	selectedContext: ContextElement[] = [],
-	inlineScriptSession?: InlineScriptSession
+	inlineScriptSession?: InlineScriptSession,
+	options: { flowInputsLocked?: boolean } = {}
 ): ChatCompletionUserMessageParam {
 	const flow = flowAndSelectedId?.flow
 	const selectedId = flowAndSelectedId?.selectedId
@@ -1247,6 +1235,11 @@ currently selected step:
 ${selectedId}`
 
 	flowContent += contextInstructions
+
+	if (options.flowInputsLocked) {
+		flowContent += `\n\n## FLOW INPUTS ARE LOCKED:
+The flow inputs cannot be added, changed or removed in this editor: keep \`schema\` exactly as it is in the current flow JSON. Steps may reference only the existing \`flow_input\` fields; give any other value a step needs as a static value or a step result. If the request needs a new flow input, say that the flow inputs are locked instead of adding one.`
+	}
 
 	flowContent += `\n\n## INSTRUCTIONS:
 ${instructions}`

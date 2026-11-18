@@ -2,7 +2,8 @@ import { Command } from "@cliffy/command";
 import { Confirm } from "@cliffy/prompt/confirm";
 import { colors } from "@cliffy/ansi/colors";
 import { sep as SEP } from "node:path";
-import { GlobalOptions } from "../../types.ts";
+import { GlobalOptions, isDatatableMigrationPath } from "../../types.ts";
+import { isFileResource, isFilesetResource } from "../../utils/utils.ts";
 import { SyncOptions, mergeConfigWithConfigFile } from "../../core/conf.ts";
 import { resolveWorkspace } from "../../core/context.ts";
 import { requireLogin } from "../../core/auth.ts";
@@ -18,11 +19,12 @@ import {
 import { generateFlowLockInternal, FlowLocksResult } from "../flow/flow_metadata.ts";
 import { generateAppLocksInternal, AppLocksResult } from "../app/app_metadata.ts";
 import {
+  dedupeLockfilesOnDisk,
   elementsToMap,
   FSFSElement,
   ignoreF,
 } from "../sync/sync.ts";
-import { exts } from "../script/script.ts";
+import { hasScriptExt } from "../script/script.ts";
 import { isFolderResourcePathAnyFormat, isScriptModulePath, isModuleEntryPoint, scriptPathToRemotePath } from "../../utils/resource_folders.ts";
 import { listSyncCodebases, SyncCodebase } from "../../utils/codebase.ts";
 import {
@@ -51,9 +53,14 @@ async function walkLocalScripts(
   const elems = await elementsToMap(
     await FSFSElement(process.cwd(), codebases, false),
     (p, isD) =>
-      (!isD && !exts.some((ext) => p.endsWith(ext))) ||
+      (!isD && !hasScriptExt(p)) ||
       ignore(p, isD) ||
       isFolderResourcePathAnyFormat(p) ||
+      // Datatable migration `.sql` files aren't Windmill scripts.
+      isDatatableMigrationPath(p) ||
+      // Neither are file/fileset resource content files (.sql, .ts, …).
+      isFileResource(p) ||
+      isFilesetResource(p) ||
       (isScriptModulePath(p) && !isModuleEntryPoint(p)),
     false,
     {},
@@ -97,8 +104,10 @@ async function walkLocalAppItems(
  * or app), so a preview run resolves relative imports from not-yet-deployed
  * local content instead of the deployed scripts. Walks all local scripts so
  * transitive relative-import targets can be uploaded, then for flow/app adds
- * that item's node. Degrades gracefully (returns undefined) on older backends
- * without the /raw_temp endpoints.
+ * that item's node. The "all" target skips per-node filtering and returns refs
+ * for every uploaded script — used by `wmill dev`, where the previewed item
+ * changes at runtime. Degrades gracefully (returns undefined) on older
+ * backends without the /raw_temp endpoints.
  */
 export async function buildPreviewTempScriptRefs(
   workspace: Workspace,
@@ -107,7 +116,8 @@ export async function buildPreviewTempScriptRefs(
   target:
     | { kind: "script"; path: string }
     | { kind: "flow"; folder: string }
-    | { kind: "app"; folder: string; rawApp: boolean },
+    | { kind: "app"; folder: string; rawApp: boolean }
+    | { kind: "all" },
 ): Promise<Record<string, string> | undefined> {
   try {
     const rawWorkspaceDependencies = await getRawWorkspaceDependencies(true);
@@ -129,8 +139,11 @@ export async function buildPreviewTempScriptRefs(
       );
     }
 
-    let nodePath: string;
-    if (target.kind === "script") {
+    let nodePath: string | undefined;
+    if (target.kind === "all") {
+      // No anchor node — refs are collected tree-wide below
+      nodePath = undefined;
+    } else if (target.kind === "script") {
       nodePath = scriptPathToRemotePath(target.path);
     } else if (target.kind === "flow") {
       const folder = target.folder.endsWith(SEP)
@@ -157,7 +170,9 @@ export async function buildPreviewTempScriptRefs(
 
     tree.propagateStaleness();
     await uploadScripts(tree, workspace);
-    const refs = tree.getTempScriptRefs(nodePath);
+    const refs = nodePath !== undefined
+      ? tree.getTempScriptRefs(nodePath)
+      : tree.getAllTempScriptRefs();
     return refs && Object.keys(refs).length > 0 ? refs : undefined;
   } catch (e) {
     // Degrade gracefully (preview still runs against deployed versions) but do
@@ -211,8 +226,13 @@ function categorizeLocalFiles(
     ) {
       appPaths.push(p);
     } else if (
-      exts.some((ext) => p.endsWith(ext)) &&
+      hasScriptExt(p) &&
       !isFolderResourcePathAnyFormat(p) &&
+      // Datatable migration `.sql` files aren't Windmill scripts.
+      !isDatatableMigrationPath(p) &&
+      // Neither are file/fileset resource content files (.sql, .ts, …).
+      !isFileResource(p) &&
+      !isFilesetResource(p) &&
       !(isScriptModulePath(p) && !isModuleEntryPoint(p))
     ) {
       scripts.push(p);
@@ -390,6 +410,51 @@ export async function rehashOnly(
     );
   }
   return counts;
+}
+
+/**
+ * Normalize the tree's shared lockfiles, unless the run asked to stay inside one
+ * folder: shared lockfiles are workspace-wide, so the pass reads and rewrites
+ * metadata outside it, which `--strict-folder-boundaries` promises not to do.
+ */
+async function maybeDedupeLockfiles(
+  opts: GlobalOptions & SyncOptions & { strictFolderBoundaries?: boolean },
+  workspace: Workspace,
+  codebases: SyncCodebase[],
+  ignore: (p: string, isD: boolean) => boolean,
+  rawWorkspaceDependencies: Record<string, string>,
+  tree: DoubleLinkedDependencyTree,
+  folder: string | undefined,
+  failed: string[] = [],
+): Promise<void> {
+  if (!opts.dedupeLockfiles) return;
+  if (folder && opts.strictFolderBoundaries) {
+    log.info(
+      colors.yellow(
+        `Skipping lockfile deduplication: it spans the whole workspace, and --strict-folder-boundaries keeps this run inside "${folder}".`,
+      ),
+    );
+    return;
+  }
+  const args = {
+    opts,
+    workspace,
+    codebases,
+    ignore,
+    rawWorkspaceDependencies,
+    tree,
+    failed,
+  };
+  if (opts.dryRun) {
+    await dedupeLockfilesOnDisk({ ...args, dryRun: true });
+    return;
+  }
+  await beginLockfileBatch();
+  try {
+    await dedupeLockfilesOnDisk(args);
+  } finally {
+    await flushLockfileBatch();
+  }
 }
 
 export async function generateMetadata(
@@ -591,6 +656,10 @@ export async function generateMetadata(
   // === Show stale items and confirm ===
   if (filteredItems.length === 0) {
     log.info(colors.green("All metadata up-to-date"));
+    // Turning `dedupeLockfiles` on in a repo whose metadata is already current
+    // is exactly the case where nothing is stale, and the conversion still has
+    // to happen — the sync compares against a deduplicated remote either way.
+    await maybeDedupeLockfiles(opts, workspace, codebases, ignore, rawWorkspaceDependencies, tree, folder);
     return;
   }
 
@@ -618,6 +687,9 @@ export async function generateMetadata(
   printItems("Apps", apps);
 
   if (opts.dryRun) {
+    // The preview belongs on this path too: the conversion is what a stale tree
+    // is about to get, and only the up-to-date path reported it.
+    await maybeDedupeLockfiles(opts, workspace, codebases, ignore, rawWorkspaceDependencies, tree, folder);
     return;
   }
 
@@ -756,9 +828,17 @@ export async function generateMetadata(
     // Persist all stale workspace dep hashes (not just filtered — deps are global, not folder-scoped)
     const allStaleDeps = staleItems.filter((i) => i.type === "dependencies");
     await tree.persistDepsHashes(allStaleDeps.map((d) => d.path));
+
   } finally {
     await flushLockfileBatch();
   }
+
+  // The scripts whose generation failed keep whatever lock they had, and must
+  // not be re-hashed as though this run had refreshed them.
+  await maybeDedupeLockfiles(
+    opts, workspace, codebases, ignore, rawWorkspaceDependencies, tree, folder,
+    errors.map((e) => e.path),
+  );
 
   const succeeded = total - errors.length;
   log.info("");
@@ -791,7 +871,7 @@ async function rehashCommand(
 }
 
 const command = new Command()
-  .description("Generate metadata (locks, schemas) for all scripts, flows, and apps")
+  .description("Regenerate stale local locks and script schemas and refresh wmill-lock.yaml content hashes (scripts, flows, apps). Writes local files only, not a deploy. Run it after edits that add or remove imports or change a script's arguments, so the lock, the auto-generated UI schema, and wmill-lock.yaml stay in sync.")
   .arguments("[folder:string]")
   .option("--yes", "Skip confirmation prompt")
   .option("--dry-run", "Show what would be updated without making changes")
@@ -815,9 +895,7 @@ const command = new Command()
     "rehash",
     new Command()
       .description(
-        "Trust on-disk content; rewrite wmill-lock.yaml hashes without backend " +
-        "trips or yaml/lock rewrites. Useful for bootstrapping missing lockfile " +
-        "entries or recovering from older-CLI hash drift."
+        "Refresh wmill-lock.yaml content hashes from the on-disk .lock and .script.yaml without re-resolving dependencies or hitting the backend. Use when those files are already correct and only the hashes need updating: bootstrapping missing entries or recovering from hash drift."
       )
       .arguments("[folder:string]")
       .option("--skip-scripts", "Skip processing scripts")

@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO app(workspace_id, path, summary, policy, versions)\n         VALUES ('test-workspace', 'u/test-user/g', '', '{\"on_behalf_of\": \"g/ops\", \"on_behalf_of_email\": \"group-ops@windmill.dev\"}'::jsonb, '{}'),\n                ('test-workspace', 'u/test-user/u', '', '{\"on_behalf_of\": \"u/test-user-2\", \"on_behalf_of_email\": \"group-ops@windmill.dev\"}'::jsonb, '{}')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "a6f59e8751b79d23fcd2a8204fbc38002fc6d0cf7e4a83f21d31fb28bd98efb8"
+}

@@ -2,6 +2,7 @@
 	import { Button } from '$lib/components/common'
 	import { ExternalLink, RotateCw, Loader2 } from 'lucide-svelte'
 	import { workerTags, workspaceStore } from '$lib/stores'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 	import AssignableTags from './AssignableTags.svelte'
 	import { WorkerService } from '$lib/gen'
 	import WorkerTagSelect from './WorkerTagSelect.svelte'
@@ -11,28 +12,56 @@
 		popupPlacement?: 'bottom-end' | 'top-end'
 		disabled?: boolean
 		placeholder?: string
+		// Workspace to read tags from; defaults to the operating workspace (see
+		// `useOperatingWorkspace`).
+		workspaceId?: string
 	}
 
 	let {
 		tag = $bindable(),
 		popupPlacement = 'bottom-end',
 		disabled = false,
-		placeholder
+		placeholder,
+		workspaceId = undefined
 	}: Props = $props()
+
+	// See WorkerTagSelect: the shared `workerTags` cache is navigation-scoped, so a
+	// different target workspace reads/writes a local list to avoid clobbering it.
+	const operatingWorkspace = useOperatingWorkspace()
+	let effectiveWorkspace = $derived(workspaceId ?? $operatingWorkspace)
+	let usesLocal = $derived(
+		effectiveWorkspace != undefined && effectiveWorkspace !== $workspaceStore
+	)
+	let localWorkerTags = $state<string[] | undefined>(undefined)
+	let currentTags = $derived(usesLocal ? localWorkerTags : $workerTags)
 
 	loadWorkerTags()
 	async function loadWorkerTags(force = false) {
-		if (!$workerTags || force) {
-			$workerTags = await WorkerService.getCustomTagsForWorkspace({ workspace: $workspaceStore! })
+		if (usesLocal) {
+			if (!localWorkerTags || force) {
+				localWorkerTags = await WorkerService.getCustomTagsForWorkspace({
+					workspace: effectiveWorkspace!
+				})
+			}
+		} else if (!$workerTags || force) {
+			$workerTags = await WorkerService.getCustomTagsForWorkspace({
+				workspace: effectiveWorkspace!
+			})
 		}
 	}
 </script>
 
 <div class="flex gap-2 items-center">
 	<div class="max-w-sm grow">
-		{#if $workerTags}
-			{#if $workerTags?.length ?? 0 > 0}
-				<WorkerTagSelect {placeholder} noLabel bind:tag {disabled} />
+		{#if currentTags}
+			{#if currentTags?.length ?? 0 > 0}
+				<WorkerTagSelect
+					{placeholder}
+					noLabel
+					bind:tag
+					{disabled}
+					workspaceId={usesLocal ? effectiveWorkspace : undefined}
+				/>
 			{:else}
 				<div class="text-sm text-secondary flex flex-row gap-2">
 					No custom worker group tag defined on this instance in "Workers {'->'} Custom tags"
@@ -56,7 +85,6 @@
 	<Button
 		variant="default"
 		on:click={() => {
-			$workerTags = undefined
 			loadWorkerTags(true)
 		}}
 		startIcon={{ icon: RotateCw }}

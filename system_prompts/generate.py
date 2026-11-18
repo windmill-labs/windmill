@@ -51,6 +51,7 @@ from utils import (
     clean_params,
     escape_for_ts,
     read_markdown_file,
+    render_for,
     # Parsing utilities
     extract_balanced,
     extract_return_type,
@@ -106,6 +107,14 @@ def extract_ts_functions(content: str) -> list[dict]:
 
         if not return_type:
             return_type = 'Promise<void>' if is_async else 'void'
+
+        # `@internal` marks an export that exists for another module or for a
+        # test to reach, not for a user to call. The SDK reference these prompts
+        # become is a user-facing API list, so it must not advertise them.
+        # `@deprecated` exports stay callable for existing scripts but must not be
+        # suggested for new ones.
+        if jsdoc_raw and ('@internal' in jsdoc_raw or '@deprecated' in jsdoc_raw):
+            continue
 
         docstring = clean_jsdoc(jsdoc_raw) if jsdoc_raw else ''
         seen_names.add(name)
@@ -184,6 +193,12 @@ def extract_py_functions(content: str) -> list[dict]:
         # Get docstring
         docstring = ast.get_docstring(node) or ''
 
+        # Same rule as the TypeScript SDK: a deprecated member stays callable for existing
+        # scripts but must not be suggested for new ones. The Python SDK marks them with the
+        # Sphinx `.. deprecated::` directive.
+        if '.. deprecated::' in docstring:
+            return
+
         # Build parameter list
         params = []
         args = node.args
@@ -209,7 +224,12 @@ def extract_py_functions(content: str) -> list[dict]:
         if args.vararg:
             params.append(f"*{args.vararg.arg}")
 
-        # Handle keyword-only args
+        # Handle keyword-only args. Same bare `*` as `_format_py_params`: without it the rendered
+        # signature reads as all-positional, and code written against this reference passes a
+        # keyword-only argument positionally and gets a TypeError.
+        if args.kwonlyargs and not args.vararg:
+            params.append('*')
+
         for i, arg in enumerate(args.kwonlyargs):
             param_str = arg.arg
             if arg.annotation:
@@ -293,13 +313,101 @@ OPTION_PATTERN = re.compile(
 )
 
 
-def parse_command_block(content: str, file_path: Path | None = None) -> dict:
+# A single JS string literal: double/single quoted or backtick. The other
+# quote chars may appear inside (apostrophes inside a "..." string, etc.) and
+# backslash escapes are consumed so a `\"` doesn't end the match early.
+_STRING_LITERAL = (
+    r'"(?:[^"\\]|\\.)*"'
+    r"|'(?:[^'\\]|\\.)*'"
+    r'|`(?:[^`\\]|\\.)*`'
+)
+
+
+def _unquote_js_string(literal: str) -> str:
+    """Drop the surrounding quotes of a JS string literal and unescape the
+    escapes that show up in command descriptions."""
+    body = literal[1:-1]
+    return (
+        body.replace('\\\\', '\x00')
+        .replace('\\n', '\n')
+        .replace('\\t', '\t')
+        .replace('\\"', '"')
+        .replace("\\'", "'")
+        .replace('\\`', '`')
+        .replace('\x00', '\\')
+    )
+
+
+def extract_description(section: str) -> str | None:
+    """Extract the text of the first chained `.description(...)` call.
+
+    Handles double/single-quoted and backtick strings (a quote of one kind may
+    appear inside a string delimited by another — e.g. an apostrophe inside a
+    "..." description), backslash escapes, and `"a" + "b"` concatenation across
+    lines. Returns None when `.description(` is absent or its argument is not a
+    string literal (e.g. a variable), matching the previous empty-description
+    behavior. Using `[^"\\']+` here instead would silently drop any description
+    containing an apostrophe.
+    """
+    m = re.search(
+        r'\.description\(\s*((?:' + _STRING_LITERAL + r')(?:\s*\+\s*(?:' + _STRING_LITERAL + r'))*)',
+        section,
+        re.DOTALL,
+    )
+    if not m:
+        return None
+    parts = re.findall(_STRING_LITERAL, m.group(1), re.DOTALL)
+    return ''.join(_unquote_js_string(p) for p in parts).strip() or None
+
+
+def extract_named_command_block(content: str, var_name: str) -> str | None:
+    """Return the chained-call body of `const <var_name> = new Command() ...`,
+    from just after `new Command()` up to the next top-level statement.
+
+    Returns None when the var isn't a *direct* `new Command()` (e.g. it's wrapped
+    in a helper call like `auditListOptions(new Command()...)`), so callers can
+    fall back to a looser match.
+    """
+    m = re.search(
+        r'const\s+' + re.escape(var_name) + r'\s*=\s*new\s+Command\(\)'
+        r'([\s\S]*?)(?=\n(?:const|let|var|async|function|export)\b)',
+        content,
+    )
+    return m.group(1) if m else None
+
+
+def extract_exported_command_block(content: str) -> str | None:
+    """Return the chained-call body of the command that is `export default`ed.
+
+    A command file may define helper `new Command()` groups (assigned to local
+    consts and mounted as nested subcommands via `.command("x", localCmd)`)
+    *before* the exported command. Anchoring on the first `new Command()` in the
+    file would merge those helpers into the top-level command, so resolve the
+    exported variable first and only then fall back to the first `new Command()`
+    (which covers inline/wrapped exports).
+    """
+    export_match = re.search(r'export\s+default\s+(\w+)\s*;', content)
+    if export_match:
+        block = extract_named_command_block(content, export_match.group(1))
+        if block is not None:
+            return block
+    command_match = re.search(
+        r'(?:const\s+command\s*=\s*)?new\s+Command\(\)([\s\S]*?)(?=export\s+default)',
+        content,
+    )
+    return command_match.group(1) if command_match else None
+
+
+def parse_command_block(
+    content: str, file_path: Path | None = None, block: str | None = None
+) -> dict:
     """
     Parse a Cliffy Command() definition block and extract metadata.
     Returns a dict with: description, options, subcommands, arguments, alias
 
     If file_path is provided, imported subcommands will be resolved by parsing
-    the imported files.
+    the imported files. `block` may be passed to parse a specific pre-extracted
+    command body (used to recurse into locally-defined nested command groups).
     """
     result = {
         'description': '',
@@ -310,14 +418,10 @@ def parse_command_block(content: str, file_path: Path | None = None) -> dict:
     }
 
     # Find the command block
-    command_match = re.search(
-        r'(?:const\s+command\s*=\s*)?new\s+Command\(\)([\s\S]*?)(?=export\s+default)',
-        content
-    )
-    if not command_match:
+    if block is None:
+        block = extract_exported_command_block(content)
+    if block is None:
         return result
-
-    block = command_match.group(1)
 
     # Find where subcommands start
     first_subcommand_pos = block.find('.command(')
@@ -326,11 +430,9 @@ def parse_command_block(content: str, file_path: Path | None = None) -> dict:
     top_section = block[:first_subcommand_pos]
 
     # Extract main description
-    desc_match = re.search(r'\.description\(\s*["\']([^"\']+)["\']\s*,?\s*\)', top_section, re.DOTALL)
-    if not desc_match:
-        desc_match = re.search(r'\.description\(\s*`([^`]+)`\s*,?\s*\)', top_section, re.DOTALL)
-    if desc_match:
-        result['description'] = desc_match.group(1).strip()
+    main_desc = extract_description(top_section)
+    if main_desc:
+        result['description'] = main_desc
 
     # Extract alias
     alias_match = re.search(r'\.alias\(\s*["\']([^"\']+)["\']\s*\)', top_section)
@@ -406,19 +508,38 @@ def parse_command_block(content: str, file_path: Path | None = None) -> dict:
                             'name': cmd_name,
                             'description': imported_cmd.get('description', ''),
                             'arguments': imported_cmd.get('arguments', ''),
-                            'options': imported_cmd.get('options', [])
+                            'options': imported_cmd.get('options', []),
+                            'subcommands': imported_cmd.get('subcommands', []),
                         })
                         continue
                     except Exception as e:
                         print(f"  Warning: Could not parse imported command {second_arg}: {e}")
             cmd_desc = ''
+        elif second_arg and re.search(
+            r'const\s+' + re.escape(second_arg) + r'\s*=\s*new\s+Command\(\)', content
+        ):
+            # Locally-defined command group mounted as a subcommand
+            # (e.g. `.command("migrate", migrateCommand)`): recurse into its
+            # definition so its own subcommands/options are captured.
+            nested_block = extract_named_command_block(content, second_arg)
+            if nested_block is not None:
+                nested = parse_command_block(content, file_path, block=nested_block)
+                result['subcommands'].append({
+                    'name': cmd_name,
+                    'description': nested.get('description', ''),
+                    'arguments': nested.get('arguments', ''),
+                    'options': nested.get('options', []),
+                    'subcommands': nested.get('subcommands', []),
+                })
+                continue
+            cmd_desc = ''
         else:
             cmd_desc = ''
 
         # Check for description in chained .description() call
-        desc_match = re.search(r'\.description\(\s*["\']([^"\']+)["\']\s*,?\s*\)', section, re.DOTALL)
-        if desc_match:
-            cmd_desc = desc_match.group(1).strip()
+        chained_desc = extract_description(section)
+        if chained_desc:
+            cmd_desc = chained_desc
 
         # Check for arguments
         args_match = re.search(r'\.arguments\(\s*["\']([^"\']+)["\']\s*\)', section)
@@ -583,15 +704,63 @@ def generate_cli_commands_markdown(cli_data: dict) -> str:
                         for opt in sub['options']:
                             md += f"  - `{opt['flag']}` - {opt['description']}\n"
 
+                    # Nested sub-subcommands (e.g. `datatable migrate new`)
+                    for subsub in sub.get('subcommands', []):
+                        ss_args = f" {subsub['arguments']}" if subsub.get('arguments') else ""
+                        md += f"  - `{cmd['name']} {sub_name} {subsub['name']}{ss_args}`"
+                        if subsub.get('description'):
+                            md += f" - {subsub['description']}"
+                        md += "\n"
+                        for opt in subsub.get('options', []):
+                            md += f"    - `{opt['flag']}` - {opt['description']}\n"
+
                 md += "\n"
 
     return md
+
+
+# Who is running the script is answered by contextual variables, not by an SDK call, so the
+# SDK reference has to say so: it is where an agent looks for a `usernameToEmail`-style helper.
+IDENTITY_OF_THE_RUN_TS = """To know who is running the script, read the contextual variables rather than calling the API:
+`process.env.WM_END_USER_EMAIL || process.env.WM_EMAIL`. WM_END_USER_EMAIL is the app viewer when
+the run was triggered from an app and empty otherwise (both variables are always defined), WM_EMAIL
+is the user the job is permissioned as. WM_USERNAME is the matching username."""
+
+IDENTITY_OF_THE_RUN_PY = """To know who is running the script, read the contextual variables rather than calling the API:
+`os.environ.get("WM_END_USER_EMAIL") or os.environ.get("WM_EMAIL")`. WM_END_USER_EMAIL is the app
+viewer when the run was triggered from an app and empty otherwise (both variables are always
+defined), WM_EMAIL is the user the job is permissioned as. WM_USERNAME is the matching username."""
+
+
+# `setClient` reads BASE_INTERNAL_URL/BASE_URL and WM_TOKEN itself; agents that miss this rebuild
+# that logic by hand and get it wrong.
+PRECONFIGURED_CLIENT = """The client configures itself from the job's environment — base URL, token and credentials mode
+are all set before your code runs, so there is nothing to initialize and no reason to read
+WM_TOKEN or BASE_INTERNAL_URL and build an API URL yourself. Reconstructing that by hand only
+reintroduces details the client already handles. Call the SDK for anything Windmill, and use raw
+HTTP for third-party APIs."""
+
+# The listing is the helper surface, not the whole API, so each language needs its own escape
+# hatch: a flat "not listed means it does not exist" is false and leaves an uncovered endpoint
+# with no legal move.
+UNLISTED_ENDPOINTS_TS = """The helpers below are the surface to prefer. For an endpoint none of them covers, import the
+generated service classes (JobService, ScriptService, ...) from 'windmill-client' — they are not
+listed here but they do exist. What does not exist is a helper name you guessed at: if it is
+neither listed below nor a service method, do not call it."""
+
+UNLISTED_ENDPOINTS_PY = """The functions below are the surface to prefer. For an endpoint none of them covers,
+wmill.Windmill().get(endpoint) and .post(endpoint) issue an authenticated request against this
+instance. What does not exist is a function name you guessed at: if it is not listed below, do
+not call it."""
 
 
 def generate_ts_sdk_markdown(functions: list[dict], _types: list[dict]) -> str:
     """Generate compact documentation for TypeScript SDK."""
     md = "# TypeScript SDK (windmill-client)\n\n"
     md += "Import: import * as wmill from 'windmill-client'\n\n"
+    md += PRECONFIGURED_CLIENT + "\n\n"
+    md += UNLISTED_ENDPOINTS_TS + "\n\n"
+    md += IDENTITY_OF_THE_RUN_TS + "\n\n"
 
     for i, func in enumerate(functions):
         if func.get('docstring'):
@@ -614,6 +783,9 @@ def generate_py_sdk_markdown(functions: list[dict], _classes: list[dict]) -> str
     """Generate compact documentation for Python SDK."""
     md = "# Python SDK (wmill)\n\n"
     md += "Import: import wmill\n\n"
+    md += PRECONFIGURED_CLIENT + "\n\n"
+    md += UNLISTED_ENDPOINTS_PY + "\n\n"
+    md += IDENTITY_OF_THE_RUN_PY + "\n\n"
 
     for func in functions:
         # Skip private functions
@@ -642,6 +814,21 @@ def generate_ts_exports(prompts: dict[str, str]) -> str:
         ts += f"export const {name} = `{escaped}`;\n\n"
 
     return ts
+
+
+def generate_ts_declarations(prompts: dict[str, str]) -> str:
+    """Generate the .d.ts for prompts.ts.
+
+    Each export is declared as a plain `string` rather than a string-literal
+    type so the declaration file does not embed (and drift against) the prompt
+    contents — those live only in prompts.ts.
+    """
+    dts = "// Auto-generated by generate.py - DO NOT EDIT\n\n"
+
+    for name in prompts.keys():
+        dts += f"export declare const {name}: string;\n"
+
+    return dts
 
 
 # =============================================================================
@@ -702,9 +889,11 @@ WORKSPACE_TOOL_ZOD_SCHEMAS = [
     ('NewNatsTrigger', 'natsTriggerRequestSchema'),
     ('NewPostgresTrigger', 'postgresTriggerRequestSchema'),
     ('NewMqttTrigger', 'mqttTriggerRequestSchema'),
+    ('NewAmqpTrigger', 'amqpTriggerRequestSchema'),
     ('NewSqsTrigger', 'sqsTriggerRequestSchema'),
     ('GcpTriggerData', 'gcpTriggerRequestSchema'),
     ('AzureTriggerData', 'azureTriggerRequestSchema'),
+    ('NewEmailTrigger', 'emailTriggerRequestSchema'),
     ('CreateVariable', 'variableRequestSchema'),
     ('CreateResource', 'resourceRequestSchema'),
 ]
@@ -716,9 +905,11 @@ WORKSPACE_TOOL_TRIGGER_SCHEMAS = [
     ('nats', 'natsTriggerRequestSchema'),
     ('postgres', 'postgresTriggerRequestSchema'),
     ('mqtt', 'mqttTriggerRequestSchema'),
+    ('amqp', 'amqpTriggerRequestSchema'),
     ('sqs', 'sqsTriggerRequestSchema'),
     ('gcp', 'gcpTriggerRequestSchema'),
     ('azure', 'azureTriggerRequestSchema'),
+    ('email', 'emailTriggerRequestSchema'),
 ]
 
 WORKSPACE_TOOL_ZOD_OUTPUT_PATH = (
@@ -745,7 +936,9 @@ def _resolve_schema_refs(schema: dict, backend_schemas: dict, openflow_schemas: 
         ref = schema['$ref']
         ref_name = ref.split('/')[-1]
         if ref_name in seen:
-            return {'type': 'object'}
+            # Zod cannot express the recursion inline; stay permissive so the nested
+            # payload survives parsing instead of being stripped as unknown keys.
+            return {'type': 'object', 'additionalProperties': True}
 
         source = openflow_schemas if 'openflow.openapi.yaml' in ref or ref_name not in backend_schemas else backend_schemas
         ref_schema = source.get(ref_name)
@@ -785,15 +978,13 @@ def _apply_zod_metadata(expr: str, schema: dict) -> str:
 def _json_schema_to_zod(schema: dict, indent: int = 0) -> str:
     schema = schema or {}
 
-    if 'oneOf' in schema:
-        raise ValueError('Unsupported oneOf in workspace tool Zod schema generation')
-
     if 'allOf' in schema:
         raise ValueError('Unsupported allOf in workspace tool Zod schema generation')
 
-    if 'anyOf' in schema:
+    variants = schema.get('anyOf') or schema.get('oneOf')
+    if variants:
         expr = "z.union([{}])".format(
-            ', '.join(_json_schema_to_zod(item, indent) for item in schema['anyOf'])
+            ', '.join(_json_schema_to_zod(item, indent) for item in variants)
         )
         return _apply_zod_metadata(expr, schema)
 
@@ -887,6 +1078,17 @@ def generate_workspace_tool_zod_schemas(backend_schemas: dict, openflow_schemas:
         "",
         f"const triggerPathSchema = z.string().min(1).describe({_ts_string(trigger_path_description)})",
         "",
+        "// The kind-specific fields of a trigger config, with the three the tool supplies",
+        "// itself removed. Fetched one at a time through get_trigger_schema rather than",
+        "// inlined into create_trigger: as a union of all eleven this serialized to ~39k",
+        "// characters of JSON Schema, resent on every request of every chat.",
+        "export const triggerConfigSchemas = {",
+        *[
+            f"\t{kind}: {schema_name}.omit({{ path: true, script_path: true, is_flow: true }}),"
+            for kind, schema_name in WORKSPACE_TOOL_TRIGGER_SCHEMAS
+        ],
+        "} as const",
+        "",
         "export const createTriggerToolSchema = z.object({",
         "\tkind: z.enum([",
         *[
@@ -895,12 +1097,11 @@ def generate_workspace_tool_zod_schemas(backend_schemas: dict, openflow_schemas:
         ],
         "\t]),",
         "\tpath: triggerPathSchema,",
-        "\tconfig: z.union([",
-    ])
-    for kind, schema_name in WORKSPACE_TOOL_TRIGGER_SCHEMAS:
-        lines.append(f"\t\t{schema_name}.omit({{ path: true, script_path: true, is_flow: true }}),")
-    lines.extend([
-        "\t])",
+        "\tconfig: z",
+        "\t\t.record(z.string(), z.any())",
+        "\t\t.describe(",
+        "\t\t\t'The kind-specific trigger configuration. Call get_trigger_schema with the same kind first to get its exact fields.'",
+        "\t\t)",
         "})",
     ])
     lines.append("")
@@ -1071,6 +1272,12 @@ def _format_py_params(node: ast.FunctionDef, skip_self: bool = False) -> str:
             vararg_str += f": {ast.unparse(args.vararg.annotation)}"
         params.append(vararg_str)
 
+    # A bare `*` before the keyword-only args, when nothing else already introduced them.
+    # Without it the rendered signature reads as all-positional, and a caller written against
+    # these docs passes a keyword-only argument positionally and gets a TypeError.
+    if args.kwonlyargs and not args.vararg:
+        params.append('*')
+
     for i, arg in enumerate(args.kwonlyargs):
         param_str = arg.arg
         if arg.annotation:
@@ -1119,6 +1326,7 @@ WAC_TS_FUNCTIONS = [
     'step',
     'sleep',
     'waitForApproval',
+    'getApprovalUrls',
     'parallel',
 ]
 
@@ -1131,6 +1339,7 @@ WAC_PY_FUNCTIONS = [
     'step',
     'sleep',
     'wait_for_approval',
+    'get_approval_urls',
     'parallel',
 ]
 
@@ -1261,9 +1470,10 @@ def extract_wac_ts_sdk(ts_content: str) -> str:
         return ''
 
     declarations = []
-    task_options = _extract_ts_interface(ts_content, 'TaskOptions')
-    if task_options:
-        declarations.append(task_options)
+    for interface_name in ('TaskRetry', 'TaskOptions'):
+        interface = _extract_ts_interface(ts_content, interface_name)
+        if interface:
+            declarations.append(interface)
 
     for function_name in WAC_TS_FUNCTIONS:
         signature = _extract_ts_exported_function(ts_content, function_name)
@@ -1276,7 +1486,7 @@ def extract_wac_ts_sdk(ts_content: str) -> str:
         return ''
 
     md = "## TypeScript Workflow-as-Code API (windmill-client)\n\n"
-    md += 'Import: `import { workflow, task, taskScript, taskFlow, step, sleep, waitForApproval, getResumeUrls, parallel } from "windmill-client"`\n\n'
+    md += 'Import: `import { workflow, task, taskScript, taskFlow, step, sleep, waitForApproval, getApprovalUrls, getResumeUrls, parallel } from "windmill-client"`\n\n'
     md += "```typescript\n"
     md += "\n\n".join(declarations)
     md += "\n```\n"
@@ -1398,7 +1608,7 @@ def extract_wac_py_sdk(py_content: str) -> str:
         return ''
 
     md = "## Python Workflow-as-Code API (wmill)\n\n"
-    md += "Import: `from wmill import workflow, task, task_script, task_flow, step, sleep, wait_for_approval, get_resume_urls, parallel, TaskError`\n\n"
+    md += "Import: `from wmill import workflow, task, task_script, task_flow, step, sleep, wait_for_approval, get_approval_urls, get_resume_urls, parallel, TaskError`\n\n"
     md += "```python\n"
     md += "\n\n".join(declarations)
     md += "\n```\n"
@@ -1410,87 +1620,203 @@ def extract_wac_py_sdk(py_content: str) -> str:
 # =============================================================================
 
 
-def generate_skill_content(
-    skill_name: str,
-    description: str,
-    intro: str,
-    content: str,
-    sdk_content: str = ''
-) -> str:
+def generate_skill_content(skill_name: str, description: str, body: str) -> str:
     """Generate a skill file with YAML frontmatter."""
-    parts = [
-        "---",
-        f"name: {skill_name}",
-        f"description: {description}",
-        "---",
-        "",
-    ]
-    if intro:
-        parts.extend([intro, ""])
-    parts.append(content)
-    if sdk_content:
-        parts.extend(["", sdk_content])
-    return '\n'.join(parts)
+    frontmatter = f"name: {skill_name}\ndescription: {description}\n"
+    # Agents find a skill by parsing this frontmatter, so a description YAML reads
+    # differently (a `: `, a leading quote or bracket) must fail here, not at load time.
+    try:
+        parsed = yaml.safe_load(frontmatter)
+    except yaml.YAMLError as e:
+        raise ValueError(f"Skill '{skill_name}' frontmatter is not valid YAML: {e}") from e
+    if parsed != {'name': skill_name, 'description': description}:
+        raise ValueError(f"Skill '{skill_name}' description does not read back as plain YAML text")
+    return f"---\n{frontmatter}---\n\n{body}"
 
 
-# Skill definitions for config-driven generation
-SKILL_DEFINITIONS = [
-    {
-        'name': 'write-flow',
+# How each topic's guidance is assembled, for the chat and the CLI alike.
+#
+# `parts` are shared: the topic's chat helper (`chat_helper`, emitted into
+# auto-generated/index.ts) and its CLI skill both concatenate them, in this
+# order. A part is a file under base/ or languages/, or a token: {lang} (the
+# language's own file), {sdk} (the SDK that language calls), {wac_sdk},
+# {openflow_schema}, {cli_commands}. A part written as ('chat', part) or
+# ('cli', part) reaches that consumer only, and `cli_intro` heads the CLI skill.
+# A sentence meant for one consumer inside a shared file is fenced instead
+# (see `render_for`): adding a shared part here is what keeps the two in step.
+TOPICS: dict[str, dict] = {
+    'script': {
+        'skill': 'write-script-{lang}',
+        'chat_helper': 'getScriptPrompt',
+        'cli_intro': 'script-cli.md',
+        'parts': ['script-base.md', '{lang}', '{sdk}'],
+    },
+    'flow': {
+        'skill': 'write-flow',
         'description': 'MUST use when creating flows.',
-        'content_key': 'flow',
+        'chat_helper': 'getFlowPrompt',
+        'cli_intro': 'flow-cli.md',
+        'parts': ['flow-base.md', '{openflow_schema}'],
     },
-    {
-        'name': 'raw-app',
+    'raw_app': {
+        'skill': 'raw-app',
         'description': 'MUST use when creating raw apps.',
-        'content_key': 'raw_app',
+        'chat_helper': 'getRawAppPrompt',
+        'cli_intro': 'raw-app-cli.md',
+        # The CLI agent writes each runnable with the write-script-<lang> skill,
+        # which carries the SDK; the chat has no such skill to defer to.
+        'parts': ['raw-app.md', ('chat', '{sdk}')],
     },
-    {
-        'name': 'triggers',
+    'triggers': {
+        'skill': 'triggers',
         'description': 'MUST use when configuring triggers.',
-        'content_key': 'triggers',
-        'schema_types': [
-            ('HttpTrigger', 'http_trigger'),
-            ('WebsocketTrigger', 'websocket_trigger'),
-            ('KafkaTrigger', 'kafka_trigger'),
-            ('NatsTrigger', 'nats_trigger'),
-            ('PostgresTrigger', 'postgres_trigger'),
-            ('MqttTrigger', 'mqtt_trigger'),
-            ('SqsTrigger', 'sqs_trigger'),
-            ('GcpTrigger', 'gcp_trigger'),
-            ('AzureTrigger', 'azure_trigger'),
-            ('EmailTrigger', 'email_trigger'),
-        ],
+        'parts': [('cli', 'triggers.md')],
     },
-    {
-        'name': 'schedules',
+    'schedules': {
+        'skill': 'schedules',
         'description': 'MUST use when configuring schedules.',
-        'content_key': 'schedules',
-        'schema_types': [('Schedule', 'schedule')],
+        'parts': [('cli', 'schedules.md')],
     },
-    {
-        'name': 'resources',
+    'resources': {
+        'skill': 'resources',
         'description': 'MUST use when managing resources.',
-        'content_key': 'resources',
+        'chat_helper': 'getResourcePrompt',
+        'parts': ['resources.md'],
     },
-    {
-        'name': 'write-workflow-as-code',
+    'agent': {
+        'skill': 'agents',
+        'description': 'MUST use when creating or changing an AI agent, the reusable `ai_agent` resource the Agents page lists.',
+        'chat_helper': 'getAgentPrompt',
+        'parts': ['agent.md'],
+    },
+    'workflow_as_code': {
+        'skill': 'write-workflow-as-code',
         'description': 'MUST use when writing or modifying Windmill Workflow-as-Code scripts using workflow, task, step, sleep, approvals, taskScript, taskFlow, task_script, or task_flow.',
-        'content_key': 'workflow_as_code',
-        'intro_key': 'wac_cli',
-        'sdk_content_key': 'wac',
+        'chat_helper': 'getWorkflowAsCodePrompt',
+        'cli_intro': 'script-cli.md',
+        'parts': ['workflow-as-code.md', '{wac_sdk}'],
     },
-    {
-        'name': 'cli-commands',
+    'pipeline': {
+        'skill': 'write-pipeline',
+        'description': 'MUST use when creating or modifying a data pipeline, a set of scripts marked `pipeline` and wired together by `on` / `materialize` annotations.',
+        'chat_helper': 'getPipelinePrompt',
+        'parts': ['pipeline-base.md'],
+    },
+    'datatable': {
+        'skill': 'datatables',
+        'description': "MUST use when changing a data table's schema, writing or running its migrations, or working with its roles and permissions.",
+        'chat_helper': 'getDatatablePrompt',
+        'parts': ['datatable.md'],
+    },
+    'workspace_settings': {
+        'skill': 'workspace-settings',
+        'description': 'MUST use when reading or changing workspace settings, or the settings.yaml file `wmill sync` keeps.',
+        'chat_helper': 'getWorkspaceSettingsPrompt',
+        'parts': ['workspace-settings.md'],
+    },
+    'code_mode': {
+        'skill': 'code-mode',
+        'description': 'MUST use when the user asks for something done against the systems the workspace connects to (an API lookup, moving data, checking a status) rather than for building a script, flow or app.',
+        'chat_helper': 'getCodeModePrompt',
+        'parts': ['code-mode.md'],
+    },
+    'display': {
+        'skill': 'rich-results',
+        'description': 'MUST use when a script or flow should return a table, chart, markdown, image, file or map instead of plain JSON.',
+        'chat_helper': 'getDisplayPrompt',
+        # display-catalog.gen.md is generated from the frontend's zod catalog by
+        # `npm run gen:display-catalog`; the chat validates charts against the same schema.
+        'parts': ['display-results.md', 'display-catalog.gen.md'],
+    },
+    'cli_commands': {
+        'skill': 'cli-commands',
         'description': 'MUST use when using the CLI, including debugging job failures and inspecting run history via `wmill job`.',
-        'content_key': 'cli_commands',
+        'parts': [('cli', '{cli_commands}')],
     },
-    {
-        'name': 'preview',
+    'preview': {
+        'skill': 'preview',
         'description': 'MUST use when opening the Windmill dev page / visual preview of a flow, script, or app. Triggers on words like preview, open, navigate to, visualize, see the flow/app/script, and after writing a flow/script/app for visual verification.',
-        'content_key': 'preview',
+        'parts': [('cli', 'preview.md')],
     },
-]
+}
+
+# The prompts.ts constant each shared file is exported as (chat render).
+CHAT_CONSTANTS = {
+    'script-base.md': 'SCRIPT_BASE',
+    'flow-base.md': 'FLOW_BASE',
+    'resources.md': 'RESOURCES_BASE',
+    'agent.md': 'AGENT_BASE',
+    'raw-app.md': 'RAW_APP_BASE',
+    'pipeline-base.md': 'PIPELINE_BASE',
+    'datatable.md': 'DATATABLE_BASE',
+    'workspace-settings.md': 'WORKSPACE_SETTINGS_BASE',
+    'workflow-as-code.md': 'WORKFLOW_AS_CODE_BASE',
+    'flow-chat-special-modules.md': 'FLOW_CHAT_SPECIAL_MODULES',
+    'display-results.md': 'DISPLAY_RESULTS_BASE',
+    'display-catalog.gen.md': 'DISPLAY_CATALOG',
+    'code-mode.md': 'CODE_MODE_BASE',
+}
+
+
+def topic_parts(topic: str, consumer: str) -> list[str]:
+    """The parts of `topic` that reach `consumer`, in order."""
+    parts = []
+    for part in TOPICS[topic]['parts']:
+        if isinstance(part, tuple):
+            only, part = part
+            if only != consumer:
+                continue
+        parts.append(part)
+    return parts
+
+
+def read_prompt_source(name: str, consumer: str) -> str:
+    """A base/ or languages/ markdown file, rendered for `consumer`."""
+    for directory in (SCRIPT_DIR / "base", SCRIPT_DIR / "languages"):
+        path = directory / name
+        if path.exists():
+            return render_for(path.read_text(), consumer, str(path.relative_to(SCRIPT_DIR)))
+    raise FileNotFoundError(f"No prompt source named {name} under base/ or languages/")
+
+
+def ts_topic_return(topic: str) -> str:
+    """The `return [...]` of a chat helper: the topic's chat parts as TS expressions.
+
+    `langPrompt` and `sdkPrompt` are locals every helper that uses those tokens
+    declares.
+    """
+    token_exprs = {
+        '{lang}': 'langPrompt',
+        '{sdk}': 'sdkPrompt',
+        '{wac_sdk}': 'sdkPrompt',
+        '{openflow_schema}': 'prompts.OPENFLOW_SCHEMA',
+    }
+    exprs = []
+    for part in topic_parts(topic, 'chat'):
+        if part in token_exprs:
+            exprs.append(token_exprs[part])
+        elif part in CHAT_CONSTANTS:
+            exprs.append(f"prompts.{CHAT_CONSTANTS[part]}")
+        else:
+            raise ValueError(f"Topic '{topic}' part '{part}' has no chat export")
+    body = ",\n    ".join(exprs)
+    return f"return [\n    {body}\n  ].filter(Boolean).join('\\n\\n');"
+
+
+def ts_string_list(values: list[str]) -> str:
+    return "[" + ", ".join(f"'{v}'" for v in values) + "]"
+
+
+def skill_descriptions() -> dict[str, str]:
+    """Map every skill name to its user-facing description."""
+    desc_map = {}
+    for topic in TOPICS.values():
+        if '{lang}' in topic['skill']:
+            for lang_key, metadata in LANGUAGE_METADATA.items():
+                desc_map[topic['skill'].format(lang=lang_key)] = metadata['description']
+        else:
+            desc_map[topic['skill']] = topic['description']
+    return desc_map
 
 
 def generate_skills(
@@ -1499,143 +1825,55 @@ def generate_skills(
     py_sdk_md: str,
     wac_ts_md: str,
     wac_py_md: str,
-    flow_cli: str,
-    flow_base: str,
     openflow_content: str,
     cli_commands: str,
-    cli_schemas: dict[str, dict] | None = None
 ):
-    """Generate individual skill files for Claude Code."""
+    """Generate one CLI skill file per topic (and per language for scripts)."""
     print("Generating skill files...")
-
-    cli_schemas = cli_schemas or {}
-
-    # Ensure skills directory exists
     OUTPUT_SKILLS_DIR.mkdir(parents=True, exist_ok=True)
+    descriptions = skill_descriptions()
 
-    # Read base files for additional skills.
-    # Note: raw-app.md is the chat-relevant authoring guide. The CLI workflow
-    # (wmill app new wizard, on-disk layout, sql_to_apply/, CLI commands) lives
-    # in raw-app-cli.md. Concatenated here for the skill so CLI users see CLI
-    # guidance first, then the platform shape.
-    base_dir = SCRIPT_DIR / "base"
-    raw_app_cli_md = read_markdown_file(base_dir / "raw-app-cli.md")
-    raw_app_authoring_md = read_markdown_file(base_dir / "raw-app.md")
-    base_content = {
-        'flow': f"{flow_cli}\n\n{flow_base}\n\n{openflow_content}",
-        'raw_app': f"{raw_app_cli_md}\n\n{raw_app_authoring_md}",
-        'triggers': read_markdown_file(base_dir / "triggers.md"),
-        'schedules': read_markdown_file(base_dir / "schedules.md"),
-        'resources': read_markdown_file(base_dir / "resources.md"),
-        'workflow_as_code': read_markdown_file(base_dir / "workflow-as-code.md"),
-        'cli_commands': cli_commands,
-        'preview': read_markdown_file(base_dir / "preview.md"),
-    }
+    def resolve(part: str, lang: str | None) -> str:
+        if part == '{lang}':
+            return render_for(languages[lang], 'cli', f"languages/{lang}.md")
+        if part == '{sdk}':
+            if lang in TS_SDK_LANGUAGES:
+                return ts_sdk_md
+            if lang in PY_SDK_LANGUAGES:
+                return py_sdk_md
+            return ''
+        if part == '{wac_sdk}':
+            return "\n\n".join(filter(None, [wac_ts_md, wac_py_md]))
+        if part == '{openflow_schema}':
+            return openflow_content
+        if part == '{cli_commands}':
+            return cli_commands
+        return read_prompt_source(part, 'cli')
 
-    # CLI intro for script skills
-    script_cli_intro = """## CLI Commands
-
-Place scripts in a folder.
-
-After writing, tell the user which command fits what they want to do:
-
-- `wmill script preview <script_path>` — **default when iterating on a local script.** Runs the local file without deploying.
-- `wmill script run <path>` — runs the script **already deployed** in the workspace. Use only when the user explicitly wants to test the deployed version, not local edits.
-- `wmill generate-metadata` — generate `.script.yaml` and `.lock` files for the script you modified.
-- `wmill sync push` — deploy local changes to the workspace. Only suggest/run this when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
-
-### Preview vs run — choose by intent, not habit
-
-If the user says "run the script", "try it", "test it", "does it work" while there are **local edits to the script file**, use `script preview`. Do NOT push the script to then `script run` it — pushing is a deploy, and deploying just to test overwrites the workspace version with untested changes.
-
-Only use `script run` when:
-- The user explicitly says "run the deployed version" / "run what's on the server".
-- There is no local script being edited (you're just invoking an existing script).
-
-Only use `sync push` when:
-- The user explicitly asks to deploy, publish, push, or ship.
-- The preview has already validated the change and the user wants it in the workspace.
-
-### After writing — offer to test, don't wait passively
-
-If the user hasn't already told you to run/test/preview the script, offer it as a one-sentence next step (e.g. "Want me to run `wmill script preview` with sample args?"). Do not present a multi-option menu.
-
-If the user already asked to test/run/try the script in their original request, skip the offer and just execute `wmill script preview <path> -d '<args>'` directly — pick plausible args from the script's declared parameters. The shape varies by language: `main(...)` for code languages, the SQL dialect's own placeholder syntax (`$1` for PostgreSQL, `?` for MySQL/Snowflake, `@P1` for MSSQL, `@name` for BigQuery, etc.), positional `$1`, `$2`, … for Bash, `param(...)` for PowerShell.
-
-`wmill script preview` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). `wmill sync push` and `wmill generate-metadata` modify workspace state or local files — only run these when the user explicitly asks; otherwise tell them which to run.
-
-For a **visual** open-the-script-in-the-dev-page preview (rather than `script preview`'s run-and-print-result), use the `preview` skill.
-
-Use `wmill resource-type list --schema` to discover available resource types."""
-
-    wac_cli_intro = f"""{script_cli_intro}
-
-Workflow-as-Code files use the normal script CLI workflow. There are no separate WAC deploy commands."""
-
-    intro_content = {
-        'wac_cli': wac_cli_intro,
-    }
-
-    extra_sdk_content = {
-        'wac': "\n\n".join(filter(None, [wac_ts_md, wac_py_md])),
-    }
+    def write_skill(topic: dict, topic_key: str, lang: str | None = None) -> str:
+        skill_name = topic['skill'].format(lang=lang) if lang else topic['skill']
+        sections = []
+        if topic.get('cli_intro'):
+            sections.append(read_prompt_source(topic['cli_intro'], 'cli'))
+        sections.extend(resolve(part, lang) for part in topic_parts(topic_key, 'cli'))
+        body = "\n\n".join(s.rstrip('\n') for s in sections if s.strip()) + "\n"
+        skill_dir = OUTPUT_SKILLS_DIR / skill_name
+        skill_dir.mkdir(parents=True, exist_ok=True)
+        (skill_dir / "SKILL.md").write_text(
+            generate_skill_content(skill_name, descriptions[skill_name], body)
+        )
+        return skill_name
 
     skills_generated = []
-
-    # Generate script skills for each language
-    for lang_key, lang_content in languages.items():
-        if lang_key not in LANGUAGE_METADATA:
-            print(f"  Warning: No metadata for language '{lang_key}', skipping")
-            continue
-
-        metadata = LANGUAGE_METADATA[lang_key]
-        skill_name = f"write-script-{lang_key}"
-        skill_dir = OUTPUT_SKILLS_DIR / skill_name
-        skill_dir.mkdir(parents=True, exist_ok=True)
-
-        # Determine which SDK to include
-        language_sdk_content = ''
-        if lang_key in TS_SDK_LANGUAGES:
-            language_sdk_content = ts_sdk_md
-        elif lang_key in PY_SDK_LANGUAGES:
-            language_sdk_content = py_sdk_md
-
-        skill_content = generate_skill_content(
-            skill_name=skill_name,
-            description=metadata['description'],
-            intro=script_cli_intro,
-            content=lang_content,
-            sdk_content=language_sdk_content
-        )
-
-        (skill_dir / "SKILL.md").write_text(skill_content)
-        skills_generated.append(skill_name)
-
-    # Generate other skills from definitions
-    # Note: Skills with schema_types (triggers, schedules) get base content only.
-    # Schemas are stored separately and combined at CLI init time.
-    for skill_def in SKILL_DEFINITIONS:
-        content = base_content.get(skill_def['content_key'], '')
-        if not content:
-            continue
-
-        skill_name = skill_def['name']
-        skill_dir = OUTPUT_SKILLS_DIR / skill_name
-        skill_dir.mkdir(parents=True, exist_ok=True)
-
-        # Note: We no longer append schemas here. Skills with 'schema_types'
-        # will have schemas combined at CLI init time from SCHEMAS export.
-
-        skill_content = generate_skill_content(
-            skill_name=skill_name,
-            description=skill_def['description'],
-            intro=intro_content.get(skill_def.get('intro_key', ''), ''),
-            content=content,
-            sdk_content=extra_sdk_content.get(skill_def.get('sdk_content_key', ''), '')
-        )
-
-        (skill_dir / "SKILL.md").write_text(skill_content)
-        skills_generated.append(skill_name)
+    for topic_key, topic in TOPICS.items():
+        if '{lang}' in topic['skill']:
+            for lang_key in languages:
+                if lang_key not in LANGUAGE_METADATA:
+                    print(f"  Warning: No metadata for language '{lang_key}', skipping")
+                    continue
+                skills_generated.append(write_skill(topic, topic_key, lang_key))
+        else:
+            skills_generated.append(write_skill(topic, topic_key))
 
     print(f"  Generated {len(skills_generated)} skills")
     return skills_generated
@@ -1659,7 +1897,7 @@ def generate_skills_ts_export(skills: list[str], schema_yaml_content: dict[str, 
 
     ts += "export const SKILLS: SkillMetadata[] = [\n"
 
-    skill_desc_map = {s['name']: s['description'] for s in SKILL_DEFINITIONS}
+    skill_desc_map = skill_descriptions()
 
     for skill in skills:
         if skill.startswith('write-script-'):
@@ -1827,7 +2065,7 @@ CONTEXT7_REPO_NAME = "windmill-cli-docs"
 
 
 def extract_agents_md_template() -> str:
-    """Extract the AGENTS.cli.md template string from cli/src/guidance/core.ts.
+    """Extract the AGENTS.wmill.md template string from cli/src/guidance/core.ts.
 
     Keeping a single source of truth in TypeScript avoids drift between what
     `wmill init` writes locally and what we publish for context7 ingestion.
@@ -1844,7 +2082,7 @@ def extract_agents_md_template() -> str:
     )
     if not match:
         raise RuntimeError(
-            f"Could not extract AGENTS.cli.md template from {core_ts_path}"
+            f"Could not extract AGENTS.wmill.md template from {core_ts_path}"
         )
     return _unescape_ts_template_literal(match.group(1))
 
@@ -1866,7 +2104,7 @@ def _unescape_ts_template_literal(raw: str) -> str:
 def render_agents_md_for_docs(
     skills: list[str], skill_desc_map: dict[str, str]
 ) -> str:
-    """Render AGENTS.cli.md exactly as `wmill init` would, for the docs repo.
+    """Render AGENTS.wmill.md exactly as `wmill init` would, for the docs repo.
 
     The skill reference paths point at `.agents/skills/` (the canonical tree
     that Codex/Pi read directly and that Claude Code mirrors under
@@ -1880,22 +2118,6 @@ def render_agents_md_for_docs(
         if name in skill_desc_map
     )
     return template.replace("${skillsReference}", skills_reference)
-
-
-def build_skill_desc_map(skills: list[str]) -> dict[str, str]:
-    """Map each skill name to its user-facing description.
-
-    Mirrors the logic in `generate_skills_ts_export`: language skills draw from
-    LANGUAGE_METADATA, everything else from SKILL_DEFINITIONS.
-    """
-    desc_map = {s["name"]: s["description"] for s in SKILL_DEFINITIONS}
-    for skill in skills:
-        if skill.startswith("write-script-"):
-            lang_key = skill.replace("write-script-", "")
-            metadata = LANGUAGE_METADATA.get(lang_key)
-            if metadata:
-                desc_map[skill] = metadata["description"]
-    return desc_map
 
 
 def _looks_like_windmill_manifest(path: Path) -> bool:
@@ -2007,10 +2229,10 @@ def generate_context7_repo(
     _verify_context7_target(target_dir)
     clear_context7_dir(target_dir)
 
-    skill_desc_map = build_skill_desc_map(skills)
+    skill_desc_map = skill_descriptions()
 
     # AGENTS.md — the managed CLI guidance (what `wmill init` writes as
-    # AGENTS.cli.md locally). Kept under the `AGENTS.md` filename here to
+    # AGENTS.wmill.md locally). Kept under the `AGENTS.md` filename here to
     # preserve the existing context7 ingest path; docs consumers read this
     # as the canonical AGENTS file.
     (target_dir / "AGENTS.md").write_text(
@@ -2295,18 +2517,19 @@ def main():
     base_dir = SCRIPT_DIR / "base"
     languages_dir = SCRIPT_DIR / "languages"
 
-    script_base = read_markdown_file(base_dir / "script-base.md")
-    flow_base = read_markdown_file(base_dir / "flow-base.md")
-    resources_base = read_markdown_file(base_dir / "resources.md")
-    raw_app_base = read_markdown_file(base_dir / "raw-app.md")
-    workflow_as_code_base = read_markdown_file(base_dir / "workflow-as-code.md")
-    flow_cli = read_markdown_file(base_dir / "flow-cli.md")
-    flow_chat_special_modules = read_markdown_file(base_dir / "flow-chat-special-modules.md")
+    # The chat's exports; `generate_skills` renders the same files for the CLI.
+    chat_bases = {
+        const: read_prompt_source(name, 'chat') for name, const in CHAT_CONSTANTS.items()
+    }
 
-    # Read language files
+    # Read language files (rendered per consumer where they are used)
     languages = {}
     for lang_file in sorted(languages_dir.glob("*.md")):
         languages[lang_file.stem] = lang_file.read_text()
+    chat_languages = {
+        name: render_for(content, 'chat', f"languages/{name}.md")
+        for name, content in languages.items()
+    }
 
     # Extract and generate CLI commands documentation
     print("Extracting CLI commands...")
@@ -2341,6 +2564,7 @@ def main():
             'NatsTrigger', 'NewNatsTrigger',
             'PostgresTrigger', 'NewPostgresTrigger',
             'MqttTrigger', 'NewMqttTrigger',
+            'AmqpTrigger', 'NewAmqpTrigger',
             'SqsTrigger', 'NewSqsTrigger',
             'GcpTrigger',
             'AzureTrigger',
@@ -2361,12 +2585,7 @@ def main():
     # Assemble prompts for export
     prompts = {
         # Base prompts
-        'SCRIPT_BASE': script_base,
-        'FLOW_BASE': flow_base,
-        'RESOURCES_BASE': resources_base,
-        'RAW_APP_BASE': raw_app_base,
-        'WORKFLOW_AS_CODE_BASE': workflow_as_code_base,
-        'FLOW_CHAT_SPECIAL_MODULES': flow_chat_special_modules,
+        **chat_bases,
 
         # SDKs
         'SDK_TYPESCRIPT': ts_sdk_md,
@@ -2386,23 +2605,24 @@ def main():
     }
 
     # Add language prompts
-    for lang_name, lang_content in languages.items():
+    for lang_name, lang_content in chat_languages.items():
         prompts[f'LANG_{lang_name.upper()}'] = lang_content
 
     # Generate TypeScript exports
     ts_exports = generate_ts_exports(prompts)
     (OUTPUT_GENERATED_DIR / "prompts.ts").write_text(ts_exports)
+    (OUTPUT_GENERATED_DIR / "prompts.d.ts").write_text(generate_ts_declarations(prompts))
 
     # Generate complete script.md (all languages combined)
-    script_md_parts = [script_base]
-    for lang_name in sorted(languages.keys()):
-        script_md_parts.append(languages[lang_name])
+    script_md_parts = [chat_bases['SCRIPT_BASE']]
+    for lang_name in sorted(chat_languages.keys()):
+        script_md_parts.append(chat_languages[lang_name])
     script_md_parts.extend([ts_sdk_md, py_sdk_md])
     script_md = "\n\n".join(filter(None, script_md_parts))
     (OUTPUT_GENERATED_DIR / "script.md").write_text(script_md)
 
     # Generate complete flow.md
-    flow_md_parts = [flow_base, openflow_content]
+    flow_md_parts = [chat_bases['FLOW_BASE'], openflow_content]
     flow_md = "\n\n".join(filter(None, flow_md_parts))
     (OUTPUT_GENERATED_DIR / "flow.md").write_text(flow_md)
 
@@ -2414,10 +2634,10 @@ export * from './prompts';
 import * as prompts from './prompts';
 
 // Languages that use the TypeScript SDK
-const TS_SDK_LANGUAGES = ['bun', 'deno', 'nativets', 'bunnative'];
+const TS_SDK_LANGUAGES = __TS_SDK_LANGUAGES__;
 
 // Languages that use the Python SDK
-const PY_SDK_LANGUAGES = ['python3'];
+const PY_SDK_LANGUAGES = __PY_SDK_LANGUAGES__;
 
 // Languages that use the TypeScript Workflow-as-Code SDK
 const WAC_TS_SDK_LANGUAGES = ['bun'];
@@ -2438,33 +2658,77 @@ export function getScriptPrompt(language: string): string {
     sdkPrompt = prompts.SDK_PYTHON;
   }
 
-  return [
-    prompts.SCRIPT_BASE,
-    langPrompt,
-    sdkPrompt
-  ].filter(Boolean).join('\\n\\n');
+  __RETURN_script__
 }
 
 // Helper to combine prompts for flows
 export function getFlowPrompt(): string {
-  return [
-    prompts.FLOW_BASE,
-    prompts.OPENFLOW_SCHEMA
-  ].filter(Boolean).join('\\n\\n');
+  __RETURN_flow__
 }
 
 // Helper for resource & variable authoring
 export function getResourcePrompt(): string {
-  return prompts.RESOURCES_BASE;
+  __RETURN_resources__
 }
 
-// Helper for raw app authoring (chat consumers)
-export function getRawAppPrompt(): string {
-  return prompts.RAW_APP_BASE;
+// Helper for AI agent authoring
+export function getAgentPrompt(): string {
+  __RETURN_agent__
 }
 
-// Helper to get datatable SDK reference for app mode
-export function getDatatableSdkReference(): string {
+// Helper for raw app authoring (chat consumers). Inline backend runnables are
+// ordinary Windmill jobs, so the reference has to carry the SDK the runnable
+// calls — without it an agent invents client functions and hand-rolls HTTP.
+// Only one SDK is returned: both would double an already large tool result.
+export function getRawAppPrompt(language?: string): string {
+  const sdkPrompt = PY_SDK_LANGUAGES.includes(language ?? '')
+    ? prompts.SDK_PYTHON
+    : prompts.SDK_TYPESCRIPT;
+
+  __RETURN_raw_app__
+}
+
+// Helper for data pipeline authoring (chat consumers)
+export function getPipelinePrompt(): string {
+  __RETURN_pipeline__
+}
+
+// Helper for rich results: tables, charts and the other shapes a return value renders as
+export function getDisplayPrompt(): string {
+  __RETURN_display__
+}
+
+// Helper for answering a task with code run as a preview, then saved and reused
+export function getCodeModePrompt(): string {
+  __RETURN_code_mode__
+}
+
+// Helper for data table schema changes, migrations and permissions (chat consumers)
+export function getDatatablePrompt(): string {
+  __RETURN_datatable__
+}
+
+// Helper for the workspace settings document (chat consumers)
+export function getWorkspaceSettingsPrompt(): string {
+  __RETURN_workspace_settings__
+}
+
+// Helper to get the datatable SQL SDK reference (wmill.datatable()).
+// Pass a language to get only that SDK; omit it to get both.
+export function getDatatableSdkReference(language?: string): string {
+  if (language == null) {
+    return [
+      prompts.DATATABLE_SDK_TYPESCRIPT,
+      prompts.DATATABLE_SDK_PYTHON
+    ].filter(Boolean).join('\\n\\n');
+  }
+  if (TS_SDK_LANGUAGES.includes(language)) {
+    return prompts.DATATABLE_SDK_TYPESCRIPT;
+  }
+  if (PY_SDK_LANGUAGES.includes(language)) {
+    return prompts.DATATABLE_SDK_PYTHON;
+  }
+  // Unknown language: return both rather than nothing.
   return [
     prompts.DATATABLE_SDK_TYPESCRIPT,
     prompts.DATATABLE_SDK_PYTHON
@@ -2488,20 +2752,34 @@ export function getWorkflowAsCodePrompt(language?: string): string {
     return '';
   }
 
-  return [
-    prompts.WORKFLOW_AS_CODE_BASE,
-    sdkPrompt
-  ].filter(Boolean).join('\\n\\n');
+  __RETURN_workflow_as_code__
 }
 """
+    index_content = (index_content
+        .replace('__TS_SDK_LANGUAGES__', ts_string_list(TS_SDK_LANGUAGES))
+        .replace('__PY_SDK_LANGUAGES__', ts_string_list(PY_SDK_LANGUAGES))
+    )
+    for topic_key, topic in TOPICS.items():
+        if 'chat_helper' not in topic:
+            continue
+        marker = f"__RETURN_{topic_key}__"
+        if marker not in index_content or f"function {topic['chat_helper']}(" not in index_content:
+            raise ValueError(f"index.ts has no {topic['chat_helper']} returning {marker}")
+        index_content = index_content.replace(marker, ts_topic_return(topic_key))
     (OUTPUT_GENERATED_DIR / "index.ts").write_text(index_content)
 
     index_dts_content = """export * from './prompts';
 export declare function getScriptPrompt(language: string): string;
 export declare function getFlowPrompt(): string;
 export declare function getResourcePrompt(): string;
-export declare function getRawAppPrompt(): string;
-export declare function getDatatableSdkReference(): string;
+export declare function getAgentPrompt(): string;
+export declare function getRawAppPrompt(language?: string): string;
+export declare function getPipelinePrompt(): string;
+export declare function getDisplayPrompt(): string;
+export declare function getCodeModePrompt(): string;
+export declare function getDatatablePrompt(): string;
+export declare function getWorkspaceSettingsPrompt(): string;
+export declare function getDatatableSdkReference(language?: string): string;
 export declare function getWorkflowAsCodePrompt(language?: string): string;
 """
     (OUTPUT_GENERATED_DIR / "index.d.ts").write_text(index_dts_content)
@@ -2514,11 +2792,8 @@ export declare function getWorkflowAsCodePrompt(language?: string): string;
         py_sdk_md=py_sdk_md,
         wac_ts_md=wac_ts_md,
         wac_py_md=wac_py_md,
-        flow_cli=flow_cli,
-        flow_base=flow_base,
         cli_commands=cli_commands,
         openflow_content=openflow_content,
-        cli_schemas=cli_schemas
     )
 
     # Generate skills TypeScript export for CLI
@@ -2546,6 +2821,7 @@ export declare function getWorkflowAsCodePrompt(language?: string): string;
     print(f"  - auto-generated/sdks/wac-python.md")
     print(f"  - auto-generated/cli/cli-commands.md (auto-generated from CLI source)")
     print(f"  - auto-generated/prompts.ts")
+    print(f"  - auto-generated/prompts.d.ts")
     print(f"  - auto-generated/index.ts")
     print(f"  - auto-generated/script.md")
     print(f"  - auto-generated/flow.md")

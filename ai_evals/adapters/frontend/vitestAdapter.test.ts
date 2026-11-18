@@ -1,8 +1,71 @@
 import { expect, it, vi } from 'vitest'
 // @ts-ignore - Node.js fs/promises
-import { mkdir, writeFile } from 'fs/promises'
+import { mkdir, readFile, writeFile } from 'fs/promises'
 // @ts-ignore - Node.js path
 import { dirname, resolve } from 'path'
+// @ts-ignore - Node.js url
+import { fileURLToPath } from 'url'
+import { handleBenchmarkApiFetch, hasBenchmarkApiHandler } from './mockBackend'
+import { resolveWindmillBackendSettings } from '../../core/windmillBackendSettings'
+import { WindmillBackendClient } from './windmillBackend'
+import { realWorkspaceRoute } from './core/global/realWorkspace'
+
+const FRONTEND_DIR = fileURLToPath(new URL('../../../frontend/', import.meta.url))
+
+// Some tools reach the backend by relative fetch('/api/...'), which has no meaning
+// in the vitest environment — serve the ones the benchmark handles.
+// Every other relative fetch keeps its normal behavior (it fails the same way
+// it does without this stub) so unrelated tools see an unchanged environment.
+// The frontend builds API URLs from location.origin (fetchAvailableModels does), and node has no
+// location — without one those calls throw before the stub below ever sees them.
+if (typeof (globalThis as { location?: unknown }).location === 'undefined') {
+	Object.defineProperty(globalThis, 'location', {
+		value: new URL('http://benchmark.local/'),
+		configurable: true
+	})
+}
+
+const ORIGINAL_FETCH = globalThis.fetch
+globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
+	const url = typeof input === 'string' ? input : ((input as Request | URL | null)?.url ?? '')
+	if (typeof url === 'string' && hasBenchmarkApiHandler(url)) {
+		return handleBenchmarkApiFetch(url, init)
+	}
+	// A global-mode case runs against a real workspace: send its calls there, as its user.
+	const real = typeof url === 'string' ? realWorkspaceRoute(url) : undefined
+	if (real) {
+		const headers = new Headers(init?.headers)
+		headers.set('Authorization', `Bearer ${real.token}`)
+		return ORIGINAL_FETCH(real.url, { ...init, headers })
+	}
+	// The docs tools read the documentation bundled into the backend: hand them to the
+	// benchmark's real backend, logged in like the AI proxy calls.
+	if (typeof url === 'string' && url.startsWith('/api/docs/')) {
+		return new WindmillBackendClient(resolveWindmillBackendSettings()).request(url.slice('/api'.length), init)
+	}
+	// The parsers behind inferArgs load their wasm from a vite `?url` path, which only a dev
+	// server serves. Unserved, every script schema infers as empty, and the tools then tell the
+	// model its arguments are undeclared, so it rewrites a correct script until it runs out of turns.
+	const wasmPath = typeof url === 'string' ? wasmFilePath(url) : undefined
+	if (wasmPath) {
+		return new Response(await readFile(wasmPath), {
+			headers: { 'Content-Type': 'application/wasm' }
+		})
+	}
+	return ORIGINAL_FETCH(input as Parameters<typeof fetch>[0], init)
+}) as typeof fetch
+
+function wasmFilePath(url: string): string | undefined {
+	const raw = url.split(/[?#]/)[0]
+	if (!raw.endsWith('.wasm')) return undefined
+	const pathname = decodeURIComponent(raw)
+	// Located past whatever base path the config prefixes.
+	const fs = pathname.indexOf('/@fs/')
+	if (fs !== -1) return pathname.slice(fs + '/@fs'.length)
+	const modules = pathname.indexOf('/node_modules/')
+	if (modules !== -1) return resolve(FRONTEND_DIR, `.${pathname.slice(modules)}`)
+	return undefined
+}
 
 vi.mock('monaco-editor', () => ({
 	editor: {},
@@ -30,6 +93,37 @@ vi.mock('@codingame/monaco-vscode-languages-service-override', () => ({
 
 vi.mock('$lib/components/vscode', () => ({}))
 
+// get_db_schema reads a database's tables by running a query job; a benchmark database
+// answers with the tables its fixture seeds instead.
+vi.mock('$lib/components/apps/components/display/dbtable/metadata', async () => {
+	const actual = await vi.importActual<any>(
+		'$lib/components/apps/components/display/dbtable/metadata'
+	)
+	const { getBenchmarkDbSchemaSeed } = await import('./mockBackend')
+	const { stringifySchema } = await import('$lib/components/copilot/lib')
+	const { resourceTypeToLang } = await import(
+		'$lib/components/apps/components/display/dbtable/utils'
+	)
+	return {
+		...actual,
+		getDbSchemas: async (
+			resourceType: string,
+			resourcePath: string,
+			workspace: string | undefined,
+			...rest: unknown[]
+		) => {
+			const seed = workspace ? getBenchmarkDbSchemaSeed(workspace, resourcePath) : null
+			if (!seed) return actual.getDbSchemas(resourceType, resourcePath, workspace, ...rest)
+			const dbSchema = {
+				lang: resourceTypeToLang(seed.resourceType),
+				schema: seed.schema,
+				publicOnly: !!seed.schema.public
+			}
+			return { ...dbSchema, stringified: stringifySchema(dbSchema) }
+		}
+	}
+})
+
 vi.mock('$lib/gen', async () => {
 	const actual = await vi.importActual<any>('$lib/gen')
 	const {
@@ -38,12 +132,15 @@ vi.mock('$lib/gen', async () => {
 		getBenchmarkScriptByHash,
 		getBenchmarkScriptByPath,
 		hasBenchmarkWorkspace,
+		listBenchmarkResourceTypeNames,
+		queryBenchmarkResourceTypes,
 		listBenchmarkFlows,
 		listBenchmarkScripts,
 		createBenchmarkHttpTrigger,
 		createBenchmarkSchedule,
 		previewBenchmarkSchedule,
 		runBenchmarkFlowByPath,
+		runBenchmarkFlowPreview,
 		runBenchmarkScriptPreview
 	} = await import('./mockBackend')
 
@@ -65,29 +162,18 @@ vi.mock('$lib/gen', async () => {
 				hasBenchmarkWorkspace(data.workspace)
 					? (listBenchmarkScripts(data.workspace) ?? [])
 					: actual.ScriptService.listScripts(data),
-			existsScriptByPath: async (data: { workspace: string; path: string }) =>
-				hasBenchmarkWorkspace(data.workspace)
-					? Boolean(getBenchmarkScriptByPath(data.workspace, data.path))
-					: actual.ScriptService.existsScriptByPath(data),
 			getScriptByPath: async (data: { workspace: string; path: string }) => {
 				if (hasBenchmarkWorkspace(data.workspace)) {
 					const script = getBenchmarkScriptByPath(data.workspace, data.path)
 					if (!script) {
-						throw new Error(`Script "${data.path}" not found in benchmark workspace`)
+						throw Object.assign(
+							new Error(`Script "${data.path}" not found in benchmark workspace`),
+							{ status: 404 }
+						)
 					}
 					return script
 				}
 				return actual.ScriptService.getScriptByPath(data)
-			},
-			getScriptByPathWithDraft: async (data: { workspace: string; path: string }) => {
-				if (hasBenchmarkWorkspace(data.workspace)) {
-					const script = getBenchmarkScriptByPath(data.workspace, data.path)
-					if (!script) {
-						throw new Error(`Script "${data.path}" not found in benchmark workspace`)
-					}
-					return script
-				}
-				return actual.ScriptService.getScriptByPathWithDraft(data)
 			},
 			getScriptByHash: async (data: { workspace: string; hash: string }) => {
 				if (hasBenchmarkWorkspace(data.workspace)) {
@@ -105,39 +191,18 @@ vi.mock('$lib/gen', async () => {
 				hasBenchmarkWorkspace(data.workspace)
 					? (listBenchmarkFlows(data.workspace) ?? [])
 					: actual.FlowService.listFlows(data),
-			existsFlowByPath: async (data: { workspace: string; path: string }) =>
-				hasBenchmarkWorkspace(data.workspace)
-					? Boolean(getBenchmarkFlowByPath(data.workspace, data.path))
-					: actual.FlowService.existsFlowByPath(data),
 			getFlowByPath: async (data: { workspace: string; path: string }) => {
 				if (hasBenchmarkWorkspace(data.workspace)) {
 					const flow = getBenchmarkFlowByPath(data.workspace, data.path)
 					if (!flow) {
-						throw new Error(`Flow "${data.path}" not found in benchmark workspace`)
+						throw Object.assign(
+							new Error(`Flow "${data.path}" not found in benchmark workspace`),
+							{ status: 404 }
+						)
 					}
 					return flow
 				}
 				return actual.FlowService.getFlowByPath(data)
-			},
-			getFlowByPathWithDraft: async (data: { workspace: string; path: string }) => {
-				if (hasBenchmarkWorkspace(data.workspace)) {
-					const flow = getBenchmarkFlowByPath(data.workspace, data.path)
-					if (!flow) {
-						throw new Error(`Flow "${data.path}" not found in benchmark workspace`)
-					}
-					return flow
-				}
-				return actual.FlowService.getFlowByPathWithDraft(data)
-			},
-			getFlowLatestVersion: async (data: { workspace: string; path: string }) => {
-				if (hasBenchmarkWorkspace(data.workspace)) {
-					const flow = getBenchmarkFlowByPath(data.workspace, data.path)
-					if (!flow) {
-						throw new Error(`Flow "${data.path}" not found in benchmark workspace`)
-					}
-					return { id: 1 }
-				}
-				return actual.FlowService.getFlowLatestVersion(data)
 			}
 		}),
 		JobService: wrapService(actual.JobService, {
@@ -156,6 +221,13 @@ vi.mock('$lib/gen', async () => {
 							requestBody: data.requestBody ?? {}
 						})
 					: actual.JobService.runScriptPreview(data),
+			runFlowPreview: async (data: {
+				workspace: string
+				requestBody?: { path?: string; args?: unknown }
+			}) =>
+				hasBenchmarkWorkspace(data.workspace)
+					? runBenchmarkFlowPreview(data)
+					: actual.JobService.runFlowPreview(data as any),
 			runFlowByPath: async (data: {
 				workspace: string
 				path: string
@@ -170,7 +242,7 @@ vi.mock('$lib/gen', async () => {
 					: actual.JobService.runFlowByPath(data),
 			getJob: async (data: { workspace: string; id: string }) => {
 				if (hasBenchmarkWorkspace(data.workspace)) {
-					const job = getBenchmarkCompletedJob(data.workspace, data.id)
+					const job = getBenchmarkJob(data.workspace, data.id)
 					if (!job) {
 						throw new Error(`Job "${data.id}" not found in benchmark workspace`)
 					}
@@ -179,17 +251,25 @@ vi.mock('$lib/gen', async () => {
 				return actual.JobService.getJob(data)
 			}
 		}),
+		// A benchmark workspace holds no resources and no AI settings: answer as an empty
+		// workspace would, rather than send its temp-directory id to the real backend.
+		WorkspaceService: wrapService(actual.WorkspaceService, {
+			getWorkspaceSettingsDocument: async (data: { workspace: string }) =>
+				hasBenchmarkWorkspace(data.workspace)
+					? getBenchmarkWorkspaceSettingsDocument(data.workspace)
+					: actual.WorkspaceService.getWorkspaceSettingsDocument(data),
+			applyWorkspaceSettingsDocument: async (data: any) =>
+				hasBenchmarkWorkspace(data.workspace)
+					? applyBenchmarkWorkspaceSettingsDocument(data)
+					: actual.WorkspaceService.applyWorkspaceSettingsDocument(data),
+			getCopilotInfo: async (data: { workspace: string }) =>
+				hasBenchmarkWorkspace(data.workspace) ? {} : actual.WorkspaceService.getCopilotInfo(data)
+		}),
+		WorkerService: wrapService(actual.WorkerService, {
+			listWorkers: async (data: Record<string, unknown>) =>
+				listBenchmarkWorkers() ?? actual.WorkerService.listWorkers(data)
+		}),
 		ScheduleService: wrapService(actual.ScheduleService, {
-			existsSchedule: async (data: { workspace: string; path: string }) =>
-				hasBenchmarkWorkspace(data.workspace) ? false : actual.ScheduleService.existsSchedule(data),
-			listSchedules: async (data: { workspace: string }) =>
-				hasBenchmarkWorkspace(data.workspace) ? [] : actual.ScheduleService.listSchedules(data),
-			getSchedule: async (data: { workspace: string; path: string }) => {
-				if (hasBenchmarkWorkspace(data.workspace)) {
-					throw new Error(`Schedule "${data.path}" not found in benchmark workspace`)
-				}
-				return actual.ScheduleService.getSchedule(data)
-			},
 			previewSchedule: async (data: { requestBody?: Record<string, unknown> }) =>
 				previewBenchmarkSchedule(data),
 			createSchedule: async (data: { workspace: string; requestBody: Record<string, unknown> }) =>
@@ -198,8 +278,6 @@ vi.mock('$lib/gen', async () => {
 					: actual.ScheduleService.createSchedule(data)
 		}),
 		ResourceService: wrapService(actual.ResourceService, {
-			existsResource: async (data: { workspace: string; path: string }) =>
-				hasBenchmarkWorkspace(data.workspace) ? false : actual.ResourceService.existsResource(data),
 			listResource: async (data: { workspace: string }) =>
 				hasBenchmarkWorkspace(data.workspace) ? [] : actual.ResourceService.listResource(data),
 			getResource: async (data: { workspace: string; path: string }) => {
@@ -208,156 +286,19 @@ vi.mock('$lib/gen', async () => {
 				}
 				return actual.ResourceService.getResource(data)
 			},
-			queryResourceTypes: async (data: { workspace: string }) =>
-				hasBenchmarkWorkspace(data.workspace) ? [] : actual.ResourceService.queryResourceTypes(data)
-		}),
-		VariableService: wrapService(actual.VariableService, {
-			existsVariable: async (data: { workspace: string; path: string }) =>
-				hasBenchmarkWorkspace(data.workspace) ? false : actual.VariableService.existsVariable(data),
-			listVariable: async (data: { workspace: string }) =>
-				hasBenchmarkWorkspace(data.workspace) ? [] : actual.VariableService.listVariable(data),
-			getVariable: async (data: { workspace: string; path: string }) => {
-				if (hasBenchmarkWorkspace(data.workspace)) {
-					throw new Error(`Variable "${data.path}" not found in benchmark workspace`)
-				}
-				return actual.VariableService.getVariable(data)
-			}
-		}),
-		AppService: wrapService(actual.AppService, {
-			existsApp: async (data: { workspace: string; path: string }) =>
-				hasBenchmarkWorkspace(data.workspace) ? false : actual.AppService.existsApp(data),
-			listApps: async (data: { workspace: string }) =>
-				hasBenchmarkWorkspace(data.workspace) ? [] : actual.AppService.listApps(data),
-			getAppByPath: async (data: { workspace: string; path: string }) => {
-				if (hasBenchmarkWorkspace(data.workspace)) {
-					throw new Error(`App "${data.path}" not found in benchmark workspace`)
-				}
-				return actual.AppService.getAppByPath(data)
-			}
+			queryResourceTypes: async (data: { workspace: string; text: string; limit?: number }) =>
+				hasBenchmarkWorkspace(data.workspace)
+					? queryBenchmarkResourceTypes(data.text, data.limit)
+					: actual.ResourceService.queryResourceTypes(data),
+			listResourceTypeNames: async (data: { workspace: string }) =>
+				listBenchmarkResourceTypeNames(data.workspace) ??
+				actual.ResourceService.listResourceTypeNames(data)
 		}),
 		HttpTriggerService: wrapService(actual.HttpTriggerService, {
-			existsHttpTrigger: async (data: { workspace: string; path: string }) =>
-				hasBenchmarkWorkspace(data.workspace) ? false : actual.HttpTriggerService.existsHttpTrigger(data),
-			listHttpTriggers: async (data: { workspace: string }) =>
-				hasBenchmarkWorkspace(data.workspace) ? [] : actual.HttpTriggerService.listHttpTriggers(data),
-			getHttpTrigger: async (data: { workspace: string; path: string }) => {
-				if (hasBenchmarkWorkspace(data.workspace)) {
-					throw new Error(`HTTP trigger "${data.path}" not found in benchmark workspace`)
-				}
-				return actual.HttpTriggerService.getHttpTrigger(data)
-			},
 			createHttpTrigger: async (data: { workspace: string; requestBody: Record<string, unknown> }) =>
 				hasBenchmarkWorkspace(data.workspace)
 					? createBenchmarkHttpTrigger(data)
 					: actual.HttpTriggerService.createHttpTrigger(data)
-		}),
-		WebsocketTriggerService: wrapService(actual.WebsocketTriggerService, {
-			existsWebsocketTrigger: async (data: { workspace: string; path: string }) =>
-				hasBenchmarkWorkspace(data.workspace)
-					? false
-					: actual.WebsocketTriggerService.existsWebsocketTrigger(data),
-			listWebsocketTriggers: async (data: { workspace: string }) =>
-				hasBenchmarkWorkspace(data.workspace)
-					? []
-					: actual.WebsocketTriggerService.listWebsocketTriggers(data),
-			getWebsocketTrigger: async (data: { workspace: string; path: string }) => {
-				if (hasBenchmarkWorkspace(data.workspace)) {
-					throw new Error(`Websocket trigger "${data.path}" not found in benchmark workspace`)
-				}
-				return actual.WebsocketTriggerService.getWebsocketTrigger(data)
-			}
-		}),
-		KafkaTriggerService: wrapService(actual.KafkaTriggerService, {
-			existsKafkaTrigger: async (data: { workspace: string; path: string }) =>
-				hasBenchmarkWorkspace(data.workspace)
-					? false
-					: actual.KafkaTriggerService.existsKafkaTrigger(data),
-			listKafkaTriggers: async (data: { workspace: string }) =>
-				hasBenchmarkWorkspace(data.workspace) ? [] : actual.KafkaTriggerService.listKafkaTriggers(data),
-			getKafkaTrigger: async (data: { workspace: string; path: string }) => {
-				if (hasBenchmarkWorkspace(data.workspace)) {
-					throw new Error(`Kafka trigger "${data.path}" not found in benchmark workspace`)
-				}
-				return actual.KafkaTriggerService.getKafkaTrigger(data)
-			}
-		}),
-		NatsTriggerService: wrapService(actual.NatsTriggerService, {
-			existsNatsTrigger: async (data: { workspace: string; path: string }) =>
-				hasBenchmarkWorkspace(data.workspace) ? false : actual.NatsTriggerService.existsNatsTrigger(data),
-			listNatsTriggers: async (data: { workspace: string }) =>
-				hasBenchmarkWorkspace(data.workspace) ? [] : actual.NatsTriggerService.listNatsTriggers(data),
-			getNatsTrigger: async (data: { workspace: string; path: string }) => {
-				if (hasBenchmarkWorkspace(data.workspace)) {
-					throw new Error(`NATS trigger "${data.path}" not found in benchmark workspace`)
-				}
-				return actual.NatsTriggerService.getNatsTrigger(data)
-			}
-		}),
-		PostgresTriggerService: wrapService(actual.PostgresTriggerService, {
-			existsPostgresTrigger: async (data: { workspace: string; path: string }) =>
-				hasBenchmarkWorkspace(data.workspace)
-					? false
-					: actual.PostgresTriggerService.existsPostgresTrigger(data),
-			listPostgresTriggers: async (data: { workspace: string }) =>
-				hasBenchmarkWorkspace(data.workspace)
-					? []
-					: actual.PostgresTriggerService.listPostgresTriggers(data),
-			getPostgresTrigger: async (data: { workspace: string; path: string }) => {
-				if (hasBenchmarkWorkspace(data.workspace)) {
-					throw new Error(`Postgres trigger "${data.path}" not found in benchmark workspace`)
-				}
-				return actual.PostgresTriggerService.getPostgresTrigger(data)
-			}
-		}),
-		MqttTriggerService: wrapService(actual.MqttTriggerService, {
-			existsMqttTrigger: async (data: { workspace: string; path: string }) =>
-				hasBenchmarkWorkspace(data.workspace) ? false : actual.MqttTriggerService.existsMqttTrigger(data),
-			listMqttTriggers: async (data: { workspace: string }) =>
-				hasBenchmarkWorkspace(data.workspace) ? [] : actual.MqttTriggerService.listMqttTriggers(data),
-			getMqttTrigger: async (data: { workspace: string; path: string }) => {
-				if (hasBenchmarkWorkspace(data.workspace)) {
-					throw new Error(`MQTT trigger "${data.path}" not found in benchmark workspace`)
-				}
-				return actual.MqttTriggerService.getMqttTrigger(data)
-			}
-		}),
-		SqsTriggerService: wrapService(actual.SqsTriggerService, {
-			existsSqsTrigger: async (data: { workspace: string; path: string }) =>
-				hasBenchmarkWorkspace(data.workspace) ? false : actual.SqsTriggerService.existsSqsTrigger(data),
-			listSqsTriggers: async (data: { workspace: string }) =>
-				hasBenchmarkWorkspace(data.workspace) ? [] : actual.SqsTriggerService.listSqsTriggers(data),
-			getSqsTrigger: async (data: { workspace: string; path: string }) => {
-				if (hasBenchmarkWorkspace(data.workspace)) {
-					throw new Error(`SQS trigger "${data.path}" not found in benchmark workspace`)
-				}
-				return actual.SqsTriggerService.getSqsTrigger(data)
-			}
-		}),
-		GcpTriggerService: wrapService(actual.GcpTriggerService, {
-			existsGcpTrigger: async (data: { workspace: string; path: string }) =>
-				hasBenchmarkWorkspace(data.workspace) ? false : actual.GcpTriggerService.existsGcpTrigger(data),
-			listGcpTriggers: async (data: { workspace: string }) =>
-				hasBenchmarkWorkspace(data.workspace) ? [] : actual.GcpTriggerService.listGcpTriggers(data),
-			getGcpTrigger: async (data: { workspace: string; path: string }) => {
-				if (hasBenchmarkWorkspace(data.workspace)) {
-					throw new Error(`GCP trigger "${data.path}" not found in benchmark workspace`)
-				}
-				return actual.GcpTriggerService.getGcpTrigger(data)
-			}
-		}),
-		AzureTriggerService: wrapService(actual.AzureTriggerService, {
-			existsAzureTrigger: async (data: { workspace: string; path: string }) =>
-				hasBenchmarkWorkspace(data.workspace)
-					? false
-					: actual.AzureTriggerService.existsAzureTrigger(data),
-			listAzureTriggers: async (data: { workspace: string }) =>
-				hasBenchmarkWorkspace(data.workspace) ? [] : actual.AzureTriggerService.listAzureTriggers(data),
-			getAzureTrigger: async (data: { workspace: string; path: string }) => {
-				if (hasBenchmarkWorkspace(data.workspace)) {
-					throw new Error(`Azure trigger "${data.path}" not found in benchmark workspace`)
-				}
-				return actual.AzureTriggerService.getAzureTrigger(data)
-			}
 		})
 	}
 })
@@ -370,6 +311,13 @@ benchmarkIt(
 	async () => {
 		const { resetBenchmarkMockBackend } = await import('./mockBackend')
 		resetBenchmarkMockBackend()
+		// The tools swallow inference failures, so a wasm the fetch stub stops serving would
+		// only show up as empty schemas the model chases, never as an error.
+		const { inferArgs } = await import('$lib/infer')
+		const { emptySchema } = await import('$lib/utils')
+		const probe = emptySchema()
+		await inferArgs('bun', 'export async function main(name: string) {}', probe)
+		expect(Object.keys(probe.properties)).toEqual(['name'])
 		const { runFrontendBenchmarkFromEnv } = await import('./benchmarkRunner')
 		try {
 			const payload = await runFrontendBenchmarkFromEnv()
@@ -382,5 +330,7 @@ benchmarkIt(
 			resetBenchmarkMockBackend()
 		}
 	},
-	600_000
+	// A full suite on a slow reasoning model runs for hours (gpt-6-astra on global went past
+	// 2h); the CI job's own timeout is the real bound.
+	18_000_000
 )

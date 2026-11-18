@@ -1,5 +1,6 @@
 <script lang="ts">
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
+	import { overlayPortalTarget } from '$lib/components/common/overlayHost.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { getContext, onMount } from 'svelte'
 	import type { PropPickerContext } from '$lib/components/prop_picker'
@@ -39,6 +40,9 @@
 		loopStatus,
 		onEditInput
 	}: Props = $props()
+
+	// Sized and positioned against the graph pane, so that stays the fallback.
+	const portalTarget = overlayPortalTarget('#flow-graph-v2')
 
 	const context = getContext<PropPickerContext>('PropPickerContext')
 	const flowPropPickerConfig = context?.flowPropPickerConfig
@@ -159,7 +163,7 @@
 					class="flex-1 h-full"
 					bind:isOpen={inputOpen}
 					bind:this={inputPopover}
-					portal="#flow-graph-v2"
+					portal={portalTarget()}
 				>
 					{#snippet trigger({ isOpen })}
 						<Button
@@ -193,7 +197,7 @@
 					flip: false
 				}}
 				usePointerDownOutside
-				excludeSelectors={`[data-run-button="${id}"]`}
+				excludeSelectors={`[data-run-button="${id}"], [data-menu]`}
 				closeOnOutsideClick={false}
 				on:click={(e) => {
 					e.preventDefault()
@@ -207,7 +211,7 @@
 				closeOnOtherPopoverOpen
 				class="flex-1 h-full"
 				bind:isOpen={outputOpen}
-				portal="#flow-graph-v2"
+				portal={portalTarget()}
 			>
 				{#snippet trigger({ isOpen })}
 					<AnimatedButton

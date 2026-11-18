@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO workspace_settings (workspace_id) VALUES ('other-workspace')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "f6f59f768dc0e34f4cad118b5252a554bf51c4581dae48c0f93f859672997544"
+}

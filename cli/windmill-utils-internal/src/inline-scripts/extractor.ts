@@ -1,4 +1,4 @@
-import { newPathAssigner, PathAssigner } from "../path-utils/path-assigner";
+import { LANGUAGE_EXTENSIONS, newPathAssigner, PathAssigner } from "../path-utils/path-assigner";
 import { FlowModule, RawScript, ScriptLang } from "../gen/types.gen";
 
 /**
@@ -48,15 +48,46 @@ function extractRawscriptInline(
   if (lock && lock != "") {
     // Derive lock path base from the mapped content path when available,
     // so lock files are named consistently with their content files.
-    const dotIdx = mappedPath ? mappedPath.lastIndexOf('.') : -1;
     const lockBasePath = mappedPath
-      ? (dotIdx > 0 ? mappedPath.substring(0, dotIdx + 1) : mappedPath + '.')
+      ? lockBasePathForContent(mappedPath, language)
       : basePath;
     const lockPath = lockBasePath + "lock";
     rawscript.lock = "!inline " + lockPath.replaceAll(separator, "/");
     r.push({ path: lockPath, content: lock, language, is_lock: true});
   }
   return r;
+}
+
+/**
+ * Derive the lock path base (including trailing dot) from an inline script's
+ * content path. The full language extension must be stripped — for compound
+ * extensions like "deno.ts", stripping only the last dot segment would yield
+ * "x.inline_script.deno.lock" while the assigner-based branch (no mapping,
+ * e.g. fresh sync pull) yields "x.inline_script.lock", flip-flopping the lock
+ * filename between operations. See legacyLockPathForContent for the old name.
+ */
+function lockBasePathForContent(contentPath: string, language: ScriptLang): string {
+  const langExt = LANGUAGE_EXTENSIONS[language];
+  if (langExt && contentPath.endsWith("." + langExt)) {
+    return contentPath.substring(0, contentPath.length - langExt.length);
+  }
+  // Collapsed "ts" (language == defaultTs) or a custom extension: a single
+  // dot segment is the whole extension.
+  const dotIdx = contentPath.lastIndexOf(".");
+  return dotIdx > 0 ? contentPath.substring(0, dotIdx + 1) : contentPath + ".";
+}
+
+/**
+ * Lock path that CLI versions between #8561 and this fix produced for a given
+ * content path (last dot segment stripped, e.g. "x.inline_script.deno.lock").
+ * Returns undefined when it matches the canonical name. Callers use this to
+ * clean up the stale legacy file after writing the canonical one.
+ */
+export function legacyLockPathForContent(contentPath: string, language: ScriptLang): string | undefined {
+  const dotIdx = contentPath.lastIndexOf(".");
+  const legacy = (dotIdx > 0 ? contentPath.substring(0, dotIdx + 1) : contentPath + ".") + "lock";
+  const canonical = lockBasePathForContent(contentPath, language) + "lock";
+  return legacy === canonical ? undefined : legacy;
 }
 
 /**

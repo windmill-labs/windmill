@@ -15,6 +15,7 @@ use windmill_api_auth::require_owner_of_path;
 use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
 use windmill_common::scripts::ScriptHash;
+use windmill_common::workspaces::{check_operator_can_manage, ManageKind};
 use windmill_common::DB;
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
 
@@ -44,15 +45,23 @@ fn audit_action_prefix_for_acl_kind(kind: &str) -> Option<&'static str> {
         "raw_app" => Some("raw_apps"),
         "resource" => Some("resources"),
         "variable" => Some("variables"),
-        "schedule" => Some("schedules"),
+        _ => manage_kind_for_acl_kind(kind).map(|k| k.audit_prefix()),
+    }
+}
+
+/// The kinds whose writes a workspace can withdraw from operators. `/acls` serves every kind, so it
+/// cannot sit under the routers that layer the gate — see `docs/operator-write-rights.md`.
+fn manage_kind_for_acl_kind(kind: &str) -> Option<ManageKind> {
+    match kind {
+        "schedule" => Some(ManageKind::Schedules),
         "http_trigger" | "websocket_trigger" | "kafka_trigger" | "nats_trigger"
-        | "postgres_trigger" | "mqtt_trigger" | "gcp_trigger" | "azure_trigger" | "sqs_trigger"
-        | "email_trigger" => Some("triggers"),
+        | "postgres_trigger" | "mqtt_trigger" | "amqp_trigger" | "gcp_trigger"
+        | "azure_trigger" | "sqs_trigger" | "email_trigger" => Some(ManageKind::Triggers),
         _ => None,
     }
 }
 
-const KINDS: [&str; 20] = [
+const KINDS: [&str; 21] = [
     "script",
     "group_",
     "resource",
@@ -68,6 +77,7 @@ const KINDS: [&str; 20] = [
     "nats_trigger",
     "postgres_trigger",
     "mqtt_trigger",
+    "amqp_trigger",
     "gcp_trigger",
     "azure_trigger",
     "sqs_trigger",
@@ -95,6 +105,7 @@ async fn add_granular_acl(
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(GranularAcl { owner, write }): Json<GranularAcl>,
 ) -> Result<String> {
+    crate::check_demo_workspace_restriction(&authed, &w_id, "Sharing")?;
     let path = path.to_path();
 
     let (kind, path) = path
@@ -105,7 +116,9 @@ async fn add_granular_acl(
         return Err(Error::BadRequest("Invalid kind".to_string()));
     }
 
-    let mut tx = user_db.begin(&authed).await?;
+    if let Some(manage_kind) = manage_kind_for_acl_kind(kind) {
+        check_operator_can_manage(&db, &w_id, &authed, manage_kind).await?;
+    }
 
     let identifier = if kind == "group_" || kind == "folder" || kind == "volume" {
         "name"
@@ -139,6 +152,8 @@ async fn add_granular_acl(
             require_owner_of_path(&authed, path)?;
         }
     }
+
+    let mut tx = user_db.begin(&authed).await?;
 
     if kind == "folder" {
         if let Some(obj) = sqlx::query_scalar!(
@@ -181,9 +196,9 @@ async fn add_granular_acl(
 
     if kind == "folder" {
         let change_type = if write.unwrap_or(false) {
-            "grant_read"
-        } else {
             "grant_write"
+        } else {
+            "grant_read"
         };
         crate::folders::log_folder_permission_change(
             &mut *tx,
@@ -316,6 +331,19 @@ async fn add_granular_acl(
             )
             .await?
         }
+        "variable" => {
+            handle_deployment_metadata(
+                &authed.email,
+                &authed.username,
+                &db,
+                &w_id,
+                DeployedObject::Variable { path: path.to_string(), parent_path: None },
+                Some(format!("Variable '{}' changed permissions", path)),
+                true,
+                None,
+            )
+            .await?
+        }
         _ => (),
     }
 
@@ -337,6 +365,10 @@ async fn remove_granular_acl(
 
     if !KINDS.contains(&kind) {
         return Err(Error::BadRequest("Invalid kind".to_string()));
+    }
+
+    if let Some(manage_kind) = manage_kind_for_acl_kind(kind) {
+        check_operator_can_manage(&db, &w_id, &authed, manage_kind).await?;
     }
 
     if !authed.is_admin {
@@ -383,6 +415,8 @@ async fn remove_granular_acl(
     // workspace export.
     let table = if kind == "raw_app" { "app" } else { kind };
     // SAFETY: `kind` has been validated against the `KINDS` allowlist before reaching this function.
+    // LIMIT 1: `script` shares (workspace_id, path) across versions, so `old` can
+    // return >1 row, which would break the scalar subquery in RETURNING.
     let obj_o = sqlx::query_scalar::<_, bool>(&format!(
         "WITH old AS (
             SELECT extra_perms->$1 as old_write FROM {table}
@@ -390,7 +424,7 @@ async fn remove_granular_acl(
         )
         UPDATE {table} SET extra_perms = extra_perms - $1
         WHERE {identifier} = $2 AND workspace_id = $3 AND extra_perms ? $1
-        RETURNING (SELECT old_write FROM old)::bool"
+        RETURNING (SELECT old_write FROM old LIMIT 1)::bool"
     ))
     .bind(&owner)
     .bind(path)
@@ -519,6 +553,19 @@ async fn remove_granular_acl(
                     &w_id,
                     DeployedObject::Flow { path: path.to_string(), parent_path: None, version: 0 },
                     Some(format!("Flow '{}' changed permissions", path)),
+                    true,
+                    None,
+                )
+                .await?
+            }
+            "variable" => {
+                handle_deployment_metadata(
+                    &authed.email,
+                    &authed.username,
+                    &db,
+                    &w_id,
+                    DeployedObject::Variable { path: path.to_string(), parent_path: None },
+                    Some(format!("Variable '{}' changed permissions", path)),
                     true,
                     None,
                 )

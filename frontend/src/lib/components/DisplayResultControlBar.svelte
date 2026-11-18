@@ -4,6 +4,7 @@
 	import Popover from './Popover.svelte'
 	import { copyToClipboard } from '$lib/utils'
 	import { downloadViaClient, shouldDownloadViaClient } from '$lib/utils/downloadFile'
+	import { appendViewToken } from '$lib/viewToken'
 	import type { DisplayResultUi } from './custom_ui'
 	import { createEventDispatcher } from 'svelte'
 
@@ -13,7 +14,6 @@
 		workspaceId?: string | undefined
 		jobId?: string | undefined
 		nodeId?: string | undefined
-		base: string
 		result: any
 		disableTooltips?: boolean
 	}
@@ -24,7 +24,6 @@
 		workspaceId = undefined,
 		jobId = undefined,
 		nodeId = undefined,
-		base,
 		result,
 		disableTooltips = false
 	}: Props = $props()
@@ -41,9 +40,11 @@
 
 	let resultApiPath = $derived(
 		workspaceId && jobId
-			? nodeId
-				? `/w/${workspaceId}/jobs/result_by_id/${jobId}/${nodeId}`
-				: `/w/${workspaceId}/jobs_u/completed/get_result/${jobId}`
+			? appendViewToken(
+					nodeId
+						? `/w/${workspaceId}/jobs/result_by_id/${jobId}/${nodeId}`
+						: `/w/${workspaceId}/jobs_u/completed/get_result/${jobId}`
+				)
 			: undefined
 	)
 	let downloadName = $derived(`${filename ?? 'result'}.json`)
@@ -64,7 +65,7 @@
 				download={downloadName}
 				class="text-current"
 				href={resultApiPath
-					? `${base}/api${resultApiPath}`
+					? `/api${resultApiPath}`
 					: `data:text/json;charset=utf-8,${encodeURIComponent(toJsonStr(result))}`}
 			>
 				<Download size={14} />

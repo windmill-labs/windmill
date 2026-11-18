@@ -12,6 +12,11 @@ use windmill_queue::PushIsolationLevel;
 
 use crate::scoped_dependency_map::{DependencyDependent, ScopedDependencyMap};
 
+/// A `components_to_relock` entry asking an app relock to relock every component of the version
+/// it runs on. It travels in the list itself so that debouncing, which concatenates the lists of
+/// the relocks it merges, cannot drop it.
+pub const RELOCK_ALL_APP_COMPONENTS: &str = "*";
+
 lazy_static::lazy_static! {
     static ref DEPENDENCY_JOB_DEBOUNCE_DELAY: usize = std::env::var("DEPENDENCY_JOB_DEBOUNCE_DELAY").ok().and_then(|flag| flag.parse().ok()).unwrap_or(
         if cfg!(test) { 15 } else { 5 }
@@ -28,6 +33,7 @@ pub async fn trigger_dependents_to_recompute_dependencies(
     permissioned_as: &str,
     db: &sqlx::Pool<sqlx::Postgres>,
     already_visited: Vec<String>,
+    skip_ci_tests: bool,
 ) -> error::Result<()> {
     tracing::debug!(
         "Triggering dependents to recompute dependencies: {}",
@@ -59,6 +65,9 @@ pub async fn trigger_dependents_to_recompute_dependencies(
             "triggered_by_relative_import".to_string(),
             to_raw_value(&true),
         );
+        if skip_ci_tests {
+            args.insert("skip_ci_tests".to_string(), to_raw_value(&true));
+        }
 
         let mut debouncing_settings = DebouncingSettings {
             debounce_key: Some(format!("{w_id}:{importer_path}:{importer_kind}:dependency")),
@@ -66,20 +75,30 @@ pub async fn trigger_dependents_to_recompute_dependencies(
             ..Default::default()
         };
 
+        let mut tag = None;
         let job_payload = match importer_kind.as_str() {
-            "script" => match sqlx::query_scalar!(
-                "SELECT hash FROM script WHERE path = $1 AND workspace_id = $2 AND deleted = false AND archived = false ORDER BY created_at DESC LIMIT 1",
+            "script" => match sqlx::query!(
+                "SELECT hash, codebase IS NOT NULL AS \"is_codebase!\" FROM script WHERE path = $1 AND workspace_id = $2 AND deleted = false AND archived = false ORDER BY created_at DESC LIMIT 1",
                 importer_path,
                 w_id
             )
             .fetch_optional(&mut *tx)
             .await?
             {
-                Some(hash) => {
+                Some(row) if row.is_codebase => {
+                    // A codebase bundle carries its imports and only the CLI can rebuild it, so
+                    // a relock would deploy a version with no bundle and every run would fail.
+                    // Its importer rows are left alone: deleting them here, unserialized with
+                    // deploys, can drop the rows of a plain version deployed meanwhile.
+                    continue;
+                }
+                Some(row) => {
+                    let hash = row.hash;
                     tracing::debug!("newest hash for {} is: {hash}", importer_path);
 
                     let info =
                         windmill_common::get_script_info_for_hash(None, db, w_id, hash).await?;
+                    tag = windmill_common::scripts::dependency_job_tag(info.tag, &info.language);
 
                     JobPayload::Dependencies {
                         path: importer_path.clone(),
@@ -139,12 +158,13 @@ pub async fn trigger_dependents_to_recompute_dependencies(
             },
 
             "app" => match sqlx::query_scalar!(
-                "SELECT id FROM app_version WHERE app_id = (SELECT id FROM app WHERE path = $1 AND workspace_id = $2) ORDER BY created_at DESC LIMIT 1",
+                "SELECT versions[array_upper(versions, 1)] FROM app WHERE path = $1 AND workspace_id = $2",
                 importer_path,
                 w_id
             )
             .fetch_optional(&mut *tx)
             .await?
+            .flatten()
             {
                 Some(version) => {
                     tracing::debug!("Handling app dependency update for: {}", importer_path);
@@ -188,6 +208,7 @@ pub async fn trigger_dependents_to_recompute_dependencies(
             email,
             permissioned_as.to_string(),
             Some("trigger.dependents.to.recompute.dependencies"),
+            None,
             Some(Utc::now() + Duration::seconds(*DEPENDENCY_JOB_DEBOUNCE_DELAY as i64)),
             None,
             None,
@@ -198,12 +219,13 @@ pub async fn trigger_dependents_to_recompute_dependencies(
             false,
             None,
             true,
-            Some("dependency".into()),
+            tag,
             None,
             None,
             None,
             None,
             false,
+            None,
             None,
             None,
             None,

@@ -251,7 +251,7 @@ export function createFlowDiffManager({ testMode = false } = {}) {
 				if (!parentInBefore) {
 					// Parent is missing in beforeFlow. It must be pending acceptance.
 					// Accept as skeleton to avoid auto-accepting all siblings.
-					acceptModule(parentLoc.parentId, flowStore, true)
+					acceptModule(parentLoc.parentId, undefined, true)
 				}
 			}
 

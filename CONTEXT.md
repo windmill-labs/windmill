@@ -1,0 +1,100 @@
+# Windmill
+
+Open-source platform for internal tools, workflows, API integrations, background jobs and UIs. This file pins the vocabulary that is specific to Windmill's domain, so that code, docs and reviews name the same thing the same way.
+
+## Language
+
+### Flows
+
+**Step**:
+One node of a flow — the unit a user selects in the graph and configures in the right-hand panel. Typed as `FlowModule` in code.
+_Avoid_: module (ambiguous with the architectural sense), node, action
+
+**Step setting**:
+A per-step runtime option stored on the step itself: retries, error handling, timeout, concurrency limit, priority, cache, debounce, early stop, skip, suspend, sleep, lifetime. Distinct from the step's inputs and its code. The panel that edits them is the **run settings** tab; a single setting is still a step setting.
+_Avoid_: advanced setting, step config, flow option
+
+**Configured**:
+Said of a step setting whose config object is present on the step. Deliberately not the same as "would change the runtime's behaviour" — a setting can be configured and still be a no-op (`sleep` of `0`). Every surface that answers "is this setting on?" answers it this way.
+_Avoid_: enabled, active, effective
+
+**Trigger step**:
+The first step of a polling flow. It runs on a schedule and returns the items found since its last run; an empty return means there is nothing to process and the flow stops early, marked skipped rather than failed.
+_Avoid_: poll script, trigger node, schedule step
+
+**Default predicate**:
+The `stop_after_if` expression seeded onto a trigger step at creation, encoding what "nothing new" looks like. One value, owned in one place, shared by every path that creates a trigger step.
+
+**Connect**:
+Arming an input so that the next property picked fills it. A property can be picked from the prop picker or, when the panel is docked beside the graph, by clicking a step node's output. At most one input is armed per panel, so a pick always has exactly one destination.
+_Avoid_: link, bind, plug (the icon is a plug; the action is connecting)
+
+**Step input**:
+One argument of a step, edited in the step's input form. Its prop picker is a pane beside the form, always visible, so previous results can be browsed without connecting.
+_Avoid_: argument field, param
+
+**Expression input**:
+Any other place a property can be picked into: the loop iterator, skip and early-stop predicates, the retry condition, a branch predicate, timeout. Its prop picker opens in a popover from the connect button rather than taking a pane.
+_Avoid_: JS field, code input
+
+### Flow chat
+
+**Agent**:
+A saved AI agent: an `ai_agent` resource holding a model, prompt and tools. Flow steps link to
+it, and it also runs on its own (its page, the API, Slack, apps) as a one-step flow, so it has
+conversations of its own. See `docs/reusable-ai-agents.md`.
+_Avoid_: bot, assistant
+
+**Conversation**:
+One thread of messages against one chat-enabled flow or one agent, with its own agent memory.
+Each has many; the chat shows one at a time.
+_Avoid_: thread, session (that names an AI session, a different thing), chat (that names the surface)
+
+**Turn**:
+One question and the answer to it: the run the question started, the handle that stops it,
+and the rows it is writing. At most one per conversation, and the chat is held for its whole
+length — from the moment the question takes the chat, before it has a job, until it is ended.
+The server holds the same rule: a question sent to a conversation whose turn is still running
+is refused, whoever sends it. Several conversations of one flow can each have a turn running.
+_Avoid_: request, exchange, message round
+
+**Running turn**:
+A turn whose run has not finished. Which conversations have one is the server's to say, so a
+chat opened after the turn started — a reload, another tab — still sees it and follows it.
+_Avoid_: busy, active, in flight
+
+**Queued message**:
+A question typed into a conversation while its turn runs, sent when that turn ends answered.
+At most one per conversation; typing another adds to it. A turn that fails, or is stopped,
+hands it back to the composer instead of sending it.
+_Avoid_: pending message (a pending message is one already sent and not yet confirmed)
+
+**Unread**:
+The answers that arrived in a conversation while it was not the one shown. Counted per open
+chat and forgotten on reload.
+_Avoid_: new messages, notifications
+
+**Transcript**:
+The rows a conversation's chat holds. Not the conversation: it is the newest page plus
+whatever older pages the reader has scrolled back through, so a question it cannot answer
+from what it holds is one to ask the server rather than to guess at.
+_Avoid_: history, messages (too easily read as "all of them")
+
+### Permissions
+
+**Member**:
+A user or group granted a role on a folder, a group, or an item's extra ACL. The list of them is
+"Members (n)" everywhere it is shown, and one is added with "Add member".
+_Avoid_: participant, collaborator, owner, ACL entry, permission (that names the concept, not the people)
+
+**Role**:
+The access level a member holds: viewer, writer or admin on a folder; member or admin on a group.
+Viewers read, writers also edit, admins also manage the members. A group role of **manager** —
+manages the group without belonging to it — is a legacy state the UI shows and can leave, but
+offers no way to enter.
+_Avoid_: permission level, access level, rank
+
+**Owner**:
+Reserved for the path prefix that says where an item lives — `u/alice` or `f/team`. A folder's
+`owners` column in the database is its admin members; call those admins, never owners, in the UI.
+_Avoid_: using "owner" for a folder admin

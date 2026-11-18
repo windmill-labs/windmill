@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT scanned_at FROM workspace_diff_full_scan\n            WHERE source_workspace_id = $1 AND fork_workspace_id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "scanned_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "d27405e2a5dcdcc4eb6d2d9c32e4438fdd1aa44a365d201bb1bb9a19edfac6b1"
+}

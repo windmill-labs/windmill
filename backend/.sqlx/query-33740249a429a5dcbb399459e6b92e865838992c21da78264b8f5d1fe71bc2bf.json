@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM resource_version rv\n         WHERE rv.workspace_id = $1 AND rv.path = $2\n           AND rv.id != (\n               SELECT max(id) FROM resource_version l\n               WHERE l.workspace_id = rv.workspace_id AND l.path = rv.path\n           )",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "33740249a429a5dcbb399459e6b92e865838992c21da78264b8f5d1fe71bc2bf"
+}

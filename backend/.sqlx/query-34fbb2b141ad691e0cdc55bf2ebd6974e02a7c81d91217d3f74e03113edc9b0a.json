@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM eval_case\n         WHERE workspace_id = $1 AND dataset_path = $2 AND NOT (id = ANY($3))",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "UuidArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "34fbb2b141ad691e0cdc55bf2ebd6974e02a7c81d91217d3f74e03113edc9b0a"
+}

@@ -5,7 +5,10 @@
  * Please see the included NOTICE for copyright information and
  * LICENSE-AGPL for a copy of the license.
  */
-use crate::{db::ApiAuthed, utils::check_scopes};
+use crate::{
+    db::ApiAuthed,
+    utils::{build_scope_path_filter, check_scopes, ScopePathFilter},
+};
 use axum::{
     body::Body,
     extract::{Extension, Json, Path, Query},
@@ -41,6 +44,10 @@ pub struct ListableApp {
     pub version: i32,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub labels: Option<Vec<String>>,
+    /// Labels inherited from the parent folder, computed at read time.
+    #[sqlx(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub inherited_labels: Option<Vec<String>>,
 }
 
 async fn list_apps(
@@ -62,6 +69,7 @@ async fn list_apps(
             "app.version",
             "favorite.path IS NOT NULL as starred",
             "app.labels",
+            "folder_labels(app.workspace_id, app.path) as inherited_labels",
         ])
         .left()
         .join("favorite")
@@ -90,8 +98,37 @@ async fn list_apps(
 
     if let Some(label) = &lq.label {
         for l in label.split(',') {
-            sqlb.and_where("app.labels @> ARRAY[?]".bind(&l.trim()));
+            // `binds` fills every `?` in one pass; chained `bind`s would re-scan a `?` in the bound value
+            sqlb.and_where(
+                "(app.labels @> ARRAY[?] OR folder_labels(app.workspace_id, app.path) @> ARRAY[?])"
+                    .binds(&[&l.trim()]),
+            );
         }
+    }
+
+    // In the WHERE, not a retain after the fetch: the result is paginated, and a
+    // post-fetch filter would return short pages and let a page's size report how
+    // many raw apps the token may not read. One `?` per term, since a chained `.bind`
+    // substitutes into a `?` inside the value an earlier one inserted; `starts_with`,
+    // since LIKE reads a `_` in the path as a wildcard.
+    if let ScopePathFilter::Restricted { exact, prefix } =
+        build_scope_path_filter(&authed, "raw_apps", "read")
+    {
+        let terms: Vec<String> = exact
+            .iter()
+            .chain(&prefix)
+            .map(|p| "app.path = ?".bind(p))
+            .chain(
+                prefix
+                    .iter()
+                    .map(|p| "starts_with(app.path, ?)".bind(&format!("{p}/"))),
+            )
+            .collect();
+        sqlb.and_where(if terms.is_empty() {
+            "false".to_string()
+        } else {
+            format!("({})", terms.join(" OR "))
+        });
     }
 
     let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;

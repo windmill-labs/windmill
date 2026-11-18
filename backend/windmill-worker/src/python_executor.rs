@@ -24,8 +24,10 @@ use tokio::{
 use windmill_queue::MiniPulledJob;
 
 use uuid::Uuid;
-#[cfg(all(feature = "enterprise", feature = "parquet", unix))]
+
+#[cfg(all(feature = "enterprise", feature = "parquet"))]
 use windmill_common::ee_oss::{get_license_plan, LicensePlan};
+
 use windmill_common::{
     error::{
         self,
@@ -35,7 +37,8 @@ use windmill_common::{
     scripts::ScriptLang,
     utils::calculate_hash,
     worker::{
-        copy_dir_recursively, pad_string, split_python_requirements, write_file, Connection,
+        copy_dir_recursively, is_allowed_file_location, lockfile_line_has_continuation, pad_string,
+        requirement_from_lockfile_line, split_python_requirements, write_file, Connection,
         PyVAlias, PythonAnnotations, WORKER_CONFIG,
     },
 };
@@ -60,19 +63,14 @@ lazy_static::lazy_static! {
     static ref PY_CONCURRENT_DOWNLOADS: usize =
     var("PY_CONCURRENT_DOWNLOADS").ok().map(|flag| flag.parse().unwrap_or(20)).unwrap_or(20);
 
-
     static ref NON_ALPHANUM_CHAR: Regex = regex::Regex::new(r"[^0-9A-Za-z=.-]").unwrap();
-
-    static ref TRUSTED_HOST: Option<String> = var("PY_TRUSTED_HOST").ok().or(var("PIP_TRUSTED_HOST").ok());
-    pub static ref INDEX_CERT: Option<String> = var("PY_INDEX_CERT").ok().or(var("PIP_INDEX_CERT").ok());
-    pub static ref NATIVE_CERT: bool = var("PY_NATIVE_CERT").ok().or(var("UV_NATIVE_TLS").ok()).map(|flag| flag == "true").unwrap_or(false);
 
     static ref RELATIVE_IMPORT_REGEX: Regex = Regex::new(r#"(import|from)\s(((u|f)\.)|\.)"#).unwrap();
 
     static ref EPHEMERAL_TOKEN_CMD: Option<String> = var("EPHEMERAL_TOKEN_CMD").ok();
 }
 
-#[cfg(all(feature = "enterprise", feature = "parquet", unix))]
+#[cfg(all(feature = "enterprise", feature = "parquet"))]
 lazy_static::lazy_static! {
     static ref PIPTAR_UPLOAD_CHANNEL: tokio::sync::mpsc::UnboundedSender<PiptarUploadTask> = {
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
@@ -84,20 +82,20 @@ lazy_static::lazy_static! {
     };
 }
 
-#[cfg(all(feature = "enterprise", feature = "parquet", unix))]
+#[cfg(all(feature = "enterprise", feature = "parquet"))]
 #[derive(Debug)]
 struct PiptarUploadTask {
     venv_path: String,
     cache_dir: String,
 }
 
-#[cfg(all(feature = "enterprise", feature = "parquet", unix))]
+#[cfg(all(feature = "enterprise", feature = "parquet"))]
 async fn handle_piptar_uploads(mut rx: tokio::sync::mpsc::UnboundedReceiver<PiptarUploadTask>) {
     use crate::global_cache::build_tar_and_push;
-    use windmill_object_store::get_object_store;
+    use windmill_object_store::get_cache_object_store;
 
     while let Some(task) = rx.recv().await {
-        if let Some(os) = get_object_store().await {
+        if let Some(os) = get_cache_object_store().await {
             match build_tar_and_push(os, task.venv_path.clone(), task.cache_dir, None, false).await
             {
                 Ok(()) => {
@@ -118,13 +116,22 @@ async fn handle_piptar_uploads(mut rx: tokio::sync::mpsc::UnboundedReceiver<Pipt
 
 const NSJAIL_CONFIG_DOWNLOAD_PY_CONTENT: &str = include_str!("../nsjail/download.py.config.proto");
 const NSJAIL_CONFIG_RUN_PYTHON3_CONTENT: &str = include_str!("../nsjail/run.python3.config.proto");
-pub const RELATIVE_PYTHON_LOADER: &str = include_str!("../loader.py");
+const NSJAIL_CONFIG_LOCK_PY_CONTENT: &str = include_str!("../nsjail/lock.py.config.proto");
+const RELATIVE_PYTHON_LOADER: &str = include_str!("../loader.py");
+
+/// Every file exchanged with a job is UTF-8 by construction, so the interpreter
+/// must agree. A job env carries no locale: Linux then picks UTF-8 on its own
+/// (PEP 540), Windows picks the ANSI code page. Applied after the whitelisted
+/// envs so the protocol is not the user's to opt out of.
+pub const PYTHON_UTF8_ENVS: [(&str, &str); 1] = [("PYTHONUTF8", "1")];
 
 /// Render loader.py with the TEMP_SCRIPT_REFS placeholder substituted by a
 /// Python dict literal. Preview jobs pass a path -> temp-hash map so relative
 /// imports resolve from not-yet-deployed local content; deployed runs pass
 /// `None` which renders an empty dict (deployed resolution unchanged).
-fn render_relative_python_loader(temp_script_refs: &Option<HashMap<String, String>>) -> String {
+pub(crate) fn render_relative_python_loader(
+    temp_script_refs: &Option<HashMap<String, String>>,
+) -> String {
     let temp_refs_py = temp_script_refs
         .as_ref()
         .and_then(|m| serde_json::to_string(m).ok())
@@ -137,25 +144,28 @@ pub fn has_relative_imports(content: &str) -> bool {
     RELATIVE_IMPORT_REGEX.is_match(content)
 }
 
-#[cfg(all(feature = "enterprise", feature = "parquet", unix))]
+#[cfg(all(feature = "enterprise", feature = "parquet"))]
 use crate::global_cache::pull_from_tar;
 
-#[cfg(all(feature = "enterprise", feature = "parquet", unix))]
-use windmill_object_store::OBJECT_STORE_SETTINGS;
+#[cfg(all(feature = "enterprise", feature = "parquet"))]
+use windmill_object_store::get_cache_object_store;
 
 use crate::{
+    check_no_network_jailed,
     common::{
         build_command_with_isolation, create_args_and_out_file, get_reserved_variables, read_file,
-        read_result, resolve_nsjail_timeout, resolve_nsjail_tmp_mount_block, start_child_process,
-        OccupancyMetrics, StreamNotifier, DEV_CONF_NSJAIL,
+        read_result, render_nsjail_rlimit_as, resolve_nsjail_timeout,
+        proto_str, resolve_nsjail_tmp_mount_block, start_child_process, OccupancyMetrics,
+        StreamNotifier, DEV_CONF_NSJAIL,
     },
-    get_proxy_envs_for_lang,
+    get_proxy_envs_for_lang, get_run_proxy_envs,
     handle_child::handle_child,
-    is_sandboxing_enabled, read_ee_registry_with_workspace_override,
+    is_sandboxing_enabled, nsjail_clone_newnet, read_ee_registry,
     worker_utils::ping_job_status,
-    PyV, DISABLE_NUSER, HOME_ENV, NSJAIL_AVAILABLE, NSJAIL_PATH, PATH_ENV, PIP_EXTRA_INDEX_URL,
-    PIP_INDEX_URL, PROXY_ENVS, PY_INSTALL_DIR, TRACING_PROXY_CA_CERT_PATH, TZ_ENV, UV_CACHE_DIR,
-    UV_EXCLUDE_NEWER, UV_INDEX_STRATEGY, UV_PYTHON_INSTALL_MIRROR,
+    PyV, DISABLE_NUSER, HOME_ENV, INDEX_CERT, NATIVE_CERT, NSJAIL_AVAILABLE, NSJAIL_PATH,
+    NSJAIL_PY_RLIMIT_AS_MB, PATH_ENV, PIP_EXTRA_INDEX_URL, PIP_INDEX_URL, PROXY_ENVS,
+    PY_INSTALL_DIR, TRACING_PROXY_CA_CERT_PATH, TRUSTED_HOST, TZ_ENV, UV_CACHE_DIR,
+    UV_EXCLUDE_NEWER, UV_HTTP_TIMEOUT, UV_INDEX_STRATEGY, UV_PYTHON_INSTALL_MIRROR,
 };
 use windmill_common::client::AuthedClient;
 
@@ -222,9 +232,9 @@ fn filter_pip_local_dependencies(lines: Vec<String>) -> (Vec<String>, Vec<String
 /// `(kept, ignored)`. A line is ignored when it is not a `#` comment and matches any of
 /// `compiled_deps`. Kept separate from config/regex loading so it can be unit-tested.
 fn filter_lines_by_deps(lines: Vec<String>, compiled_deps: &[Regex]) -> (Vec<String>, Vec<String>) {
-    let (ignored, kept): (Vec<String>, Vec<String>) = lines
-        .into_iter()
-        .partition(|s| !s.starts_with('#') && compiled_deps.iter().any(|dep| dep.is_match(s)));
+    let (ignored, kept): (Vec<String>, Vec<String>) = lines.into_iter().partition(|s| {
+        !s.trim_start().starts_with('#') && compiled_deps.iter().any(|dep| dep.is_match(s))
+    });
 
     (kept, ignored)
 }
@@ -273,7 +283,12 @@ pub async fn uv_pip_compile(
     #[cfg(feature = "enterprise")]
     let requirements = replace_pip_secret(conn, w_id, &requirements, worker_name, job_id).await?;
 
-    let ws_suffix = crate::workspace_registry_cache_suffix(w_id).await;
+    let pip_indexes = PipIndexes::snapshot(w_id).await;
+    let ws_suffix = if pip_indexes.ws_scoped {
+        format!(":ws:{w_id}")
+    } else {
+        String::new()
+    };
     let exclude_newer_suffix = uv_exclude_newer
         .as_deref()
         .map(|v| format!("-en{}", v))
@@ -318,6 +333,11 @@ pub async fn uv_pip_compile(
             "compile",
             "-q",
             "--no-header",
+            // The `#`-line filter applied to the output below only catches whole-line
+            // annotations, and uv's annotation style is configurable: `[pip]
+            // annotation-style = "line"` in the worker HOME's uv.toml emits them inline
+            // ("anyio==4.15.1  # via httpx"), which that filter keeps.
+            "--no-annotate",
             file,
             "--strip-extras",
             "-o",
@@ -332,47 +352,30 @@ pub async fn uv_pip_compile(
         if no_cache {
             args.extend(["--no-cache"]);
         }
-        let pip_extra_index_url = read_ee_registry_with_workspace_override(
-            PIP_EXTRA_INDEX_URL.read().await.clone(),
-            "pip_extra_index_url",
-            "pip extra index url",
-            job_id,
-            w_id,
-            conn,
-        )
-        .await
-        .map(handle_ephemeral_token);
+        let (pip_extra_index_url, pip_index_url) = pip_indexes.urls(job_id, w_id, conn).await;
         if let Some(url) = pip_extra_index_url.as_ref() {
             url.split(",").for_each(|url| {
                 args.extend(["--extra-index-url", url]);
             });
         }
-        let pip_index_url = read_ee_registry_with_workspace_override(
-            PIP_INDEX_URL.read().await.clone(),
-            "pip_index_url",
-            "pip index url",
-            job_id,
-            w_id,
-            conn,
-        )
-        .await
-        .map(handle_ephemeral_token);
         if let Some(url) = pip_index_url.as_ref() {
             args.extend(["--index-url", url]);
         }
         if let Some(host) = TRUSTED_HOST.as_ref() {
-            args.extend(["--trusted-host", host]);
+            host.split_whitespace().for_each(|h| {
+                args.extend(["--trusted-host", h]);
+            });
         }
         if let Some(cert_path) = INDEX_CERT.as_ref() {
             args.extend(["--cert", cert_path]);
         }
         if *NATIVE_CERT {
-            args.extend(["--native-tls"]);
+            args.extend(["--system-certs"]);
         }
         if let Some(exclude_newer) = uv_exclude_newer.as_deref() {
             args.extend(["--exclude-newer", exclude_newer]);
         }
-        tracing::debug!("uv args: {:?}", args);
+        tracing::debug!("uv args: {:?}", redact_index_urls(&args));
 
         #[cfg(windows)]
         let uv_cmd = "uv";
@@ -380,18 +383,76 @@ pub async fn uv_pip_compile(
         #[cfg(unix)]
         let uv_cmd = UV_PATH.as_str();
 
-        let mut child_cmd = Command::new(uv_cmd);
-        child_cmd
-            .current_dir(job_dir)
-            .env_clear()
-            .env("HOME", HOME_ENV.to_string())
-            .env("PATH", PATH_ENV.to_string())
-            .env("UV_PYTHON_INSTALL_DIR", PY_INSTALL_DIR.to_string())
-            .env("UV_INDEX_STRATEGY", uv_index_strategy)
-            .envs(PROXY_ENVS.clone())
-            .args(&args)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
+        // Resolving an sdist whose metadata is not static makes uv invoke its
+        // PEP 517 build backend, which runs arbitrary package code (e.g.
+        // setup.py). When sandboxing is on, confine that under nsjail exactly
+        // like the install and run steps already are — otherwise it runs as the
+        // worker, in the worker's namespaces, with the worker's env and tokens
+        // readable. The jail gets network to the index, the job dir and the
+        // shared uv cache writable, and the managed interpreter read-only.
+        let mut child_cmd = if is_sandboxing_enabled() {
+            let index_cert_mount = INDEX_CERT
+                .as_ref()
+                .map(|p| {
+                    format!(
+                        "mount {{\n    src: \"{p}\"\n    dst: \"{p}\"\n    is_bind: true\n    mandatory: false\n}}\n"
+                    )
+                })
+                .unwrap_or_default();
+            // The cache dir is bind-mounted into the jail, so it must exist before
+            // nsjail builds the mount tree (uv would otherwise create it itself).
+            std::fs::create_dir_all(&*UV_CACHE_DIR)?;
+            let nsjail_timeout = resolve_nsjail_timeout(conn, w_id, *job_id, None).await;
+            write_file(
+                job_dir,
+                "lock.config.proto",
+                NSJAIL_CONFIG_LOCK_PY_CONTENT
+                    .replace("{TIMEOUT}", &nsjail_timeout)
+                    .replace("{JOB_DIR}", job_dir)
+                    .replace("{UV_CACHE_DIR}", &*UV_CACHE_DIR)
+                    .replace("{PY_INSTALL_DIR}", &*PY_INSTALL_DIR)
+                    .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
+                    .replace("{INDEX_CERT_MOUNT}", &index_cert_mount)
+                    .replace("{TRACING_PROXY_CA_CERT_PATH}", &*TRACING_PROXY_CA_CERT_PATH)
+                    .replace("#{DEV}", DEV_CONF_NSJAIL)
+                    .replace(
+                        "{TMP_MOUNT_BLOCK}",
+                        &resolve_nsjail_tmp_mount_block(job_dir).await,
+                    )
+                    .as_str(),
+            )?;
+
+            let mut nsjail_args = vec!["--config", "lock.config.proto", "--", uv_cmd];
+            nsjail_args.extend(args.iter().copied());
+
+            let mut child_cmd = Command::new(NSJAIL_PATH.as_str());
+            child_cmd
+                .current_dir(job_dir)
+                .env_clear()
+                // HOME is set to /tmp by the nsjail config; keep_env passes the rest.
+                .env("PATH", PATH_ENV.to_string())
+                .env("UV_PYTHON_INSTALL_DIR", PY_INSTALL_DIR.to_string())
+                .env("UV_INDEX_STRATEGY", uv_index_strategy)
+                .envs(PROXY_ENVS.clone())
+                .args(nsjail_args)
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped());
+            child_cmd
+        } else {
+            let mut child_cmd = Command::new(uv_cmd);
+            child_cmd
+                .current_dir(job_dir)
+                .env_clear()
+                .env("HOME", HOME_ENV.to_string())
+                .env("PATH", PATH_ENV.to_string())
+                .env("UV_PYTHON_INSTALL_DIR", PY_INSTALL_DIR.to_string())
+                .env("UV_INDEX_STRATEGY", uv_index_strategy)
+                .envs(PROXY_ENVS.clone())
+                .args(&args)
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped());
+            child_cmd
+        };
 
         if let Some(mirror) = UV_PYTHON_INSTALL_MIRROR.read().await.as_ref() {
             child_cmd.env("UV_PYTHON_INSTALL_MIRROR", mirror);
@@ -441,7 +502,12 @@ pub async fn uv_pip_compile(
                 );
         }
 
-        let child_process = start_child_process(child_cmd, uv_cmd, false).await?;
+        let child_executable = if is_sandboxing_enabled() {
+            NSJAIL_PATH.as_str()
+        } else {
+            uv_cmd
+        };
+        let child_process = start_child_process(child_cmd, child_executable, false).await?;
         append_logs(&job_id, &w_id, logs, conn).await;
         handle_child(
             job_id,
@@ -449,7 +515,8 @@ pub async fn uv_pip_compile(
             mem_peak,
             canceled_by,
             child_process,
-            false,
+            // jailed when sandboxing is on, so mem sampling finds the real process
+            is_sandboxing_enabled(),
             worker_name,
             &w_id,
             // TODO: Rename to uv-pip-compile?
@@ -597,11 +664,57 @@ async fn postinstall(
     Ok(())
 }
 
+/// Python hard keywords cannot be used as a bare name in `import <name>` /
+/// `from <pkg> import <name>`. A flow inline step whose id (or a folder on its
+/// path) is such a keyword — e.g. a step id `in` — otherwise generates
+/// `from pkg import in as inner_script`, a SyntaxError. Prefix these with `_`,
+/// mirroring the existing digit-leading guard.
+fn is_python_keyword(s: &str) -> bool {
+    matches!(
+        s,
+        "False"
+            | "None"
+            | "True"
+            | "and"
+            | "as"
+            | "assert"
+            | "async"
+            | "await"
+            | "break"
+            | "class"
+            | "continue"
+            | "def"
+            | "del"
+            | "elif"
+            | "else"
+            | "except"
+            | "finally"
+            | "for"
+            | "from"
+            | "global"
+            | "if"
+            | "import"
+            | "in"
+            | "is"
+            | "lambda"
+            | "nonlocal"
+            | "not"
+            | "or"
+            | "pass"
+            | "raise"
+            | "return"
+            | "try"
+            | "while"
+            | "with"
+            | "yield"
+    )
+}
+
 /// Compute the directory (relative to job_dir) where Python writes the main script.
 /// Module files must be placed in this same directory for relative imports to work.
 pub fn compute_python_module_dir(script_path: &str) -> String {
     let script_path_splitted = script_path.split("/").map(|x| {
-        if x.starts_with(|x: char| x.is_ascii_digit()) {
+        if x.starts_with(|x: char| x.is_ascii_digit()) || is_python_keyword(x) {
             format!("_{}", x)
         } else {
             x.to_string()
@@ -614,10 +727,16 @@ pub fn compute_python_module_dir(script_path: &str) -> String {
         .replace("-", "_")
         .replace("@", ".");
     if dirs_full.len() > 0 {
-        dirs_full
-            .strip_prefix("/")
-            .unwrap_or(&dirs_full)
-            .to_string()
+        let dirs = dirs_full.strip_prefix("/").unwrap_or(&dirs_full);
+        // This directory is appended to job_dir and written to. Neutralize any
+        // `.`/`..` segment so the result stays a relative path inside job_dir: a
+        // Preview path is request-supplied and skips the DB `proper_id` CHECK that
+        // deployed runnables get, and the `@`->`.` rewrite above can also turn a
+        // segment like `@.` into `..`.
+        dirs.split('/')
+            .map(|seg| if seg == "." || seg == ".." { "_" } else { seg })
+            .collect::<Vec<_>>()
+            .join("/")
     } else {
         "tmp".to_string()
     }
@@ -659,6 +778,8 @@ pub async fn handle_python_job(
                 .to_string(),
         ));
     }
+    let jailed = is_sandboxing_enabled() || annotations.sandbox;
+    check_no_network_jailed(annotations.no_network, jailed)?;
 
     // Preview jobs may carry _TEMP_SCRIPT_REFS so relative imports resolve from
     // not-yet-deployed local content uploaded to raw_script_temp. Gated on
@@ -675,7 +796,21 @@ pub async fn handle_python_job(
         None
     };
 
-    let (py_version, mut additional_python_paths) = handle_python_deps(
+    let module_sources = windmill_parser_py_imports::module_sources(&script_path, modules.as_ref());
+    if annotations.no_network {
+        let imports = std::iter::once((script_path.as_str(), inner_content.as_str()))
+            .chain(
+                module_sources
+                    .iter()
+                    .flatten()
+                    .map(|(path, code)| (path.as_str(), code.as_str())),
+            )
+            .flat_map(|(path, code)| {
+                windmill_parser_py_imports::parse_relative_imports(code, path).unwrap_or_default()
+            });
+        crate::check_no_network_imports(imports, &script_path, modules.as_ref(), "Python")?;
+    }
+    let (py_version, mut additional_python_paths) = handle_python_deps_with_modules(
         job_dir,
         requirements_o,
         inner_content,
@@ -691,6 +826,7 @@ pub async fn handle_python_job(
         precomputed_agent_info,
         annotations.clone(),
         &temp_script_refs,
+        module_sources.as_ref(),
     )
     .await?;
 
@@ -720,6 +856,9 @@ pub async fn handle_python_job(
         );
         if annotations.sandbox {
             logs.push_str("sandbox mode (nsjail)\n");
+        }
+        if annotations.no_network {
+            logs.push_str("no network\n");
         }
         append_logs(&job.id, &job.workspace_id, logs, conn).await;
     }
@@ -763,9 +902,9 @@ pub async fn handle_python_job(
         for k, v in list(pre_args.items()):
             if v == '<function call>':
                 del pre_args[k]
-        kwargs = inner_script.preprocessor(**pre_args)
+        kwargs = _await(inner_script.preprocessor(**pre_args))
         kwrags_json = res_to_json(kwargs, type(kwargs))
-        with open("args.json", 'w') as f:
+        with open("args.json", 'w', encoding="utf-8") as f:
             f.write(kwrags_json)"#
         )
     } else {
@@ -795,12 +934,12 @@ pub async fn handle_python_job(
         if v == '<function call>':
             del pre_args[k]
     _pre_result = inner_script.preprocessor(**pre_args)
-    if hasattr(_pre_result, '__await__'):
+    if any('__await__' in vars(c) for c in type(_pre_result).__mro__):
         import asyncio
         _pre_result = asyncio.run(_pre_result)
     kwargs = _pre_result if _pre_result is not None else {{}}
     _pre_json = json.dumps(kwargs, separators=(',', ':'), default=str)
-    with open("args.json", 'w') as f:
+    with open("args.json", 'w', encoding="utf-8") as f:
         f.write(_pre_json)
     sys.stdout.write("wm_res[preprocessed_args]:" + _pre_json + "\n")
     sys.stdout.flush()"#
@@ -821,11 +960,11 @@ import sys
 from {module_dir_dot} import {last} as inner_script
 from wmill.client import _run_workflow
 
-with open("args.json") as f:
+with open("args.json", encoding="utf-8") as f:
     kwargs = json.load(f, strict=False)
 {transforms}
 
-with open("checkpoint.json") as f:
+with open("checkpoint.json", encoding="utf-8") as f:
     checkpoint = json.load(f, strict=False)
 
 result_json = os.path.join(os.path.abspath(os.path.dirname(__file__)), "result.json")
@@ -851,12 +990,12 @@ try:
         print("")
         print("--- WAC: complete ---")
     output_json = json.dumps(output, separators=(',', ':'), default=str)
-    with open(result_json, 'w') as f:
+    with open(result_json, 'w', encoding="utf-8") as f:
         f.write(output_json)
 except BaseException as e:
     exc_type, exc_value, exc_traceback = sys.exc_info()
     tb = traceback.format_tb(exc_traceback)
-    with open(result_json, 'w') as f:
+    with open(result_json, 'w', encoding="utf-8") as f:
         err = {{ "message": str(e), "name": e.__class__.__name__, "stack": '\n'.join(tb[1:]) }}
         extra = e.__dict__
         if extra and len(extra) > 0:
@@ -864,6 +1003,12 @@ except BaseException as e:
         flow_node_id = os.environ.get('WM_FLOW_STEP_ID')
         if flow_node_id:
             err['step_id'] = flow_node_id
+        job_id = os.environ.get('WM_JOB_ID')
+        if job_id:
+            err['job_id'] = job_id
+        flow_path = os.environ.get('WM_FLOW_PATH')
+        if flow_path:
+            err['flow_path'] = flow_path
         err_json = json.dumps(err, separators=(',', ':'), default=str).replace('\n', '')
         f.write(err_json)
         sys.exit(1)
@@ -883,7 +1028,7 @@ import sys
 from {module_dir_dot} import {last} as inner_script
 import re
 
-with open("args.json") as f:
+with open("args.json", encoding="utf-8") as f:
     kwargs = json.load(f, strict=False)
 args = {{}}
 {transforms}
@@ -904,6 +1049,8 @@ result_json = os.path.join(os.path.abspath(os.path.dirname(__file__)), "result.j
 def res_to_json(res, typ):
 {res_to_json_body}
 
+{PY_AWAIT_HELPER}
+
 try:
     {preprocessor}
     {spread}
@@ -912,19 +1059,19 @@ try:
             del args[k]
     if inner_script.{main_override} is None or not callable(inner_script.{main_override}):
         raise ValueError("{main_override} function is missing")
-    res = inner_script.{main_override}(**args)
+    res = _await(inner_script.{main_override}(**args))
     typ = type(res)
-    if hasattr(res, '__iter__') and not isinstance(res, (str, dict, list, bytes, tuple, set, frozenset, range, memoryview, bytearray)) and typ.__name__ != 'DataFrame':
+    if _defines(res, '__iter__') and not isinstance(res, (str, dict, list, bytes, tuple, set, frozenset, range, memoryview, bytearray)) and typ.__name__ != 'DataFrame':
         for chunk in res:
             print("WM_STREAM: " + chunk.replace('\n', '\\n'))
         res = None
     res_json = res_to_json(res, typ)
-    with open(result_json, 'w') as f:
+    with open(result_json, 'w', encoding="utf-8") as f:
         f.write(res_json)
 except BaseException as e:
     exc_type, exc_value, exc_traceback = sys.exc_info()
     tb = traceback.format_tb(exc_traceback)
-    with open(result_json, 'w') as f:
+    with open(result_json, 'w', encoding="utf-8") as f:
         err = {{ "message": str(e), "name": e.__class__.__name__, "stack": '\n'.join(tb[1:]) }}
         extra = e.__dict__
         if extra and len(extra) > 0:
@@ -932,6 +1079,12 @@ except BaseException as e:
         flow_node_id = os.environ.get('WM_FLOW_STEP_ID')
         if flow_node_id:
             err['step_id'] = flow_node_id
+        job_id = os.environ.get('WM_JOB_ID')
+        if job_id:
+            err['job_id'] = job_id
+        flow_path = os.environ.get('WM_FLOW_PATH')
+        if flow_path:
+            err['flow_path'] = flow_path
         err_json = json.dumps(err, separators=(',', ':'), default=str).replace('\n', '')
         f.write(err_json)
         sys.exit(1)
@@ -960,6 +1113,7 @@ except BaseException as e:
 
     let mut reserved_variables =
         get_reserved_variables(job, &client.token, conn, parent_runnable_path).await?;
+    crate::strip_no_network_token(&mut reserved_variables, annotations.no_network);
 
     // Add /tmp/windmill/cache/python_x_y_z/global-site-packages to PYTHONPATH.
     // Usefull if certain wheels needs to be preinstalled before execution.
@@ -992,7 +1146,7 @@ except BaseException as e:
     #[cfg(windows)]
     let additional_python_paths_folders = additional_python_paths_folders.replace(":", ";");
 
-    if is_sandboxing_enabled() || annotations.sandbox {
+    if jailed {
         let shared_deps = additional_python_paths
             .into_iter()
             .map(|pp| {
@@ -1008,17 +1162,27 @@ mount {{
                 )
             })
             .join("\n");
+        let module_mounts = python_module_mounts(job_dir, &dirs, modules.as_ref());
         let nsjail_timeout =
             resolve_nsjail_timeout(conn, &job.workspace_id, job.id, job.timeout).await;
         let _ = write_file(
             job_dir,
             "run.config.proto",
             &NSJAIL_CONFIG_RUN_PYTHON3_CONTENT
+                .replace(
+                    "{RLIMIT_AS}",
+                    &render_nsjail_rlimit_as(NSJAIL_PY_RLIMIT_AS_MB.as_deref(), 4096),
+                )
                 .replace("{JOB_DIR}", job_dir)
                 .replace("{PY_INSTALL_DIR}", &*PY_INSTALL_DIR)
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
+                .replace(
+                    "{CLONE_NEWNET}",
+                    nsjail_clone_newnet(annotations.no_network),
+                )
                 .replace("{SHARED_MOUNT}", shared_mount)
                 .replace("{SHARED_DEPENDENCIES}", shared_deps.as_str())
+                .replace("{MODULE_MOUNTS}", &module_mounts)
                 .replace("{GLOBAL_SITE_PACKAGES}", &global_site_packages_path)
                 .replace("{MAIN}", format!("{dirs}/{last}").as_str())
                 .replace(
@@ -1043,7 +1207,7 @@ mount {{
         job.id
     );
 
-    let child = if is_sandboxing_enabled() || annotations.sandbox {
+    let child = if jailed {
         let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
         nsjail_cmd
             .current_dir(job_dir)
@@ -1051,15 +1215,17 @@ mount {{
             // inject PYTHONPATH here - for some reason I had to do it in nsjail conf
             .envs(reserved_variables)
             .envs(
-                get_proxy_envs_for_lang(
+                get_run_proxy_envs(
                     &ScriptLang::Python3,
                     job.kind,
                     &job.id,
                     &job.workspace_id,
                     conn,
+                    annotations.no_network,
                 )
                 .await?,
             )
+            .envs(PYTHON_UTF8_ENVS)
             .env("PATH", PATH_ENV.as_str())
             .env("TZ", TZ_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
@@ -1095,6 +1261,7 @@ mount {{
                 )
                 .await?,
             )
+            .envs(PYTHON_UTF8_ENVS)
             .env("PATH", PATH_ENV.as_str())
             .env("TZ", TZ_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
@@ -1166,6 +1333,7 @@ mount {{
             result,
             job,
             conn,
+            canceled_by,
             modules,
             new_args.as_ref(),
         ))
@@ -1173,6 +1341,28 @@ mount {{
     }
 
     Ok(result)
+}
+
+/// nsjail mounts for a job's module files. They are written next to the main script, and the
+/// jail sees only what it mounts: without these, a module import falls through to the
+/// loader's API fetch. Keys come from the request, hence the containment check and quoting.
+fn python_module_mounts(
+    job_dir: &str,
+    dirs: &str,
+    modules: Option<&HashMap<String, windmill_common::scripts::ScriptModule>>,
+) -> String {
+    modules
+        .into_iter()
+        .flat_map(|m| m.keys())
+        .filter(|rel| crate::worker::is_contained_relative_path(rel))
+        .map(|rel| {
+            format!(
+                "mount {{\n    src: {}\n    dst: {}\n    is_bind: true\n    mandatory: false\n}}\n",
+                proto_str(&format!("{job_dir}/{dirs}/{rel}")),
+                proto_str(&format!("/tmp/{dirs}/{rel}")),
+            )
+        })
+        .join("\n")
 }
 
 /// Generate Python code to spread preprocessor args from `kwargs` into `pre_args`.
@@ -1236,6 +1426,12 @@ pub fn compute_py_codegen(content: &str, script_path: &str) -> PyScriptCodegen {
         .replace("-", "_")
         .replace(" ", "_")
         .to_lowercase();
+    // `last` is lowercased above, so this catches a keyword id in any case.
+    let last = if is_python_keyword(&last) {
+        format!("_{last}")
+    } else {
+        last
+    };
 
     let sig = windmill_parser_py::parse_python_signature(content, None, false).unwrap_or_default();
     let pre_sig = windmill_parser_py::parse_python_signature(
@@ -1423,6 +1619,27 @@ from datetime import datetime, date
 
 scripts = {{}}
 
+# `step_id`, `job_id` and `flow_path` are per job, so the worker adds them, not this process.
+def error_json(e, tb):
+    err = {{ "message": str(e), "name": e.__class__.__name__, "stack": '\n'.join(tb[1:]) }}
+    extra = getattr(e, '__dict__', None)
+    if extra:
+        err['extra'] = extra
+    try:
+        return json.dumps(err, separators=(',', ':'), default=str).replace('\n', '')
+    except Exception:
+        pass
+    # A cyclic attribute would raise here and end the process every later job runs in.
+    safe = {{}}
+    for k, v in extra.items():
+        try:
+            json.dumps(v, default=str)
+            safe[k] = v
+        except Exception:
+            safe[k] = '[unserializable]'
+    err['extra'] = safe
+    return json.dumps(err, separators=(',', ':'), default=str).replace('\n', '')
+
 def to_b_64(v: bytes):
     b64 = base64.b64encode(v)
     return b64.decode('ascii')
@@ -1435,6 +1652,8 @@ _fix=lambda s:s if 'Infinity' not in s and 'NaN' not in s and '\\u0000' not in s
 
 def res_to_json(res, typ):
 {res_to_json_body}
+
+{PY_AWAIT_HELPER}
 {functions}
 {registrations}
 
@@ -1468,18 +1687,18 @@ for line in sys.stdin:
                 continue
             kwargs = json.loads(args_json, strict=False)
             pre_args = entry['pre_transform'](kwargs)
-            preprocessed = mod.preprocessor(**pre_args)
+            preprocessed = _await(mod.preprocessor(**pre_args))
             preprocessed_json = json.dumps(preprocessed, separators=(',', ':'), default=str).replace('\n', '')
             sys.stdout.write("wm_res[preprocessed_args]:" + preprocessed_json + "\n")
             main_args = entry['transform'](preprocessed if preprocessed else {{}})
-            res = mod.main(**main_args)
+            res = _await(mod.main(**main_args))
             typ = type(res)
             res_json = res_to_json(res, typ)
             sys.stdout.write("wm_res[success]:" + res_json + "\n")
         except BaseException as e:
             exc_type, exc_value, exc_traceback = sys.exc_info()
             tb = traceback.format_tb(exc_traceback)
-            err_json = json.dumps({{ "message": str(e), "name": e.__class__.__name__, "stack": '\n'.join(tb[1:]) }}, separators=(',', ':'), default=str).replace('\n', '')
+            err_json = error_json(e, tb)
             sys.stdout.write("wm_res[error]:" + err_json + "\n")
         sys.stdout.flush()
         continue
@@ -1496,18 +1715,18 @@ for line in sys.stdin:
                 continue
             kwargs = json.loads(args_json, strict=False)
             pre_args = entry['pre_transform'](kwargs)
-            preprocessed = mod.preprocessor(**pre_args)
+            preprocessed = _await(mod.preprocessor(**pre_args))
             preprocessed_json = json.dumps(preprocessed, separators=(',', ':'), default=str).replace('\n', '')
             sys.stdout.write("wm_res[preprocessed_args]:" + preprocessed_json + "\n")
             main_args = entry['transform'](preprocessed if preprocessed else {{}})
-            res = mod.main(**main_args)
+            res = _await(mod.main(**main_args))
             typ = type(res)
             res_json = res_to_json(res, typ)
             sys.stdout.write("wm_res[success]:" + res_json + "\n")
         except BaseException as e:
             exc_type, exc_value, exc_traceback = sys.exc_info()
             tb = traceback.format_tb(exc_traceback)
-            err_json = json.dumps({{ "message": str(e), "name": e.__class__.__name__, "stack": '\n'.join(tb[1:]) }}, separators=(',', ':'), default=str).replace('\n', '')
+            err_json = error_json(e, tb)
             sys.stdout.write("wm_res[error]:" + err_json + "\n")
         sys.stdout.flush()
         continue
@@ -1518,14 +1737,14 @@ for line in sys.stdin:
             entry = next(iter(scripts.values()))
             kwargs = json.loads(args_json, strict=False)
             args = entry['transform'](kwargs)
-            res = entry['mod'].main(**args)
+            res = _await(entry['mod'].main(**args))
             typ = type(res)
             res_json = res_to_json(res, typ)
             sys.stdout.write("wm_res[success]:" + res_json + "\n")
         except BaseException as e:
             exc_type, exc_value, exc_traceback = sys.exc_info()
             tb = traceback.format_tb(exc_traceback)
-            err_json = json.dumps({{ "message": str(e), "name": e.__class__.__name__, "stack": '\n'.join(tb[1:]) }}, separators=(',', ':'), default=str).replace('\n', '')
+            err_json = error_json(e, tb)
             sys.stdout.write("wm_res[error]:" + err_json + "\n")
         sys.stdout.flush()
         continue
@@ -1546,14 +1765,14 @@ for line in sys.stdin:
 
             kwargs = json.loads(args_json, strict=False)
             args = entry['transform'](kwargs)
-            res = entry['mod'].main(**args)
+            res = _await(entry['mod'].main(**args))
             typ = type(res)
             res_json = res_to_json(res, typ)
             sys.stdout.write("wm_res[success]:" + res_json + "\n")
         except BaseException as e:
             exc_type, exc_value, exc_traceback = sys.exc_info()
             tb = traceback.format_tb(exc_traceback)
-            err_json = json.dumps({{ "message": str(e), "name": e.__class__.__name__, "stack": '\n'.join(tb[1:]) }}, separators=(',', ':'), default=str).replace('\n', '')
+            err_json = error_json(e, tb)
             sys.stdout.write("wm_res[error]:" + err_json + "\n")
         sys.stdout.flush()
         continue
@@ -1605,7 +1824,17 @@ async fn prepare_wrapper(
         .replace("-", "_")
         .replace(" ", "_")
         .to_lowercase();
+    // `last` is lowercased above, so this catches a keyword id in any case.
+    let last = if is_python_keyword(&last) {
+        format!("_{last}")
+    } else {
+        last
+    };
     let module_dir = format!("{}/{}", job_dir, dirs);
+    // Defense-in-depth: `dirs`/`last` derive from the (request-supplied for
+    // previews) script path. compute_python_module_dir already neutralizes `..`,
+    // but assert containment here too so the write can never escape job_dir.
+    is_allowed_file_location(job_dir, &format!("{dirs}/{last}.py"))?;
     tokio::fs::create_dir_all(format!("{module_dir}/")).await?;
 
     let _ = write_file(&module_dir, &format!("{last}.py"), inner_content)?;
@@ -1796,6 +2025,7 @@ async fn replace_pip_secret(
     }
 }
 
+#[cfg(feature = "private")]
 pub(crate) async fn handle_python_deps(
     job_dir: &str,
     requirements_o: Option<&String>,
@@ -1812,6 +2042,45 @@ pub(crate) async fn handle_python_deps(
     precomputed_agent_info: Option<PrecomputedAgentInfo>,
     annotations: PythonAnnotations,
     temp_script_refs: &Option<HashMap<String, String>>,
+) -> error::Result<(PyV, Vec<String>)> {
+    handle_python_deps_with_modules(
+        job_dir,
+        requirements_o,
+        inner_content,
+        w_id,
+        script_path,
+        job_id,
+        conn,
+        worker_name,
+        worker_dir,
+        mem_peak,
+        canceled_by,
+        occupancy_metrics,
+        precomputed_agent_info,
+        annotations,
+        temp_script_refs,
+        None,
+    )
+    .await
+}
+
+async fn handle_python_deps_with_modules(
+    job_dir: &str,
+    requirements_o: Option<&String>,
+    inner_content: &str,
+    w_id: &str,
+    script_path: &str,
+    job_id: &Uuid,
+    conn: &Connection,
+    worker_name: &str,
+    worker_dir: &str,
+    mem_peak: &mut i32,
+    canceled_by: &mut Option<CanceledBy>,
+    occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
+    precomputed_agent_info: Option<PrecomputedAgentInfo>,
+    annotations: PythonAnnotations,
+    temp_script_refs: &Option<HashMap<String, String>>,
+    module_sources: Option<&HashMap<String, String>>,
 ) -> error::Result<(PyV, Vec<String>)> {
     create_dependencies_dir(job_dir).await;
 
@@ -1841,6 +2110,7 @@ pub(crate) async fn handle_python_deps(
                         &mut locked_v,
                         &None,
                         temp_script_refs,
+                        module_sources,
                     ))
                     .await?;
 
@@ -1976,8 +2246,91 @@ Returned from server: py_version - {:?}, py_version_v2 - {:?}
     Ok((pyv, additional_python_paths))
 }
 
+/// The pip index settings a job resolves and installs from, and whether its workspace
+/// overrides any registry.
+///
+/// Both come from one snapshot of the workspace's overrides: read separately, a settings
+/// reload in between could file an install from an overridden index under a shared cache name.
+struct PipIndexes {
+    extra_index_url: Option<String>,
+    index_url: Option<String>,
+    /// Caches filled through these URLs must not be shared with other workspaces.
+    ws_scoped: bool,
+}
+
+impl PipIndexes {
+    async fn snapshot(w_id: &str) -> Self {
+        let overrides = crate::workspace_registry_overrides(w_id).await;
+        let ws_value = |key: &str| match overrides.get(key) {
+            Some(serde_json::Value::String(s)) => Some(s.clone()),
+            _ => None,
+        };
+        // An empty value means unset, and an empty workspace override unsets the global one.
+        Self {
+            extra_index_url: ws_value("pip_extra_index_url")
+                .or(PIP_EXTRA_INDEX_URL.read().await.clone())
+                .filter(|s| !s.trim().is_empty()),
+            index_url: ws_value("pip_index_url")
+                .or(PIP_INDEX_URL.read().await.clone())
+                .filter(|s| !s.trim().is_empty()),
+            ws_scoped: !overrides.is_empty(),
+        }
+    }
+
+    /// The `(extra index, index)` URLs to hand uv. Kept apart from [`Self::snapshot`]: it runs
+    /// `EPHEMERAL_TOKEN_CMD`, which a caller served from a cache has no reason to pay for.
+    async fn urls(
+        self,
+        job_id: &Uuid,
+        w_id: &str,
+        conn: &Connection,
+    ) -> (Option<String>, Option<String>) {
+        (
+            read_ee_registry(
+                self.extra_index_url,
+                "pip extra index url",
+                job_id,
+                w_id,
+                conn,
+            )
+            .await
+            .map(handle_ephemeral_token),
+            read_ee_registry(self.index_url, "pip index url", job_id, w_id, conn)
+                .await
+                .map(handle_ephemeral_token),
+        )
+    }
+}
+
 lazy_static::lazy_static! {
     static ref PIP_SECRET_VARIABLE: Regex = Regex::new(r"\$\{PIP_SECRET:([^\s\}]+)\}").unwrap();
+
+    /// venv paths whose wheel RECORD this process has already verified against
+    /// disk. A cache entry is only damaged out-of-band (disk-pressure eviction,
+    /// an interrupted extraction on a shared cache volume, or a corrupt entry
+    /// that predates this worker), never spontaneously while we keep running, so
+    /// re-verifying it once per process is enough — every later reuse trusts the
+    /// in-memory marker and pays only the original single stat.
+    static ref VERIFIED_VENVS: tokio::sync::Mutex<HashSet<String>> =
+        tokio::sync::Mutex::new(HashSet::new());
+
+    // In-process locks serializing concurrent installs into the same shared
+    // `venv_p` cache dir; `uv --reinstall` removes a package's .dist-info/RECORD
+    // before rewriting it, so a sibling install/verify racing it corrupts the
+    // dir. Keyed by venv_p so distinct deps still install in parallel.
+    static ref PY_INSTALL_LOCKS: tokio::sync::Mutex<std::collections::HashMap<String, Arc<tokio::sync::Mutex<()>>>> =
+        tokio::sync::Mutex::new(std::collections::HashMap::new());
+}
+
+/// Returns the in-process install lock for a given target cache dir, creating it
+/// on first use. Idle entries (only the map holds a reference) are pruned each
+/// call so the map stays bounded by the number of in-flight installs.
+async fn get_venv_install_lock(venv_p: &str) -> Arc<tokio::sync::Mutex<()>> {
+    let mut map = PY_INSTALL_LOCKS.lock().await;
+    map.retain(|_, v| Arc::strong_count(v) > 1);
+    map.entry(venv_p.to_string())
+        .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
+        .clone()
 }
 
 /// Spawn process of uv install
@@ -2021,7 +2374,10 @@ async fn spawn_uv_install(
             vars.push(("TRUSTED_HOST", host));
         }
         if *NATIVE_CERT {
-            vars.push(("UV_NATIVE_TLS", "true"));
+            vars.push(("UV_SYSTEM_CERTS", "true"));
+        }
+        if let Some(timeout) = UV_HTTP_TIMEOUT.as_ref() {
+            vars.push(("UV_HTTP_TIMEOUT", timeout.as_str()));
         }
 
         let _owner;
@@ -2095,6 +2451,9 @@ async fn spawn_uv_install(
             "--no-cache",
             // If we invoke uv pip install, then we want to overwrite existing data
             "--reinstall",
+            // Compile .py to .pyc at install time so imports are fast even
+            // through read-only nsjail mounts (no in-memory compilation per job).
+            "--compile-bytecode",
         ];
 
         if let Some(py_path) = py_path.as_ref() {
@@ -2123,6 +2482,9 @@ async fn spawn_uv_install(
         let mut envs = vec![("PATH", PATH_ENV.as_str())];
         envs.push(("HOME", HOME_ENV.as_str()));
         envs.push(("UV_INDEX_STRATEGY", uv_index_strategy));
+        if let Some(timeout) = UV_HTTP_TIMEOUT.as_ref() {
+            envs.push(("UV_HTTP_TIMEOUT", timeout.as_str()));
+        }
         if let Some(mirror) = uv_python_install_mirror.as_ref() {
             envs.push(("UV_PYTHON_INSTALL_MIRROR", mirror));
         }
@@ -2131,10 +2493,12 @@ async fn spawn_uv_install(
             command_args.extend(["--index-url", url]);
         }
         if let Some(host) = TRUSTED_HOST.as_ref() {
-            command_args.extend(["--trusted-host", &host]);
+            host.split_whitespace().for_each(|h| {
+                command_args.extend(["--trusted-host", h]);
+            });
         }
         if *NATIVE_CERT {
-            command_args.extend(["--native-tls"]);
+            command_args.extend(["--system-certs"]);
         }
         // TODO:
         // Track https://github.com/astral-sh/uv/issues/6715
@@ -2145,7 +2509,10 @@ async fn spawn_uv_install(
             envs.push(("SSL_CERT_FILE", cert_path));
         }
 
-        tracing::debug!("uv pip install command: {:?}", command_args);
+        tracing::debug!(
+            "uv pip install command: {:?}",
+            redact_index_urls(&command_args)
+        );
 
         #[cfg(unix)]
         {
@@ -2212,6 +2579,33 @@ async fn spawn_uv_install(
     }
 }
 
+/// First field (the path) of a wheel RECORD line. RECORD is CSV (PEP 376 /
+/// RFC 4180): a path containing a comma or a double quote is written quoted,
+/// with inner quotes doubled, so splitting on the first comma turns such an
+/// entry into a name that never exists on disk.
+fn record_first_field(line: &str) -> Option<String> {
+    let Some(quoted) = line.strip_prefix('"') else {
+        return line
+            .split(',')
+            .next()
+            .filter(|p| !p.is_empty())
+            .map(str::to_owned);
+    };
+    let mut field = String::new();
+    let mut chars = quoted.chars();
+    while let Some(c) = chars.next() {
+        if c != '"' {
+            field.push(c);
+        } else if chars.as_str().starts_with('"') {
+            chars.next();
+            field.push('"');
+        } else {
+            return Some(field).filter(|f| !f.is_empty());
+        }
+    }
+    None
+}
+
 /// Verify that every file listed in the wheel's RECORD exists on disk under
 /// `venv_p`. Used as a structural integrity check after both a successful
 /// `pull_from_tar` (object-store cache hit) and a successful local
@@ -2260,9 +2654,9 @@ async fn verify_wheel_record(venv_p: &str) -> Result<(), String> {
         if trimmed.is_empty() {
             continue;
         }
-        let rel_path = match trimmed.split(',').next() {
-            Some(p) if !p.is_empty() => p,
-            _ => continue,
+        let rel_path = match record_first_field(trimmed) {
+            Some(p) => p,
+            None => continue,
         };
         // Defensive: skip absolute paths or escaping entries — we only
         // validate package-relative files.
@@ -2271,7 +2665,7 @@ async fn verify_wheel_record(venv_p: &str) -> Result<(), String> {
         }
         let full = format!("{venv_p}/{rel_path}");
         if tokio::fs::metadata(&full).await.is_err() {
-            missing.push(rel_path.to_string());
+            missing.push(rel_path);
             // Bound error size in pathological cases (e.g. wholly empty dir).
             if missing.len() >= 10 {
                 missing.push("...".to_string());
@@ -2323,13 +2717,13 @@ pub async fn handle_python_reqs(
         instant: std::time::Instant,
         conn: &Connection,
     ) {
-        #[cfg(not(all(feature = "enterprise", feature = "parquet", unix)))]
+        #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
         {
             (s3_pull, s3_push) = (false, false);
         }
 
-        #[cfg(all(feature = "enterprise", feature = "parquet", unix))]
-        if OBJECT_STORE_SETTINGS.read().await.is_none() {
+        #[cfg(all(feature = "enterprise", feature = "parquet"))]
+        if get_cache_object_store().await.is_none() {
             (s3_pull, s3_push) = (false, false);
         }
 
@@ -2370,28 +2764,18 @@ pub async fn handle_python_reqs(
         job_id
     );
 
-    let pip_indexes = (
-        read_ee_registry_with_workspace_override(
-            PIP_EXTRA_INDEX_URL.read().await.clone(),
-            "pip_extra_index_url",
-            "pip extra index url",
-            job_id,
-            w_id,
-            conn,
-        )
-        .await
-        .map(handle_ephemeral_token),
-        read_ee_registry_with_workspace_override(
-            PIP_INDEX_URL.read().await.clone(),
-            "pip_index_url",
-            "pip index url",
-            job_id,
-            w_id,
-            conn,
-        )
-        .await
-        .map(handle_ephemeral_token),
-    );
+    let pip_indexes = PipIndexes::snapshot(w_id).await;
+    let ws_scoped = pip_indexes.ws_scoped;
+    let pip_indexes = pip_indexes.urls(job_id, w_id, conn).await;
+    // The wheel dir is shared by every workspace on the worker, and by every worker through
+    // the object store, under a name that says nothing of the index it was filled from. A
+    // workspace with its own registries gets its own, as its resolution cache does. The id
+    // is hashed: it is not restricted to characters safe in a file name.
+    let ws_dir_suffix = if ws_scoped {
+        format!("-ws-{}", &calculate_hash(w_id)[..16])
+    } else {
+        String::new()
+    };
 
     // Cached paths
     let mut req_with_penv: Vec<(String, String)> = vec![];
@@ -2400,20 +2784,77 @@ pub async fn handle_python_reqs(
     // Find out if there is already cached dependencies
     // If so, skip them
     let mut in_cache = vec![];
+    if requirements
+        .iter()
+        .any(|r| lockfile_line_has_continuation(r))
+    {
+        tracing::warn!(workspace_id = %w_id, job_id = %job_id, "lockfile continues entries across lines; the continued lines are dropped");
+        append_logs(
+            job_id,
+            w_id,
+            "\n[!] lockfile continues entries across lines and the continued lines are dropped: `--hash=` pins, extras and markers written that way do not apply\n".to_string(),
+            conn,
+        )
+        .await;
+    }
     for req in &requirements {
-        // Ignore python version annotation backed into lockfile
-        if req.starts_with('#') || req.starts_with('-') || req.trim().is_empty() {
+        let Some(req) = requirement_from_lockfile_line(req) else {
             continue;
-        }
+        };
         let py_prefix = &py_version.to_cache_dir(false);
 
         let venv_p = format!(
-            "{py_prefix}/{}",
+            "{py_prefix}/{}{ws_dir_suffix}",
             req.replace(' ', "").replace('/', "").replace(':', "")
         );
         if metadata(venv_p.clone() + "/.valid.windmill").await.is_ok() {
-            req_paths.push(venv_p);
-            in_cache.push(req.to_string());
+            // The .valid.windmill marker is written once at creation time, after
+            // verify_wheel_record passes on the install/pull paths. It is an empty
+            // file with no binding to the directory contents, so a file dropped
+            // out-of-band afterwards (disk-pressure eviction, interrupted tar
+            // extraction on a shared cache volume, or a corrupt entry that
+            // predates this worker) leaves the marker intact while the wheel is
+            // incomplete. Re-verify the RECORD once per process so such an entry
+            // is repaired rather than trusted; VERIFIED_VENVS makes every later
+            // reuse skip the scan and pay only the single stat above.
+            let already_verified = VERIFIED_VENVS.lock().await.contains(&venv_p);
+            let verify_res = if already_verified {
+                Ok(())
+            } else {
+                verify_wheel_record(&venv_p).await
+            };
+            match verify_res {
+                Ok(()) => {
+                    if !already_verified {
+                        VERIFIED_VENVS.lock().await.insert(venv_p.clone());
+                    }
+                    req_paths.push(venv_p);
+                    in_cache.push(req.to_string());
+                }
+                Err(verify_err) => {
+                    tracing::warn!(
+                        workspace_id = %w_id,
+                        job_id = %job_id,
+                        "Local cache for {venv_p} failed wheel RECORD verification, will reinstall: {verify_err}"
+                    );
+                    append_logs(
+                        &job_id,
+                        w_id,
+                        format!(
+                            "\n[!] cached wheel for {req} failed integrity check, reinstalling: {verify_err}\n"
+                        ),
+                        conn,
+                    )
+                    .await;
+                    if let Err(rm_err) = tokio::fs::remove_dir_all(&venv_p).await {
+                        tracing::warn!(
+                            workspace_id = %w_id,
+                            "could not remove broken cache dir {venv_p}: {rm_err}"
+                        );
+                    }
+                    req_with_penv.push((req.to_string(), venv_p));
+                }
+            }
         } else {
             // There is no valid or no wheel at all. Regardless of if there is content or not, we will overwrite it with --reinstall flag
             req_with_penv.push((req.to_string(), venv_p));
@@ -2583,7 +3024,7 @@ pub async fn handle_python_reqs(
     let mut handles = Vec::with_capacity(total_to_install);
     // let mem_peak_thread_safe = Arc::new(tokio::sync::Mutex::new(0));
 
-    #[cfg(all(feature = "enterprise", feature = "parquet", unix))]
+    #[cfg(all(feature = "enterprise", feature = "parquet"))]
     let is_not_pro = !matches!(get_license_plan().await, LicensePlan::Pro);
 
     let total_time = std::time::Instant::now();
@@ -2631,7 +3072,7 @@ pub async fn handle_python_reqs(
         let pids = pids.clone();
         let worker_dir = worker_dir.clone();
 
-        #[cfg(all(feature = "enterprise", feature = "parquet", unix))]
+        #[cfg(all(feature = "enterprise", feature = "parquet"))]
         let py_version = py_version.clone();
 
         handles.push(task::spawn(async move {
@@ -2649,9 +3090,100 @@ pub async fn handle_python_reqs(
             );
 
             let start = std::time::Instant::now();
-            #[cfg(all(feature = "enterprise", feature = "parquet", unix))]
+
+            // Lock the shared target dir (see PY_INSTALL_LOCKS). In-process lock
+            // first; only one task per dir then contends the cross-process file
+            // lock below. Both guards drop on every return path.
+            let venv_lock = get_venv_install_lock(&venv_p).await;
+            let _venv_guard = tokio::select! {
+                _ = kill_rx.recv() => {
+                    pids.lock().await.get_mut(i).and_then(|e| e.take());
+                    return Err(Error::from(anyhow::anyhow!(
+                        "install of {venv_p} canceled while waiting for venv lock"
+                    )));
+                }
+                guard = venv_lock.lock_owned() => guard,
+            };
+
+            // Cross-process advisory lock. Best-effort: if the filesystem doesn't
+            // support locking we log and proceed — verify_wheel_record + job retry
+            // still guard correctness, just without the dedup. Cross-platform
+            // (flock on unix, LockFileEx on windows) so agents sharing a wheel-cache
+            // dir on a Windows host serialize just as they do on unix.
+            let _venv_file_lock: Option<std::fs::File> = {
+                use fs4::fs_std::FileExt;
+                let lock_path = format!("{venv_p}.lock");
+                if let Some(parent) = std::path::Path::new(&lock_path).parent() {
+                    let _ = std::fs::create_dir_all(parent);
+                }
+                match std::fs::OpenOptions::new().create(true).write(true).open(&lock_path) {
+                    Ok(f) => {
+                        // Bounded wait: a holder that crashes releases the lock (the
+                        // OS drops it on handle close), but a live-but-stuck holder
+                        // (e.g. uv wedged on a hung mount) would otherwise block us
+                        // forever. After the cap, proceed degraded rather than hang —
+                        // verify_wheel_record + retry still guard correctness.
+                        const MAX_WAIT: std::time::Duration = std::time::Duration::from_secs(300);
+                        let waited_since = std::time::Instant::now();
+                        loop {
+                            match f.try_lock_exclusive() {
+                                Ok(true) => break Some(f),
+                                // Another holder has the lock.
+                                Ok(false) => {
+                                    if waited_since.elapsed() >= MAX_WAIT {
+                                        tracing::warn!(
+                                            workspace_id = %w_id,
+                                            "venv install lock {lock_path} still held after {}s, proceeding without cross-process install lock",
+                                            MAX_WAIT.as_secs()
+                                        );
+                                        break Some(f);
+                                    }
+                                    tokio::select! {
+                                        _ = kill_rx.recv() => {
+                                            pids.lock().await.get_mut(i).and_then(|e| e.take());
+                                            return Err(Error::from(anyhow::anyhow!(
+                                                "install of {venv_p} canceled while waiting for venv file lock"
+                                            )));
+                                        }
+                                        _ = tokio::time::sleep(std::time::Duration::from_millis(200)) => {}
+                                    }
+                                }
+                                Err(e) => {
+                                    tracing::warn!(
+                                        workspace_id = %w_id,
+                                        "could not lock {lock_path}, proceeding without cross-process install lock: {e}"
+                                    );
+                                    break Some(f);
+                                }
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            workspace_id = %w_id,
+                            "could not open install lock file {lock_path}, proceeding without cross-process install lock: {e}"
+                        );
+                        None
+                    }
+                }
+            };
+
+            // Double-checked: another job (this process or another sharing the
+            // mount) may have installed this exact dep while we waited on the
+            // locks. Reuse it instead of reinstalling.
+            if metadata(format!("{venv_p}/.valid.windmill")).await.is_ok() {
+                print_success(
+                    false, false, &job_id, &w_id, &req, req_tl, counter_arc,
+                    total_to_install, start, &conn,
+                )
+                .await;
+                pids.lock().await.get_mut(i).and_then(|e| e.take());
+                return Ok(());
+            }
+
+            #[cfg(all(feature = "enterprise", feature = "parquet"))]
             if is_not_pro {
-                if let Some(os) = windmill_object_store::get_object_store().await {
+                if let Some(os) = windmill_object_store::get_cache_object_store().await {
                     tokio::select! {
                         // Cancel was called on the job
                         _ = kill_rx.recv() => return Err(Error::from(anyhow::anyhow!("S3 pull was canceled"))),
@@ -2768,7 +3300,11 @@ pub async fn handle_python_reqs(
                     "failed to get PID for python installation process: {}",
                     &req
                   )))
-                  .and_then(|pid| write_file(&format!("/proc/{pid}"), "oom_score_adj", "1000"))
+                  .and_then(|pid| write_file(
+                      &format!("/proc/{pid}"),
+                      "oom_score_adj",
+                      &windmill_common::worker::JOB_OOM_SCORE_ADJ.to_string(),
+                  ))
                 {
                   tracing::error!(
                       req = %req,
@@ -2831,10 +3367,10 @@ pub async fn handle_python_reqs(
                 }
             };
 
-            #[cfg(all(feature = "enterprise", feature = "parquet", unix))]
+            #[cfg(all(feature = "enterprise", feature = "parquet"))]
             let s3_push = is_not_pro;
 
-            #[cfg(not(all(feature = "enterprise", feature = "parquet", unix)))]
+            #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
             let s3_push = false;
 
             if is_sandboxing_enabled() {
@@ -2888,7 +3424,7 @@ pub async fn handle_python_reqs(
             )
             .await;
 
-            #[cfg(all(feature = "enterprise", feature = "parquet", unix))]
+            #[cfg(all(feature = "enterprise", feature = "parquet"))]
             if s3_push {
                 // Send to upload channel for sequential processing
                 let upload_task = PiptarUploadTask {
@@ -3025,6 +3561,37 @@ This is not normal behavior, please make sure all workers have enough memory.\n
     };
 }
 
+/// Python helper running what an `async def` main or preprocessor returns.
+/// One loop per process: a dedicated worker's module-level async clients and
+/// locks are bound to the loop they were first used on, so `asyncio.run`'s
+/// loop-per-call would break them from the second job on. A loop the script
+/// set while importing (`asyncio.set_event_loop`) is reused. asyncio is
+/// imported lazily so sync jobs don't pay its import time.
+/// `_defines` reads the class dicts instead of calling `hasattr`: a result is
+/// arbitrary user data, and `hasattr` runs its `__getattr__` (or its
+/// metaclass's), which may raise something other than AttributeError or
+/// answer every name.
+const PY_AWAIT_HELPER: &str = r#"_loop = None
+def _defines(r, name):
+    return any(name in vars(c) for c in type(r).__mro__)
+def _await(r):
+    global _loop
+    if not _defines(r, '__await__'):
+        return r
+    import asyncio
+    if _loop is None or _loop.is_closed():
+        import warnings
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter('ignore', DeprecationWarning)
+                _loop = asyncio.get_event_loop()
+            if _loop.is_closed():
+                raise RuntimeError
+        except RuntimeError:
+            _loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(_loop)
+    return _loop.run_until_complete(r)"#;
+
 /// Python function body for `res_to_json(res, typ)`.
 /// Handles DataFrame, bytes, dict coercion + JSON serialization.
 fn python_res_to_json_body(postprocessor: &str) -> String {
@@ -3076,7 +3643,7 @@ pub async fn start_worker(
     script_path: &str,
     token: &str,
     job_completed_tx: JobCompletedSender,
-    jobs_rx: tokio::sync::mpsc::Receiver<DedicatedWorkerJob>,
+    jobs_rx: &mut tokio::sync::mpsc::Receiver<DedicatedWorkerJob>,
     killpill_rx: tokio::sync::broadcast::Receiver<()>,
     client: windmill_common::client::AuthedClient,
     concurrency_semaphore: Option<std::sync::Arc<tokio::sync::Semaphore>>,
@@ -3179,7 +3746,10 @@ pub async fn start_worker(
     )
     .await;
 
-    let mut proc_envs = HashMap::new();
+    let mut proc_envs: HashMap<String, String> = PYTHON_UTF8_ENVS
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
     let additional_python_paths_folders = additional_python_paths.iter().join(":");
     proc_envs.insert("PYTHONPATH".to_string(), additional_python_paths_folders);
     proc_envs.insert("PATH".to_string(), PATH_ENV.to_string());
@@ -3233,6 +3803,25 @@ pub async fn start_worker(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn module_files_are_mounted_next_to_the_main_script() {
+        let module = |content: &str| windmill_common::scripts::ScriptModule {
+            content: content.to_string(),
+            language: windmill_common::scripts::ScriptLang::Python3,
+            lock: None,
+        };
+        let modules = HashMap::from([
+            ("lib/util.py".to_string(), module("")),
+            ("../escape.py".to_string(), module("")),
+            ("q\"uote.py".to_string(), module("")),
+        ]);
+        let mounts = super::python_module_mounts("/jobs/1", "u/admin", Some(&modules));
+        assert!(mounts.contains("src: \"/jobs/1/u/admin/lib/util.py\""), "{mounts}");
+        assert!(mounts.contains("dst: \"/tmp/u/admin/lib/util.py\""), "{mounts}");
+        assert!(!mounts.contains("escape"), "{mounts}");
+        assert!(mounts.contains("q\\\"uote.py"), "{mounts}");
+    }
+
     use super::*;
 
     #[test]
@@ -3284,6 +3873,24 @@ mod tests {
     }
 
     #[test]
+    fn test_compute_python_module_dir_keyword_segment() {
+        // A folder whose name is a Python keyword would otherwise produce an
+        // invalid `from f.in.x import ...`; it is underscore-prefixed.
+        assert_eq!(compute_python_module_dir("f/in/script"), "f/_in");
+    }
+
+    #[test]
+    fn test_compute_python_module_dir_neutralizes_traversal() {
+        // A Preview path skips the DB `proper_id` CHECK, so it can carry `..`.
+        // `..`/`.` segments must be neutralized so the dir stays inside job_dir.
+        let dirs = compute_python_module_dir("u/x/../../../../tmp/evil/payload");
+        assert!(!dirs.split('/').any(|s| s == ".." || s == "."));
+        assert_eq!(dirs, "u/x/_/_/_/_/tmp/evil");
+        // The `@`->`.` rewrite must not be able to synthesize a `..` segment.
+        assert_eq!(compute_python_module_dir("u/@./script"), "u/_");
+    }
+
+    #[test]
     fn test_compute_py_codegen_basic_args() {
         let code = "def main(x: str, y: int):\n    return x\n";
         let cg = compute_py_codegen(code, "f/test/script");
@@ -3292,6 +3899,22 @@ mod tests {
         assert!(cg.transforms.is_empty());
         assert!(cg.pre_spread.is_none());
         assert_eq!(cg.module_name, "script");
+    }
+
+    #[test]
+    fn test_compute_py_codegen_keyword_step_id() {
+        // Regression for a flow inline step whose auto-assigned id is a Python
+        // keyword (e.g. `in`): the generated wrapper must not emit
+        // `from pkg import in as inner_script` (SyntaxError). The module name is
+        // underscore-prefixed, matching the digit-leading guard.
+        let code = "def main():\n    return 1\n";
+        let cg = compute_py_codegen(code, "u/admin/myflow/in");
+        assert_eq!(cg.module_name, "_in");
+        assert_eq!(cg.module_dir_dot, "u.admin.myflow");
+
+        // Non-keyword ids are unaffected.
+        let cg2 = compute_py_codegen(code, "u/admin/myflow/step");
+        assert_eq!(cg2.module_name, "step");
     }
 
     #[test]
@@ -3356,4 +3979,233 @@ mod tests {
         assert_eq!(kept, lines(&["# py: 3.11", "requests==2.0"]));
         assert_eq!(ignored, lines(&["pyyaml==6.0"]));
     }
+
+    /// Materialize a fake installed wheel: every file in `files` is created, and
+    /// `record_entries` is written verbatim as the RECORD (so a test can list a
+    /// path in RECORD without creating it, to simulate out-of-band loss).
+    fn write_fake_wheel(root: &std::path::Path, files: &[&str], record_entries: &[&str]) {
+        for f in files {
+            let full = root.join(f);
+            std::fs::create_dir_all(full.parent().unwrap()).unwrap();
+            std::fs::write(full, b"x").unwrap();
+        }
+        let dist_info = root.join("pkg-1.0.0.dist-info");
+        std::fs::create_dir_all(&dist_info).unwrap();
+        std::fs::write(dist_info.join("RECORD"), record_entries.join("\n") + "\n").unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_verify_wheel_record_ok_when_all_present() {
+        let dir = tempfile::tempdir().unwrap();
+        write_fake_wheel(
+            dir.path(),
+            &["pkg/__init__.py", "pkg/mod.py"],
+            &[
+                "pkg/__init__.py,sha256=aaa,1",
+                "pkg/mod.py,sha256=bbb,1",
+                "pkg-1.0.0.dist-info/RECORD,,",
+            ],
+        );
+        assert!(verify_wheel_record(dir.path().to_str().unwrap())
+            .await
+            .is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_verify_wheel_record_err_when_file_missing() {
+        let dir = tempfile::tempdir().unwrap();
+        // RECORD lists pkg/mod.py but we never create it: the exact failure mode
+        // the customer hit (wmill/s3_reader.py present in RECORD, gone on disk).
+        write_fake_wheel(
+            dir.path(),
+            &["pkg/__init__.py"],
+            &[
+                "pkg/__init__.py,sha256=aaa,1",
+                "pkg/mod.py,sha256=bbb,1",
+                "pkg-1.0.0.dist-info/RECORD,,",
+            ],
+        );
+        let err = verify_wheel_record(dir.path().to_str().unwrap())
+            .await
+            .unwrap_err();
+        assert!(err.contains("pkg/mod.py"), "unexpected error: {err}");
+    }
+
+    #[tokio::test]
+    async fn test_verify_wheel_record_err_when_no_dist_info() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("loose.py"), b"x").unwrap();
+        assert!(verify_wheel_record(dir.path().to_str().unwrap())
+            .await
+            .is_err());
+    }
+
+    #[tokio::test]
+    async fn test_verify_wheel_record_skips_absolute_and_escaping_entries() {
+        let dir = tempfile::tempdir().unwrap();
+        // Absolute and `..` RECORD entries are not package-relative and must be
+        // skipped rather than reported missing.
+        write_fake_wheel(
+            dir.path(),
+            &["pkg/__init__.py"],
+            &[
+                "pkg/__init__.py,sha256=aaa,1",
+                "/etc/passwd,sha256=ccc,1",
+                "../outside.py,sha256=ddd,1",
+                "pkg-1.0.0.dist-info/RECORD,,",
+            ],
+        );
+        assert!(verify_wheel_record(dir.path().to_str().unwrap())
+            .await
+            .is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_verify_wheel_record_accepts_csv_quoted_path() {
+        let dir = tempfile::tempdir().unwrap();
+        // A path containing a comma is CSV-quoted in RECORD (wcwidth 0.8.3
+        // ships `wcwidth/textwrap.py,cover`). Splitting on the first comma
+        // looked for `"pkg/textwrap.py` and rejected a complete install.
+        write_fake_wheel(
+            dir.path(),
+            &["pkg/textwrap.py", "pkg/textwrap.py,cover"],
+            &[
+                "pkg/textwrap.py,sha256=aaa,1",
+                "\"pkg/textwrap.py,cover\",sha256=bbb,1",
+                "pkg-1.0.0.dist-info/RECORD,,",
+            ],
+        );
+        assert!(verify_wheel_record(dir.path().to_str().unwrap())
+            .await
+            .is_ok());
+    }
+
+    #[test]
+    fn test_record_first_field_unquotes_rfc4180() {
+        assert_eq!(
+            record_first_field("pkg/a.py,sha256=x,1").as_deref(),
+            Some("pkg/a.py")
+        );
+        assert_eq!(
+            record_first_field("\"pkg/a.py,cover\",sha256=x,1").as_deref(),
+            Some("pkg/a.py,cover")
+        );
+        assert_eq!(
+            record_first_field("\"pkg/say \"\"hi\"\".py\",sha256=x,1").as_deref(),
+            Some("pkg/say \"hi\".py")
+        );
+        assert_eq!(record_first_field(",,"), None);
+        assert_eq!(record_first_field("\"unterminated,sha256=x,1"), None);
+    }
+
+    // Regression tests for the concurrent-install guard. Two jobs installing the
+    // same uncached dep into the shared `venv_p` used to race uv's `--reinstall`,
+    // corrupting the on-disk wheel and failing with "Env installation did not
+    // succeed". The guard serializes those installs.
+
+    #[tokio::test]
+    async fn test_venv_install_lock_serializes_same_path() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        // Same target path => one shared lock => no two tasks install at once.
+        let active = Arc::new(AtomicUsize::new(0));
+        let max_seen = Arc::new(AtomicUsize::new(0));
+        let mut handles = vec![];
+        for _ in 0..8 {
+            let active = active.clone();
+            let max_seen = max_seen.clone();
+            handles.push(tokio::spawn(async move {
+                let lock = get_venv_install_lock("/cache/py/3.11/samedep==1.0").await;
+                let _g = lock.lock_owned().await;
+                let cur = active.fetch_add(1, Ordering::SeqCst) + 1;
+                max_seen.fetch_max(cur, Ordering::SeqCst);
+                // Yield so any concurrency would be observed by another task.
+                tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+                active.fetch_sub(1, Ordering::SeqCst);
+            }));
+        }
+        for h in handles {
+            h.await.unwrap();
+        }
+        assert_eq!(
+            max_seen.load(Ordering::SeqCst),
+            1,
+            "installs into the same target dir must be serialized"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_venv_install_lock_distinct_paths_are_independent() {
+        // Different target paths get different locks and never block each other.
+        let a = get_venv_install_lock("/cache/py/3.11/depA==1.0").await;
+        let b = get_venv_install_lock("/cache/py/3.11/depB==1.0").await;
+        let _ga = a.lock_owned().await;
+        // Holding depA's lock must not prevent acquiring depB's.
+        assert!(
+            b.try_lock().is_ok(),
+            "distinct deps must install in parallel"
+        );
+        // Same path returns the same underlying lock.
+        let a2 = get_venv_install_lock("/cache/py/3.11/depA==1.0").await;
+        assert!(
+            a2.try_lock().is_err(),
+            "same target dir must map to the same lock"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_venv_file_lock_excludes_across_descriptions() {
+        // The cross-process layer: an advisory lock on a sibling `.lock` excludes a
+        // second independent open file handle (i.e. another worker process) while
+        // held, and frees it on close. Mirrors the loop in handle_python_reqs and
+        // must hold on every platform (flock on unix, LockFileEx on windows) — a
+        // Windows host running several agents against one wheel cache relies on it.
+        use fs4::fs_std::FileExt;
+
+        let dir = std::env::temp_dir().join("wm_venv_lock_test");
+        std::fs::create_dir_all(&dir).unwrap();
+        let lock_path = dir.join("dep==1.0.lock");
+
+        let f1 = std::fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .open(&lock_path)
+            .unwrap();
+        assert!(
+            f1.try_lock_exclusive().unwrap(),
+            "first holder must acquire the lock"
+        );
+
+        // A second handle (stand-in for another process) cannot take it.
+        let f2 = std::fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .open(&lock_path)
+            .unwrap();
+        assert!(
+            !f2.try_lock_exclusive().unwrap(),
+            "a second holder must be blocked while the lock is held"
+        );
+
+        // Releasing the first lets the second acquire it.
+        drop(f1);
+        assert!(
+            f2.try_lock_exclusive().unwrap(),
+            "lock must be acquirable once the holder releases it"
+        );
+
+        drop(f2);
+        let _ = std::fs::remove_file(&lock_path);
+    }
+}
+
+/// Index URLs routinely embed `user:token@`, so the value after an index flag is not logged.
+fn redact_index_urls<'a>(args: &[&'a str]) -> Vec<&'a str> {
+    let mut redact_next = false;
+    args.iter()
+        .map(|a| {
+            let out = if redact_next { "<redacted>" } else { a };
+            redact_next = matches!(*a, "--index-url" | "--extra-index-url");
+            out
+        })
+        .collect()
 }

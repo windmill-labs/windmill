@@ -1,18 +1,17 @@
 <script lang="ts">
 	import { run } from 'svelte/legacy'
+	import { onDestroy } from 'svelte'
 
 	import { enterpriseLicense, userStore, workspaceStore, awarenessStore } from '$lib/stores'
 
-	import { WebsocketProvider } from 'y-websocket'
 	import * as Y from 'yjs'
 	import type { Awareness } from 'y-protocols/awareness'
 	import { page } from '$app/stores'
 	import { slide } from 'svelte/transition'
-	import { buildWsUrl } from '$lib/wsUrl'
-	import { signMultiplayerRequest } from '$lib/components/debug'
+	import { MultiplayerConnection } from '$lib/multiplayerConnection'
 
 	let awareness: Awareness | undefined = $state(undefined)
-	let wsProvider: WebsocketProvider | undefined = undefined
+	let connection: MultiplayerConnection | undefined = undefined
 
 	let connected = $state(false)
 
@@ -23,34 +22,56 @@
 			url: $page.url.pathname
 		})
 	}
+	// Bumped on every disconnect, so a connection that finishes opening after the
+	// workspace changed or the menu unmounted is dropped instead of reconnecting forever.
+	let connectGeneration = 0
+	function disconnectWorkspace() {
+		connectGeneration++
+		if (connection) {
+			connection.destroy()
+			connection = undefined
+		}
+		connected = false
+		awareness = undefined
+	}
 	async function connectWorkspace(workspace: string) {
-		let token: string | undefined
+		disconnectWorkspace()
+		const generation = connectGeneration
+
+		let opened: MultiplayerConnection
 		try {
-			token = await signMultiplayerRequest(workspace)
+			opened = await MultiplayerConnection.open(workspace, workspace, new Y.Doc())
 		} catch (e) {
 			console.error('Failed to sign multiplayer request:', e)
 			return
 		}
-
-		const ydoc = new Y.Doc()
-		wsProvider = new WebsocketProvider(buildWsUrl('/ws_mp/'), workspace, ydoc, {
-			params: { token }
-		})
-		wsProvider.on('sync', (isSynced: boolean) => {
+		if (generation !== connectGeneration) {
+			opened.destroy()
+			return
+		}
+		connection = opened
+		opened.provider.on('sync', (isSynced: boolean) => {
 			connected = true
 		})
 
-		awareness = wsProvider.awareness
+		awareness = opened.provider.awareness
 
 		updateLocalState()
 
 		function setPeers() {
 			if (!awareness) return
-			$awarenessStore = Object.fromEntries(
-				Array.from(awareness.getStates().values())
-					.filter((x) => x.name)
-					.map((x) => [x.name, x.url])
-			)
+			const states = Array.from(awareness.getStates().values()).filter((x) => x.name)
+			const peerMap: Record<string, string> = {}
+			for (const state of states) {
+				if (state.name === $userStore?.username) {
+					// For current user, always use this tab's URL to avoid multi-tab flickering
+					peerMap[state.name] = $page.url.pathname
+				} else if (!Object.prototype.hasOwnProperty.call(peerMap, state.name)) {
+					// For other users, keep first seen URL per username (stable dedup)
+					peerMap[state.name] = state.url
+				}
+			}
+			$awarenessStore = peerMap
 		}
 
 		setPeers()
@@ -64,6 +85,10 @@
 	})
 	run(() => {
 		$enterpriseLicense && $workspaceStore && connectWorkspace($workspaceStore)
+	})
+
+	onDestroy(() => {
+		disconnectWorkspace()
 	})
 
 	let peers = $derived(
