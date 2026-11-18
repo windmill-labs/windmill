@@ -34,6 +34,7 @@
 					flowJobs: string[]
 					selected: number
 					flowJobsSuccess: (boolean | undefined)[]
+					flowJobsLabels?: (string | null)[]
 					selectedManually: boolean | undefined
 			  }
 			| undefined
@@ -179,6 +180,7 @@
 					id={mod.id}
 					{onSelectedIteration}
 					flowJobsSuccess={flowJobs.flowJobsSuccess}
+					flowJobsLabels={flowJobs.flowJobsLabels}
 					flowJobs={flowJobs.flowJobs}
 					selected={flowJobs.selected}
 					selectedManually={flowJobs.selectedManually}

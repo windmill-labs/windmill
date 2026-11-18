@@ -190,6 +190,7 @@ struct UntaggedFlowStatusModule {
     flow_jobs: Option<Vec<Uuid>>,
     flow_jobs_success: Option<Vec<Option<bool>>>,
     flow_jobs_duration: Option<FlowJobsDuration>,
+    flow_jobs_labels: Option<Vec<Option<String>>>,
     branch_chosen: Option<BranchChosen>,
     branchall: Option<BranchAllStatus>,
     parallel: Option<bool>,
@@ -274,6 +275,8 @@ pub enum FlowStatusModule {
         #[serde(skip_serializing_if = "Option::is_none")]
         flow_jobs_duration: Option<FlowJobsDuration>,
         #[serde(skip_serializing_if = "Option::is_none")]
+        flow_jobs_labels: Option<Vec<Option<String>>>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         branch_chosen: Option<BranchChosen>,
         #[serde(skip_serializing_if = "Option::is_none")]
         branchall: Option<BranchAllStatus>,
@@ -296,6 +299,8 @@ pub enum FlowStatusModule {
         #[serde(skip_serializing_if = "Option::is_none")]
         flow_jobs_duration: Option<FlowJobsDuration>,
         #[serde(skip_serializing_if = "Option::is_none")]
+        flow_jobs_labels: Option<Vec<Option<String>>>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         branch_chosen: Option<BranchChosen>,
         #[serde(default)]
         #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -317,6 +322,8 @@ pub enum FlowStatusModule {
         flow_jobs_success: Option<Vec<Option<bool>>>,
         #[serde(skip_serializing_if = "Option::is_none")]
         flow_jobs_duration: Option<FlowJobsDuration>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        flow_jobs_labels: Option<Vec<Option<String>>>,
         #[serde(skip_serializing_if = "Option::is_none")]
         branch_chosen: Option<BranchChosen>,
         #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -372,6 +379,7 @@ impl<'de> Deserialize<'de> for FlowStatusModule {
                 flow_jobs: untagged.flow_jobs,
                 flow_jobs_success: untagged.flow_jobs_success,
                 flow_jobs_duration: untagged.flow_jobs_duration,
+                flow_jobs_labels: untagged.flow_jobs_labels,
                 branch_chosen: untagged.branch_chosen,
                 branchall: untagged.branchall,
                 parallel: untagged.parallel.unwrap_or(false),
@@ -390,6 +398,7 @@ impl<'de> Deserialize<'de> for FlowStatusModule {
                 flow_jobs: untagged.flow_jobs,
                 flow_jobs_success: untagged.flow_jobs_success,
                 flow_jobs_duration: untagged.flow_jobs_duration,
+                flow_jobs_labels: untagged.flow_jobs_labels,
                 branch_chosen: untagged.branch_chosen,
                 approvers: untagged.approvers.unwrap_or_default(),
                 failed_retries: untagged.failed_retries.unwrap_or_default(),
@@ -407,6 +416,7 @@ impl<'de> Deserialize<'de> for FlowStatusModule {
                 flow_jobs: untagged.flow_jobs,
                 flow_jobs_success: untagged.flow_jobs_success,
                 flow_jobs_duration: untagged.flow_jobs_duration,
+                flow_jobs_labels: untagged.flow_jobs_labels,
                 branch_chosen: untagged.branch_chosen,
                 failed_retries: untagged.failed_retries.unwrap_or_default(),
                 agent_actions: untagged.agent_actions,
@@ -483,6 +493,15 @@ impl FlowStatusModule {
             FlowStatusModule::InProgress { flow_jobs_success, .. } => flow_jobs_success.clone(),
             FlowStatusModule::Success { flow_jobs_success, .. } => flow_jobs_success.clone(),
             FlowStatusModule::Failure { flow_jobs_success, .. } => flow_jobs_success.clone(),
+            _ => None,
+        }
+    }
+
+    pub fn flow_jobs_labels(&self) -> Option<Vec<Option<String>>> {
+        match self {
+            FlowStatusModule::InProgress { flow_jobs_labels, .. } => flow_jobs_labels.clone(),
+            FlowStatusModule::Success { flow_jobs_labels, .. } => flow_jobs_labels.clone(),
+            FlowStatusModule::Failure { flow_jobs_labels, .. } => flow_jobs_labels.clone(),
             _ => None,
         }
     }

@@ -12,7 +12,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crate::common::{cached_result_path, get_root_job_id, save_in_cache, transform_json};
-use crate::js_eval::{eval_timeout, IdContext};
+use crate::js_eval::{eval_timeout, eval_within, IdContext};
 use crate::worker_utils::get_tag_and_concurrency;
 use crate::{
     JobCompletedSender, PreviousResult, SameWorkerSender, SendResultPayload, StepFailureKind,
@@ -1123,6 +1123,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                              job: job_id_for_status.clone(),
                              flow_jobs: Some(jobs.clone()),
                              flow_jobs_success: flow_jobs_success.clone(),
+                             flow_jobs_labels: module_status.flow_jobs_labels(),
                              flow_jobs_duration: flow_jobs_duration.clone(),
                              branch_chosen: None,
                              approvers: vec![],
@@ -1138,6 +1139,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                              job: job_id_for_status.clone(),
                              flow_jobs: Some(jobs.clone()),
                              flow_jobs_success: flow_jobs_success.clone(),
+                             flow_jobs_labels: module_status.flow_jobs_labels(),
                              flow_jobs_duration: flow_jobs_duration.clone(),
                              branch_chosen: None,
                              failed_retries: vec![],
@@ -1376,6 +1378,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                             job: job_id_for_status.clone(),
                             flow_jobs,
                             flow_jobs_success,
+                            flow_jobs_labels: module_status.flow_jobs_labels(),
                             flow_jobs_duration,
                             branch_chosen,
                             approvers: vec![],
@@ -1424,6 +1427,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                             job: job_id_for_status.clone(),
                             flow_jobs,
                             flow_jobs_success,
+                            flow_jobs_labels: module_status.flow_jobs_labels(),
                             flow_jobs_duration,
                             branch_chosen,
                             failed_retries: old_status.retry.failed_jobs.clone(),
@@ -3918,6 +3922,7 @@ async fn push_next_flow_job(
             job: Uuid::nil(),
             flow_jobs: None,
             flow_jobs_success: None,
+            flow_jobs_labels: None,
             flow_jobs_duration: None,
             branch_chosen: None,
             failed_retries: vec![],
@@ -4780,6 +4785,7 @@ async fn push_next_flow_job(
                     } else {
                         Some(vec![])
                     },
+                    flow_jobs_labels: None,
                     flow_jobs_duration: if branch_chosen.is_some() {
                         None
                     } else {
@@ -4901,6 +4907,43 @@ async fn push_next_flow_job(
             .warn_after_seconds(3)
             .await?;
 
+    // Evaluated before the push transaction opens, so a slow label never holds it.
+    let (has_iteration_label, mut iteration_labels) = match (&next_status, args.as_ref()) {
+        (NextStatus::NextLoopIteration { next, .. }, Ok(flow_args)) => {
+            match &next.iteration_label {
+                Some(label) => {
+                    let iters = vec![to_raw_value(&next.new_args)];
+                    let ctx = get_transform_context(&flow_job, "", &status);
+                    let labels =
+                        eval_iteration_labels(label, iters, flow_args, flow_env, client, &ctx)
+                            .await;
+                    (true, labels)
+                }
+                None => (false, vec![]),
+            }
+        }
+        (
+            NextStatus::AllFlowJobs {
+                iteration_label: Some(label),
+                iterator: Some(FlowIterator { itered: Some(itered), .. }),
+                ..
+            },
+            Ok(flow_args),
+        ) => {
+            let iters = itered
+                .iter()
+                .take(len)
+                .enumerate()
+                .map(|(i, v)| to_raw_value(&json!({ "index": i as i32, "value": v })))
+                .collect();
+            let ctx = get_transform_context(&flow_job, "", &status);
+            let labels =
+                eval_iteration_labels(label, iters, flow_args, flow_env, client, &ctx).await;
+            (true, labels)
+        }
+        _ => (false, vec![]),
+    };
+
     let mut tx = db.begin().warn_after_seconds(3).await?;
     let nargs = args.as_ref();
     for (i, mut payload_tag) in job_payloads.into_iter().enumerate() {
@@ -4963,10 +5006,10 @@ async fn push_next_flow_job(
                 insert_iter_arg(&mut args, "iter".to_string(), to_raw_value(new_args));
 
                 args.insert("iter".to_string(), to_raw_value(new_args));
+                let args = Marc::new(args);
                 if let Some(input_transforms) = simple_input_transforms {
                     //previous id is none because we do not want to use previous id if we are in a for loop
                     let ctx = get_transform_context(&flow_job, "", &status);
-                    let args = Marc::new(args);
                     step_flow_input = args.clone();
                     let ti = transform_input(
                         args,
@@ -4999,7 +5042,7 @@ async fn push_next_flow_job(
                         Err(&me)
                     }
                 } else {
-                    marc = Marc::new(args);
+                    marc = args;
                     Ok(&marc)
                 }
             }
@@ -5007,6 +5050,7 @@ async fn push_next_flow_job(
                 branchall: None,
                 iterator: Some(FlowIterator { itered, .. }),
                 simple_input_transforms,
+                ..
             } => {
                 if let Ok(args) = args.as_ref() {
                     let Some(itered) = itered else {
@@ -5024,10 +5068,11 @@ async fn push_next_flow_job(
                         "iter".to_string(),
                         to_raw_value(&json!({ "index": i as i32, "value": itered[i]})),
                     );
+                    let hm = Marc::new(hm);
                     if let Some(input_transforms) = simple_input_transforms {
                         let ctx = get_transform_context(&flow_job, &previous_id, &status);
                         let ti = transform_input(
-                            Marc::new(hm),
+                            hm,
                             flow_env,
                             env_refs,
                             false,
@@ -5056,7 +5101,7 @@ async fn push_next_flow_job(
                             Err(&me)
                         }
                     } else {
-                        marc = Marc::new(hm);
+                        marc = hm;
                         Ok(&marc)
                     }
                 } else {
@@ -5501,11 +5546,21 @@ async fn push_next_flow_job(
                     while_loop,
                     mut flow_jobs_success,
                     mut flow_jobs_duration,
+                    flow_jobs_labels,
                     ..
                 },
             ..
         } => {
             let uuid = one_uuid?;
+
+            let flow_jobs_labels = if has_iteration_label {
+                let mut labels = flow_jobs_labels.unwrap_or_default();
+                labels.resize(flow_jobs.len(), None);
+                labels.push(iteration_labels.pop().flatten());
+                Some(labels)
+            } else {
+                flow_jobs_labels
+            };
 
             flow_jobs.push(uuid);
 
@@ -5530,6 +5585,7 @@ async fn push_next_flow_job(
                 flow_jobs: Some(flow_jobs),
                 flow_jobs_success,
                 flow_jobs_duration,
+                flow_jobs_labels,
                 branch_chosen: None,
                 branchall: None,
                 id: status_module.id(),
@@ -5554,6 +5610,7 @@ async fn push_next_flow_job(
                 flow_jobs_success: Some(vec![None; uuids.len()]),
                 flow_jobs: Some(uuids.clone()),
                 flow_jobs_duration: Some(FlowJobsDuration::new(uuids.len())),
+                flow_jobs_labels: has_iteration_label.then_some(iteration_labels),
                 branch_chosen: None,
                 branchall,
                 id: status_module.id(),
@@ -5584,6 +5641,7 @@ async fn push_next_flow_job(
                 iterator: None,
                 flow_jobs: Some(flow_jobs),
                 flow_jobs_success,
+                flow_jobs_labels: None,
                 flow_jobs_duration,
                 branch_chosen: None,
                 branchall: Some(status),
@@ -5601,6 +5659,7 @@ async fn push_next_flow_job(
             iterator: None,
             flow_jobs: None,
             flow_jobs_success: None,
+            flow_jobs_labels: None,
             flow_jobs_duration: None,
             branch_chosen: Some(branch),
             branchall: None,
@@ -5814,6 +5873,8 @@ struct ForloopNextIteration {
     flow_jobs: Vec<Uuid>,
     flow_jobs_success: Option<Vec<Option<bool>>>,
     flow_jobs_duration: Option<FlowJobsDuration>,
+    flow_jobs_labels: Option<Vec<Option<String>>>,
+    iteration_label: Option<InputTransform>,
     new_args: Iter,
     while_loop: bool,
 }
@@ -5846,6 +5907,7 @@ enum NextStatus {
         branchall: Option<BranchAllStatus>,
         iterator: Option<FlowIterator>,
         simple_input_transforms: Option<HashMap<String, InputTransform>>,
+        iteration_label: Option<InputTransform>,
     },
 }
 
@@ -6173,6 +6235,8 @@ async fn compute_next_flow_transform(
                     flow_jobs: flow_jobs,
                     flow_jobs_success: flow_jobs_success,
                     flow_jobs_duration: flow_jobs_duration,
+                    flow_jobs_labels: None,
+                    iteration_label: None,
                     new_args: Iter {
                         index: next_loop_idx as i32,
                         value: windmill_common::worker::to_raw_value(&next_loop_idx),
@@ -6192,7 +6256,13 @@ async fn compute_next_flow_transform(
         }
         /* forloop modules are expected set `iter: { value: Value, index: usize }` as job arguments */
         FlowModuleValue::ForloopFlow {
-            modules, modules_node, iterator, parallel, squash, ..
+            modules,
+            modules_node,
+            iterator,
+            parallel,
+            squash,
+            iteration_label,
+            ..
         } => {
             // if it's a simple single step flow, we will collapse it as an optimization and need to pass flow_input as an arg
             let is_simple = !matches!(flow_job.kind, JobKind::FlowPreview)
@@ -6232,7 +6302,8 @@ async fn compute_next_flow_transform(
                 ForLoopStatus::EmptyIterator => {
                     Ok(NextFlowTransform::EmptyInnerFlows { branch_chosen: None })
                 }
-                ForLoopStatus::NextIteration(ns) => {
+                ForLoopStatus::NextIteration(mut ns) => {
+                    ns.iteration_label = iteration_label;
                     let start_runners = ns.index == 0 && squash.unwrap_or(false);
                     next_loop_iteration(
                         flow,
@@ -6298,6 +6369,7 @@ async fn compute_next_flow_transform(
                                 itered_len: Some(itered_len),
                                 itered: Some(itered),
                             }),
+                            iteration_label,
                             // we removed the is_simple_case for simple_input_transforms
                             // if is_simple {
                             //     match value {
@@ -6476,6 +6548,7 @@ async fn compute_next_flow_transform(
                                     branchall: Some(BranchAllStatus { branch: 0, len }),
                                     iterator: None,
                                     simple_input_transforms: None,
+                                    iteration_label: None,
                                 },
                             ));
                         } else {
@@ -6626,6 +6699,95 @@ async fn next_loop_iteration(
     ))
 }
 
+const ITERATION_LABEL_MAX_CHARS: usize = 100;
+const ITERATION_LABEL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
+const ITERATION_LABELS_BUDGET: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// One label per entry of `iters` (each an `iter` value). Labels are display-only: one that
+/// throws or yields nothing is `None`. Labelling one push is bounded as a whole, and the first
+/// label that runs out of time leaves the rest `None`, so a slow or hanging expression delays a
+/// parallel loop by at most one budget rather than once per item.
+async fn eval_iteration_labels(
+    label: &InputTransform,
+    iters: Vec<Box<RawValue>>,
+    flow_args: &HashMap<String, Box<RawValue>>,
+    flow_env: Option<&HashMap<String, Box<RawValue>>>,
+    client: &AuthedClient,
+    by_id: &IdContext,
+) -> Vec<Option<String>> {
+    let n = iters.len();
+    let deadline = std::time::Instant::now() + ITERATION_LABELS_BUDGET;
+    let mut labels = Vec::with_capacity(n);
+    for iter in iters {
+        let timeout = ITERATION_LABEL_TIMEOUT
+            .min(deadline.saturating_duration_since(std::time::Instant::now()));
+        if timeout.is_zero() {
+            tracing::warn!(
+                "iteration labels ran out of time, leaving the remaining iterations unlabelled"
+            );
+            break;
+        }
+        let mut flow_input = flow_args.clone();
+        insert_iter_arg(&mut flow_input, "iter".to_string(), iter);
+        let started = std::time::Instant::now();
+        labels.push(
+            eval_iteration_label(
+                label,
+                timeout,
+                Marc::new(flow_input),
+                flow_env,
+                client,
+                by_id,
+            )
+            .await,
+        );
+        if started.elapsed() >= timeout {
+            tracing::warn!(
+                "iteration label timed out, leaving the remaining iterations unlabelled"
+            );
+            break;
+        }
+    }
+    labels.resize(n, None);
+    labels
+}
+
+async fn eval_iteration_label(
+    label: &InputTransform,
+    timeout: std::time::Duration,
+    flow_input: Marc<HashMap<String, Box<RawValue>>>,
+    flow_env: Option<&HashMap<String, Box<RawValue>>>,
+    client: &AuthedClient,
+    by_id: &IdContext,
+) -> Option<String> {
+    let raw = match label {
+        InputTransform::Static { value } => value.clone(),
+        InputTransform::Javascript { expr } if !expr.trim().is_empty() => {
+            match eval_within(timeout, expr, flow_input, flow_env, client, by_id).await {
+                Ok(v) => v,
+                Err(e) => {
+                    tracing::warn!("could not evaluate iteration label `{expr}`: {e:#}");
+                    return None;
+                }
+            }
+        }
+        _ => return None,
+    };
+    let text = match serde_json::from_str::<serde_json::Value>(raw.get()).ok()? {
+        serde_json::Value::Null => return None,
+        serde_json::Value::String(s) => s,
+        v => v.to_string(),
+    };
+    // jsonb rejects NUL, and the label lands in the flow status.
+    let text: String = text
+        .trim()
+        .chars()
+        .filter(|c| *c != '\0')
+        .take(ITERATION_LABEL_MAX_CHARS)
+        .collect();
+    (!text.is_empty()).then_some(text)
+}
+
 pub(super) fn is_simple_modules(
     modules: &Vec<FlowModule>,
     failure_module: Option<&Box<FlowModule>>,
@@ -6720,6 +6882,8 @@ async fn next_forloop_status(
                     flow_jobs: vec![],
                     flow_jobs_success: Some(vec![]),
                     flow_jobs_duration: Some(FlowJobsDuration::new(0)),
+                    flow_jobs_labels: None,
+                    iteration_label: None,
                     new_args: iter,
                     while_loop: false,
                 })
@@ -6733,6 +6897,7 @@ async fn next_forloop_status(
             flow_jobs: Some(flow_jobs),
             flow_jobs_success,
             flow_jobs_duration,
+            flow_jobs_labels,
             ..
         } if !*parallel => {
             // Read itered from separate table or fallback to JSONB
@@ -6794,6 +6959,8 @@ async fn next_forloop_status(
                 flow_jobs: flow_jobs.clone(),
                 flow_jobs_success: flow_jobs_success.clone(),
                 flow_jobs_duration: flow_jobs_duration.clone(),
+                flow_jobs_labels: flow_jobs_labels.clone(),
+                iteration_label: None,
                 new_args: Iter { index: index as i32, value: next.to_owned() },
                 while_loop: false,
             })

@@ -166,6 +166,69 @@ async fn test_iteration_parallel(db: Pool<Postgres>) -> anyhow::Result<()> {
 
 #[cfg(feature = "deno_core")]
 #[sqlx::test(fixtures("base"))]
+async fn test_iteration_labels(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+
+    let label_loop = |id: &str, parallel: bool, label: &str| {
+        json!({
+            "id": id,
+            "value": {
+                "type": "forloopflow",
+                "iterator": { "type": "javascript", "expr": "flow_input.items" },
+                "skip_failures": false,
+                "parallel": parallel,
+                "iteration_label": { "type": "javascript", "expr": label },
+                "modules": [
+                    { "id": format!("{id}_a"), "value": { "type": "identity" } },
+                    { "id": format!("{id}_b"), "value": { "type": "identity" } },
+                ],
+            },
+        })
+    };
+    let flow: FlowValue = serde_json::from_value(json!({
+        "modules": [
+            label_loop("seq", false, "flow_input.iter.value.name"),
+            label_loop("par", true, "`${flow_input.iter.index}:${flow_input.iter.value.name}`"),
+            label_loop("bad", false, "flow_input.iter.value.missing.name"),
+        ],
+    }))
+    .unwrap();
+
+    let job = RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
+        .arg(
+            "items",
+            json!([{ "name": "acme" }, { "name": null }, { "name": "globex" }]),
+        )
+        .run_until_complete(&db, false, server.addr.port())
+        .await;
+    assert!(job.success, "{:?}", job.json_result());
+
+    let labels = |id: &str| get_module(&job, id).and_then(|m| m.flow_jobs_labels());
+    assert_eq!(
+        labels("seq"),
+        Some(vec![
+            Some("acme".to_string()),
+            None,
+            Some("globex".to_string())
+        ])
+    );
+    assert_eq!(
+        labels("par"),
+        Some(vec![
+            Some("0:acme".to_string()),
+            Some("1:null".to_string()),
+            Some("2:globex".to_string())
+        ])
+    );
+    // A label that fails to evaluate leaves the iteration unlabelled and the loop running.
+    assert_eq!(labels("bad"), Some(vec![None, None, None]));
+    Ok(())
+}
+
+#[cfg(feature = "deno_core")]
+#[sqlx::test(fixtures("base"))]
 async fn test_bun_flow(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
 
@@ -221,6 +284,7 @@ async fn test_bun_flow(db: Pool<Postgres>) -> anyhow::Result<()> {
                         skip_failures: false,
                         parallel: false,
                         squash: None,
+                        iteration_label: None,
                         parallelism: None,
                         modules: vec![FlowModule {
                             id: "c".to_string(),
@@ -577,6 +641,7 @@ async fn test_bun_flow_same_worker(db: Pool<Postgres>) -> anyhow::Result<()> {
                         skip_failures: false,
                         parallel: false,
                         squash: None,
+                        iteration_label: None,
                         parallelism: None,
                         modules: vec![
                             FlowModule {
