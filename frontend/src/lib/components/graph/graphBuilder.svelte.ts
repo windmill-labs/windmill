@@ -159,6 +159,10 @@ export type InputN = {
 	}
 }
 
+/** An edge into an error handler (from the step that failed) or out of it (to the node that takes
+ * its output), coloured from the handler's run state. */
+export type HandlerEdge = { id: string; side: 'in' | 'out' }
+
 export type ModuleN = {
 	type: 'module'
 	data: {
@@ -172,6 +176,7 @@ export type ModuleN = {
 		isOwner: boolean
 		assets: AssetWithAltAccessType[] | undefined
 		moduleAction: ModuleActionInfo | undefined
+		isErrorHandler?: boolean
 	}
 }
 
@@ -517,7 +522,7 @@ export function graphBuilder(
 		// (run view, viewers) it stays a regular step card.
 		function addFailureNode(module: FlowModule) {
 			if (!extra.editMode) {
-				return addNode(module)
+				return addNode(module, { isErrorHandler: true })
 			}
 
 			nodes.push({
@@ -587,6 +592,7 @@ export function graphBuilder(
 				subModules?: FlowModule[]
 				currentItems?: FlowStructureNode[]
 				disableMoveIds?: string[]
+				handler?: HandlerEdge
 			}
 		) {
 			parents[targetId] = [...(parents[targetId] ?? []), sourceId]
@@ -629,7 +635,8 @@ export function graphBuilder(
 					disableAi: extra.disableAi,
 					isOwner: extra.isOwner,
 					insertable: extra.insertable && !options?.disableInsert && prefix == undefined,
-					shouldOffsetInsertBtnDueToAssetNode: nodeIdsWithOutputAssets.has(sourceId)
+					shouldOffsetInsertBtnDueToAssetNode: nodeIdsWithOutputAssets.has(sourceId),
+					handler: options?.handler
 				},
 				selectable: false
 			})
@@ -1304,18 +1311,27 @@ export function graphBuilder(
 			addFailureNode({ ...module, id })
 			// An expanded subflow step failed as a whole, so its marker hangs off the subflow's end.
 			const anchor = expandedSubflows[parentId] ? `${parentId}-subflow-end` : parentId
-			addEdge(anchor, id, undefined, undefined, { type: 'empty' })
+			addEdge(anchor, id, undefined, undefined, { type: 'empty', handler: { id, side: 'in' } })
+			const target = handlerTargets[parentId]
+			// The failure went to the handler, so the step's own way out was not taken, even where
+			// it leads to a node with no run state of its own (a loop or branch end). Where it leads
+			// to the handler's own target, the handler's edge replaces it: drawn both, they read as
+			// two paths into that node.
+			for (const edge of edges) {
+				if (edge.source === anchor && edge.target !== id) {
+					edge.data = { ...edge.data, bypassed: edge.target === target ? 'replaced' : true }
+				}
+			}
 			// The step's own edge stays: the steps after it are still part of the flow, and their
 			// state shows they did not run. Kept out of `parents`, which the layout reads: an edge
 			// leaving a branch for Result would pull Result into that branch's group.
-			const target = handlerTargets[parentId]
 			if (target) {
 				edges.push({
 					id: `edge:${id}->${target}`,
 					source: id,
 					target,
 					type: 'empty',
-					data: { class: '[stroke-dasharray:4_4]' },
+					data: { handler: { id, side: 'out' } satisfies HandlerEdge },
 					selectable: false
 				})
 			}
@@ -1367,6 +1383,14 @@ export function graphBuilder(
 					})
 				})
 			}
+		}
+
+		// Static, so it never invalidates the edge set; the renderer reads run state on its own.
+		const stepIds = new Set(nodes.filter((n) => n.type === 'module').map((n) => n.id))
+		for (const edge of edges) {
+			if (edge.type !== 'edge' && edge.type !== 'empty') continue
+			const steps = [edge.source, edge.target].filter((id) => stepIds.has(id))
+			if (steps.length) edge.data = { ...edge.data, steps }
 		}
 
 		return { nodes: Object.fromEntries(nodes.map((n) => [n.id, n])), edges }

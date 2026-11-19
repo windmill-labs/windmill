@@ -16,6 +16,7 @@
 	import type { ModuleActionInfo } from '$lib/components/flows/flowDiff'
 	import { getGraphContext } from '$lib/components/graph/graphContext'
 	import { nextMock } from '../flowMock'
+	import { Bug } from 'lucide-svelte'
 
 	interface Props {
 		moduleId: string
@@ -54,6 +55,8 @@
 		isOwner?: boolean
 		maximizeSubflow?: () => void
 		menuItems?: Item[]
+		/** The step is the flow's error handler, drawn in a run with the bug icon its header button uses. */
+		errorHandler?: boolean
 	}
 
 	let {
@@ -79,7 +82,8 @@
 		flowJob,
 		isOwner = false,
 		maximizeSubflow,
-		menuItems = undefined
+		menuItems = undefined,
+		errorHandler = false
 	}: Props = $props()
 
 	const { selectionManager, moveManager } = getGraphContext()
@@ -308,7 +312,11 @@
 								: mod.value.type === 'script'
 									? 14
 									: 16}
-						<FlowModuleIcon module={mod} {size} />
+						{#if errorHandler}
+							<Bug size={16} class="text-red-400 dark:text-red-500" />
+						{:else}
+							<FlowModuleIcon module={mod} {size} />
+						{/if}
 					{/snippet}
 				</FlowModuleSchemaItem>
 			{/if}

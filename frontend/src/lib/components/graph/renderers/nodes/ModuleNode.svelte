@@ -1,6 +1,14 @@
 <script lang="ts">
 	import MapItem from '$lib/components/flows/map/MapItem.svelte'
-	import { GitBranchPlus, Move, Copy, Trash2, StickyNote, PictureInPicture2 } from 'lucide-svelte'
+	import {
+		GitBranchPlus,
+		Move,
+		Copy,
+		Trash2,
+		StickyNote,
+		PictureInPicture2,
+		Bug
+	} from 'lucide-svelte'
 	import NodeWrapper from './NodeWrapper.svelte'
 	import AiDecisionNodeBranch from './AiDecisionNodeBranch.svelte'
 	import type { ModuleN } from '../../graphBuilder.svelte'
@@ -11,6 +19,9 @@
 	import { getGraphContext } from '../../graphContext'
 	import { getFlowRunStatusContext } from '../../flowRunStatus.svelte'
 	import { waitingRequest } from '$lib/components/agentRequest'
+	import { Button } from '$lib/components/common'
+	import { workspaceStore } from '$lib/stores'
+	import { countErrorHandlersUnder } from '../../nestedErrorHandlers'
 
 	interface Props {
 		data: ModuleN['data']
@@ -96,6 +107,62 @@
 					flowJobsSuccess: state?.flow_jobs_success
 				}
 			: (undefined as any)
+	)
+
+	let subflowPath = $derived(
+		data.module?.value?.type == 'flow' && 'path' in data.module.value
+			? (data.module.value['path'] as string | undefined)
+			: undefined
+	)
+
+	function expandSubflow() {
+		if (subflowPath) data.eventHandlers.expandSubflow(data.id, subflowPath)
+	}
+
+	/**
+	 * Error handlers that ran inside this step but that the graph does not draw: anywhere in a
+	 * collapsed subflow, or in a loop's other iterations while the one shown draws none. The
+	 * selected iteration's own handlers are drawn, and nested steps report theirs.
+	 */
+	let hiddenErrorHandlers = $derived.by(
+		(): Promise<{ count: number; reveal: () => void } | undefined> | undefined => {
+			const workspace = $workspaceStore
+			if (data.editMode || !workspace || !state) return undefined
+			const valueType = data.module?.value?.type
+			if (valueType === 'flow' && state.job_id && subflowPath) {
+				return countErrorHandlersUnder(workspace, state.job_id).then(
+					(count) => (count > 0 ? { count, reveal: expandSubflow } : undefined),
+					() => undefined
+				)
+			}
+			const iterations = state.flow_jobs
+			if ((valueType === 'forloopflow' || valueType === 'whileloopflow') && iterations?.length) {
+				const index = state.selectedForloopIndex ?? 0
+				const shown = index >= 0 ? index : iterations.length - 1
+				return Promise.all(iterations.map((id) => countErrorHandlersUnder(workspace, id))).then(
+					(counts) => {
+						// The iteration on screen already draws a handler: pointing at the others would
+						// keep the reader clicking through iterations.
+						if (counts[shown] > 0) return undefined
+						const count = counts.reduce((a, b) => a + b, 0)
+						if (count === 0) return undefined
+						const first = counts.findIndex((c) => c > 0)
+						return {
+							count,
+							reveal: () =>
+								data.eventHandlers.selectedIteration({
+									id: iterations[first],
+									index: first,
+									manuallySet: true,
+									moduleId: data.id
+								})
+						}
+					},
+					() => undefined
+				)
+			}
+			return undefined
+		}
 	)
 
 	let type = $derived.by(() => {
@@ -224,18 +291,35 @@
 			onEditInput={data.eventHandlers.editInput}
 			flowJob={flowRunStatus?.flowJob}
 			isOwner={data.isOwner}
+			errorHandler={data.isErrorHandler}
 			maximizeSubflow={data.module?.value?.type == 'flow' && 'path' in data.module.value
-				? () => {
-						const path =
-							data.module?.value && 'path' in data.module.value
-								? (data.module.value['path'] as string)
-								: undefined
-						if (path) {
-							data.eventHandlers.expandSubflow(data.id, path)
-						}
-					}
+				? expandSubflow
 				: undefined}
 		/>
+
+		{#await hiddenErrorHandlers then hidden}
+			{#if hidden}
+				<!-- svelte-ignore a11y_no_static_element_interactions -->
+				<div
+					class="nodrag nopan absolute left-0 top-full z-10"
+					onpointerdown={(e) => e.stopPropagation()}
+				>
+					<Button
+						variant="subtle"
+						unifiedSize="2xs"
+						startIcon={{ icon: Bug, classes: 'text-red-400 dark:text-red-500' }}
+						btnClasses="text-2xs text-secondary px-0 gap-1"
+						title={subflowPath ? 'Expand the subflow' : 'Show the first iteration where one ran'}
+						onClick={(e) => {
+							e?.stopPropagation()
+							hidden.reveal()
+						}}
+					>
+						{hidden.count} error handler{hidden.count > 1 ? 's' : ''} ran
+					</Button>
+				</div>
+			{/if}
+		{/await}
 
 		{#if (data.module?.value?.type === 'branchall' || data.module?.value?.type === 'branchone') && data.insertable}
 			<div class="absolute -bottom-10 left-1/2 transform -translate-x-1/2 z-10 flex gap-1">

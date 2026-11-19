@@ -19,9 +19,28 @@ export class FlowRunStatus {
 	suspendStatus = $state.raw<SuspendStatus>({})
 	/** Whether the graph draws a run, as opposed to a flow definition with no run states. */
 	showsRun = $state(false)
+	/** The run has finished, so a step with no state never ran rather than not yet. */
+	runDone = $state(false)
 
 	getModuleState(id: string | undefined): GraphModuleState | undefined {
 		return id == undefined ? undefined : this.#moduleStates.get(id)
+	}
+
+	/** A step the finished run never reached. Undecided while the run goes on, since a step not
+	 * reached yet may still run. */
+	didNotRun(id: string): boolean {
+		if (!this.runDone) return false
+		const state = this.getModuleState(id)
+		return !state || state.type === 'WaitingForPriorSteps' || !!state.skipped
+	}
+
+	/** The colour of an edge into or out of an error handler: red into it, and red out of it unless
+	 * the handler succeeded and returned `recover: true`, which ends the flow as a success. */
+	handlerEdgeTone(handlerId: string, side: 'in' | 'out'): 'failure' | 'recovered' | undefined {
+		if (side === 'in') return 'failure'
+		const state = this.getModuleState(handlerId)
+		if (state?.type === 'Success') return state.result?.recover === true ? 'recovered' : 'failure'
+		return state?.type === 'Failure' ? 'failure' : undefined
 	}
 
 	setModuleStates(next: Record<string, GraphModuleState> | undefined) {

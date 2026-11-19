@@ -2088,6 +2088,7 @@
 									outerDivClass={fillHeight ? '' : 'max-h-[1200px]'}
 									success={jobId != undefined && isSuccess(job?.['success'])}
 									flowModuleStates={localModuleStates}
+									runDone={job?.type === 'CompletedJob'}
 									bind:expandedSubflows
 									onSelect={(e) => {
 										if (rightColumnSelect != 'node_definition' && rightColumnSelect != 'tracing') {
