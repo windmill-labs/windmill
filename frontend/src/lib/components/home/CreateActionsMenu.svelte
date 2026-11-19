@@ -24,6 +24,7 @@
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 	import DbtIcon from '$lib/components/icons/DbtIcon.svelte'
 	import YoutubeIcon from '$lib/components/icons/YoutubeIcon.svelte'
+	import Modal from '$lib/components/common/modal/Modal.svelte'
 	import { PythonIcon, TypeScriptIcon } from '$lib/components/common/languageIcons'
 	import { HOME_SHOW_CREATE_FLOW, HOME_SHOW_CREATE_APP } from '$lib/consts'
 	import { importScriptStore } from '$lib/components/scripts/scriptStore.svelte'
@@ -469,6 +470,9 @@
 		wasOpen = isOpen
 	})
 
+	// The explainer playing in the dialog, which lives outside the menu so it outlasts it.
+	let playing: { id: string; label: string } | undefined = $state(undefined)
+
 	const SHOW_DOC_SETTING = 'home_create_show_doc'
 	let showDoc = $state(getLocalSetting(SHOW_DOC_SETTING) !== 'false')
 	function setShowDoc(value: boolean) {
@@ -626,35 +630,39 @@
 					</ul>
 
 					{#if active.video}
-						<a
-							href="https://www.youtube.com/watch?v={active.video.id}"
-							target="_blank"
-							rel="noopener noreferrer"
+						{@const video = active.video}
+						{@const label = active.label}
+						<button
+							type="button"
 							tabindex={-1}
-							class="group/video mt-2 flex w-60 max-w-full flex-col gap-1.5 rounded-md border border-border-light p-1.5 hover:bg-surface-hover transition-colors"
+							onclick={() => {
+								open.set(false)
+								playing = { id: video.id, label }
+							}}
+							class="group/video mt-2 flex w-44 max-w-full flex-col gap-1.5 rounded-md border border-border-light p-1.5 text-left hover:bg-surface-hover transition-colors"
 						>
 							<span
 								class="relative w-full aspect-video overflow-hidden rounded bg-surface-secondary"
 							>
 								<img
-									src="https://i.ytimg.com/vi/{active.video.id}/maxresdefault.jpg"
+									src="https://i.ytimg.com/vi/{video.id}/maxresdefault.jpg"
 									alt=""
 									loading="lazy"
 									class="w-full h-full object-cover"
 								/>
 								<span class="absolute inset-0 flex items-center justify-center">
 									<span
-										class="flex items-center justify-center w-9 h-9 rounded-full bg-black/60 text-white group-hover/video:bg-black/80 transition-colors"
+										class="flex items-center justify-center w-8 h-8 rounded-full bg-black/60 text-white group-hover/video:bg-black/80 transition-colors"
 									>
-										<Play size={16} class="ml-0.5" fill="currentColor" />
+										<Play size={14} class="ml-0.5" fill="currentColor" />
 									</span>
 								</span>
 							</span>
-							<span class="flex flex-row items-center gap-1.5 px-0.5 text-[11px] text-secondary">
-								<YoutubeIcon width="14px" height="14px" />
-								2 min explainer · Watch on YouTube
+							<span class="flex flex-row items-center gap-1.5 px-0.5 text-[10px] text-secondary">
+								<YoutubeIcon width="12px" height="12px" />
+								2 min explainer
 							</span>
-						</a>
+						</button>
 					{/if}
 
 					<button
@@ -860,6 +868,26 @@
 {/if}
 
 <!-- shared import drawer (YAML / JSON) for the bottom "Import" submenu actions -->
+<Modal
+	title="{playing?.label ?? ''} · 2 min explainer"
+	kind="X"
+	enterConfirms={false}
+	class="sm:max-w-4xl"
+	bind:open={() => playing !== undefined, (v) => !v && (playing = undefined)}
+>
+	{#if playing}
+		<div class="mt-3 w-full aspect-video overflow-hidden rounded-md bg-black">
+			<iframe
+				src="https://www.youtube-nocookie.com/embed/{playing.id}?autoplay=1&rel=0"
+				title="{playing.label} explainer"
+				class="w-full h-full"
+				allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
+				allowfullscreen
+			></iframe>
+		</div>
+	{/if}
+</Modal>
+
 <Drawer bind:this={importDrawer} size="800px">
 	<DrawerContent title={importTitles[importKind]} on:close={() => importDrawer?.closeDrawer?.()}>
 		<Tabs bind:selected={importType}>
