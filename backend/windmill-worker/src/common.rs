@@ -693,6 +693,69 @@ pub struct OccupancyMetrics {
     pub total_duration_of_running_jobs: f32,
     pub worker_occupancy_rate_history: Vec<(f32, f32)>,
     pub start_time: Instant,
+    /// Set when the worker runs dedicated subprocesses: the main loop only hands their jobs
+    /// over, so its own timers never see the time they run.
+    pub dedicated: Option<Arc<DedicatedOccupancy>>,
+}
+
+/// Time during which at least one of a worker's dedicated subprocesses runs a job.
+#[derive(Default)]
+pub struct DedicatedOccupancy {
+    state: std::sync::Mutex<DedicatedBusy>,
+}
+
+#[derive(Default)]
+struct DedicatedBusy {
+    running: usize,
+    since: Option<Instant>,
+    total_secs: f32,
+}
+
+lazy_static! {
+    static ref DEDICATED_OCCUPANCY: std::sync::Mutex<HashMap<String, Arc<DedicatedOccupancy>>> =
+        std::sync::Mutex::new(HashMap::new());
+}
+
+impl DedicatedOccupancy {
+    /// The worker's main loop and its dedicated subprocesses meet here by worker name, which
+    /// keeps the native mode's several workers per process apart.
+    pub fn for_worker(worker_name: &str) -> Arc<Self> {
+        DEDICATED_OCCUPANCY
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .entry(worker_name.to_string())
+            .or_default()
+            .clone()
+    }
+
+    /// Counts the worker as busy until the returned guard is dropped.
+    pub fn start(self: &Arc<Self>) -> DedicatedBusyGuard {
+        let mut s = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        if s.running == 0 {
+            s.since = Some(Instant::now());
+        }
+        s.running += 1;
+        DedicatedBusyGuard(self.clone())
+    }
+
+    fn busy_secs(&self) -> f32 {
+        let s = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        s.total_secs + s.since.map(|x| x.elapsed().as_secs_f32()).unwrap_or(0.0)
+    }
+}
+
+pub struct DedicatedBusyGuard(Arc<DedicatedOccupancy>);
+
+impl Drop for DedicatedBusyGuard {
+    fn drop(&mut self) {
+        let mut s = self.0.state.lock().unwrap_or_else(|e| e.into_inner());
+        s.running = s.running.saturating_sub(1);
+        if s.running == 0 {
+            if let Some(since) = s.since.take() {
+                s.total_secs += since.elapsed().as_secs_f32();
+            }
+        }
+    }
 }
 
 pub struct OccupancyResult {
@@ -709,6 +772,7 @@ impl OccupancyMetrics {
             total_duration_of_running_jobs: 0.0,
             worker_occupancy_rate_history: Vec::new(),
             start_time,
+            dedicated: None,
         }
     }
 
@@ -718,7 +782,13 @@ impl OccupancyMetrics {
             .running_job_started_at
             .map(|started_at| started_at.elapsed().as_secs_f32())
             .unwrap_or(0.0);
-        let total_occupation = metrics.total_duration_of_running_jobs + current_occupied_duration;
+        let total_occupation = metrics.total_duration_of_running_jobs
+            + current_occupied_duration
+            + metrics
+                .dedicated
+                .as_ref()
+                .map(|d| d.busy_secs())
+                .unwrap_or(0.0);
 
         let elapsed = metrics.start_time.elapsed().as_secs_f32();
 
@@ -751,19 +821,20 @@ impl OccupancyMetrics {
                 // Only report occupancy for a window if the worker has been running
                 // long enough to have meaningful data for that window. Otherwise,
                 // short-lived workers would report misleadingly high occupancy rates.
+                // Capped at 1: a job the main loop runs itself can overlap a dedicated one.
                 (
                     if elapsed >= 15.0 {
-                        Some(total_occupation_15s)
+                        Some(total_occupation_15s.min(1.0))
                     } else {
                         None
                     },
                     if elapsed >= 300.0 {
-                        Some(total_occupation_5m)
+                        Some(total_occupation_5m.min(1.0))
                     } else {
                         None
                     },
                     if elapsed >= 1800.0 {
-                        Some(total_occupation_30m)
+                        Some(total_occupation_30m.min(1.0))
                     } else {
                         None
                     },
@@ -771,7 +842,7 @@ impl OccupancyMetrics {
             } else {
                 (None, None, None)
             };
-        let occupancy_rate = total_occupation / elapsed;
+        let occupancy_rate = (total_occupation / elapsed).min(1.0);
 
         //push the current occupancy rate and the timestamp
         metrics
@@ -2621,6 +2692,28 @@ mod tests {
     use super::*;
     use serde_json::json;
     use windmill_common::client::AuthedClient;
+
+    #[test]
+    fn dedicated_occupancy_counts_overlapping_jobs_once() {
+        let step = std::time::Duration::from_millis(50);
+        let occupancy = Arc::new(DedicatedOccupancy::default());
+        let started = Instant::now();
+        let first = occupancy.start();
+        std::thread::sleep(step);
+        let second = occupancy.start();
+        std::thread::sleep(step);
+        drop(first);
+        std::thread::sleep(step);
+        drop(second);
+        let busy_for = started.elapsed().as_secs_f32();
+        let busy = occupancy.busy_secs();
+        assert!(
+            (busy - busy_for).abs() < 0.01,
+            "busy {busy}s over {busy_for}s"
+        );
+        std::thread::sleep(step);
+        assert_eq!(occupancy.busy_secs(), busy);
+    }
 
     fn test_client() -> AuthedClient {
         AuthedClient::new(
