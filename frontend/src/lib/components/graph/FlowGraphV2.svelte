@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { overlayHostActive } from '$lib/components/common/overlayHost.svelte'
 	import GraphZoomControls from './GraphZoomControls.svelte'
 	import FlowPanelPlacementPicker from '$lib/components/flows/common/FlowPanelPlacementPicker.svelte'
 	import { overlayStack } from '$lib/components/common/overlayHost.svelte'
@@ -1129,8 +1130,10 @@
 	})
 
 	// Add global keyboard event listener for selection controls
+	const hostActive = overlayHostActive()
 	onMount(() => {
 		function globalKeyDownHandler(event: KeyboardEvent) {
+			if (!hostActive()) return
 			handleKeyDown(event)
 		}
 

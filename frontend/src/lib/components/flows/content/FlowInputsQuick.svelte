@@ -4,6 +4,7 @@
 </script>
 
 <script lang="ts">
+	import HostWindow from '$lib/components/common/HostWindow.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import FlowScriptPickerQuick from '../pickers/FlowScriptPickerQuick.svelte'
 	import { defaultScriptLanguages, processInlineLangs } from '$lib/scripts'
@@ -309,7 +310,7 @@
 	let hubOffset = $derived(aiSandboxOffset + aiSandboxRows.length)
 </script>
 
-<svelte:window onkeydown={onKeyDown} />
+<HostWindow onkeydown={onKeyDown} />
 <div class="flex flex-row grow min-w-0 divide-x relative bg-surface-tertiary rounded-md">
 	{#if selectedKind != 'preprocessor'}
 		<div class="h-full overflow-auto p-2 w-36 shrink-0 gap-1 flex flex-col">
