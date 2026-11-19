@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.878.0](https://github.com/windmill-labs/windmill/compare/v1.877.0...v1.878.0) (2026-11-19)
+
+
+### Features
+
+* **python-client:** retry a GET on 429 and 502-504 with exponential backoff ([#12513](https://github.com/windmill-labs/windmill/issues/12513)) ([1c78f8d](https://github.com/windmill-labs/windmill/commit/1c78f8d7a38e49106adcd236f53c026855924682))
+* show how many resources use each resource type ([#12512](https://github.com/windmill-labs/windmill/issues/12512)) ([1fa8fd0](https://github.com/windmill-labs/windmill/commit/1fa8fd0c94cd59eb2330a18e6afc1b56d8e1ed6c))
+
+
+### Bug Fixes
+
+* **api:** encode non-ASCII filenames in S3 Content-Disposition ([#9634](https://github.com/windmill-labs/windmill/issues/9634)) ([52b7625](https://github.com/windmill-labs/windmill/commit/52b7625bdff32147fb187289c37db821ee4e0b7c))
+* **api:** type /scripts/list response as ListableScript ([#9577](https://github.com/windmill-labs/windmill/issues/9577)) ([f3b31b1](https://github.com/windmill-labs/windmill/commit/f3b31b18f5f22dbc5de65be562b167e7f2db0b35))
+* **csharp-parser:** mark parameters with a default value as optional ([#10185](https://github.com/windmill-labs/windmill/issues/10185)) ([0659b8a](https://github.com/windmill-labs/windmill/commit/0659b8a12502955ebd78c261f12a6a8bbed03abc))
+* enable DynSelect fields in the schedule editor ([#9718](https://github.com/windmill-labs/windmill/issues/9718)) ([2ceeff3](https://github.com/windmill-labs/windmill/commit/2ceeff3e9cf0bae1b5b87ffe02d158baf85bf119))
+* **frontend:** download a large file result as its file, not as JSON ([#12507](https://github.com/windmill-labs/windmill/issues/12507)) ([905a92a](https://github.com/windmill-labs/windmill/commit/905a92ab32a45b694b99dd60bb0f0244a20ed2e7))
+* preserve object-store config when switching storage tabs ([#9696](https://github.com/windmill-labs/windmill/issues/9696)) ([c11123d](https://github.com/windmill-labs/windmill/commit/c11123db37ee21238311845992777a010b3b408d))
+* put a saved input's name back when its rename is cancelled ([#12483](https://github.com/windmill-labs/windmill/issues/12483)) ([2b8a079](https://github.com/windmill-labs/windmill/commit/2b8a0790a0a973240ca32c5fba0a23339fc21fda))
+* surface backend preview logs in AI eval failures ([#9383](https://github.com/windmill-labs/windmill/issues/9383)) ([7f8765c](https://github.com/windmill-labs/windmill/commit/7f8765c171f941ae9d18af8f8f99949ea9dccdce))
+
 ## [1.877.0](https://github.com/windmill-labs/windmill/compare/v1.876.1...v1.877.0) (2026-11-18)
 
 
