@@ -693,62 +693,112 @@ pub struct OccupancyMetrics {
     pub total_duration_of_running_jobs: f32,
     pub worker_occupancy_rate_history: Vec<(f32, f32)>,
     pub start_time: Instant,
-    /// Set when the worker runs dedicated subprocesses: the main loop only hands their jobs
-    /// over, so its own timers never see the time they run.
-    pub dedicated: Option<Arc<DedicatedOccupancy>>,
+    /// Set when the worker runs dedicated subprocesses. Its busy time then replaces the main
+    /// loop's timers, which never see the jobs the loop only hands over.
+    pub dedicated: Option<Arc<DedicatedWorkerState>>,
 }
 
-/// Time during which at least one of a worker's dedicated subprocesses runs a job.
+/// Shared by a worker's main loop and its dedicated subprocesses, which find it by worker name.
 #[derive(Default)]
-pub struct DedicatedOccupancy {
-    state: std::sync::Mutex<DedicatedBusy>,
+pub struct DedicatedWorkerState {
+    busy: std::sync::Mutex<Busy>,
+    /// Jobs handed to a dedicated subprocess and not yet done with. Nothing else pings them
+    /// while they wait in its channel or run in it, or they are restarted as zombies and run
+    /// twice.
+    in_flight: std::sync::Mutex<HashSet<uuid::Uuid>>,
 }
 
 #[derive(Default)]
-struct DedicatedBusy {
+struct Busy {
     running: usize,
     since: Option<Instant>,
     total_secs: f32,
 }
 
 lazy_static! {
-    static ref DEDICATED_OCCUPANCY: std::sync::Mutex<HashMap<String, Arc<DedicatedOccupancy>>> =
+    static ref DEDICATED_WORKER_STATES: std::sync::Mutex<HashMap<String, std::sync::Weak<DedicatedWorkerState>>> =
         std::sync::Mutex::new(HashMap::new());
 }
 
-impl DedicatedOccupancy {
-    /// The worker's main loop and its dedicated subprocesses meet here by worker name, which
-    /// keeps the native mode's several workers per process apart.
+impl DedicatedWorkerState {
+    /// Keyed by worker name, which keeps the native mode's several workers per process apart.
     pub fn for_worker(worker_name: &str) -> Arc<Self> {
-        DEDICATED_OCCUPANCY
+        let mut states = DEDICATED_WORKER_STATES
             .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .entry(worker_name.to_string())
-            .or_default()
-            .clone()
+            .unwrap_or_else(|e| e.into_inner());
+        if let Some(state) = states.get(worker_name).and_then(|s| s.upgrade()) {
+            return state;
+        }
+        let state = Arc::new(Self::default());
+        states.insert(worker_name.to_string(), Arc::downgrade(&state));
+        state
     }
 
-    /// Counts the worker as busy until the returned guard is dropped.
-    pub fn start(self: &Arc<Self>) -> DedicatedBusyGuard {
-        let mut s = self.state.lock().unwrap_or_else(|e| e.into_inner());
+    /// Taken by a dedicated subprocess on receiving a job. Dropping it ends the job's in-flight
+    /// pings, so a job dropped unfinished is left to the zombie recovery.
+    pub fn received(self: &Arc<Self>, job_id: uuid::Uuid) -> HandedOver {
+        HandedOver { state: self.clone(), job_id }
+    }
+
+    /// Counts the worker as busy until the guard drops, overlapping jobs once.
+    pub fn start_busy(self: &Arc<Self>, job: Option<HandedOver>) -> BusyGuard {
+        let mut s = self.busy.lock().unwrap_or_else(|e| e.into_inner());
         if s.running == 0 {
             s.since = Some(Instant::now());
         }
         s.running += 1;
-        DedicatedBusyGuard(self.clone())
+        BusyGuard { state: self.clone(), _job: job }
     }
 
     fn busy_secs(&self) -> f32 {
-        let s = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        let s = self.busy.lock().unwrap_or_else(|e| e.into_inner());
         s.total_secs + s.since.map(|x| x.elapsed().as_secs_f32()).unwrap_or(0.0)
+    }
+
+    pub fn hand_over(&self, job_id: uuid::Uuid) {
+        self.in_flight_set().insert(job_id);
+    }
+
+    pub fn take_back(&self, job_id: &uuid::Uuid) {
+        self.in_flight_set().remove(job_id);
+    }
+
+    pub(crate) fn in_flight(&self) -> Vec<uuid::Uuid> {
+        self.in_flight_set().iter().copied().collect()
+    }
+
+    /// Drops the jobs of `pinged` that `still_running` lacks; those handed over meanwhile stay.
+    pub(crate) fn prune_in_flight(&self, pinged: &[uuid::Uuid], still_running: &[uuid::Uuid]) {
+        let pinged: HashSet<_> = pinged.iter().collect();
+        let still_running: HashSet<_> = still_running.iter().collect();
+        self.in_flight_set()
+            .retain(|id| still_running.contains(id) || !pinged.contains(id));
+    }
+
+    fn in_flight_set(&self) -> std::sync::MutexGuard<'_, HashSet<uuid::Uuid>> {
+        self.in_flight.lock().unwrap_or_else(|e| e.into_inner())
     }
 }
 
-pub struct DedicatedBusyGuard(Arc<DedicatedOccupancy>);
+pub struct HandedOver {
+    state: Arc<DedicatedWorkerState>,
+    job_id: uuid::Uuid,
+}
 
-impl Drop for DedicatedBusyGuard {
+impl Drop for HandedOver {
     fn drop(&mut self) {
-        let mut s = self.0.state.lock().unwrap_or_else(|e| e.into_inner());
+        self.state.take_back(&self.job_id);
+    }
+}
+
+pub struct BusyGuard {
+    state: Arc<DedicatedWorkerState>,
+    _job: Option<HandedOver>,
+}
+
+impl Drop for BusyGuard {
+    fn drop(&mut self) {
+        let mut s = self.state.busy.lock().unwrap_or_else(|e| e.into_inner());
         s.running = s.running.saturating_sub(1);
         if s.running == 0 {
             if let Some(since) = s.since.take() {
@@ -782,13 +832,12 @@ impl OccupancyMetrics {
             .running_job_started_at
             .map(|started_at| started_at.elapsed().as_secs_f32())
             .unwrap_or(0.0);
-        let total_occupation = metrics.total_duration_of_running_jobs
-            + current_occupied_duration
-            + metrics
-                .dedicated
-                .as_ref()
-                .map(|d| d.busy_secs())
-                .unwrap_or(0.0);
+        // A worker with dedicated subprocesses also counts the jobs its main loop runs in the
+        // busy time, so that one overlapping the other is counted once.
+        let total_occupation = match metrics.dedicated.as_ref() {
+            Some(dedicated) => dedicated.busy_secs(),
+            None => metrics.total_duration_of_running_jobs + current_occupied_duration,
+        };
 
         let elapsed = metrics.start_time.elapsed().as_secs_f32();
 
@@ -821,20 +870,19 @@ impl OccupancyMetrics {
                 // Only report occupancy for a window if the worker has been running
                 // long enough to have meaningful data for that window. Otherwise,
                 // short-lived workers would report misleadingly high occupancy rates.
-                // Capped at 1: a job the main loop runs itself can overlap a dedicated one.
                 (
                     if elapsed >= 15.0 {
-                        Some(total_occupation_15s.min(1.0))
+                        Some(total_occupation_15s)
                     } else {
                         None
                     },
                     if elapsed >= 300.0 {
-                        Some(total_occupation_5m.min(1.0))
+                        Some(total_occupation_5m)
                     } else {
                         None
                     },
                     if elapsed >= 1800.0 {
-                        Some(total_occupation_30m.min(1.0))
+                        Some(total_occupation_30m)
                     } else {
                         None
                     },
@@ -842,7 +890,7 @@ impl OccupancyMetrics {
             } else {
                 (None, None, None)
             };
-        let occupancy_rate = (total_occupation / elapsed).min(1.0);
+        let occupancy_rate = total_occupation / elapsed;
 
         //push the current occupancy rate and the timestamp
         metrics
@@ -2694,25 +2742,28 @@ mod tests {
     use windmill_common::client::AuthedClient;
 
     #[test]
-    fn dedicated_occupancy_counts_overlapping_jobs_once() {
+    fn dedicated_worker_counts_overlapping_jobs_once() {
         let step = std::time::Duration::from_millis(50);
-        let occupancy = Arc::new(DedicatedOccupancy::default());
+        let state = Arc::new(DedicatedWorkerState::default());
+        let handed_over = uuid::Uuid::new_v4();
+        state.hand_over(handed_over);
         let started = Instant::now();
-        let first = occupancy.start();
+        let dedicated = state.start_busy(Some(state.received(handed_over)));
         std::thread::sleep(step);
-        let second = occupancy.start();
+        let inline = state.start_busy(None);
         std::thread::sleep(step);
-        drop(first);
+        drop(dedicated);
+        assert!(state.in_flight().is_empty());
         std::thread::sleep(step);
-        drop(second);
+        drop(inline);
         let busy_for = started.elapsed().as_secs_f32();
-        let busy = occupancy.busy_secs();
+        let busy = state.busy_secs();
         assert!(
             (busy - busy_for).abs() < 0.01,
             "busy {busy}s over {busy_for}s"
         );
         std::thread::sleep(step);
-        assert_eq!(occupancy.busy_secs(), busy);
+        assert_eq!(state.busy_secs(), busy);
     }
 
     fn test_client() -> AuthedClient {

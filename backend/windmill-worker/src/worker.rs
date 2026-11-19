@@ -820,28 +820,22 @@ pub fn sleep_queue() -> u64 {
     }
 }
 
-/// Jobs handed to a dedicated subprocess and not yet completed. Nothing else pings them while
-/// they wait in its channel or run in it, or they are restarted as zombies and run twice.
-type DedicatedInFlight = Arc<std::sync::Mutex<HashSet<Uuid>>>;
-
-/// Pings the jobs in `in_flight` every `NUM_SECS_PING`, dropping those no longer running here,
-/// until the worker drops `in_flight`. Runs apart from the main loop, which can spend longer
-/// than the zombie timeout on a job it runs itself. Safe for as long as the worker lives: a
-/// dedicated subprocess that exits stops the whole worker.
-fn spawn_dedicated_in_flight_pinger(db: DB, worker_name: String, in_flight: &DedicatedInFlight) {
-    let in_flight = Arc::downgrade(in_flight);
+/// Pings the jobs the worker handed to its dedicated subprocesses every `NUM_SECS_PING`, until
+/// the worker drops `state`. Runs apart from the main loop, which can spend longer than the
+/// zombie timeout on a job it runs itself.
+fn spawn_dedicated_in_flight_pinger(
+    db: DB,
+    worker_name: String,
+    state: &Arc<crate::common::DedicatedWorkerState>,
+) {
+    let state = Arc::downgrade(state);
     tokio::spawn(async move {
         loop {
             tokio::time::sleep(Duration::from_secs(NUM_SECS_PING)).await;
-            let Some(in_flight) = in_flight.upgrade() else {
+            let Some(state) = state.upgrade() else {
                 return;
             };
-            let sent: Vec<Uuid> = in_flight
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .iter()
-                .copied()
-                .collect();
+            let sent = state.in_flight();
             if sent.is_empty() {
                 continue;
             }
@@ -856,15 +850,7 @@ fn spawn_dedicated_in_flight_pinger(db: DB, worker_name: String, in_flight: &Ded
             .fetch_all(&db)
             .await
             {
-                Ok(still_running) => {
-                    let still_running: HashSet<Uuid> = still_running.into_iter().collect();
-                    let sent: HashSet<Uuid> = sent.into_iter().collect();
-                    // Jobs handed over during the query were not part of it and stay.
-                    in_flight
-                        .lock()
-                        .unwrap_or_else(|e| e.into_inner())
-                        .retain(|id| still_running.contains(id) || !sent.contains(id));
-                }
+                Ok(still_running) => state.prune_in_flight(&sent, &still_running),
                 Err(e) => tracing::warn!("failed to ping the jobs of the dedicated workers: {e:#}"),
             }
         }
@@ -3576,14 +3562,12 @@ pub async fn run_worker(
         Vec<JoinHandle<()>>,
     ) = (HashMap::new(), vec![]);
 
-    if !dedicated_workers.is_empty() {
-        occupancy_metrics.dedicated =
-            Some(crate::common::DedicatedOccupancy::for_worker(&worker_name));
+    let dedicated_state = (!dedicated_workers.is_empty())
+        .then(|| crate::common::DedicatedWorkerState::for_worker(&worker_name));
+    if let (Some(state), Some(db)) = (dedicated_state.as_ref(), conn.as_sql()) {
+        spawn_dedicated_in_flight_pinger(db.clone(), worker_name.clone(), state);
     }
-    let dedicated_in_flight: DedicatedInFlight = Default::default();
-    if let (false, Some(db)) = (dedicated_workers.is_empty(), conn.as_sql()) {
-        spawn_dedicated_in_flight_pinger(db.clone(), worker_name.clone(), &dedicated_in_flight);
-    }
+    occupancy_metrics.dedicated = dedicated_state.clone();
 
     #[cfg(feature = "prometheus")]
     let _worker_dedicated_channel_queue_send_duration = {
@@ -4074,6 +4058,7 @@ pub async fn run_worker(
                 otel_set_worker_busy(&worker_name, 1);
 
                 occupancy_metrics.running_job_started_at = Some(Instant::now());
+                let _busy = dedicated_state.as_ref().map(|s| s.start_busy(None));
 
                 last_executed_job = None;
                 jobs_executed += 1;
@@ -4137,13 +4122,16 @@ pub async fn run_worker(
                                 flow_runners: None,
                                 done_tx: None,
                             };
+                            // Before the send: the subprocess can finish the job and take it
+                            // back before the send returns.
+                            if let Some(state) = dedicated_state.as_ref() {
+                                state.hand_over(job_id);
+                            }
                             if let Err(e) = dedicated_worker_tx.send(dedicated_job).await {
                                 tracing::info!("failed to send jobs to dedicated workers. Likely dedicated worker has been shut down. This is normal: {e:?}");
-                            } else {
-                                dedicated_in_flight
-                                    .lock()
-                                    .unwrap_or_else(|e| e.into_inner())
-                                    .insert(job_id);
+                                if let Some(state) = dedicated_state.as_ref() {
+                                    state.take_back(&job_id);
+                                }
                             }
 
                             #[cfg(feature = "benchmark")]
