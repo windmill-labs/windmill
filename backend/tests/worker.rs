@@ -1303,9 +1303,10 @@ async fn test_csharp_job_omitted_args_take_declared_defaults(
 class Script
 {
     const int Answer = 42;
-    public static string Main(string s = "World", int n = Answer)
+    // `params` is not in the parsed signature, so the wrapper never passes it.
+    public static string Main(string s = "World", int n = Answer, string @class = "c", params string[] rest)
     {
-        return $"{s ?? "<null>"} {n}";
+        return $"{s ?? "<null>"} {n} {@class} {rest.Length}";
     }
 }
 "#
@@ -1330,16 +1331,17 @@ class Script
         .await
         .json_result()
         .unwrap();
-    assert_eq!(omitted, json!("World 42"));
+    assert_eq!(omitted, json!("World 42 c 0"));
 
     let explicit = job()
         .arg("s", json!(null))
         .arg("n", json!(1))
+        .arg("@class", json!("k"))
         .run_until_complete(&db, false, port)
         .await
         .json_result()
         .unwrap();
-    assert_eq!(explicit, json!("<null> 1"));
+    assert_eq!(explicit, json!("<null> 1 k 0"));
     Ok(())
 }
 

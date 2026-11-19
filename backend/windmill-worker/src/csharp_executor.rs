@@ -303,7 +303,9 @@ fn gen_cs_proj(
 
     // An argument left out of args.json must take the default declared on Main, not
     // default(T). It is read back from the compiled method because the default
-    // expression may name a constant the wrapper cannot see.
+    // expression may name a constant the wrapper cannot see. The parser does not list
+    // every parameter (`params T[] x` is not one), so Main is matched on the names it
+    // does list and each default is looked up by name, never by position.
     let mut resolve_defaults = String::new();
     if args.iter().any(|x| x.has_default) {
         let names = args
@@ -315,14 +317,15 @@ fn gen_cs_proj(
                 using JsonDocument __argsDoc = JsonDocument.Parse(__argsJson);
                 var __mainParams = typeof({class_name})
                     .GetMethods(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)
-                    .First(m => m.Name == "Main" && m.GetParameters().Select(p => p.Name).SequenceEqual(new string[] {{ {names} }}))
+                    .First(m => m.Name == "Main" && new string[] {{ {names} }}.All(n => m.GetParameters().Any(p => p.Name == n)))
                     .GetParameters();"#
         ));
         for (i, x) in args.iter().enumerate().filter(|(_, x)| x.has_default) {
             resolve_defaults.push_str(&format!(
-                "\n                {t} __arg{i} = __argsDoc.RootElement.TryGetProperty(\"{n}\", out _) ? parsedArgs.{n} : DeclaredDefault<{t}>(__mainParams[{i}]);",
+                "\n                {t} __arg{i} = __argsDoc.RootElement.TryGetProperty(\"{n}\", out _) ? parsedArgs.{n} : DeclaredDefault<{t}>(__mainParams.First(p => p.Name == \"{c}\"));",
                 t = otyp(x)?,
                 n = x.name,
+                c = x.name.trim_start_matches('@'),
             ));
         }
     }
