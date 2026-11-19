@@ -124,9 +124,10 @@ pub fn workspaced_service() -> Router {
         .route("/delete/p/{*path}", post(delete_script_by_path))
         .route("/delete_bulk", delete(delete_scripts_bulk))
         // By hash, a script is read without the folder/path ACL that `/get/p` and `/raw/p`
-        // apply (`get/h` only does with `?authed=true`), and `raw/h` also skips the token-scope
-        // check. Ideally these would be authorized too, but the hash acts as the secret: a member
-        // reaching one (e.g. via a flow they can read) is by design, not a vulnerability.
+        // apply (`get/h` only does with `?authed=true`); only a token's `scripts:read:<path>`
+        // scope is enforced. Ideally these would be authorized too, but the hash acts as the
+        // secret: a member reaching one (e.g. via a flow they can read) is by design, not a
+        // vulnerability.
         .route("/get/h/{hash}", get(get_script_by_hash))
         .route("/raw/h/{hash}", get(raw_script_by_hash))
         .route("/deployment_status/h/{hash}", get(get_deployment_status))
@@ -1732,7 +1733,7 @@ async fn create_script_internal<'c>(
             if let Some(clashing_hash) = clashing_hash_o {
                 // Named only when the caller could already read it. The probe above has to be
                 // unscoped to be correct, but a hash alone reads a script's content back
-                // through `raw/h/{hash}`, which authorizes nothing per script — so echoing one
+                // through `raw/h/{hash}`, which applies no per-script ACL — so echoing one
                 // the caller cannot see hands them a way to fetch it.
                 let visible_to_caller = sqlx::query_scalar!(
                     "SELECT 1 FROM script WHERE hash = $1 AND workspace_id = $2",
@@ -4103,6 +4104,7 @@ async fn get_script_by_hash(
 async fn raw_script_by_hash(
     Extension(db): Extension<DB>,
     Path((w_id, hash_str)): Path<(String, String)>,
+    Extension(authed): Extension<ApiAuthed>,
 ) -> Result<String> {
     let mut tx = db.begin().await?;
     let hash = ScriptHash(to_i64(hash_str.strip_suffix(".ts").ok_or_else(|| {
@@ -4110,6 +4112,7 @@ async fn raw_script_by_hash(
     })?)?);
     let r = get_script_by_hash_internal(&mut tx, &w_id, &hash, None).await?;
     tx.commit().await?;
+    check_scopes(&authed, || format!("scripts:read:{}", &r.script.path))?;
 
     Ok(r.script.content)
 }
@@ -4123,10 +4126,11 @@ struct DeploymentStatus {
 async fn get_deployment_status(
     Extension(db): Extension<DB>,
     Path((w_id, hash)): Path<(String, ScriptHash)>,
+    Extension(authed): Extension<ApiAuthed>,
 ) -> JsonResult<DeploymentStatus> {
     let mut tx = db.begin().await?;
     let status_o = sqlx::query!(
-        "SELECT s.lock, s.lock_error_logs, dm.job_id
+        "SELECT s.path, s.lock, s.lock_error_logs, dm.job_id
          FROM script s
          LEFT JOIN deployment_metadata dm ON s.hash = dm.script_hash AND s.workspace_id = dm.workspace_id
          WHERE s.hash = $1 AND s.workspace_id = $2",
@@ -4137,6 +4141,7 @@ async fn get_deployment_status(
     .await?;
 
     let status = not_found_if_none(status_o, "DeploymentStatus", hash.to_string())?;
+    check_scopes(&authed, || format!("scripts:read:{}", status.path))?;
 
     let deployment_status = DeploymentStatus {
         lock: status.lock,
