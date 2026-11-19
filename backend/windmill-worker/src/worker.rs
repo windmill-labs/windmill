@@ -820,23 +820,55 @@ pub fn sleep_queue() -> u64 {
     }
 }
 
-/// Pings the jobs this worker handed to its dedicated subprocesses and keeps only those still
-/// running here. Safe while the main loop runs: a subprocess that exits stops the whole worker.
-async fn ping_dedicated_in_flight(db: &DB, worker_name: &str, in_flight: &mut Vec<Uuid>) {
-    match sqlx::query_scalar::<_, Uuid>(
-        "UPDATE v2_job_runtime r SET ping = now()
-        FROM v2_job_queue q
-        WHERE r.id = ANY($1) AND q.id = r.id AND q.running AND q.worker = $2
-        RETURNING r.id",
-    )
-    .bind(&in_flight[..])
-    .bind(worker_name)
-    .fetch_all(db)
-    .await
-    {
-        Ok(still_running) => *in_flight = still_running,
-        Err(e) => tracing::warn!("failed to ping the jobs of the dedicated workers: {e:#}"),
-    }
+/// Jobs handed to a dedicated subprocess and not yet completed. Nothing else pings them while
+/// they wait in its channel or run in it, or they are restarted as zombies and run twice.
+type DedicatedInFlight = Arc<std::sync::Mutex<HashSet<Uuid>>>;
+
+/// Pings the jobs in `in_flight` every `NUM_SECS_PING`, dropping those no longer running here,
+/// until the worker drops `in_flight`. Runs apart from the main loop, which can spend longer
+/// than the zombie timeout on a job it runs itself. Safe for as long as the worker lives: a
+/// dedicated subprocess that exits stops the whole worker.
+fn spawn_dedicated_in_flight_pinger(db: DB, worker_name: String, in_flight: &DedicatedInFlight) {
+    let in_flight = Arc::downgrade(in_flight);
+    tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(Duration::from_secs(NUM_SECS_PING)).await;
+            let Some(in_flight) = in_flight.upgrade() else {
+                return;
+            };
+            let sent: Vec<Uuid> = in_flight
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .iter()
+                .copied()
+                .collect();
+            if sent.is_empty() {
+                continue;
+            }
+            match sqlx::query_scalar::<_, Uuid>(
+                "UPDATE v2_job_runtime r SET ping = now()
+                FROM v2_job_queue q
+                WHERE r.id = ANY($1) AND q.id = r.id AND q.running AND q.worker = $2
+                RETURNING r.id",
+            )
+            .bind(&sent[..])
+            .bind(&worker_name)
+            .fetch_all(&db)
+            .await
+            {
+                Ok(still_running) => {
+                    let still_running: HashSet<Uuid> = still_running.into_iter().collect();
+                    let sent: HashSet<Uuid> = sent.into_iter().collect();
+                    // Jobs handed over during the query were not part of it and stay.
+                    in_flight
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .retain(|id| still_running.contains(id) || !sent.contains(id));
+                }
+                Err(e) => tracing::warn!("failed to ping the jobs of the dedicated workers: {e:#}"),
+            }
+        }
+    });
 }
 
 pub type WorkspaceRegistryMap =
@@ -3548,10 +3580,10 @@ pub async fn run_worker(
         occupancy_metrics.dedicated =
             Some(crate::common::DedicatedOccupancy::for_worker(&worker_name));
     }
-    // Jobs handed to a dedicated subprocess and not yet completed. Nothing else pings them while
-    // they wait in its channel or run in it, so the main loop does, or they are restarted as
-    // zombies and run a second time.
-    let mut dedicated_in_flight: Vec<Uuid> = vec![];
+    let dedicated_in_flight: DedicatedInFlight = Default::default();
+    if let (false, Some(db)) = (dedicated_workers.is_empty(), conn.as_sql()) {
+        spawn_dedicated_in_flight_pinger(db.clone(), worker_name.clone(), &dedicated_in_flight);
+    }
 
     #[cfg(feature = "prometheus")]
     let _worker_dedicated_channel_queue_send_duration = {
@@ -3705,11 +3737,6 @@ pub async fn run_worker(
 
             if read_cgroups {
                 last_reading = Instant::now();
-            }
-            if !dedicated_in_flight.is_empty() {
-                if let Some(db) = conn.as_sql() {
-                    ping_dedicated_in_flight(db, &worker_name, &mut dedicated_in_flight).await;
-                }
             }
             last_ping = Instant::now();
             reported_ip = ip;
@@ -4113,7 +4140,10 @@ pub async fn run_worker(
                             if let Err(e) = dedicated_worker_tx.send(dedicated_job).await {
                                 tracing::info!("failed to send jobs to dedicated workers. Likely dedicated worker has been shut down. This is normal: {e:?}");
                             } else {
-                                dedicated_in_flight.push(job_id);
+                                dedicated_in_flight
+                                    .lock()
+                                    .unwrap_or_else(|e| e.into_inner())
+                                    .insert(job_id);
                             }
 
                             #[cfg(feature = "benchmark")]
