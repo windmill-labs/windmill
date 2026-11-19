@@ -1426,6 +1426,11 @@ components:
             required:
               - id
               - job
+        test_subflows:
+          type: object
+          description: In a flow test run, deployed subflow path -> the flow value with the test's step overrides applied, run in place of the deployed subflow.
+          additionalProperties:
+            $ref: "#/components/schemas/FlowValue"
       required:
         - step
         - modules

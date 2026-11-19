@@ -50,6 +50,12 @@ pub struct FlowStatus {
     /// because of `continue_on_error`. Capped at `MAX_CONTINUED_ON_ERROR` entries.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub continued_on_error: Vec<ContinuedOnError>,
+    /// In a flow test run: deployed subflow path -> the flow value with the test's overrides
+    /// applied, run as a preview in place of the deployed subflow. Only the flow test route
+    /// writes it, and the worker passes it on only to flows that are part of the same test run:
+    /// a deployed subflow left as is, which may run as someone else, never gets it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub test_subflows: Option<HashMap<String, serde_json::Value>>,
 }
 
 pub const MAX_CONTINUED_ON_ERROR: i32 = 100;
@@ -646,6 +652,7 @@ impl FlowStatus {
             memory_id: None,
             no_inherited_flow_env: false,
             continued_on_error: vec![],
+            test_subflows: None,
         }
     }
 
