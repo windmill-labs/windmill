@@ -616,7 +616,8 @@ export async function runFlowAsync(
  * one. Those subflows, and each one on the way to an override, run as you rather than as their
  * on-behalf-of identity. Result caching is off for the whole test run.
  *
- * The flow's preprocessor does not run: `args` are what the flow receives after it. AI agent
+ * The flow's preprocessor does not run: `args` are what the flow receives after it. A subflow
+ * never runs its own preprocessor, in a test or not. AI agent
  * tools cannot be overridden; override the agent step instead.
  *
  * @example
