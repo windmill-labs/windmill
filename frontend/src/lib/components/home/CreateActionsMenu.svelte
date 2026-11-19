@@ -23,6 +23,7 @@
 	import MenuItem from '$lib/components/meltComponents/MenuItem.svelte'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 	import DbtIcon from '$lib/components/icons/DbtIcon.svelte'
+	import YoutubeIcon from '$lib/components/icons/YoutubeIcon.svelte'
 	import { PythonIcon, TypeScriptIcon } from '$lib/components/common/languageIcons'
 	import { HOME_SHOW_CREATE_FLOW, HOME_SHOW_CREATE_APP } from '$lib/consts'
 	import { importScriptStore } from '$lib/components/scripts/scriptStore.svelte'
@@ -86,7 +87,7 @@
 	}
 
 	/** a short explainer on the Windmill YouTube channel, opened in a new tab */
-	type Video = { id: string; title: string }
+	type Video = { id: string }
 
 	/** an importable artifact kind handled by the shared YAML/JSON import drawer */
 	type ImportKind = 'flow' | 'wac' | 'app-lowcode' | 'app-fullcode'
@@ -144,7 +145,7 @@
 				'Instant deploy & versioning'
 			],
 			href: '/scripts/add',
-			video: { id: '4MMjF-bcqNs', title: 'What is a script?' }
+			video: { id: '4MMjF-bcqNs' }
 		},
 		...(HOME_SHOW_CREATE_FLOW
 			? ([
@@ -162,7 +163,7 @@
 							'Suspend / approval steps'
 						],
 						href: '/flows/add',
-						video: { id: 'XzCI8M8tBeg', title: 'What is a flow?' },
+						video: { id: 'XzCI8M8tBeg' },
 						extras: [{ label: 'Import flow', onSelect: () => openImport('flow') }]
 					}
 				] as Option[])
@@ -179,7 +180,7 @@
 							'Full control over the UI with React or Svelte and a powerful AI agent. Best for complex apps that need full flexibility.',
 						bullets: ['React or Svelte', 'Full flexibility & control', 'AI-assisted authoring'],
 						href: '/apps_raw/add',
-						video: { id: 'sHUPe-Compw', title: 'What is an app?' },
+						video: { id: 'sHUPe-Compw' },
 						extras: [{ label: 'Import full-code app', onSelect: () => openImport('app-fullcode') }]
 					}
 				] as Option[])
@@ -198,7 +199,7 @@
 				'Tools from scripts, flows and MCP'
 			],
 			href: '/agents/add',
-			video: { id: 'qiRuXq8Utio', title: 'What is an AI agent?' }
+			video: { id: 'qiRuXq8Utio' }
 		},
 		...(HOME_SHOW_CREATE_FLOW
 			? ([
@@ -246,7 +247,7 @@
 						],
 						href: '/pipeline',
 						badge: { label: 'Alpha', class: badgeAlpha },
-						video: { id: 'TYnnkSIUPIY', title: 'What is a data pipeline?' },
+						video: { id: 'TYnnkSIUPIY' },
 						variants: [
 							{
 								label: 'Windmill pipelines',
@@ -630,30 +631,28 @@
 							target="_blank"
 							rel="noopener noreferrer"
 							tabindex={-1}
-							class="group/video mt-2 flex flex-row items-center gap-3 rounded-md border border-border-light p-1.5 pr-3 hover:bg-surface-hover transition-colors"
+							class="group/video mt-2 flex w-60 max-w-full flex-col gap-1.5 rounded-md border border-border-light p-1.5 hover:bg-surface-hover transition-colors"
 						>
 							<span
-								class="relative w-24 shrink-0 aspect-video overflow-hidden rounded bg-surface-secondary"
+								class="relative w-full aspect-video overflow-hidden rounded bg-surface-secondary"
 							>
 								<img
-									src="https://i.ytimg.com/vi/{active.video.id}/mqdefault.jpg"
+									src="https://i.ytimg.com/vi/{active.video.id}/maxresdefault.jpg"
 									alt=""
 									loading="lazy"
 									class="w-full h-full object-cover"
 								/>
 								<span class="absolute inset-0 flex items-center justify-center">
 									<span
-										class="flex items-center justify-center w-6 h-6 rounded-full bg-black/60 text-white group-hover/video:bg-black/80"
+										class="flex items-center justify-center w-9 h-9 rounded-full bg-black/60 text-white group-hover/video:bg-black/80 transition-colors"
 									>
-										<Play size={12} class="ml-px" fill="currentColor" />
+										<Play size={16} class="ml-0.5" fill="currentColor" />
 									</span>
 								</span>
 							</span>
-							<span class="min-w-0">
-								<span class="block text-xs font-medium text-primary truncate"
-									>{active.video.title}</span
-								>
-								<span class="block text-[10px] text-tertiary">Watch on YouTube</span>
+							<span class="flex flex-row items-center gap-1.5 px-0.5 text-[11px] text-secondary">
+								<YoutubeIcon width="14px" height="14px" />
+								2 min explainer · Watch on YouTube
 							</span>
 						</a>
 					{/if}
