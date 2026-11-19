@@ -69,15 +69,26 @@ pub fn parse_csharp_sig_meta(code: &str) -> anyhow::Result<CsharpMainSigMeta> {
             for p_list_node in param_list.children(&mut param_list.walk()) {
                 if p_list_node.kind() == "parameter" {
                     let mut default = None;
+                    let mut has_default = false;
                     for a in p_list_node.children(&mut p_list_node.walk()) {
                         if a.kind() == "=" {
                             if let Some(node) = a.next_sibling() {
+                                // Optional even when the default (1.5f, 'x', a const) is not JSON.
+                                has_default = true;
                                 default = csharp_param_default_value(node, code);
                             }
                         }
                     }
                     let (otyp, typ, name) = parse_csharp_typ(p_list_node, code)?;
-                    args.push(Arg { name, otyp, typ, default, has_default: false, oidx: None, otyp_inferred: false });
+                    args.push(Arg {
+                        name,
+                        otyp,
+                        typ,
+                        default,
+                        has_default,
+                        oidx: None,
+                        otyp_inferred: false,
+                    });
                 }
             }
         }
@@ -279,14 +290,47 @@ class LilProgram
         assert_eq!(ret.args[0].name, "myString");
         assert_eq!(ret.args[0].otyp, Some("string".to_string()));
         assert_eq!(ret.args[0].typ, Typ::Str(None));
+        assert_eq!(ret.args[0].default, Some(serde_json::json!("World")));
+        assert_eq!(ret.args[0].has_default, true);
 
         assert_eq!(ret.args[1].name, "myInt");
         assert_eq!(ret.args[1].otyp, Some("int".to_string()));
         assert_eq!(ret.args[1].typ, Typ::Int);
+        assert_eq!(ret.args[1].default, None);
+        assert_eq!(ret.args[1].has_default, false);
 
         assert_eq!(ret.args[2].name, "jj");
         assert_eq!(ret.args[2].otyp, Some("string[]".to_string()));
         assert_eq!(ret.args[2].typ, Typ::List(Box::new(Typ::Str(None))));
+        assert_eq!(ret.args[2].default, None);
+        assert_eq!(ret.args[2].has_default, false);
+    }
+
+    #[test]
+    fn a_default_that_is_not_json_still_makes_the_argument_optional() {
+        let code = r#"
+class Script
+{
+    const int Answer = 42;
+    public static string Main(double ratio = 1.5f, char c = 'x', int n = Answer, int required)
+    {
+        return "";
+    }
+}"#;
+        let args = parse_csharp_signature(code).unwrap().args;
+        let summary: Vec<_> = args
+            .iter()
+            .map(|a| (a.name.as_str(), a.has_default, a.default.clone()))
+            .collect();
+        assert_eq!(
+            summary,
+            vec![
+                ("ratio", true, None),
+                ("c", true, None),
+                ("n", true, None),
+                ("required", false, None),
+            ]
+        );
     }
 
     #[test]
