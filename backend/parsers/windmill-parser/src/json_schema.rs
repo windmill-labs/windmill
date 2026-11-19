@@ -44,7 +44,7 @@ pub fn main_arg_schema(
             Some(o) if o.contains('[') && o.contains('|') => {
                 prop.insert("originalType".into(), json!(o))
             }
-            Some(o) if otyp_is_doc => prop.insert("description".into(), json!(o)),
+            Some(o) if otyp_is_doc && !o.is_empty() => prop.insert("description".into(), json!(o)),
             _ => None,
         };
         match &arg.default {
@@ -419,5 +419,18 @@ mod tests {
         );
         let schema = main_arg_schema(&sig, None, false);
         assert_eq!(schema["properties"]["name"]["description"], "");
+    }
+
+    // A docstring entry with no text (`name:`) must not wipe a typed description.
+    #[test]
+    fn an_empty_doc_keeps_the_previous_description() {
+        let name = Arg { otyp: Some("".into()), ..arg("name", Typ::Str(None), None) };
+        let sig = MainArgSignature { args: vec![name], ..Default::default() };
+        let previous = json!({
+            "type": "object",
+            "properties": {"name": {"type": "string", "description": "typed"}},
+        });
+        let schema = main_arg_schema(&sig, Some(&previous), true);
+        assert_eq!(schema["properties"]["name"]["description"], "typed");
     }
 }

@@ -332,7 +332,9 @@ pub fn parse_deno_signature(
         // EsVersion defaults to es5
         Default::default(),
         StringInput::from(&*fm),
-        Some(&comments),
+        // Comments only feed the JSDoc descriptions of a schema. Callers that skip
+        // defaults run on every job and never build one, so they skip collecting them.
+        (!skip_dflt).then_some(&comments),
     );
 
     let mut parser = Parser::new_from(lexer);

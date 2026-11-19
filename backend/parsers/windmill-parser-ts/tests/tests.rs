@@ -1072,5 +1072,12 @@ export async function main(name: string, times = 1, tags: string | string[], pla
                 None
             ]
         );
+        // The job path (skip_dflt) does not read comments.
+        let sig = parse_deno_signature(code, true, false, None).unwrap();
+        let otyps: Vec<_> = sig.args.iter().map(|a| a.otyp.as_deref()).collect();
+        assert_eq!(
+            otyps,
+            vec![None, None, Some("string | string[]"), None, None]
+        );
     }
 }
