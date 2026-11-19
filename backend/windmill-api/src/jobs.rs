@@ -291,6 +291,7 @@ pub fn workspaced_service() -> Router {
         )
         .route("/add_batch_jobs/{n}", post(add_batch_jobs))
         .route("/run/preview_flow", post(run_preview_flow_job))
+        .route("/run/flow_test/{*path}", post(crate::flow_test::run_flow_test))
         .route("/run/agent/{*path}", post(crate::agent_runs::run_agent))
         .route(
             "/run_wait_result/preview_flow",
@@ -2331,7 +2332,7 @@ fn job_read_access_cache_key(authed: &ApiAuthed, w_id: &str, job_id: &Uuid) -> [
 
 /// [`require_job_read_access`] for callers (job-update poll / SSE) that haven't
 /// already loaded `created_by` — fetches it (root DB, by id+workspace) first.
-async fn require_job_update_read_access(
+pub(crate) async fn require_job_update_read_access(
     db: &DB,
     user_db: &UserDB,
     authed: &ApiAuthed,
@@ -7158,18 +7159,18 @@ pub struct WorkflowTask {
 }
 
 #[derive(Deserialize)]
-struct PreviewFlow {
-    value: FlowValue,
-    path: Option<String>,
-    args: Option<HashMap<String, Box<JsonRawValue>>>,
-    tag: Option<String>,
-    restarted_from: Option<RestartedFrom>,
+pub(crate) struct PreviewFlow {
+    pub(crate) value: FlowValue,
+    pub(crate) path: Option<String>,
+    pub(crate) args: Option<HashMap<String, Box<JsonRawValue>>>,
+    pub(crate) tag: Option<String>,
+    pub(crate) restarted_from: Option<RestartedFrom>,
     /// Map of relative-import script path -> temp storage hash. Propagated to
     /// each flow step so inline-script relative imports resolve from
     /// not-yet-deployed local content instead of the deployed script.
-    temp_script_refs: Option<HashMap<String, String>>,
+    pub(crate) temp_script_refs: Option<HashMap<String, String>>,
     /// See `Preview::on_behalf_of`.
-    on_behalf_of: Option<String>,
+    pub(crate) on_behalf_of: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -10779,7 +10780,7 @@ async fn add_batch_jobs(
     Ok(Json(uuids))
 }
 
-async fn run_preview_flow_job(
+pub(crate) async fn run_preview_flow_job(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,

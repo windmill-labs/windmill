@@ -1,0 +1,86 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT kind::text AS \"kind!\", runnable_id, runnable_path, raw_code, raw_lock,\n                script_lang AS \"script_lang: ScriptLang\"\n         FROM v2_job WHERE id = $1 AND workspace_id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "kind!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "runnable_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "runnable_path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "raw_code",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "raw_lock",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "script_lang: ScriptLang",
+        "type_info": {
+          "Custom": {
+            "name": "script_lang",
+            "kind": {
+              "Enum": [
+                "python3",
+                "deno",
+                "go",
+                "bash",
+                "postgresql",
+                "nativets",
+                "bun",
+                "mysql",
+                "bigquery",
+                "snowflake",
+                "graphql",
+                "powershell",
+                "mssql",
+                "php",
+                "bunnative",
+                "rust",
+                "ansible",
+                "csharp",
+                "oracledb",
+                "nu",
+                "java",
+                "duckdb",
+                "ruby",
+                "rlang",
+                "dbt"
+              ]
+            }
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null,
+      true,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "76803d73f45d22ceb2690e3b512435ae6c0905f77ef2216e4b759809e12ccc7b"
+}
