@@ -5356,11 +5356,13 @@ async fn poll_git_auto_pull_inner(db: &Pool<Postgres>) -> error::Result<()> {
                     .await
                     {
                         // The webhook should have brought this head already: it stopped
-                        // reaching us, so poll every minute again until it delivers. Not
-                        // after a failed pull: its rollback re-offers a head the webhook did
-                        // deliver, and demoting would retry the failing pull every minute.
+                        // reaching us, so poll every minute again until it delivers. Not for
+                        // a ref's first sync, which no delivery could have brought, nor after
+                        // a failed pull: its rollback re-offers a head the webhook did deliver,
+                        // and demoting would retry the failing pull every minute.
                         Ok(Some(_))
                             if auto_pull.webhook_verified()
+                                && auto_pull.last_synced_sha.contains_key(&git_ref)
                                 && auto_pull
                                     .last_pull_status
                                     .as_ref()
