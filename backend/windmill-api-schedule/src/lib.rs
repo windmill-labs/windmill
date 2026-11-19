@@ -238,6 +238,15 @@ fn reject_reserved_schedule_path(path: &str) -> Result<()> {
 }
 
 /// Validate that a dynamic skip handler (script or flow) exists
+/// A retry the runs cannot parse would otherwise be saved and then fail every tick.
+fn validate_retry(retry: &Option<serde_json::Value>) -> Result<()> {
+    if let Some(retry) = retry {
+        serde_json::from_value::<windmill_common::flows::Retry>(retry.clone())
+            .map_err(|e| Error::BadRequest(format!("Invalid retry: {e}")))?;
+    }
+    Ok(())
+}
+
 async fn validate_dynamic_skip<'c>(
     tx: &mut Transaction<'c, Postgres>,
     w_id: &str,
@@ -378,6 +387,8 @@ async fn create_schedule(
 
     check_path_conflict(&mut tx, &w_id, &ns.path).await?;
     check_flow_conflict(&mut tx, &w_id, &ns.path, ns.is_flow, &ns.script_path).await?;
+
+    validate_retry(&ns.retry)?;
 
     // Validate dynamic_skip if provided
     if let Some(handler_path) = &ns.dynamic_skip {
@@ -616,6 +627,8 @@ async fn edit_schedule(
         es.on_success.as_deref(),
     ]);
     let mut tx = user_db.begin(&authed).await?;
+
+    validate_retry(&es.retry)?;
 
     // Validate dynamic_skip if provided
     if let Some(handler_path) = &es.dynamic_skip {
