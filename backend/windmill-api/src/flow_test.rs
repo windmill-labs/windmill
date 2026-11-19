@@ -345,7 +345,7 @@ fn disable_result_cache(value: &mut Value) {
     }
 }
 
-/// Nesting limit of `a.b.c` step keys, so a subflow calling itself cannot recurse forever.
+/// Nesting limit of `a:b:c` step keys, so a subflow calling itself cannot recurse forever.
 const MAX_SUBFLOW_DEPTH: usize = 10;
 
 /// The deployed path of the subflow step `id` of a flow value.
@@ -401,7 +401,7 @@ async fn deployed_flow_value(
     Ok((stored.0, info.tag))
 }
 
-/// Applies `overrides` to `value`. A key `sub.inner` overrides step `inner` of the subflow that
+/// Applies `overrides` to `value`. A key `sub:inner` overrides step `inner` of the subflow that
 /// step `sub` calls: that subflow's deployed value, overridden in turn, goes to `subflows` under
 /// its path, which the run uses for every call of that subflow.
 fn resolve_overrides<'a>(
@@ -415,7 +415,7 @@ fn resolve_overrides<'a>(
         let mut local = HashMap::new();
         let mut nested: HashMap<String, HashMap<String, StepOverride>> = HashMap::new();
         for (key, o) in overrides {
-            match key.split_once('.') {
+            match key.split_once(':') {
                 Some((step, rest)) => {
                     nested
                         .entry(step.to_string())
