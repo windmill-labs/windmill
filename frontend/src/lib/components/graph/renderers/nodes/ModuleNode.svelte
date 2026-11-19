@@ -104,7 +104,8 @@
 					flowJobs: state?.flow_jobs,
 					selected: state?.selectedForloopIndex ?? 0,
 					selectedManually: state?.selectedForLoopSetManually,
-					flowJobsSuccess: state?.flow_jobs_success
+					flowJobsSuccess: state?.flow_jobs_success,
+					flowJobsLabels: state?.flow_jobs_labels
 				}
 			: (undefined as any)
 	)
