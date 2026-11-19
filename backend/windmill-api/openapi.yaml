@@ -13199,6 +13199,137 @@ paths:
             application/json:
               schema: {}
 
+  /w/{workspace}/jobs/flow/approval_step_detail/{job_id}/{step_id}:
+    get:
+      summary: get the approval detail of one step of a flow run
+      description: >
+        Get the approval state of an approval (suspend) step of a flow run, by the
+        flow run id and the step id, in a single query: where the step stands, its
+        approval settings, the approvals received and, while it waits, whether the
+        caller can approve. Only the run's own steps are searched: for a step inside
+        a branch or loop, pass the id of the branch's or iteration's run.
+      operationId: getApprovalStepDetail
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: job_id
+          in: path
+          required: true
+          description: id of the flow run
+          schema:
+            type: string
+            format: uuid
+        - name: step_id
+          in: path
+          required: true
+          description: id of the approval step in the flow
+          schema:
+            type: string
+      responses:
+        "200":
+          description: approval step detail
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - flow_id
+                  - step_id
+                  - status
+                  - required_events
+                  - hide_cancel
+                  - continue_on_disapprove_timeout
+                  - skin
+                  - approvals
+                properties:
+                  flow_id:
+                    type: string
+                    format: uuid
+                  step_id:
+                    type: string
+                  status:
+                    type: string
+                    enum: [not_reached, skipped, failed, waiting, resumed, not_resumed]
+                    description: >
+                      not_reached: the step's own script has not finished yet.
+                      failed: the step failed before asking for approval.
+                      waiting: the run is suspended on this step.
+                      resumed: the run moved past this step.
+                      not_resumed: the run ended while waiting (denied, timed out or cancelled).
+                  step_job:
+                    type: string
+                    format: uuid
+                    description: the job of the approval step, once it ran
+                  step_summary:
+                    type: string
+                  required_events:
+                    type: integer
+                    description: number of approvals required to resume
+                  timeout:
+                    type: integer
+                    description: seconds the run waits for approvals
+                  suspended_until:
+                    type: string
+                    format: date-time
+                    description: when the wait times out, while waiting
+                  form_schema:
+                    description: form schema for the approval step
+                  hide_cancel:
+                    type: boolean
+                  continue_on_disapprove_timeout:
+                    type: boolean
+                  skin:
+                    type: string
+                    enum: [detailed, minimal]
+                  approval_conditions:
+                    type: object
+                    properties:
+                      user_auth_required:
+                        type: boolean
+                      user_groups_required:
+                        type: array
+                        items:
+                          type: string
+                      self_approval_disabled:
+                        type: boolean
+                    required:
+                      - user_auth_required
+                      - user_groups_required
+                      - self_approval_disabled
+                  can_approve:
+                    type: boolean
+                    description: whether the caller can approve, set only while waiting
+                  description:
+                    description: description returned by the approval step's script
+                  default_args:
+                    description: default form values returned by the approval step's script
+                  enums:
+                    description: form enums returned by the approval step's script
+                  approvals:
+                    type: array
+                    description: >
+                      approvals received. approved, value and created_at are known only
+                      while the run is live; a finished run keeps approver names alone.
+                    items:
+                      type: object
+                      required:
+                        - resume_id
+                        - approver
+                      properties:
+                        resume_id:
+                          type: integer
+                        approver:
+                          type: string
+                        approved:
+                          type: boolean
+                        value: {}
+                        created_at:
+                          type: string
+                          format: date-time
+                  error:
+                    description: the run's error, when status is not_resumed
+
   /w/{workspace}/jobs/job_view_token/{id}:
     get:
       summary: mint a read-only share token for a job
@@ -14304,7 +14435,9 @@ paths:
                 user:
                   type: string
                 model:
-                  description: defaults to the AI config's default model
+                  description: >
+                    defaults to the AI config's default model. Must be enabled in the AI
+                    settings, or be the default, metadata or code-completion model.
                   $ref: "#/components/schemas/AIProviderModel"
                 max_tokens:
                   type: integer
@@ -15597,6 +15730,41 @@ paths:
                   share:
                     $ref: "#/components/schemas/SharedAiSessionInfo"
 
+  /w/{workspace}/ai/shared_sessions/list:
+    get:
+      summary: list the caller's shared AI sessions
+      description: >
+        The caller's own shares and the ones they opened by link, most recently shared or opened
+        first, without their snapshot. Capped at 500. `session_id` is set on the caller's own
+        shares only, `opened_at` on the others.
+      operationId: listSharedAiSessions
+      tags:
+        - ai
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: the shares
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  allOf:
+                    - $ref: "#/components/schemas/SharedAiSessionInfo"
+                    - type: object
+                      properties:
+                        mine:
+                          type: boolean
+                        session_id:
+                          type: string
+                        opened_at:
+                          type: string
+                          format: date-time
+                          description: when the caller last opened this share by link
+                      required:
+                        - mine
+
   /w/{workspace}/ai/shared_sessions/set_public/{id}:
     post:
       summary: make a shared AI session public, or reserve it to workspace members
@@ -15659,6 +15827,7 @@ paths:
                     required:
                       - snapshot
                       - can_unshare
+                      - mine
                     properties:
                       snapshot:
                         type: object
@@ -15666,6 +15835,33 @@ paths:
                       can_unshare:
                         type: boolean
                         description: whether the caller authored the share or is a workspace admin
+                      mine:
+                        type: boolean
+                        description: whether the caller authored the share
+
+  /w/{workspace}/ai/shared_sessions/opened/{id}:
+    delete:
+      summary: remove a shared AI session from the caller's list
+      description: >
+        The share stays readable by link; opening it again lists it again.
+      operationId: forgetOpenedAiSession
+      tags:
+        - ai
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: removed from the list
+          content:
+            text/plain:
+              schema:
+                type: string
 
   /w/{workspace}/ai/shared_sessions/delete/{id}:
     delete:

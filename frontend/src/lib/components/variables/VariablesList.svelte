@@ -203,7 +203,9 @@
 			apiParams.value = currentFilters.value
 		}
 		if (currentFilters.owner) {
-			apiParams.pathStart = currentFilters.owner
+			// pathStart is a LIKE prefix: without the slash f/ops would also match f/ops_eu, and an
+			// unescaped _ (Postgres' default LIKE escape is \) would match any character.
+			apiParams.pathStart = currentFilters.owner.replace(/[\\%_]/g, '\\$&') + '/'
 		}
 		if (currentFilters._default_) {
 			apiParams.broadFilter = currentFilters._default_

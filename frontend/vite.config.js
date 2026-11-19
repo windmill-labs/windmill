@@ -375,6 +375,14 @@ let plugin = {
 	name: 'configure-response-headers',
 	enforce: 'pre',
 	configureServer: (server) => {
+		// Node closes an idle keep-alive socket after 5s, while a Go reverse proxy in front of
+		// the dev server (`tailscale serve`) keeps idle upstream connections for 90s. A request
+		// sent on a socket Node is closing comes back as a 502 with no body, which breaks the
+		// module graph after any pause of a few seconds. Outlive the proxy's idle timeout.
+		if (server.httpServer) {
+			server.httpServer.keepAliveTimeout = 120_000
+			server.httpServer.headersTimeout = 121_000
+		}
 		server.middlewares.use((req, res, next) => {
 			if (needsCrossOriginIsolation(req.url ?? '')) {
 				res.setHeader('Cross-Origin-Opener-Policy', 'same-origin')
@@ -410,6 +418,9 @@ const config = {
 			'public.windmill.xyz'
 		],
 		port: parseInt(process.env.FRONTEND_PORT) || 3000,
+		// `npm run check:fast` rewrites .fast-check/tsconfig.json on every run, and vite answers a
+		// tsconfig change by clearing its transform cache and full-reloading every open tab.
+		watch: { ignored: ['**/.fast-check/**'] },
 		// Transform the app shell's module graph at startup rather than on the first page
 		// load, which otherwise sits on the loading screen for ~15s (Tailwind's full content
 		// scan for app.css alone takes several seconds).
