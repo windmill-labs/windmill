@@ -17762,6 +17762,58 @@ paths:
                 type: string
                 format: uuid
 
+  /w/{workspace}/jobs/run/flow_test/{path}:
+    post:
+      summary: run a deployed flow with some steps overridden, for tests
+      description: >-
+        Runs the latest deployed version of the flow as a flow preview, with each step named
+        in `steps` either mocked (`{"return_value": ...}`) or replaced by a function of the
+        code of `caller_job_id` (`{"function": "<name>"}`), called with the step's inputs.
+        Needs the same rights as a flow preview.
+      operationId: runFlowTest
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/ScriptPath"
+        - $ref: "#/components/parameters/NewJobId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                args:
+                  $ref: "#/components/schemas/ScriptArgs"
+                steps:
+                  type: object
+                  description: step id -> override
+                  additionalProperties:
+                    type: object
+                    properties:
+                      return_value:
+                        description: the step is skipped and returns this value
+                      function:
+                        type: string
+                        description: >-
+                          name of a function of the code of `caller_job_id` that runs instead
+                          of the step (exported, in TypeScript)
+                caller_job_id:
+                  type: string
+                  format: uuid
+                  description: >-
+                    the job whose code defines the replacing functions, usually the calling
+                    test; a script run or a script preview. Required with a `function` override.
+      responses:
+        "201":
+          description: job created
+          content:
+            text/plain:
+              schema:
+                type: string
+                format: uuid
+
   /w/{workspace}/jobs/run/preview_flow:
     post:
       summary: run flow preview

@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE v2_job_status SET flow_status = jsonb_set(flow_status, '{test_subflows}', $2)\n             WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d087cfc975f26094f8e2084504cec8c2a3e78f32a0f14872f4076e0f0a9df607"
+}

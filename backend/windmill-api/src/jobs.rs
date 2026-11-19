@@ -291,6 +291,7 @@ pub fn workspaced_service() -> Router {
         )
         .route("/add_batch_jobs/{n}", post(add_batch_jobs))
         .route("/run/preview_flow", post(run_preview_flow_job))
+        .route("/run/flow_test/{*path}", post(crate::flow_test::run_flow_test))
         .route("/run/agent/{*path}", post(crate::agent_runs::run_agent))
         .route(
             "/run_wait_result/preview_flow",
@@ -2331,7 +2332,7 @@ fn job_read_access_cache_key(authed: &ApiAuthed, w_id: &str, job_id: &Uuid) -> [
 
 /// [`require_job_read_access`] for callers (job-update poll / SSE) that haven't
 /// already loaded `created_by` — fetches it (root DB, by id+workspace) first.
-async fn require_job_update_read_access(
+pub(crate) async fn require_job_update_read_access(
     db: &DB,
     user_db: &UserDB,
     authed: &ApiAuthed,
@@ -7158,18 +7159,18 @@ pub struct WorkflowTask {
 }
 
 #[derive(Deserialize)]
-struct PreviewFlow {
-    value: FlowValue,
-    path: Option<String>,
-    args: Option<HashMap<String, Box<JsonRawValue>>>,
-    tag: Option<String>,
-    restarted_from: Option<RestartedFrom>,
+pub(crate) struct PreviewFlow {
+    pub(crate) value: FlowValue,
+    pub(crate) path: Option<String>,
+    pub(crate) args: Option<HashMap<String, Box<JsonRawValue>>>,
+    pub(crate) tag: Option<String>,
+    pub(crate) restarted_from: Option<RestartedFrom>,
     /// Map of relative-import script path -> temp storage hash. Propagated to
     /// each flow step so inline-script relative imports resolve from
     /// not-yet-deployed local content instead of the deployed script.
-    temp_script_refs: Option<HashMap<String, String>>,
+    pub(crate) temp_script_refs: Option<HashMap<String, String>>,
     /// See `Preview::on_behalf_of`.
-    on_behalf_of: Option<String>,
+    pub(crate) on_behalf_of: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -9446,7 +9447,7 @@ async fn operator_may_run_datatable_query(
 
 /// Whether the caller's role may run code of its own: previews, dependency jobs, inline dynamic
 /// selects, resolving jobs.
-async fn role_can_code(db: &DB, w_id: &str, authed: &ApiAuthed) -> error::Result<bool> {
+pub(crate) async fn role_can_code(db: &DB, w_id: &str, authed: &ApiAuthed) -> error::Result<bool> {
     Ok(
         windmill_common::roles::caller_capabilities(db, w_id, authed)
             .await?
@@ -9456,7 +9457,7 @@ async fn role_can_code(db: &DB, w_id: &str, authed: &ApiAuthed) -> error::Result
 
 /// The refusal a member whose role cannot code gets from a preview route. Inside a job the caller
 /// never ran a preview themselves, so name the one thing the job's token may do.
-fn operator_preview_refusal(job_id: Option<Uuid>) -> error::Error {
+pub(crate) fn operator_preview_refusal(job_id: Option<Uuid>) -> error::Error {
     let reason = if job_id.is_some() {
         "Your role cannot run preview jobs in this workspace: from inside a job, a member \
          whose role cannot code may only run a wmill.datatable() query while that job is running"
@@ -10787,6 +10788,20 @@ async fn run_preview_flow_job(
     Query(run_query): Query<RunJobQuery>,
     Json(raw_flow): Json<PreviewFlow>,
 ) -> error::Result<(StatusCode, String)> {
+    push_preview_flow_job(authed, db, user_db, w_id, run_query, raw_flow, None).await
+}
+
+/// `test_subflows`: see `FlowStatus::test_subflows`, written with the job so no worker can
+/// start the run without it.
+pub(crate) async fn push_preview_flow_job(
+    authed: ApiAuthed,
+    db: DB,
+    user_db: UserDB,
+    w_id: String,
+    run_query: RunJobQuery,
+    raw_flow: PreviewFlow,
+    test_subflows: Option<HashMap<String, serde_json::Value>>,
+) -> error::Result<(StatusCode, String)> {
     let flows_level =
         check_operator_can_build(&db, &w_id, &authed, BuilderKind::Flows, "run preview jobs")
             .await?;
@@ -10911,6 +10926,17 @@ async fn run_preview_flow_job(
     // Set memory_id if provided (for agent memory)
     if let Some(memory_id) = run_query.memory_key(&w_id, &flow_path) {
         set_flow_memory_id(&mut tx, &w_id, uuid, memory_id).await?;
+    }
+
+    if let Some(test_subflows) = test_subflows.filter(|m| !m.is_empty()) {
+        sqlx::query!(
+            "UPDATE v2_job_status SET flow_status = jsonb_set(flow_status, '{test_subflows}', $2)
+             WHERE id = $1",
+            uuid,
+            sqlx::types::Json(test_subflows) as sqlx::types::Json<HashMap<String, serde_json::Value>>
+        )
+        .execute(&mut *tx)
+        .await?;
     }
 
     tx.commit().await?;
