@@ -9,7 +9,7 @@
 		type ListableApp,
 		type ListableRawApp,
 		type ListableResource,
-		type Script,
+		type ListableScript,
 		type SearchJobsIndexResponse
 	} from '$lib/gen'
 	import { clickOutside, isMac, scroll_into_view_if_needed_polyfill } from '$lib/utils'
@@ -533,7 +533,7 @@
 	// 	search_id: string
 	// }
 
-	type TableScript = TableItem<Script, 'script'>
+	type TableScript = TableItem<ListableScript, 'script'>
 	type TableFlow = TableItem<Flow, 'flow'>
 	type TableApp = TableItem<ListableApp, 'app'>
 	type TableRawApp = TableItem<ListableRawApp, 'raw_app'>
