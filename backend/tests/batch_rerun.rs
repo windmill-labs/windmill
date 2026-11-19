@@ -644,6 +644,11 @@ async fn batch_rerun_denies_invisible_source_job(db: Pool<Postgres>) -> anyhow::
         .await?;
 
     let original = push_completed(&db, script_payload(), vec![("name", json!("secret"))]).await?;
+    // The grant shows the script's runs, except one started invisible to its owner.
+    sqlx::query("UPDATE v2_job SET visible_to_owner = false WHERE id = $1")
+        .bind(original)
+        .execute(&db)
+        .await?;
 
     let results = batch_rerun(
         &member,
