@@ -39747,6 +39747,10 @@ components:
           type: string
         webhook_error:
           type: string
+        webhook_verified_id:
+          type: integer
+          format: int64
+          description: The webhook_id a delivery from the host last arrived for. Polling relaxes to about every 10 minutes only while it matches webhook_id. Set by the server.
         last_synced_sha:
           type: object
           additionalProperties:

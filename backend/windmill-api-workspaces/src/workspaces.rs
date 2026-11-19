@@ -1022,6 +1022,7 @@ fn sanitize_client_auto_pull(
     auto_pull.webhook_secret = None;
     auto_pull.webhook_url = None;
     auto_pull.webhook_error = None;
+    auto_pull.webhook_verified_id = None;
     auto_pull.last_synced_sha = std::collections::HashMap::new();
     auto_pull.last_pull_status = None;
     auto_pull.enabled_by = auto_pull.enabled.then(|| saver_email.to_string());
@@ -5456,6 +5457,7 @@ async fn edit_git_sync_config(
                     new_ap.webhook_id = old_ap.webhook_id;
                     new_ap.webhook_secret = old_ap.webhook_secret.clone();
                     new_ap.webhook_url = old_ap.webhook_url.clone();
+                    new_ap.webhook_verified_id = old_ap.webhook_verified_id;
                     new_ap.last_synced_sha = old_ap.last_synced_sha.clone();
                     new_ap.last_pull_status = old_ap.last_pull_status.clone();
                 }
@@ -5714,6 +5716,7 @@ async fn edit_git_sync_repository(
                 new_ap.webhook_id = old_ap.webhook_id;
                 new_ap.webhook_secret = old_ap.webhook_secret.clone();
                 new_ap.webhook_url = old_ap.webhook_url.clone();
+                new_ap.webhook_verified_id = old_ap.webhook_verified_id;
             }
             // UI omitted auto_pull (e.g. older client): keep existing config.
             (None, Some(_)) => {

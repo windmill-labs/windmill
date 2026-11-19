@@ -5345,7 +5345,7 @@ async fn poll_git_auto_pull_inner(db: &Pool<Postgres>) -> error::Result<()> {
                 Ok(Some((git_ref, sha))) => {
                     // Shared reconcile (also used by the webhook receiver):
                     // checks should_pull, enqueues, and records status/failure.
-                    if let Err(e) = windmill_git_sync::reconcile_and_enqueue_pull(
+                    match windmill_git_sync::reconcile_and_enqueue_pull(
                         db,
                         &row.workspace_id,
                         repo,
@@ -5355,11 +5355,38 @@ async fn poll_git_auto_pull_inner(db: &Pool<Postgres>) -> error::Result<()> {
                     )
                     .await
                     {
-                        tracing::warn!(
-                            "git auto-pull: reconcile failed for {}/{}: {e:#}",
-                            row.workspace_id,
-                            repo.git_repo_resource_path
-                        );
+                        // The webhook should have brought this head already: it stopped
+                        // reaching us, so poll every minute again until it delivers.
+                        Ok(Some(_)) if auto_pull.webhook_verified() => {
+                            tracing::warn!(
+                                "git auto-pull: {}/{} moved without a webhook delivery, polling every minute until one arrives",
+                                row.workspace_id,
+                                repo.git_repo_resource_path
+                            );
+                            if let Err(e) =
+                                windmill_common::workspaces::set_auto_pull_webhook_verified_id(
+                                    db,
+                                    &row.workspace_id,
+                                    &repo.git_repo_resource_path,
+                                    None,
+                                )
+                                .await
+                            {
+                                tracing::warn!(
+                                    "git auto-pull: could not record the missed delivery for {}/{}: {e:#}",
+                                    row.workspace_id,
+                                    repo.git_repo_resource_path
+                                );
+                            }
+                        }
+                        Ok(_) => {}
+                        Err(e) => {
+                            tracing::warn!(
+                                "git auto-pull: reconcile failed for {}/{}: {e:#}",
+                                row.workspace_id,
+                                repo.git_repo_resource_path
+                            );
+                        }
                     }
 
                     // Parent-managed fork sync: list the fork branches' heads in
@@ -8531,7 +8558,9 @@ mod loggable_setting_value_tests {
     fn never_prints_string_or_structured_values() {
         let token = "ghp_secret_token";
         for v in [
-            json!(format!("[install.scopes]\n\"@org\" = {{ token = \"{token}\" }}")),
+            json!(format!(
+                "[install.scopes]\n\"@org\" = {{ token = \"{token}\" }}"
+            )),
             json!({ "registry": { "token": token } }),
             json!([token]),
         ] {
