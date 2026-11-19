@@ -309,13 +309,24 @@
 		></div>
 		{#if !editMode && retriedInside > 0}
 			<!-- Left of the settings bar, which is this step's own policy: this is what happened inside. -->
-			<div
+			<button
 				transition:fade|local={{ duration: 200 }}
-				class="absolute left-0 top-[calc(100%+3px)] z-10 flex h-5 flex-row items-center gap-1 text-2xs text-secondary"
+				title="Expand to see the retried steps"
+				disabled={!maximizeSubflow}
+				class="nodrag nopan absolute left-0 top-[calc(100%+3px)] z-10 flex h-5 flex-row items-center gap-1 rounded px-0.5 -mx-0.5 text-2xs text-secondary enabled:hover:bg-surface-hover enabled:hover:text-primary"
+				onclick={(e) => {
+					e.stopPropagation()
+					e.preventDefault()
+					maximizeSubflow?.()
+				}}
+				onpointerdown={(e) => {
+					e.stopPropagation()
+					e.preventDefault()
+				}}
 			>
 				<RefreshCw size={12} class="text-orange-500" />
 				{retriedInside} step{retriedInside === 1 ? '' : 's'} retried inside
-			</div>
+			</button>
 		{/if}
 		<div
 			class="absolute text-sm {editMode
