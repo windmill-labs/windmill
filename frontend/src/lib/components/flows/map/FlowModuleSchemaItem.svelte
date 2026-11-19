@@ -4,7 +4,16 @@
 	import Popover from '$lib/components/Popover.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import { classNames, type Item, type StateStore } from '$lib/utils'
-	import { EllipsisVertical, Pin, X, Play, Loader2, TriangleAlert, Maximize2 } from 'lucide-svelte'
+	import {
+		EllipsisVertical,
+		Pin,
+		X,
+		Play,
+		Loader2,
+		TriangleAlert,
+		Maximize2,
+		RefreshCw
+	} from 'lucide-svelte'
 	import type { StepSettingView } from '../flowStepSettings'
 	import { createEventDispatcher, getContext, untrack } from 'svelte'
 	import { fade } from 'svelte/transition'
@@ -64,6 +73,8 @@
 		path?: string
 		nodeState?: FlowNodeState
 		retries?: number | undefined
+		/** On a collapsed subflow in a run, how many steps inside it were retried. */
+		retriedInside?: number
 		/** In a run, the attempts the retry badge picks from. */
 		attempts?: RetryAttempts | undefined
 		warningMessage?: string | undefined
@@ -98,6 +109,7 @@
 		path = '',
 		nodeState,
 		retries = undefined,
+		retriedInside = 0,
 		attempts = undefined,
 		warningMessage = undefined,
 		editMode = false,
@@ -295,6 +307,16 @@
 			class={classNames('absolute z-0 rounded-md outline-offset-0', colorClasses.outline)}
 			style={`width: 275px; height: 34px;`}
 		></div>
+		{#if !editMode && retriedInside > 0}
+			<!-- Left of the settings bar, which is this step's own policy: this is what happened inside. -->
+			<div
+				transition:fade|local={{ duration: 200 }}
+				class="absolute left-0 top-[calc(100%+3px)] z-10 flex h-5 flex-row items-center gap-1 text-2xs text-secondary"
+			>
+				<RefreshCw size={12} class="text-orange-500" />
+				{retriedInside} step{retriedInside === 1 ? '' : 's'} retried inside
+			</div>
+		{/if}
 		<div
 			class="absolute text-sm {editMode
 				? 'right-2'

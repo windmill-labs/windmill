@@ -29,6 +29,7 @@
 		nodeState?: FlowNodeState
 		duration_ms?: number | undefined
 		retries?: number | undefined
+		retriedInside?: number
 		flowJobs:
 			| {
 					flowJobs: string[]
@@ -77,6 +78,7 @@
 		nodeState,
 		duration_ms = undefined,
 		retries = undefined,
+		retriedInside = 0,
 		flowJobs,
 		attempts = undefined,
 		editMode = false,
@@ -275,6 +277,7 @@
 			{:else}
 				<FlowModuleSchemaItem
 					{retries}
+					{retriedInside}
 					attempts={attempts && !insertable
 						? {
 								jobs: attempts.flowJobs,

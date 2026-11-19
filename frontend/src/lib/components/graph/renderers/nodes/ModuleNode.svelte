@@ -109,6 +109,13 @@
 		}
 	})
 
+	// An expanded subflow is drawn as its steps instead of this node, each with its own bar.
+	let retriedInside = $derived(
+		flowRunStatus?.showsRun && !data.editMode && data.module?.value?.type === 'flow'
+			? flowRunStatus.retriedStepsInside(data.id)
+			: 0
+	)
+
 	let type = $derived.by(() => {
 		let typ = state?.type
 		if (!typ && flowJobs) {
@@ -209,6 +216,7 @@
 			nodeState={state?.skipped ? '_Skipped' : type}
 			duration_ms={state?.duration_ms}
 			retries={state?.retries}
+			{retriedInside}
 			{flowJobs}
 			{attempts}
 			on:delete={(e) => {
