@@ -720,7 +720,8 @@ RIGHT JOIN pg_namespace nsp ON table_schema = nsp.nspname WHERE nsp.nspname NOT 
 AND NOT starts_with(nsp.nspname, 'pg_') AND has_schema_privilege(nsp.oid, 'USAGE')";
 const MYSQL_SCHEMA_QUERY: &str = "SELECT DATABASE() AS default_db_name, TABLE_SCHEMA, TABLE_NAME, DATA_TYPE, COLUMN_NAME, COLUMN_DEFAULT FROM information_schema.columns WHERE table_schema = DATABASE() OR table_schema NOT IN ('information_schema', 'mysql', 'performance_schema', 'sys', '_vt');";
 const SNOWFLAKE_SCHEMA_QUERY: &str = "select TABLE_SCHEMA, TABLE_NAME, DATA_TYPE, COLUMN_NAME, COLUMN_DEFAULT, IS_NULLABLE from information_schema.columns where table_schema != 'INFORMATION_SCHEMA'";
-const MSSQL_SCHEMA_QUERY: &str = "select TABLE_SCHEMA, TABLE_NAME, DATA_TYPE, COLUMN_NAME, COLUMN_DEFAULT from information_schema.columns where table_schema != 'sys'";
+// Uppercase: under a case-sensitive collation `information_schema.columns` does not resolve.
+const MSSQL_SCHEMA_QUERY: &str = "select TABLE_SCHEMA, TABLE_NAME, DATA_TYPE, COLUMN_NAME, COLUMN_DEFAULT from INFORMATION_SCHEMA.COLUMNS where TABLE_SCHEMA != 'sys'";
 const BIGQUERY_SCHEMA_SCRIPT: &str = r#"import { BigQuery } from '@google-cloud/bigquery@7.5.0';
 export async function main(args: bigquery) {
 const bq = new BigQuery({
