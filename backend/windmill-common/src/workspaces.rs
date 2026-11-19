@@ -641,7 +641,9 @@ impl AutoPullSettings {
 
 /// Record the hook a delivery arrived for (`Some`), or that a poll found a head no
 /// delivery brought (`None`), on one repository of `workspace_settings.git_sync`
-/// without touching the rest of it.
+/// without touching the rest of it. Authorizes nothing: callers pass a workspace
+/// and repository they resolved themselves, the receiver only after verifying the
+/// delivery against that repository's own secret, never ids taken from a request.
 pub async fn set_auto_pull_webhook_verified_id(
     db: &crate::DB,
     w_id: &str,
