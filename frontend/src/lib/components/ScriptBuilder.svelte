@@ -1,4 +1,6 @@
 <script lang="ts">
+	import HostWindow from '$lib/components/common/HostWindow.svelte'
+	import { overlayHostActive } from '$lib/components/common/overlayHost.svelte'
 	import DeployOnBehalfOfDialog from '$lib/components/itemSettings/DeployOnBehalfOfDialog.svelte'
 	import { deployAsksOnBehalfOf } from '$lib/components/itemSettings/onBehalfOf'
 	import { movesToAnotherOwner } from '$lib/components/itemSettings/inheritedAccess'
@@ -1320,6 +1322,7 @@
 		return dropdownItems.length > 0 ? dropdownItems : undefined
 	}
 
+	const hostActive = overlayHostActive()
 	function onKeyDown(event: KeyboardEvent) {
 		// Lowercased so Caps Lock (which yields `S`) still saves. Shift excluded:
 		// Ctrl+Shift+S must reach the browser/OS.
@@ -1337,8 +1340,9 @@
 	// window handler above; Editor/SimpleEditor/TemplateEditor re-broadcast it
 	// (untyped event, hence the manual listener).
 	$effect(() => {
-		window.addEventListener('wm-monaco-save-shortcut', saveDraft)
-		return () => window.removeEventListener('wm-monaco-save-shortcut', saveDraft)
+		const onSaveShortcut = () => hostActive() && saveDraft()
+		window.addEventListener('wm-monaco-save-shortcut', onSaveShortcut)
+		return () => window.removeEventListener('wm-monaco-save-shortcut', onSaveShortcut)
 	})
 
 	let path: Path | undefined = $state(undefined)
@@ -1548,7 +1552,7 @@
 	}
 </script>
 
-<svelte:window onkeydown={onKeyDown} />
+<HostWindow onkeydown={onKeyDown} />
 {@render children?.()}
 
 <DeployOnBehalfOfDialog

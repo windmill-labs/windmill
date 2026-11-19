@@ -3,6 +3,7 @@
 </script>
 
 <script lang="ts">
+	import HostWindow from '$lib/components/common/HostWindow.svelte'
 	import { onDestroy, tick } from 'svelte'
 	import { fade } from 'svelte/transition'
 	import { type Job } from '../../gen'
@@ -106,10 +107,8 @@
 	})
 </script>
 
-<svelte:window
-	onkeydown={({ key }) => ['Escape', 'Esc'].includes(key) && close()}
-	onscrollcapture={(e) => open && !popupEl?.contains(e.target as Node) && close()}
-/>
+<HostWindow onkeydown={({ key }) => ['Escape', 'Esc'].includes(key) && close()} />
+<svelte:window onscrollcapture={(e) => open && !popupEl?.contains(e.target as Node) && close()} />
 <!-- `open` too: crossing from the trigger onto the portaled popup leaves the wrapper, and
      unmounting here would cancel a load still in flight. -->
 {#if hovered || open}

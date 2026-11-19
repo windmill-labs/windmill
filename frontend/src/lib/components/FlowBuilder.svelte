@@ -1,4 +1,6 @@
 <script lang="ts">
+	import HostWindow from '$lib/components/common/HostWindow.svelte'
+	import { overlayHostActive } from '$lib/components/common/overlayHost.svelte'
 	import DeployOnBehalfOfDialog from '$lib/components/itemSettings/DeployOnBehalfOfDialog.svelte'
 	import { deployAsksOnBehalfOf } from '$lib/components/itemSettings/onBehalfOf'
 	import { movesToAnotherOwner } from '$lib/components/itemSettings/inheritedAccess'
@@ -479,9 +481,11 @@
 	// window handler; Editor/SimpleEditor/TemplateEditor re-broadcast it
 	// (untyped event, hence the manual listener). A step's code editor also
 	// flushes through its `formatAction`, and a redundant flush is a no-op.
+	const hostActive = overlayHostActive()
 	$effect(() => {
-		window.addEventListener('wm-monaco-save-shortcut', saveDraft)
-		return () => window.removeEventListener('wm-monaco-save-shortcut', saveDraft)
+		const onSaveShortcut = () => hostActive() && saveDraft()
+		window.addEventListener('wm-monaco-save-shortcut', onSaveShortcut)
+		return () => window.removeEventListener('wm-monaco-save-shortcut', onSaveShortcut)
 	})
 
 	// Materialize a brand-new flow's draft before the session preview loads it by
@@ -1713,7 +1717,7 @@
 	const flowHasChanged = $derived(flowPreviewContent?.flowHasChanged())
 </script>
 
-<svelte:window onkeydown={onKeyDown} />
+<HostWindow onkeydown={onKeyDown} />
 
 {@render children?.()}
 
