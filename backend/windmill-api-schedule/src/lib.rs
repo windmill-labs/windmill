@@ -17,9 +17,8 @@ use sql_builder::{prelude::Bind, SqlBuilder};
 use sqlx::{Postgres, Transaction};
 use std::str::FromStr;
 use windmill_api_auth::{
-    build_scope_path_predicate, check_scopes,
-    composed::check_new_hub_paths,
-    maybe_refresh_folders, require_super_admin, ApiAuthed,
+    build_scope_path_predicate, check_scopes, composed::check_new_hub_paths, maybe_refresh_folders,
+    require_super_admin, ApiAuthed,
 };
 use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
@@ -237,7 +236,6 @@ fn reject_reserved_schedule_path(path: &str) -> Result<()> {
     Ok(())
 }
 
-/// Validate that a dynamic skip handler (script or flow) exists
 /// A retry the runs cannot parse would otherwise be saved and then fail every tick.
 fn validate_retry(retry: &Option<serde_json::Value>) -> Result<()> {
     if let Some(retry) = retry {
@@ -247,6 +245,7 @@ fn validate_retry(retry: &Option<serde_json::Value>) -> Result<()> {
     Ok(())
 }
 
+/// Validate that a dynamic skip handler (script or flow) exists
 async fn validate_dynamic_skip<'c>(
     tx: &mut Transaction<'c, Postgres>,
     w_id: &str,
