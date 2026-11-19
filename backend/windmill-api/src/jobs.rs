@@ -774,25 +774,37 @@ async fn cancel_job_api(
 async fn cancel_persistent_script_api(
     OptAuthed(opt_authed): OptAuthed,
     Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
     Path((w_id, script_path)): Path<(String, StripPath)>,
     Json(CancelJob { reason }): Json<CancelJob>,
 ) -> error::Result<()> {
-    let audit_author: AuditAuthor = match opt_authed {
-        Some(authed) => {
-            let path = script_path.to_path();
-            if !windmill_api_auth::scopes::job_cancel_path_confinement(authed.scopes.as_deref())
-                .is_none_or(|c| windmill_api_auth::scopes::cancel_confinement_admits(&c, path))
-            {
-                return Err(Error::NotFound(format!("Script {path} not found")));
-            }
-            (&authed).into()
-        }
-        None => {
-            return Err(Error::BadRequest(format!(
-                "Cancelling persistent script require to be logged in and member of {w_id}"
-            )))
-        }
+    let Some(authed) = opt_authed else {
+        return Err(Error::BadRequest(format!(
+            "Cancelling persistent script require to be logged in and member of {w_id}"
+        )));
     };
+    let path = script_path.to_path();
+    if !windmill_api_auth::scopes::job_cancel_path_confinement(authed.scopes.as_deref())
+        .is_none_or(|c| windmill_api_auth::scopes::cancel_confinement_admits(&c, path))
+    {
+        return Err(Error::NotFound(format!("Script {path} not found")));
+    }
+    // The cancel below runs on the root pool, so each run it would reach must pass the per-job
+    // check `/queue/cancel/{id}` applies. Same filter as `cancel_persistent_script_jobs`.
+    let candidates = sqlx::query_scalar::<_, Uuid>(
+        "SELECT j.id FROM v2_job_queue q JOIN v2_job j USING (id) \
+         JOIN script s ON s.workspace_id = j.workspace_id AND s.hash = j.runnable_id \
+         WHERE j.workspace_id = $1 AND j.runnable_path = $2 AND j.kind = 'script' \
+         AND j.flow_step_id IS NULL AND q.canceled_by IS NULL AND s.restart_unless_cancelled",
+    )
+    .bind(&w_id)
+    .bind(path)
+    .fetch_all(&db)
+    .await?;
+    for id in candidates {
+        require_job_cancel_access(&db, &user_db, &authed, &w_id, &id).await?;
+    }
+    let audit_author: AuditAuthor = (&authed).into();
 
     let cancelled_job_ids = windmill_queue::cancel_persistent_script_jobs(
         &audit_author.username,
@@ -10371,22 +10383,22 @@ async fn push_flow_dependencies_job(
     // lock step from becoming the way to run code the write path refuses.
     if flows_level == AuthorLevel::Compose {
         validate_operator_composed_flow(&req.flow_value, &None, authed, db, user_db, w_id).await?;
-        // The job rewrites bookkeeping stored under `req.path` (dependency map, asset usages,
-        // lock error) even with `skip_flow_update`, so a builder must be able to write there.
-        crate::drafts::require_can_write_path(
-            authed,
-            db,
-            user_db,
-            w_id,
-            windmill_common::user_drafts::UserDraftItemKind::Flow,
-            &req.path,
-        )
-        .await
-        .map_err(|e| match e {
-            error::Error::NotAuthorized(msg) => error::Error::PermissionDenied(msg),
-            e => e,
-        })?;
     }
+    // The job rewrites bookkeeping stored under `req.path` (dependency map, asset usages,
+    // lock error) even with `skip_flow_update`, so the caller must be able to write there.
+    crate::drafts::require_can_write_path(
+        authed,
+        db,
+        user_db,
+        w_id,
+        windmill_common::user_drafts::UserDraftItemKind::Flow,
+        &req.path,
+    )
+    .await
+    .map_err(|e| match e {
+        error::Error::NotAuthorized(msg) => error::Error::PermissionDenied(msg),
+        e => e,
+    })?;
 
     if req.raw_deps.is_some() {
         return Err(error::Error::MigrationNeeded {
