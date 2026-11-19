@@ -26,7 +26,10 @@ use windmill_types::{
 };
 
 use crate::db::{ApiAuthed, DB};
-use crate::jobs::{require_job_update_read_access, run_preview_flow_job, PreviewFlow, RunJobQuery};
+use crate::jobs::{
+    operator_preview_refusal, require_job_update_read_access, role_can_code, run_preview_flow_job,
+    PreviewFlow, RunJobQuery,
+};
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -321,6 +324,11 @@ pub(crate) async fn run_flow_test(
     Query(run_query): Query<RunJobQuery>,
     Json(req): Json<FlowTestRequest>,
 ) -> Result<(StatusCode, String)> {
+    // Even a mock-only test runs an edited flow value; the preview route's builder right is
+    // not enough for it.
+    if !role_can_code(&db, &w_id, &authed).await? {
+        return Err(operator_preview_refusal(None));
+    }
     let flow_path = flow_path.to_path().to_string();
 
     let mut parsed = HashMap::new();

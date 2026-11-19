@@ -9447,7 +9447,7 @@ async fn operator_may_run_datatable_query(
 
 /// Whether the caller's role may run code of its own: previews, dependency jobs, inline dynamic
 /// selects, resolving jobs.
-async fn role_can_code(db: &DB, w_id: &str, authed: &ApiAuthed) -> error::Result<bool> {
+pub(crate) async fn role_can_code(db: &DB, w_id: &str, authed: &ApiAuthed) -> error::Result<bool> {
     Ok(
         windmill_common::roles::caller_capabilities(db, w_id, authed)
             .await?
@@ -9457,7 +9457,7 @@ async fn role_can_code(db: &DB, w_id: &str, authed: &ApiAuthed) -> error::Result
 
 /// The refusal a member whose role cannot code gets from a preview route. Inside a job the caller
 /// never ran a preview themselves, so name the one thing the job's token may do.
-fn operator_preview_refusal(job_id: Option<Uuid>) -> error::Error {
+pub(crate) fn operator_preview_refusal(job_id: Option<Uuid>) -> error::Error {
     let reason = if job_id.is_some() {
         "Your role cannot run preview jobs in this workspace: from inside a job, a member \
          whose role cannot code may only run a wmill.datatable() query while that job is running"
