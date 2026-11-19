@@ -61,7 +61,6 @@ fn supports_entrypoint_override(language: &ScriptLang) -> bool {
         ScriptLang::Bun
             | ScriptLang::Bunnative
             | ScriptLang::Deno
-            | ScriptLang::Nativets
             | ScriptLang::Python3
             | ScriptLang::Php
     )
@@ -127,15 +126,18 @@ async fn caller_job_code(
     }
     match (job.kind.as_str(), job.runnable_id) {
         ("script", Some(hash)) => {
+            // As the caller: reading a run of a script does not grant reading its source.
+            let mut tx = user_db.clone().begin(authed).await?;
             let s = sqlx::query!(
                 "SELECT content, lock, language AS \"language: ScriptLang\", path
                  FROM script WHERE hash = $1 AND workspace_id = $2",
                 hash,
                 w_id
             )
-            .fetch_optional(db)
+            .fetch_optional(&mut *tx)
             .await?
             .ok_or_else(|| Error::NotFound(format!("script of job {job_id} not found")))?;
+            tx.commit().await?;
             Ok(ReplacementCode {
                 content: s.content,
                 language: s.language,
@@ -221,8 +223,12 @@ fn replacement_value(
     if let Some(path) = &code.path {
         raw["path"] = json!(path);
     }
-    if let Some(t) = module.get("value").and_then(|v| v.get("tool_type")) {
-        raw["tool_type"] = t.clone();
+    // A built-in tool (web search, question) is replaced by a script tool.
+    if module
+        .get("value")
+        .is_some_and(|v| v.get("tool_type").is_some())
+    {
+        raw["tool_type"] = json!("flowmodule");
     }
     raw
 }
@@ -240,6 +246,15 @@ pub(crate) fn apply_step_overrides(
             return;
         };
         let Some(o) = overrides.get(&id) else {
+            // An editor pin kept for test runs: a step the test did not override runs for real.
+            if module
+                .get("mock")
+                .and_then(|m| m.get("preview_only"))
+                .and_then(Value::as_bool)
+                == Some(true)
+            {
+                module.remove("mock");
+            }
             return;
         };
         seen.insert(id.clone());
@@ -443,7 +458,7 @@ mod tests {
     fn agent_tool_cannot_be_mocked() {
         let mut v = json!({ "modules": [ { "id": "agent", "value": { "type": "aiagent",
             "input_transforms": {}, "tools": [ { "id": "send", "summary": "send",
-            "value": { "tool_type": "flowmodule", "type": "identity" } } ] } } ] });
+            "value": { "tool_type": "websearch" } } ] } } ] });
         let mocked = HashMap::from([("send".to_string(), StepOverride::Mock(json!(1)))]);
         assert!(apply_step_overrides(&mut v.clone(), &mocked).is_err());
         let replaced = HashMap::from([(
@@ -480,6 +495,18 @@ mod tests {
             StepOverride::Function { entrypoint: "fake".into(), code: code() },
         )]);
         assert!(apply_step_overrides(&mut v, &overrides).is_err());
+    }
+
+    #[test]
+    fn test_run_pins_are_dropped() {
+        let mut v = json!({ "modules": [
+            { "id": "a", "value": { "type": "identity" },
+              "mock": { "enabled": true, "return_value": 1, "preview_only": true } },
+            { "id": "b", "value": { "type": "identity" },
+              "mock": { "enabled": true, "return_value": 2 } } ] });
+        apply_step_overrides(&mut v, &HashMap::new()).unwrap();
+        assert!(v["modules"][0].get("mock").is_none());
+        assert_eq!(v["modules"][1]["mock"]["return_value"], 2);
     }
 
     #[test]
