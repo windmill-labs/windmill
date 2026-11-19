@@ -177,6 +177,9 @@ export type ModuleN = {
 		assets: AssetWithAltAccessType[] | undefined
 		moduleAction: ModuleActionInfo | undefined
 		isErrorHandler?: boolean
+		/** A loop whose iterations may have run an error handler: its flow has one (each iteration
+		 * runs a copy), or a subflow step sits inside it. */
+		mayRunErrorHandler?: boolean
 	}
 }
 
@@ -520,6 +523,14 @@ export function graphBuilder(
 		// In the editor the error handler is configured from its own header button, so its graph node
 		// is only a marker of the last run: inert, dismissable, and never selectable. Everywhere else
 		// (run view, viewers) it stays a regular step card.
+		function loopMayRunErrorHandler(module: FlowModule, prefix: string | undefined) {
+			const body = 'modules' in module.value ? module.value.modules : []
+			return (
+				!!failureModulesByPrefix[prefix == undefined ? '' : 'subflow:' + prefix] ||
+				getAllModules(body).some((m) => m.value.type === 'flow')
+			)
+		}
+
 		function addFailureNode(module: FlowModule) {
 			if (!extra.editMode) {
 				return addNode(module, { isErrorHandler: true })
@@ -972,7 +983,7 @@ export function graphBuilder(
 						previousId = endNode.id
 					} else if (module.value.type === 'forloopflow') {
 						if (!simplifiedTriggerView) {
-							addNode(module)
+							addNode(module, { mayRunErrorHandler: loopMayRunErrorHandler(module, prefix) })
 						}
 
 						const startNode: NodeLayout = {
@@ -1029,7 +1040,7 @@ export function graphBuilder(
 
 						previousId = endNode.id
 					} else if (module.value.type === 'whileloopflow') {
-						addNode(module)
+						addNode(module, { mayRunErrorHandler: loopMayRunErrorHandler(module, prefix) })
 
 						const startNode: NodeLayout = {
 							id: `${module.id}-start`,
@@ -1314,11 +1325,13 @@ export function graphBuilder(
 			addEdge(anchor, id, undefined, undefined, { type: 'empty', handler: { id, side: 'in' } })
 			const target = handlerTargets[parentId]
 			// The failure went to the handler, so the step's own way out was not taken, even where
-			// it leads to a node with no run state of its own (a loop or branch end). Where it leads
-			// to the handler's own target, the handler's edge replaces it: drawn both, they read as
+			// it leads to a node with no run state of its own (a loop or branch end). A loop or
+			// branch that failed as a whole leaves through its end node. Where the way out leads to
+			// the handler's own target, the handler's edge replaces it: drawn both, they read as
 			// two paths into that node.
+			const exits = [anchor, `${anchor}-end`]
 			for (const edge of edges) {
-				if (edge.source === anchor && edge.target !== id) {
+				if (exits.includes(edge.source) && edge.target !== id) {
 					edge.data = { ...edge.data, bypassed: edge.target === target ? 'replaced' : true }
 				}
 			}

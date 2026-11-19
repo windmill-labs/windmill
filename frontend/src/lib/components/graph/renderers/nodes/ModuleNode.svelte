@@ -15,13 +15,13 @@
 	import { jobToGraphModuleState } from '$lib/components/modulesTest.svelte'
 	import { getNoteEditorContext } from '../../noteEditor.svelte'
 	import { isMac, type Item } from '$lib/utils'
-	import { getContext } from 'svelte'
+	import { getContext, untrack } from 'svelte'
 	import { getGraphContext } from '../../graphContext'
 	import { getFlowRunStatusContext } from '../../flowRunStatus.svelte'
 	import { waitingRequest } from '$lib/components/agentRequest'
 	import { Button } from '$lib/components/common'
 	import { workspaceStore } from '$lib/stores'
-	import { countErrorHandlersUnder } from '../../nestedErrorHandlers'
+	import { countErrorHandlersUnder, firstIterationWithHandler } from '../../nestedErrorHandlers'
 
 	interface Props {
 		data: ModuleN['data']
@@ -120,47 +120,66 @@
 		if (subflowPath) data.eventHandlers.expandSubflow(data.id, subflowPath)
 	}
 
+	// The walk below only re-runs when the step's jobs change: `state` is a new object on
+	// every status update. A step still running has no count yet, as its jobs are still changing.
+	let handlerCountKey = $derived(
+		!data.editMode && (state?.type === 'Success' || state?.type === 'Failure')
+			? [state.job_id, state.selectedForloopIndex, ...(state.flow_jobs ?? [])].join(',')
+			: undefined
+	)
+
 	/**
 	 * Error handlers that ran inside this step but that the graph does not draw: anywhere in a
 	 * collapsed subflow, or in a loop's other iterations while the one shown draws none. The
 	 * selected iteration's own handlers are drawn, and nested steps report theirs.
 	 */
 	let hiddenErrorHandlers = $derived.by(
-		(): Promise<{ count: number; reveal: () => void } | undefined> | undefined => {
+		(): Promise<{ label: string; reveal: () => void } | undefined> | undefined => {
 			const workspace = $workspaceStore
-			if (data.editMode || !workspace || !state) return undefined
+			if (!handlerCountKey || !workspace) return undefined
+			const s = untrack(() => state)
+			if (!s) return undefined
 			const valueType = data.module?.value?.type
-			if (valueType === 'flow' && state.job_id && subflowPath) {
-				return countErrorHandlersUnder(workspace, state.job_id).then(
-					(count) => (count > 0 ? { count, reveal: expandSubflow } : undefined),
+			if (valueType === 'flow' && s.job_id && subflowPath) {
+				return countErrorHandlersUnder(workspace, s.job_id).then(
+					(count) =>
+						count > 0
+							? {
+									label: `${count} error handler${count > 1 ? 's' : ''} ran`,
+									reveal: expandSubflow
+								}
+							: undefined,
 					() => undefined
 				)
 			}
-			const iterations = state.flow_jobs
-			if ((valueType === 'forloopflow' || valueType === 'whileloopflow') && iterations?.length) {
-				const index = state.selectedForloopIndex ?? 0
+			const iterations = s.flow_jobs
+			const isLoop = valueType === 'forloopflow' || valueType === 'whileloopflow'
+			if (isLoop && data.mayRunErrorHandler && iterations?.length) {
+				const index = s.selectedForloopIndex ?? 0
 				const shown = index >= 0 ? index : iterations.length - 1
-				return Promise.all(iterations.map((id) => countErrorHandlersUnder(workspace, id))).then(
-					(counts) => {
+				const success = s.flow_jobs_success
+				return countErrorHandlersUnder(workspace, iterations[shown])
+					.then(async (count) =>
 						// The iteration on screen already draws a handler: pointing at the others would
 						// keep the reader clicking through iterations.
-						if (counts[shown] > 0) return undefined
-						const count = counts.reduce((a, b) => a + b, 0)
-						if (count === 0) return undefined
-						const first = counts.findIndex((c) => c > 0)
-						return {
-							count,
-							reveal: () =>
-								data.eventHandlers.selectedIteration({
-									id: iterations[first],
-									index: first,
-									manuallySet: true,
-									moduleId: data.id
-								})
-						}
-					},
-					() => undefined
-				)
+						count > 0 ? undefined : await firstIterationWithHandler(workspace, iterations, success)
+					)
+					.then(
+						(first) =>
+							first === undefined
+								? undefined
+								: {
+										label: `Error handler ran in iteration ${first + 1}`,
+										reveal: () =>
+											data.eventHandlers.selectedIteration({
+												id: iterations[first],
+												index: first,
+												manuallySet: true,
+												moduleId: data.id
+											})
+									},
+						() => undefined
+					)
 			}
 			return undefined
 		}
@@ -330,13 +349,13 @@
 						unifiedSize="2xs"
 						startIcon={{ icon: Bug, classes: 'text-red-400 dark:text-red-500' }}
 						btnClasses="text-2xs text-secondary px-0 gap-1"
-						title={subflowPath ? 'Expand the subflow' : 'Show the first iteration where one ran'}
+						title={subflowPath ? 'Expand the subflow' : 'Show that iteration'}
 						onClick={(e) => {
 							e?.stopPropagation()
 							hidden.reveal()
 						}}
 					>
-						{hidden.count} error handler{hidden.count > 1 ? 's' : ''} ran
+						{hidden.label}
 					</Button>
 				</div>
 			{/if}
