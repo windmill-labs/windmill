@@ -1,7 +1,8 @@
 <script lang="ts">
+	import type { KeyboardEventHandler } from 'svelte/elements'
 	import { overlayHostActive } from './overlayHost.svelte'
 
-	type KeyHandler = (e: KeyboardEvent) => void
+	type KeyHandler = KeyboardEventHandler<Window>
 
 	// Use this instead of `<svelte:window onkeydown>` in anything that can render inside a
 	// session preview tab: hidden tabs stay mounted, and their window listeners would
