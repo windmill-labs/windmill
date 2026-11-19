@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH decisions AS (\n            DELETE FROM autoscaling_decision WHERE recorded_at <= now() - interval '48 hours'\n        )\n        DELETE FROM autoscaling_recording WHERE until <= now()",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "cbb90b20bef5904ff3c89a65a3662c01730c46882b15a02c22e48eeda24903e1"
+}

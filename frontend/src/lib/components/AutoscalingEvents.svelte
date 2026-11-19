@@ -9,6 +9,7 @@
 	import DataTable from './table/DataTable.svelte'
 	import Head from './table/Head.svelte'
 	import Cell from './table/Cell.svelte'
+	import AutoscalingDiagnostics from './AutoscalingDiagnostics.svelte'
 
 	interface Props {
 		worker_group: string
@@ -49,16 +50,19 @@
 			{/if}
 		</div>
 		{#if $enterpriseLicense}
-			<Button
-				startIcon={{
-					icon: RefreshCw,
-					classes: twMerge(loading ? 'animate-spin' : '')
-				}}
-				variant="subtle"
-				unifiedSize="sm"
-				on:click={() => loadEvents()}
-				iconOnly
-			/>
+			<div class="flex flex-row items-center gap-2">
+				<AutoscalingDiagnostics {worker_group} />
+				<Button
+					startIcon={{
+						icon: RefreshCw,
+						classes: twMerge(loading ? 'animate-spin' : '')
+					}}
+					variant="subtle"
+					unifiedSize="sm"
+					on:click={() => loadEvents()}
+					iconOnly
+				/>
+			</div>
 		{/if}
 	</div>
 

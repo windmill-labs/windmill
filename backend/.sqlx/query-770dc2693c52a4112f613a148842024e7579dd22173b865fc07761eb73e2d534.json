@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO autoscaling_decision\n            (worker_group, worker_count, occupancy_rate_15s, occupancy_rate_5m, occupancy_rate_30m, jobs_waiting, decision)\n         VALUES ($1, $2, $3, $4, $5, $6, $7)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int4",
+        "Float4",
+        "Float4",
+        "Float4",
+        "Jsonb",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "770dc2693c52a4112f613a148842024e7579dd22173b865fc07761eb73e2d534"
+}

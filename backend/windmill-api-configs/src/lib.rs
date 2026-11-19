@@ -35,6 +35,14 @@ pub fn global_service() -> Router {
             "/list_autoscaling_events/{worker_group}",
             get(list_autoscaling_events),
         )
+        .route(
+            "/autoscaling_diagnostics/{worker_group}",
+            get(get_autoscaling_diagnostics),
+        )
+        .route(
+            "/autoscaling_recording/{worker_group}",
+            post(set_autoscaling_recording),
+        )
         .route("/test_autoscaling/{worker_group}", post(test_autoscaling))
         .route(
             "/native_kubernetes_autoscaling_healthcheck",
@@ -408,6 +416,114 @@ async fn list_autoscaling_events(
     .fetch_all(&db)
     .await?;
     Ok(Json(events))
+}
+
+/// How long a recording of a worker group's autoscaling decisions lasts once started. It ends
+/// by itself so it cannot be left on.
+const AUTOSCALING_RECORDING_SECS: i64 = 24 * 60 * 60;
+
+/// The most recent decisions returned: a day of 30s ticks, with room to spare.
+const MAX_AUTOSCALING_DECISIONS: i64 = 5000;
+
+#[derive(Serialize)]
+struct AutoscalingDecision {
+    recorded_at: chrono::DateTime<chrono::Utc>,
+    worker_count: i32,
+    occupancy_rate_15s: Option<f32>,
+    occupancy_rate_5m: Option<f32>,
+    occupancy_rate_30m: Option<f32>,
+    jobs_waiting: serde_json::Value,
+    decision: String,
+}
+
+#[derive(Serialize)]
+struct AutoscalingDiagnostics {
+    recording_until: Option<chrono::DateTime<chrono::Utc>>,
+    recording_started_by: Option<String>,
+    decisions: Vec<AutoscalingDecision>,
+}
+
+async fn get_autoscaling_diagnostics(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(worker_group): Path<String>,
+) -> error::JsonResult<AutoscalingDiagnostics> {
+    require_devops_role(&db, &authed).await?;
+    let recording = sqlx::query!(
+        "SELECT until, started_by FROM autoscaling_recording WHERE worker_group = $1 AND until > now()",
+        worker_group
+    )
+    .fetch_optional(&db)
+    .await?;
+    let mut decisions = sqlx::query_as!(
+        AutoscalingDecision,
+        "SELECT recorded_at, worker_count, occupancy_rate_15s, occupancy_rate_5m, occupancy_rate_30m, jobs_waiting, decision
+         FROM autoscaling_decision WHERE worker_group = $1 ORDER BY recorded_at DESC LIMIT $2",
+        worker_group,
+        MAX_AUTOSCALING_DECISIONS
+    )
+    .fetch_all(&db)
+    .await?;
+    decisions.reverse();
+    Ok(Json(AutoscalingDiagnostics {
+        recording_until: recording.as_ref().map(|r| r.until),
+        recording_started_by: recording.map(|r| r.started_by),
+        decisions,
+    }))
+}
+
+#[derive(Deserialize)]
+struct SetAutoscalingRecording {
+    record: bool,
+}
+
+async fn set_autoscaling_recording(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(worker_group): Path<String>,
+    Json(body): Json<SetAutoscalingRecording>,
+) -> error::Result<String> {
+    require_devops_role(&db, &authed).await?;
+    let mut tx = db.begin().await?;
+    if body.record {
+        sqlx::query!(
+            "INSERT INTO autoscaling_recording (worker_group, until, started_by)
+             VALUES ($1, now() + make_interval(secs => $2), $3)
+             ON CONFLICT (worker_group) DO UPDATE SET until = EXCLUDED.until, started_by = EXCLUDED.started_by",
+            worker_group,
+            AUTOSCALING_RECORDING_SECS as f64,
+            authed.email
+        )
+        .execute(&mut *tx)
+        .await?;
+    } else {
+        sqlx::query!(
+            "DELETE FROM autoscaling_recording WHERE worker_group = $1",
+            worker_group
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
+    audit_log(
+        &mut *tx,
+        &authed,
+        if body.record {
+            "worker_config.autoscaling_recording_start"
+        } else {
+            "worker_config.autoscaling_recording_stop"
+        },
+        ActionKind::Update,
+        "global",
+        Some(&worker_group),
+        None,
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(if body.record {
+        format!("Recording the autoscaling decisions of {worker_group} for 24h")
+    } else {
+        format!("Stopped recording the autoscaling decisions of {worker_group}")
+    })
 }
 
 #[cfg(all(feature = "enterprise", feature = "private"))]
