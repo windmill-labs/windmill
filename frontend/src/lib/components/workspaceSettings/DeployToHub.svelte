@@ -1132,6 +1132,7 @@
 									path={s.agentTarget.path}
 									sent={s.agentRuns.length}
 									saving={s.agentSaving}
+									forgets={s.agentForgets}
 									onrun={s.runAgentTurn}
 									onsave={s.hubItemIds[s.agentTarget.key]
 										? async () => {

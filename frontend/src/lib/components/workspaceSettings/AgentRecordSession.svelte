@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Button } from '$lib/components/common'
+	import { Alert, Button } from '$lib/components/common'
 	import { Check } from 'lucide-svelte'
 	import FlowChat from '$lib/components/flows/conversations/FlowChat.svelte'
 	import {
@@ -20,6 +20,8 @@
 		/** How many messages were sent, answered or not. */
 		sent: number
 		saving?: boolean
+		/** The agent keeps no managed memory, so it cannot hold a conversation. */
+		forgets?: boolean
 		onrun: (
 			userMessage: string,
 			conversationId: string,
@@ -29,7 +31,7 @@
 		onsave?: () => void
 	}
 
-	let { path, sent, saving = false, onrun, onsave }: Props = $props()
+	let { path, sent, saving = false, forgets = false, onrun, onsave }: Props = $props()
 
 	// The chat reads the agent's model through a step linked to it, as a flow's chat does.
 	const modules = $derived<FlowModule[]>([
@@ -38,6 +40,12 @@
 </script>
 
 <div class="flex h-full min-h-0 flex-col gap-3">
+	{#if forgets}
+		<Alert type="warning" size="xs" title="This agent keeps no managed memory">
+			Each message is answered without the ones before it, but the Hub replays the recording as one
+			conversation. Record a single message, or turn on managed memory on the agent first.
+		</Alert>
+	{/if}
 	<div class="flex min-h-0 flex-1 flex-col rounded-md border">
 		<FlowChat
 			onRunFlow={onrun}

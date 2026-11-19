@@ -605,6 +605,13 @@ export function extractAgentRefs(value: any): Ref[] {
 	return out
 }
 
+// Moves resource references only. Scripts, flows and resources share a namespace, so a map
+// holding one resource path must not repoint a tool that runs a script sharing that path.
+export function rewriteAgentResourceRefs(value: any, map: Map<string, string>): any {
+	if (!value || typeof value !== 'object') return value
+	return walkAgentConfig(value, (kind, path) => (kind === 'resource' ? map.get(path) : undefined))
+}
+
 export function rewriteAgentValue(value: any, map: Map<string, string>): any {
 	if (!value || typeof value !== 'object') return value
 	return rewriteAgentConfig(value, map)

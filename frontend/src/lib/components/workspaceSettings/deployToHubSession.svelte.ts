@@ -9,6 +9,7 @@ import {
 	ScheduleService
 } from '$lib/gen'
 import { sendUserToast } from '$lib/toast'
+import { keepsManagedMemory } from '$lib/components/flows/agentFormFields'
 import { readAgentTurn } from '$lib/components/aiAgentResult'
 import { sleep, emptySchema } from '$lib/utils'
 import {
@@ -306,6 +307,7 @@ export class DeployToHubSession {
 		// tick instead of polling to the timeout against a discarded session.
 		this.#pipelineRunTok++
 		this.#agentTok++
+		this.#cancelAgentRun()
 	}
 
 	load() {
@@ -1847,17 +1849,41 @@ export class DeployToHubSession {
 	agentTarget = $state<DeployItem | undefined>(undefined)
 	agentRuns = $state<string[]>([])
 	agentSaving = $state(false)
+	/** The agent keeps no managed memory: each message would be answered without the ones
+	 * before it, and the recording would replay as a conversation that never happened. */
+	agentForgets = $state(false)
 	#agentTok = 0
 
 	openAgentRecord(it: DeployItem) {
-		this.#agentTok++
+		const tok = ++this.#agentTok
+		this.#cancelAgentRun()
 		this.agentTarget = it
 		this.agentRuns = []
+		this.agentForgets = false
+		void ResourceService.getResourceValue({ workspace: this.workspace, path: it.path })
+			.then((value: any) => {
+				if (tok === this.#agentTok) this.agentForgets = !keepsManagedMemory(value?.memory)
+			})
+			.catch(() => {})
 	}
 
 	closeAgentRecord = () => {
 		this.#agentTok++
+		this.#cancelAgentRun()
 		this.agentTarget = undefined
+	}
+
+	// The chat stops following a run when it unmounts but does not stop the run, which would
+	// go on calling real tools. Only the last one can still be running: the chat sends one
+	// message at a time. Cancelling a finished run is refused, which is fine.
+	#cancelAgentRun() {
+		const id = this.agentRuns.at(-1)
+		if (!id) return
+		void JobService.cancelQueuedJob({
+			workspace: this.workspace,
+			id,
+			requestBody: { reason: 'The Hub recording it was answering was closed' }
+		}).catch(() => {})
 	}
 
 	/** One message of the recording, run as the agent's own chat runs one. The conversation is a
@@ -1890,12 +1916,21 @@ export class DeployToHubSession {
 		this.agentSaving = true
 		try {
 			const turns: AgentTurn[] = []
+			let failed = 0
 			for (const id of this.agentRuns) {
-				// A message still running, failed or cancelled is not part of the demo.
 				const job = await JobService.getCompletedJob({ workspace: this.workspace, id }).catch(
 					() => undefined
 				)
-				if (!job?.success) continue
+				// Saving now would silently leave the message being answered out of the demo.
+				if (!job) {
+					sendUserToast('Wait for the agent to finish answering before saving.', true)
+					return false
+				}
+				// A message that failed or was cancelled is not part of the demo.
+				if (!job.success) {
+					failed++
+					continue
+				}
 				turns.push({
 					user_message: String((job.args as any)?.user_message ?? ''),
 					...readAgentTurn(job.result),
@@ -1919,7 +1954,10 @@ export class DeployToHubSession {
 				recording
 			})
 			this.#patchItem(it.key, { rec: 'recorded' })
-			sendUserToast(`Conversation saved — ${turns.length} message${turns.length === 1 ? '' : 's'}`)
+			sendUserToast(
+				`Conversation saved — ${turns.length} message${turns.length === 1 ? '' : 's'}` +
+					(failed ? `, ${failed} failed left out` : '')
+			)
 			return tok === this.#agentTok
 		} catch (e: any) {
 			sendUserToast(`Failed to save the conversation: ${e?.message ?? e}`, true)
