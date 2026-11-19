@@ -90,6 +90,16 @@ impl TriggerErrorHandling {
     /// prefixed path here would be looked up verbatim as a script name and fail
     /// only once the trigger errors, which is when the handler is needed.
     pub fn validate(&self) -> windmill_common::error::Result<()> {
+        // Older versions load every trigger of a kind in one query and parse the multiplier as
+        // an integer, so a single fractional value stops them from loading any trigger of that
+        // kind. Flows and schedules fail only the item itself and accept fractions.
+        if let Some(m) = self.retry.as_ref().map(|r| r.exponential.multiplier) {
+            if m.fract() != 0.0 {
+                return Err(windmill_common::error::Error::BadRequest(format!(
+                    "retry multiplier must be a whole number on triggers for now, got {m}"
+                )));
+            }
+        }
         let Some(path) = self.error_handler_path.as_deref() else {
             return Ok(());
         };
@@ -311,6 +321,19 @@ mod tests {
         assert!(error_handling(Some("hub/13953/windmill/handler"))
             .validate()
             .is_ok());
+    }
+
+    #[test]
+    fn test_retry_multiplier_must_be_whole_on_triggers() {
+        let with_multiplier = |m: f64| {
+            let mut retry = windmill_common::flows::Retry::default();
+            retry.exponential.attempts = 2;
+            retry.exponential.multiplier = m;
+            TriggerErrorHandling { retry: Some(SqlxJson(retry)), ..error_handling(None) }
+        };
+        assert!(with_multiplier(2.0).validate().is_ok());
+        let err = with_multiplier(0.5).validate().unwrap_err().to_string();
+        assert!(err.contains("whole number on triggers"), "{err}");
     }
 
     #[test]

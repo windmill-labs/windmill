@@ -24,13 +24,16 @@
 		disabled?: boolean
 		flowModule?: FlowModule
 		isAgentTool?: boolean
+		/** Triggers accept only whole multipliers, which older servers can still read. */
+		wholeMultiplier?: boolean
 	}
 
 	let {
 		flowModule = $bindable(),
 		flowModuleRetry = $bindable(),
 		disabled = false,
-		isAgentTool = false
+		isAgentTool = false,
+		wholeMultiplier = false
 	}: Props = $props()
 
 	const flowEditorContext = getContext<FlowEditorContext>('FlowEditorContext')
@@ -357,7 +360,7 @@
 							disabled={cfgDisabled}
 							bind:value={displayExponential.multiplier}
 							type="number"
-							step="any"
+							step={wholeMultiplier ? '1' : 'any'}
 							min="0"
 							max="65535"
 						/>

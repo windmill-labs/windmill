@@ -67,5 +67,5 @@
 	>
 {:else if optionTabSelected === 'retries'}
 	{@const disabled = !can_write || emptyString($enterpriseLicense)}
-	<FlowRetries bind:flowModuleRetry={retry} {disabled} />
+	<FlowRetries bind:flowModuleRetry={retry} {disabled} wholeMultiplier />
 {/if}
