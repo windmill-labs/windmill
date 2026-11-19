@@ -791,6 +791,7 @@ async fn cancel_persistent_script_api(
     }
     let audit_author: AuditAuthor = (&authed).into();
 
+    let mut first_batch = true;
     let cancelled_job_ids = windmill_queue::cancel_persistent_script_jobs(
         &audit_author.username,
         reason,
@@ -798,14 +799,24 @@ async fn cancel_persistent_script_api(
         &w_id,
         &db,
         // The cancel runs on the root pool, so each run it reaches must pass the per-job check
-        // `/queue/cancel/{id}` applies.
+        // `/queue/cancel/{id}` applies. A denial in the first batch refuses the request; one in
+        // the later batch is a run someone else started after the first committed, so it is left
+        // running rather than failing a request whose first cancels already landed.
         |ids| {
+            let strict = std::mem::replace(&mut first_batch, false);
             let (db, user_db, authed, w_id) = (&db, &user_db, &authed, w_id.as_str());
             async move {
+                let mut admitted = Vec::with_capacity(ids.len());
                 for id in ids {
-                    require_job_cancel_access(db, user_db, authed, w_id, &id).await?;
+                    match require_job_cancel_access(db, user_db, authed, w_id, &id).await {
+                        Ok(()) => admitted.push(id),
+                        // Ended (and restarted) since the batch was read: the next batch has it.
+                        Err(Error::NotFound(_)) => {}
+                        Err(e) if strict => return Err(e),
+                        Err(_) => {}
+                    }
                 }
-                Ok(())
+                Ok(admitted)
             }
         },
     )

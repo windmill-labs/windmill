@@ -670,9 +670,9 @@ pub async fn push_periodic_bash_job<'c>(
     Ok(uuid)
 }
 
-/// `admit` is called with the runs each batch is about to cancel, before any of them is touched,
-/// and an error from it cancels none of that batch. The cancel itself runs on the root pool, so
-/// `admit` is where the caller's access to those runs must be checked.
+/// `admit` is called with the runs each batch found, before any of them is touched, and returns
+/// the ones to cancel; an error from it cancels none of that batch. The cancel itself runs on the
+/// root pool, so `admit` is where the caller's access to those runs must be checked.
 pub async fn cancel_persistent_script_jobs<F, Fut>(
     username: &str,
     reason: Option<String>,
@@ -683,7 +683,7 @@ pub async fn cancel_persistent_script_jobs<F, Fut>(
 ) -> error::Result<Vec<Uuid>>
 where
     F: FnMut(Vec<Uuid>) -> Fut,
-    Fut: Future<Output = error::Result<()>>,
+    Fut: Future<Output = error::Result<Vec<Uuid>>>,
 {
     // There can be only one perpetual script run per 10 seconds window. We execute the cancel twice with 5s interval
     // to avoid the case of a job _about to be restarted_ when the first cancel is run.
@@ -722,7 +722,7 @@ async fn cancel_persistent_script_jobs_internal<F, Fut>(
 ) -> error::Result<Vec<Uuid>>
 where
     F: FnMut(Vec<Uuid>) -> Fut,
-    Fut: Future<Output = error::Result<()>>,
+    Fut: Future<Output = error::Result<Vec<Uuid>>>,
 {
     // Only the loops: a dependency job of this script shares its path, and a run of a version that
     // does not restart itself ends on its own. A run that ends before the cancel below reaches it
@@ -738,7 +738,7 @@ where
     .fetch_all(db)
     .await?;
 
-    admit(jobs_to_cancel.clone()).await?;
+    let jobs_to_cancel = admit(jobs_to_cancel).await?;
 
     let mut tx = db.begin().await?;
     for queued_job_id in jobs_to_cancel.clone() {
