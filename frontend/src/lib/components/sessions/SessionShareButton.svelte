@@ -11,7 +11,11 @@
 	import { copyToClipboard, displayDate } from '$lib/utils'
 	import { shareWorkspaceId } from '$lib/components/copilot/chat/artifacts/artifactSharing'
 	import type { AIChatManager } from '$lib/components/copilot/chat/AIChatManager.svelte'
-	import { buildSessionSnapshot, sharedSessionUrl } from './sessionSharing'
+	import { buildSessionSnapshot, sharedSessionUrl, type SharedSessionEdit } from './sessionSharing'
+	import { badgeOf } from './sessionDeployModel'
+	import { readDeployItems } from './sessionDeployModel.svelte'
+	import { sessionHandEdits } from './sessionHandEdits.svelte'
+	import { invalidateSharedSessions } from './sharedSessionsList.svelte'
 
 	interface Props {
 		sessionId: string
@@ -59,6 +63,38 @@
 
 	function reflect(next: SharedAiSessionInfo | undefined) {
 		if (status.current) status.mutate({ ...status.current, share: next })
+		invalidateSharedSessions(workspace)
+	}
+
+	// No mask means the chat never tracked its edits, and listing every draft of the workspace
+	// would share more than this session did.
+	async function readEdits(): Promise<
+		{ workspace: string; items: SharedSessionEdit[] } | undefined
+	> {
+		const chatMask = manager.modifiedItems
+		if (!workspaceId || !chatMask) return undefined
+		const mask = new Set([...chatMask, ...sessionHandEdits(sessionId)])
+		if (mask.size === 0) return undefined
+		try {
+			const items = await readDeployItems(workspaceId, mask)
+			return {
+				// A fork session's share lands in its parent: the fork is named so that a reader
+				// who is also a member of it can open the edits there.
+				workspace: workspaceId,
+				items: items.map((i) => ({
+					kind: i.deployKind,
+					path: i.displayPath,
+					draft: badgeOf(i) === 'draft',
+					draftKind: i.draftKind,
+					draftPath: i.path,
+					draftOnly: i.draftOnly
+				}))
+			}
+		} catch (err) {
+			// The transcript is what the link is for: share it without the edits.
+			console.error('Could not list the session edits to share', err)
+			return undefined
+		}
 	}
 
 	async function shareSnapshot() {
@@ -68,7 +104,8 @@
 		try {
 			const snapshot = buildSessionSnapshot(
 				$state.snapshot(manager.displayMessages),
-				$state.snapshot(manager.artifacts.artifacts)
+				$state.snapshot(manager.artifacts.artifacts),
+				await readEdits()
 			)
 			const shared = await AiService.shareAiSession({
 				workspace,
@@ -80,7 +117,10 @@
 				}
 			})
 			if (status.current) reflect(shared)
-			else await status.refetch()
+			else {
+				await status.refetch()
+				invalidateSharedSessions(workspace)
+			}
 			if (updating) {
 				sendUserToast('The link now shows the latest messages')
 			} else if (await copyToClipboard(sharedSessionUrl(workspace, shared.id), false)) {

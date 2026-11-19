@@ -30,6 +30,9 @@ export type DrillLeaf<L> = {
 	current?: boolean
 	/** When true, leaf is rendered but disabled (greyed + no-op click). */
 	disabled?: boolean
+	/** A name in words rather than an identifier (a path, a file, a command), so it is set in
+	 *  the UI font instead of monospace. */
+	plainLabel?: boolean
 }
 
 /** Branch node — interior entry the user drills into. */
@@ -51,6 +54,9 @@ export type DrillBranch<L> = {
 	 * at `Workspace > Flows > f/demo > foo` groups under "Flows" (not
 	 * "f/demo"). */
 	searchGroup?: boolean
+	/** A name in words rather than an identifier (a path, a file, a command), so it is set in
+	 *  the UI font instead of monospace. */
+	plainLabel?: boolean
 }
 
 export type DrillNode<L> = DrillBranch<L> | DrillLeaf<L>

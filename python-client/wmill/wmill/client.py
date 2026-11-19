@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import atexit
 import datetime as dt
+from email.utils import parsedate_to_datetime
 import functools
 from io import BufferedReader, BytesIO
 import logging
@@ -29,6 +30,27 @@ _client: "Windmill | None" = None
 logger = logging.getLogger("windmill_client")
 
 JobStatus = Literal["RUNNING", "WAITING", "COMPLETED"]
+
+_TRANSIENT_GET_STATUSES = (429, 502, 503, 504)
+_GET_RETRIES = 3
+# Total sleep one GET may spend retrying; a Retry-After beyond it ends the retries.
+_GET_RETRY_BUDGET_SECONDS = 15.0
+
+
+def _retry_after_seconds(retry_after: str, default: float) -> float:
+    """Seconds a Retry-After header (delay-seconds or an HTTP-date) asks to wait."""
+    retry_after = retry_after.strip()
+    if not retry_after:
+        return default
+    if retry_after.isdecimal():
+        return float(retry_after)
+    try:
+        when = parsedate_to_datetime(retry_after)
+    except (TypeError, ValueError):
+        return default
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=dt.timezone.utc)
+    return max((when - dt.datetime.now(dt.timezone.utc)).total_seconds(), 0.0)
 
 
 def _sign_s3_objects_body(s3_objects: list, expiry_secs: int | None) -> dict:
@@ -111,19 +133,49 @@ class Windmill:
             timeout=httpx.Timeout(900.0),
         )
 
-    def get(self, endpoint, raise_for_status=True, **kwargs) -> httpx.Response:
+    def get(
+        self,
+        endpoint,
+        raise_for_status=True,
+        *,
+        retry_transient: bool = True,
+        retry_budget: float | None = None,
+        **kwargs,
+    ) -> httpx.Response:
         """Make an HTTP GET request to the Windmill API.
 
         Args:
             endpoint: API endpoint path
             raise_for_status: Whether to raise an exception on HTTP errors
+            retry_transient: Retry on 429 and 502-504 with exponential backoff, honoring
+                Retry-After. Pass False for an endpoint with a side effect.
+            retry_budget: Most seconds to spend sleeping between retries (at most 15)
             **kwargs: Additional arguments passed to httpx.get
 
         Returns:
             HTTP response object
         """
         endpoint = endpoint.lstrip("/")
-        resp = self.client.get(f"/{endpoint}", **kwargs)
+        # A 502/504 can come from a proxy after the server handled the request, so only
+        # a GET without side effects may be repeated: one with them passes retry_transient=False.
+        budget = _GET_RETRY_BUDGET_SECONDS
+        if retry_budget is not None:
+            budget = min(budget, max(retry_budget, 0.0))
+        attempt = 0
+        while True:
+            resp = self.client.get(f"/{endpoint}", **kwargs)
+            if (
+                not retry_transient
+                or resp.status_code not in _TRANSIENT_GET_STATUSES
+                or attempt == _GET_RETRIES
+            ):
+                break
+            delay = _retry_after_seconds(resp.headers.get("Retry-After", ""), 2**attempt)
+            if delay > budget:
+                break
+            time.sleep(delay)
+            budget -= delay
+            attempt += 1
         if raise_for_status:
             try:
                 resp.raise_for_status()
@@ -420,7 +472,9 @@ class Windmill:
 
         while True:
             result_res = self.get(
-                f"/w/{self.workspace}/jobs_u/completed/get_result_maybe/{job_id}", True
+                f"/w/{self.workspace}/jobs_u/completed/get_result_maybe/{job_id}",
+                True,
+                retry_budget=(timeout - (time.time() - start_time)) if timeout else None,
             ).json()
 
             started = result_res["started"]
@@ -1539,6 +1593,7 @@ class Windmill:
         self.get(
             f"/w/{workspace}/jobs/slack_approval/{os.environ.get('WM_JOB_ID', 'NO_JOB_ID')}",
             params=params,
+            retry_transient=False,
         )
 
     def username_to_email(self, username: str) -> str:

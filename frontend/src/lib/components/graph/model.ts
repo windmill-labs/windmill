@@ -53,6 +53,8 @@ export type GraphModuleState = {
 	selectedForloopIndex?: number
 	selectedForLoopSetManually?: boolean
 	flow_jobs_success?: (boolean | undefined)[]
+	/** A for-loop's per-iteration labels, positionally aligned with `flow_jobs`. */
+	flow_jobs_labels?: (string | null)[]
 	flow_jobs_duration?: {
 		started_at?: (string | undefined)[]
 		duration_ms?: (number | undefined)[]

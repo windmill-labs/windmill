@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getContext, tick } from 'svelte'
+	import { getContext, tick, untrack } from 'svelte'
 	import FlowCard from '../common/FlowCard.svelte'
 	import type { FlowEditorContext } from '../types'
 	import Toggle from '$lib/components/Toggle.svelte'
@@ -10,12 +10,13 @@
 	import { getStepPropPicker } from '../previousResults'
 
 	import { Play } from 'lucide-svelte'
-	import type { FlowModule, ForloopFlow, Job } from '$lib/gen'
+	import type { FlowModule, ForloopFlow, InputTransform, Job } from '$lib/gen'
 	import FlowLoopIterationPreview from '$lib/components/FlowLoopIterationPreview.svelte'
 	import IteratorGen from '$lib/components/copilot/IteratorGen.svelte'
 	import FlowRunSettings from './FlowRunSettings.svelte'
 	import StepSettingsBadges from './StepSettingsBadges.svelte'
 	import FlowModuleEarlyStop from './FlowModuleEarlyStop.svelte'
+	import { logIterationLabel } from '../iterationLabelTelemetry'
 
 	import InputTransformForm from '$lib/components/InputTransformForm.svelte'
 	import PropPickerWrapper from '../propPicker/PropPickerWrapper.svelte'
@@ -45,6 +46,7 @@
 
 	let editor: SimpleEditor | undefined = $state(undefined)
 	let parallelismEditor: SimpleEditor | undefined = $state(undefined)
+	let iterationLabelEditor: SimpleEditor | undefined = $state(undefined)
 	let runSettings: FlowRunSettings | undefined = $state(undefined)
 
 	let parallelismSchema = $state(emptySchema())
@@ -59,6 +61,40 @@
 		type: 'array'
 	}
 	iteratorSchema.required = ['iterator']
+
+	let iterationLabelSchema = $state(emptySchema())
+	iterationLabelSchema.properties['iteration_label'] = {
+		type: 'string'
+	}
+
+	// The form edits its `arg` in place, so an unset label is backed by this object and moved
+	// onto the step once it holds an expression; an emptied label is removed from the step
+	// rather than stored as an empty expression.
+	let iterationLabelPlaceholder: InputTransform = $state({ type: 'javascript', expr: '' })
+	let showIterationLabel = $state(
+		mod.value.type === 'forloopflow' && mod.value.iteration_label != undefined
+	)
+	$effect(() => {
+		if (mod.value.type !== 'forloopflow') return
+		const label = mod.value.iteration_label
+		if (label == undefined) {
+			// The editor outlives the toggle by its exit transition and writes into the placeholder.
+			if (!showIterationLabel) return
+			const expr =
+				iterationLabelPlaceholder.type === 'javascript' ? iterationLabelPlaceholder.expr : ''
+			if (!emptyString(expr)) {
+				untrack(() => {
+					;(mod.value as ForloopFlow).iteration_label = { type: 'javascript', expr }
+					iterationLabelPlaceholder = { type: 'javascript', expr: '' }
+					logIterationLabel('set')
+				})
+			}
+		} else if (label.type === 'javascript' && emptyString(label.expr)) {
+			untrack(() => {
+				;(mod.value as ForloopFlow).iteration_label = undefined
+			})
+		}
+	})
 
 	if (mod.value.type === 'forloopflow') {
 		const forloopValue = mod.value as ForloopFlow
@@ -140,6 +176,8 @@
 	const ITERATOR_MISSING = 'An iterator expression is required for the loop to run.'
 	const ITERATOR_TOOLTIP =
 		'The JavaScript expression that will be evaluated to get the list of items to iterate over. Example: ["banana", "apple", flow_input.my_fruit].'
+	const ITERATION_LABEL_TOOLTIP =
+		'Evaluated for each iteration to name it in the run viewer and the iteration picker, e.g. flow_input.iter.value.name. A failing expression only leaves the iteration unnamed.'
 	const DEFAULT_PARALLELISM = 4
 	const PARALLELISM_LABEL = 'Limit concurrent iterations'
 	const SQUASH_PARALLEL_CONFLICT =
@@ -360,6 +398,56 @@
 												bind:editor={parallelismEditor}
 											/>
 										{/key}
+									</PropPickerWrapper>
+								</div>
+							{/if}
+						</div>
+
+						<div class="flex flex-col gap-2">
+							<Toggle
+								size="xs"
+								textClass="text-xs font-normal text-primary"
+								bind:checked={showIterationLabel}
+								on:change={({ detail }) => {
+									if (detail) {
+										iterationLabelPlaceholder = { type: 'javascript', expr: '' }
+									} else {
+										;(mod.value as ForloopFlow).iteration_label = undefined
+									}
+								}}
+								options={{
+									right: 'Custom iteration labels',
+									rightTooltip: ITERATION_LABEL_TOOLTIP
+								}}
+							/>
+							{#if showIterationLabel}
+								<div class="pl-9" transition:slideDynamic>
+									<PropPickerWrapper
+										sidePane
+										flow_input={stepPropPicker.pickableProperties.flow_input}
+										notSelectable
+										pickableProperties={stepPropPicker.pickableProperties}
+										on:select={({ detail }) => {
+											iterationLabelEditor?.insertAtCursor(detail)
+											iterationLabelEditor?.focus()
+										}}
+									>
+										<InputTransformForm
+											bind:arg={
+												() => (mod.value as ForloopFlow).iteration_label ?? iterationLabelPlaceholder,
+												(v) => {
+													;(mod.value as ForloopFlow).iteration_label = v
+												}
+											}
+											argName="iteration_label"
+											label="Label expression"
+											schema={iterationLabelSchema}
+											noDynamicToggle
+											extraLib={stepPropPicker.extraLib}
+											pickableProperties={stepPropPicker.pickableProperties}
+											previousModuleId={previousModule?.id}
+											bind:editor={iterationLabelEditor}
+										/>
 									</PropPickerWrapper>
 								</div>
 							{/if}

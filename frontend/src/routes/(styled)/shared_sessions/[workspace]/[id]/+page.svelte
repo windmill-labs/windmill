@@ -1,16 +1,21 @@
 <script lang="ts">
+	import { goto } from '$app/navigation'
 	import { page } from '$app/state'
 	import { resource } from 'runed'
-	import { Globe, Link2Off, LogIn, MessagesSquare, Users } from 'lucide-svelte'
-	import { Badge, Button, EmptyState, Skeleton } from '$lib/components/common'
+	import { LogIn } from 'lucide-svelte'
+	import { Button } from '$lib/components/common'
+	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import WindmillIcon from '$lib/components/icons/WindmillIcon.svelte'
-	import SharedSessionTranscript from '$lib/components/sessions/SharedSessionTranscript.svelte'
-	import { readSessionSnapshot } from '$lib/components/sessions/sessionSharing'
+	import PageHeaderBar from '$lib/components/PageHeaderBar.svelte'
+	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
+	import { pageHeader } from '$lib/components/pageHeaderRegistry.svelte'
+	import SharedSessionBody from '$lib/components/sessions/SharedSessionBody.svelte'
+	import SharedSessionTitle from '$lib/components/sessions/SharedSessionTitle.svelte'
+	import { useSharedSession } from '$lib/components/sessions/sharedSession.svelte'
+	import { sharedSessionAppHref } from '$lib/components/sessions/sessionSharing'
 	import { applyDarkModeVariant } from '$lib/darkModeVariant'
-	import { AiService } from '$lib/gen'
+	import { UserService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { sendUserToast } from '$lib/toast'
-	import { displayDate } from '$lib/utils'
 
 	// Reached without signing in when the share is public, so this page sets up what the
 	// logged-in layout otherwise would.
@@ -27,131 +32,118 @@
 		$workspaceStore = workspace
 	})
 
-	type Loaded =
-		| {
-				state: 'found'
-				session: Awaited<ReturnType<typeof AiService.getSharedAiSession>>
-				snapshot: ReturnType<typeof readSessionSnapshot>
-		  }
-		| { state: 'gone' }
-		| { state: 'signin' }
-		| { state: 'error'; message: string }
-
-	const shared = resource(
-		() => ({ workspace, id }),
-		async ({ workspace, id }): Promise<Loaded | undefined> => {
-			if (!workspace || !id) return undefined
-			try {
-				const session = await AiService.getSharedAiSession({ workspace, id })
-				return { state: 'found', session, snapshot: readSessionSnapshot(session.snapshot) }
-			} catch (err) {
-				const status = (err as { status?: number })?.status
-				if (status === 401) return { state: 'signin' }
-				// A malformed id is a 400 from the path extractor, and means the same to the reader.
-				if (status === 404 || status === 400) return { state: 'gone' }
-				return { state: 'error', message: String((err as { body?: unknown })?.body ?? err) }
-			}
+	// A member reads the share inside the app. Asked before the snapshot is fetched, so a member
+	// does not download it twice.
+	const member = resource(
+		() => workspace,
+		async (workspace) => {
+			if (!workspace) return undefined
+			const isMember = await UserService.whoami({ workspace }).then(
+				() => true,
+				() => false
+			)
+			if (isMember) await goto(sharedSessionAppHref(workspace, id), { replaceState: true })
+			return isMember
 		}
 	)
 
-	const found = $derived(shared.current?.state === 'found' ? shared.current : undefined)
-	const loginHref = $derived(
-		`/user/login?rd=${encodeURIComponent(page.url.pathname + page.url.search)}`
-	)
+	const shared = useSharedSession(() => (member.current === false ? { workspace, id } : undefined))
+	const found = $derived(shared.found)
+	const name = $derived(found?.session.name ?? 'Shared AI session')
 
-	let removing = $state(false)
-	async function stopSharing() {
-		if (!found) return
-		removing = true
-		try {
-			await AiService.unshareAiSession({ workspace, id: found.session.id })
-			shared.mutate({ state: 'gone' })
-			sendUserToast('Stopped sharing: the link no longer opens')
-		} catch (err) {
-			sendUserToast(`Could not stop sharing: ${(err as { body?: unknown })?.body ?? err}`, true)
-		} finally {
-			removing = false
-		}
-	}
+	// Only a public share reaches a reader with no session. Signing in as a member brings them
+	// back here, and on to the in-app page where the drafts open.
+	const signedOut = resource(
+		() => member.current === false,
+		(nonMember) =>
+			nonMember
+				? UserService.getCurrentEmail().then(
+						() => false,
+						() => true
+					)
+				: Promise.resolve(false)
+	)
+	const rightInset = $derived(pageHeader.content?.barRightInset)
+	const signInHref = $derived(
+		signedOut.current
+			? `/user/login?rd=${encodeURIComponent(page.url.pathname + page.url.search)}`
+			: undefined
+	)
 </script>
 
-<!-- The transcript is its author's text, rendered to whoever holds the link: an image in it
-     that points elsewhere would report every reader to that host. A policy stays with the
-     document once set, so every link out of this page is a full load (`data-sveltekit-reload`). -->
-<svelte:head>
-	<meta http-equiv="content-security-policy" content="img-src 'self' data: blob:" />
-</svelte:head>
+{#if member.current !== false}
+	<CenteredModal title="Opening the shared session" loading />
+{:else}
+	{#snippet sessionName()}
+		<SharedSessionTitle
+			{name}
+			author={found?.session.created_by}
+			sharedAt={found?.session.shared_at}
+			isPublic={found?.session.is_public}
+		/>
+	{/snippet}
 
-<div class="flex min-h-screen flex-col bg-surface" data-sveltekit-reload>
-	<div class="border-b bg-surface-secondary">
-		<div class="mx-auto flex w-full max-w-3xl flex-wrap items-center gap-3 px-4 py-3">
-			<WindmillIcon height="20px" width="20px" />
-			{#if found}
-				<div class="flex min-w-0 flex-1 flex-col">
-					<div class="flex min-w-0 items-center gap-2">
-						<h1 class="truncate text-sm font-semibold text-emphasis" title={found.session.name}>
-							{found.session.name}
-						</h1>
-						{#if found.session.is_public}
-							<Badge color="blue" icon={{ icon: Globe, position: 'left' }}>Public</Badge>
-						{:else}
-							<Badge color="gray" icon={{ icon: Users, position: 'left' }}>{workspace}</Badge>
-						{/if}
-					</div>
-					<span class="text-xs font-normal text-secondary">
-						Read-only AI session shared by {found.session.created_by} · {displayDate(
-							found.session.shared_at
-						)}
-					</span>
-				</div>
-				{#if found.session.can_unshare}
-					<Button
-						unifiedSize="sm"
-						variant="default"
-						destructive
-						loading={removing}
-						onClick={stopSharing}
-					>
-						Stop sharing
-					</Button>
-				{/if}
-			{:else}
-				<span class="text-sm font-semibold text-emphasis">Shared AI session</span>
-			{/if}
+	<!-- In the header while the preview is closed, and on the preview's tab strip while it is open,
+	     where the header no longer reaches. -->
+	{#snippet headerActions()}
+		{#if signInHref && rightInset === undefined}
+			<div class="flex items-center gap-2">
+				<span class="text-2xs text-hint">Signed out</span>
+				<Button unifiedSize="sm" variant="default" startIcon={{ icon: LogIn }} href={signInHref}>
+					Sign in
+				</Button>
+			</div>
+		{/if}
+	{/snippet}
+	{#snippet previewActions()}
+		{#if signInHref}
+			<span class="text-2xs text-hint">Signed out</span>
+			<Button unifiedSize="xs" variant="default" startIcon={{ icon: LogIn }} href={signInHref}>
+				Sign in
+			</Button>
+		{/if}
+	{/snippet}
+
+	<PageHeaderContent
+		section={{ label: name, parent: workspace, content: sessionName, noNavPicker: true }}
+		actions={headerActions}
+	/>
+
+	<div class="relative flex h-screen flex-col bg-surface">
+		<!-- `navHidden`: the reader may not be a member, so the bar offers no workspace to navigate.
+		     With the preview open the row floats and stops where the panel starts, as the app
+		     layout's header does beside a live session's panel. -->
+		<div
+			class="flex items-center bg-surface pl-4 {rightInset === undefined
+				? 'shrink-0'
+				: 'absolute left-0 top-0 z-30'}"
+			style:right={rightInset === undefined ? undefined : `${rightInset}px`}
+		>
+			<a
+				href="https://www.windmill.dev"
+				target="_blank"
+				rel="noopener"
+				title="windmill.dev"
+				aria-label="Windmill website"
+				class="shrink-0 rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+			>
+				<WindmillIcon height="20px" width="20px" />
+			</a>
+			<!-- `navHidden` pads the bar for a name that starts the row; here the icon does, so the
+			     name sits as far from it as the sidebar's "Windmill / Home" does from its icon. -->
+			<div class="-ml-2 min-w-0 flex-1">
+				<PageHeaderBar navHidden />
+			</div>
+		</div>
+		<!-- The bar draws its bottom edge only while something inside `#content` is scrolled
+		     under it. -->
+		<div id="content" class="min-h-0 flex-1">
+			<SharedSessionBody
+				loaded={shared.current}
+				{workspace}
+				{signInHref}
+				previewActions={signInHref ? previewActions : undefined}
+			/>
 		</div>
 	</div>
-
-	<div class="mx-auto w-full max-w-3xl flex-1 px-4 py-6">
-		{#if found}
-			{#if found.snapshot.messages.length > 0}
-				{#key found.session.id}
-					<SharedSessionTranscript snapshot={found.snapshot} {workspace} />
-				{/key}
-			{:else}
-				<EmptyState icon={MessagesSquare} title="This session has no messages" />
-			{/if}
-		{:else if shared.current?.state === 'signin'}
-			<EmptyState
-				icon={LogIn}
-				title="Sign in to read this session"
-				description="It is shared with the members of {workspace} only."
-			>
-				<Button variant="accent" unifiedSize="md" href={loginHref}>Sign in</Button>
-			</EmptyState>
-		{:else if shared.current?.state === 'gone'}
-			<EmptyState
-				icon={Link2Off}
-				title="This shared session is not available"
-				description="Its author stopped sharing it, or it is shared with another workspace's members only."
-			/>
-		{:else if shared.current?.state === 'error'}
-			<EmptyState
-				icon={Link2Off}
-				title="Could not load this shared session"
-				description={shared.current.message}
-			/>
-		{:else}
-			<Skeleton layout={[[3], 1, [30]]} />
-		{/if}
-	</div>
-</div>
+{/if}

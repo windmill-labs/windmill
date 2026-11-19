@@ -166,6 +166,69 @@ async fn test_iteration_parallel(db: Pool<Postgres>) -> anyhow::Result<()> {
 
 #[cfg(feature = "deno_core")]
 #[sqlx::test(fixtures("base"))]
+async fn test_iteration_labels(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+
+    let label_loop = |id: &str, parallel: bool, label: &str| {
+        json!({
+            "id": id,
+            "value": {
+                "type": "forloopflow",
+                "iterator": { "type": "javascript", "expr": "flow_input.items" },
+                "skip_failures": false,
+                "parallel": parallel,
+                "iteration_label": { "type": "javascript", "expr": label },
+                "modules": [
+                    { "id": format!("{id}_a"), "value": { "type": "identity" } },
+                    { "id": format!("{id}_b"), "value": { "type": "identity" } },
+                ],
+            },
+        })
+    };
+    let flow: FlowValue = serde_json::from_value(json!({
+        "modules": [
+            label_loop("seq", false, "flow_input.iter.value.name"),
+            label_loop("par", true, "`${flow_input.iter.index}:${flow_input.iter.value.name}`"),
+            label_loop("bad", false, "flow_input.iter.value.missing.name"),
+        ],
+    }))
+    .unwrap();
+
+    let job = RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
+        .arg(
+            "items",
+            json!([{ "name": "acme" }, { "name": null }, { "name": "globex" }]),
+        )
+        .run_until_complete(&db, false, server.addr.port())
+        .await;
+    assert!(job.success, "{:?}", job.json_result());
+
+    let labels = |id: &str| get_module(&job, id).and_then(|m| m.flow_jobs_labels());
+    assert_eq!(
+        labels("seq"),
+        Some(vec![
+            Some("acme".to_string()),
+            None,
+            Some("globex".to_string())
+        ])
+    );
+    assert_eq!(
+        labels("par"),
+        Some(vec![
+            Some("0:acme".to_string()),
+            Some("1:null".to_string()),
+            Some("2:globex".to_string())
+        ])
+    );
+    // A label that fails to evaluate leaves the iteration unlabelled and the loop running.
+    assert_eq!(labels("bad"), Some(vec![None, None, None]));
+    Ok(())
+}
+
+#[cfg(feature = "deno_core")]
+#[sqlx::test(fixtures("base"))]
 async fn test_bun_flow(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
 
@@ -221,6 +284,7 @@ async fn test_bun_flow(db: Pool<Postgres>) -> anyhow::Result<()> {
                         skip_failures: false,
                         parallel: false,
                         squash: None,
+                        iteration_label: None,
                         parallelism: None,
                         modules: vec![FlowModule {
                             id: "c".to_string(),
@@ -577,6 +641,7 @@ async fn test_bun_flow_same_worker(db: Pool<Postgres>) -> anyhow::Result<()> {
                         skip_failures: false,
                         parallel: false,
                         squash: None,
+                        iteration_label: None,
                         parallelism: None,
                         modules: vec![
                             FlowModule {
@@ -4783,6 +4848,61 @@ async fn test_unrecoverable_failure_on_continue_on_error_runs_failure_module(
     assert!(
         result.get("ran_b").is_none(),
         "the step after a continue_on_error step must NOT run on an unrecoverable failure, got: {result}"
+    );
+    Ok(())
+}
+
+/// A failure the flow goes past because of `continue_on_error` is recorded on the root flow's
+/// status, including one inside a loop iteration's subflow.
+#[cfg(feature = "deno_core")]
+#[sqlx::test(fixtures("base"))]
+async fn test_continue_on_error_recorded_on_root(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let failing = |id: &str| {
+        json!({"id": id, "continue_on_error": true, "value": {
+            "type": "rawscript", "language": "bun", "input_transforms": {},
+            "content": "export function main() { throw new Error('boom'); }",
+        }})
+    };
+    let flow: FlowValue = serde_json::from_value(json!({
+        "modules": [
+            failing("a"),
+            {"id": "loop", "value": {
+                "type": "forloopflow", "parallel": true, "skip_failures": false,
+                "iterator": {"type": "static", "value": [1, 2]},
+                "modules": [failing("b"), {"id": "c", "value": {"type": "identity"}}],
+            }},
+        ],
+    }))
+    .unwrap();
+
+    let job = RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
+        .run_until_complete(&db, false, port)
+        .await;
+    server.close().await.unwrap();
+
+    assert!(job.success, "{:?}", job.json_result());
+    let mut recorded: Vec<(String, Uuid, Option<Uuid>)> = sqlx::query_as(
+        "SELECT e->>'id', (e->>'job')::uuid, j.parent_job
+         FROM v2_job_completed c, JSONB_ARRAY_ELEMENTS(c.flow_status->'continued_on_error') e
+         JOIN v2_job j ON j.id = (e->>'job')::uuid
+         WHERE c.id = $1",
+    )
+    .bind(job.id)
+    .fetch_all(&db)
+    .await?;
+    recorded.sort();
+    let ids: Vec<&str> = recorded.iter().map(|(id, ..)| id.as_str()).collect();
+    assert_eq!(ids, vec!["a", "b", "b"]);
+    assert_eq!(recorded[0].2, Some(job.id));
+    assert_ne!(recorded[1].1, recorded[2].1);
+    assert_ne!(
+        recorded[1].2,
+        Some(job.id),
+        "b runs in an iteration's subflow"
     );
     Ok(())
 }
