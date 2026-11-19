@@ -75,7 +75,8 @@ not this component) — so the lead can run the whole line.
 		stage?: TrailStage
 		/** Max widths the bar holds the names to, once dropping whole parts is not enough. */
 		caps?: Partial<Record<Part, number>>
-		/** The folders above the name truncate too: even the name at its last floor does not fit. */
+		/** Even the name at its last floor does not fit: the folders above it truncate too, and a
+		 *  section's own widget may shrink. */
 		scopesGive?: boolean
 		/** Filled in for the bar to choose a stage with; left undefined, nothing is measured. */
 		measures?: TrailMeasures
@@ -543,17 +544,21 @@ not this component) — so the lead can run the whole line.
 		{#if section.content && measure}
 			<span class="shrink-0" style="width: {sectionContentWidth}px"></span>
 		{:else}
-			<!-- A section's own widget lays out as a row: its title, and whatever belongs with it. -->
+			<!-- A section's own widget lays out as a row: its title, and whatever belongs with it. It keeps
+			     its width, which the measured copies reserve, until even the last stage leaves it too
+			     little (`scopesGive`). Read while the row squeezes it, the width would let a wider stage
+			     fit, and the bar would flip between the two every frame. -->
 			<span
 				class={twMerge(
 					SEGMENT,
 					LAST,
 					'hover:bg-transparent hover:text-emphasis',
-					section.content ? '' : 'shrink-0'
+					section.content && scopesGive ? '' : 'shrink-0'
 				)}
 				aria-current={measure ? undefined : 'page'}
 				bind:clientWidth={
-					() => sectionContentWidth, (w) => !measure && section.content && (sectionContentWidth = w)
+					() => sectionContentWidth,
+					(w) => !measure && section.content && !scopesGive && (sectionContentWidth = w)
 				}
 			>
 				<!-- A plain label is the page's name, so it truncates the way an item's name does, in

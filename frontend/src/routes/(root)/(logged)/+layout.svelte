@@ -978,6 +978,15 @@
 	}
 
 	let devOnly = $derived(page.url.pathname.startsWith('/scripts/dev'))
+	// The desktop rail is fixed-positioned, so the content is offset by its width (in rem).
+	let contentInset = $derived(devOnly || menuHidden || useDrawer ? 0 : railWidth)
+	// The sessions view is mounted once opened and then kept, hidden on other pages, so its
+	// chats keep their scroll, composer and expanded tool cards when the user comes back.
+	// Never in a preview iframe: it would nest the sessions UI, with its iframes, in itself.
+	let sessionsViewOpened = false
+	const sessionsViewRequested = $derived.by(
+		() => (sessionsViewOpened ||= onSessionsPage && !embedded)
+	)
 	// A devops user who belongs to no workspace has no `$userStore`, and would otherwise wait on
 	// "Loading user..." forever on the instance pages their role exists for.
 	let instanceOnlyView = $derived(
@@ -1739,17 +1748,45 @@ outside this layout, and their shortcut must reopen the URL that is their creden
 					</button>
 				</div>
 			{/if}
-			<!-- The scroll lives here, below the page header: a page taller than the window scrolls
-			     inside this box, so the band stays on screen instead of leaving with the content. The
-			     desktop rail is fixed-positioned, so the content is offset by its width (in rem). -->
-			<div
-				id="content"
-				class={classNames('flex-1 min-h-0 flex flex-col overflow-y-auto', sidebarTransitionClass)}
-				style:padding-left="{devOnly || menuHidden || useDrawer ? 0 : railWidth}rem"
-			>
-				<div class="flex-1 min-h-0 flex flex-col">
-					{@render children?.()}
+			<!-- The sessions view shares the content's cell. A grid rather than a positioned box,
+			     which would become the containing block of every page's absolute descendants.
+			     Hidden, the view keeps its size, so its transcripts neither reflow nor lose their
+			     scroll; it eases only its inset, as a fade between pages would paint it over the
+			     next one. -->
+			<div class="flex-1 min-h-0 grid grid-cols-1 grid-rows-1">
+				<!-- The scroll lives here, below the page header: a page taller than the window scrolls
+				     inside this box, so the band stays on screen instead of leaving with the content. -->
+				<div
+					id="content"
+					class={classNames(
+						'col-start-1 row-start-1 min-h-0 flex flex-col overflow-y-auto',
+						sidebarTransitionClass
+					)}
+					style:padding-left="{contentInset}rem"
+				>
+					<div class="flex-1 min-h-0 flex flex-col">
+						{@render children?.()}
+					</div>
 				</div>
+				{#if sessionsViewRequested}
+					<!-- Off route, content-visibility skips the style and layout work that `invisible`
+					     leaves running: a reply streaming into a hidden transcript would pay it per chunk. -->
+					<div
+						class={classNames(
+							'col-start-1 row-start-1 min-h-0 flex flex-col overflow-y-auto',
+							sidebarTransitionClass ? 'transition-[padding-left] duration-200 ease-in-out' : '',
+							onSessionsPage ? '' : 'invisible opacity-0 [content-visibility:hidden]'
+						)}
+						inert={!onSessionsPage}
+						style:padding-left="{contentInset}rem"
+					>
+						<div class="flex-1 min-h-0 flex flex-col">
+							{#await import('$lib/components/sessions/SessionsView.svelte') then SessionsView}
+								<SessionsView.default shown={onSessionsPage} />
+							{/await}
+						</div>
+					</div>
+				{/if}
 			</div>
 		</div>
 	</div>
