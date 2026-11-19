@@ -1,8 +1,8 @@
 use futures::Future;
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
-use nix::sys::signal::{self, Signal};
-#[cfg(any(target_os = "linux", target_os = "macos"))]
+use nix::sys::signal::Signal;
+#[cfg(target_os = "linux")]
 use nix::unistd::Pid;
 use process_wrap::tokio::TokioChildWrapper;
 use windmill_common::agent_workers::PingJobStatusResponse;
@@ -150,6 +150,17 @@ pub struct HandleChildResult {
 struct OutputLine {
     stderr: bool,
     line: String,
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn send_job_signal(child: &dyn TokioChildWrapper, sig: Signal) {
+    // Under the ProcessGroup wrap this is a killpg on the group recorded at spawn, so a
+    // wrapper that does not forward signals (unshare --fork, sh) cannot shield the job.
+    // It stops at a wrapper that starts its own group (tini, nsjail without
+    // skip_setsid), which must forward it. Without the wrap it signals the child only.
+    if let Err(e) = child.signal(sig as i32) {
+        tracing::debug!("failed to send {sig} to the job process: {e}");
+    }
 }
 
 /// - wait until child exits and return with exit status
@@ -380,11 +391,10 @@ pub async fn handle_child(
             if cfg!(any(target_os = "linux", target_os = "macos")) { s } else { "none" }
         };
         let kill = async {
-            #[allow(unused_variables)]
-            if let Some(id) = child.id() {
+            if child.id().is_some() {
                 if *MAX_WAIT_FOR_SIGINT > 0 {
                     #[cfg(any(target_os = "linux", target_os = "macos"))]
-                    signal::kill(Pid::from_raw(id as i32), Signal::SIGINT).unwrap();
+                    send_job_signal(child.as_ref(), Signal::SIGINT);
 
                     for _ in 0..*MAX_WAIT_FOR_SIGINT {
                         if child.try_wait().is_ok_and(|x| x.is_some()) {
@@ -399,7 +409,7 @@ pub async fn handle_child(
                 }
                 if sigterm {
                     #[cfg(any(target_os = "linux", target_os = "macos"))]
-                    signal::kill(Pid::from_raw(id as i32), Signal::SIGTERM).unwrap();
+                    send_job_signal(child.as_ref(), Signal::SIGTERM);
 
                     for _ in 0..*MAX_WAIT_FOR_SIGTERM {
                         if child.try_wait().is_ok_and(|x| x.is_some()) {
@@ -1357,6 +1367,29 @@ mod tests {
                 "last",
             ]
         );
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[tokio::test]
+    async fn send_job_signal_reaches_child_behind_a_wrapper_ignoring_sigterm() {
+        use std::process::Stdio;
+        let mut cmd = tokio::process::Command::new("sh");
+        cmd.args(["-c", "sleep 60 &\ntrap '' TERM\necho ready\nwait"])
+            .stdout(Stdio::piped());
+        let mut child = crate::common::start_child_process(cmd, "sh", false)
+            .await
+            .unwrap();
+
+        let stdout = child.stdout().take().unwrap();
+        let mut lines = BufReader::new(stdout).lines();
+        assert_eq!(lines.next_line().await.unwrap().as_deref(), Some("ready"));
+
+        send_job_signal(child.as_ref(), Signal::SIGTERM);
+
+        tokio::time::timeout(Duration::from_secs(2), Box::into_pin(child.wait()))
+            .await
+            .expect("wrapper should exit once its child receives SIGTERM")
+            .unwrap();
     }
 
     #[tokio::test]

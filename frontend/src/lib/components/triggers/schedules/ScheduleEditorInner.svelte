@@ -811,6 +811,13 @@
 										showReset
 										onlyMaskPassword
 										disabled={!can_write}
+										helperScript={runnable && script_path && !script_path.startsWith('hub/')
+											? {
+													source: 'deployed',
+													path: script_path,
+													runnable_kind: is_flow ? 'flow' : 'script'
+												}
+											: undefined}
 										schema={$state.snapshot(schema)}
 										bind:isValid
 										bind:args

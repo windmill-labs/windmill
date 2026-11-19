@@ -112,6 +112,9 @@
 	let themeResources: ResourceW[] | undefined = $state()
 	let resources: ResourceW[] | undefined = $state()
 	let resourceTypes: ResourceType[] | undefined = $state()
+	// undefined while the counts are unknown (not loaded, or the request failed), so a type is
+	// never shown as having 0 resources it was not counted for
+	let resourceCounts: Record<string, number> | undefined = $state(undefined)
 	let tab = $state<'workspace' | 'types' | 'states' | 'cache' | 'theme'>('workspace')
 	let currentResources = $derived(
 		tab == 'cache'
@@ -326,7 +329,27 @@
 		cache: latestRequest(),
 		states: latestRequest(),
 		theme: latestRequest(),
-		types: latestRequest()
+		types: latestRequest(),
+		counts: latestRequest()
+	}
+
+	// Not part of loadResources, which every filter change re-runs: the counts are of the whole
+	// workspace and only move when the workspace changes or a resource is created or deleted.
+	function loadResourceCounts(): void {
+		const isLatestCount = loads.counts.start()
+		ResourceService.listResourceCountsByType({ workspace: $operatingWorkspace! })
+			.then(
+				(counts) => Object.fromEntries(counts.map((c) => [c.resource_type, c.count])),
+				() => undefined
+			)
+			.then((counts) => {
+				if (isLatestCount()) resourceCounts = counts
+			})
+	}
+
+	async function loadResourcesAndCounts(): Promise<void> {
+		loadResourceCounts()
+		await loadResources()
 	}
 
 	async function loadResources(): Promise<void> {
@@ -566,6 +589,7 @@
 
 	async function reload() {
 		loading.types = true
+		loadResourceCounts()
 		if (tab == 'cache') {
 			loading.cache = true
 			await loadCache()
@@ -715,6 +739,8 @@
 				// The effect above loads the open tab only; no list may keep the previous
 				// workspace's rows behind another tab. The others reload when reopened, so they are
 				// emptied, and a load still in flight for them is superseded so it cannot refill them.
+				resourceCounts = undefined
+				loadResourceCounts()
 				if (tab !== 'workspace') loadResources()
 				if (tab !== 'cache') {
 					loads.cache.start()
@@ -1544,6 +1570,7 @@
 								<Row>
 									<Cell head first>Name</Cell>
 									<Cell head>Description</Cell>
+									<Cell head>Resources</Cell>
 									<Cell head last actions>Actions</Cell>
 								</Row>
 							</Head>
@@ -1582,6 +1609,7 @@
 													</span>
 												</div>
 											</Cell>
+											<Cell>{resourceCounts ? (resourceCounts[name] ?? 0) : '-'}</Cell>
 											<Cell last actions>
 												{#if !canWrite}
 													<!-- Badge is inline-flex, so it needs a right-aligning wrapper to sit
@@ -1648,14 +1676,14 @@
 	</CenteredPage>
 {/if}
 
-<SupabaseConnect bind:this={supabaseConnect} on:refresh={loadResources} />
-<AppConnect bind:this={appConnect} on:refresh={loadResources} />
+<SupabaseConnect bind:this={supabaseConnect} on:refresh={loadResourcesAndCounts} />
+<AppConnect bind:this={appConnect} on:refresh={loadResourcesAndCounts} />
 
 <ResourceEditorDrawer
 	bind:this={resourceEditor}
 	workspace={$operatingWorkspace}
-	on:refresh={loadResources}
-	onRestored={loadResources}
+	on:refresh={loadResourcesAndCounts}
+	onRestored={loadResourcesAndCounts}
 />
 
 <ShareModal
