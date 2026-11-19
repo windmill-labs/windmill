@@ -822,6 +822,9 @@ async runFlowAsync(path: string | null, args: Record<string, any> | null, schedu
  * - a function exported from the calling script's own file: the step runs that function
  *   instead of its own code, with the step's inputs as arguments (matched by name).
  * 
+ * The flow's preprocessor does not run: \`args\` are what the flow receives after it. AI agent
+ * tools cannot be overridden; override the agent step instead.
+ * 
  * @example
  * export function fakeFetch(url: string) { return { status: 200 } }
  * export async function main() {
@@ -1700,6 +1703,9 @@ async runFlowAsync(path: string | null, args: Record<string, any> | null, schedu
  * - a value: the step is skipped and returns that value, or
  * - a function exported from the calling script's own file: the step runs that function
  *   instead of its own code, with the step's inputs as arguments (matched by name).
+ * 
+ * The flow's preprocessor does not run: \`args\` are what the flow receives after it. AI agent
+ * tools cannot be overridden; override the agent step instead.
  * 
  * @example
  * export function fakeFetch(url: string) { return { status: 200 } }
@@ -2688,6 +2694,9 @@ async runFlowAsync(path: string | null, args: Record<string, any> | null, schedu
  * - a value: the step is skipped and returns that value, or
  * - a function exported from the calling script's own file: the step runs that function
  *   instead of its own code, with the step's inputs as arguments (matched by name).
+ * 
+ * The flow's preprocessor does not run: \`args\` are what the flow receives after it. AI agent
+ * tools cannot be overridden; override the agent step instead.
  * 
  * @example
  * export function fakeFetch(url: string) { return { status: 200 } }

@@ -1856,6 +1856,9 @@ def test_flow(
     - a top-level function of the calling script's own file: the step runs that function instead
       of its own code, with the step's inputs as keyword arguments.
 
+    The flow's preprocessor does not run: ``args`` are what the flow receives after it. AI agent
+    tools cannot be overridden; override the agent step instead.
+
     Example::
 
         def fake_fetch(url: str):

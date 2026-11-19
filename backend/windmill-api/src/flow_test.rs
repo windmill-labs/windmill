@@ -256,6 +256,11 @@ pub(crate) fn apply_step_overrides(
         };
         seen.insert(id.clone());
         match o {
+            // A preview never runs the preprocessor: `args` are what the flow receives after it.
+            _ if kind == ModuleKind::Preprocessor => refused.push(format!(
+                "`{id}` is the flow's preprocessor, which does not run in a flow test: pass the \
+                 args it would produce instead"
+            )),
             _ if kind == ModuleKind::Tool => refused.push(format!(
                 "`{id}` is an AI agent tool, which cannot be overridden: override the agent \
                  step instead"
@@ -266,11 +271,10 @@ pub(crate) fn apply_step_overrides(
                     json!({ "enabled": true, "return_value": rv }),
                 );
             }
-            // Both are called with the flow input and an entrypoint of their own, so the
-            // replacement's entrypoint would be ignored and the test's `main` would run.
+            // Called with the flow input in place of its input transforms, so the replacement's
+            // entrypoint would be ignored and the test's `main` would run.
             StepOverride::Function { .. }
-                if kind == ModuleKind::Preprocessor
-                    || module.get("pass_flow_input_directly") == Some(&Value::Bool(true)) =>
+                if module.get("pass_flow_input_directly") == Some(&Value::Bool(true)) =>
             {
                 refused.push(format!(
                     "`{id}` receives the flow input directly and cannot be replaced with a \
@@ -477,6 +481,14 @@ mod tests {
         let overrides = HashMap::from([("a".to_string(), StepOverride::Mock(fake.clone()))]);
         apply_step_overrides(&mut v, &overrides).unwrap();
         assert_eq!(v["modules"][0]["mock"]["return_value"], fake);
+    }
+
+    #[test]
+    fn preprocessor_cannot_be_overridden() {
+        let mut v = json!({ "modules": [],
+            "preprocessor_module": { "id": "preprocessor", "value": { "type": "identity" } } });
+        let overrides = HashMap::from([("preprocessor".to_string(), StepOverride::Mock(json!(1)))]);
+        assert!(apply_step_overrides(&mut v, &overrides).is_err());
     }
 
     #[test]
