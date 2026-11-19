@@ -2151,6 +2151,20 @@ pub async fn delete_expired_items(db: &DB) -> () {
         tracing::error!("Error deleting autoscaling event on CE: {:?}", e);
     }
 
+    // A recording lasts at most a day (`AUTOSCALING_RECORDING_SECS`), so its decisions are
+    // still there for a day after it ends.
+    if let Err(e) = sqlx::query!(
+        "WITH decisions AS (
+            DELETE FROM autoscaling_decision WHERE recorded_at <= now() - interval '48 hours'
+        )
+        DELETE FROM autoscaling_recording WHERE until <= now()"
+    )
+    .execute(db)
+    .await
+    {
+        tracing::error!("Error deleting autoscaling decisions: {:?}", e);
+    }
+
     // native_retry_attempt has no FK to v2_job (kept off the hot bulk delete).
     // Retention sweeps markers alongside the jobs it deletes, but direct job
     // deletions (workspace/job/schedule clearing) leave markers orphaned — reap
