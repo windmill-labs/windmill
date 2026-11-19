@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT content, lock, language AS \"language: ScriptLang\", path\n                 FROM script WHERE hash = $1 AND workspace_id = $2",
+  "query": "SELECT content, lock, language AS \"language: ScriptLang\", path,\n                        COALESCE(modules IS NOT NULL AND modules <> '{}'::jsonb, false)\n                            AS \"has_modules!\"\n                 FROM script WHERE hash = $1 AND workspace_id = $2",
   "describe": {
     "columns": [
       {
@@ -55,6 +55,11 @@
         "ordinal": 3,
         "name": "path",
         "type_info": "Varchar"
+      },
+      {
+        "ordinal": 4,
+        "name": "has_modules!",
+        "type_info": "Bool"
       }
     ],
     "parameters": {
@@ -67,8 +72,9 @@
       false,
       true,
       false,
-      false
+      false,
+      null
     ]
   },
-  "hash": "7dc99c6363acd93d8a2679f4a593bfc1b475b451c5889e39ff05f1f5a8ea4859"
+  "hash": "4c57ad6140469111d3f72e0a843da5b75c6f8e8974dfd36d2545fbdf1c454b1f"
 }

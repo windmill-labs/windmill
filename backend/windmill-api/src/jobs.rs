@@ -10780,13 +10780,27 @@ async fn add_batch_jobs(
     Ok(Json(uuids))
 }
 
-pub(crate) async fn run_preview_flow_job(
+async fn run_preview_flow_job(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
     Query(run_query): Query<RunJobQuery>,
     Json(raw_flow): Json<PreviewFlow>,
+) -> error::Result<(StatusCode, String)> {
+    push_preview_flow_job(authed, db, user_db, w_id, run_query, raw_flow, None).await
+}
+
+/// `test_subflows`: see `FlowStatus::test_subflows`, written with the job so no worker can
+/// start the run without it.
+pub(crate) async fn push_preview_flow_job(
+    authed: ApiAuthed,
+    db: DB,
+    user_db: UserDB,
+    w_id: String,
+    run_query: RunJobQuery,
+    raw_flow: PreviewFlow,
+    test_subflows: Option<HashMap<String, serde_json::Value>>,
 ) -> error::Result<(StatusCode, String)> {
     let flows_level =
         check_operator_can_build(&db, &w_id, &authed, BuilderKind::Flows, "run preview jobs")
@@ -10912,6 +10926,17 @@ pub(crate) async fn run_preview_flow_job(
     // Set memory_id if provided (for agent memory)
     if let Some(memory_id) = run_query.memory_key(&w_id, &flow_path) {
         set_flow_memory_id(&mut tx, &w_id, uuid, memory_id).await?;
+    }
+
+    if let Some(test_subflows) = test_subflows.filter(|m| !m.is_empty()) {
+        sqlx::query!(
+            "UPDATE v2_job_status SET flow_status = jsonb_set(flow_status, '{test_subflows}', $2)
+             WHERE id = $1",
+            uuid,
+            sqlx::types::Json(test_subflows) as sqlx::types::Json<HashMap<String, serde_json::Value>>
+        )
+        .execute(&mut *tx)
+        .await?;
     }
 
     tx.commit().await?;

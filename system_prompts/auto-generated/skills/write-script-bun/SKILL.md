@@ -361,6 +361,10 @@ async runFlowAsync(path: string | null, args: Record<string, any> | null, schedu
  * - a function exported from the calling script's own file: the step runs that function
  *   instead of its own code, with the step's inputs as arguments (matched by name).
  * 
+ * A step inside a subflow is named by the path of step ids to it, `"sub.inner"` for step `inner`
+ * of the subflow that step `sub` calls. The override applies to every call of that subflow in
+ * the run.
+ * 
  * The flow's preprocessor does not run: `args` are what the flow receives after it. AI agent
  * tools cannot be overridden; override the agent step instead.
  * 
