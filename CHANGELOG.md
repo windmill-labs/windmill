@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.879.0](https://github.com/windmill-labs/windmill/compare/v1.878.0...v1.879.0) (2026-11-19)
+
+
+### Features
+
+* **home:** link each primitive's explainer video in the New picker ([#12536](https://github.com/windmill-labs/windmill/issues/12536)) ([3591598](https://github.com/windmill-labs/windmill/commit/3591598d03f528b54aeb68349845c9958c0a73a9))
+* test flows from the SDKs with mocked or replaced steps, subflows included ([#12538](https://github.com/windmill-labs/windmill/issues/12538)) ([98439f8](https://github.com/windmill-labs/windmill/commit/98439f8521999222347f48b50bd032412e604439))
+
+
+### Bug Fixes
+
+* explain a fractional retry multiplier, check schedule retries on save ([#12539](https://github.com/windmill-labs/windmill/issues/12539)) ([558f83f](https://github.com/windmill-labs/windmill/commit/558f83fc9c74480369bab2ac88a8951136230651))
+* keep dedicated workers counted, busy and out of zombie restarts ([#12540](https://github.com/windmill-labs/windmill/issues/12540)) ([7b23884](https://github.com/windmill-labs/windmill/commit/7b2388476f0b72b5e403f5b3086cae5cb0a0e2e6))
+* keep the first undo after a redo in the flow editor ([#12537](https://github.com/windmill-labs/windmill/issues/12537)) ([a89886c](https://github.com/windmill-labs/windmill/commit/a89886c46a3c1866715771ba75389f8a42d20a1b))
+* stop hidden session preview tabs from acting on keys ([#12531](https://github.com/windmill-labs/windmill/issues/12531)) ([5bf5ff2](https://github.com/windmill-labs/windmill/commit/5bf5ff28bc4f9d47c4473cd5e71e0ee274dece31))
+
 ## [1.878.0](https://github.com/windmill-labs/windmill/compare/v1.877.0...v1.878.0) (2026-11-19)
 
 
