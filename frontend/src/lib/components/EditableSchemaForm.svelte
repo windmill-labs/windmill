@@ -282,19 +282,16 @@
 				delete args[oldName]
 			}
 
+			// The new key lands last in `properties`, so keep the position through `order`,
+			// read before the delete since an absent order means the property order.
+			const order = newSchema.order ?? Object.keys(newSchema.properties ?? {})
+			newSchema.order = order.map((x: string) => (x === oldName ? newName : x))
+
 			newSchema.properties[newName] = newSchema.properties[oldName]
 			delete newSchema.properties[oldName]
 
 			if (newSchema.required?.includes(oldName)) {
 				newSchema.required = newSchema.required?.map((x) => (x === oldName ? newName : x))
-			}
-
-			// Replace the old name with the new name in the order array
-			if (newSchema.order) {
-				const index = newSchema.order.indexOf(oldName)
-				if (index !== -1) {
-					newSchema.order[index] = newName
-				}
 			}
 
 			opened = newName
