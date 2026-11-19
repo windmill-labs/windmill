@@ -823,8 +823,10 @@ async runFlowAsync(path: string | null, args: Record<string, any> | null, schedu
  *   instead of its own code, with the step's inputs as arguments (matched by name).
  * 
  * A step inside a subflow is named by the path of step ids to it, \`"sub.inner"\` for step \`inner\`
- * of the subflow that step \`sub\` calls. The override applies to every call of that subflow in
- * the run.
+ * of the subflow that step \`sub\` calls. It applies to every call of that subflow made by the
+ * tested flow and by the subflows it overrides; a subflow left as is still calls the deployed
+ * one. Those subflows, and each one on the way to an override, run as you rather than as their
+ * on-behalf-of identity. Result caching is off for the whole test run.
  * 
  * The flow's preprocessor does not run: \`args\` are what the flow receives after it. AI agent
  * tools cannot be overridden; override the agent step instead.
@@ -1709,8 +1711,10 @@ async runFlowAsync(path: string | null, args: Record<string, any> | null, schedu
  *   instead of its own code, with the step's inputs as arguments (matched by name).
  * 
  * A step inside a subflow is named by the path of step ids to it, \`"sub.inner"\` for step \`inner\`
- * of the subflow that step \`sub\` calls. The override applies to every call of that subflow in
- * the run.
+ * of the subflow that step \`sub\` calls. It applies to every call of that subflow made by the
+ * tested flow and by the subflows it overrides; a subflow left as is still calls the deployed
+ * one. Those subflows, and each one on the way to an override, run as you rather than as their
+ * on-behalf-of identity. Result caching is off for the whole test run.
  * 
  * The flow's preprocessor does not run: \`args\` are what the flow receives after it. AI agent
  * tools cannot be overridden; override the agent step instead.
@@ -2704,8 +2708,10 @@ async runFlowAsync(path: string | null, args: Record<string, any> | null, schedu
  *   instead of its own code, with the step's inputs as arguments (matched by name).
  * 
  * A step inside a subflow is named by the path of step ids to it, \`"sub.inner"\` for step \`inner\`
- * of the subflow that step \`sub\` calls. The override applies to every call of that subflow in
- * the run.
+ * of the subflow that step \`sub\` calls. It applies to every call of that subflow made by the
+ * tested flow and by the subflows it overrides; a subflow left as is still calls the deployed
+ * one. Those subflows, and each one on the way to an override, run as you rather than as their
+ * on-behalf-of identity. Result caching is off for the whole test run.
  * 
  * The flow's preprocessor does not run: \`args\` are what the flow receives after it. AI agent
  * tools cannot be overridden; override the agent step instead.

@@ -330,6 +330,21 @@ pub(crate) fn apply_step_overrides(
     Ok(())
 }
 
+/// A cached result is keyed by the flow's own value and args, which leave out the overrides of
+/// its subflows, so a test could read the result of a run with other overrides.
+fn disable_result_cache(value: &mut Value) {
+    if let Some(v) = value.as_object_mut() {
+        v.remove("cache_ttl");
+    }
+    let mut cb = |_: ModuleKind, module: &mut Map<String, Value>| {
+        module.remove("cache_ttl");
+    };
+    walk_list(value.get_mut("modules"), ModuleKind::Step, &mut cb);
+    if let Some(m) = value.get_mut("failure_module") {
+        walk_module(m, ModuleKind::Step, &mut cb);
+    }
+}
+
 /// Nesting limit of `a.b.c` step keys, so a subflow calling itself cannot recurse forever.
 const MAX_SUBFLOW_DEPTH: usize = 10;
 
@@ -521,6 +536,15 @@ pub(crate) async fn run_flow_test(
         (&db, &user_db, &authed, w_id.as_str()),
     )
     .await?;
+    if !subflows.is_empty() {
+        windmill_common::min_version::MIN_VERSION_SUPPORTS_FLOW_TEST_SUBFLOWS
+            .assert()
+            .await?;
+    }
+    disable_result_cache(&mut value);
+    for sub in subflows.values_mut() {
+        disable_result_cache(sub);
+    }
     let value: FlowValue = serde_json::from_value(value)
         .map_err(|e| Error::internal_err(format!("overridden flow value: {e}")))?;
 
@@ -659,6 +683,17 @@ mod tests {
         assert_eq!(subflow_step_path(&mut v, "sub").unwrap(), "f/x/sub");
         assert!(subflow_step_path(&mut v, "s").is_err());
         assert!(subflow_step_path(&mut v, "nope").is_err());
+    }
+
+    #[test]
+    fn result_cache_is_disabled_at_every_level() {
+        let mut v = json!({ "cache_ttl": 60, "modules": [ { "id": "loop", "cache_ttl": 60,
+            "value": { "type": "forloopflow", "iterator": { "type": "static", "value": [] },
+            "modules": [ { "id": "s", "cache_ttl": 60, "value": { "type": "identity" } } ] } } ] });
+        disable_result_cache(&mut v);
+        assert!(v.get("cache_ttl").is_none());
+        assert!(v["modules"][0].get("cache_ttl").is_none());
+        assert!(v["modules"][0]["value"]["modules"][0].get("cache_ttl").is_none());
     }
 
     #[test]

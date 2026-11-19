@@ -52,7 +52,8 @@ pub struct FlowStatus {
     pub continued_on_error: Vec<ContinuedOnError>,
     /// In a flow test run: deployed subflow path -> the flow value with the test's overrides
     /// applied, run as a preview in place of the deployed subflow. Only the flow test route
-    /// writes it, and the worker passes it on only to flows that are part of the same test run.
+    /// writes it, and the worker passes it on only to flows that are part of the same test run:
+    /// a deployed subflow left as is, which may run as someone else, never gets it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub test_subflows: Option<HashMap<String, serde_json::Value>>,
 }
