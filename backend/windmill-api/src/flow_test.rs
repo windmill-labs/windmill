@@ -150,29 +150,81 @@ async fn caller_job_code(
     }
 }
 
-/// Every object holding a string `id` and an object `value` with a `type`, at any depth: steps
-/// inside loops, branches, failure and preprocessor modules, and AI agent tools alike.
-fn for_each_module(v: &mut Value, cb: &mut dyn FnMut(&str, &mut Map<String, Value>)) {
-    match v {
-        Value::Object(m) => {
-            let id = match (m.get("id"), m.get("value")) {
-                (Some(Value::String(id)), Some(Value::Object(inner)))
-                    if inner.get("type").is_some_and(Value::is_string) =>
-                {
-                    Some(id.clone())
-                }
-                _ => None,
-            };
-            if let Some(id) = id {
-                cb(&id, m);
-            }
-            for child in m.values_mut() {
-                for_each_module(child, cb);
-            }
+#[derive(Clone, Copy, PartialEq)]
+enum ModuleKind {
+    Step,
+    Preprocessor,
+    /// An AI agent tool, which has no `mock` of its own.
+    Tool,
+}
+
+fn walk_list(
+    list: Option<&mut Value>,
+    kind: ModuleKind,
+    cb: &mut dyn FnMut(ModuleKind, &mut Map<String, Value>),
+) {
+    if let Some(Value::Array(a)) = list {
+        for m in a {
+            walk_module(m, kind, cb);
         }
-        Value::Array(a) => a.iter_mut().for_each(|c| for_each_module(c, cb)),
-        _ => {}
     }
+}
+
+/// Visits only where the flow schema puts modules: input values and mocks hold arbitrary data,
+/// and a module-shaped value there must not be taken for a step.
+fn walk_module(
+    m: &mut Value,
+    kind: ModuleKind,
+    cb: &mut dyn FnMut(ModuleKind, &mut Map<String, Value>),
+) {
+    let Value::Object(m) = m else {
+        return;
+    };
+    cb(kind, m);
+    let Some(Value::Object(v)) = m.get_mut("value") else {
+        return;
+    };
+    walk_list(v.get_mut("modules"), ModuleKind::Step, cb);
+    walk_list(v.get_mut("default"), ModuleKind::Step, cb);
+    if let Some(Value::Array(branches)) = v.get_mut("branches") {
+        for b in branches {
+            walk_list(b.get_mut("modules"), ModuleKind::Step, cb);
+        }
+    }
+    walk_list(v.get_mut("tools"), ModuleKind::Tool, cb);
+}
+
+fn replacement_value(
+    module: &Map<String, Value>,
+    entrypoint: &str,
+    code: &ReplacementCode,
+) -> Value {
+    let mut input_transforms = module
+        .get("value")
+        .and_then(|v| v.get("input_transforms"))
+        .and_then(Value::as_object)
+        .cloned()
+        .unwrap_or_default();
+    input_transforms.insert(
+        ENTRYPOINT_OVERRIDE.to_string(),
+        json!({ "type": "static", "value": entrypoint }),
+    );
+    let mut raw = json!({
+        "type": "rawscript",
+        "content": code.content,
+        "language": code.language,
+        "input_transforms": input_transforms,
+    });
+    if let Some(lock) = &code.lock {
+        raw["lock"] = json!(lock);
+    }
+    if let Some(path) = &code.path {
+        raw["path"] = json!(path);
+    }
+    if let Some(t) = module.get("value").and_then(|v| v.get("tool_type")) {
+        raw["tool_type"] = t.clone();
+    }
+    raw
 }
 
 /// Applies `overrides` to a flow value. Every step id must exist in the flow, so a renamed step
@@ -182,46 +234,55 @@ pub(crate) fn apply_step_overrides(
     overrides: &HashMap<String, StepOverride>,
 ) -> Result<()> {
     let mut seen = HashSet::new();
-    for_each_module(value, &mut |id, module| {
-        let Some(o) = overrides.get(id) else {
+    let mut refused = vec![];
+    let mut cb = |kind: ModuleKind, module: &mut Map<String, Value>| {
+        let Some(id) = module.get("id").and_then(Value::as_str).map(str::to_string) else {
             return;
         };
-        seen.insert(id.to_string());
+        let Some(o) = overrides.get(&id) else {
+            return;
+        };
+        seen.insert(id.clone());
         match o {
+            StepOverride::Mock(_) if kind == ModuleKind::Tool => refused.push(format!(
+                "`{id}` is an AI agent tool, which cannot be mocked with a value: replace it \
+                 with a function instead"
+            )),
             StepOverride::Mock(rv) => {
                 module.insert(
                     "mock".to_string(),
                     json!({ "enabled": true, "return_value": rv }),
                 );
             }
+            // Both are called with the flow input and an entrypoint of their own, so the
+            // replacement's entrypoint would be ignored and the test's `main` would run.
+            StepOverride::Function { .. }
+                if kind == ModuleKind::Preprocessor
+                    || module.get("pass_flow_input_directly") == Some(&Value::Bool(true)) =>
+            {
+                refused.push(format!(
+                    "`{id}` receives the flow input directly and cannot be replaced with a \
+                     function: mock its result instead"
+                ))
+            }
             StepOverride::Function { entrypoint, code } => {
-                let mut input_transforms = module
-                    .get("value")
-                    .and_then(|v| v.get("input_transforms"))
-                    .and_then(Value::as_object)
-                    .cloned()
-                    .unwrap_or_default();
-                input_transforms.insert(
-                    ENTRYPOINT_OVERRIDE.to_string(),
-                    json!({ "type": "static", "value": entrypoint }),
-                );
-                let mut raw = json!({
-                    "type": "rawscript",
-                    "content": code.content,
-                    "language": code.language,
-                    "input_transforms": input_transforms,
-                });
-                if let Some(lock) = &code.lock {
-                    raw["lock"] = json!(lock);
-                }
-                if let Some(path) = &code.path {
-                    raw["path"] = json!(path);
-                }
+                let raw = replacement_value(module, entrypoint, code);
                 module.insert("value".to_string(), raw);
                 module.remove("mock");
             }
         }
-    });
+    };
+    walk_list(value.get_mut("modules"), ModuleKind::Step, &mut cb);
+    if let Some(m) = value.get_mut("failure_module") {
+        walk_module(m, ModuleKind::Step, &mut cb);
+    }
+    if let Some(m) = value.get_mut("preprocessor_module") {
+        walk_module(m, ModuleKind::Preprocessor, &mut cb);
+    }
+    if !refused.is_empty() {
+        refused.sort();
+        return Err(Error::BadRequest(refused.join("; ")));
+    }
     let mut missing: Vec<&str> = overrides
         .keys()
         .filter(|k| !seen.contains(*k))
@@ -376,6 +437,49 @@ mod tests {
             json!({ "type": "static", "value": "fake" })
         );
         serde_json::from_value::<FlowValue>(v).unwrap();
+    }
+
+    #[test]
+    fn agent_tool_cannot_be_mocked() {
+        let mut v = json!({ "modules": [ { "id": "agent", "value": { "type": "aiagent",
+            "input_transforms": {}, "tools": [ { "id": "send", "summary": "send",
+            "value": { "tool_type": "flowmodule", "type": "identity" } } ] } } ] });
+        let mocked = HashMap::from([("send".to_string(), StepOverride::Mock(json!(1)))]);
+        assert!(apply_step_overrides(&mut v.clone(), &mocked).is_err());
+        let replaced = HashMap::from([(
+            "send".to_string(),
+            StepOverride::Function { entrypoint: "fake".into(), code: code() },
+        )]);
+        apply_step_overrides(&mut v, &replaced).unwrap();
+        assert_eq!(
+            v["modules"][0]["value"]["tools"][0]["value"]["type"],
+            "rawscript"
+        );
+        assert_eq!(
+            v["modules"][0]["value"]["tools"][0]["value"]["tool_type"],
+            "flowmodule"
+        );
+        serde_json::from_value::<FlowValue>(v).unwrap();
+    }
+
+    #[test]
+    fn module_shaped_data_is_not_a_step() {
+        let mut v = json!({ "modules": [ { "id": "a", "value": { "type": "identity" } } ] });
+        let fake = json!({ "id": "a", "value": { "type": "identity" } });
+        let overrides = HashMap::from([("a".to_string(), StepOverride::Mock(fake.clone()))]);
+        apply_step_overrides(&mut v, &overrides).unwrap();
+        assert_eq!(v["modules"][0]["mock"]["return_value"], fake);
+    }
+
+    #[test]
+    fn direct_input_step_cannot_be_replaced() {
+        let mut v = json!({ "modules": [ { "id": "a", "pass_flow_input_directly": true,
+            "value": { "type": "identity" } } ] });
+        let overrides = HashMap::from([(
+            "a".to_string(),
+            StepOverride::Function { entrypoint: "fake".into(), code: code() },
+        )]);
+        assert!(apply_step_overrides(&mut v, &overrides).is_err());
     }
 
     #[test]
