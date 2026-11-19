@@ -64,6 +64,11 @@ export type GraphModuleState = {
 	retries?: number
 	/** Job ids of the failed attempts, `retries` of them. */
 	failed_retries?: string[]
+	/** Every attempt of a retried step, the failed ones then the last one, and how each ended. */
+	attempt_jobs?: string[]
+	attempt_jobs_success?: (boolean | undefined)[]
+	/** The attempt picked on the graph; unset follows the last one. */
+	selectedAttempt?: string
 	duration_ms?: number
 	started_at?: number
 	suspend_count?: number

@@ -4,7 +4,16 @@
 	import Popover from '$lib/components/Popover.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import { classNames, type Item, type StateStore } from '$lib/utils'
-	import { EllipsisVertical, Pin, X, Play, Loader2, TriangleAlert, Maximize2 } from 'lucide-svelte'
+	import {
+		EllipsisVertical,
+		Pin,
+		X,
+		Play,
+		Loader2,
+		TriangleAlert,
+		Maximize2,
+		RefreshCw
+	} from 'lucide-svelte'
 	import type { StepSettingView } from '../flowStepSettings'
 	import { createEventDispatcher, getContext, untrack } from 'svelte'
 	import { fade } from 'svelte/transition'
@@ -18,6 +27,12 @@
 	import { getDependeeAndDependentComponents } from '../flowExplorer'
 	import { replaceId } from '../flowStore.svelte'
 	import FlowModuleSchemaItemViewer from './FlowModuleSchemaItemViewer.svelte'
+	import StepSettingsBar, { type RetryAttempts } from './StepSettingsBar.svelte'
+	import {
+		emitUiIntent,
+		moduleIntentComponentId
+	} from '$lib/components/copilot/chat/flow/uiIntents'
+	import { findModuleInFlow } from '../flowTree'
 	import type { PropPickerContext } from '$lib/components/prop_picker'
 	import OutputPicker from '$lib/components/flows/propPicker/OutputPicker.svelte'
 	import OutputPickerInner from '$lib/components/flows/propPicker/OutputPickerInner.svelte'
@@ -58,6 +73,10 @@
 		path?: string
 		nodeState?: FlowNodeState
 		retries?: number | undefined
+		/** On a collapsed subflow in a run, how many steps inside it were retried. */
+		retriedInside?: number
+		/** In a run, the attempts the retry badge picks from. */
+		attempts?: RetryAttempts | undefined
 		warningMessage?: string | undefined
 		editMode?: boolean
 		alwaysShowOutputPicker?: boolean
@@ -90,6 +109,8 @@
 		path = '',
 		nodeState,
 		retries = undefined,
+		retriedInside = 0,
+		attempts = undefined,
 		warningMessage = undefined,
 		editMode = false,
 		alwaysShowOutputPicker = false,
@@ -151,6 +172,9 @@
 	let outputPicker: OutputPicker | undefined = $state(undefined)
 	let testJob: any | undefined = $state(undefined)
 	let outputPickerBarOpen = $state(false)
+	// Holds the In/Out bar open while the settings menu is, so the bar it sits above doesn't
+	// jump back up, menu and all, when the pointer leaves the step for the menu.
+	let settingsMenuOpen = $state(false)
 	let dropdownOpen = $state(false)
 
 	let flowStateStore = $derived(flowEditorContext?.flowStateStore)
@@ -283,37 +307,65 @@
 			class={classNames('absolute z-0 rounded-md outline-offset-0', colorClasses.outline)}
 			style={`width: 275px; height: 34px;`}
 		></div>
+		{#if !editMode && retriedInside > 0}
+			<!-- Left of the settings bar, which is this step's own policy: this is what happened inside. -->
+			<div
+				transition:fade|local={{ duration: 200 }}
+				class="nodrag nopan absolute -left-1 top-[calc(100%+3px)] z-10"
+			>
+				<Button
+					variant="subtle"
+					unifiedSize="2xs"
+					title="Expand to see the retried steps"
+					disabled={!maximizeSubflow}
+					btnClasses="gap-1 text-2xs text-secondary"
+					onClick={(e) => {
+						e?.preventDefault()
+						maximizeSubflow?.()
+					}}
+					on:pointerdown={(e) => {
+						e.stopPropagation()
+						e.preventDefault()
+					}}
+				>
+					<RefreshCw size={12} class="text-orange-500" />
+					{retriedInside} step{retriedInside === 1 ? '' : 's'} retried inside
+				</Button>
+			</div>
+		{/if}
 		<div
-			class="absolute text-sm right-2 flex flex-row gap-1 z-10 transition-all duration-100"
-			style={`bottom: ${outputPickerBarOpen ? '-38px' : '-12px'}`}
+			class="absolute text-sm {editMode
+				? 'right-2'
+				: 'right-0'} flex flex-row items-start gap-1 z-10 transition-all duration-100"
+			style={editMode
+				? `bottom: ${outputPickerBarOpen ? '-44px' : '-12px'}`
+				: `top: calc(100% + ${outputPickerBarOpen ? '25px' : '3px'})`}
 		>
-			{#each settings as s (s.key)}
-				{@const Icon = s.icon}
-				<Popover notClickable>
-					<div
-						transition:fade|local={{ duration: 200 }}
-						class="center-center rounded border bg-surface border-gray-400 text-secondary px-1 py-0.5"
-					>
-						{#if s.key === 'retries' && retries}<span class="text-red-400 mr-2">{retries}</span
-							>{/if}
-						<Icon size={12} />
-					</div>
-					{#snippet text()}
-						{s.tooltip}
-						{#if s.key === 'retries' && retries}
-							· {retries} failed attempt{retries === 1 ? '' : 's'} · up to
-						{:else}
-							·
-						{/if}
-						<span class={s.summary.mono ? 'font-mono' : ''}>{s.summary.text}</span>
-					{/snippet}
-				</Popover>
-			{/each}
+			{#if settings.length > 0}
+				<StepSettingsBar
+					{settings}
+					{retries}
+					{attempts}
+					onOpenChange={(o) => (settingsMenuOpen = o)}
+					onOpenSetting={editMode && id
+						? (key) => {
+								flowGraphContext?.selectionManager?.selectId(id, { openPanel: true })
+								// Kept by the store until the step's panel mounts and reads it.
+								const mod = flowStore?.val ? findModuleInFlow(flowStore.val.value, id) : null
+								emitUiIntent({
+									kind: 'open_module_tab',
+									componentId: moduleIntentComponentId(mod?.value.type, id),
+									tab: key
+								})
+							}
+						: undefined}
+				/>
+			{/if}
 			{#if mock?.enabled}
 				<Popover notClickable>
 					<button
 						transition:fade|local={{ duration: 200 }}
-						class="center-center bg-surface rounded border border-gray-400 text-secondary px-1 py-0.5"
+						class="center-center h-5 px-1 rounded-md border bg-surface text-secondary"
 						onclick={() => {
 							outputPicker?.toggleOpen()
 						}}
@@ -347,7 +399,7 @@
 				<OutputPicker
 					bind:this={outputPicker}
 					{selected}
-					{hover}
+					hover={hover || settingsMenuOpen}
 					{isConnectingCandidate}
 					{historyOpen}
 					{inputTransform}
