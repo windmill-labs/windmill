@@ -267,58 +267,48 @@
 	)
 	let resultDownloadName = $derived(`${filename ?? 'result'}.json`)
 
-	// A result over the backend's inline cap arrives as 'WINDMILL_TOO_BIG'. Ask the backend
-	// for the filename alone to tell a file result: `{ file: { content, filename } }` or
-	// `{ file, filename }`, the two shapes the 'file' kind renders. A root `filename` does not
-	// prove a root `file`, which is only read on click since it is the large value itself, so
-	// the JSON download stays offered next to the button.
+	// A result over the backend's inline cap arrives as 'WINDMILL_TOO_BIG'. Ask the backend for
+	// `file.filename` alone to tell a `{ file: { content, filename } }` result. The root
+	// `{ file, filename }` shape is a file only when those are its sole keys, which cannot be
+	// checked without reading the large value, so it keeps the JSON download.
 	let tooBigFilename: string | undefined = $state(undefined)
+	let downloadingTooBigFile = $state(false)
 	async function fetchResultAt(apiPath: string, jsonPath: string): Promise<unknown> {
 		const r = await fetchViaClient(
 			`${apiPath}${apiPath.includes('?') ? '&' : '?'}json_path=${jsonPath}`
 		)
-		return r.ok ? r.json() : undefined
-	}
-	async function findTooBigFilename(apiPath: string): Promise<string | undefined> {
-		const nested = await fetchResultAt(apiPath, 'file.filename')
-		if (typeof nested === 'string') return nested
-		const root = await fetchResultAt(apiPath, 'filename')
-		return typeof root === 'string' ? root : undefined
+		if (!r.ok) throw new Error(`${r.status} ${r.statusText}`)
+		return r.json()
 	}
 	$effect(() => {
 		tooBigFilename = undefined
 		const apiPath = result === 'WINDMILL_TOO_BIG' ? resultApiPath : undefined
 		if (!apiPath) return
 		let stale = false
-		findTooBigFilename(apiPath).then(
+		fetchResultAt(apiPath, 'file.filename').then(
 			(name) => {
-				if (!stale) tooBigFilename = name
+				if (!stale && typeof name === 'string') tooBigFilename = name
 			},
 			() => {}
 		)
 		return () => (stale = true)
 	})
 	async function downloadTooBigFile(apiPath: string, name: string) {
-		let content: unknown
+		downloadingTooBigFile = true
 		try {
-			content = contentOrRootString((await fetchResultAt(apiPath, 'file')) as any)
+			const content = await fetchResultAt(apiPath, 'file.content')
+			if (typeof content !== 'string' || !content) throw new Error('the result has no file content')
+			const bin = atob(content)
+			// Filled byte by byte: a per-character array is several times the file's size
+			const bytes = new Uint8Array(bin.length)
+			for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
+			// A blob, not a data: URL, which browsers cap well below a large file's size
+			downloadBlob(new Blob([bytes]), name)
 		} catch (e) {
-			return sendUserToast(`Download failed: ${e}`, true)
+			sendUserToast(`Download failed: ${e instanceof Error ? e.message : e}`, true)
+		} finally {
+			downloadingTooBigFile = false
 		}
-		if (typeof content !== 'string' || !content) {
-			return sendUserToast(`This result has no file content to download as ${name}`, true)
-		}
-		let bin: string
-		try {
-			bin = atob(content)
-		} catch {
-			return sendUserToast(`The file content of this result is not valid base64`, true)
-		}
-		// Filled byte by byte: a per-character array is several times the file's size
-		const bytes = new Uint8Array(bin.length)
-		for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
-		// A blob, not a data: URL, which browsers cap well below a large file's size
-		downloadBlob(new Blob([bytes]), name)
 	}
 
 	function checkIfS3(result: any, keys: string[]) {
@@ -1391,6 +1381,7 @@
 							<div class="flex">
 								<Button
 									onclick={() => downloadTooBigFile(resultApiPath!, tooBigFilename!)}
+									disabled={downloadingTooBigFile}
 									startIcon={{ icon: Download }}
 									variant="subtle"
 									unifiedSize="sm"
