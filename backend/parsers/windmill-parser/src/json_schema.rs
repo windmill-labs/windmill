@@ -44,7 +44,16 @@ pub fn main_arg_schema(
             Some(o) if o.contains('[') && o.contains('|') => {
                 prop.insert("originalType".into(), json!(o))
             }
-            Some(o) if otyp_is_doc && !o.is_empty() => prop.insert("description".into(), json!(o)),
+            Some(o)
+                if otyp_is_doc
+                    && !o.is_empty()
+                    && prop
+                        .get("description")
+                        .and_then(Value::as_str)
+                        .is_none_or(str::is_empty) =>
+            {
+                prop.insert("description".into(), json!(o))
+            }
             _ => None,
         };
         match &arg.default {
@@ -71,7 +80,9 @@ pub fn main_arg_schema(
     Value::Object(schema)
 }
 
-/// Keys a user sets on a property in the schema editor, kept whatever the code says.
+/// Keys a user sets on a property in the schema editor, kept whatever the code says. A
+/// description documented in code (docstring `Args:`, JSDoc `@param`) only fills one that
+/// is empty, never replaces it.
 const USER_FIELDS: &[&str] = &[
     "description",
     "pattern",
@@ -421,16 +432,34 @@ mod tests {
         assert_eq!(schema["properties"]["name"]["description"], "");
     }
 
-    // A docstring entry with no text (`name:`) must not wipe a typed description.
+    // A description from code only fills an empty one: a typed one is kept, even when
+    // the code documents the argument differently or with no text.
     #[test]
-    fn an_empty_doc_keeps_the_previous_description() {
-        let name = Arg { otyp: Some("".into()), ..arg("name", Typ::Str(None), None) };
-        let sig = MainArgSignature { args: vec![name], ..Default::default() };
+    fn a_doc_fills_an_empty_description_and_keeps_a_typed_one() {
+        let doc =
+            |name: &str, d: &str| Arg { otyp: Some(d.into()), ..arg(name, Typ::Str(None), None) };
+        let sig = MainArgSignature {
+            args: vec![
+                doc("typed", "from code"),
+                doc("blank", "from code"),
+                doc("empty_doc", ""),
+            ],
+            ..Default::default()
+        };
         let previous = json!({
             "type": "object",
-            "properties": {"name": {"type": "string", "description": "typed"}},
+            "properties": {
+                "typed": {"type": "string", "description": "typed"},
+                "blank": {"type": "string", "description": ""},
+                "empty_doc": {"type": "string", "description": "typed too"},
+            },
         });
         let schema = main_arg_schema(&sig, Some(&previous), true);
-        assert_eq!(schema["properties"]["name"]["description"], "typed");
+        assert_eq!(schema["properties"]["typed"]["description"], "typed");
+        assert_eq!(schema["properties"]["blank"]["description"], "from code");
+        assert_eq!(
+            schema["properties"]["empty_doc"]["description"],
+            "typed too"
+        );
     }
 }

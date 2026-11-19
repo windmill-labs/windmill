@@ -578,8 +578,15 @@ export async function inferArgs(
 			otyp &&
 			['python3', 'deno', 'bun', 'bunnative', 'nativets'].includes(language ?? '')
 		) {
-			// Python docstring `Args:` and TS JSDoc `@param` text: the parsers pass it as `otyp`
-			schema.properties[arg.name].description = otyp
+			// Python docstring `Args:` and TS JSDoc `@param` text: the parsers pass it as `otyp`.
+			// It only fills an empty description, never replaces one typed in the schema. This
+			// runs on every edit of the live schema, so a description the previous run filled
+			// from the doc still follows it: otherwise it would freeze at the first keystroke.
+			const current = schema.properties[arg.name].description
+			const previousDoc = (lastRun?.[1]?.args.find((a) => a.name == arg.name) as any)?.otyp
+			if (!current || current === previousDoc) {
+				schema.properties[arg.name].description = otyp
+			}
 		}
 
 		// Most languages cannot write a resource default in code, so one picked in the

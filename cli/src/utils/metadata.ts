@@ -988,9 +988,11 @@ export async function inferSchema(
       currentSchema.properties[arg.name].originalType = otyp;
     } else if (
       otyp &&
+      !currentSchema.properties[arg.name].description &&
       ["python3", "deno", "bun", "bunnative", "nativets"].includes(language)
     ) {
-      // Python docstring `Args:` and TS JSDoc `@param` text: the parsers pass it as `otyp`
+      // Python docstring `Args:` and TS JSDoc `@param` text: the parsers pass it as `otyp`.
+      // It only fills an empty description, never replaces one typed in the schema.
       currentSchema.properties[arg.name].description = otyp;
     }
 
