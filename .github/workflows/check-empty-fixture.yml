@@ -13,7 +13,7 @@ jobs:
   check-empty-fixture:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4.4.0
+      - uses: actions/checkout@v7.0.1
 
       - name: Ensure fixtures/cli-sync/ has no committed snapshot
         run: bash fixtures/check-empty.sh
