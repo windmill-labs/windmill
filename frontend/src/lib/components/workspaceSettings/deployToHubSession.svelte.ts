@@ -1876,8 +1876,7 @@ export class DeployToHubSession {
 	// The chat stops following a run when it unmounts but does not stop the run, which would
 	// go on calling real tools. Only the last one can still be running: the chat sends one
 	// message at a time. Cancelling a finished run is refused, which is fine.
-	#cancelAgentRun() {
-		const id = this.agentRuns.at(-1)
+	#cancelAgentRun(id = this.agentRuns.at(-1)) {
 		if (!id) return
 		void JobService.cancelQueuedJob({
 			workspace: this.workspace,
@@ -1902,7 +1901,9 @@ export class DeployToHubSession {
 			memoryId: conversationId,
 			requestBody: { ...(inputs ?? {}), user_message: userMessage }
 		})
-		if (tok === this.#agentTok) this.agentRuns = [...this.agentRuns, jobId]
+		// Closed while the run was being created: it was not there to cancel then.
+		if (tok !== this.#agentTok) this.#cancelAgentRun(jobId)
+		else this.agentRuns = [...this.agentRuns, jobId]
 		return jobId
 	}
 

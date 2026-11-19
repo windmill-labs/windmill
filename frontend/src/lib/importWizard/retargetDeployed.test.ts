@@ -412,6 +412,33 @@ describe('applyRetarget', () => {
 		expect(out.stubDeleted).toBe(false)
 	})
 
+	it("keeps a nested agent's MCP server enabled under the resource it moved to", async () => {
+		state.apps = []
+		state.agents = [
+			{
+				path: 'f/proj/helpdesk',
+				value: {
+					tools: [
+						{
+							id: 'inner',
+							value: {
+								tool_type: 'flowmodule',
+								type: 'aiagent',
+								tools: [{ id: 'm', value: { tool_type: 'mcp', resource_path: FROM } }],
+								input_transforms: { enabled_tools: { type: 'static', value: [FROM, 'lookup'] } }
+							}
+						}
+					]
+				}
+			}
+		]
+		const out = await run()
+		const inner = state.updatedAgents[0].requestBody.value.tools[0].value
+		expect(inner.tools[0].value.resource_path).toBe(TO)
+		expect(inner.input_transforms.enabled_tools.value).toEqual([TO, 'lookup'])
+		expect(out.stubDeleted).toBe(true)
+	})
+
 	it('drops the stub once the only agent reading it has moved', async () => {
 		state.apps = []
 		state.agents = [

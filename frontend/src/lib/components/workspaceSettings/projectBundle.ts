@@ -163,8 +163,10 @@ function collectAgentConfigRefs(value: any, add: (kind: RefKind, path: string) =
 }
 
 /** Returns a rewritten copy. */
-function rewriteAgentConfig(value: any, map: Map<string, string>): any {
-	const out = walkAgentConfig(value, (_kind, path) => map.get(path))
+function rewriteAgentConfig(value: any, map: Map<string, string>, only?: RefKind): any {
+	const out = walkAgentConfig(value, (kind, path) =>
+		only === undefined || kind === only ? map.get(path) : undefined
+	)
 	// `enabled_tools` names an MCP server by its bare resource path and the worker matches
 	// names exactly: the list must follow the server, or it silently leaves the roster.
 	const fixEnabled = (v: any) => {
@@ -609,7 +611,7 @@ export function extractAgentRefs(value: any): Ref[] {
 // holding one resource path must not repoint a tool that runs a script sharing that path.
 export function rewriteAgentResourceRefs(value: any, map: Map<string, string>): any {
 	if (!value || typeof value !== 'object') return value
-	return walkAgentConfig(value, (kind, path) => (kind === 'resource' ? map.get(path) : undefined))
+	return rewriteAgentConfig(value, map, 'resource')
 }
 
 export function rewriteAgentValue(value: any, map: Map<string, string>): any {
