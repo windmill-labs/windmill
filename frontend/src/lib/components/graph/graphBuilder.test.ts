@@ -110,6 +110,28 @@ describe('graphBuilder error handler markers', () => {
 		expect(hasEdge(edges, 'failure-1', 'Result')).toBe(true)
 		expect(hasEdge(edges, 'failure-2', 'boc-end')).toBe(true)
 	})
+
+	// Drawn both, the step's own exit and the handler's edge read as two paths into one node.
+	it("marks the failed step's way out as not taken, hidden where the handler replaces it", () => {
+		const loop = (id: string, inner: string): FlowModule => ({
+			id,
+			value: {
+				type: 'forloopflow',
+				iterator: { type: 'javascript', expr: '[1]' },
+				skip_failures: false,
+				modules: [script(inner)]
+			}
+		})
+		const bypassed = (edges: any[], source: string, target: string) =>
+			edges.find((e) => e.source === source && e.target === target)?.data?.bypassed
+
+		const inner = build([loop('loop', 's')], { 'failure-0-0': ran('s') }).edges
+		expect(bypassed(inner, 's', 'loop-end')).toBe('replaced')
+
+		// A loop that failed as a whole leaves through its end node.
+		const whole = build([loop('loop', 's'), script('next')], { failure: ran('loop') }).edges
+		expect(bypassed(whole, 'loop-end', 'next')).toBe(true)
+	})
 })
 
 describe('topologicalSort', () => {
