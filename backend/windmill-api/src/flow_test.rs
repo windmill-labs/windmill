@@ -159,7 +159,8 @@ async fn caller_job_code(
 enum ModuleKind {
     Step,
     Preprocessor,
-    /// An AI agent tool, which has no `mock` of its own.
+    /// An AI agent tool: it has no `mock`, and the agent reads its name and schema from the
+    /// tool's own definition, so neither kind of override would take effect as written.
     Tool,
 }
 
@@ -226,13 +227,6 @@ fn replacement_value(
     if let Some(path) = &code.path {
         raw["path"] = json!(path);
     }
-    // A built-in tool (web search, question) is replaced by a script tool.
-    if module
-        .get("value")
-        .is_some_and(|v| v.get("tool_type").is_some())
-    {
-        raw["tool_type"] = json!("flowmodule");
-    }
     raw
 }
 
@@ -262,9 +256,9 @@ pub(crate) fn apply_step_overrides(
         };
         seen.insert(id.clone());
         match o {
-            StepOverride::Mock(_) if kind == ModuleKind::Tool => refused.push(format!(
-                "`{id}` is an AI agent tool, which cannot be mocked with a value: replace it \
-                 with a function instead"
+            _ if kind == ModuleKind::Tool => refused.push(format!(
+                "`{id}` is an AI agent tool, which cannot be overridden: override the agent \
+                 step instead"
             )),
             StepOverride::Mock(rv) => {
                 module.insert(
@@ -463,26 +457,17 @@ mod tests {
     }
 
     #[test]
-    fn agent_tool_cannot_be_mocked() {
-        let mut v = json!({ "modules": [ { "id": "agent", "value": { "type": "aiagent",
+    fn agent_tool_cannot_be_overridden() {
+        let v = json!({ "modules": [ { "id": "agent", "value": { "type": "aiagent",
             "input_transforms": {}, "tools": [ { "id": "send", "summary": "send",
             "value": { "tool_type": "websearch" } } ] } } ] });
-        let mocked = HashMap::from([("send".to_string(), StepOverride::Mock(json!(1)))]);
-        assert!(apply_step_overrides(&mut v.clone(), &mocked).is_err());
-        let replaced = HashMap::from([(
-            "send".to_string(),
+        for o in [
+            StepOverride::Mock(json!(1)),
             StepOverride::Function { entrypoint: "fake".into(), code: code() },
-        )]);
-        apply_step_overrides(&mut v, &replaced).unwrap();
-        assert_eq!(
-            v["modules"][0]["value"]["tools"][0]["value"]["type"],
-            "rawscript"
-        );
-        assert_eq!(
-            v["modules"][0]["value"]["tools"][0]["value"]["tool_type"],
-            "flowmodule"
-        );
-        serde_json::from_value::<FlowValue>(v).unwrap();
+        ] {
+            let overrides = HashMap::from([("send".to_string(), o)]);
+            assert!(apply_step_overrides(&mut v.clone(), &overrides).is_err());
+        }
     }
 
     #[test]
