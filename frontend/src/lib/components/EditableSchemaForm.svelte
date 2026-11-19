@@ -197,11 +197,11 @@
 		properties: Record<string, any>
 		order: string[] | undefined
 	}) {
-		if (schema.order == undefined && !Array.isArray(schema.order)) {
-			schema.order = []
-		}
-		let norder = [...schema.order]
 		let properties = Object.keys(schema?.properties ?? {})
+		// An absent order means the property order. Writing it out anyway changes the flow on
+		// mount, and the flow editor's undo then takes that write for an edit and swallows a press.
+		const currentOrder = Array.isArray(schema.order) ? schema.order : properties
+		let norder = [...currentOrder]
 		let index = 0
 		let hasChanged = false
 		for (let k of properties) {
@@ -214,7 +214,7 @@
 			index += 1
 		}
 		norder = norder.filter((x) => properties.includes(x))
-		if (!deepEqual(schema.order, norder)) {
+		if (!deepEqual(currentOrder, norder)) {
 			schema.order = norder
 			return true
 		}
