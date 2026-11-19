@@ -24,7 +24,7 @@ describe("formatPreviewFailureDetails", () => {
       maxCharacters: 20,
     });
 
-    expect(details).toContain(`logs=…${"x".repeat(19)}`);
+    expect(details).toContain(`logs:\n…${"x".repeat(19)}`);
     expect(details.length).toBeLessThan(80);
   });
 
@@ -47,9 +47,9 @@ describe("formatPreviewFailureDetails", () => {
     });
 
     expect(details).toContain(
-      "error: Cannot find module 'missing' at main (/tmp/main.ts:3:9)",
+      "error: Cannot find module 'missing'\n    at main (/tmp/main.ts:3:9)",
     );
     expect(details).not.toContain("package-0@");
-    expect(details).toContain("result=Error: Cannot find module xxx");
+    expect(details).toContain("result:\nError: Cannot find module\nxxx");
   });
 });

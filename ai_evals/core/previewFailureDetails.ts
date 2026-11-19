@@ -9,7 +9,7 @@ export interface PreviewFailureDetailsInput {
 export function formatPreviewFailureDetails(
   input: PreviewFailureDetailsInput,
 ): string {
-  const parts = [`workspace=${input.workspaceId}`, `job=${input.jobId}`];
+  const parts = [`workspace=${input.workspaceId}; job=${input.jobId}`];
   const maxCharacters = input.maxCharacters ?? 1200;
   // A job log starts with dependency install output and ends with what ran just
   // before the failure: keep its tail.
@@ -21,13 +21,13 @@ export function formatPreviewFailureDetails(
   );
 
   if (logExcerpt) {
-    parts.push(`logs=${logExcerpt}`);
+    parts.push(`logs:\n${logExcerpt}`);
   }
   if (resultExcerpt) {
-    parts.push(`result=${resultExcerpt}`);
+    parts.push(`result:\n${resultExcerpt}`);
   }
 
-  return parts.join("; ");
+  return parts.join("\n");
 }
 
 function formatResult(result: unknown): string | null {
@@ -44,7 +44,7 @@ function formatResult(result: unknown): string | null {
   ).error;
   if (error && typeof error === "object" && typeof error.message === "string") {
     const name = typeof error.name === "string" ? `${error.name}: ` : "";
-    const stack = typeof error.stack === "string" ? ` ${error.stack}` : "";
+    const stack = typeof error.stack === "string" ? `\n${error.stack}` : "";
     return `${name}${error.message}${stack}`;
   }
   try {
@@ -59,7 +59,13 @@ function normalizeExcerpt(
   maxCharacters: number,
   keep: "head" | "tail",
 ): string | null {
-  const normalized = value?.replace(/\s+/g, " ").trim();
+  // Line breaks are kept: a traceback's frames and its ^^^ markers under the failing
+  // expression only read correctly line by line.
+  const normalized = value
+    ?.replace(/\r\n?/g, "\n")
+    .replace(/[ \t]+$/gm, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
   if (!normalized) {
     return null;
   }
