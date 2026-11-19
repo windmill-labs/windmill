@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.880.1](https://github.com/windmill-labs/windmill/compare/v1.880.0...v1.880.1) (2026-11-19)
+
+
+### Bug Fixes
+
+* make the mssql database manager work under case-sensitive collations ([#12550](https://github.com/windmill-labs/windmill/issues/12550)) ([cb824de](https://github.com/windmill-labs/windmill/commit/cb824de928b35aee34bf1dda3a385d04eff277b3))
+
 ## [1.880.0](https://github.com/windmill-labs/windmill/compare/v1.879.0...v1.880.0) (2026-11-19)
 
 
