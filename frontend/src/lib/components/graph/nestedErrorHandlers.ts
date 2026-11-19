@@ -57,7 +57,8 @@ async function countIn(workspace: string, job: Job): Promise<number> {
 	const children: string[] = []
 	for (const mod of status.modules) {
 		if (mod.flow_jobs?.length) {
-			children.push(...mod.flow_jobs)
+			// Failed iterations and branches only, as in `firstIterationWithHandler`.
+			children.push(...mod.flow_jobs.filter((_, i) => mod.flow_jobs_success?.[i] === false))
 		} else if (mod.job) {
 			// A script step has no flow below it; only these run a flow job of their own.
 			const type = mod.id ? types.get(mod.id) : undefined
