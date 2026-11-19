@@ -17788,7 +17788,9 @@ paths:
                   $ref: "#/components/schemas/ScriptArgs"
                 steps:
                   type: object
-                  description: step id -> override
+                  description: >-
+                    step id -> override. A step inside a subflow is named by the path of step
+                    ids to it, `sub:inner` for step `inner` of the subflow that step `sub` calls.
                   additionalProperties:
                     type: object
                     properties:

@@ -1856,7 +1856,7 @@ def test_flow(
     - a top-level function of the calling script's own file: the step runs that function instead
       of its own code, with the step's inputs as keyword arguments.
 
-    A step inside a subflow is named by the path of step ids to it, ``"sub.inner"`` for step
+    A step inside a subflow is named by the path of step ids to it, ``"sub:inner"`` for step
     ``inner`` of the subflow that step ``sub`` calls. It applies to every call of that subflow
     made by the tested flow and by the subflows it overrides; a subflow left as is still calls
     the deployed one. Those subflows, and each one on the way to an override, run as you rather
