@@ -789,29 +789,25 @@ async fn cancel_persistent_script_api(
     {
         return Err(Error::NotFound(format!("Script {path} not found")));
     }
-    // The cancel below runs on the root pool, so each run it would reach must pass the per-job
-    // check `/queue/cancel/{id}` applies. Same filter as `cancel_persistent_script_jobs`.
-    let candidates = sqlx::query_scalar::<_, Uuid>(
-        "SELECT j.id FROM v2_job_queue q JOIN v2_job j USING (id) \
-         JOIN script s ON s.workspace_id = j.workspace_id AND s.hash = j.runnable_id \
-         WHERE j.workspace_id = $1 AND j.runnable_path = $2 AND j.kind = 'script' \
-         AND j.flow_step_id IS NULL AND q.canceled_by IS NULL AND s.restart_unless_cancelled",
-    )
-    .bind(&w_id)
-    .bind(path)
-    .fetch_all(&db)
-    .await?;
-    for id in candidates {
-        require_job_cancel_access(&db, &user_db, &authed, &w_id, &id).await?;
-    }
     let audit_author: AuditAuthor = (&authed).into();
 
     let cancelled_job_ids = windmill_queue::cancel_persistent_script_jobs(
         &audit_author.username,
         reason,
-        script_path.to_path(),
+        path,
         &w_id,
         &db,
+        // The cancel runs on the root pool, so each run it reaches must pass the per-job check
+        // `/queue/cancel/{id}` applies.
+        |ids| {
+            let (db, user_db, authed, w_id) = (&db, &user_db, &authed, w_id.as_str());
+            async move {
+                for id in ids {
+                    require_job_cancel_access(db, user_db, authed, w_id, &id).await?;
+                }
+                Ok(())
+            }
+        },
     )
     .await?;
 
