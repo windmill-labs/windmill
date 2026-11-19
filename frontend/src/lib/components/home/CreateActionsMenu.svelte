@@ -17,6 +17,7 @@
 		Import,
 		Store,
 		PanelLeftClose,
+		Play,
 		Folder
 	} from 'lucide-svelte'
 	import MenuItem from '$lib/components/meltComponents/MenuItem.svelte'
@@ -81,7 +82,11 @@
 		description: string
 		bullets: string[]
 		badge?: { label: string; class: string }
+		video?: Video
 	}
+
+	/** a short explainer on the Windmill YouTube channel, opened in a new tab */
+	type Video = { id: string; title: string }
 
 	/** an importable artifact kind handled by the shared YAML/JSON import drawer */
 	type ImportKind = 'flow' | 'wac' | 'app-lowcode' | 'app-fullcode'
@@ -108,6 +113,7 @@
 		badge?: { label: string; class: string }
 		/** secondary actions (import from YAML/JSON, pipeline, …) shown in the detail panel */
 		extras?: Extra[]
+		video?: Video
 	}
 
 	// kept static so tailwind doesn't purge the badge tones
@@ -137,7 +143,8 @@
 				'Auto-generated UI from parameters',
 				'Instant deploy & versioning'
 			],
-			href: '/scripts/add'
+			href: '/scripts/add',
+			video: { id: '4MMjF-bcqNs', title: 'What is a script?' }
 		},
 		...(HOME_SHOW_CREATE_FLOW
 			? ([
@@ -155,6 +162,7 @@
 							'Suspend / approval steps'
 						],
 						href: '/flows/add',
+						video: { id: 'XzCI8M8tBeg', title: 'What is a flow?' },
 						extras: [{ label: 'Import flow', onSelect: () => openImport('flow') }]
 					}
 				] as Option[])
@@ -171,6 +179,7 @@
 							'Full control over the UI with React or Svelte and a powerful AI agent. Best for complex apps that need full flexibility.',
 						bullets: ['React or Svelte', 'Full flexibility & control', 'AI-assisted authoring'],
 						href: '/apps_raw/add',
+						video: { id: 'sHUPe-Compw', title: 'What is an app?' },
 						extras: [{ label: 'Import full-code app', onSelect: () => openImport('app-fullcode') }]
 					}
 				] as Option[])
@@ -188,7 +197,8 @@
 				'Reusable as a step in any flow',
 				'Tools from scripts, flows and MCP'
 			],
-			href: '/agents/add'
+			href: '/agents/add',
+			video: { id: 'qiRuXq8Utio', title: 'What is an AI agent?' }
 		},
 		...(HOME_SHOW_CREATE_FLOW
 			? ([
@@ -236,6 +246,7 @@
 						],
 						href: '/pipeline',
 						badge: { label: 'Alpha', class: badgeAlpha },
+						video: { id: 'TYnnkSIUPIY', title: 'What is a data pipeline?' },
 						variants: [
 							{
 								label: 'Windmill pipelines',
@@ -612,6 +623,40 @@
 							</li>
 						{/each}
 					</ul>
+
+					{#if active.video}
+						<a
+							href="https://www.youtube.com/watch?v={active.video.id}"
+							target="_blank"
+							rel="noopener noreferrer"
+							tabindex={-1}
+							class="group/video mt-2 flex flex-row items-center gap-3 rounded-md border border-border-light p-1.5 pr-3 hover:bg-surface-hover transition-colors"
+						>
+							<span
+								class="relative w-24 shrink-0 aspect-video overflow-hidden rounded bg-surface-secondary"
+							>
+								<img
+									src="https://i.ytimg.com/vi/{active.video.id}/mqdefault.jpg"
+									alt=""
+									loading="lazy"
+									class="w-full h-full object-cover"
+								/>
+								<span class="absolute inset-0 flex items-center justify-center">
+									<span
+										class="flex items-center justify-center w-6 h-6 rounded-full bg-black/60 text-white group-hover/video:bg-black/80"
+									>
+										<Play size={12} class="ml-px" fill="currentColor" />
+									</span>
+								</span>
+							</span>
+							<span class="min-w-0">
+								<span class="block text-xs font-medium text-primary truncate"
+									>{active.video.title}</span
+								>
+								<span class="block text-[10px] text-tertiary">Watch on YouTube</span>
+							</span>
+						</a>
+					{/if}
 
 					<button
 						class="mt-auto self-start inline-flex items-center gap-1 pt-2 text-[10px] text-tertiary hover:text-secondary transition-colors"
