@@ -33,6 +33,7 @@
 </script>
 
 <script lang="ts">
+	import HostWindow from '$lib/components/common/HostWindow.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { Button } from './common'
 	import {
@@ -1026,6 +1027,8 @@
 		if (editing) cancelEdit()
 		closeFormatOnOutsideClick(e)
 	}}
+/>
+<HostWindow
 	onkeydown={(e) => {
 		if (formatting && e.key === 'Escape') formatting = undefined
 	}}

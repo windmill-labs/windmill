@@ -26,3 +26,6 @@ bitflags.workspace = true
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 sqlx = { workspace = true, features = ["postgres"] }
+
+[dev-dependencies]
+serde_yml.workspace = true

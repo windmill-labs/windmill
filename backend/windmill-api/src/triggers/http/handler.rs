@@ -708,7 +708,7 @@ async fn route_job(
                                 .unwrap_or("inline".parse().unwrap())
                         },
                         |filename| {
-                            format!("inline; filename=\"{}\"", filename)
+                            crate::args::content_disposition_inline(filename)
                                 .parse()
                                 .unwrap_or("inline".parse().unwrap())
                         },

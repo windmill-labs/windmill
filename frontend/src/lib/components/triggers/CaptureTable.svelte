@@ -1,4 +1,5 @@
 <script lang="ts">
+	import HostWindow from '$lib/components/common/HostWindow.svelte'
 	import Label from '../Label.svelte'
 	import { DatabaseIcon, Info, Loader2, Trash2 } from 'lucide-svelte'
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
@@ -253,7 +254,7 @@
 	})
 </script>
 
-<svelte:window onkeydown={handleKeydown} />
+<HostWindow onkeydown={handleKeydown} />
 
 <Label label="Trigger captures" {headless} class="h-full {headless ? '' : 'flex flex-col gap-1'}">
 	{#snippet header()}

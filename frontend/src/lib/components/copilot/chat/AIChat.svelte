@@ -18,6 +18,7 @@
 		forceDisabled = false,
 		forceDisabledMessage = '',
 		wideLayout = false,
+		stickyUserMessage = false,
 		emptyHint,
 		starter = undefined,
 		onSent = undefined,
@@ -41,6 +42,7 @@
 		// columns are centered in a max-w-3xl px-8 box. Sessions opt
 		// in; the narrow global-chat panel leaves it off.
 		wideLayout?: boolean
+		stickyUserMessage?: boolean
 		emptyHint?: import('svelte').Snippet
 		starter?: import('./starter/starterPrompts.svelte').ChatStarter
 		onSent?: () => void
@@ -218,6 +220,7 @@
 	{hideHeader}
 	{hideModeSelector}
 	{wideLayout}
+	{stickyUserMessage}
 	{emptyHint}
 	{starter}
 	{onSent}

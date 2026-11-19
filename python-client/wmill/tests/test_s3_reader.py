@@ -1,5 +1,8 @@
 """Unit tests for S3BufferedReader: no network or env needed."""
 
+import csv
+import io
+
 from wmill.s3_reader import S3BufferedReader, bytes_generator
 
 CHUNKS = [b"AAAAAAAAAA", b"BBBBBBBBBB", b"CCCCCCCCCC"]
@@ -95,3 +98,23 @@ def test_read1_stops_after_one_chunk():
     assert reader.read1(-1) == b"AAAAAAAAAA"
     assert reader.read1(4) == b"BBBB"
     assert counting.pulls == 2
+
+
+CSV_CHUNKS = [b"name,val", b"ue\nalice,1\nb", b"ob,2\n"]
+
+
+def test_text_mode_csv_reads_rows_across_chunks():
+    reader = make_reader(CSV_CHUNKS)
+    rows = list(csv.reader(io.TextIOWrapper(reader, encoding="utf-8")))
+    assert rows == [["name", "value"], ["alice", "1"], ["bob", "2"]]
+
+
+def test_line_and_buffer_reads_stop_where_asked():
+    counting = CountingIterator(CSV_CHUNKS)
+    reader = make_reader(counting)
+    assert next(iter(reader)) == b"name,value\n"
+    assert counting.pulls == 2
+    target = bytearray(4)
+    assert reader.readinto(target) == 4
+    assert target == b"alic"
+    assert list(reader) == [b"e,1\n", b"bob,2\n"]

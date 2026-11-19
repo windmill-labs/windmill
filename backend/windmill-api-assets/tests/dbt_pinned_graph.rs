@@ -37,6 +37,7 @@ fn outsider() -> ApiAuthed {
         job_id: None,
         credential_expiry: None,
         mcp_client: None,
+        capabilities: Some(windmill_common::roles::RoleCapabilities::FULL),
     }
 }
 

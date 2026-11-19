@@ -30,7 +30,13 @@
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 	import { maskKey } from './modifiedItemsMask'
 	import { removeHandEdit, renameHandEdit, sessionHandEdits } from './sessionHandEdits.svelte'
-	import { badgeCounts, badgeOf, buildDeployItems, type DeployItem } from './sessionDeployModel'
+	import {
+		badgeCounts,
+		badgeOf,
+		buildDeployItems,
+		editsToken,
+		type DeployItem
+	} from './sessionDeployModel'
 	import { useExistingMaskKeys } from './sessionDeployModel.svelte'
 	import { previewTargetForDeployKind } from './sessionPreviewTabs.svelte'
 	import { PIPELINE_DRAFT_KIND, pipelineFolderFromBundlePath } from '$lib/pipelinePaths'
@@ -254,11 +260,7 @@
 
 	// Drafts are what still needs action, so the token counts only them while any
 	// are pending; once none are left it turns green and counts the deployed.
-	const editsLabel = $derived(
-		dockCounts.draft > 0
-			? `${dockCounts.draft} draft${dockCounts.draft === 1 ? '' : 's'}`
-			: `${dockCounts.deployed} deployed`
-	)
+	const editsLabel = $derived(editsToken(dockCounts).label)
 	let editsOpen = $state(false)
 
 	// Routed on the storage `path` — the edit route's key, which for a draft-only
@@ -307,11 +309,7 @@
 
 	// Only draft-vs-deployed drives the color: stale/failed live in the drawer's
 	// deploy model, not here.
-	const editsColorClass = $derived(
-		dockCounts.draft > 0
-			? '!bg-indigo-100 !text-indigo-800 hover:!bg-indigo-200 dark:!bg-indigo-700/40 dark:!text-indigo-100 dark:hover:!bg-indigo-600/40'
-			: '!bg-green-100 !text-green-700 hover:!bg-green-200 dark:!bg-green-700/40 dark:!text-green-100 dark:hover:!bg-green-600/40'
-	)
+	const editsColorClass = $derived(editsToken(dockCounts).class)
 </script>
 
 {#if committedId && isUnavailable}

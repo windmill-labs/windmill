@@ -618,9 +618,11 @@
 
 <Section>
 	{#snippet action()}
-		<div class="flex flex-row items-center gap-2 relative whitespace-nowrap w-full">
-			<input placeholder="Filter members" bind:value={userFilter} class="input !pl-8 !w-56" />
-			<Search class="absolute left-2" size={14} />
+		<div class="flex flex-row flex-wrap items-center gap-2 whitespace-nowrap w-full">
+			<div class="relative flex items-center">
+				<input placeholder="Filter members" bind:value={userFilter} class="input !pl-8 !w-56" />
+				<Search class="absolute left-2" size={14} />
+			</div>
 
 			{#if !isAdminsWorkspaceWithoutEE}
 				<Popover
@@ -638,7 +640,7 @@
 						</Button>
 					{/snippet}
 					{#snippet content()}
-						<div class="flex flex-col gap-4 p-4 w-[520px]">
+						<div class="flex flex-col gap-4 p-4 w-[min(520px,calc(100vw-2rem))] whitespace-normal">
 							<span class="text-sm font-semibold text-emphasis">Who joins without an invite</span>
 
 							<div class="flex flex-col gap-1">
@@ -908,7 +910,7 @@
 	{/snippet}
 
 	<DataTable
-		shouldLoadMore={(filteredUsers?.length ?? 0) > 30}
+		shouldLoadMore={(filteredUsers?.length ?? 0) > nbDisplayed}
 		loadMore={30}
 		on:loadMore={() => {
 			nbDisplayed += 30

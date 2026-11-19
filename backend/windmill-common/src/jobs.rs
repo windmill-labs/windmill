@@ -188,10 +188,12 @@ pub async fn check_can_name_runnable(
     let RunOrigin::NamedBy(authed) = origin else {
         return Ok(());
     };
-    if !runnable.path().starts_with("hub/") || runnable.preset_handler().is_some() {
-        return Ok(());
-    }
-    if crate::roles::caller_capabilities(db, w_id, authed).await?.code {
+    if !runnable.path().starts_with("hub/")
+        || runnable.preset_handler().is_some()
+        || crate::roles::caller_capabilities(db, w_id, authed)
+            .await?
+            .code
+    {
         return Ok(());
     }
     Err(Error::PermissionDenied(

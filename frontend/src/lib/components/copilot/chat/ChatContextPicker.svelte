@@ -19,6 +19,8 @@ On a workspace-leaf pick, emits a reference-only `WorkspaceScriptElement` /
 Content is materialized at message-prep time by `AIChatManager` — see PR #9216.
 -->
 <script lang="ts">
+	import { overlayHostActive } from '$lib/components/common/overlayHost.svelte'
+	const hostActive = overlayHostActive()
 	import { Database, Diff, FileText, Folder, Layers } from 'lucide-svelte'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 	import FlowModuleIcon from '$lib/components/flows/FlowModuleIcon.svelte'
@@ -376,7 +378,7 @@ Content is materialized at message-prep time by `AIChatManager` — see PR #9216
 	// claimed the event (defensive — melt-ui doesn't currently
 	// preventDefault on Esc, but a future host might).
 	function onDocumentKeydown(e: KeyboardEvent) {
-		if (e.key === 'Escape' && !e.defaultPrevented) {
+		if (hostActive() && e.key === 'Escape' && !e.defaultPrevented) {
 			setShowing?.(false)
 		}
 	}

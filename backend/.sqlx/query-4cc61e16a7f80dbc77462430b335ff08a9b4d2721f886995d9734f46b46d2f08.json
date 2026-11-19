@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT r.value, a.url AS \"approved_url?\"\n           FROM resource r\n           LEFT JOIN github_app_repo_approval a\n             ON a.workspace_id = r.workspace_id AND a.path = r.path\n           WHERE r.workspace_id = $1 AND r.path = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "value",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 1,
+        "name": "approved_url?",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      true,
+      false
+    ]
+  },
+  "hash": "4cc61e16a7f80dbc77462430b335ff08a9b4d2721f886995d9734f46b46d2f08"
+}

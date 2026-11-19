@@ -1,4 +1,6 @@
 <script lang="ts">
+	import HostWindow from '$lib/components/common/HostWindow.svelte'
+	import { overlayHostActive } from '$lib/components/common/overlayHost.svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { paneMinPercent } from '$lib/utils/splitpaneSizing'
 	import RawAppInlineScriptsPanel from './RawAppInlineScriptsPanel.svelte'
@@ -2601,9 +2603,11 @@ addEventListener('message', function (e) {
 	// Escape exits inspect mode. We listen in the capture phase because a global
 	// handler swallows Escape before it bubbles to <svelte:window>. The preview
 	// iframe (separate document) is covered by its own listener on load.
+	const hostActive = overlayHostActive()
 	$effect(() => {
 		const onEscapeCapture = (e: KeyboardEvent) => {
 			if (
+				hostActive() &&
 				e.key === 'Escape' &&
 				(inspectorEnabled || inspectorElement || previewSelectors.length > 0)
 			) {
@@ -2665,8 +2669,9 @@ addEventListener('message', function (e) {
 	// Monaco swallows Ctrl/Cmd+S in inline editors; Editor/SimpleEditor
 	// re-broadcast it as `wm-monaco-save-shortcut` (untyped, hence manual listener).
 	$effect(() => {
-		window.addEventListener('wm-monaco-save-shortcut', flushDraft)
-		return () => window.removeEventListener('wm-monaco-save-shortcut', flushDraft)
+		const onSaveShortcut = () => hostActive() && flushDraft()
+		window.addEventListener('wm-monaco-save-shortcut', onSaveShortcut)
+		return () => window.removeEventListener('wm-monaco-save-shortcut', onSaveShortcut)
 	})
 
 	function handleKeydown(e: KeyboardEvent) {
@@ -2702,7 +2707,8 @@ addEventListener('message', function (e) {
 	}
 </script>
 
-<svelte:window onmessage={listener} onkeydown={handleKeydown} onpagehide={closeExternalPreview} />
+<svelte:window onmessage={listener} onpagehide={closeExternalPreview} />
+<HostWindow onkeydown={handleKeydown} />
 <DarkModeObserver
 	bind:darkMode
 	on:change={() => {
