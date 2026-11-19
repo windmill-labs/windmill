@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.880.0](https://github.com/windmill-labs/windmill/compare/v1.879.0...v1.880.0) (2026-11-19)
+
+
+### Features
+
+* record and download a worker group's autoscaling decisions ([#12542](https://github.com/windmill-labs/windmill/issues/12542)) ([5583c68](https://github.com/windmill-labs/windmill/commit/5583c680d4db7aa333227f09c2667733156cbe7a))
+
+
+### Bug Fixes
+
+* **api:** noindex public app pages on cloud ([#12547](https://github.com/windmill-labs/windmill/issues/12547)) ([cbf44b3](https://github.com/windmill-labs/windmill/commit/cbf44b36f339ae8fa624e70a34840cb82c5e32ca))
+* hold the configured AI key to its output token limits ([#12543](https://github.com/windmill-labs/windmill/issues/12543)) ([6c2c5cf](https://github.com/windmill-labs/windmill/commit/6c2c5cf46c8b5edb052e359d5dff76ef42b75ce2))
+* keep the AI sessions view mounted across navigation ([#12479](https://github.com/windmill-labs/windmill/issues/12479)) ([7fa093f](https://github.com/windmill-labs/windmill/commit/7fa093f7d493982add660e1ebeef96fb24c16411))
+* name a step inside a subflow sub:inner in flow tests ([#12549](https://github.com/windmill-labs/windmill/issues/12549)) ([50daf70](https://github.com/windmill-labs/windmill/commit/50daf70337dcec0749ea715942c1c0ec4f6e3b7e))
+
 ## [1.879.0](https://github.com/windmill-labs/windmill/compare/v1.878.0...v1.879.0) (2026-11-19)
 
 
