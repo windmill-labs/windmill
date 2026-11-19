@@ -9,9 +9,11 @@
 
 	interface Props {
 		worker_group: string
+		/** Bumped by the panel's refresh button to reload the recording state. */
+		refreshKey?: number
 	}
 
-	let { worker_group }: Props = $props()
+	let { worker_group, refreshKey }: Props = $props()
 
 	let recordingUntil: string | undefined = $state(undefined)
 	let decisionCount = $state(0)
@@ -20,17 +22,26 @@
 	async function loadState() {
 		try {
 			const diagnostics = await ConfigService.getAutoscalingDiagnostics({
-				workerGroup: worker_group
+				workerGroup: worker_group,
+				includeDecisions: false
 			})
 			recordingUntil = diagnostics.recording_until ?? undefined
-			decisionCount = diagnostics.decisions.length
+			decisionCount = diagnostics.decision_count
 		} catch (e) {
 			console.error(e)
 		}
 	}
 
 	$effect(() => {
+		refreshKey
 		worker_group && untrack(() => loadState())
+	})
+
+	// Decisions arrive every 15-20s while recording: keep the count, and so Download, current.
+	$effect(() => {
+		if (!recordingUntil) return
+		const interval = setInterval(() => loadState(), 30_000)
+		return () => clearInterval(interval)
 	})
 
 	async function setRecording(record: boolean) {

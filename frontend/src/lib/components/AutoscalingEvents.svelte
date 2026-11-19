@@ -4,7 +4,7 @@
 	import { Button, Skeleton } from './common'
 	import { twMerge } from 'tailwind-merge'
 	import TimeAgo from './TimeAgo.svelte'
-	import { enterpriseLicense } from '$lib/stores'
+	import { devopsRole, enterpriseLicense, superadmin } from '$lib/stores'
 	import { untrack } from 'svelte'
 	import DataTable from './table/DataTable.svelte'
 	import Head from './table/Head.svelte'
@@ -20,6 +20,7 @@
 	let loading = $state(true)
 	let events: AutoscalingEvent[] | undefined = $state(undefined)
 	let limit = $state(5)
+	let refreshKey = $state(0)
 
 	async function loadEvents() {
 		loading = true
@@ -51,7 +52,9 @@
 		</div>
 		{#if $enterpriseLicense}
 			<div class="flex flex-row items-center gap-2">
-				<AutoscalingDiagnostics {worker_group} />
+				{#if $superadmin || $devopsRole}
+					<AutoscalingDiagnostics {worker_group} {refreshKey} />
+				{/if}
 				<Button
 					startIcon={{
 						icon: RefreshCw,
@@ -59,7 +62,10 @@
 					}}
 					variant="subtle"
 					unifiedSize="sm"
-					on:click={() => loadEvents()}
+					on:click={() => {
+						loadEvents()
+						refreshKey++
+					}}
 					iconOnly
 				/>
 			</div>

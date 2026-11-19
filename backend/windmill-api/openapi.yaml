@@ -25518,6 +25518,11 @@ paths:
           required: true
           schema:
             type: string
+        - name: include_decisions
+          description: false returns the recording state and the decision count only
+          in: query
+          schema:
+            type: boolean
       responses:
         "200":
           description: The recording state and the recorded decisions, oldest first
@@ -40322,11 +40327,15 @@ components:
         recording_started_by:
           type: string
           nullable: true
+        decision_count:
+          type: integer
+          format: int64
         decisions:
           type: array
           items:
             $ref: "#/components/schemas/AutoscalingDecision"
       required:
+        - decision_count
         - decisions
 
     AutoscalingDecision:

@@ -422,8 +422,9 @@ async fn list_autoscaling_events(
 /// by itself so it cannot be left on.
 const AUTOSCALING_RECORDING_SECS: i64 = 24 * 60 * 60;
 
-/// The most recent decisions returned: a day of 30s ticks, with room to spare.
-const MAX_AUTOSCALING_DECISIONS: i64 = 5000;
+/// The most recent decisions returned. A tick runs every 15-20s and decisions are kept 48h,
+/// which is at most 11,520 of them.
+const MAX_AUTOSCALING_DECISIONS: i64 = 12_000;
 
 #[derive(Serialize)]
 struct AutoscalingDecision {
@@ -440,13 +441,20 @@ struct AutoscalingDecision {
 struct AutoscalingDiagnostics {
     recording_until: Option<chrono::DateTime<chrono::Utc>>,
     recording_started_by: Option<String>,
+    decision_count: i64,
     decisions: Vec<AutoscalingDecision>,
+}
+
+#[derive(Deserialize)]
+struct AutoscalingDiagnosticsQuery {
+    include_decisions: Option<bool>,
 }
 
 async fn get_autoscaling_diagnostics(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(worker_group): Path<String>,
+    Query(query): Query<AutoscalingDiagnosticsQuery>,
 ) -> error::JsonResult<AutoscalingDiagnostics> {
     require_devops_role(&db, &authed).await?;
     let recording = sqlx::query!(
@@ -455,6 +463,20 @@ async fn get_autoscaling_diagnostics(
     )
     .fetch_optional(&db)
     .await?;
+    let decision_count = sqlx::query_scalar!(
+        "SELECT count(*) AS \"count!\" FROM autoscaling_decision WHERE worker_group = $1",
+        worker_group
+    )
+    .fetch_one(&db)
+    .await?;
+    if query.include_decisions == Some(false) {
+        return Ok(Json(AutoscalingDiagnostics {
+            recording_until: recording.as_ref().map(|r| r.until),
+            recording_started_by: recording.map(|r| r.started_by),
+            decision_count,
+            decisions: vec![],
+        }));
+    }
     let mut decisions = sqlx::query_as!(
         AutoscalingDecision,
         "SELECT recorded_at, worker_count, occupancy_rate_15s, occupancy_rate_5m, occupancy_rate_30m, jobs_waiting, decision
@@ -468,6 +490,7 @@ async fn get_autoscaling_diagnostics(
     Ok(Json(AutoscalingDiagnostics {
         recording_until: recording.as_ref().map(|r| r.until),
         recording_started_by: recording.map(|r| r.started_by),
+        decision_count,
         decisions,
     }))
 }
