@@ -25,6 +25,8 @@ Open-source platform for internal tools, workflows, API integrations, background
 ## Documentation
 
 - **Validation**: `docs/validation.md` — what checks to run based on what you changed
+- **Backend test suite cost**: `docs/test-suite-cost.md`, on how the `cargo test` suite spends CI
+  time and what makes a test cheap, with the review's item IDs. Read before adding backend tests.
 - **Unreleased SDK changes**: `docs/wac-sdk-e2e.md` — exercising a client change on a real worker
 - **Performance work**: `docs/perf-profiling.md` — the in-process profiler for the job path
   (allocation bytes, allocation sites and SQL statements per job), how to A/B a change with it, and
