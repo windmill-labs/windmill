@@ -3,7 +3,8 @@
 Fills the layout's page header from the route that mounts it: the breadcrumb (an item's path, or a
 section name for a list) and the page's own buttons. Renders nothing itself.
 
-Only a route page mounts this. An editor nested in a session pane or a drawer must not take over
+Only a route page mounts this, or the sessions view while its route is open: the layout keeps
+that view mounted on every page. An editor nested in a session pane or a drawer must not take over
 the header, so nesting is decided by the caller rather than guessed from context.
 -->
 <script lang="ts">

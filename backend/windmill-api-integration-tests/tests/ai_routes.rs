@@ -94,10 +94,11 @@ async fn test_ai_proxy_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
         "providers": {
             "openai": {
                 "resource_path": "f/ai/openai_config",
-                "models": ["gpt-4"]
+                "models": ["gpt-4", "gpt-3.5-turbo"]
             }
         },
-        "default_model": {"provider": "openai", "model": "gpt-4/thinking"}
+        "default_model": {"provider": "openai", "model": "gpt-4/thinking"},
+        "max_tokens_per_model": {"openai:gpt-4": 100}
     }))
     .execute(&db)
     .await?;
@@ -125,14 +126,41 @@ async fn test_ai_proxy_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
         .send()
     };
 
-    // An enabled model reaches upstream byte for byte.
-    let sent = r#"{ "messages": [{"role": "user", "content": "hi"}], "model": "gpt-4" }"#;
+    // An enabled model with no token limit reaches upstream byte for byte.
+    let sent = r#"{ "messages": [{"role": "user", "content": "hi"}], "model": "gpt-3.5-turbo" }"#;
     let resp = proxy(sent).await?;
     let status = resp.status().as_u16();
     let body = resp.text().await?;
     assert_2xx(status, &body, "POST /ai/proxy/chat/completions");
     let received: serde_json::Value = serde_json::from_str(&body)?;
     assert_eq!(received["choices"][0]["message"]["content"], sent);
+
+    // A limited model's output is capped, in the field the provider reads.
+    let resp = proxy(
+        r#"{"model": "gpt-4", "max_completion_tokens": 5000, "max_output_tokens": 9000, "messages": []}"#,
+    )
+    .await?;
+    let status = resp.status().as_u16();
+    let body = resp.text().await?;
+    assert_2xx(
+        status,
+        &body,
+        "POST /ai/proxy/chat/completions with a limit",
+    );
+    let received: serde_json::Value = serde_json::from_str(&body)?;
+    let upstream: serde_json::Value = serde_json::from_str(
+        received["choices"][0]["message"]["content"]
+            .as_str()
+            .unwrap(),
+    )?;
+    assert_eq!(
+        upstream["max_completion_tokens"], 100,
+        "upstream got: {upstream}"
+    );
+    assert!(
+        upstream.get("max_output_tokens").is_none(),
+        "upstream got: {upstream}"
+    );
 
     // The workspace's key is not spent on a model the admin has not enabled.
     let resp =
@@ -162,6 +190,23 @@ async fn test_ai_proxy_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
         .to_string();
     let upstream: serde_json::Value = serde_json::from_str(&text)?;
     assert_eq!(upstream["model"], "gpt-4", "upstream got: {text}");
+
+    let resp = complete(json!({
+        "system": "s",
+        "user": "hi",
+        "model": {"provider": "openai", "model": "gpt-4"},
+        "max_tokens": 5000
+    }))
+    .await?;
+    let status = resp.status().as_u16();
+    let body = resp.text().await?;
+    assert_2xx(status, &body, "POST /ai/complete with a larger max_tokens");
+    let text = serde_json::from_str::<serde_json::Value>(&body)?["text"]
+        .as_str()
+        .unwrap_or_default()
+        .to_string();
+    let upstream: serde_json::Value = serde_json::from_str(&text)?;
+    assert_eq!(upstream["max_output_tokens"], 100, "upstream got: {text}");
 
     Ok(())
 }
@@ -350,7 +395,10 @@ async fn test_ai_proxy_x_resource_value(db: Pool<Postgres>) -> anyhow::Result<()
     );
 
     let resp = send("sk-other", "SECRET_TOKEN").await?;
-    assert!(resp.status().as_u16() >= 400, "a different key must reach the upstream as is");
+    assert!(
+        resp.status().as_u16() >= 400,
+        "a different key must reach the upstream as is"
+    );
 
     let resp = send("$var:u/test-user/secret", "SCOPED_AI_TOKEN").await?;
     let body = resp.text().await?;

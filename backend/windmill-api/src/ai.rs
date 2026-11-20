@@ -39,7 +39,7 @@ use windmill_ai::providers::{
         handle_google_ai_chat_proxy, handle_google_ai_models_proxy, GoogleAIProxyResponse,
         GoogleAIProxyResponseBody,
     },
-    is_chat_completions_only,
+    is_chat_completions_only, reads_max_completion_tokens,
 };
 use windmill_ai::proxy::{
     fim::maybe_transform_fim_request, proxy_execution_mode, validate_proxy_path, ProxyBuildArgs,
@@ -816,13 +816,15 @@ pub struct ExpiringProviderCredentials {
 }
 
 /// The models a request served with the effective AI config's own key may ask one provider
-/// for. The UI only offers what the settings enable; this holds a direct API caller to it.
+/// for, and the output limit each is held to. The UI only offers what the settings enable;
+/// this holds a direct API caller to it.
 #[derive(Clone, Debug, Default)]
 pub struct ModelPolicy {
     models: std::collections::HashSet<String>,
+    max_tokens: HashMap<String, i64>,
 }
 
-/// The only fields of a proxied body that are read; the body itself is forwarded unchanged.
+/// The fields of a proxied body that [`ModelPolicy::check_body`] reads.
 #[derive(Deserialize)]
 struct ProxiedModel {
     model: String,
@@ -853,7 +855,124 @@ impl ModelPolicy {
             .chain(picked)
             .map(|m| m.strip_suffix("/thinking").unwrap_or(m).to_string())
             .collect();
-        Self { models }
+        let prefix = format!(
+            "{}:",
+            serde_json::to_string(provider)
+                .unwrap_or_default()
+                .trim_matches('"')
+        );
+        let max_tokens = config
+            .max_tokens_per_model
+            .iter()
+            .flatten()
+            .filter_map(|(key, limit)| {
+                Some((key.strip_prefix(&prefix)?.to_string(), i64::from(*limit)))
+            })
+            .collect();
+        Self { models, max_tokens }
+    }
+
+    /// The output limit to send `model` with: `requested` capped at the configured limit, or
+    /// the limit itself when none was requested. Below 1 counts as none, since `-1` or `0`
+    /// mean "no limit" on servers such as Ollama. A model with no limit keeps `requested`.
+    fn output_tokens(&self, model: &str, requested: Option<i64>) -> Option<i64> {
+        let Some(&limit) = self.max_tokens.get(model) else {
+            return requested;
+        };
+        Some(
+            requested
+                .filter(|n| *n >= 1)
+                .map_or(limit, |n| n.min(limit)),
+        )
+    }
+
+    /// Writes the configured limit into a body [`Self::check_body`] accepted for `model`. A
+    /// model with no limit keeps its body byte for byte.
+    fn limit_body(
+        &self,
+        model: &str,
+        provider: &AIProvider,
+        platform: &AIPlatform,
+        ai_path: &str,
+        body: &Bytes,
+    ) -> Result<Bytes> {
+        if !self.max_tokens.contains_key(model) {
+            return Ok(body.clone());
+        }
+        let mut value: serde_json::Value = serde_json::from_slice(body)
+            .map_err(|e| Error::BadRequest(format!("invalid AI request body: {e}")))?;
+        let Some(obj) = value.as_object_mut() else {
+            return Ok(body.clone());
+        };
+        // The limit holds per choice, so several choices would multiply it. Legacy completions
+        // answer each prompt of a list; a flat list of tokens is one prompt.
+        let batched = obj
+            .get("prompt")
+            .and_then(|p| p.as_array())
+            .is_some_and(|a| a.len() > 1 && !a.iter().all(|v| v.is_number()));
+        if batched
+            || ["n", "best_of"].iter().any(|k| {
+                obj.get(*k)
+                    .is_some_and(|v| !v.is_null() && v.as_u64() != Some(1))
+            })
+        {
+            return Err(Error::BadRequest(
+                "only one prompt and one choice per request are supported with the workspace's AI key"
+                    .to_string(),
+            ));
+        }
+        // Bedrock and Anthropic on Vertex generate for any POST, whatever its path; FIM is
+        // matched as its conversion matches it. A path that neither generates nor counts is
+        // refused rather than forwarded without the limit.
+        let path = ai_path.trim_end_matches('/');
+        let fim = path.contains("fim/completions");
+        let any_post_generates = *provider == AIProvider::AWSBedrock
+            || *provider == AIProvider::Anthropic && *platform == AIPlatform::GoogleVertexAi;
+        let generates = any_post_generates
+            || fim
+            || ["completions", "responses", "messages"]
+                .iter()
+                .any(|p| path.ends_with(p));
+        if !generates {
+            if ["count_tokens", "input_tokens", "embeddings"]
+                .iter()
+                .any(|p| path.ends_with(p))
+            {
+                return Ok(body.clone());
+            }
+            return Err(Error::BadRequest(format!(
+                "\"{ai_path}\" can't be held to the token limit set for \"{model}\""
+            )));
+        }
+        // A caller's `max_tokens` stays where it is: any provider's base URL may point at a
+        // server that reads only `max_tokens` (Ollama), and the browser sends it there.
+        let field = if any_post_generates
+            || fim
+            || path.ends_with("messages")
+            || *provider == AIProvider::GoogleAI
+        {
+            "max_tokens"
+        } else if path.ends_with("responses") {
+            "max_output_tokens"
+        } else if path.ends_with("chat/completions")
+            && reads_max_completion_tokens(provider)
+            && !obj.contains_key("max_tokens")
+        {
+            "max_completion_tokens"
+        } else {
+            "max_tokens"
+        };
+        // The smallest asked for that `output_tokens` counts as a request.
+        let requested = ["max_tokens", "max_completion_tokens", "max_output_tokens"]
+            .iter()
+            .filter_map(|f| obj.remove(*f)?.as_i64())
+            .filter(|n| *n >= 1)
+            .min();
+        obj.insert(
+            field.to_string(),
+            self.output_tokens(model, requested).into(),
+        );
+        Ok(Bytes::from(serde_json::to_vec(&value).map_err(to_anyhow)?))
     }
 
     fn check_model(&self, model: &str) -> Result<()> {
@@ -867,16 +986,22 @@ impl ModelPolicy {
     }
 
     /// A body-less GET (a model listing) passes; any other request must be a JSON object
-    /// naming an enabled model.
-    fn check_body(&self, method: &Method, body: &Bytes) -> Result<()> {
+    /// naming an enabled model, which is returned.
+    fn check_body(&self, method: &Method, body: &Bytes) -> Result<Option<String>> {
         if method == Method::GET && body.is_empty() {
-            return Ok(());
+            return Ok(None);
         }
-        let parsed: ProxiedModel = serde_json::from_slice(body).map_err(|e| {
+        let invalid = |e: String| {
             Error::BadRequest(format!(
                 "with the workspace's AI key, the request body must be a JSON object with a string \"model\": {e}"
             ))
-        })?;
+        };
+        // A struct also deserializes from a positional array, which the limit can't be written into.
+        if !body.trim_ascii_start().starts_with(b"{") {
+            return Err(invalid("not an object".to_string()));
+        }
+        let parsed: ProxiedModel =
+            serde_json::from_slice(body).map_err(|e| invalid(e.to_string()))?;
         // Gateways fall back to the models listed here (OpenRouter `models`, LiteLLM
         // `fallbacks`), which would run unchecked.
         for (field, value) in [("models", &parsed.models), ("fallbacks", &parsed.fallbacks)] {
@@ -886,7 +1011,8 @@ impl ModelPolicy {
                 )));
             }
         }
-        self.check_model(&parsed.model)
+        self.check_model(&parsed.model)?;
+        Ok(Some(parsed.model))
     }
 }
 
@@ -1736,6 +1862,9 @@ async fn complete(
         .await?
         .ok_or_else(not_configured)?;
     policy.check_model(&model.model)?;
+    let max_tokens = policy
+        .output_tokens(&model.model, request.max_tokens.map(i64::from))
+        .map(|n| u32::try_from(n).unwrap_or(u32::MAX));
     #[cfg(feature = "bedrock")]
     resolve_bedrock_oidc_credentials(&db, &w_id, &authed, &mut credentials).await?;
     resolve_anthropic_federated_credentials(&db, &w_id, &authed, &mut credentials).await?;
@@ -1786,7 +1915,7 @@ async fn complete(
             query_builder: query_builder.as_ref(),
             credentials: &credentials,
             model: &model.model,
-            max_tokens: request.max_tokens,
+            max_tokens,
             reasoning_effort: None,
             timeout: Duration::from_secs(*AI_TIMEOUT_SECS),
             client: &client,
@@ -1957,6 +2086,8 @@ async fn proxy(
     // Set when serving the request through Windmill's free AI tier (the lent key). Holds
     // the per-user concurrency lock and drives response metering.
     let mut free_lease: Option<crate::ai_free_tier_oss::FreeTierLease> = None;
+    // Set when serving a request that names a model with the effective AI config's own key.
+    let mut policy: Option<(ModelPolicy, String)> = None;
     // An unsaved resource value (percent-encoded JSON), so a resource can be tested
     // before it is stored. `$var:` references resolve as the caller, and since the
     // caller also picks the base URL they are sent to, a scoped token needs the same
@@ -2013,8 +2144,12 @@ async fn proxy(
             )
             .await?;
         }
-        if let Some((credentials, policy)) = configured_credentials(&db, &w_id, &provider).await? {
-            policy.check_body(&method, &body)?;
+        if let Some((credentials, configured)) =
+            configured_credentials(&db, &w_id, &provider).await?
+        {
+            policy = configured
+                .check_body(&method, &body)?
+                .map(|model| (configured, model));
             break 'cred credentials;
         }
         // Nothing configured: fall back to Windmill's free AI tier (EE-only) if a lent
@@ -2048,6 +2183,9 @@ async fn proxy(
     // since the request body is otherwise client-controlled.
     if free_lease.is_some() {
         body = crate::ai_free_tier_oss::enforce_free_tier_body(&body)?;
+    }
+    if let Some((policy, model)) = &policy {
+        body = policy.limit_body(model, &provider, &credentials.platform, &ai_path, &body)?;
     }
 
     if let Some(fim_transform) =
@@ -2392,9 +2530,260 @@ mod tests {
         assert!(check(serde_json::json!({"model": "gpt-4o", "models": ["other"]})).is_err());
         assert!(check(serde_json::json!({"model": "gpt-4o", "fallbacks": ["other"]})).is_err());
         assert!(check(serde_json::json!({"messages": []})).is_err());
+        assert!(check(serde_json::json!(["gpt-4o", null, null])).is_err());
         assert!(policy
             .check_body(&Method::POST, &Bytes::from_static(b"--boundary"))
             .is_err());
+    }
+
+    #[test]
+    fn configured_key_holds_requests_to_token_limits() {
+        let config: AIConfig = serde_json::from_value(serde_json::json!({
+            "providers": {
+                "openai": {"resource_path": "r", "models": ["gpt-4o", "gpt-5", "unlimited"]},
+                "googleai": {"resource_path": "r", "models": ["gemini-x"]},
+                "anthropic": {"resource_path": "r", "models": ["claude-x"]},
+                "aws_bedrock": {"resource_path": "r", "models": ["bedrock-x"]},
+                "azure_openai": {"resource_path": "r", "models": ["production"]},
+                "azure_foundry": {"resource_path": "r", "models": ["mistral-x"]},
+                "customai": {"resource_path": "r", "models": ["llama"]},
+                "deepseek": {"resource_path": "r", "models": ["deepseek-chat"]}
+            },
+            "max_tokens_per_model": {
+                "openai:gpt-4o": 4000, "openai:gpt-5": 4000,
+                "googleai:gemini-x": 4000, "anthropic:claude-x": 4000,
+                "aws_bedrock:bedrock-x": 4000, "azure_openai:production": 4000,
+                "azure_foundry:mistral-x": 4000, "customai:llama": 4000,
+                "deepseek:deepseek-chat": 4000
+            }
+        }))
+        .unwrap();
+        let run_on =
+            |provider: AIProvider, platform: AIPlatform, path: &str, body: serde_json::Value| {
+                let policy = ModelPolicy::new(&config, &provider);
+                let body = Bytes::from(body.to_string());
+                let model = policy.check_body(&Method::POST, &body)?.unwrap();
+                policy.limit_body(&model, &provider, &platform, path, &body)
+            };
+        let run = |path: &str, body: serde_json::Value| {
+            run_on(AIProvider::OpenAI, AIPlatform::Standard, path, body)
+        };
+
+        // Only the field the upstream reads reaches it, at the lowest valid value asked for, capped.
+        let limits = |body: Bytes| {
+            serde_json::from_slice::<serde_json::Map<String, serde_json::Value>>(&body)
+                .unwrap()
+                .into_iter()
+                .filter(|(k, _)| k.starts_with("max_"))
+                .collect::<serde_json::Map<_, _>>()
+        };
+        use serde_json::json;
+        use AIPlatform::{GoogleVertexAi as Vertex, Standard};
+        for (provider, platform, path, model, asked, sent) in [
+            (
+                AIProvider::GoogleAI,
+                Standard,
+                "chat/completions",
+                "gemini-x",
+                json!({"max_completion_tokens": 10}),
+                json!({"max_tokens": 10}),
+            ),
+            (
+                AIProvider::Anthropic,
+                Standard,
+                "messages",
+                "claude-x",
+                json!({"max_completion_tokens": 100000}),
+                json!({"max_tokens": 4000}),
+            ),
+            (
+                AIProvider::OpenAI,
+                Standard,
+                "fim/completions",
+                "gpt-4o",
+                json!({"max_completion_tokens": 100000}),
+                json!({"max_tokens": 4000}),
+            ),
+            (
+                AIProvider::OpenAI,
+                Standard,
+                "fim/completions/x",
+                "gpt-4o",
+                json!({}),
+                json!({"max_tokens": 4000}),
+            ),
+            (
+                AIProvider::CustomAI,
+                Standard,
+                "chat/completions",
+                "llama",
+                json!({"max_tokens": 100000, "max_completion_tokens": 9000}),
+                json!({"max_tokens": 4000}),
+            ),
+            (
+                AIProvider::CustomAI,
+                Standard,
+                "chat/completions",
+                "llama",
+                json!({}),
+                json!({"max_completion_tokens": 4000}),
+            ),
+            (
+                AIProvider::AzureFoundry,
+                Standard,
+                "chat/completions",
+                "mistral-x",
+                json!({"max_completion_tokens": 100000}),
+                json!({"max_completion_tokens": 4000}),
+            ),
+            (
+                AIProvider::DeepSeek,
+                Standard,
+                "chat/completions",
+                "deepseek-chat",
+                json!({"max_completion_tokens": 100000}),
+                json!({"max_tokens": 4000}),
+            ),
+            (
+                AIProvider::OpenAI,
+                Standard,
+                "chat/completions",
+                "gpt-4o",
+                json!({"max_tokens": 100000, "max_completion_tokens": 10}),
+                json!({"max_tokens": 10}),
+            ),
+            (
+                AIProvider::OpenAI,
+                Standard,
+                "chat/completions",
+                "gpt-4o",
+                json!({"max_tokens": -1, "max_output_tokens": 0}),
+                json!({"max_tokens": 4000}),
+            ),
+            (
+                AIProvider::AzureOpenAI,
+                Standard,
+                "chat/completions",
+                "production",
+                json!({}),
+                json!({"max_completion_tokens": 4000}),
+            ),
+            (
+                AIProvider::OpenAI,
+                Standard,
+                "responses",
+                "gpt-5",
+                json!({"max_tokens": 100000}),
+                json!({"max_output_tokens": 4000}),
+            ),
+            (
+                AIProvider::OpenAI,
+                Standard,
+                "completions",
+                "gpt-4o",
+                json!({"max_tokens": 500}),
+                json!({"max_tokens": 500}),
+            ),
+            // Bedrock and Anthropic on Vertex generate for any POST, whatever its path.
+            (
+                AIProvider::AWSBedrock,
+                Standard,
+                "responses",
+                "bedrock-x",
+                json!({"max_output_tokens": 100000}),
+                json!({"max_tokens": 4000}),
+            ),
+            (
+                AIProvider::AWSBedrock,
+                Standard,
+                "x",
+                "bedrock-x",
+                json!({}),
+                json!({"max_tokens": 4000}),
+            ),
+            (
+                AIProvider::Anthropic,
+                Vertex,
+                "messages/count_tokens",
+                "claude-x",
+                json!({}),
+                json!({"max_tokens": 4000}),
+            ),
+            (
+                AIProvider::Anthropic,
+                Standard,
+                "messages/count_tokens",
+                "claude-x",
+                json!({}),
+                json!({}),
+            ),
+            (
+                AIProvider::OpenAI,
+                Standard,
+                "embeddings",
+                "gpt-4o",
+                json!({}),
+                json!({}),
+            ),
+        ] {
+            let mut body = asked.clone();
+            body["model"] = model.into();
+            let out = run_on(provider.clone(), platform, path, body).unwrap();
+            assert_eq!(
+                serde_json::Value::Object(limits(out)),
+                sent,
+                "{provider:?} {path} {asked}"
+            );
+        }
+
+        // A model with no limit is forwarded byte for byte.
+        let raw = Bytes::from_static(br#"{ "model": "unlimited", "max_tokens": 9 }"#);
+        let policy = ModelPolicy::new(&config, &AIProvider::OpenAI);
+        assert_eq!(
+            policy
+                .limit_body(
+                    "unlimited",
+                    &AIProvider::OpenAI,
+                    &Standard,
+                    "chat/completions",
+                    &raw
+                )
+                .unwrap(),
+            raw
+        );
+        assert_eq!(policy.output_tokens("gpt-4o", Some(100000)), Some(4000));
+        assert_eq!(policy.output_tokens("gpt-4o", None), Some(4000));
+        assert_eq!(policy.output_tokens("unlimited", Some(9)), Some(9));
+        assert_eq!(policy.output_tokens("unlimited", None), None);
+        assert_eq!(policy.output_tokens("unlimited", Some(0)), Some(0));
+        for no_limit in [0, -1] {
+            assert_eq!(policy.output_tokens("gpt-4o", Some(no_limit)), Some(4000));
+        }
+
+        // Where the limit can't be placed, the request is refused rather than sent without it.
+        assert!(run_on(
+            AIProvider::Anthropic,
+            Standard,
+            "conversations",
+            json!({"model": "claude-x"})
+        )
+        .is_err());
+        for many in [
+            json!({"model": "gpt-4o", "n": 2}),
+            json!({"model": "gpt-4o", "best_of": 2}),
+            json!({"model": "gpt-4o", "prompt": ["a", "b"]}),
+            json!({"model": "gpt-4o", "prompt": [[1, 2], [3]]}),
+        ] {
+            assert!(run("completions", many).is_err());
+        }
+        for one in [
+            json!({"model": "gpt-4o", "n": 1}),
+            json!({"model": "gpt-4o", "prompt": "a"}),
+            json!({"model": "gpt-4o", "prompt": ["a"]}),
+            json!({"model": "gpt-4o", "prompt": [1, 2, 3]}),
+        ] {
+            assert!(run("completions", one).is_ok());
+        }
     }
 
     #[test]

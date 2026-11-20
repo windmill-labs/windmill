@@ -1,4 +1,5 @@
 <script lang="ts">
+	import HostWindow from '$lib/components/common/HostWindow.svelte'
 	import { type Job, JobService, type FlowModule, type RestartedFrom } from '$lib/gen'
 	import { Button } from './common'
 	import { createEventDispatcher, getContext } from 'svelte'
@@ -153,7 +154,7 @@
 	})
 </script>
 
-<svelte:window onkeydown={onKeyDown} />
+<HostWindow onkeydown={onKeyDown} />
 
 <div class="flex flex-col space-y-2 h-screen bg-surface px-6 py-2 w-full" id="flow-preview-content">
 	<div class="flex flex-row justify-between w-full items-center gap-x-2">

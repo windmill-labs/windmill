@@ -20,7 +20,7 @@ function formatInsertValues(columns: ColumnDef[], dbType: DbType, startIndex: nu
 		case 'postgresql':
 			return columns.map((c, i) => `$${startIndex + i}::${c.datatype}`).join(', ')
 		case 'ms_sql_server':
-			return columns.map((c, i) => `@p${startIndex + i}`).join(', ')
+			return columns.map((c, i) => `@P${startIndex + i}`).join(', ')
 		case 'snowflake':
 			return columns.map(() => `?`).join(', ')
 		case 'bigquery':

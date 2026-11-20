@@ -143,6 +143,33 @@ export type RawAppRecording = {
 	truncated?: boolean
 }
 
+/** One tool an agent called during a turn, read off the turn's result. */
+export type AgentToolCall = {
+	name: string
+	args?: unknown
+	result?: unknown
+}
+
+/** One message to an agent, what it called, and its answer. The run behind a turn is not
+ * kept: it names who ran it and holds the agent as its workspace stores it. */
+export type AgentTurn = {
+	user_message: string
+	answer: string
+	duration_ms: number
+	tool_calls: AgentToolCall[]
+}
+
+/** A recorded conversation with a saved AI agent (`ai_agent` resource): the demo of an
+ * agent on its Hub page. */
+export type AgentRecording = {
+	version: 1
+	type: 'agent'
+	recorded_at: string
+	agent_path: string
+	total_duration_ms: number
+	turns: AgentTurn[]
+}
+
 /** Shape needed by JobLoader replay — a map of job ID to its replay stream */
 export interface ActiveReplayData {
 	jobs: Record<string, RecordedJob>

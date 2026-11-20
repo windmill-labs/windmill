@@ -365,6 +365,46 @@ async runScriptByHashAsync(hash_: string, args: Record<string, any> | null = nul
 async runFlowAsync(path: string | null, args: Record<string, any> | null, scheduledInSeconds: number | null = null, // can only be set to false if this the job will be fully await and not concurrent with any other job // as otherwise the child flow and its own child will store their state in the parent job which will // lead to incorrectness and failures doNotTrackInParent: boolean = true, tag: string | null = null): Promise<string>
 
 /**
+ * Run the deployed flow at `path` with some of its steps overridden, wait for it and return
+ * its result. Meant for test scripts.
+ * 
+ * Each entry of `steps` maps a step id to either:
+ * - a value: the step is skipped and returns that value, or
+ * - a function exported from the calling script's own file: the step runs that function
+ *   instead of its own code, with the step's inputs as arguments (matched by name).
+ * 
+ * A step inside a subflow is named by the path of step ids to it, `"sub:inner"` for step `inner`
+ * of the subflow that step `sub` calls. It applies to every call of that subflow made by the
+ * tested flow and by the subflows it overrides; a subflow left as is still calls the deployed
+ * one. Those subflows, and each one on the way to an override, run as you rather than as their
+ * on-behalf-of identity. Result caching is off for the whole test run.
+ * 
+ * The flow's preprocessor does not run: `args` are what the flow receives after it. A subflow
+ * never runs its own preprocessor, in a test or not. AI agent
+ * tools cannot be overridden; override the agent step instead.
+ * 
+ * @example
+ * export function fakeFetch(url: string) { return { status: 200 } }
+ * export async function main() {
+ *   const result = await wmill.testFlow("f/flows/sync", { user: "a" }, {
+ *     fetch_users: fakeFetch,   // replaced logic
+ *     send_email: "sent",       // mocked result
+ *   });
+ * }
+ * @param path - Flow path in Windmill
+ * @param args - Arguments to pass to the flow
+ * @param steps - Step id to mocked result, or to the function replacing the step
+ * @param verbose - Enable verbose logging
+ * @returns Flow execution result
+ */
+async testFlow(path: string, args: Record<string, any> | null = null, steps: Record<string, any> = {}, verbose: boolean = false): Promise<any>
+
+/**
+ * Like {@link testFlow}, but returns the job id without waiting for the flow to complete.
+ */
+async testFlowAsync(path: string, args: Record<string, any> | null = null, steps: Record<string, any> = {}): Promise<string>
+
+/**
  * Resolve a resource value in case the default value was picked because the input payload was undefined
  * @param obj resource value or path of the resource under the format `$res:path`
  * @returns resource value

@@ -1,4 +1,5 @@
 import type { FlowStatusModule } from '$lib/gen'
+import type { AgentToolCall } from '$lib/components/recording/types'
 import { parseStreamEvents, type AgentStreamEvent } from 'windmill-chat'
 
 /** The `agent_action` tag the worker puts on every message it records. */
@@ -153,6 +154,53 @@ export type AgentResultSummary = {
 
 function actionType(message: AgentMessage): string | undefined {
 	return message.agent_action?.type
+}
+
+/** The name the worker gives the structured-output tool: suffixed when an agent tool already has it. */
+export const STRUCTURED_OUTPUT_CALL = /^structured_output(_\d+)?$/
+
+/**
+ * One turn of a conversation, read off the result of its run: the answer, and what the agent
+ * called to get there, in order. A web search is a capability of the provider, not a call of
+ * the model's: the worker records it as a `tool` message tagged `web_search`.
+ */
+export function readAgentTurn(result: unknown): { answer: string; tool_calls: AgentToolCall[] } {
+	const text = (v: unknown) =>
+		typeof v === 'string' ? v : v == null ? '' : JSON.stringify(v, null, 2)
+	const parsed = parseAgentResult(result)
+	if (!parsed) return { answer: text(result), tool_calls: [] }
+	// With memory, the run returns the whole conversation: the turn starts after its own
+	// message, the last `user` one. A background tool's result also comes back as a `user`
+	// message, tagged with its call's action, and does not start a turn.
+	const all = parsed.messages
+	const lastUser = all.findLastIndex((m) => m.role === 'user' && !m.agent_action)
+	const messages = lastUser >= 0 ? all.slice(lastUser + 1) : all
+	const results = new Map<string, unknown>()
+	for (const m of messages) {
+		if (m.role === 'tool' && m.tool_call_id) results.set(m.tool_call_id, m.content)
+	}
+	const tool_calls: AgentToolCall[] = []
+	for (const m of messages) {
+		if (m.role === 'tool' && actionType(m) === 'web_search') {
+			tool_calls.push({ name: 'web_search' })
+			continue
+		}
+		if (m.role !== 'assistant') continue
+		for (const call of m.tool_calls ?? []) {
+			const name = call.function?.name ?? 'tool'
+			// The answer itself, given through a tool: not something the agent called.
+			if (STRUCTURED_OUTPUT_CALL.test(name)) continue
+			const raw = call.function?.arguments
+			let args: unknown = raw
+			if (raw !== undefined) {
+				try {
+					args = JSON.parse(raw)
+				} catch {}
+			}
+			tool_calls.push({ name, args, result: call.id ? results.get(call.id) : undefined })
+		}
+	}
+	return { answer: text(parsed.output), tool_calls }
 }
 
 export function summarizeAgentResult(result: AgentResult): AgentResultSummary {

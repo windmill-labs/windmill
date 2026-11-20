@@ -229,6 +229,7 @@ import {
 	resolveGlobalDraftStoragePathByKind,
 	type DraftPersistResult
 } from './userDraftAdapter'
+import { describeDeployEdits, takeDeployEdits } from './deployEdits'
 import {
 	applySessionToolEffects,
 	applyStatusEffects,
@@ -7131,13 +7132,30 @@ async function deployDraft(
 	ctx: WriteDraftCtx
 ): Promise<string> {
 	const { workspace, toolId, toolCallbacks, sessionId } = ctx
-	const {
-		type,
-		path,
-		trigger_kind: triggerKind,
-		deployment_message: deploymentMessage,
-		force
-	} = args
+	const { type, path, trigger_kind: triggerKind, force } = args
+	const edits = takeDeployEdits(toolId)
+	const deploymentMessage =
+		edits?.deploymentMessage !== undefined
+			? edits.deploymentMessage || undefined
+			: args.deployment_message
+	const onBehalfOf = edits?.onBehalfOf
+	// A picked path creates the item there: one already taken would turn the create into an update
+	// of whatever lives at it, so it is refused rather than overwritten.
+	if (edits?.deployPath && edits.deployPath !== path) {
+		const taken =
+			type === 'script'
+				? await ScriptService.existsScriptByPath({ workspace, path: edits.deployPath })
+				: type === 'flow'
+					? await FlowService.existsFlowByPath({ workspace, path: edits.deployPath })
+					: type === 'app'
+						? await AppService.existsApp({ workspace, path: edits.deployPath })
+						: false
+		if (taken) {
+			throw new Error(
+				`Cannot deploy ${type} "${path}" at "${edits.deployPath}": something is already deployed there.`
+			)
+		}
+	}
 
 	if (type === 'trigger' && !triggerKind) {
 		throw new Error('trigger_kind is required when deploying a trigger.')
@@ -7202,13 +7220,20 @@ async function deployDraft(
 				: undefined
 			assertDraftBasedOnLatest('flow', path, draft.parentVersionId, existing?.version_id, force)
 		}
+		const isNewItem = !(type === 'script'
+			? await ScriptService.existsScriptByPath({ workspace, path })
+			: await FlowService.existsFlowByPath({ workspace, path }))
+		if (edits?.deployPath && isNewItem) deployedPath = edits.deployPath
 		const draftOnly =
 			type === 'flow'
 				? !(await FlowService.existsFlowByPath({ workspace, path: storagePath }))
 				: false
 		const result = await deployDraftToWorkspace(type, storagePath, workspace, {
 			draftOnly,
-			deploymentMessage
+			deploymentMessage,
+			onBehalfOf,
+			// A path change is a rename for an item already deployed, which the card never offers.
+			deployPath: edits?.deployPath && isNewItem ? edits.deployPath : undefined
 		})
 		if (!result.success) {
 			throw new Error(result.error ?? `Failed to deploy ${type} "${path}".`)
@@ -7316,6 +7341,10 @@ async function deployDraft(
 				if (!policy) {
 					throw new Error(`Draft app "${path}" has no policy to deploy.`)
 				}
+				if (onBehalfOf) {
+					policy.on_behalf_of = onBehalfOf.permissionedAs
+					policy.on_behalf_of_email = onBehalfOf.email
+				}
 
 				// An app deployed on its own while a path runnable still points at a draft
 				// is deployed and broken — the deploy has to say so, not just report success.
@@ -7389,8 +7418,14 @@ async function deployDraft(
 						throw e
 					}
 				}
+				if (edits?.deployPath && !(await AppService.existsApp({ workspace, path: targetPath }))) {
+					targetPath = edits.deployPath
+				}
 				deployedPath = targetPath
 				const isUpdate = await AppService.existsApp({ workspace, path: targetPath })
+				// The access the user picked on the card applies to a new app only: an update keeps the
+				// deployed one, which only the Share dialog changes.
+				if (!isUpdate && edits?.appAccess) policy.execution_mode = edits.appAccess
 				if (isUpdate) {
 					// Who can open the app and its custom URL are set from the Share dialog: the update
 					// states neither, and the server keeps the deployed ones.
@@ -7506,17 +7541,25 @@ async function deployDraft(
 		})
 	}
 
+	const userChanges = describeDeployEdits(edits, {
+		requestedMessage: args.deployment_message,
+		path,
+		deployedPath
+	})
+
 	toolCallbacks.setToolStatus(toolId, {
-		content: `Deployed ${noun} "${path}"`,
+		content: `Deployed ${noun} "${deployedPath}"`,
 		result: 'Deployed',
 		actions
 	})
 	return JSON.stringify(
 		{
 			success: true,
-			message: `Deployed draft ${type} "${path}" to the workspace. Draft removed.${
-				deployNote ? ` ${deployNote}` : ''
-			}`,
+			message: `Deployed draft ${type} "${path}" to the workspace${
+				deployedPath !== path ? ` at "${deployedPath}"` : ''
+			}. Draft removed.${
+				userChanges ? ` ${userChanges}` : ''
+			}${deployNote ? ` ${deployNote}` : ''}`,
 			type,
 			path,
 			triggerKind

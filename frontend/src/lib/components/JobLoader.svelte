@@ -250,7 +250,8 @@
 	export async function runFlowByPath(
 		path: string,
 		args: Record<string, any>,
-		callbacks?: Callbacks
+		callbacks?: Callbacks,
+		tag?: string
 	): Promise<string> {
 		return abstractRun(
 			() =>
@@ -258,7 +259,8 @@
 					workspace: workspace!,
 					path: path ?? '',
 					requestBody: args,
-					skipPreprocessor: true
+					skipPreprocessor: true,
+					tag
 				}),
 			callbacks
 		)
@@ -415,6 +417,8 @@
 		syncIteration = 0
 		errorIteration = 0
 		currentId = testId
+		// Else turning logs back on fetches the previously watched job's logs into this one.
+		lastCompletedJobId = undefined
 		scriptProgress = undefined
 		notfound = false
 		loadError = undefined

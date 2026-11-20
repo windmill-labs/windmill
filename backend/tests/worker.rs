@@ -1287,6 +1287,64 @@ class Script
     Ok(())
 }
 
+#[cfg(feature = "csharp")]
+#[sqlx::test(fixtures("base"))]
+async fn test_csharp_job_omitted_args_take_declared_defaults(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let job = || {
+        RunJob::from(JobPayload::Code(RawCode {
+            hash: None,
+            content: r#"
+class Script
+{
+    const int Answer = 42;
+    // `params` is not in the parsed signature, so the wrapper never passes it.
+    public static string Main(string s = "World", int n = Answer, string @class = "c", params string[] rest)
+    {
+        return $"{s ?? "<null>"} {n} {@class} {rest.Length}";
+    }
+}
+"#
+            .to_owned(),
+            path: None,
+            lock: None,
+            language: ScriptLang::CSharp,
+            cache_ttl: None,
+            cache_ignore_s3_path: None,
+            dedicated_worker: None,
+            concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default(
+            )
+            .into(),
+            debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+            modules: None,
+            tag: None,
+        }))
+    };
+
+    let omitted = job()
+        .run_until_complete(&db, false, port)
+        .await
+        .json_result()
+        .unwrap();
+    assert_eq!(omitted, json!("World 42 c 0"));
+
+    let explicit = job()
+        .arg("s", json!(null))
+        .arg("n", json!(1))
+        .arg("@class", json!("k"))
+        .run_until_complete(&db, false, port)
+        .await
+        .json_result()
+        .unwrap();
+    assert_eq!(explicit, json!("<null> 1 k 0"));
+    Ok(())
+}
+
 #[sqlx::test(fixtures("base"))]
 async fn test_bash_job(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
@@ -5731,6 +5789,111 @@ async fn test_subflow_steps_follow_caller_preserve_step_tags(
         .map(|(step, tag)| (step.to_owned(), tag.to_owned()))
         .to_vec()
     );
+    Ok(())
+}
+
+/// A subflow step's `tag_override` is the subflow's tag, which its untagged steps inherit; a
+/// dynamic one left `null` falls back to the subflow's default.
+#[sqlx::test(fixtures("base"))]
+async fn test_subflow_step_tag_override(db: Pool<Postgres>) -> anyhow::Result<()> {
+    use futures::StreamExt;
+
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let client = reqwest::Client::new();
+    let subflow = json!({
+        "path": "g/all/overridden_subflow", "summary": "", "description": "",
+        "schema": { "type": "object", "properties": {}, "required": [] },
+        "value": {
+            "modules": [{
+                "id": "inner",
+                "value": {
+                    "type": "rawscript", "language": "bun", "lock": "",
+                    "content": "export function main() { return 1; }",
+                    "input_transforms": {}
+                }
+            }]
+        }
+    });
+    let caller = json!({
+        "path": "g/all/overriding_caller", "summary": "", "description": "",
+        "schema": { "type": "object", "properties": {}, "required": [] },
+        "value": {
+            "modules": [{
+                "id": "sub",
+                "value": {
+                    "type": "flow", "path": "g/all/overridden_subflow", "input_transforms": {},
+                    "tag_override": "$flow_expr[flow_input.wt]"
+                }
+            }]
+        }
+    });
+    // The flow cache is process-wide and keyed by version and node ids, which every test database
+    // numbers from the same start: move ours out of the way of flows deployed by concurrent tests.
+    for table in ["flow_version", "flow_node"] {
+        sqlx::query(&format!(
+            "SELECT setval(pg_get_serial_sequence('{table}', 'id'), 7317000)"
+        ))
+        .execute(&db)
+        .await?;
+    }
+    let mut completed = listen_for_completed_jobs(&db).await;
+    for flow in [subflow, caller] {
+        client
+            .post(format!(
+                "http://localhost:{port}/api/w/test-workspace/flows/create"
+            ))
+            .bearer_auth("SECRET_TOKEN")
+            .json(&flow)
+            .send()
+            .await?
+            .error_for_status()?;
+        let deployment = in_test_worker(&db, completed.next(), port).await.unwrap();
+        let deployed = completed_job(deployment, &db).await;
+        assert!(deployed.success, "{:?}", deployed.result);
+    }
+
+    for (wt, sub_tag, inner_tag) in [
+        (json!("python3"), "python3", "python3"),
+        (json!(null), "flow", "bun"),
+    ] {
+        let job_id = client
+            .post(format!(
+                "http://localhost:{port}/api/w/test-workspace/jobs/run/f/g/all/overriding_caller"
+            ))
+            .bearer_auth("SECRET_TOKEN")
+            .json(&json!({ "wt": wt }))
+            .send()
+            .await?
+            .error_for_status()?
+            .text()
+            .await?
+            .parse::<Uuid>()?;
+        in_test_worker(&db, completed.by_ref().find(&job_id), port).await;
+        let job = completed_job(job_id, &db).await;
+        assert!(job.success, "{:?}", job.result);
+        let tags = sqlx::query_as::<_, (String, String)>(
+            "WITH RECURSIVE descendants AS (
+                SELECT id FROM v2_job WHERE id = $1
+                UNION ALL
+                SELECT child.id FROM v2_job child JOIN descendants ON child.parent_job = descendants.id
+            )
+            SELECT flow_step_id, tag FROM v2_job
+            WHERE id IN (SELECT id FROM descendants) AND flow_step_id <> ''
+            ORDER BY flow_step_id",
+        )
+        .bind(job_id)
+        .fetch_all(&db)
+        .await?;
+        assert_eq!(
+            tags,
+            [("inner", inner_tag), ("sub", sub_tag)]
+                .map(|(step, tag)| (step.to_owned(), tag.to_owned()))
+                .to_vec(),
+            "wt = {wt}"
+        );
+    }
     Ok(())
 }
 

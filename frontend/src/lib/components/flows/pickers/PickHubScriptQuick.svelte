@@ -33,6 +33,7 @@
 </script>
 
 <script lang="ts">
+	import HostWindow from '$lib/components/common/HostWindow.svelte'
 	import { createEventDispatcher, getContext, untrack } from 'svelte'
 	import { Skeleton } from '$lib/components/common'
 	import { classNames, createCache } from '$lib/utils'
@@ -203,7 +204,7 @@
 	})
 </script>
 
-<svelte:window onkeydown={onKeyDown} />
+<HostWindow onkeydown={onKeyDown} />
 {#if $disableHubStore}
 	<!-- Hub disabled, show nothing -->
 {:else if hubNotAvailable}

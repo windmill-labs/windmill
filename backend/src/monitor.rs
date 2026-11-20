@@ -2151,6 +2151,20 @@ pub async fn delete_expired_items(db: &DB) -> () {
         tracing::error!("Error deleting autoscaling event on CE: {:?}", e);
     }
 
+    // A recording lasts at most a day (`AUTOSCALING_RECORDING_SECS`), so its decisions are
+    // still there for a day after it ends.
+    if let Err(e) = sqlx::query!(
+        "WITH decisions AS (
+            DELETE FROM autoscaling_decision WHERE recorded_at <= now() - interval '48 hours'
+        )
+        DELETE FROM autoscaling_recording WHERE until <= now()"
+    )
+    .execute(db)
+    .await
+    {
+        tracing::error!("Error deleting autoscaling decisions: {:?}", e);
+    }
+
     // native_retry_attempt has no FK to v2_job (kept off the hot bulk delete).
     // Retention sweeps markers alongside the jobs it deletes, but direct job
     // deletions (workspace/job/schedule clearing) leave markers orphaned — reap
@@ -3065,6 +3079,10 @@ pub async fn reload_npm_config_registry_setting(conn: &Connection) {
     .await;
 }
 
+pub async fn reload_npmrc_setting(conn: &Connection) {
+    reload_option_setting_with_tracing(conn, NPMRC_SETTING, "NPMRC", NPMRC.clone()).await;
+}
+
 pub async fn reload_bunfig_install_scopes_setting(conn: &Connection) {
     reload_option_setting_with_tracing(
         conn,
@@ -3170,6 +3188,16 @@ pub fn apply_no_default_maven_setting(value: Option<serde_json::Value>) {
     if let Some(serde_json::Value::Bool(t)) = value {
         NO_DEFAULT_MAVEN.store(t, Ordering::Relaxed)
     }
+}
+
+pub async fn reload_cargo_registries_setting(conn: &Connection) {
+    reload_option_setting_with_tracing(
+        conn,
+        windmill_common::global_settings::CARGO_REGISTRIES_SETTING,
+        "CARGO_REGISTRIES",
+        CARGO_REGISTRIES.clone(),
+    )
+    .await;
 }
 
 pub async fn reload_ruby_repos_setting(conn: &Connection) {

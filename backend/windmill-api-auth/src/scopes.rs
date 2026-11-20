@@ -277,6 +277,7 @@ fn determine_kind_from_route(route_path: &str) -> Option<String> {
         // still classified by their kind.
         if route_path.starts_with("jobs/run/preview")
             || route_path.starts_with("jobs/run_wait_result/preview")
+            || route_path.starts_with("jobs/run/flow_test/")
         {
             return None;
         }
@@ -458,8 +459,9 @@ pub fn has_raw_app_sdk_sentinel(scopes: Option<&[String]>) -> bool {
 /// so reaching one would make a captured SDK token a full account takeover.
 fn is_request_supplied_code_route(suffix: &str) -> bool {
     // Prefixes, so the `_async` variants are covered too.
-    const CODE_ROUTES: [&str; 10] = [
+    const CODE_ROUTES: [&str; 11] = [
         "jobs/run/preview",
+        "jobs/run/flow_test",
         "jobs/run_inline/preview",
         "jobs/run_wait_result/preview",
         "jobs/run/preview_bundle",
@@ -1822,6 +1824,9 @@ mod tests {
             assert!(check_route_access(&["jobs:run:dependencies".into()], path, "POST").is_err());
         }
 
+        // Replaces flow steps with code named by job id, as a preview does.
+        assert!(is_request_supplied_code_route("jobs/run/flow_test/f/x/y"));
+
         // Preview/bundle runs have no deployed path and their handlers require the
         // broad `jobs:run` scope, so the derived scope must not carry a kind.
         for path in [
@@ -1830,6 +1835,7 @@ mod tests {
             "/api/w/ws/jobs/run/preview_flow",
             "/api/w/ws/jobs/run_wait_result/preview",
             "/api/w/ws/jobs/run_wait_result/preview_flow",
+            "/api/w/ws/jobs/run/flow_test/f/x/y",
         ] {
             assert_eq!(
                 scope_for_route("POST", path).as_deref(),

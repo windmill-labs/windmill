@@ -1,4 +1,4 @@
-import type { FlowModule, PathScript, RawScript, Script } from '$lib/gen'
+import type { FlowModule, OpenFlow, PathScript, RawScript, Script } from '$lib/gen'
 import { type Edge } from '@xyflow/svelte'
 import { getAllModules, getDependeeAndDependentComponents } from '../flows/flowExplorer'
 import { dfsByModule } from '../flows/previousResults'
@@ -89,6 +89,20 @@ export type GraphEventHandlers = {
 }
 
 export type SimplifiableFlow = { simplifiedFlow: boolean }
+
+export type ExpandedSubflow = {
+	modules: FlowModule[]
+	groups?: FlowGroup[]
+	failureModule?: FlowModule
+}
+
+export function expandedSubflowOf(flow: OpenFlow): ExpandedSubflow {
+	return {
+		modules: flow.value.modules,
+		groups: flow.value.groups,
+		failureModule: flow.value.failure_module
+	}
+}
 
 export function buildPrefix(prefix: string | undefined, id: string): string {
 	return (prefix ?? '') + id + ':'
@@ -266,6 +280,7 @@ export type SubflowBoundN = {
 		preLabel: string | undefined
 		subflowId: string
 		selected: boolean
+		wrapperWidth?: number
 	}
 }
 
@@ -438,7 +453,7 @@ export function graphBuilder(
 	selectedId: string | undefined,
 	simplifiableFlow: SimplifiableFlow | undefined,
 	flowPathForTriggerNode: string | undefined,
-	expandedSubflows: Record<string, { modules: FlowModule[]; groups?: FlowGroup[] }>,
+	expandedSubflows: Record<string, ExpandedSubflow>,
 	showNotes: boolean,
 	collapsedGroupIds: Set<string>
 ): {
@@ -460,6 +475,13 @@ export function graphBuilder(
 		const moduleMap = new Map<string, FlowModule>()
 		for (const m of getAllModules(modules, failureModule)) {
 			moduleMap.set(m.id, m)
+		}
+
+		// Node id prefix of each flow drawn ('' for this one, `subflow:<path>:` for an expanded
+		// subflow) → its error handler, for the markers of the handlers that ran.
+		const failureModulesByPrefix: Record<string, FlowModule> = {}
+		if (failureModule) {
+			failureModulesByPrefix[''] = failureModule
 		}
 
 		function addNode(module: FlowModule, extraData?: Record<string, any>) {
@@ -1170,13 +1192,17 @@ export function graphBuilder(
 								moduleIds: computeGroupModuleIds(g.start_id, g.end_id, getAllModules(expandedMods))
 							}))
 
+							const subflowPrefix = buildPrefix(prefix, module['oid'] ?? module.id)
+							if (expandedData.failureModule) {
+								failureModulesByPrefix['subflow:' + subflowPrefix] = expandedData.failureModule
+							}
 							processModules(
 								buildStructureTree(expandedMods, expandedGroups),
 								undefined,
 								startNode,
 								endNode,
 								false,
-								buildPrefix(prefix, module['oid'] ?? module.id),
+								subflowPrefix,
 								localDisableMoveIds
 							)
 
@@ -1221,30 +1247,32 @@ export function graphBuilder(
 			addEdge(id, 'Input', undefined, undefined, { type: 'empty' })
 		}
 
-		if (failureModule) {
-			// Keyed by failing step, so a step that failed several times (loop iterations each run
-			// their own handler, with ids like `failure-0-1`) gets one marker, not a stack of them.
-			let toAdd: Record<string, string> = {}
-			Object.keys(extra.flowModuleStates ?? {}).forEach((id) => {
-				if (id.startsWith('failure')) {
-					const failureState = extra.flowModuleStates?.[id] as GraphModuleState | undefined
-					if (failureState?.parent_module) {
-						toAdd[failureState.parent_module] = id
-					}
+		// Keyed by failing step, so a step that failed several times (loop iterations each run
+		// their own handler, with ids like `failure-0-1`) gets one marker, not a stack of them.
+		let toAdd: Record<string, { id: string; module: FlowModule }> = {}
+		Object.keys(extra.flowModuleStates ?? {}).forEach((id) => {
+			for (const [nodePrefix, module] of Object.entries(failureModulesByPrefix)) {
+				// Exact, so a nested subflow step whose id starts with `failure` is not taken for
+				// its parent's handler.
+				if (!id.startsWith(nodePrefix) || !/^failure[^:]*$/.test(id.slice(nodePrefix.length)))
+					continue
+				const failureState = extra.flowModuleStates?.[id] as GraphModuleState | undefined
+				if (failureState?.parent_module) {
+					toAdd[nodePrefix + failureState.parent_module] = { id, module }
 				}
-			})
+			}
+		})
 
-			Object.entries(toAdd).forEach((x) => {
-				// Run state outlives the flow it ran on: a step deleted since the run keeps its marker
-				// in `flowModuleStates`. Anchoring the marker to a step that is no longer in the graph
-				// leaves a parent id no node answers to, which the layout cannot sort.
-				if (!nodes.some((n) => n.id === x[0])) {
-					return
-				}
-				addFailureNode({ ...failureModule, id: x[1] })
-				addEdge(x[0], x[1], undefined, undefined, { type: 'empty' })
-			})
-		}
+		Object.entries(toAdd).forEach(([parentId, { id, module }]) => {
+			// Run state outlives the flow it ran on: a step deleted since the run keeps its marker
+			// in `flowModuleStates`. Anchoring the marker to a step that is no longer in the graph
+			// leaves a parent id no node answers to, which the layout cannot sort.
+			if (!nodes.some((n) => n.id === parentId)) {
+				return
+			}
+			addFailureNode({ ...module, id })
+			addEdge(parentId, id, undefined, undefined, { type: 'empty' })
+		})
 
 		if (failureModule && !extra.flowModuleStates) {
 			addFailureNode(failureModule)
