@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import type { FlowModule } from '$lib/gen'
 import {
 	buildNestedRestartPath,
+	enclosingParallelContainer,
 	findStepPath,
 	parseExpandedSubflowId,
 	type ForloopGraphState,
@@ -234,5 +235,27 @@ describe('findStepPath', () => {
 	})
 	it('does not cross subflow boundaries', () => {
 		expect(findStepPath([subflow('s')], 'a')).toBeUndefined()
+	})
+})
+
+describe('enclosingParallelContainer', () => {
+	const modules = [
+		forloop('hosts', [script('deploy'), forloop('inner', [script('x')])], true),
+		branchall('fan', [[script('b0')], [subflow('sub')]], true),
+		forloop('seq', [forloop('par', [script('y')], true)]),
+		script('aggregate')
+	]
+
+	it('retargets a step inside a top-level parallel step to that step', () => {
+		expect(enclosingParallelContainer(modules, 'deploy')).toBe('hosts')
+		expect(enclosingParallelContainer(modules, 'x')).toBe('hosts')
+		expect(enclosingParallelContainer(modules, 'b0')).toBe('fan')
+		expect(enclosingParallelContainer(modules, 'subflow:sub:leaf')).toBe('fan')
+	})
+
+	it('leaves top-level steps and parallel steps nested in other containers alone', () => {
+		expect(enclosingParallelContainer(modules, 'hosts')).toBeUndefined()
+		expect(enclosingParallelContainer(modules, 'aggregate')).toBeUndefined()
+		expect(enclosingParallelContainer(modules, 'y')).toBeUndefined()
 	})
 })

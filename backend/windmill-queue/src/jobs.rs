@@ -67,9 +67,9 @@ use windmill_common::{
     db::{Authed, UserDB},
     error::{self, Error},
     flow_status::{
-        BranchAllStatus, FlowCleanupModule, FlowStatus, FlowStatusModule, FlowStatusModuleWParent,
-        Iterator as FlowIterator, JobResult, RestartedFrom, RetryStatus, MAX_RETRY_ATTEMPTS,
-        MAX_RETRY_INTERVAL,
+        BranchAllStatus, FlowCleanupModule, FlowJobsDuration, FlowStatus, FlowStatusModule,
+        FlowStatusModuleWParent, Iterator as FlowIterator, JobResult, RestartedFrom, RetryStatus,
+        MAX_RETRY_ATTEMPTS, MAX_RETRY_INTERVAL,
     },
     flows::{
         add_virtual_items_if_necessary, FlowModule, FlowModuleValue, FlowValue, InputTransform,
@@ -7365,6 +7365,7 @@ async fn push_inner<'c, 'd>(
                             restarted_from_val.branch_or_iteration_n,
                             restarted_from_val.flow_version,
                             restarted_from_val.nested.is_some(),
+                            restarted_from_val.failed_only,
                             Some(&value),
                         )
                         .await?;
@@ -7390,6 +7391,7 @@ async fn push_inner<'c, 'd>(
                             flow_version: restarted_from_val.flow_version,
                             branch_chosen: restarted_from_val.branch_chosen,
                             nested: restarted_from_val.nested,
+                            failed_only: restarted_from_val.failed_only,
                         }),
                         user_states,
                         preprocessor_module: None,
@@ -7744,6 +7746,7 @@ async fn push_inner<'c, 'd>(
             flow_version,
             branch_chosen,
             nested,
+            failed_only,
         } => {
             let (
                 version,
@@ -7762,6 +7765,7 @@ async fn push_inner<'c, 'd>(
                 branch_or_iteration_n,
                 flow_version,
                 nested.is_some(),
+                failed_only,
                 // RestartedFlow resolves and queues the completed job's stored definition, so the
                 // step validated for reuse is the one that will run.
                 None,
@@ -7790,6 +7794,7 @@ async fn push_inner<'c, 'd>(
                     flow_version,
                     branch_chosen,
                     nested,
+                    failed_only,
                 }),
                 user_states,
                 preprocessor_module: None,
@@ -8900,6 +8905,97 @@ fn create_restarted_module(
     }
 }
 
+/// Status of a parallel ForLoop / BranchAll restarted with `failed_only`: a slot whose job
+/// succeeded keeps it, every other slot holds `Uuid::nil()`. The worker reads a nil slot as
+/// "rerun this iteration (branch) here" and counts the kept ones as already completed, so the
+/// step's result stays ordered by slot.
+async fn create_failed_only_module(
+    db: &Pool<Postgres>,
+    workspace_id: &str,
+    module: &FlowStatusModule,
+    module_definition: &FlowModule,
+    restart_step_id: &str,
+) -> Result<FlowStatusModule, Error> {
+    let (is_loop, branch_count) = match module_definition.get_value()? {
+        FlowModuleValue::ForloopFlow { parallel: true, .. } => (true, None),
+        FlowModuleValue::BranchAll { parallel: true, branches, .. } => (false, Some(branches.len())),
+        _ => {
+            return Err(Error::BadRequest(format!(
+                "Step {restart_step_id} is not a parallel for-loop or branch-all, only those can rerun their failed iterations"
+            )))
+        }
+    };
+    let original_jobs = module
+        .flow_jobs()
+        .filter(|jobs| !jobs.is_empty())
+        .ok_or_else(|| {
+            Error::BadRequest(format!(
+                "Step {restart_step_id} has no recorded iterations in the original run"
+            ))
+        })?;
+    let n = original_jobs.len();
+    if branch_count.is_some_and(|count| count != n) {
+        return Err(Error::BadRequest(format!(
+            "Step {restart_step_id} ran {n} branches but now has {}, its failed branches cannot be matched",
+            branch_count.unwrap_or(0)
+        )));
+    }
+    let succeeded = sqlx::query_scalar!(
+        "SELECT id FROM v2_job_completed
+         WHERE workspace_id = $1 AND id = ANY($2) AND (status = 'success' OR status = 'skipped')",
+        workspace_id,
+        &original_jobs,
+    )
+    .fetch_all(db)
+    .await?;
+    let flow_jobs: Vec<Uuid> = original_jobs
+        .iter()
+        .map(|job| {
+            if succeeded.contains(job) {
+                *job
+            } else {
+                Uuid::nil()
+            }
+        })
+        .collect();
+    let kept = flow_jobs.iter().filter(|job| !job.is_nil()).count();
+    if kept == n {
+        return Err(Error::BadRequest(format!(
+            "Step {restart_step_id} has no failed iterations to rerun"
+        )));
+    }
+    let mut flow_jobs_duration = module
+        .flow_jobs_duration()
+        .filter(|d| d.started_at.len() == n && d.duration_ms.len() == n)
+        .unwrap_or_else(|| FlowJobsDuration::new(n));
+    for (i, job) in flow_jobs.iter().enumerate() {
+        if job.is_nil() {
+            flow_jobs_duration.started_at[i] = None;
+            flow_jobs_duration.duration_ms[i] = None;
+        }
+    }
+    Ok(FlowStatusModule::InProgress {
+        id: module.id(),
+        job: Uuid::nil(),
+        iterator: is_loop.then(|| FlowIterator { index: kept, itered: None, itered_len: Some(n) }),
+        flow_jobs_success: Some(
+            flow_jobs
+                .iter()
+                .map(|j| (!j.is_nil()).then_some(true))
+                .collect(),
+        ),
+        flow_jobs: Some(flow_jobs),
+        flow_jobs_duration: Some(flow_jobs_duration),
+        branch_chosen: None,
+        branchall: (!is_loop).then(|| BranchAllStatus { branch: kept, len: n }),
+        parallel: true,
+        while_loop: false,
+        progress: None,
+        agent_actions: None,
+        agent_actions_success: None,
+    })
+}
+
 /// A between-steps-zombie step: an `InProgress` module (in an otherwise terminal,
 /// reaped flow) whose every child is recorded as a `success` completion. Only the
 /// module's final state transition was lost, so the whole step is derivable and
@@ -9033,6 +9129,8 @@ async fn restarted_flows_resolution(
     // A nested restart chain (RestartedFrom.nested) descends into the restart step's child to
     // re-run an inner step; zombie reuse would skip the whole container and ignore it.
     nested_restart: bool,
+    // Keep a parallel restart step's successful iterations/branches and rerun only the rest.
+    failed_only: bool,
     // The definition the restart queues when it is not the completed job's stored one
     // (JobPayload::RawFlow queues the editor's, possibly EDITED, definition). Approval gates are
     // read from it. Zombie reuse validates the restart step against the STORED definition and
@@ -9125,8 +9223,28 @@ async fn restarted_flows_resolution(
 
             if module_id == restart_step_id {
                 refuse_restart_past_unopened_suspend_gate(gate_flow, &truncated_modules)?;
+                if failed_only {
+                    let old_module = flow_status
+                        .modules
+                        .iter()
+                        .find(|m| &m.id() == module_id)
+                        .ok_or_else(|| {
+                            Error::BadRequest(format!(
+                                "Step {restart_step_id} did not run in the original flow, it has no failed iterations to rerun"
+                            ))
+                        })?;
+                    truncated_modules.push(
+                        create_failed_only_module(
+                            db,
+                            workspace_id,
+                            old_module,
+                            module_definition,
+                            restart_step_id,
+                        )
+                        .await?,
+                    );
                 // Mark this and all following modules as WaitingForPriorSteps
-                if branch_or_iteration_n.is_none() || branch_or_iteration_n.unwrap() == 0 {
+                } else if branch_or_iteration_n.is_none() || branch_or_iteration_n.unwrap() == 0 {
                     truncated_modules
                         .push(FlowStatusModule::WaitingForPriorSteps { id: module_id.clone() });
                 } else {
@@ -9189,7 +9307,18 @@ async fn restarted_flows_resolution(
                 // (the run page's "Re-start from" button always sends 0); both mean "redo this step",
                 // which for a monitor-reaped zombie means reuse it. `Some(n>=1)` is an explicit
                 // partial container restart and keeps its existing reuse-0..n-1 / rerun-from-n path.
-                if allow_zombie_reuse
+                if failed_only {
+                    truncated_modules.push(
+                        create_failed_only_module(
+                            db,
+                            workspace_id,
+                            &module,
+                            module_definition,
+                            restart_step_id,
+                        )
+                        .await?,
+                    );
+                } else if allow_zombie_reuse
                     && reaped_by_monitor
                     && branch_or_iteration_n.unwrap_or(0) == 0
                     && !nested_restart

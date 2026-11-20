@@ -7381,6 +7381,10 @@ pub struct RestartFlowRequestBody {
     /// containers along the way.
     #[serde(default)]
     nested_path: Vec<NestedRestartStep>,
+    /// For a parallel ForLoop / BranchAll at `step_id`: rerun only the iterations
+    /// (branches) that did not succeed, keeping the others' results in their slots.
+    #[serde(default)]
+    failed_only: bool,
 }
 
 #[cfg(feature = "enterprise")]
@@ -7585,6 +7589,7 @@ async fn resolve_nested_restart(
         flow_version: None,
         branch_chosen: child_branch_chosen,
         nested: deeper_nested,
+        failed_only: false,
     };
 
     Ok((parent_branch_chosen, Some(Box::new(nested_chain))))
@@ -7602,9 +7607,15 @@ pub async fn restart_flow(
         branch_or_iteration_n,
         flow_version,
         nested_path,
+        failed_only,
     }): Json<RestartFlowRequestBody>,
 ) -> error::Result<(StatusCode, String)> {
     check_license_key_valid().await?;
+    if failed_only && (!nested_path.is_empty() || branch_or_iteration_n.unwrap_or(0) != 0) {
+        return Err(Error::BadRequest(
+            "failed_only reruns a whole parallel step; it cannot be combined with nested_path or branch_or_iteration_n".to_string(),
+        ));
+    }
 
     let mut tx = user_db.clone().begin(&authed).await?;
     let completed_job = sqlx::query!(
@@ -7669,6 +7680,7 @@ pub async fn restart_flow(
             flow_version,
             branch_chosen: top_branch_chosen,
             nested: nested_chain,
+            failed_only,
         },
         push_args,
         &authed.username,

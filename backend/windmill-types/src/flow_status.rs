@@ -79,6 +79,10 @@ pub struct RestartedFrom {
     /// `restarted_from` becomes `*nested`, propagating any further levels of nesting.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub nested: Option<Box<RestartedFrom>>,
+    /// For a parallel ForLoop / BranchAll at `step_id`: keep the iterations (branches) that
+    /// succeeded and rerun only the others, each in its original slot.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub failed_only: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

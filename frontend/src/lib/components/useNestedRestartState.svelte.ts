@@ -1,6 +1,10 @@
 import type { FlowModule, Job } from '$lib/gen'
 import type { GraphModuleState } from './graph'
-import { buildNestedRestartPath, type NestedRestartStep } from './restartFromStepPath'
+import {
+	buildNestedRestartPath,
+	enclosingParallelContainer,
+	type NestedRestartStep
+} from './restartFromStepPath'
 import { emptyString } from '$lib/utils'
 
 export type { NestedRestartStep }
@@ -13,7 +17,7 @@ export type { NestedRestartStep }
  *
  *   - `selectedJobStepIsTopLevel` — whether the selected step appears in the
  *     parent flow's top-level `flow_status.modules`
- *   - `selectedJobStepType` — `single` / `forloop` / `branchall`, used by the
+ *   - `selectedJobStepType` — `single` / `forloop` / `branchall` / `parallel`, used by the
  *     popup to decide which controls to render for the OUTER container
  *   - `restartBranchNames` — for top-level BranchAll steps, the labels for the
  *     branch picker
@@ -41,8 +45,16 @@ export function useNestedRestartState(opts: {
 	 * restart path. */
 	expandedSubflows?: () => Record<string, { modules: FlowModule[] }>
 }) {
+	// The step a restart targets: the selection, or the top-level parallel
+	// container it sits in.
+	const restartStepId = $derived.by((): string | undefined => {
+		const sel = opts.selectedJobStep()
+		const modules = opts.job()?.raw_flow?.modules
+		if (sel === undefined || !modules) return sel
+		return enclosingParallelContainer(modules, sel) ?? sel
+	})
 	let selectedJobStepIsTopLevel: boolean | undefined = $state(undefined)
-	let selectedJobStepType: 'single' | 'forloop' | 'branchall' = $state('single')
+	let selectedJobStepType: 'single' | 'forloop' | 'branchall' | 'parallel' = $state('single')
 	let restartBranchNames: [number, string][] = $state([])
 	let nestedRestartTopStepId: string | undefined = $state(undefined)
 	let nestedRestartTopBranchOrIterationN: number | undefined = $state(undefined)
@@ -55,7 +67,7 @@ export function useNestedRestartState(opts: {
 	let nestedPathIterationCounts: Record<string, number> = $state({})
 
 	$effect(() => {
-		const selectedJobStep = opts.selectedJobStep()
+		const selectedJobStep = restartStepId
 		const job = opts.job()
 		const graphModuleStates = opts.graphModuleStates()
 		const expandedSubflows = opts.expandedSubflows?.() ?? {}
@@ -75,7 +87,9 @@ export function useNestedRestartState(opts: {
 		const isTopLevel = job.flow_status.modules.findIndex((m) => m.id === selectedJobStep) >= 0
 		selectedJobStepIsTopLevel = isTopLevel
 		const moduleDefinition = job.raw_flow?.modules.find((m) => m.id === selectedJobStep)
-		if (moduleDefinition?.value.type === 'forloopflow') {
+		if (moduleDefinition && isParallelContainer(moduleDefinition)) {
+			selectedJobStepType = 'parallel'
+		} else if (moduleDefinition?.value.type === 'forloopflow') {
 			selectedJobStepType = 'forloop'
 		} else if (moduleDefinition?.value.type === 'branchall') {
 			selectedJobStepType = 'branchall'
@@ -114,31 +128,28 @@ export function useNestedRestartState(opts: {
 	})
 
 	const topLevelLoopIteration = $derived.by((): number | undefined => {
-		const sel = opts.selectedJobStep()
+		const sel = restartStepId
 		if (!sel) return undefined
 		if ((selectedJobStepType as string) !== 'forloop') return undefined
 		return opts.graphModuleStates()[sel]?.selectedForloopIndex
 	})
 
 	// `selectedJobStepIsTopLevel` answers "is this a top-level module structurally";
-	// `topLevelRestartable` answers "AND should the restart button show". The
-	// difference: parallel ForLoop / parallel BranchAll at the top level are
-	// rejected by the backend, so we hide the button preemptively.
+	// `topLevelRestartable` answers "AND should the restart button show".
 	const topLevelRestartable = $derived.by((): boolean => {
 		if (!selectedJobStepIsTopLevel) return false
-		const sel = opts.selectedJobStep()
+		const sel = restartStepId
 		const job = opts.job()
 		if (!sel || !job?.raw_flow?.modules) return false
-		const mod = job.raw_flow.modules.find((m) => m.id === sel)
-		if (!mod) return false
-		const v = mod.value
-		if (
-			(v.type === 'forloopflow' || v.type === 'branchall' || v.type === 'whileloopflow') &&
-			(v as { parallel?: boolean }).parallel === true
-		) {
-			return false
-		}
-		return true
+		return job.raw_flow.modules.some((m) => m.id === sel)
+	})
+
+	// For a top-level parallel container: how many of its iterations (branches)
+	// failed in this run, which decides whether "only failed" can be offered.
+	const parallelFailedCount = $derived.by((): number | undefined => {
+		if ((selectedJobStepType as string) !== 'parallel') return undefined
+		const status = opts.job()?.flow_status?.modules?.find((m) => m.id === restartStepId)
+		return status?.flow_jobs_success?.filter((s) => s === false).length
 	})
 
 	// Iteration counts indexed by the graph module-state key (i.e. the prefixed
@@ -161,6 +172,12 @@ export function useNestedRestartState(opts: {
 	})
 
 	return {
+		get restartStepId() {
+			return restartStepId
+		},
+		get parallelFailedCount() {
+			return parallelFailedCount
+		},
 		get selectedJobStepIsTopLevel() {
 			return selectedJobStepIsTopLevel
 		},
@@ -195,4 +212,12 @@ export function useNestedRestartState(opts: {
 			return nestedPathIterationCounts
 		}
 	}
+}
+
+function isParallelContainer(mod: FlowModule): boolean {
+	const v = mod.value
+	return (
+		(v.type === 'forloopflow' && v.parallel === true) ||
+		(v.type === 'branchall' && v.parallel !== false)
+	)
 }

@@ -2,6 +2,8 @@
 	import { Badge, Button } from './common'
 	import Popover from './meltComponents/Popover.svelte'
 	import { ChevronDown, Play, RefreshCw } from 'lucide-svelte'
+	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import { FlowService, JobService, type FlowVersion } from '$lib/gen'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
@@ -11,7 +13,14 @@
 	interface Props {
 		jobId: string
 		selectedJobStep: string
-		selectedJobStepType: 'single' | 'forloop' | 'branchall'
+		selectedJobStepType: 'single' | 'forloop' | 'branchall' | 'parallel'
+		/**
+		 * For a parallel step: how many of its iterations (branches) failed in the
+		 * run. Rerunning only those is offered when it is non-zero.
+		 */
+		parallelFailedCount?: number
+		/** The step the user selected, when the restart targets its enclosing parallel step. */
+		retargetedFrom?: string
 		restartBranchNames?: [number, string][]
 		flowPath?: string
 		/** The flow version ID used in this run (from job.script_hash) */
@@ -57,7 +66,12 @@
 		 */
 		nestedPathIterationCounts?: Record<string, number>
 		/** Called when flow is restarted. If not provided, will navigate to the new run using goto (requires SvelteKit) */
-		onRestart?: (stepId: string, branchOrIterationN: number, flowVersion?: number) => void
+		onRestart?: (
+			stepId: string,
+			branchOrIterationN: number,
+			flowVersion?: number,
+			failedOnly?: boolean
+		) => void
 		/** Called when flow restart completes with the new job ID. Used for navigation in non-SvelteKit contexts */
 		onRestartComplete?: (newJobId: string) => void
 	}
@@ -66,6 +80,8 @@
 		jobId,
 		selectedJobStep,
 		selectedJobStepType,
+		parallelFailedCount = undefined,
+		retargetedFrom = undefined,
 		restartBranchNames = [],
 		flowPath = undefined,
 		flowVersionId = undefined,
@@ -100,6 +116,10 @@
 	const RUN_VERSION_SENTINEL = -1
 
 	let branchOrIterationN = $state(0)
+	let rerun: 'failed' | 'all' = $state('failed')
+	const failedOnly = $derived(
+		selectedJobStepType === 'parallel' && rerun === 'failed' && (parallelFailedCount ?? 0) > 0
+	)
 
 	// Iteration inputs for nested-step restart inside one or more ForLoop ancestors.
 	// Each editable position keeps a local copy that the popup can mutate; on
@@ -123,6 +143,7 @@
 			})
 		}
 		iterationEdits = next
+		rerun = (parallelFailedCount ?? 0) > 0 ? 'failed' : 'all'
 		if (selectedJobStepType === 'forloop' && presetIterationN !== undefined) {
 			branchOrIterationN = presetIterationN
 		}
@@ -177,7 +198,8 @@
 			: {
 					step_id: stepId,
 					branch_or_iteration_n: branchOrIterationN,
-					flow_version: flowVersion
+					flow_version: flowVersion,
+					failed_only: failedOnly || undefined
 				}
 		let run = await JobService.restartFlowAtStep({
 			workspace: $operatingWorkspace!,
@@ -220,7 +242,7 @@
 
 	function handleRestart() {
 		if (onRestart) {
-			onRestart(selectedJobStep, branchOrIterationN, getFlowVersionForRestart())
+			onRestart(selectedJobStep, branchOrIterationN, getFlowVersionForRestart(), failedOnly)
 		} else {
 			const flowVersion = getFlowVersionForRestart()
 			restartFlow(selectedJobStep, branchOrIterationN, flowVersion)
@@ -328,6 +350,27 @@
 							{/if}
 						</div>
 					</label>
+				{:else if selectedJobStepType === 'parallel'}
+					<div>
+						<div class="pb-1 text-xs font-semibold text-emphasis">Rerun</div>
+						<ToggleButtonGroup bind:selected={rerun}>
+							{#snippet children({ item })}
+								<ToggleButton
+									value="failed"
+									label="Failed only{parallelFailedCount ? ` (${parallelFailedCount})` : ''}"
+									tooltip="Keep the results that succeeded and rerun the failed ones, each in its original position"
+									disabled={!parallelFailedCount}
+									{item}
+								/>
+								<ToggleButton value="all" label="All" {item} />
+							{/snippet}
+						</ToggleButtonGroup>
+						{#if retargetedFrom}
+							<div class="pt-2 text-2xs text-secondary">
+								Steps inside a parallel step restart with it.
+							</div>
+						{/if}
+					</div>
 				{:else if selectedJobStepType === 'branchall'}
 					<label>
 						<div class="pb-1 text-xs font-semibold text-emphasis">From branch</div>

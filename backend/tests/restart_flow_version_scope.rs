@@ -27,6 +27,7 @@ async fn push_restart(
             flow_version: Some(flow_version),
             branch_chosen: None,
             nested: None,
+            failed_only: false,
         },
         windmill_queue::PushArgs::from(&args),
         "test-user",

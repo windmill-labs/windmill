@@ -576,6 +576,7 @@ mod job_payload {
                 flow_version: None,
                 branch_chosen: None,
                 nested: None,
+                failed_only: false,
             })
             .arg("iter", json!({ "value": "tests", "index": 0 }))
             .run_until_complete(&db, false, port)
@@ -954,7 +955,9 @@ mod job_payload {
                         flow_version: None,
                         branch_chosen: None,
                         nested: None,
+                        failed_only: false,
                     })),
+                    failed_only: false,
                 }),
             })
             .arg("world", json!("bar"))
@@ -984,7 +987,9 @@ mod job_payload {
                         flow_version: None,
                         branch_chosen: None,
                         nested: None,
+                        failed_only: false,
                     })),
+                    failed_only: false,
                 }),
             })
             .arg("world", json!("baz"))
@@ -1104,7 +1109,9 @@ mod job_payload {
                         flow_version: None,
                         branch_chosen: None,
                         nested: None,
+                        failed_only: false,
                     })),
+                    failed_only: false,
                 }),
             })
             .arg("tag", json!("second"))
@@ -1128,6 +1135,85 @@ mod job_payload {
             );
         };
         test_for_versions(VERSION_FLAGS.iter().copied(), test).await;
+        Ok(())
+    }
+
+    #[cfg(feature = "deno_core")]
+    #[sqlx::test(fixtures("base", "hello"))]
+    async fn test_restart_parallel_loop_failed_only(db: Pool<Postgres>) -> anyhow::Result<()> {
+        initialize_tracing().await;
+        let server = ApiServer::start(db.clone()).await?;
+        let port = server.addr.port();
+
+        let flow_value: FlowValue = serde_json::from_value(json!({
+            "modules": [{
+                "id": "loop",
+                "value": {
+                    "type": "forloopflow",
+                    "iterator": { "type": "javascript", "expr": "['x', 'y', 'z']" },
+                    "skip_failures": true,
+                    "parallel": true,
+                    "modules": [{
+                        "id": "inner",
+                        "value": {
+                            "type": "rawscript",
+                            "language": "bun",
+                            "input_transforms": {
+                                "iter_val": { "type": "javascript", "expr": "flow_input.iter.value" },
+                                "tag": { "type": "javascript", "expr": "flow_input.tag" }
+                            },
+                            "content": "export function main(iter_val: string, tag: string) { if (tag === 'first' && iter_val === 'y') throw new Error('boom'); return `${tag}:${iter_val}` }"
+                        }
+                    }]
+                }
+            }],
+            "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": { "tag": { "type": "string" } },
+                "order": ["tag"]
+            }
+        }))
+        .unwrap();
+
+        let first_run = RunJob::from(JobPayload::RawFlow {
+            value: flow_value.clone(),
+            path: None,
+            restarted_from: None,
+        })
+        .arg("tag", json!("first"))
+        .run_until_complete(&db, false, port)
+        .await;
+        let mut original = vec![];
+        for i in 0..3 {
+            original.push(child_job_id_for_step(&db, first_run.id, "loop", Some(i)).await);
+        }
+
+        let restarted = RunJob::from(JobPayload::RawFlow {
+            value: flow_value.clone(),
+            path: None,
+            restarted_from: Some(RestartedFrom {
+                flow_job_id: first_run.id,
+                step_id: "loop".into(),
+                failed_only: true,
+                ..Default::default()
+            }),
+        })
+        .arg("tag", json!("second"))
+        .run_until_complete(&db, false, port)
+        .await;
+        // Only the failed iteration reran, and its result kept its position.
+        assert_eq!(
+            restarted.json_result().unwrap(),
+            json!(["first:x", "second:y", "first:z"])
+        );
+        let mut rerun = vec![];
+        for i in 0..3 {
+            rerun.push(child_job_id_for_step(&db, restarted.id, "loop", Some(i)).await);
+        }
+        assert_eq!(rerun[0], original[0]);
+        assert_ne!(rerun[1], original[1]);
+        assert_eq!(rerun[2], original[2]);
         Ok(())
     }
 
@@ -1182,7 +1268,9 @@ mod job_payload {
                     flow_version: None,
                     branch_chosen: None,
                     nested: None,
+                    failed_only: false,
                 })),
+                failed_only: false,
             })
             .run_until_complete(db, false, port)
             .await;
@@ -1314,8 +1402,11 @@ mod job_payload {
                             flow_version: None,
                             branch_chosen: None,
                             nested: None,
+                            failed_only: false,
                         })),
+                        failed_only: false,
                     })),
+                    failed_only: false,
                 }),
             })
             .arg("tag", json!("second"))
@@ -1452,8 +1543,11 @@ mod job_payload {
                             flow_version: None,
                             branch_chosen: None,
                             nested: None,
+                            failed_only: false,
                         })),
+                        failed_only: false,
                     })),
+                    failed_only: false,
                 }),
             })
             .arg("tag", json!("second"))
@@ -1549,8 +1643,11 @@ mod job_payload {
                             flow_version: None,
                             branch_chosen: None,
                             nested: None,
+                            failed_only: false,
                         })),
+                        failed_only: false,
                     })),
+                    failed_only: false,
                 }),
             })
             .run_until_complete(db, false, port)

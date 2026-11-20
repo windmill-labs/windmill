@@ -70,7 +70,8 @@ export function findStepPath(modules: FlowModule[], targetId: string): StepPath 
 								stepId: mod.id,
 								type: 'branchall',
 								branchIndex: i,
-								parallel: value.parallel === true
+								// A BranchAll is parallel unless `parallel: false`.
+								parallel: value.parallel !== false
 							},
 							...sub.ancestors
 						]
@@ -278,4 +279,19 @@ export function buildNestedRestartPath(opts: {
 		path: rest,
 		iterationCounts
 	}
+}
+
+/**
+ * A step inside a top-level parallel ForLoop / BranchAll has no restart point of
+ * its own: its iterations run concurrently, so there is no "before" and "after"
+ * to keep or rerun. Restarting from it restarts its container. Returns that
+ * container's id, or `undefined` when the step is not inside one.
+ */
+export function enclosingParallelContainer(
+	modules: FlowModule[],
+	selectedJobStep: string
+): string | undefined {
+	const target = parseExpandedSubflowId(selectedJobStep)?.subflowSteps[0] ?? selectedJobStep
+	const top = findStepPath(modules, target)?.ancestors[0]
+	return top?.parallel ? top.stepId : undefined
 }
