@@ -147,7 +147,8 @@ def main [
       "tree-sitter" => {
         $env.CFLAGS_wasm32_unknown_unknown = $"-I(pwd)/wasm-sysroot -Wbad-function-cast -Wcast-function-type -fno-builtin"
         $env.RUSTFLAGS = "-Zwasm-c-abi=spec"
-        wasm-pack build ($profile) --target ($tar) --out-dir $env.OUT_DIR --features $t.features
+        # The release profile's `immediate-abort` panic strategy needs std rebuilt to match.
+        wasm-pack build ($profile) --target ($tar) --out-dir $env.OUT_DIR --features $t.features -Z build-std=panic_abort,std
       },
       _ => { panic $"Unknown env template: ($t.env)" },
     }
