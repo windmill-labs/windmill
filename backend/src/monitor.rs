@@ -3079,6 +3079,10 @@ pub async fn reload_npm_config_registry_setting(conn: &Connection) {
     .await;
 }
 
+pub async fn reload_npmrc_setting(conn: &Connection) {
+    reload_option_setting_with_tracing(conn, NPMRC_SETTING, "NPMRC", NPMRC.clone()).await;
+}
+
 pub async fn reload_bunfig_install_scopes_setting(conn: &Connection) {
     reload_option_setting_with_tracing(
         conn,
@@ -3184,6 +3188,16 @@ pub fn apply_no_default_maven_setting(value: Option<serde_json::Value>) {
     if let Some(serde_json::Value::Bool(t)) = value {
         NO_DEFAULT_MAVEN.store(t, Ordering::Relaxed)
     }
+}
+
+pub async fn reload_cargo_registries_setting(conn: &Connection) {
+    reload_option_setting_with_tracing(
+        conn,
+        windmill_common::global_settings::CARGO_REGISTRIES_SETTING,
+        "CARGO_REGISTRIES",
+        CARGO_REGISTRIES.clone(),
+    )
+    .await;
 }
 
 pub async fn reload_ruby_repos_setting(conn: &Connection) {
