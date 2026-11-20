@@ -1,6 +1,7 @@
 import { base } from '$app/paths'
 import { VariableService } from '$lib/gen'
 import { buildResourcesUrl, buildVariablesUrl } from './global/pageNavigation'
+import { withWorkspaceParam } from '$lib/components/sessions/sessionMode.svelte'
 import type { SecretRequest, SecretRequestOutcome } from './shared'
 
 /** Saves the value as a secret variable at `path`, deployed rather than drafted: the AI
@@ -41,12 +42,13 @@ export function secretVariableExists(workspace: string, path: string): Promise<b
 	return VariableService.existsVariable({ workspace, path })
 }
 
-export function variablePageUrl(path: string): string {
-	return `${base}${buildVariablesUrl({ open: path })}`
+// The workspace the secret was saved in, which a fork session does not navigate to.
+export function variablePageUrl(path: string, workspace: string): string {
+	return withWorkspaceParam(`${base}${buildVariablesUrl({ open: path })}`, workspace)
 }
 
-export function resourcePageUrl(path: string): string {
-	return `${base}${buildResourcesUrl({ open: path })}`
+export function resourcePageUrl(path: string, workspace: string): string {
+	return withWorkspaceParam(`${base}${buildResourcesUrl({ open: path })}`, workspace)
 }
 
 /** What the model reads back. Never the value: only where it now lives. */

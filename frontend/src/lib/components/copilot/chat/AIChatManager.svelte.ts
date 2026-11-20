@@ -2447,6 +2447,9 @@ export class AIChatManager implements ChatViewHost {
 		toolId: string,
 		_request: SecretRequest
 	): Promise<SecretRequestOutcome | undefined> => {
+		// The tool checks the path before it asks, so a stop during that check has already
+		// drained the callbacks: a resolver installed now would park the turn for good.
+		if (this.abortController?.signal.aborted) return Promise.resolve(undefined)
 		return new Promise((resolve) => {
 			this.secretRequestCallbacks.set(toolId, resolve)
 		})

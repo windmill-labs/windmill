@@ -58,12 +58,12 @@
 		<span class="min-w-0 font-medium text-secondary">
 			{request.saved.replaced ? 'Replaced' : 'Saved'}
 			{request.label} in secret variable
-			<a class="text-accent hover:underline" href={variablePageUrl(request.saved.path)}
+			<a class="text-accent hover:underline" href={variablePageUrl(request.saved.path, request.workspace)}
 				>{request.saved.path}</a
 			>
 			{#if request.resourcePath}
 				· used by
-				<a class="text-accent hover:underline" href={resourcePageUrl(request.resourcePath)}
+				<a class="text-accent hover:underline" href={resourcePageUrl(request.resourcePath, request.workspace)}
 					>{request.resourcePath}</a
 				>
 			{/if}
@@ -130,11 +130,11 @@
 				bind:password={value}
 				placeholder="Paste the value here"
 				disabled={!interactive || saving}
-				allowMultiline={false}
 				autocomplete="off"
 				error={saveError !== undefined}
 				onKeyDown={(e) => {
-					if (e.key === 'Enter') {
+					// Enter is a newline: a pasted private key keeps its line breaks.
+					if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
 						e.preventDefault()
 						void submit()
 					}
