@@ -275,11 +275,12 @@ describe('scoping a refusal to the kinds the server gates', () => {
 			'resource',
 			'resource_type',
 			'variable',
-			'folder'
+			'folder',
+			'data_pipeline'
 		] as const) {
 			expect(kindGatedByDeployRules(k)).toBe(true)
 		}
-		for (const k of ['schedule', 'http_trigger', 'email_trigger', 'data_pipeline'] as const) {
+		for (const k of ['schedule', 'http_trigger', 'email_trigger'] as const) {
 			expect(kindGatedByDeployRules(k)).toBe(false)
 		}
 	})

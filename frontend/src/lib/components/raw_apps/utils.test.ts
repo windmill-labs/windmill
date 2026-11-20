@@ -85,7 +85,9 @@ describe('genWmillTs', () => {
 
 		const dts = genWmillTs(runnables)
 
-		expect(dts).toContain('myflow: (args: { string_input: string }, opts?: { memoryId?: string }) => Promise<any>;')
+		expect(dts).toContain(
+			'myflow: (args: { string_input: string }, opts?: { memoryId?: string }) => Promise<any>;'
+		)
 	})
 
 	it('leaves ctx fields out of the args type, the server fills them', () => {
@@ -102,7 +104,9 @@ describe('genWmillTs', () => {
 			}
 		}
 
-		expect(genWmillTs(runnables)).toContain('myflow: (args: { count?: number }, opts?: { memoryId?: string }) => Promise<any>;')
+		expect(genWmillTs(runnables)).toContain(
+			'myflow: (args: { count?: number }, opts?: { memoryId?: string }) => Promise<any>;'
+		)
 	})
 
 	it('quotes flow input names that are not valid identifiers', () => {
@@ -268,7 +272,8 @@ describe('canonicalRawAppDiffValue', () => {
 			files: { '/App.tsx': 'export default 1' },
 			runnables: { a: { type: 'inline', inlineScript: { content: 'main()', language: 'bun' } } },
 			data: { tables: [] },
-			policy: { execution_mode: 'publisher' }
+			policy: { execution_mode: 'publisher' },
+			parent_version: 2
 		}
 
 		expect(canonicalRawAppDiffValue(deployed)).toEqual(canonicalRawAppDiffValue(draft))

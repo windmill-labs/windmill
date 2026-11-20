@@ -62,6 +62,19 @@ vi.mock('@leeoniya/ufuzzy', () => ({
 	}
 }))
 
+import {
+	getCompletion,
+	getFimCompletion,
+	getModelMaxTokens,
+	getNonStreamingCompletion,
+	getNonStreamingMetadataCompletion,
+	getResponseFromEvent,
+	getStreamedCompletionText,
+	METADATA_MAX_TOKENS,
+	testKey,
+	workspaceAIClients
+} from './lib'
+
 function streamOf(chunks: unknown[]): any {
 	return (async function* () {
 		for (const chunk of chunks) {
@@ -81,9 +94,7 @@ let anthropicStream: ReturnType<typeof vi.fn>
 let openaiCreate: ReturnType<typeof vi.fn>
 let openaiResponsesCreate: ReturnType<typeof vi.fn>
 
-async function setupClients() {
-	const { workspaceAIClients } = await import('./lib')
-
+function setupClients() {
 	anthropicCreate = vi.fn().mockResolvedValue({
 		content: [
 			{ type: 'text', text: 'Hel' },
@@ -115,9 +126,7 @@ async function setupClients() {
 	} as any)
 }
 
-beforeEach(async () => {
-	await setupClients()
-})
+beforeEach(setupClients)
 
 afterEach(() => {
 	vi.restoreAllMocks()
@@ -126,7 +135,6 @@ afterEach(() => {
 
 describe('Anthropic Messages API routing', () => {
 	it('getNonStreamingCompletion routes Foundry Claude through the Anthropic client', async () => {
-		const { getNonStreamingCompletion } = await import('./lib')
 		h.currentModel = { provider: 'azure_foundry', model: 'claude-sonnet-5' }
 
 		const response = await getNonStreamingCompletion(messages, new AbortController())
@@ -143,7 +151,6 @@ describe('Anthropic Messages API routing', () => {
 	})
 
 	it('getNonStreamingCompletion routes native Anthropic through the Anthropic client', async () => {
-		const { getNonStreamingCompletion } = await import('./lib')
 		h.currentModel = { provider: 'anthropic', model: 'claude-opus-4-8' }
 
 		await getNonStreamingCompletion(messages, new AbortController())
@@ -153,7 +160,6 @@ describe('Anthropic Messages API routing', () => {
 	})
 
 	it('getNonStreamingCompletion keeps non-Claude Foundry models on the OpenAI path', async () => {
-		const { getNonStreamingCompletion } = await import('./lib')
 		h.currentModel = { provider: 'azure_foundry', model: 'gpt-4o' }
 
 		await getNonStreamingCompletion(messages, new AbortController())
@@ -163,7 +169,6 @@ describe('Anthropic Messages API routing', () => {
 	})
 
 	it('getCompletion adapts the Anthropic stream into OpenAI text chunks', async () => {
-		const { getCompletion, getResponseFromEvent } = await import('./lib')
 		h.currentModel = { provider: 'azure_foundry', model: 'claude-sonnet-5' }
 
 		const completion = await getCompletion(messages, new AbortController())
@@ -183,8 +188,6 @@ describe('Anthropic Messages API routing', () => {
 	})
 
 	it('testKey routes Foundry Claude through the Anthropic client', async () => {
-		const { testKey } = await import('./lib')
-
 		await testKey({
 			resourcePath: 'u/admin/foundry',
 			model: 'claude-sonnet-5',
@@ -200,7 +203,6 @@ describe('Anthropic Messages API routing', () => {
 	})
 
 	it('raises the Claude output budget only from Opus 4.5 on', async () => {
-		const { getModelMaxTokens } = await import('./lib')
 		// 4.5+ matches Sonnet's budget...
 		for (const model of ['claude-opus-4-5', 'claude-opus-4-8', 'claude-opus-5']) {
 			expect(getModelMaxTokens('anthropic', model)).toBe(64000)
@@ -214,8 +216,6 @@ describe('Anthropic Messages API routing', () => {
 	})
 
 	it('caps max_tokens for metadata completions so the Anthropic SDK stays non-streaming', async () => {
-		const { getNonStreamingCompletion, getNonStreamingMetadataCompletion, METADATA_MAX_TOKENS } =
-			await import('./lib')
 		// claude-sonnet defaults to 64000 max_tokens; the Anthropic SDK refuses a
 		// non-streaming request that large (>10min worst case), which silently broke
 		// session auto-rename and the other metadata generators.
@@ -231,8 +231,6 @@ describe('Anthropic Messages API routing', () => {
 	})
 
 	it('getStreamedCompletionText streams the capped request and falls back off the Responses API', async () => {
-		const { getStreamedCompletionText, workspaceAIClients } = await import('./lib')
-
 		h.currentModel = { provider: 'anthropic', model: 'claude-sonnet-4-6' }
 		expect(
 			await getStreamedCompletionText(messages, new AbortController(), { maxTokensCap: 8000 })
@@ -287,7 +285,6 @@ describe('Anthropic Messages API routing', () => {
 	})
 
 	it('getStreamedCompletionText rejects when the stream is cut or stopped midway', async () => {
-		const { getStreamedCompletionText } = await import('./lib')
 		h.currentModel = { provider: 'deepseek', model: 'deepseek-chat' }
 
 		// A hop closing the response early ends the iteration cleanly, with no
@@ -312,8 +309,6 @@ describe('Anthropic Messages API routing', () => {
 	})
 
 	it('caps max_output_tokens for metadata completions on the OpenAI Responses path', async () => {
-		const { getNonStreamingCompletion, getNonStreamingMetadataCompletion, METADATA_MAX_TOKENS } =
-			await import('./lib')
 		// OpenAI/Azure non-streaming routes through the Responses API; the cap must
 		// reach it too, not just the Anthropic and chat.completions paths.
 		h.currentModel = { provider: 'openai', model: 'gpt-4o' }
@@ -328,7 +323,6 @@ describe('Anthropic Messages API routing', () => {
 	})
 
 	it('getFimCompletion no-ops for Anthropic Messages API models', async () => {
-		const { getFimCompletion } = await import('./lib')
 		const fetchSpy = vi.spyOn(globalThis, 'fetch')
 
 		for (const provider of ['anthropic', 'azure_foundry'] as const) {
@@ -362,7 +356,6 @@ describe('OpenRouter prompt caching', () => {
 	it.each(['anthropic/claude-sonnet-5', '~anthropic/claude-sonnet-latest'])(
 		'breaks on the system prompt and the newest user turn for %s',
 		async (model) => {
-			const { getCompletion } = await import('./lib')
 			h.currentModel = { provider: 'openrouter', model }
 
 			await getCompletion([...conversation], new AbortController(), undefined, {
@@ -383,7 +376,6 @@ describe('OpenRouter prompt caching', () => {
 	)
 
 	it('leaves other OpenRouter upstreams alone', async () => {
-		const { getCompletion } = await import('./lib')
 		h.currentModel = { provider: 'openrouter', model: 'openai/gpt-5.1' }
 
 		await getCompletion([...conversation], new AbortController(), undefined, {

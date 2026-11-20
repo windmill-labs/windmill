@@ -9,7 +9,8 @@ import {
 } from './core'
 import type { ContextElement } from '../context'
 
-vi.mock('../shared', () => ({
+vi.mock('../shared', async (importOriginal) => ({
+	...(await importOriginal<typeof import('../shared')>()),
 	createToolDef: (_schema: unknown, name: string, description: string) => ({
 		type: 'function',
 		function: {

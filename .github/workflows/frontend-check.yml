@@ -11,6 +11,9 @@ on:
       - "frontend/**"
       # The flow chat compiles the chat SDK's source in (svelte.config.js alias).
       - "chat-sdk/src/**"
+      # Generated from or read by the unit tests (mcpSessionGen, displayCatalogGen, runArgsCases).
+      - "system_prompts/**"
+      - "backend/windmill-api/src/ai_session_tools/**"
       - ".github/workflows/frontend-check.yml"
 
 jobs:
@@ -30,3 +33,16 @@ jobs:
           NODE_OPTIONS: --max-old-space-size=8192
         run: cd frontend && npm ci && npm run lint && npm run generate-backend-client &&
           npm run check
+
+  unit_tests:
+    runs-on: ubicloud-standard-8
+    steps:
+      - uses: actions/checkout@v4.4.0
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: 24
+          cache: "npm"
+          cache-dependency-path: "frontend/package-lock.json"
+      - name: "vitest"
+        timeout-minutes: 5
+        run: cd frontend && npm ci && npm run generate-backend-client && npx vitest run
