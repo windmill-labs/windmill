@@ -2,6 +2,7 @@ import { writeFile, open as fsOpen } from "node:fs/promises";
 import { readTextFile } from "../../utils/utils.ts";
 import process from "node:process";
 import { GlobalOptions } from "../../types.ts";
+import type { WorkspaceEntryConfig } from "../../core/conf.ts";
 import {
   getActiveWorkspaceConfigFilePath,
   getWorkspaceConfigFilePath,
@@ -87,27 +88,87 @@ export async function getWorkspaceByName(
   return undefined;
 }
 
-// When the current git branch is a fork branch (wm-fork/<base>/<id>), commands
-// resolve the fork workspace from the branch name and ignore the active
-// profile — surface that wherever we display the active workspace, so users
-// don't act on the wrong "Active:" line.
-async function forkBranchAutoTargetNote(): Promise<string | undefined> {
+// Without --workspace, commands only fall back to the active profile when
+// wmill.yaml defines no workspaces (resolveWorkspace in core/context.ts) —
+// surface what they target instead wherever we display the active workspace,
+// so users don't act on the wrong "Active:" line. Keep in step with that order.
+async function branchAutoTargetNote(
+  opts: GlobalOptions
+): Promise<string | undefined> {
+  if (opts.workspace) {
+    return undefined;
+  }
   const {
     getCurrentGitBranch,
     getOriginalBranchForWorkspaceForks,
     getWorkspaceIdForWorkspaceForkFromBranchName,
+    isGitRepository,
   } = await import("../../utils/git.ts");
-  const branch = getCurrentGitBranch();
-  if (!branch || !getOriginalBranchForWorkspaceForks(branch)) {
+  const {
+    peekWorkspaces,
+    findWorkspaceByGitBranch,
+    getEffectiveWorkspaceId,
+    getWorkspaceNames,
+  } = await import("../../core/conf.ts");
+  // Not readConfigFile: a note must never exit, throw or chdir the command.
+  const workspacesConf = await peekWorkspaces();
+  const branch = isGitRepository() ? getCurrentGitBranch() : null;
+  const originalBranch = branch ? getOriginalBranchForWorkspaceForks(branch) : null;
+  const match = branch
+    ? findWorkspaceByGitBranch(workspacesConf, originalBranch ?? branch)
+    : undefined;
+
+  // Without a profile for the target, commands offer to create one and,
+  // when they cannot, may end up on the active profile after all.
+  const profiles = await allWorkspaces(opts.configDir);
+  const missingProfile = (wsName: string, entry: WorkspaceEntryConfig) => {
+    const workspaceId = getEffectiveWorkspaceId(wsName, entry);
+    let remote: string;
+    try {
+      remote = new URL(entry.baseUrl!).toString();
+    } catch {
+      return "";
+    }
+    return profiles.some((p) => p.remote === remote && p.workspaceId === workspaceId)
+      ? ""
+      : ` No local profile targets it yet: run \`wmill workspace add <profile> ${workspaceId} ${remote}\`, otherwise commands may fall back to the active profile.`;
+  };
+
+  if (match?.[1].baseUrl) {
+    const [wsName, entry] = match;
+    if (originalBranch) {
+      const forkWorkspaceId = getWorkspaceIdForWorkspaceForkFromBranchName(branch!);
+      return (
+        `Note: you are on fork branch \`${branch}\` — wmill commands automatically target the fork workspace \`${forkWorkspaceId}\` on ${entry.baseUrl} here, regardless of the active profile. Use --workspace to override.`
+      );
+    }
+    return (
+      `Note: git branch \`${branch}\` matches workspace \`${wsName}\` in wmill.yaml — wmill commands here target \`${getEffectiveWorkspaceId(wsName, entry)}\` on ${entry.baseUrl}, regardless of the active profile. Use --workspace to override.` +
+      missingProfile(wsName, entry)
+    );
+  }
+  if (originalBranch) {
+    // resolveWorkspace exits with its own error here.
     return undefined;
   }
-  const forkWorkspaceId = getWorkspaceIdForWorkspaceForkFromBranchName(branch);
-  if (!forkWorkspaceId) {
-    return undefined;
+
+  const wsNames = getWorkspaceNames(workspacesConf);
+  if (wsNames.length === 1) {
+    const entry = (workspacesConf as any)[wsNames[0]] as WorkspaceEntryConfig;
+    if (!entry?.baseUrl) {
+      return undefined;
+    }
+    return (
+      `Note: wmill.yaml defines a single workspace, \`${wsNames[0]}\` — wmill commands here target \`${getEffectiveWorkspaceId(wsNames[0], entry)}\` on ${entry.baseUrl}, regardless of the active profile. Use --workspace to override.` +
+      missingProfile(wsNames[0], entry)
+    );
   }
-  return (
-    `Note: you are on fork branch \`${branch}\` — wmill commands automatically target the fork workspace \`${forkWorkspaceId}\` here, regardless of the active profile. Use --workspace to override.`
-  );
+  if (wsNames.length > 1) {
+    return (
+      `Note: wmill.yaml defines workspaces ${wsNames.map((n) => `\`${n}\``).join(", ")} and the current git branch selects none of them — wmill commands here ask which one to use, or exit when not run in a terminal. Use --workspace to pick one.`
+    );
+  }
+  return undefined;
 }
 
 export async function list(opts: GlobalOptions) {
@@ -132,9 +193,9 @@ export async function list(opts: GlobalOptions) {
 
   log.info("Active: " + colors.green.bold(activeName || "none"));
 
-  const forkNote = await forkBranchAutoTargetNote();
-  if (forkNote) {
-    log.info(colors.yellow(forkNote));
+  const branchNote = await branchAutoTargetNote(opts);
+  if (branchNote) {
+    log.info(colors.yellow(branchNote));
   }
 }
 
@@ -169,9 +230,9 @@ async function switchC(opts: GlobalOptions, workspaceName: string) {
       `Switched to workspace ${workspaceName} (${workspace?.workspaceId} on ${workspace?.remote})`
     )
   );
-  const forkNote = await forkBranchAutoTargetNote();
-  if (forkNote) {
-    log.info(colors.yellow(forkNote));
+  const branchNote = await branchAutoTargetNote(opts);
+  if (branchNote) {
+    log.info(colors.yellow(branchNote));
   }
   return;
 }
@@ -507,6 +568,10 @@ async function whoami(_opts: GlobalOptions) {
     }
   } else {
     log.info("Active: " + colors.green.bold(activeName || "none"));
+    const branchNote = await branchAutoTargetNote(_opts);
+    if (branchNote) {
+      log.info(colors.yellow(branchNote));
+    }
   }
 }
 
