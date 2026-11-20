@@ -100,6 +100,14 @@
 		if (setting == 'nsjail_tmpfs_size_mb' && values['nsjail_tmp_backing'] === 'disk') {
 			return false
 		}
+		if (
+			(setting == 'workspace_fairness_max_percent' ||
+				setting == 'workspace_fairness_duration_secs' ||
+				setting == 'workspace_fairness_min_total_jobs') &&
+			values['workspace_fairness_enabled'] !== true
+		) {
+			return false
+		}
 		return true
 	}
 

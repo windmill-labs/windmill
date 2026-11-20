@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { WorkerService } from '$lib/gen'
+	import { SettingService, WorkerService } from '$lib/gen'
+	import { WORKSPACE_FAIRNESS_ENABLED_SETTING } from '$lib/consts'
 	import { Section } from './common'
 	import Skeleton from './common/skeleton/Skeleton.svelte'
 	import Badge from './common/badge/Badge.svelte'
@@ -18,6 +19,24 @@
 	let events: FairnessEvent[] = $state([])
 	let loading = $state(true)
 	let error: string | undefined = $state(undefined)
+	/** undefined when unreadable: the section then stays shown */
+	let fairnessEnabled: boolean | undefined = $state(undefined)
+	let fairnessLoading = $state(true)
+	// Past transitions stay reviewable after fairness is turned off.
+	let hidden = $derived(
+		fairnessLoading || (fairnessEnabled === false && events.length === 0 && (loading || !error))
+	)
+
+	async function loadFairnessEnabled() {
+		try {
+			fairnessEnabled =
+				(await SettingService.getGlobal({ key: WORKSPACE_FAIRNESS_ENABLED_SETTING })) === true
+		} catch (e) {
+			console.error('Failed to load the workspace fairness setting:', e)
+		} finally {
+			fairnessLoading = false
+		}
+	}
 
 	async function load() {
 		loading = true
@@ -33,6 +52,7 @@
 	}
 
 	load()
+	loadFairnessEnabled()
 
 	function formatParameters(p?: Record<string, unknown> | null): string {
 		if (!p) return ''
@@ -45,62 +65,64 @@
 	}
 </script>
 
-<Section label="Workspace fairness events">
-	{#snippet action()}
-		<Button
-			variant="subtle"
-			size="xs"
-			startIcon={{ icon: RefreshCw }}
-			iconOnly
-			onclick={load}
-			disabled={loading}
-		/>
-	{/snippet}
+{#if !hidden}
+	<Section label="Workspace fairness events">
+		{#snippet action()}
+			<Button
+				variant="subtle"
+				size="xs"
+				startIcon={{ icon: RefreshCw }}
+				iconOnly
+				onclick={load}
+				disabled={loading}
+			/>
+		{/snippet}
 
-	{#if loading}
-		<Skeleton layout={[[8]]} />
-	{:else if error}
-		<Alert type="error" title="Failed to load">{error}</Alert>
-	{:else if events.length === 0}
-		<p class="text-secondary text-sm">
-			No workspaces have been added to or removed from the fairness-restricted set yet. Entries
-			appear here once the cap activates.
-		</p>
-	{:else}
-		<div class="text-xs text-secondary mb-2">
-			Showing the last {events.length} workspace-fairness transitions (most recent first).
-		</div>
-		<div class="overflow-x-auto border rounded-md">
-			<table class="min-w-full text-sm">
-				<thead class="bg-surface-secondary text-secondary">
-					<tr>
-						<th class="text-left px-3 py-2 font-medium">Time</th>
-						<th class="text-left px-3 py-2 font-medium">Event</th>
-						<th class="text-left px-3 py-2 font-medium">Workspace</th>
-						<th class="text-left px-3 py-2 font-medium">Details</th>
-					</tr>
-				</thead>
-				<tbody>
-					{#each events as e}
-						<tr class="border-t">
-							<td class="px-3 py-2 whitespace-nowrap text-tertiary">
-								{displayDate(e.timestamp, true)}
-							</td>
-							<td class="px-3 py-2 whitespace-nowrap">
-								{#if e.operation === 'workspace_fairness.capped'}
-									<Badge color="red">capped</Badge>
-								{:else if e.operation === 'workspace_fairness.uncapped'}
-									<Badge color="green">uncapped</Badge>
-								{:else}
-									<Badge>{e.operation}</Badge>
-								{/if}
-							</td>
-							<td class="px-3 py-2 font-mono">{e.workspace_id ?? '—'}</td>
-							<td class="px-3 py-2 text-tertiary text-xs">{formatParameters(e.parameters)}</td>
+		{#if loading}
+			<Skeleton layout={[[8]]} />
+		{:else if error}
+			<Alert type="error" title="Failed to load">{error}</Alert>
+		{:else if events.length === 0}
+			<p class="text-secondary text-sm">
+				No workspaces have been added to or removed from the fairness-restricted set yet. Entries
+				appear here once the cap activates.
+			</p>
+		{:else}
+			<div class="text-xs text-secondary mb-2">
+				Showing the last {events.length} workspace-fairness transitions (most recent first).
+			</div>
+			<div class="overflow-x-auto border rounded-md">
+				<table class="min-w-full text-sm">
+					<thead class="bg-surface-secondary text-secondary">
+						<tr>
+							<th class="text-left px-3 py-2 font-medium">Time</th>
+							<th class="text-left px-3 py-2 font-medium">Event</th>
+							<th class="text-left px-3 py-2 font-medium">Workspace</th>
+							<th class="text-left px-3 py-2 font-medium">Details</th>
 						</tr>
-					{/each}
-				</tbody>
-			</table>
-		</div>
-	{/if}
-</Section>
+					</thead>
+					<tbody>
+						{#each events as e}
+							<tr class="border-t">
+								<td class="px-3 py-2 whitespace-nowrap text-tertiary">
+									{displayDate(e.timestamp, true)}
+								</td>
+								<td class="px-3 py-2 whitespace-nowrap">
+									{#if e.operation === 'workspace_fairness.capped'}
+										<Badge color="red">capped</Badge>
+									{:else if e.operation === 'workspace_fairness.uncapped'}
+										<Badge color="green">uncapped</Badge>
+									{:else}
+										<Badge>{e.operation}</Badge>
+									{/if}
+								</td>
+								<td class="px-3 py-2 font-mono">{e.workspace_id ?? '—'}</td>
+								<td class="px-3 py-2 text-tertiary text-xs">{formatParameters(e.parameters)}</td>
+							</tr>
+						{/each}
+					</tbody>
+				</table>
+			</div>
+		{/if}
+	</Section>
+{/if}
