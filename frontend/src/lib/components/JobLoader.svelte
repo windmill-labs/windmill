@@ -250,7 +250,8 @@
 	export async function runFlowByPath(
 		path: string,
 		args: Record<string, any>,
-		callbacks?: Callbacks
+		callbacks?: Callbacks,
+		tag?: string
 	): Promise<string> {
 		return abstractRun(
 			() =>
@@ -258,7 +259,8 @@
 					workspace: workspace!,
 					path: path ?? '',
 					requestBody: args,
-					skipPreprocessor: true
+					skipPreprocessor: true,
+					tag
 				}),
 			callbacks
 		)

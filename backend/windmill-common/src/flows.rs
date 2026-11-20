@@ -354,7 +354,8 @@ fn check_module_value_is_composition_only(
                 refs.pinned_scripts.push((path.clone(), *hash));
             }
         }
-        FlowModuleValue::Flow { path, .. } => {
+        FlowModuleValue::Flow { path, tag_override, .. } => {
+            push_tag(tag_override);
             push_runnable(refs, path, true)?;
         }
         FlowModuleValue::ForloopFlow { modules, modules_node, .. }
