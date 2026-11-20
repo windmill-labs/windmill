@@ -86,6 +86,11 @@
 		void runtime.manager.refreshSessionAccess(pick.workspace)
 		runtime.manager.setWorkMode(pick.mode)
 	}
+	function leaveDirect() {
+		const ws = session?.direct_in
+		setSessionDirectIn(sessionId, undefined)
+		if (ws) void runtime.manager.refreshSessionAccess(ws)
+	}
 	const starterPrompts = new StarterPrompts(
 		() => $workspaceStore ?? undefined,
 		() => !workModeLock.current && runtime.manager.workMode !== AIWorkMode.USE
@@ -147,7 +152,7 @@
 
 {#snippet actingOn()}
 	{#if session}
-		<WorkInForkToggle {session} staging={forkStaging} />
+		<WorkInForkToggle {session} staging={forkStaging} onLeaveDirect={leaveDirect} />
 	{/if}
 {/snippet}
 

@@ -5,14 +5,14 @@
 	// Asked when a Home draft on a protected workspace leaves Use: the session builds in a new
 	// fork, or, for a user the rule lets through, in the workspace itself.
 	let {
-		isOpen = $bindable(false),
+		isOpen = $bindable(),
 		workspace,
 		canFork,
 		canDirect,
 		onFork,
 		onDirect
 	}: {
-		isOpen?: boolean
+		isOpen: boolean
 		workspace: string
 		canFork: boolean
 		canDirect: boolean

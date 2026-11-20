@@ -18,6 +18,7 @@ import { isCloudHosted } from '$lib/cloud'
 import { random_adj } from '$lib/components/random_positive_adjetive'
 import { devBadgeText } from '$lib/utils/devWorkspaceLabel'
 import { getUserExt } from '$lib/user'
+import { WorkspaceService } from '$lib/gen'
 import {
 	canUserBypassRuleKindInRulesets,
 	isRuleActiveInRulesets,
@@ -67,40 +68,47 @@ export function useForkStaging(session: () => Session | undefined) {
 				workspaces.current.filter((w) => w.id !== 'admins').length < CE_MAX_NON_ADMIN_WORKSPACES)
 	)
 
-	function freeId(base: string): string {
-		const taken = new Set(workspaces.current.map((w) => w.id))
-		if (!taken.has(base)) return base
+	// Workspace ids are unique across the instance, and the list holds only the user's own: the
+	// server has the last word on whether an id is free.
+	async function isTaken(id: string): Promise<boolean> {
+		if (workspaces.current.some((w) => w.id === id)) return true
+		return await WorkspaceService.existsWorkspace({ requestBody: { id } }).catch(() => false)
+	}
+
+	async function freeId(base: string): Promise<string> {
+		if (!(await isTaken(base))) return base
 		let n = 2
-		while (taken.has(`${base}-${n}`)) n++
+		while (await isTaken(`${base}-${n}`)) n++
 		return `${base}-${n}`
 	}
 
-	function freshForkName(prefix: string): string {
-		const taken = new Set(workspaces.current.map((w) => w.id))
-		for (let i = 0; i < 50; i++) {
+	async function freshForkName(prefix: string): Promise<string> {
+		for (let i = 0; i < 20; i++) {
 			const candidate = random_adj()
-			if (!taken.has(`${prefix}${candidate}`)) return candidate
+			if (!(await isTaken(`${prefix}${candidate}`))) return candidate
 		}
 		const base = random_adj()
 		let n = 1
-		while (taken.has(`${prefix}${base}-${n}`)) n++
+		while (await isTaken(`${prefix}${base}-${n}`)) n++
 		return `${base}-${n}`
 	}
 
 	// A workspace has at most one dev workspace, so a saved dev choice applies only while the base
 	// has none yet, and never on a dev base, which the fork form offers no dev of from a session;
-	// otherwise the fork is a plain one.
-	function applicableSettings(
+	// otherwise the fork is a plain one. The server is asked, as the user may not see that dev.
+	async function applicableSettings(
 		parent: string,
 		settings: StagedForkSettings | undefined
-	): StagedForkSettings | undefined {
+	): Promise<StagedForkSettings | undefined> {
 		if (!settings?.is_dev_workspace) return settings
-		const blocked = workspaces.current.some(
-			(w) =>
-				(w.parent_workspace_id === parent && w.is_dev_workspace) ||
-				(w.id === parent && w.is_dev_workspace)
-		)
-		if (!blocked) return settings
+		const parentIsDev = workspaces.current.some((w) => w.id === parent && w.is_dev_workspace)
+		const hasDev =
+			parentIsDev ||
+			(await WorkspaceService.getDevWorkspace({ workspace: parent }).then(
+				(d) => !!d,
+				() => true
+			))
+		if (!hasDev) return settings
 		return {
 			...settings,
 			is_dev_workspace: false,
@@ -143,24 +151,29 @@ export function useForkStaging(session: () => Session | undefined) {
 		staging = true
 		const from = workspace
 		const defaults = loadForkDefaults(root?.id)
-		const parent = await defaultBase(defaults?.base).finally(() => (staging = false))
-		const now = session()
-		// The header moved, or the draft was sent or staged, while the rules were read.
-		if (!now || !parent || workspace !== from || now.workspace_id) return !!now?.pending_fork
-		if (now.pending_fork) return true
-		const settings = applicableSettings(parent, defaults?.settings)
-		// A dev workspace is named `<base>-<label>` with no `wm-fork-` prefix, as the fork form names it.
-		const prefix = settings?.is_dev_workspace ? '' : WM_FORK_PREFIX
-		const name = settings?.is_dev_workspace
-			? freeId(`${parent}-${devBadgeText(settings.dev_workspace_label)}`)
-			: freshForkName(prefix)
-		setSessionPendingFork(now.id, {
-			parent_workspace_id: parent,
-			id: `${prefix}${name}`,
-			name,
-			settings
-		})
-		return true
+		try {
+			const parent = await defaultBase(defaults?.base)
+			if (!parent) return !!session()?.pending_fork
+			const settings = await applicableSettings(parent, defaults?.settings)
+			// A dev workspace is named `<base>-<label>` with no `wm-fork-` prefix, as the fork form names it.
+			const prefix = settings?.is_dev_workspace ? '' : WM_FORK_PREFIX
+			const name = settings?.is_dev_workspace
+				? await freeId(`${parent}-${devBadgeText(settings.dev_workspace_label)}`)
+				: await freshForkName(prefix)
+			const now = session()
+			// The header moved, or the draft was sent or staged, while the server was asked.
+			if (!now || workspace !== from || now.workspace_id) return !!now?.pending_fork
+			if (now.pending_fork) return true
+			setSessionPendingFork(now.id, {
+				parent_workspace_id: parent,
+				id: `${prefix}${name}`,
+				name,
+				settings
+			})
+			return true
+		} finally {
+			staging = false
+		}
 	}
 
 	return {

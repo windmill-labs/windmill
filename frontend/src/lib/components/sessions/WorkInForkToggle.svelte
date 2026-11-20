@@ -10,14 +10,28 @@
 	import Checkbox from '$lib/components/common/checkbox/Checkbox.svelte'
 	import Modal2 from '$lib/components/common/modal/Modal2.svelte'
 	import WorkspaceScopeTrigger from '$lib/components/WorkspaceScopeTrigger.svelte'
-	import { Badge } from '$lib/components/common'
+	import { Badge, Button } from '$lib/components/common'
+	import { X } from 'lucide-svelte'
 	import type { Session } from './sessionState.svelte'
 	import type { useForkStaging } from './forkStaging.svelte'
 
-	let { session, staging }: { session: Session; staging: ReturnType<typeof useForkStaging> } =
-		$props()
+	let {
+		session,
+		staging,
+		onLeaveDirect
+	}: {
+		session: Session
+		staging: ReturnType<typeof useForkStaging>
+		onLeaveDirect: () => void
+	} = $props()
 
 	const staged = $derived(session.pending_fork)
+	// Shown even where forking is unavailable: it is then the only way back out of direct work.
+	const direct = $derived(
+		!staged && !!session.direct_in && session.direct_in === staging.workspace
+			? session.direct_in
+			: undefined
+	)
 
 	function toggle() {
 		if (staged) staging.unstage()
@@ -31,20 +45,26 @@
 	}
 </script>
 
-{#if staging.available}
+{#if staging.available || direct}
 	<div class="flex items-center gap-1.5 min-w-0 text-2xs text-secondary">
-		<label class="flex items-center gap-1.5 shrink-0 cursor-pointer">
-			<Checkbox checked={!!staged} onChange={toggle} />
-			<span>Work in fork</span>
-		</label>
-		{#if !staged && session.direct_in && session.direct_in === staging.workspace}
-			<Badge
-				color="orange"
-				small
-				title="You chose to work in {session.direct_in} itself. Check Work in fork to build in a fork instead."
-			>
-				Changes go directly to {session.direct_in}
+		{#if staging.available}
+			<label class="flex items-center gap-1.5 shrink-0 cursor-pointer">
+				<Checkbox checked={!!staged} onChange={toggle} />
+				<span>Work in fork</span>
+			</label>
+		{/if}
+		{#if direct}
+			<Badge color="orange" small title="You chose to work in {direct} itself.">
+				Changes go directly to {direct}
 			</Badge>
+			<Button
+				variant="subtle"
+				unifiedSize="2xs"
+				iconOnly
+				startIcon={{ icon: X }}
+				title="Stop working in {direct} directly"
+				onClick={onLeaveDirect}
+			/>
 		{/if}
 		{#if staged}
 			<WorkspaceScopeTrigger
