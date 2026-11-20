@@ -48,6 +48,7 @@
 	import AskUserQuestionDisplay from './AskUserQuestionDisplay.svelte'
 	import RunScriptCard from './RunScriptCard.svelte'
 	import ToolDiffCard from './ToolDiffCard.svelte'
+	import DeployCard from './DeployCard.svelte'
 	import { hasToolCodeDiff } from './toolCodeDiff'
 	import { TOOL_CONFIRM_ACTIONS } from './toolConfirmAction'
 	import WebSearchSourcesDisplay from './WebSearchSourcesDisplay.svelte'
@@ -176,6 +177,11 @@
 	// the job it named — what happened in a run reads the same either way.
 	const isRunCard = $derived(Boolean(message.runForm || message.inspectedRun))
 	const isDiffCard = $derived(hasToolCodeDiff(message))
+	// Only while it waits on the user: once answered, a deploy reads as any other settled call.
+	const isDeployCard = $derived(
+		message.toolName === 'deploy_workspace_item' &&
+			Boolean(message.isLoading && message.needsConfirmation)
+	)
 
 	// The preview chip sits on the header row (to the right of the tool-call text);
 	// shown once the tool settled, never while loading/erroring/awaiting confirmation.
@@ -228,6 +234,8 @@
 			<span class="text-2xs text-tertiary truncate">{message.toolName} held until read</span>
 		{/if}
 	</div>
+{:else if isDeployCard}
+	<DeployCard {message} />
 {:else if isRunCard}
 	<RunScriptCard {message} />
 {:else if isDiffCard}

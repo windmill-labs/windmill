@@ -80,6 +80,7 @@
 		readDroppedEntries
 	} from './files/fsAccess'
 	import { sendUserToast } from '$lib/toast'
+	import { overlayStack } from '$lib/components/common/overlayHost.svelte'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import { copilotInfo } from '$lib/aiStore'
 	import ComposerSuggestions from './starter/ComposerSuggestions.svelte'
@@ -250,9 +251,12 @@
 	// Capture phase is required: Monaco and mounted-but-closed Modal2
 	// instances consume window Escapes before they bubble.
 	let panelEl: HTMLDivElement | undefined = $state()
+	// An open drawer or modal, such as the deploy card's diff, takes the Escape that closes it.
+	// Focus stays on the button that opened it, so it would otherwise cancel the pending deploy.
+	const overlays = overlayStack()
 	$effect(() => {
 		function onWindowKeydownCapture(e: KeyboardEvent) {
-			if (e.key !== 'Escape' || !chatHost.loading) return
+			if (e.key !== 'Escape' || !chatHost.loading || overlays.val.length > 0) return
 			const active = document.activeElement
 			// Focus parked on the body answers for the panel on screen only: the flow chat keeps
 			// a panel per conversation mounted, several of which can be loading, and a hidden

@@ -229,6 +229,7 @@ import {
 	resolveGlobalDraftStoragePathByKind,
 	type DraftPersistResult
 } from './userDraftAdapter'
+import { takeDeployEdits } from './deployEdits'
 import {
 	applySessionToolEffects,
 	applyStatusEffects,
@@ -7131,13 +7132,13 @@ async function deployDraft(
 	ctx: WriteDraftCtx
 ): Promise<string> {
 	const { workspace, toolId, toolCallbacks, sessionId } = ctx
-	const {
-		type,
-		path,
-		trigger_kind: triggerKind,
-		deployment_message: deploymentMessage,
-		force
-	} = args
+	const { type, path, trigger_kind: triggerKind, force } = args
+	const edits = takeDeployEdits(toolId)
+	const deploymentMessage =
+		edits?.deploymentMessage !== undefined
+			? edits.deploymentMessage || undefined
+			: args.deployment_message
+	const onBehalfOf = edits?.onBehalfOf
 
 	if (type === 'trigger' && !triggerKind) {
 		throw new Error('trigger_kind is required when deploying a trigger.')
@@ -7202,13 +7203,20 @@ async function deployDraft(
 				: undefined
 			assertDraftBasedOnLatest('flow', path, draft.parentVersionId, existing?.version_id, force)
 		}
+		const isNewItem = !(type === 'script'
+			? await ScriptService.existsScriptByPath({ workspace, path })
+			: await FlowService.existsFlowByPath({ workspace, path }))
+		if (edits?.deployPath && isNewItem) deployedPath = edits.deployPath
 		const draftOnly =
 			type === 'flow'
 				? !(await FlowService.existsFlowByPath({ workspace, path: storagePath }))
 				: false
 		const result = await deployDraftToWorkspace(type, storagePath, workspace, {
 			draftOnly,
-			deploymentMessage
+			deploymentMessage,
+			onBehalfOf,
+			// A path change is a rename for an item already deployed, which the card never offers.
+			deployPath: edits?.deployPath && isNewItem ? edits.deployPath : undefined
 		})
 		if (!result.success) {
 			throw new Error(result.error ?? `Failed to deploy ${type} "${path}".`)
@@ -7316,6 +7324,10 @@ async function deployDraft(
 				if (!policy) {
 					throw new Error(`Draft app "${path}" has no policy to deploy.`)
 				}
+				if (onBehalfOf) {
+					policy.on_behalf_of = onBehalfOf.permissionedAs
+					policy.on_behalf_of_email = onBehalfOf.email
+				}
 
 				// An app deployed on its own while a path runnable still points at a draft
 				// is deployed and broken — the deploy has to say so, not just report success.
@@ -7389,8 +7401,14 @@ async function deployDraft(
 						throw e
 					}
 				}
+				if (edits?.deployPath && !(await AppService.existsApp({ workspace, path: targetPath }))) {
+					targetPath = edits.deployPath
+				}
 				deployedPath = targetPath
 				const isUpdate = await AppService.existsApp({ workspace, path: targetPath })
+				// The access the user picked on the card applies to a new app only: an update keeps the
+				// deployed one, which only the Share dialog changes.
+				if (!isUpdate && edits?.appAccess) policy.execution_mode = edits.appAccess
 				if (isUpdate) {
 					// Who can open the app and its custom URL are set from the Share dialog: the update
 					// states neither, and the server keeps the deployed ones.
@@ -7506,17 +7524,49 @@ async function deployDraft(
 		})
 	}
 
+	// The model asked for neither, so it has to be told what was actually deployed.
+	const changed = [
+		edits?.deploymentMessage !== undefined &&
+		(edits.deploymentMessage || undefined) !== args.deployment_message
+			? deploymentMessage
+				? `the deployment message to "${deploymentMessage}"`
+				: 'the deployment message to none'
+			: undefined,
+		deployedPath !== path && edits?.deployPath === deployedPath
+			? `the path to ${deployedPath}`
+			: undefined,
+		edits?.appAccess
+			? `who can open the app to ${
+					edits.appAccess === 'publisher'
+						? 'members only'
+						: edits.appAccess === 'guest'
+							? 'guests'
+							: 'anyone with the link'
+				}`
+			: undefined,
+		onBehalfOf
+			? onBehalfOf.permissionedAs || onBehalfOf.email
+				? `the user it runs on behalf of to ${onBehalfOf.permissionedAs ?? onBehalfOf.email}`
+				: 'it to run as whoever starts each run'
+			: undefined
+	].filter(Boolean)
+	const userChanges = changed.length
+		? `Before confirming, the user changed ${changed.join(' and ')}.`
+		: undefined
+
 	toolCallbacks.setToolStatus(toolId, {
-		content: `Deployed ${noun} "${path}"`,
+		content: `Deployed ${noun} "${deployedPath}"`,
 		result: 'Deployed',
 		actions
 	})
 	return JSON.stringify(
 		{
 			success: true,
-			message: `Deployed draft ${type} "${path}" to the workspace. Draft removed.${
-				deployNote ? ` ${deployNote}` : ''
-			}`,
+			message: `Deployed draft ${type} "${path}" to the workspace${
+				deployedPath !== path ? ` at "${deployedPath}"` : ''
+			}. Draft removed.${
+				userChanges ? ` ${userChanges}` : ''
+			}${deployNote ? ` ${deployNote}` : ''}`,
 			type,
 			path,
 			triggerKind
