@@ -970,7 +970,7 @@
 						}}
 						disabled={!canEditEEConfig}
 					/>
-					{#if workspaceFairnessEnabled === false}
+					{#if workspaceFairnessEnabled === false && nconfig?.fairness_reserve === true}
 						<Alert size="xs" type="warning" title="Workspace fairness is off">
 							This group pulls no jobs while workspace fairness is off in the instance settings.
 							Turn the reserve off, or enable workspace fairness.
