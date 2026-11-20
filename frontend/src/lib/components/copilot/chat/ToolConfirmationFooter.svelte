@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
+	import type { Snippet } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { getChatViewHost } from './chatViewHost'
 
@@ -13,7 +14,12 @@
 		/** Omit for a label-only confirm button. */
 		confirmIcon?: any
 		confirmDestructive?: boolean
+		confirmDisabled?: boolean
 		class?: string
+		/** Rendered just before the reject button. */
+		leading?: Snippet
+		/** Runs right before the call is confirmed. */
+		onConfirm?: () => void
 	}
 
 	let {
@@ -24,13 +30,17 @@
 		confirmLabel,
 		confirmIcon,
 		confirmDestructive = false,
-		class: className
+		confirmDisabled = false,
+		class: className,
+		leading,
+		onConfirm
 	}: Props = $props()
 
 	const chatHost = getChatViewHost()
 
 	function respond(confirmed: boolean) {
 		if (toolCallId) {
+			if (confirmed) onConfirm?.()
 			chatHost.handleToolConfirmation(toolCallId, confirmed)
 		}
 	}
@@ -38,6 +48,7 @@
 
 <!-- font-main: the tool cards around it are font-mono, which reads as bold on a button label. -->
 <div class={twMerge('flex flex-row items-center justify-end gap-2 font-main', className)}>
+	{@render leading?.()}
 	<Button
 		variant="default"
 		unifiedSize="sm"
@@ -51,6 +62,7 @@
 		variant="accent"
 		unifiedSize="sm"
 		destructive={confirmDestructive}
+		disabled={confirmDisabled}
 		startIcon={confirmIcon ? { icon: confirmIcon } : undefined}
 		on:click={() => respond(true)}
 	>
