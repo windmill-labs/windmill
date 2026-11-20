@@ -3079,6 +3079,10 @@ pub async fn reload_npm_config_registry_setting(conn: &Connection) {
     .await;
 }
 
+pub async fn reload_npmrc_setting(conn: &Connection) {
+    reload_option_setting_with_tracing(conn, NPMRC_SETTING, "NPMRC", NPMRC.clone()).await;
+}
+
 pub async fn reload_bunfig_install_scopes_setting(conn: &Connection) {
     reload_option_setting_with_tracing(
         conn,
