@@ -23,6 +23,7 @@
 		starter = undefined,
 		onSent = undefined,
 		inputPreface,
+		actingOn,
 		workModeLock = undefined,
 		initialInstructions = undefined,
 		onDraftChange = undefined,
@@ -47,6 +48,7 @@
 		starter?: import('./starter/starterPrompts.svelte').ChatStarter
 		onSent?: () => void
 		inputPreface?: import('svelte').Snippet
+		actingOn?: import('svelte').Snippet
 		workModeLock?: import('./workMode').WorkModeLock
 		// Seed / observe the composer's draft (forwarded to AIChatDisplay).
 		initialInstructions?: string
@@ -225,6 +227,7 @@
 	{starter}
 	{onSent}
 	{inputPreface}
+	{actingOn}
 	{workModeLock}
 	{initialInstructions}
 	{onDraftChange}
