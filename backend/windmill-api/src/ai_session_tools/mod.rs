@@ -118,6 +118,8 @@ const EDITOR_ONLY: &[&str] = &[
     // The side panel, the question card and the browser-held user instructions.
     "open_page",
     "askUserQuestion",
+    // The secret card: the user types the value into the browser, which saves it.
+    "request_secret",
     "update_user_instructions",
     // Files attached to the chat.
     "search_files",

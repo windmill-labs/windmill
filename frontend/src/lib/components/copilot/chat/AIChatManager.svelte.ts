@@ -25,6 +25,8 @@ import {
 	type ToolCallbacks,
 	type ToolDisplayMessage,
 	type UserQuestionDisplay,
+	type SecretRequest,
+	type SecretRequestOutcome,
 	type RunFormAnswer,
 	type RunFormDisplay,
 	type RunFormDraft,
@@ -984,6 +986,10 @@ export class AIChatManager implements ChatViewHost {
 		{ resolve: (value: boolean) => void; toolName?: string }
 	>()
 	private userQuestionCallbacks = new Map<string, (choices: string[] | undefined) => void>()
+	private secretRequestCallbacks = new Map<
+		string,
+		(outcome: SecretRequestOutcome | undefined) => void
+	>()
 	// Kept apart from confirmationCallbacks: YOLO answers those, and never answers these.
 	// Resolved undefined when the turn stops first.
 	private scopeCallbacks = new Map<string, (decision: ScopeDecision | undefined) => void>()
@@ -2434,6 +2440,38 @@ export class AIChatManager implements ChatViewHost {
 
 		callback(choices)
 		this.userQuestionCallbacks.delete(toolId)
+		return true
+	}
+
+	requestSecret = (
+		toolId: string,
+		_request: SecretRequest
+	): Promise<SecretRequestOutcome | undefined> => {
+		return new Promise((resolve) => {
+			this.secretRequestCallbacks.set(toolId, resolve)
+		})
+	}
+
+	/** The card has already saved the variable, or the user dismissed it: this settles the
+	 * card and hands the tool the path. Returns whether a parked call was waiting. */
+	handleSecretRequestResult = (
+		toolId: string,
+		outcome: SecretRequestOutcome | undefined
+	): boolean => {
+		const callback = this.secretRequestCallbacks.get(toolId)
+		if (!callback) return false
+		this.displayMessages = this.displayMessages.map((message) =>
+			message.role === 'tool' && message.tool_call_id === toolId && message.secretRequest
+				? {
+						...message,
+						secretRequest: outcome
+							? { ...message.secretRequest, saved: outcome }
+							: { ...message.secretRequest, canceled: true }
+					}
+				: message
+		)
+		callback(outcome)
+		this.secretRequestCallbacks.delete(toolId)
 		return true
 	}
 
@@ -4806,6 +4844,7 @@ export class AIChatManager implements ChatViewHost {
 					onToolBlockedByPlanMode: this.planMode.noteBlockedTool,
 					isToolWithdrawn: this.isToolWithdrawn,
 					requestUserQuestion: this.requestUserQuestion,
+					requestSecret: this.requestSecret,
 					requestRunArgs: this.requestRunArgs,
 					markRunFormStarted: this.markRunFormStarted,
 					markRunFormEnded: this.markRunFormEnded,
@@ -5110,6 +5149,10 @@ export class AIChatManager implements ChatViewHost {
 			resolveQuestion(undefined)
 		}
 		this.userQuestionCallbacks.clear()
+		for (const resolveSecret of this.secretRequestCallbacks.values()) {
+			resolveSecret(undefined)
+		}
+		this.secretRequestCallbacks.clear()
 		for (const [toolId, entry] of this.#runForms) {
 			entry.resolve?.(undefined)
 			// Stopping the turn is the form's other way out, and the draft dies with this loop:
@@ -5735,6 +5778,10 @@ export class AIChatManager implements ChatViewHost {
 					userQuestion: message.userQuestion
 						? { ...message.userQuestion, canceled: true }
 						: undefined,
+					secretRequest:
+						message.secretRequest && !message.secretRequest.saved
+							? { ...message.secretRequest, canceled: true }
+							: message.secretRequest,
 					runForm: message.runForm
 						? settledRunForm({ ...message.runForm, canceled: runState === 'idle' })
 						: undefined

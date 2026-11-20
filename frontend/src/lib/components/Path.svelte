@@ -104,6 +104,8 @@
 		/** Show the "moving may break other items" warning on a rename. Off for items nothing
 		 *  can reference by path and whose dependents move with them (eval datasets). */
 		warnOnRename?: boolean
+		/** The error shown when the path is taken, for a caller that offers to overwrite it. */
+		takenError?: string
 	}
 
 	let {
@@ -124,7 +126,8 @@
 		workspaceOverride = undefined,
 		actingUser = undefined,
 		allowedExistingPath = undefined,
-		warnOnRename = true
+		warnOnRename = true,
+		takenError = 'path already used'
 	}: Props = $props()
 
 	let ws = $derived(workspaceOverride ?? $operatingWorkspace)
@@ -270,7 +273,7 @@
 				(path == '' || checkInitialPathExistence || path != initialPath) &&
 				(await pathExists(path, kind))
 			) {
-				error = 'path already used'
+				error = takenError
 			} else if (meta && validateName(meta)) {
 				error = ''
 			}
