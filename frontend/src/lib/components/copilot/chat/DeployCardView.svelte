@@ -13,7 +13,8 @@
 		held: OnBehalfOf
 		/** The deployed user; both unset for a new item or one that runs as its caller. */
 		saved: OnBehalfOf
-		/** The folder default a new item with no user takes. */
+		/** The folder default a new item with no user takes. The deploy applies it, so the setting
+		 *  shows as required, as in the editors' deploy dialog. */
 		folderDefault: string | undefined
 		rawApp: boolean
 	}
@@ -209,7 +210,7 @@
 		{#if identity && workspace}
 			<RunOnBehalfOfSetting
 				kind={identity.kind}
-				required={identity.kind === 'app'}
+				required={identity.kind === 'app' || !!identity.folderDefault}
 				tooltip={identity.kind === 'app' ? appOnBehalfOfTooltip(identity.rawApp) : undefined}
 				bind:email={
 					() => runAs?.email, (v) => (picked = { email: v, permissionedAs: runAs?.permissionedAs })
