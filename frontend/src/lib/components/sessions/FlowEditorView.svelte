@@ -73,7 +73,7 @@
 </script>
 
 {#if cell.saved.val}
-	<DiffDrawer bind:this={diffDrawer} {restoreDeployed} isFlow />
+	<DiffDrawer bind:this={diffDrawer} {restoreDeployed} aiChat={runtime.manager} isFlow />
 {/if}
 <SessionEditorTarget
 	{runtime}
