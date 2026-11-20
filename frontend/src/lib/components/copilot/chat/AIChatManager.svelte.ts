@@ -2462,7 +2462,7 @@ export class AIChatManager implements ChatViewHost {
 		outcome: SecretRequestOutcome | undefined
 	): boolean => {
 		const callback = this.secretRequestCallbacks.get(toolId)
-		if (!callback) return false
+		if (!callback) return outcome ? this.secretSavedAfterStop(toolId, outcome) : false
 		this.displayMessages = this.displayMessages.map((message) =>
 			message.role === 'tool' && message.tool_call_id === toolId && message.secretRequest
 				? {
@@ -2475,6 +2475,32 @@ export class AIChatManager implements ChatViewHost {
 		)
 		callback(outcome)
 		this.secretRequestCallbacks.delete(toolId)
+		return true
+	}
+
+	/** Stop cannot abort a save already sent, so one can land after the turn told the model
+	 * the request was dismissed. The variable exists: the card says so, and the model learns
+	 * where it is on its next turn. */
+	private secretSavedAfterStop = (toolId: string, outcome: SecretRequestOutcome): boolean => {
+		const message = this.displayMessages.find(
+			(m): m is ToolDisplayMessage =>
+				m.role === 'tool' && m.tool_call_id === toolId && !!m.secretRequest
+		)
+		if (!message?.secretRequest) return false
+		const { label } = message.secretRequest
+		this.displayMessages = this.displayMessages.map((m) =>
+			m === message
+				? {
+						...message,
+						error: undefined,
+						content: `Saved ${label} to ${outcome.path}`,
+						secretRequest: { ...message.secretRequest!, canceled: false, saved: outcome }
+					}
+				: m
+		)
+		void this.queueModelNote(
+			`The user's ${label} was saved after the turn stopped, although the request was reported dismissed: it is the secret variable ${outcome.path}, referenced as "$var:${outcome.path}".`
+		)
 		return true
 	}
 

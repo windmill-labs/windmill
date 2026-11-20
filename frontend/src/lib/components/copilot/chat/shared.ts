@@ -601,8 +601,8 @@ export type SecretRequest = {
 	 * the secret is for. */
 	resourceType?: string
 	resourcePath?: string
-	/** The user asked to replace the variable at `path`. Otherwise a taken path is the AI's
-	 * mistake, and the card offers a free one first. */
+	/** The user asked to replace the variable at `path`. Without it, `request_secret` refuses
+	 * a taken path before the card shows. */
 	replace?: boolean
 }
 

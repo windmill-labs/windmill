@@ -4,6 +4,7 @@
 	import Password from '$lib/components/Password.svelte'
 	import IconedResourceType from '$lib/components/IconedResourceType.svelte'
 	import Path from '$lib/components/Path.svelte'
+	import { safeHref } from '$lib/utils/safeHref'
 	import { resourcePageUrl, saveSecretVariable, variablePageUrl } from './secretRequest'
 	import type { SecretRequestDisplay, SecretRequestOutcome } from './shared'
 
@@ -21,6 +22,9 @@
 		onSaved,
 		onDismiss
 	}: Props = $props()
+
+	// The model writes this URL, so a prompt injection could make it `javascript:`.
+	const helpHref = $derived(safeHref(request.helpUrl, window.location.href))
 
 	let value = $state('')
 	let saving = $state(false)
@@ -114,10 +118,10 @@
 						{/if}
 					</p>
 				</div>
-				{#if request.helpUrl}
+				{#if helpHref}
 					<a
 						class="flex shrink-0 items-center gap-1 text-2xs text-accent"
-						href={request.helpUrl}
+						href={helpHref}
 						target="_blank"
 						rel="noopener noreferrer"
 					>
