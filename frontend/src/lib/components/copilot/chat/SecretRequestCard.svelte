@@ -40,7 +40,7 @@
 		saving = true
 		saveError = undefined
 		try {
-			const outcome = await saveSecretVariable(request, value, savePath)
+			const outcome = await saveSecretVariable(request, value, savePath, taken)
 			value = ''
 			onSaved?.(outcome)
 		} catch (e) {

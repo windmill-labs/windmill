@@ -3,17 +3,20 @@ import { VariableService } from '$lib/gen'
 import { buildResourcesUrl, buildVariablesUrl } from './global/pageNavigation'
 import type { SecretRequest, SecretRequestOutcome } from './shared'
 
-/** Saves the value as a secret variable at `path` (the requested one unless the user chose
- * another), deployed rather than drafted: the AI references it from a resource or a run right
- * after, and a draft is not readable by either. An existing variable at the path keeps its
- * other fields and gets the new value. */
+/** Saves the value as a secret variable at `path`, deployed rather than drafted: the AI
+ * references it from a resource or a run right after, and a draft is not readable by either.
+ * An existing variable keeps its other fields and gets the new value, but only with `replace`:
+ * the card sets it once it shows the path as taken, so a save racing that check never
+ * overwrites a secret unannounced. */
 export async function saveSecretVariable(
 	request: SecretRequest,
 	value: string,
-	path: string = request.path
+	path: string,
+	replace: boolean
 ): Promise<SecretRequestOutcome> {
 	const { workspace } = request
 	const exists = await VariableService.existsVariable({ workspace, path })
+	if (exists && !replace) throw new Error('This path is already taken.')
 	if (exists) {
 		await VariableService.updateVariable({
 			workspace,
@@ -61,7 +64,7 @@ export function secretRequestToolResult(
 	const moved =
 		outcome.path === requestedPath
 			? ''
-			: ` The user saved it there instead of ${requestedPath}, which already held a variable: use ${outcome.path} from now on, and check a path is free before asking for a secret again.`
+			: ` The user chose this path instead of ${requestedPath}: use ${outcome.path} from now on.`
 	return JSON.stringify({
 		success: true,
 		variable: `$var:${outcome.path}`,
