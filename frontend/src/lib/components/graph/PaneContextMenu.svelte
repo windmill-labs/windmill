@@ -45,6 +45,21 @@
 		return { x: rect?.left ?? 0, y: rect?.top ?? 0 }
 	})
 
+	// Kept inside the canvas: past its right edge the editor's side panel covers the menu,
+	// and past its bottom the items leave the window. A menu that would overflow the bottom
+	// opens above the pointer instead.
+	let canvasRect = $state<DOMRect | undefined>(undefined)
+	let menuWidth = $state(0)
+	let menuHeight = $state(0)
+	const menuPosition = $derived.by(() => {
+		let { x, y } = contextMenuPosition
+		if (canvasRect) {
+			if (x + menuWidth > canvasRect.right) x = Math.max(canvasRect.left, x - menuWidth)
+			if (y + menuHeight > canvasRect.bottom) y = Math.max(canvasRect.top, y - menuHeight)
+		}
+		return { x: x - menuOrigin.x, y: y - menuOrigin.y }
+	})
+
 	function handlePaneContextMenu(event: MouseEvent) {
 		// Only show context menu in edit mode
 		if (!editMode || (selectionMenuItems.length === 0 && !noteEditorContext?.noteEditor)) {
@@ -59,6 +74,7 @@
 			x: event.clientX,
 			y: event.clientY
 		}
+		canvasRect = (event.target as Element | null)?.closest('.svelte-flow')?.getBoundingClientRect()
 
 		// Convert to flow coordinates for note placement
 		pendingFlowPosition = screenToFlowPosition({
@@ -97,8 +113,9 @@
 		<!-- Context menu -->
 		<div
 			class="{posClass} {getContextMenuContainerClass('z-[9999]')}"
-			style="left: {contextMenuPosition.x - menuOrigin.x}px; top: {contextMenuPosition.y -
-				menuOrigin.y}px;"
+			style="left: {menuPosition.x}px; top: {menuPosition.y}px;"
+			bind:offsetWidth={menuWidth}
+			bind:offsetHeight={menuHeight}
 			transition:fly={{ duration: 150, y: -10 }}
 			role="menu"
 			tabindex="-1"
