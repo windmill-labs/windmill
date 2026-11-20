@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT until, started_by FROM autoscaling_recording WHERE worker_group = $1 AND until > now()",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "until",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 1,
+        "name": "started_by",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "1b8f8d4d6c2f825aaa22ae758852448bb1df27afa17b53faed97022c05608637"
+}

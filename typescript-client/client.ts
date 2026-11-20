@@ -602,6 +602,100 @@ export async function runFlowAsync(
 }
 
 /**
+ * Run the deployed flow at `path` with some of its steps overridden, wait for it and return
+ * its result. Meant for test scripts.
+ *
+ * Each entry of `steps` maps a step id to either:
+ * - a value: the step is skipped and returns that value, or
+ * - a function exported from the calling script's own file: the step runs that function
+ *   instead of its own code, with the step's inputs as arguments (matched by name).
+ *
+ * A step inside a subflow is named by the path of step ids to it, `"sub:inner"` for step `inner`
+ * of the subflow that step `sub` calls. It applies to every call of that subflow made by the
+ * tested flow and by the subflows it overrides; a subflow left as is still calls the deployed
+ * one. Those subflows, and each one on the way to an override, run as you rather than as their
+ * on-behalf-of identity. Result caching is off for the whole test run.
+ *
+ * The flow's preprocessor does not run: `args` are what the flow receives after it. A subflow
+ * never runs its own preprocessor, in a test or not. AI agent
+ * tools cannot be overridden; override the agent step instead.
+ *
+ * @example
+ * export function fakeFetch(url: string) { return { status: 200 } }
+ * export async function main() {
+ *   const result = await wmill.testFlow("f/flows/sync", { user: "a" }, {
+ *     fetch_users: fakeFetch,   // replaced logic
+ *     send_email: "sent",       // mocked result
+ *   });
+ * }
+ * @param path - Flow path in Windmill
+ * @param args - Arguments to pass to the flow
+ * @param steps - Step id to mocked result, or to the function replacing the step
+ * @param verbose - Enable verbose logging
+ * @returns Flow execution result
+ */
+export async function testFlow(
+  path: string,
+  args: Record<string, any> | null = null,
+  steps: Record<string, any> = {},
+  verbose: boolean = false
+): Promise<any> {
+  const jobId = await testFlowAsync(path, args, steps);
+  return await waitJob(jobId, verbose);
+}
+
+/**
+ * Like {@link testFlow}, but returns the job id without waiting for the flow to complete.
+ */
+export async function testFlowAsync(
+  path: string,
+  args: Record<string, any> | null = null,
+  steps: Record<string, any> = {}
+): Promise<string> {
+  const stepOverrides: Record<string, any> = {};
+  let usesFunction = false;
+  for (const [id, o] of Object.entries(steps)) {
+    if (typeof o === "function") {
+      if (!o.name) {
+        throw new Error(
+          `step \`${id}\`: the replacing function must be a named function exported from this file`
+        );
+      }
+      stepOverrides[id] = { function: o.name };
+      usesFunction = true;
+    } else {
+      stepOverrides[id] = { return_value: o === undefined ? null : o };
+    }
+  }
+  const body: Record<string, any> = { args: args ?? {}, steps: stepOverrides };
+  if (usesFunction) {
+    const callerJobId = getEnv("WM_JOB_ID");
+    if (!callerJobId) {
+      throw new Error(
+        "replacing a step with a function only works from a script running in Windmill"
+      );
+    }
+    body.caller_job_id = callerJobId;
+  }
+  const res = await fetch(
+    `${OpenAPI.BASE}/w/${getWorkspace()}/jobs/run/flow_test/${path}`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${OpenAPI.TOKEN}`,
+      },
+      body: JSON.stringify(body),
+    }
+  );
+  const text = await res.text();
+  if (!res.ok) {
+    throw new Error(`testFlow failed (${res.status}): ${text}`);
+  }
+  return text;
+}
+
+/**
  * Resolve a resource value in case the default value was picked because the input payload was undefined
  * @param obj resource value or path of the resource under the format `$res:path`
  * @returns resource value

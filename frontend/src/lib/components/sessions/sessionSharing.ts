@@ -1,5 +1,6 @@
 import type { DisplayMessage } from '$lib/components/copilot/chat/shared'
 import type { ImageMediaType } from '$lib/components/copilot/chat/imageUtils'
+import type { UserDraftItemKind } from '$lib/gen'
 import type {
 	ArtifactKind,
 	PersistedArtifact
@@ -14,17 +15,44 @@ export type SharedSessionArtifact = {
 	kind: ArtifactKind
 	content: string
 	role?: 'plan'
+	/** Absent on a share made before they were kept. */
+	updatedAt?: number
+	version?: number
+	approvedVersion?: number
+}
+
+/** An item the session edited, as its bar listed it when shared. */
+export type SharedSessionEdit = {
+	/** A deploy kind (`script`, `flow`, `http_trigger`, …). */
+	kind: string
+	/** The path it is shown and deployed at. */
+	path: string
+	draft: boolean
+	/** Where the author's draft is stored, which a never-deployed item keeps apart from `path`.
+	 *  Absent on a share made before they were kept. */
+	draftKind?: UserDraftItemKind
+	draftPath?: string
+	draftOnly?: boolean
 }
 
 export type SessionSnapshot = {
 	messages: DisplayMessage[]
 	artifacts: SharedSessionArtifact[]
+	edits: SharedSessionEdit[]
+	/** The workspace the edits live in: a fork, for a fork session's share, which is stored in
+	 *  its parent. */
+	editsWorkspace?: string
 }
 
 export function sharedSessionUrl(workspaceId: string, shareId: string): string {
 	return `${window.location.origin}/shared_sessions/${encodeURIComponent(
 		workspaceId
 	)}/${encodeURIComponent(shareId)}`
+}
+
+/** The share's page inside the app, for a reader who belongs to its workspace. */
+export function sharedSessionAppHref(workspaceId: string, shareId: string): string {
+	return `/sessions/shared/${encodeURIComponent(shareId)}?workspace=${encodeURIComponent(workspaceId)}`
 }
 
 /** A row as it reads once the turn is over: the viewer can neither wait on nor answer it. */
@@ -54,19 +82,25 @@ function settled(message: DisplayMessage, keepImages: boolean): DisplayMessage {
  */
 export function buildSessionSnapshot(
 	messages: DisplayMessage[],
-	artifacts: PersistedArtifact[]
+	artifacts: PersistedArtifact[],
+	edits: { workspace: string; items: SharedSessionEdit[] } | undefined
 ): SessionSnapshot {
 	const sharedArtifacts: SharedSessionArtifact[] = artifacts.map((a) => ({
 		id: a.id,
 		name: a.name,
 		kind: a.kind,
 		content: a.content,
-		role: a.role
+		role: a.role,
+		updatedAt: a.updatedAt,
+		version: a.version,
+		approvedVersion: a.approvedVersion
 	}))
 	for (const keepImages of [true, false]) {
 		const snapshot: SessionSnapshot = {
 			messages: messages.map((m) => settled(m, keepImages)),
-			artifacts: sharedArtifacts
+			artifacts: sharedArtifacts,
+			edits: edits?.items ?? [],
+			editsWorkspace: edits?.workspace
 		}
 		if (new TextEncoder().encode(JSON.stringify(snapshot)).length <= MAX_SNAPSHOT_BYTES) {
 			return snapshot
@@ -162,8 +196,8 @@ function readMessage(m: Record<string, unknown>, index: number): DisplayMessage 
 /**
  * A snapshot as the viewer may render it: rows rebuilt by {@link readMessage}, and an attached
  * image only from an inline data URL, since any other source would load a third-party resource
- * on behalf of whoever opens the link. Images inside rendered text are left to the viewer
- * page's `img-src` policy.
+ * on behalf of whoever opens the link. Images inside rendered text are left to the transcript's
+ * markdown renderers (`setUntrustedImages`).
  */
 export function readSessionSnapshot(raw: unknown): SessionSnapshot {
 	const snapshot = isRecord(raw) ? raw : {}
@@ -183,7 +217,24 @@ export function readSessionSnapshot(raw: unknown): SessionSnapshot {
 			name: a.name as string,
 			kind: a.kind as ArtifactKind,
 			content: a.content as string,
-			role: a.role === 'plan' ? ('plan' as const) : undefined
+			role: a.role === 'plan' ? ('plan' as const) : undefined,
+			updatedAt: num(a.updatedAt),
+			version: num(a.version),
+			approvedVersion: num(a.approvedVersion)
 		}))
-	return { messages, artifacts }
+	const edits = records(snapshot.edits)
+		.filter((e) => typeof e.kind === 'string' && typeof e.path === 'string')
+		.map((e) => ({
+			kind: e.kind as string,
+			path: e.path as string,
+			draft: e.draft === true,
+			draftKind: str(e.draftKind) as UserDraftItemKind | undefined,
+			draftPath: str(e.draftPath),
+			draftOnly: e.draftOnly === true
+		}))
+	return { messages, artifacts, edits, editsWorkspace: str(snapshot.editsWorkspace) }
+}
+
+function num(value: unknown): number | undefined {
+	return typeof value === 'number' && Number.isFinite(value) ? value : undefined
 }

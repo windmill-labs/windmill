@@ -239,7 +239,8 @@ return schema
 	},
 	mssql: {
 		argName: 'database',
-		code: `select TABLE_SCHEMA, TABLE_NAME, DATA_TYPE, COLUMN_NAME, COLUMN_DEFAULT from information_schema.columns where table_schema != 'sys'`,
+		// Uppercase: under a case-sensitive collation `information_schema.columns` does not resolve.
+		code: `select TABLE_SCHEMA, TABLE_NAME, DATA_TYPE, COLUMN_NAME, COLUMN_DEFAULT from INFORMATION_SCHEMA.COLUMNS where TABLE_SCHEMA != 'sys'`,
 		lang: 'mssql',
 		processingFn: (rows) => {
 			if (!rows || rows.length === 0) return {}
@@ -442,7 +443,8 @@ export function buildParameters(
 				case 'mysql':
 					return `-- :${column.field} (${column.datatype.split('(')[0]})`
 				case 'ms_sql_server':
-					return `-- @p${i + 1} ${column.field} (${column.datatype.split('(')[0]})`
+					// The executor binds `@P1..`; under a case-sensitive collation `@p1` is undeclared.
+					return `-- @P${i + 1} ${column.field} (${column.datatype.split('(')[0]})`
 				case 'snowflake':
 					return `-- ? ${column.field} (${column.datatype.split('(')[0]})`
 				case 'bigquery':

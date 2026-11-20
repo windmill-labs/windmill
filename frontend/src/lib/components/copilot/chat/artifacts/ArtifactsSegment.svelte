@@ -10,8 +10,15 @@
 	import { currentVersion, type PersistedArtifact } from './artifactsDB'
 	import { planFirst } from './artifactsState.svelte'
 
+	let {
+		readOnly
+	}: {
+		/** A transcript nobody can change: its own artifacts, opened by the caller, none deleted. */
+		readOnly?: { artifacts: PersistedArtifact[]; open: (artifact: PersistedArtifact) => void }
+	} = $props()
+
 	const aiChatManager = getAiChatManager()
-	const artifacts = $derived(aiChatManager.artifacts.artifacts)
+	const artifacts = $derived(readOnly?.artifacts ?? aiChatManager.artifacts.artifacts)
 	// The plan is what the user comes back to, and in update order it sinks under
 	// everything the approved run then produces.
 	const planCount = $derived(artifacts.filter((a) => a.role === 'plan').length)
@@ -33,7 +40,9 @@
 	itemKey={(a) => a.id}
 	rowTitle={(a) => a.name}
 	separatorAfter={(_, index) => index === planCount - 1 && planCount < orderedArtifacts.length}
-	onPick={(a: PersistedArtifact) => aiChatManager.openArtifact?.(a.id, a.name, listOpenTarget(a))}
+	onPick={(a: PersistedArtifact) =>
+		readOnly ? readOnly.open(a) : aiChatManager.openArtifact?.(a.id, a.name, listOpenTarget(a))}
+	actions={readOnly ? undefined : deleteAction}
 >
 	{#snippet row(a)}
 		{@const Icon = rowIcon(a)}
@@ -55,26 +64,30 @@
 		>
 			{badge?.label ?? a.kind}
 		</span>
-		<span
-			class="min-w-[4.5rem] shrink-0 text-right text-2xs font-normal text-hint"
-			title={displayDate(new Date(a.updatedAt))}
-		>
-			{#if currentVersion(a) > 1}<span class="tabular-nums">v{currentVersion(a)}</span> ·{/if}
-			<TimeAgo date={new Date(a.updatedAt).toISOString()} compact />
-		</span>
-	{/snippet}
-	{#snippet actions(a)}
-		<Button
-			unifiedSize="xs"
-			destructive
-			variant="subtle"
-			iconOnly
-			title="Delete"
-			startIcon={{ icon: Trash2 }}
-			onClick={() => {
-				aiChatManager.closeArtifact?.(a.id)
-				void aiChatManager.artifacts.remove(a.id)
-			}}
-		/>
+		<!-- A share made before edit times were kept has none. -->
+		{#if a.updatedAt}
+			<span
+				class="min-w-[4.5rem] shrink-0 text-right text-2xs font-normal text-hint"
+				title={displayDate(new Date(a.updatedAt))}
+			>
+				{#if currentVersion(a) > 1}<span class="tabular-nums">v{currentVersion(a)}</span> ·{/if}
+				<TimeAgo date={new Date(a.updatedAt).toISOString()} compact />
+			</span>
+		{/if}
 	{/snippet}
 </SessionStatusPopover>
+
+{#snippet deleteAction(a: PersistedArtifact)}
+	<Button
+		unifiedSize="xs"
+		destructive
+		variant="subtle"
+		iconOnly
+		title="Delete"
+		startIcon={{ icon: Trash2 }}
+		onClick={() => {
+			aiChatManager.closeArtifact?.(a.id)
+			void aiChatManager.artifacts.remove(a.id)
+		}}
+	/>
+{/snippet}

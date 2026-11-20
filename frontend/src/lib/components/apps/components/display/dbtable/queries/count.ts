@@ -63,11 +63,11 @@ export function makeCountQuery(
 			break
 		case 'ms_sql_server':
 			if (filteredColumns.length > 0) {
-				quicksearchCondition += `(@p1 = '' OR CONCAT(${filteredColumns.join(
+				quicksearchCondition += `(@P1 = '' OR CONCAT(${filteredColumns.join(
 					', +'
-				)}) LIKE '%' + @p1 + '%')`
+				)}) LIKE '%' + @P1 + '%')`
 			} else {
-				quicksearchCondition += `(@p1 = '' OR 1 = 1)`
+				quicksearchCondition += `(@P1 = '' OR 1 = 1)`
 			}
 			query += `SELECT COUNT(*) as count FROM [${table}]`
 			break

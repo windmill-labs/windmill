@@ -1,5 +1,6 @@
 <script lang="ts">
 	import {
+		FlowService,
 		ScriptService,
 		type AiAgent,
 		type AiDecision,
@@ -170,7 +171,21 @@
 				}
 			)
 		} else if (val.type == 'flow') {
-			await jobLoader?.runFlowByPath(val.path, args, callbacks)
+			// Routed as a run routes the step (`resolve_flow_step_tag`): a parent on a tag of its own
+			// imposes it, unless it preserves step tags and the step has one.
+			const ownParentTag = flowStore?.val?.tag
+			const parentTag =
+				ownParentTag && ownParentTag !== 'flow' && ownParentTag !== `flow-${opWs}`
+					? ownParentTag
+					: undefined
+			let tag = val.tag_override || undefined
+			if (parentTag && flowStore?.val?.value?.preserve_step_tags) {
+				tag ??=
+					(await FlowService.getFlowByPath({ workspace: opWs!, path: val.path })).tag || parentTag
+			} else if (parentTag) {
+				tag = parentTag
+			}
+			await jobLoader?.runFlowByPath(val.path, args, callbacks, tag)
 		} else if (val.type == 'aiagent') {
 			const { schema } = await loadSchemaFromModule(mod, opWs)
 

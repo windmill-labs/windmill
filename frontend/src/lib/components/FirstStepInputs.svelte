@@ -1,4 +1,5 @@
 <script lang="ts">
+	import HostWindow from '$lib/components/common/HostWindow.svelte'
 	import { createEventDispatcher, onDestroy, getContext, untrack } from 'svelte'
 	import { getFirstStepSchema } from '$lib/components/flows/flowStore.svelte'
 	import type { FlowEditorContext } from '$lib/components/flows/types'
@@ -71,7 +72,7 @@
 	}
 </script>
 
-<svelte:window onkeydown={handleKeydown} />
+<HostWindow onkeydown={handleKeydown} />
 
 <div class="h-full">
 	{#if schema && mod}

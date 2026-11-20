@@ -93,9 +93,28 @@
 					flowJobs: state?.flow_jobs,
 					selected: state?.selectedForloopIndex ?? 0,
 					selectedManually: state?.selectedForLoopSetManually,
-					flowJobsSuccess: state?.flow_jobs_success
+					flowJobsSuccess: state?.flow_jobs_success,
+					flowJobsLabels: state?.flow_jobs_labels
 				}
 			: (undefined as any)
+	)
+
+	let attempts = $derived.by(() => {
+		const jobs = state?.attempt_jobs
+		if (!jobs?.length) return undefined
+		const shown = state?.selectedAttempt ? jobs.indexOf(state.selectedAttempt) : -1
+		return {
+			flowJobs: jobs,
+			flowJobsSuccess: state?.attempt_jobs_success ?? [],
+			selected: shown >= 0 ? shown : jobs.length - 1
+		}
+	})
+
+	// An expanded subflow is drawn as its steps instead of this node, each with its own bar.
+	let retriedInside = $derived(
+		flowRunStatus?.showsRun && !data.editMode && data.module?.value?.type === 'flow'
+			? flowRunStatus.retriedStepsInside(data.id)
+			: 0
 	)
 
 	let type = $derived.by(() => {
@@ -198,7 +217,9 @@
 			nodeState={state?.skipped ? '_Skipped' : type}
 			duration_ms={state?.duration_ms}
 			retries={state?.retries}
+			{retriedInside}
 			{flowJobs}
+			{attempts}
 			on:delete={(e) => {
 				data.eventHandlers.delete(e.detail, '')
 			}}

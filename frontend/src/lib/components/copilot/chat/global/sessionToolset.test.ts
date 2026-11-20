@@ -314,6 +314,45 @@ describe('session tool policies', () => {
 		}
 	})
 
+	it('tells a composing role hub scripts are refused only when it lacks code', async () => {
+		const tool = globalTools.find((t) => t.def.function.name === 'get_instructions')!
+		const texts = async (code: boolean) => {
+			const access = capabilitiesForRole({
+				isAdmin: false,
+				deployRulesPass: true,
+				capabilities: { ...FULL_CAPABILITIES, code, flows: 'compose', apps: 'compose' }
+			})
+			const guide = (subject: string) =>
+				tool.fn({
+					args: { subject },
+					workspace: 'ws',
+					helpers: { access },
+					toolId: 't1',
+					toolCallbacks: { setToolStatus: () => {} }
+				} as any) as Promise<string>
+			return {
+				flow: await guide('flow'),
+				app: await guide('app'),
+				agent: await guide('agent'),
+				prompt: prepareGlobalSystemMessage(undefined, { user: { username: 'u' }, access })
+					.content as string
+			}
+		}
+		const refusesHub = /refuse[sd]? [^.]*hub|hub [^.]*(are|is) refused/i
+		const without = await texts(false)
+		const withCode = await texts(true)
+		for (const subject of ['flow', 'app'] as const) {
+			expect(without[subject]).toMatch(refusesHub)
+			expect(withCode[subject]).not.toMatch(refusesHub)
+		}
+		expect(withCode.flow).toContain('deployed in the workspace or hub scripts')
+		// Without `code` the agent guide names only deployed scripts, so it never mentions hub scripts.
+		expect(without.agent).not.toContain('hub script')
+		expect(withCode.agent).toContain('hub script')
+		expect(without.prompt).toContain('the server refuses inline code and hub scripts')
+		expect(withCode.prompt).not.toMatch(refusesHub)
+	})
+
 	// A data setup needs SQL and inline runnables, neither of which a builder has.
 	it('offers a builder no init_app data setup', async () => {
 		const tool = globalTools.find((t) => t.def.function.name === 'init_app')!

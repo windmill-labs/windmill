@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO autoscaling_recording (worker_group, until, started_by)\n             VALUES ($1, now() + make_interval(secs => $2), $3)\n             ON CONFLICT (worker_group) DO UPDATE SET until = EXCLUDED.until, started_by = EXCLUDED.started_by",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Float8",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0d2c4436a03bad0f21d28025354cb65810a931747d76f2ab40232ba378ee52bd"
+}

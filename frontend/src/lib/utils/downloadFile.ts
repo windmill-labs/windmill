@@ -17,12 +17,15 @@ export function shouldDownloadViaClient(): boolean {
 	return Boolean(OpenAPI.TOKEN || OpenAPI.HEADERS || OpenAPI.USERNAME)
 }
 
+export async function fetchViaClient(apiPath: string): Promise<Response> {
+	const headers = await getHeaders(OpenAPI, { method: 'GET', url: apiPath })
+	return fetch(`${OpenAPI.BASE}${apiPath}`, { headers, credentials: OpenAPI.CREDENTIALS })
+}
+
 export async function downloadViaClient(apiPath: string, filename: string): Promise<void> {
-	const url = `${OpenAPI.BASE}${apiPath}`
 	let response: Response
 	try {
-		const headers = await getHeaders(OpenAPI, { method: 'GET', url: apiPath })
-		response = await fetch(url, { headers, credentials: OpenAPI.CREDENTIALS })
+		response = await fetchViaClient(apiPath)
 	} catch (e) {
 		sendUserToast(`Download failed: ${e}`, true)
 		return
@@ -31,7 +34,10 @@ export async function downloadViaClient(apiPath: string, filename: string): Prom
 		sendUserToast(`Download failed: ${response.status} ${response.statusText}`, true)
 		return
 	}
-	const blob = await response.blob()
+	downloadBlob(await response.blob(), filename)
+}
+
+export function downloadBlob(blob: Blob, filename: string): void {
 	const blobUrl = URL.createObjectURL(blob)
 	const a = document.createElement('a')
 	a.href = blobUrl

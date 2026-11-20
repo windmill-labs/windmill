@@ -68,24 +68,32 @@
 	import { fixupUrlAfterWorkspaceSwitch } from '$lib/components/sidebar/workspaceSwitchUrl'
 	import { getOrCreateRuntime, removeSession } from './sessionRuntime.svelte'
 	import { splitterPointerCapture } from '$lib/utils/splitterPointerCapture'
+	import { overlayStack, setOverlayHost } from '$lib/components/common/overlayHost.svelte'
 	import { AIWorkMode } from '$lib/components/copilot/chat/workMode'
 	import { resolvePreviewTab } from './previewRouter'
 	import { whereIs } from './sessionPreviewTabs.svelte'
 
 	let {
 		sessionId,
-		headerInPage = false,
+		onScreen = false,
 		covered = false,
 		previewTabName
 	}: {
 		sessionId: string
-		/** True for the session the page is showing: its header rides the page header bar. */
-		headerInPage?: boolean
+		/** True for the session the sessions page is showing, with its route open: its header
+		 *  rides the page header bar, and only it may send, take focus or load the copilot
+		 *  config. The page stays mounted, hidden, while the user is on other pages. */
+		onScreen?: boolean
 		/** True while the page holds this wrapper inert under an overlay, where nothing takes focus. */
 		covered?: boolean
 		/** The name the preview's tab strip shows for a tab, without its side marker. */
 		previewTabName: (tab: SessionPreviewTab) => string
 	} = $props()
+
+	// The overlays stay on the viewport and its stack. While this column is off screen they are
+	// not drawn and their window keys go quiet: a dialog left open would otherwise cover the
+	// page the user went to, and its Enter would confirm it there.
+	setOverlayHost({ el: () => undefined, drawers: overlayStack(), active: () => onScreen })
 
 	// Parent keys by sessionId; this wrapper only mounts when the session exists.
 	// Captured at script-init so we can synchronously bind context.
@@ -137,7 +145,7 @@
 	// an intent this wrapper will not claim — stale, or armed on a session the
 	// page is only keeping warm in the background — still gets a composer, whose
 	// mount-time empty draft would otherwise erase the prompt from the record.
-	const armedAtInit = sessionState.currentSessionId === sessionId && peekSessionAutoSend(sessionId)
+	const armedAtInit = untrack(() => onScreen) && peekSessionAutoSend(sessionId)
 
 	// The composer's text before AIChat mounts, typed into the placeholder, and then the real
 	// composer's initial draft.
@@ -171,7 +179,7 @@
 	// and the prompt to never be sent. Claimed only for the session the user
 	// landed on; a background wrapper would fire the turn off-screen.
 	$effect(() => {
-		if (sessionState.currentSessionId !== sessionId) return
+		if (!onScreen) return
 		if (!session?.autoSendDraftAt || !runtime) return
 		untrack(() => {
 			const prompt = getSessionDraftPrompt(sessionId)
@@ -194,11 +202,12 @@
 	// on, not the navigation workspace — a session deliberately leaves
 	// $workspaceStore on the nav workspace, so keying off it would pick the model
 	// and provider from the wrong workspace's AI config for a fork-scoped session.
-	// Only the active session may write this: copilotInfo/copilotSessionModel are
+	// Only the session on screen may write this: copilotInfo/copilotSessionModel are
 	// global, and warm background wrappers (each in their own workspace) would
-	// otherwise race to clobber the active chat's model config.
+	// otherwise race to clobber the active chat's model config. Off the route the
+	// layout loads the navigation workspace's, so coming back loads this one again.
 	$effect(() => {
-		if (sessionState.currentSessionId !== sessionId) return
+		if (!onScreen) return
 		const ws = actingWorkspaceId ?? $workspaceStore
 		if (ws) {
 			loadCopilot(ws)
@@ -306,8 +315,9 @@
 	// loading.
 	let aiChat: AIChat | undefined = $state(undefined)
 	$effect(() => {
-		if (sessionState.currentSessionId !== sessionId) {
-			// The user left for another session: coming back is an activation, which focuses.
+		if (!onScreen) {
+			// The user left for another session or page: coming back is an activation, which
+			// focuses.
 			handoff = undefined
 			return
 		}
@@ -328,8 +338,7 @@
 		chatShown ||=
 			!!aiChatComponent.current &&
 			!placeholderComposing &&
-			(sessionState.currentSessionId !== sessionId ||
-				$copilotWorkspace === (actingWorkspaceId ?? $workspaceStore))
+			(!onScreen || $copilotWorkspace === (actingWorkspaceId ?? $workspaceStore))
 		return chatShown
 	})
 
@@ -655,6 +664,7 @@
 			{/if}
 			<SessionChangesBar
 				{session}
+				{onScreen}
 				onMove={(workspaceId) => moveAndActivate(workspaceId)}
 				onCreateForkAndMove={(fork) => createForkAndMove(fork)}
 				onArchive={() => archiveAndReset()}
@@ -761,7 +771,7 @@
 		/>
 	{/snippet}
 
-	{#if headerInPage}
+	{#if onScreen}
 		<!-- The chat's own header row is the page header on this route: the session's name is its
 		     breadcrumb, and the menu is its action. The workspace it acts on is named by the
 		     breadcrumb's own workspace part, the way every other route names it — a session in a
@@ -825,7 +835,7 @@
 										? 'Ask followup'
 										: (previewedItemPlaceholder ?? composerPlaceholder)}
 									disabled={isUnavailable || !!session.archived}
-									autofocus={sessionState.currentSessionId === sessionId && !covered}
+									autofocus={onScreen && !covered}
 									onSelectionChange={(selection) => (handoff = selection ?? null)}
 									onCompositionChange={(composing) => (placeholderComposing = composing)}
 								/>

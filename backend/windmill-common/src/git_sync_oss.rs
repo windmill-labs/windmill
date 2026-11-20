@@ -143,6 +143,40 @@ pub fn prepend_token_to_github_url(
     ))
 }
 
+/// Make the URL an admin just saved on an app-backed `git_repository`
+/// resource the only repository the GitHub App installation serves non-admins
+/// through it, or revoke it when the save names none. Run in the admin's write
+/// transaction, after a write that carries the value, so the approval commits
+/// with the value it approves and no later write can be overtaken by it.
+///
+/// Only a literal URL is approved. A `$var:` resolves to whatever its owner
+/// sets, which the admin never saw, so such a resource stays admin-only.
+pub async fn approve_github_app_repo(
+    tx: &mut sqlx::PgConnection,
+    w_id: &str,
+    path: &str,
+) -> crate::error::Result<()> {
+    sqlx::query!(
+        "DELETE FROM github_app_repo_approval WHERE workspace_id = $1 AND path = $2",
+        w_id,
+        path
+    )
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query!(
+        "INSERT INTO github_app_repo_approval (workspace_id, path, url)
+         SELECT workspace_id, path, value->>'url' FROM resource
+         WHERE workspace_id = $1 AND path = $2
+           AND value->'is_github_app' = 'true'::jsonb
+           AND left(value->>'url', 1) <> '$'",
+        w_id,
+        path
+    )
+    .execute(&mut *tx)
+    .await?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::sanitize_git_url;

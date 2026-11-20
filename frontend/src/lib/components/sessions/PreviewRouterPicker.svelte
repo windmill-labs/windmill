@@ -51,6 +51,9 @@ section or the flat layout.
 	} from './previewRouter'
 	import { useSessionPermissions } from './sessionPermissions.svelte'
 	import type { AIWorkMode } from '$lib/components/copilot/chat/workMode'
+	import type { PageHeaderSubpage } from '$lib/components/pageHeaderRegistry.svelte'
+	import { WORKSPACE_SETTINGS_PATH } from './previewPaths'
+	import { workspaceSettingsSubpages } from '$lib/components/workspaceSettings/workspaceSettingsSections'
 
 	type Kind = WorkspaceItemKind
 	type DrillPickerHandle = {
@@ -82,6 +85,9 @@ section or the flat layout.
 		/** Where picking a target navigates, for a host whose pick is a navigation; rows then
 		 * open in a new tab on middle and ⌘/Ctrl-click. */
 		targetHref?: (target: PreviewTarget) => string | undefined
+		/** The panes of the page at `path`, which Pages then lists as a branch of them. Defaults
+		 * to the workspace settings sections, which a host outside that page cannot read from it. */
+		subpages?: { path: string; pages: PageHeaderSubpage[] }
 	}
 
 	let {
@@ -95,8 +101,12 @@ section or the flat layout.
 		workspaceId,
 		artifacts,
 		chat,
-		targetHref
+		targetHref,
+		subpages: subpagesProp
 	}: Props = $props()
+	const subpages = $derived(
+		subpagesProp ?? { path: WORKSPACE_SETTINGS_PATH, pages: workspaceSettingsSubpages() }
+	)
 
 	const kinds: Kind[] = ['flow', 'script', 'app']
 	const effectiveWorkspace = $derived(workspaceId ?? $workspaceStore)
@@ -248,7 +258,36 @@ section or the flat layout.
 			key: pageKey(p.path),
 			label: p.label,
 			icon: p.icon,
+			plainLabel: true,
 			data: { type: 'page', href: p.path, label: p.label }
+		}
+	}
+
+	const subpageLeaves = $derived<DrillLeaf<PreviewTarget>[]>(
+		(subpages?.pages ?? []).map((sp) => ({
+			type: 'leaf',
+			key: pageKey(sp.href),
+			label: sp.label,
+			section: sp.group,
+			current: sp.current || pageKey(sp.href) === initialHighlight,
+			disabled: sp.disabled,
+			plainLabel: true,
+			data: { type: 'page', href: sp.href, label: sp.label }
+		}))
+	)
+
+	function pageNode(p: (typeof PREVIEW_PAGES)[number]): DrillNode<PreviewTarget> {
+		const leaf = pageLeaf(p)
+		if (p.path !== subpages?.path || subpageLeaves.length === 0) return leaf
+		return {
+			type: 'branch',
+			key: leaf.key,
+			label: leaf.label,
+			icon: leaf.icon,
+			plainLabel: true,
+			// Search reads leaves only, so each pane carries its page's name for the page to be
+			// found by it.
+			children: subpageLeaves.map((l) => ({ ...l, searchableText: `${l.label} ${p.label}` }))
 		}
 	}
 
@@ -260,8 +299,9 @@ section or the flat layout.
 		label: 'Pages',
 		icon: Compass,
 		searchGroup: true,
+		plainLabel: true,
 		children: PREVIEW_PAGES.filter((p) => p.path !== '/' && permissions.pageAllowed(p)).map(
-			pageLeaf
+			pageNode
 		)
 	})
 
@@ -275,11 +315,13 @@ section or the flat layout.
 					label: 'Artifacts',
 					icon: FileText,
 					searchGroup: true,
+					plainLabel: true,
 					children: artifacts.map((a) => ({
 						type: 'leaf' as const,
 						key: artifactKey(a.id),
 						label: a.name,
 						icon: FileText,
+						plainLabel: true,
 						data: { type: 'artifact', id: a.id, name: a.name }
 					}))
 				}
@@ -300,6 +342,7 @@ section or the flat layout.
 					label: 'Data pipelines',
 					icon: NetworkIcon,
 					searchGroup: true,
+					plainLabel: true,
 					children: pipelinesResource.current.map(({ folder }) => {
 						const path = `/pipeline/${encodeURIComponent(folder)}`
 						return {
@@ -336,6 +379,7 @@ section or the flat layout.
 					label: 'AI agents',
 					icon: Bot,
 					searchGroup: true,
+					plainLabel: true,
 					children: shownAgents.map((a) => ({
 						type: 'leaf' as const,
 						key: `agent:${a.path}`,
@@ -377,12 +421,31 @@ section or the flat layout.
 	// highlight's shape alone: the artifacts branch may not have materialized yet
 	// (artifacts hydrate from IndexedDB after tabs restore), and the drill entries
 	// fill in reactively once it does.
+	// Not gated on the branch being listed yet: the page permissions that list it can still be
+	// loading when the picker opens, and the scope is read only then. Once they show the page is
+	// not this user's (a fork owner on its Members section), the picker reopens on Pages rather
+	// than inside a branch that is not listed, which would show nothing.
+	const subpageBranchKey = untrack(() =>
+		subpages && subpageLeaves.some((l) => l.key === initialHighlight)
+			? pageKey(subpages.path)
+			: undefined
+	)
 	const computedInitialScope = untrack(() =>
-		initialHighlight && isArtifactKey(initialHighlight)
-			? ['artifacts']
-			: initialHighlight && isPageKey(initialHighlight)
-				? ['pages']
-				: legacyScopeToPath(initialScope, kinds, 'flat')
+		subpageBranchKey
+			? ['pages', subpageBranchKey]
+			: initialHighlight && isArtifactKey(initialHighlight)
+				? ['artifacts']
+				: initialHighlight && isPageKey(initialHighlight)
+					? ['pages']
+					: legacyScopeToPath(initialScope, kinds, 'flat')
+	)
+
+	const subpagePage = $derived(PREVIEW_PAGES.find((p) => p.path === subpages.path))
+	const subpagesDenied = $derived(
+		!!subpageBranchKey &&
+			permissions.settled &&
+			!!subpagePage &&
+			!permissions.pageAllowed(subpagePage)
 	)
 
 	// The flat root has no branch to carry a per-kind loading flag — surface
@@ -406,27 +469,29 @@ section or the flat layout.
 	{/if}
 {/snippet}
 
-<DrillPicker
-	bind:this={inner}
-	{tree}
-	onPick={(leaf) => pick(leaf.data)}
-	initialScope={computedInitialScope}
-	{initialHighlight}
-	{externalFilter}
-	{autoFocus}
-	{flush}
-	{leafIcon}
-	{branchIcon}
-	leafSecondary={(leaf, scope) =>
-		leaf.data.type === 'item'
-			? relativizeWorkspacePath(workspaceItemDisplayPath(leaf.data.item), scope)
-			: undefined}
-	onScopeChange={(scope) => {
-		if (scope.length > 0) loader.ensureForScopeSegment(scope[0])
-	}}
-	onFilterChange={loader.onFilterChange}
-	leafAction={editAction}
-	leafBadge={stateBadge}
-	leafHref={targetHref ? (leaf) => targetHref(leaf.data) : undefined}
-	{rootLoading}
-/>
+{#key subpagesDenied}
+	<DrillPicker
+		bind:this={inner}
+		{tree}
+		onPick={(leaf) => pick(leaf.data)}
+		initialScope={subpagesDenied ? ['pages'] : computedInitialScope}
+		{initialHighlight}
+		{externalFilter}
+		{autoFocus}
+		{flush}
+		{leafIcon}
+		{branchIcon}
+		leafSecondary={(leaf, scope) =>
+			leaf.data.type === 'item'
+				? relativizeWorkspacePath(workspaceItemDisplayPath(leaf.data.item), scope)
+				: undefined}
+		onScopeChange={(scope) => {
+			if (scope.length > 0) loader.ensureForScopeSegment(scope[0])
+		}}
+		onFilterChange={loader.onFilterChange}
+		leafAction={editAction}
+		leafBadge={stateBadge}
+		leafHref={targetHref ? (leaf) => targetHref(leaf.data) : undefined}
+		{rootLoading}
+	/>
+{/key}

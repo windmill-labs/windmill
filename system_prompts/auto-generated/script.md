@@ -1620,6 +1620,46 @@ async runScriptByHashAsync(hash_: string, args: Record<string, any> | null = nul
 async runFlowAsync(path: string | null, args: Record<string, any> | null, scheduledInSeconds: number | null = null, // can only be set to false if this the job will be fully await and not concurrent with any other job // as otherwise the child flow and its own child will store their state in the parent job which will // lead to incorrectness and failures doNotTrackInParent: boolean = true, tag: string | null = null): Promise<string>
 
 /**
+ * Run the deployed flow at `path` with some of its steps overridden, wait for it and return
+ * its result. Meant for test scripts.
+ * 
+ * Each entry of `steps` maps a step id to either:
+ * - a value: the step is skipped and returns that value, or
+ * - a function exported from the calling script's own file: the step runs that function
+ *   instead of its own code, with the step's inputs as arguments (matched by name).
+ * 
+ * A step inside a subflow is named by the path of step ids to it, `"sub:inner"` for step `inner`
+ * of the subflow that step `sub` calls. It applies to every call of that subflow made by the
+ * tested flow and by the subflows it overrides; a subflow left as is still calls the deployed
+ * one. Those subflows, and each one on the way to an override, run as you rather than as their
+ * on-behalf-of identity. Result caching is off for the whole test run.
+ * 
+ * The flow's preprocessor does not run: `args` are what the flow receives after it. A subflow
+ * never runs its own preprocessor, in a test or not. AI agent
+ * tools cannot be overridden; override the agent step instead.
+ * 
+ * @example
+ * export function fakeFetch(url: string) { return { status: 200 } }
+ * export async function main() {
+ *   const result = await wmill.testFlow("f/flows/sync", { user: "a" }, {
+ *     fetch_users: fakeFetch,   // replaced logic
+ *     send_email: "sent",       // mocked result
+ *   });
+ * }
+ * @param path - Flow path in Windmill
+ * @param args - Arguments to pass to the flow
+ * @param steps - Step id to mocked result, or to the function replacing the step
+ * @param verbose - Enable verbose logging
+ * @returns Flow execution result
+ */
+async testFlow(path: string, args: Record<string, any> | null = null, steps: Record<string, any> = {}, verbose: boolean = false): Promise<any>
+
+/**
+ * Like {@link testFlow}, but returns the job id without waiting for the flow to complete.
+ */
+async testFlowAsync(path: string, args: Record<string, any> | null = null, steps: Record<string, any> = {}): Promise<string>
+
+/**
  * Resolve a resource value in case the default value was picked because the input payload was undefined
  * @param obj resource value or path of the resource under the format `$res:path`
  * @returns resource value
@@ -2138,11 +2178,14 @@ def get_client() -> httpx.Client
 # Args:
 #     endpoint: API endpoint path
 #     raise_for_status: Whether to raise an exception on HTTP errors
+#     retry_transient: Retry on 429 and 502-504 with exponential backoff, honoring
+#         Retry-After. Pass False for an endpoint with a side effect.
+#     retry_budget: Most seconds to spend sleeping between retries (at most 15)
 #     **kwargs: Additional arguments passed to httpx.get
 # 
 # Returns:
 #     HTTP response object
-def get(endpoint, raise_for_status = True, **kwargs) -> httpx.Response
+def get(endpoint, raise_for_status = True, *, retry_transient: bool = True, retry_budget: float | None = None, **kwargs) -> httpx.Response
 
 # Make an HTTP POST request to the Windmill API.
 # 
@@ -2176,6 +2219,16 @@ def run_script_by_hash_async(hash_: str, args: dict = None, scheduled_in_secs: i
 
 # Create a flow job and return its job id.
 def run_flow_async(path: str, args: dict = None, scheduled_in_secs: int = None, do_not_track_in_parent: bool = True, tag: str = None) -> str
+
+# Start the deployed flow at ``path`` with some steps overridden and return its job id.
+# 
+# See ``test_flow`` for ``steps``.
+def test_flow_async(path: str, args: dict = None, steps: dict = None) -> str
+
+# Run the deployed flow at ``path`` with some steps overridden and return its result.
+# 
+# See the module-level ``test_flow``.
+def test_flow(path: str, args: dict = None, steps: dict = None, timeout: dt.timedelta | int | float | None = None, verbose: bool = False, assert_result_is_not_none: bool = False) -> Any
 
 # Run script by path synchronously and return its result.
 def run_script_by_path(path: str, args: dict = None, timeout: dt.timedelta | int | float | None = None, verbose: bool = False, cleanup: bool = True, assert_result_is_not_none: bool = False, tag: str = None) -> Any
