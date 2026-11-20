@@ -28,11 +28,8 @@
 		sideAnnotation?: string | undefined
 		sideAnnotationTitle?: string | undefined
 		nodeState?: FlowNodeState
-		/** The finished run never reached this step. */
-		notRun?: boolean
 		duration_ms?: number | undefined
 		retries?: number | undefined
-		retriedInside?: number
 		flowJobs:
 			| {
 					flowJobs: string[]
@@ -82,10 +79,8 @@
 		sideAnnotation = undefined,
 		sideAnnotationTitle = undefined,
 		nodeState,
-		notRun = false,
 		duration_ms = undefined,
 		retries = undefined,
-		retriedInside = 0,
 		flowJobs,
 		attempts = undefined,
 		editMode = false,
@@ -226,7 +221,6 @@
 					onUpdateMock={updateMock}
 					{...itemProps}
 					{nodeState}
-					{notRun}
 					warningMessage={mod?.value?.type === 'forloopflow' &&
 					mod?.value?.iterator?.type === 'javascript' &&
 					mod?.value?.iterator?.expr === ''
@@ -256,7 +250,6 @@
 					id={mod.id}
 					label={mod.summary || 'Run one branch'}
 					{nodeState}
-					{notRun}
 					{onTestUpTo}
 				>
 					{#snippet icon()}
@@ -279,7 +272,6 @@
 					{...itemProps}
 					label={mod.summary || `Run all branches${mod.value.parallel ? ' (parallel)' : ''}`}
 					{nodeState}
-					{notRun}
 					{onTestUpTo}
 				>
 					{#snippet icon()}
@@ -289,7 +281,6 @@
 			{:else}
 				<FlowModuleSchemaItem
 					{retries}
-					{retriedInside}
 					attempts={attempts && !insertable
 						? {
 								jobs: attempts.flowJobs,
@@ -311,7 +302,6 @@
 					id={mod.id}
 					{...itemProps}
 					{nodeState}
-					{notRun}
 					label={mod.summary ||
 						(mod.value.type === 'aiagent' ? (mod.value.agent ?? 'AI Agent') : undefined) ||
 						(mod.value.type === 'aidecision' ? 'AI Decision' : undefined) ||

@@ -7,8 +7,10 @@
 		Trash2,
 		StickyNote,
 		PictureInPicture2,
-		Bug
+		Bug,
+		RefreshCw
 	} from 'lucide-svelte'
+	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import NodeWrapper from './NodeWrapper.svelte'
 	import AiDecisionNodeBranch from './AiDecisionNodeBranch.svelte'
 	import type { ModuleN } from '../../graphBuilder.svelte'
@@ -128,62 +130,67 @@
 			: undefined
 	)
 
+	/** Something that happened inside a step the graph does not draw, and how to reveal it. */
+	type InsideMark = { count: number; label: string; title: string; reveal: () => void }
+
 	/**
 	 * Error handlers that ran inside this step but that the graph does not draw: anywhere in a
 	 * collapsed subflow, or in a loop's other iterations while the one shown draws none. The
 	 * selected iteration's own handlers are drawn, and nested steps report theirs.
 	 */
-	let hiddenErrorHandlers = $derived.by(
-		(): Promise<{ label: string; reveal: () => void } | undefined> | undefined => {
-			const workspace = $workspaceStore
-			if (!handlerCountKey || !workspace) return undefined
-			const s = untrack(() => state)
-			if (!s) return undefined
-			const valueType = data.module?.value?.type
-			if (valueType === 'flow' && s.job_id && subflowPath) {
-				return countErrorHandlersUnder(workspace, s.job_id).then(
-					(count) =>
-						count > 0
-							? {
-									label: `${count} error handler${count > 1 ? 's' : ''} ran`,
-									reveal: expandSubflow
-								}
-							: undefined,
+	let hiddenErrorHandlers = $derived.by((): Promise<InsideMark | undefined> | undefined => {
+		const workspace = $workspaceStore
+		if (!handlerCountKey || !workspace) return undefined
+		const s = untrack(() => state)
+		if (!s) return undefined
+		const valueType = data.module?.value?.type
+		if (valueType === 'flow' && s.job_id && subflowPath) {
+			return countErrorHandlersUnder(workspace, s.job_id).then(
+				(count) =>
+					count > 0
+						? {
+								count,
+								label: `${count} error handler${count > 1 ? 's' : ''} ran`,
+								title: 'Expand the subflow',
+								reveal: expandSubflow
+							}
+						: undefined,
+				() => undefined
+			)
+		}
+		const iterations = s.flow_jobs
+		const isLoop = valueType === 'forloopflow' || valueType === 'whileloopflow'
+		if (isLoop && data.mayRunErrorHandler && iterations?.length) {
+			const index = s.selectedForloopIndex ?? 0
+			const shown = index >= 0 ? index : iterations.length - 1
+			const success = s.flow_jobs_success
+			return countErrorHandlersUnder(workspace, iterations[shown])
+				.then(async (count) =>
+					// The iteration on screen already draws a handler: pointing at the others would
+					// keep the reader clicking through iterations.
+					count > 0 ? undefined : await firstIterationWithHandler(workspace, iterations, success)
+				)
+				.then(
+					(first) =>
+						first === undefined
+							? undefined
+							: {
+									count: 1,
+									label: `Error handler ran in iteration ${first + 1}`,
+									title: 'Show that iteration',
+									reveal: () =>
+										data.eventHandlers.selectedIteration({
+											id: iterations[first],
+											index: first,
+											manuallySet: true,
+											moduleId: data.id
+										})
+								},
 					() => undefined
 				)
-			}
-			const iterations = s.flow_jobs
-			const isLoop = valueType === 'forloopflow' || valueType === 'whileloopflow'
-			if (isLoop && data.mayRunErrorHandler && iterations?.length) {
-				const index = s.selectedForloopIndex ?? 0
-				const shown = index >= 0 ? index : iterations.length - 1
-				const success = s.flow_jobs_success
-				return countErrorHandlersUnder(workspace, iterations[shown])
-					.then(async (count) =>
-						// The iteration on screen already draws a handler: pointing at the others would
-						// keep the reader clicking through iterations.
-						count > 0 ? undefined : await firstIterationWithHandler(workspace, iterations, success)
-					)
-					.then(
-						(first) =>
-							first === undefined
-								? undefined
-								: {
-										label: `Error handler ran in iteration ${first + 1}`,
-										reveal: () =>
-											data.eventHandlers.selectedIteration({
-												id: iterations[first],
-												index: first,
-												manuallySet: true,
-												moduleId: data.id
-											})
-									},
-						() => undefined
-					)
-			}
-			return undefined
 		}
-	)
+		return undefined
+	})
 
 	let attempts = $derived.by(() => {
 		const jobs = state?.attempt_jobs
@@ -197,11 +204,20 @@
 	})
 
 	// An expanded subflow is drawn as its steps instead of this node, each with its own bar.
-	let retriedInside = $derived(
-		flowRunStatus?.showsRun && !data.editMode && data.module?.value?.type === 'flow'
-			? flowRunStatus.retriedStepsInside(data.id)
-			: 0
-	)
+	let retriedInside = $derived.by((): InsideMark | undefined => {
+		const count =
+			flowRunStatus?.showsRun && !data.editMode && data.module?.value?.type === 'flow'
+				? flowRunStatus.retriedStepsInside(data.id)
+				: 0
+		return count > 0
+			? {
+					count,
+					label: `${count} step${count === 1 ? '' : 's'} retried inside`,
+					title: 'Expand to see the retried steps',
+					reveal: expandSubflow
+				}
+			: undefined
+	})
 
 	let type = $derived.by(() => {
 		let typ = state?.type
@@ -301,10 +317,8 @@
 					(state?.iteration_total ?? '?')
 				: ''}
 			nodeState={state?.skipped ? '_Skipped' : type}
-			notRun={flowRunStatus?.didNotRun(data.id)}
 			duration_ms={state?.duration_ms}
 			retries={state?.retries}
-			{retriedInside}
 			{flowJobs}
 			{attempts}
 			on:delete={(e) => {
@@ -338,28 +352,10 @@
 				: undefined}
 		/>
 
-		{#await hiddenErrorHandlers then hidden}
-			{#if hidden}
-				<!-- svelte-ignore a11y_no_static_element_interactions -->
-				<div
-					class="nodrag nopan absolute left-0 top-full z-10"
-					onpointerdown={(e) => e.stopPropagation()}
-				>
-					<Button
-						variant="subtle"
-						unifiedSize="2xs"
-						startIcon={{ icon: Bug, classes: 'text-red-400 dark:text-red-500' }}
-						btnClasses="text-2xs text-secondary px-0 gap-1"
-						title={subflowPath ? 'Expand the subflow' : 'Show that iteration'}
-						onClick={(e) => {
-							e?.stopPropagation()
-							hidden.reveal()
-						}}
-					>
-						{hidden.label}
-					</Button>
-				</div>
-			{/if}
+		{#await hiddenErrorHandlers}
+			{@render insideBar(retriedInside, undefined)}
+		{:then handlers}
+			{@render insideBar(retriedInside, handlers)}
 		{/await}
 
 		{#if (data.module?.value?.type === 'branchall' || data.module?.value?.type === 'branchone') && data.insertable}
@@ -380,3 +376,72 @@
 		{/if}
 	{/snippet}
 </NodeWrapper>
+
+<!-- Left of the settings bar, which is this step's own policy: this is what happened inside. -->
+{#snippet insideBar(retried: InsideMark | undefined, handlers: InsideMark | undefined)}
+	{#if retried || handlers}
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
+		<div
+			class="nodrag nopan absolute -left-1 top-[calc(100%+3px)] z-10"
+			onpointerdown={(e) => e.stopPropagation()}
+		>
+			{#if retried && handlers}
+				<!-- Both at once: their counts side by side, each way in from the menu. -->
+				<DropdownV2
+					placement="bottom-start"
+					usePointerDownOutside
+					fixedHeight={false}
+					items={[
+						{
+							displayName: retried.label,
+							icon: RefreshCw,
+							iconColor: '#f97316',
+							action: retried.reveal
+						},
+						{
+							displayName: handlers.label,
+							icon: Bug,
+							iconColor: '#f87171',
+							action: handlers.reveal
+						}
+					]}
+				>
+					{#snippet buttonReplacement()}
+						<Button
+							nonCaptureEvent
+							variant="subtle"
+							unifiedSize="2xs"
+							btnClasses="gap-2 text-2xs text-secondary"
+							title="{retried.label}, {handlers.label}"
+						>
+							<span class="flex items-center gap-0.5">
+								<RefreshCw size={12} class="text-orange-500" />{retried.count}
+							</span>
+							<span class="flex items-center gap-0.5">
+								<Bug size={12} class="text-red-400 dark:text-red-500" />{handlers.count}
+							</span>
+						</Button>
+					{/snippet}
+				</DropdownV2>
+			{:else}
+				{@const mark = (retried ?? handlers)!}
+				<Button
+					variant="subtle"
+					unifiedSize="2xs"
+					startIcon={{
+						icon: retried ? RefreshCw : Bug,
+						classes: retried ? 'text-orange-500' : 'text-red-400 dark:text-red-500'
+					}}
+					btnClasses="text-2xs text-secondary gap-1"
+					title={mark.title}
+					onClick={(e) => {
+						e?.stopPropagation()
+						mark.reveal()
+					}}
+				>
+					{mark.label}
+				</Button>
+			{/if}
+		</div>
+	{/if}
+{/snippet}
