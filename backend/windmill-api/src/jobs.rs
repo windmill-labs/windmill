@@ -774,32 +774,51 @@ async fn cancel_job_api(
 async fn cancel_persistent_script_api(
     OptAuthed(opt_authed): OptAuthed,
     Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
     Path((w_id, script_path)): Path<(String, StripPath)>,
     Json(CancelJob { reason }): Json<CancelJob>,
 ) -> error::Result<()> {
-    let audit_author: AuditAuthor = match opt_authed {
-        Some(authed) => {
-            let path = script_path.to_path();
-            if !windmill_api_auth::scopes::job_cancel_path_confinement(authed.scopes.as_deref())
-                .is_none_or(|c| windmill_api_auth::scopes::cancel_confinement_admits(&c, path))
-            {
-                return Err(Error::NotFound(format!("Script {path} not found")));
-            }
-            (&authed).into()
-        }
-        None => {
-            return Err(Error::BadRequest(format!(
-                "Cancelling persistent script require to be logged in and member of {w_id}"
-            )))
-        }
+    let Some(authed) = opt_authed else {
+        return Err(Error::BadRequest(format!(
+            "Cancelling persistent script require to be logged in and member of {w_id}"
+        )));
     };
+    let path = script_path.to_path();
+    if !windmill_api_auth::scopes::job_cancel_path_confinement(authed.scopes.as_deref())
+        .is_none_or(|c| windmill_api_auth::scopes::cancel_confinement_admits(&c, path))
+    {
+        return Err(Error::NotFound(format!("Script {path} not found")));
+    }
+    let audit_author: AuditAuthor = (&authed).into();
 
+    let mut first_batch = true;
     let cancelled_job_ids = windmill_queue::cancel_persistent_script_jobs(
         &audit_author.username,
         reason,
-        script_path.to_path(),
+        path,
         &w_id,
         &db,
+        // The cancel runs on the root pool, so each run it reaches must pass the per-job check
+        // `/queue/cancel/{id}` applies. A denial in the first batch refuses the request; one in
+        // the later batch is a run someone else started after the first committed, so it is left
+        // running rather than failing a request whose first cancels already landed.
+        |ids| {
+            let strict = std::mem::replace(&mut first_batch, false);
+            let (db, user_db, authed, w_id) = (&db, &user_db, &authed, w_id.as_str());
+            async move {
+                let mut admitted = Vec::with_capacity(ids.len());
+                for id in ids {
+                    match require_job_cancel_access(db, user_db, authed, w_id, &id).await {
+                        Ok(()) => admitted.push(id),
+                        // Ended (and restarted) since the batch was read: the next batch has it.
+                        Err(Error::NotFound(_)) => {}
+                        Err(e) if strict => return Err(e),
+                        Err(_) => {}
+                    }
+                }
+                Ok(admitted)
+            }
+        },
     )
     .await?;
 
@@ -10371,22 +10390,22 @@ async fn push_flow_dependencies_job(
     // lock step from becoming the way to run code the write path refuses.
     if flows_level == AuthorLevel::Compose {
         validate_operator_composed_flow(&req.flow_value, &None, authed, db, user_db, w_id).await?;
-        // The job rewrites bookkeeping stored under `req.path` (dependency map, asset usages,
-        // lock error) even with `skip_flow_update`, so a builder must be able to write there.
-        crate::drafts::require_can_write_path(
-            authed,
-            db,
-            user_db,
-            w_id,
-            windmill_common::user_drafts::UserDraftItemKind::Flow,
-            &req.path,
-        )
-        .await
-        .map_err(|e| match e {
-            error::Error::NotAuthorized(msg) => error::Error::PermissionDenied(msg),
-            e => e,
-        })?;
     }
+    // The job rewrites bookkeeping stored under `req.path` (dependency map, asset usages,
+    // lock error) even with `skip_flow_update`, so the caller must be able to write there.
+    crate::drafts::require_can_write_path(
+        authed,
+        db,
+        user_db,
+        w_id,
+        windmill_common::user_drafts::UserDraftItemKind::Flow,
+        &req.path,
+    )
+    .await
+    .map_err(|e| match e {
+        error::Error::NotAuthorized(msg) => error::Error::PermissionDenied(msg),
+        e => e,
+    })?;
 
     if req.raw_deps.is_some() {
         return Err(error::Error::MigrationNeeded {
