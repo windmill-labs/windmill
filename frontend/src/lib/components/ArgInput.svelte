@@ -885,6 +885,7 @@
 					<div class="px-4 pt-4 border rounded-md w-full">
 						<SchemaForm
 							lightHeaderFont
+							{fillNullableDefault}
 							{onlyMaskPassword}
 							{disablePortal}
 							{disabled}
@@ -1028,6 +1029,7 @@
 													<div class="p-8 border rounded-md w-full">
 														<SchemaForm
 															lightHeaderFont
+															{fillNullableDefault}
 															{onlyMaskPassword}
 															{disablePortal}
 															{disabled}
@@ -1208,6 +1210,7 @@
 									{#if orderEditable}
 										<SchemaFormDnd
 											lightHeaderFont
+											{fillNullableDefault}
 											{nestedClasses}
 											{onlyMaskPassword}
 											{disablePortal}
@@ -1244,6 +1247,7 @@
 									{:else}
 										<SchemaForm
 											lightHeaderFont
+											{fillNullableDefault}
 											{nestedClasses}
 											{onlyMaskPassword}
 											{disablePortal}
@@ -1332,6 +1336,7 @@
 					{#if orderEditable}
 						<SchemaFormDnd
 							lightHeaderFont
+							{fillNullableDefault}
 							{nestedClasses}
 							{onlyMaskPassword}
 							{disablePortal}
@@ -1364,6 +1369,7 @@
 					{:else}
 						<SchemaForm
 							lightHeaderFont
+							{fillNullableDefault}
 							{nestedClasses}
 							{onlyMaskPassword}
 							{disablePortal}
