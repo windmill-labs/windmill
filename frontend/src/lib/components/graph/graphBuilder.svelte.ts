@@ -159,10 +159,6 @@ export type InputN = {
 	}
 }
 
-/** An edge into an error handler (from the step that failed) or out of it (to the node that takes
- * its output), coloured from the handler's run state. */
-export type HandlerEdge = { id: string; side: 'in' | 'out' }
-
 export type ModuleN = {
 	type: 'module'
 	data: {
@@ -603,7 +599,7 @@ export function graphBuilder(
 				subModules?: FlowModule[]
 				currentItems?: FlowStructureNode[]
 				disableMoveIds?: string[]
-				handler?: HandlerEdge
+				handler?: true
 			}
 		) {
 			parents[targetId] = [...(parents[targetId] ?? []), sourceId]
@@ -1322,7 +1318,7 @@ export function graphBuilder(
 			addFailureNode({ ...module, id })
 			// An expanded subflow step failed as a whole, so its marker hangs off the subflow's end.
 			const anchor = expandedSubflows[parentId] ? `${parentId}-subflow-end` : parentId
-			addEdge(anchor, id, undefined, undefined, { type: 'empty', handler: { id, side: 'in' } })
+			addEdge(anchor, id, undefined, undefined, { type: 'empty', handler: true })
 			const target = handlerTargets[parentId]
 			// The failure went to the handler, so the step's own way out was not taken, even where
 			// it leads to a node with no run state of its own (a loop or branch end). A loop or
@@ -1344,7 +1340,7 @@ export function graphBuilder(
 					source: id,
 					target,
 					type: 'empty',
-					data: { handler: { id, side: 'out' } satisfies HandlerEdge },
+					data: { handler: true },
 					selectable: false
 				})
 			}

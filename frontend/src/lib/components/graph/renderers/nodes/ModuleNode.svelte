@@ -283,6 +283,7 @@
 					(state?.iteration_total ?? '?')
 				: ''}
 			nodeState={state?.skipped ? '_Skipped' : type}
+			notRun={flowRunStatus?.didNotRun(data.id)}
 			duration_ms={state?.duration_ms}
 			retries={state?.retries}
 			{flowJobs}

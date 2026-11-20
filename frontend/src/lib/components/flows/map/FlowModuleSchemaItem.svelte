@@ -57,6 +57,9 @@
 		label: string
 		path?: string
 		nodeState?: FlowNodeState
+		/** The finished run never reached this step: drawn with a dashed outline, like the edges
+		 * the run did not take. */
+		notRun?: boolean
 		retries?: number | undefined
 		warningMessage?: string | undefined
 		editMode?: boolean
@@ -89,6 +92,7 @@
 		label,
 		path = '',
 		nodeState,
+		notRun = false,
 		retries = undefined,
 		warningMessage = undefined,
 		editMode = false,
@@ -280,7 +284,12 @@
 			<DiffActionBar moduleId={id} {moduleAction} {diffManager} {flowStore} />
 		{/if}
 		<div
-			class={classNames('absolute z-0 rounded-md outline-offset-0', colorClasses.outline)}
+			class={classNames(
+				'absolute z-0 rounded-md outline-offset-0',
+				notRun && !selected
+					? 'outline outline-1 outline-dashed outline-gray-400 dark:outline-gray-500'
+					: colorClasses.outline
+			)}
 			style={`width: 275px; height: 34px;`}
 		></div>
 		<div

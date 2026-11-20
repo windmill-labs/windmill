@@ -34,15 +34,6 @@ export class FlowRunStatus {
 		return !state || state.type === 'WaitingForPriorSteps' || !!state.skipped
 	}
 
-	/** The colour of an edge into or out of an error handler: red into it, and red out of it unless
-	 * the handler succeeded and returned `recover: true`, which ends the flow as a success. */
-	handlerEdgeTone(handlerId: string, side: 'in' | 'out'): 'failure' | 'recovered' | undefined {
-		if (side === 'in') return 'failure'
-		const state = this.getModuleState(handlerId)
-		if (state?.type === 'Success') return state.result?.recover === true ? 'recovered' : 'failure'
-		return state?.type === 'Failure' ? 'failure' : undefined
-	}
-
 	setModuleStates(next: Record<string, GraphModuleState> | undefined) {
 		const incoming = next ?? {}
 		for (const id of [...this.#moduleStates.keys()]) {
