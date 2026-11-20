@@ -146,6 +146,12 @@ export function isReadOnlySessionWorkspace(workspace: string): Promise<boolean> 
 	return verdict
 }
 
+/** Drops the memoized verdicts, so the next ask reads the rules. */
+export function forgetReadOnlyVerdicts(): void {
+	readOnlyVerdicts.clear()
+	settledVerdicts.clear()
+}
+
 /** The verdict read for `workspace` within the minute, without asking: what the UI stands on
  * while a fresh component waits for its own ask. */
 export function settledReadOnlyVerdict(workspace: string): boolean | undefined {

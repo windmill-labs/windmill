@@ -38,6 +38,7 @@
 	} from '$lib/components/sessions/PreviewRouterPicker.svelte'
 	import { goto } from '$lib/navigation'
 	import { useWorkspaceAiHidden } from '$lib/components/copilot/workspaceAiHidden.svelte'
+	import { rereadReadOnlyVerdicts } from './sessionPermissions.svelte'
 	import SessionWrapper from '$lib/components/sessions/SessionWrapper.svelte'
 	import type PreviewTabHost from '$lib/components/sessions/PreviewTabHost.svelte'
 	import { useIsDarkMode } from '$lib/components/DarkModeObserver.svelte'
@@ -359,6 +360,20 @@
 	// that would refresh `copilotInfo`, so the verdict is read for the workspace itself.
 	const workspaceAiHidden = useWorkspaceAiHidden(() => previewWorkspace)
 	const aiHiddenVerdict = $derived(workspaceAiHidden.hidden)
+	// The AI setting and the protection rules are changed on other pages, so coming back reads
+	// them again: kept from before, an un-hidden workspace would stay covered and an unprotected
+	// one locked in Use until a reload.
+	let shownBefore = false
+	$effect(() => {
+		if (!shown) return
+		if (shownBefore) {
+			untrack(() => {
+				workspaceAiHidden.refresh()
+				rereadReadOnlyVerdicts()
+			})
+		}
+		shownBefore = true
+	})
 	// The full loader is for the page's first verdict only. Later, picking another workspace in
 	// "Acting on" leaves the session on screen, inert until its verdict lands: covering it for
 	// a request reads as the page reloading.

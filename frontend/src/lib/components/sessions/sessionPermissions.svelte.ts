@@ -6,6 +6,7 @@ import { useActingUser } from '$lib/actingUser.svelte'
 import { useEditRights } from '$lib/operatorWriteRights'
 import { buildsAnything } from '$lib/editRights'
 import {
+	forgetReadOnlyVerdicts,
 	isReadOnlySessionWorkspace,
 	settledReadOnlyVerdict
 } from '$lib/components/copilot/chat/global/sessionAccess'
@@ -13,10 +14,19 @@ import { AIWorkMode } from '$lib/components/copilot/chat/workMode'
 import type { WorkspaceItem } from '$lib/components/workspacePicker'
 import { previewPageAllowed, type PreviewPage } from './previewRouter'
 
+let verdictEpoch = $state(0)
+
+/** Every `useSessionReadOnly` reads the rules again: the sessions view stays mounted while the
+ * user is on other pages, where the rules can change. */
+export function rereadReadOnlyVerdicts(): void {
+	forgetReadOnlyVerdicts()
+	verdictEpoch++
+}
+
 /** Whether a session in `workspace` is read-only because the workspace is protected: the verdict
  * `resolveSessionAccess` gives the chat, so the UI and the toolset agree. */
 export function useSessionReadOnly(workspace: () => string | undefined) {
-	const verdict = resource(workspace, async (ws) => {
+	const verdict = resource([workspace, () => verdictEpoch], async ([ws]) => {
 		if (!ws) return undefined
 		const readOnly = await isReadOnlySessionWorkspace(ws)
 		// Only a successful read settles a verdict; a failed one is read-only to fail closed.
