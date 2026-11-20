@@ -234,31 +234,80 @@ async function writeEdit(
  * distinct from `rejected`, the database turning this write down. */
 export type WriteOutcome = 'saved' | 'rejected' | 'unavailable'
 
-export interface ArtifactWrite {
+/** What a mutator decided: the edit to write, or why it wrote none. */
+export type Mutation<R> = { edit: ArtifactEdit } | { refused: R }
+
+export interface ArtifactWrite<R = never> {
+	/** `saved` too when the mutator wrote nothing. */
 	outcome: WriteOutcome
-	/** The edited row, persisted or not; absent only when the mutator wrote nothing. */
+	/** The row the edit wrote; absent when there was none, and when the store refused it. */
 	artifact?: PersistedArtifact
+	/** The mutator's answer when it wrote no edit. */
+	refused?: R
 }
 
 /**
- * Read an artifact and write it back in one transaction. `mutate` returns the edit to
- * write, or undefined to leave the artifact alone and resolve to no artifact. A store that
- * fails is reported rather than thrown, so the edited row resolves either way — persisted
- * where it could be, and usable for the session where it could not.
- *
- * Most callers read only `artifact` and degrade as the reads do. A caller whose write
- * carries a *constraint* reads `outcome` instead: the plan cannot be approved on the
- * strength of a row that would be gone on reload.
+ * Read an artifact and write it back in one transaction. `mutate` returns the edit to write, a
+ * refusal to hand back, or undefined to leave the artifact alone. A store that fails is reported
+ * in `outcome` rather than thrown, and the mutator is not asked when there is no store to read.
  */
-export async function mutateArtifact(
+export async function mutateArtifact<R = never>(
 	id: string,
-	mutate: (
-		existing: PersistedArtifact | undefined,
-		/** The snapshot `opts.readVersion` named, when it was asked for and is still stored. */
-		snapshot?: ArtifactVersion
-	) => ArtifactEdit | undefined,
+	mutate: Mutator<R>,
 	opts?: { readVersion?: number }
-): Promise<ArtifactWrite> {
+): Promise<ArtifactWrite<R>> {
+	// Asked again on the retry, so the version check runs against what the store holds then.
+	const { full, ...first } = await mutateOnce(id, mutate, opts)
+	if (!full || !(await makeRoom())) return first
+	const { full: _, ...retried } = await mutateOnce(id, mutate, opts)
+	return retried
+}
+
+type Mutator<R> = (
+	existing: PersistedArtifact | undefined,
+	/** The snapshot `opts.readVersion` named, when it was asked for and is still stored. */
+	snapshot?: ArtifactVersion
+) => Mutation<R> | undefined
+
+/** Whether the browser refused a write for want of space. */
+export function isQuotaError(err: unknown): boolean {
+	return (err as { name?: unknown } | null | undefined)?.name === 'QuotaExceededError'
+}
+
+/**
+ * Free space after the browser refused a write for want of it: cut each artifact's history to
+ * its latest MIN_VERSIONS_PER_ARTIFACT snapshots, keeping a plan's approved one. Resolves to
+ * whether anything was deleted, so only a write that might now fit is tried again.
+ */
+export async function makeRoom(): Promise<boolean> {
+	const db = await getDB()
+	if (!db) return false
+	try {
+		const tx = db.transaction(['items', 'versions'], 'readwrite')
+		const items = tx.objectStore('items')
+		const versions = tx.objectStore('versions')
+		const touched = new Set<string>()
+		for (const a of await items.getAll()) {
+			if ((await dropOldestIn(versions, a.id, MIN_VERSIONS_PER_ARTIFACT, a.approvedVersion)) > 0) {
+				touched.add(a.sessionId)
+			}
+		}
+		await tx.done
+		const email = emailOfScopedKey(ARTIFACTS_DB, db.name)
+		for (const sessionId of touched) markSessionDirty(sessionId, undefined, email)
+		return touched.size > 0
+	} catch (err) {
+		console.error('Could not free space for artifacts', err)
+		return false
+	}
+}
+
+async function mutateOnce<R>(
+	id: string,
+	mutate: Mutator<R>,
+	opts?: { readVersion?: number }
+): Promise<ArtifactWrite<R> & { full?: boolean }> {
+	let full = false
 	const db = await getDB()
 	// `transaction()` throws on a connection closed since `getDB()` answered — another tab
 	// upgrading the schema, or a user switch releasing the handle.
@@ -268,9 +317,7 @@ export async function mutateArtifact(
 	} catch (err) {
 		console.error('Could not open an artifact write transaction', err)
 	}
-	// Not `return undefined`: `create` can hand out an artifact the store never took, and it
-	// stays revisable only if the edit is computed anyway.
-	if (!opened) return { outcome: 'unavailable', artifact: mutate(undefined)?.artifact }
+	if (!opened) return { outcome: 'unavailable' }
 	const tx = opened
 	// Attached before the first await: idb builds `done` eagerly and rejects it on abort, so
 	// attaching later would leave an unhandled rejection. Cleared before each deliberate
@@ -280,6 +327,7 @@ export async function mutateArtifact(
 		() => 'saved',
 		(err) => {
 			if (reportFailure) console.error('Could not persist artifact', err)
+			full ||= isQuotaError(err)
 			return 'rejected'
 		}
 	)
@@ -305,13 +353,13 @@ export async function mutateArtifact(
 		console.error('Could not read the artifact being written', err)
 		reportFailure = false
 		abort()
-		return { outcome: await settled, artifact: mutate(undefined)?.artifact }
+		return { outcome: await settled }
 	}
 	// Kept out of the store's own error handling: a mutator that fails is not the store
 	// failing, so its error is neither reported as one nor swallowed.
-	let edit: ArtifactEdit | undefined
+	let decided: Mutation<R> | undefined
 	try {
-		edit = mutate(existing, snapshot)
+		decided = mutate(existing, snapshot)
 	} catch (err) {
 		reportFailure = false
 		abort()
@@ -319,12 +367,13 @@ export async function mutateArtifact(
 		throw err
 	}
 	// Nothing to write, so nothing was refused either.
-	if (!edit) {
+	if (!decided || !('edit' in decided)) {
 		reportFailure = false
 		abort()
 		await settled
-		return { outcome: 'saved' }
+		return { outcome: 'saved', refused: decided?.refused }
 	}
+	const edit = decided.edit
 	try {
 		await writeEdit(items, versions, edit)
 	} catch (err) {
@@ -332,11 +381,13 @@ export async function mutateArtifact(
 		// a request (DataCloneError) would otherwise commit the row without its snapshot.
 		// Logged here because `settled` sees only a cause-less AbortError.
 		console.error('Could not persist artifact', err)
+		full = isQuotaError(err)
 		reportFailure = false
 		abort()
 	}
 	const outcome = await settled
-	if (outcome === 'saved' && db) {
+	if (outcome !== 'saved') return { outcome, full }
+	if (db) {
 		markSessionDirty(edit.artifact.sessionId, undefined, emailOfScopedKey(ARTIFACTS_DB, db.name))
 	}
 	return { outcome, artifact: edit.artifact }
@@ -355,9 +406,19 @@ async function pruneVersionsIn(
 	newestChars: number,
 	protect?: number
 ): Promise<void> {
+	await dropOldestIn(store, artifactId, versionsToKeep(newestChars), protect)
+}
+
+/** Delete all but the `keep` newest snapshots, never the one `protect` names. Resolves to how
+ * many were deleted. */
+async function dropOldestIn(
+	store: VersionsStore,
+	artifactId: string,
+	keep: number,
+	protect?: number
+): Promise<number> {
 	const keys = await store.index('by-artifact').getAllKeys(artifactId)
-	const keep = versionsToKeep(newestChars)
-	if (keys.length <= keep) return
+	if (keys.length <= keep) return 0
 	const protectedKey = protect === undefined ? undefined : versionKey(artifactId, protect)
 	// Keys sort lexicographically, which puts ":10" before ":2" — order by the parsed
 	// number so pruning drops the genuinely oldest snapshots.
@@ -366,6 +427,7 @@ async function pruneVersionsIn(
 		.filter((key) => key !== protectedKey)
 		.slice(0, keys.length - keep)
 	for (const key of oldest) await store.delete(key)
+	return oldest.length
 }
 
 function versionOf(key: string): number {
