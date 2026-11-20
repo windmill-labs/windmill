@@ -300,7 +300,7 @@
 							workspace={$workspaceStore}
 							type={s.type}
 							path={s.path}
-							pathKind={s.type === 'app' ? 'raw_app' : s.type === 'script' || s.type === 'flow' ? s.type : undefined}
+							pathKind={s.type === 'app' ? 'app' : s.type === 'script' || s.type === 'flow' ? s.type : undefined}
 							bind:deployPath={s.deployPath}
 							review={s.review}
 							me={ME}

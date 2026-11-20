@@ -28,3 +28,40 @@ export function takeDeployEdits(toolCallId: string): DeployEdits | undefined {
 	pending.delete(toolCallId)
 	return edits
 }
+
+/** Tells the model what the user changed on the card, so its reply matches what was deployed:
+ *  it chose none of it. Undefined when nothing changed. */
+export function describeDeployEdits(
+	edits: DeployEdits | undefined,
+	deploy: {
+		/** The message the model passed. */
+		requestedMessage: string | undefined
+		/** The path the model asked to deploy, and where the item landed. */
+		path: string
+		deployedPath: string
+	}
+): string | undefined {
+	if (!edits) return undefined
+	const changed: string[] = []
+	const message = edits.deploymentMessage || undefined
+	if (edits.deploymentMessage !== undefined && message !== deploy.requestedMessage) {
+		changed.push(message ? `the deployment message to "${message}"` : 'the deployment message to none')
+	}
+	if (edits.deployPath && deploy.deployedPath === edits.deployPath && edits.deployPath !== deploy.path) {
+		changed.push(`the path to ${edits.deployPath}`)
+	}
+	if (edits.appAccess) {
+		const who =
+			edits.appAccess === 'publisher'
+				? 'members only'
+				: edits.appAccess === 'guest'
+					? 'guests'
+					: 'anyone with the link'
+		changed.push(`who can open the app to ${who}`)
+	}
+	if (edits.onBehalfOf) {
+		const user = edits.onBehalfOf.permissionedAs ?? edits.onBehalfOf.email
+		changed.push(user ? `the user it runs on behalf of to ${user}` : 'it to run as whoever starts each run')
+	}
+	return changed.length ? `Before confirming, the user changed ${changed.join(', ')}.` : undefined
+}

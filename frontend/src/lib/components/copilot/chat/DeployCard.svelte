@@ -66,7 +66,7 @@
 		review.current?.kind === 'script' || review.current?.kind === 'flow'
 			? review.current.kind
 			: review.current?.kind === 'raw_app' || review.current?.kind === 'app'
-				? 'raw_app'
+				? 'app'
 				: undefined
 	)
 

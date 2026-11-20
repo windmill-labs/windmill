@@ -229,7 +229,7 @@ import {
 	resolveGlobalDraftStoragePathByKind,
 	type DraftPersistResult
 } from './userDraftAdapter'
-import { takeDeployEdits } from './deployEdits'
+import { describeDeployEdits, takeDeployEdits } from './deployEdits'
 import {
 	applySessionToolEffects,
 	applyStatusEffects,
@@ -7139,6 +7139,23 @@ async function deployDraft(
 			? edits.deploymentMessage || undefined
 			: args.deployment_message
 	const onBehalfOf = edits?.onBehalfOf
+	// A picked path creates the item there: one already taken would turn the create into an update
+	// of whatever lives at it, so it is refused rather than overwritten.
+	if (edits?.deployPath && edits.deployPath !== path) {
+		const taken =
+			type === 'script'
+				? await ScriptService.existsScriptByPath({ workspace, path: edits.deployPath })
+				: type === 'flow'
+					? await FlowService.existsFlowByPath({ workspace, path: edits.deployPath })
+					: type === 'app'
+						? await AppService.existsApp({ workspace, path: edits.deployPath })
+						: false
+		if (taken) {
+			throw new Error(
+				`Cannot deploy ${type} "${path}" at "${edits.deployPath}": something is already deployed there.`
+			)
+		}
+	}
 
 	if (type === 'trigger' && !triggerKind) {
 		throw new Error('trigger_kind is required when deploying a trigger.')
@@ -7524,35 +7541,11 @@ async function deployDraft(
 		})
 	}
 
-	// The model asked for neither, so it has to be told what was actually deployed.
-	const changed = [
-		edits?.deploymentMessage !== undefined &&
-		(edits.deploymentMessage || undefined) !== args.deployment_message
-			? deploymentMessage
-				? `the deployment message to "${deploymentMessage}"`
-				: 'the deployment message to none'
-			: undefined,
-		deployedPath !== path && edits?.deployPath === deployedPath
-			? `the path to ${deployedPath}`
-			: undefined,
-		edits?.appAccess
-			? `who can open the app to ${
-					edits.appAccess === 'publisher'
-						? 'members only'
-						: edits.appAccess === 'guest'
-							? 'guests'
-							: 'anyone with the link'
-				}`
-			: undefined,
-		onBehalfOf
-			? onBehalfOf.permissionedAs || onBehalfOf.email
-				? `the user it runs on behalf of to ${onBehalfOf.permissionedAs ?? onBehalfOf.email}`
-				: 'it to run as whoever starts each run'
-			: undefined
-	].filter(Boolean)
-	const userChanges = changed.length
-		? `Before confirming, the user changed ${changed.join(' and ')}.`
-		: undefined
+	const userChanges = describeDeployEdits(edits, {
+		requestedMessage: args.deployment_message,
+		path,
+		deployedPath
+	})
 
 	toolCallbacks.setToolStatus(toolId, {
 		content: `Deployed ${noun} "${deployedPath}"`,
