@@ -18278,6 +18278,11 @@ paths:
                                 type: integer
                             required: [id, status, ran_at]
                       required: [path, kind, status, failed_runs, runs]
+                  hidden_items:
+                    description: the items the caller hid, within the folder, whether or not they ran in the window; their runs are left out of items and of every count
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/RecentRunHiddenItem"
                 required:
                   - window_hours
                   - capped
@@ -18286,6 +18291,51 @@ paths:
                   - failing_items
                   - running_items
                   - items
+                  - hidden_items
+
+  /w/{workspace}/jobs/recent_runs/hide:
+    post:
+      summary: hide items from the caller's recently run list
+      operationId: hideRecentRunItems
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RecentRunItemRefs"
+      responses:
+        "200":
+          description: items hidden
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/jobs/recent_runs/unhide:
+    post:
+      summary: bring items back to the caller's recently run list
+      operationId: unhideRecentRunItems
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RecentRunItemRefs"
+      responses:
+        "200":
+          description: items brought back
+          content:
+            text/plain:
+              schema:
+                type: string
 
   /w/{workspace}/jobs/list:
     get:
@@ -33707,6 +33757,34 @@ components:
       description: a failure someone or something marked as handled is `resolved`, not `failure`
       type: string
       enum: [success, failure, resolved, canceled, running]
+
+    RecentRunHiddenItem:
+      type: object
+      properties:
+        kind:
+          type: string
+          enum: [script, flow, agent]
+        path:
+          type: string
+        summary:
+          type: string
+      required: [kind, path]
+
+    RecentRunItemRefs:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              kind:
+                type: string
+                enum: [script, flow, agent]
+              path:
+                type: string
+            required: [kind, path]
+      required: [items]
 
     ScriptLang:
       type: string

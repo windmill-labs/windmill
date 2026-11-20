@@ -302,6 +302,14 @@ pub fn workspaced_service() -> Router {
             "/recent_runs",
             get(crate::jobs_recent_runs::list_recent_runs),
         )
+        .route(
+            "/recent_runs/hide",
+            post(crate::jobs_recent_runs::hide_recent_run_items),
+        )
+        .route(
+            "/recent_runs/unhide",
+            post(crate::jobs_recent_runs::unhide_recent_run_items),
+        )
         .route("/asset_dispatch_edges", get(list_asset_dispatch_edges))
         .route(
             "/list_selected_job_groups",
