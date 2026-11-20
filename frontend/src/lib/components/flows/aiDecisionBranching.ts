@@ -19,7 +19,9 @@ const YES_THRESHOLD = 0.5
 
 const IDENT = /^[A-Za-z_$][\w$]*$/
 
-function key(k: string): string {
+/** `.k`, or `["k"]` when `k` is not a JS identifier: a step id pushed as YAML or through the API
+ *  can be `step-a`, which `results.step-a` would read as a subtraction. */
+export function key(k: string): string {
 	return IDENT.test(k) ? `.${k}` : `[${JSON.stringify(k)}]`
 }
 
