@@ -41,7 +41,7 @@ export function syncWorkspaceTo(workspaceId: string | undefined): void {
 	if (workspaceId === get(workspaceStore)) return
 	switchWorkspace(workspaceId)
 }
-import { WorkspaceService } from '$lib/gen'
+import { SettingService, WorkspaceService } from '$lib/gen'
 import { createWorkspaceForkAndWait, waitForForkCreation } from '$lib/utils/forkCreation'
 import { stagedForkRequest, type StagedFork } from './sessionForkDefaults'
 import {
@@ -106,6 +106,10 @@ export type Session = {
 	// cancelling the draft doesn't leave an orphan fork behind. Staged by Home's "Work in
 	// fork"; `pending_workspace_id` stays the header's workspace it was staged from.
 	pending_fork?: PendingFork
+	// The protected workspace its user chose to work in directly rather than in a fork, which
+	// `resolveSessionAccess` honours for the rule's bypassers only. Keyed by workspace, so it
+	// lapses when the session acts on another one.
+	direct_in?: string
 	// Stable root workspace id used only for sidebar grouping. Lifecycle follows
 	// workspace_id, not this field. Root sessions store the same id in both fields.
 	workspace_root_id?: string
@@ -1295,18 +1299,22 @@ export function setSessionPendingWorkspace(id: string, workspace_id: string) {
 	if (changed) persistTouched(s)
 }
 
-/** Stage `fork` for a session's first send, or drop the staged one (`undefined`). A fork staged
- *  for the user (`byUser: false`) is not a touch, so it leaves an unused draft unstored, as
- *  `setNewSessionWorkspace` does. */
-export function setSessionPendingFork(
-	id: string,
-	fork: StagedFork | undefined,
-	{ byUser = true }: { byUser?: boolean } = {}
-) {
+/** Stage `fork` for a session's first send, or drop the staged one (`undefined`). */
+export function setSessionPendingFork(id: string, fork: StagedFork | undefined) {
 	const s = sessionState.sessions.find((x) => x.id === id)
 	if (!s || s.workspace_id) return
 	s.pending_fork = fork && { ...fork }
-	if (byUser || !s.transient) persistTouched(s)
+	if (fork) s.direct_in = undefined
+	persistTouched(s)
+}
+
+/** Opt a session into working directly in protected `workspace`, or out (`undefined`). */
+export function setSessionDirectIn(id: string, workspace: string | undefined) {
+	const s = sessionState.sessions.find((x) => x.id === id)
+	if (!s) return
+	s.direct_in = workspace
+	if (workspace) s.pending_fork = undefined
+	persistTouched(s)
 }
 
 // Keep a just-created session in memory until the user starts it (see `untilStarted`).
@@ -1549,8 +1557,12 @@ export async function materializeForkOutcome(
 		}
 		if (!resumed) {
 			const base = fork.parent_workspace_id
-			const [datatables, readRules, user] = await Promise.all([
-				WorkspaceService.listDataTables({ workspace: base }),
+			const [datatables, ducklakes, storages, readRules, user] = await Promise.all([
+				WorkspaceService.listDataTables({ workspace: base }).catch(() => undefined),
+				WorkspaceService.listDucklakes({ workspace: base }).catch(() => undefined),
+				SettingService.getSecondaryStorageNames({ workspace: base, includeDefault: true }).catch(
+					() => undefined
+				),
 				readProtectionRulesForWorkspace(base),
 				getUserExt(base)
 			])
@@ -1560,7 +1572,7 @@ export async function materializeForkOutcome(
 				!canUserBypassRuleKindInRulesets(rules, 'RequireIsolatedForks', user)
 			await createWorkspaceForkAndWait(
 				base,
-				stagedForkRequest(fork, { datatables, requireIsolation }),
+				stagedForkRequest(fork, { datatables, ducklakes, storages, requireIsolation }),
 				{ onCreationStarted }
 			)
 		}

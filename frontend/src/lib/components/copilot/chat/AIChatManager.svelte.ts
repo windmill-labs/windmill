@@ -842,6 +842,11 @@ export class AIChatManager implements ChatViewHost {
 	 * Set before `moving`, which waits for the editors to hand over their pending edits. */
 	moveStarted = $state(false)
 	onWorkModeChanged: ((mode: AIWorkMode) => void) | undefined = undefined
+	/** The protected workspace the session was opted into working in directly (`direct_in`). */
+	directInResolver: (() => string | undefined) | undefined = undefined
+	get directIn(): string | undefined {
+		return this.directInResolver?.()
+	}
 	workModesAvailable = $derived(this.isSessionChat && supportsPlanMode(this.mode))
 	/** Use is the only mode: the workspace is protected, or the user's role builds nothing in it. */
 	#useOnly = $derived(this.workModesAvailable && !canBuild(this.sessionAccess))
@@ -3217,7 +3222,9 @@ export class AIChatManager implements ChatViewHost {
 			return
 		}
 		const generation = ++this.sessionAccessGeneration
-		const access = await resolveSessionAccess(workspace)
+		const access = await resolveSessionAccess(workspace, {
+			direct: this.directIn === workspace
+		})
 		if (generation !== this.sessionAccessGeneration) return
 		this.sessionAccess = workspace === (this.operatingWorkspace ?? '') ? access : undefined
 		if (this.mode === AIMode.GLOBAL) {

@@ -43,19 +43,24 @@ export function saveForkDefaults(rootId: string | undefined, defaults: ForkDefau
 
 /** What the base holds when the fork is created, which saved settings may no longer match. */
 export type ForkBase = {
-	datatables: { name: string; database_workspace_id?: string }[]
+	/** Each list is undefined when it could not be read: the saved names are sent as they are. */
+	datatables?: { name: string; database_workspace_id?: string }[]
+	ducklakes?: string[]
+	storages?: string[]
 	/** The base's `RequireIsolatedForks` rule binds this user: nothing may stay shared with it. */
 	requireIsolation: boolean
 }
 
-/** The create-fork request for a staged fork. A copy of a data table the base no longer has is
- *  dropped, and under isolation every base-owned table is copied, as the fork form does. */
+/** The create-fork request for a staged fork. Saved names the base no longer has are dropped (the
+ *  server refuses to share an unknown lake or storage), and under isolation every base-owned table
+ *  is copied and nothing is shared, as the fork form does. */
 export function stagedForkRequest(
 	fork: { id: string; name: string; settings?: StagedForkSettings },
 	base: ForkBase
 ): CreateWorkspaceFork {
 	const s = fork.settings ?? {}
-	const copies = base.datatables.flatMap((dt) => {
+	const tables = base.datatables ?? Object.keys(s.datatables ?? {}).map((name) => ({ name }))
+	const copies = tables.flatMap((dt: { name: string; database_workspace_id?: string }) => {
 		const chosen = s.datatables?.[dt.name]
 		// A table whose database another workspace owns is not the base's data; the rule leaves it.
 		const behavior =
@@ -75,8 +80,12 @@ export function stagedForkRequest(
 		name: fork.name,
 		color: s.color,
 		forked_datatables: copies,
-		shared_ducklakes: base.requireIsolation ? [] : (s.shared_ducklakes ?? []),
-		shared_storages: base.requireIsolation ? [] : (s.shared_storages ?? []),
+		shared_ducklakes: base.requireIsolation
+			? []
+			: (s.shared_ducklakes ?? []).filter((n) => base.ducklakes?.includes(n) ?? true),
+		shared_storages: base.requireIsolation
+			? []
+			: (s.shared_storages ?? []).filter((n) => base.storages?.includes(n) ?? true),
 		is_dev_workspace: !!s.is_dev_workspace,
 		dev_workspace_label: s.is_dev_workspace ? s.dev_workspace_label : undefined,
 		lock_prod_deploy: !!s.is_dev_workspace && !!s.lock_prod_deploy,

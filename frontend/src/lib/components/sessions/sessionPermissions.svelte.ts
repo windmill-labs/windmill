@@ -6,6 +6,7 @@ import { useActingUser } from '$lib/actingUser.svelte'
 import { useEditRights } from '$lib/operatorWriteRights'
 import { buildsAnything } from '$lib/editRights'
 import {
+	canWorkDirectly,
 	isReadOnlySessionWorkspace,
 	settledReadOnlyVerdict
 } from '$lib/components/copilot/chat/global/sessionAccess'
@@ -14,18 +15,33 @@ import type { WorkspaceItem } from '$lib/components/workspacePicker'
 import { previewPageAllowed, type PreviewPage } from './previewRouter'
 
 /** Whether a session in `workspace` is read-only because the workspace is protected: the verdict
- * `resolveSessionAccess` gives the chat, so the UI and the toolset agree. */
-export function useSessionReadOnly(workspace: () => string | undefined) {
-	const verdict = resource(workspace, async (ws) => {
-		if (!ws) return undefined
-		const readOnly = await isReadOnlySessionWorkspace(ws)
-		// Only a successful read settles a verdict; a failed one is read-only to fail closed.
-		return { workspace: ws, readOnly, rulesRead: settledReadOnlyVerdict(ws) !== undefined }
-	})
-	// `resource` keeps the previous workspace's verdict while it asks about the next one.
+ * `resolveSessionAccess` gives the chat, so the UI and the toolset agree. `direct`: the session
+ * was opted into working there directly, which lifts it for the rule's bypassers. */
+export function useSessionReadOnly(
+	workspace: () => string | undefined,
+	direct: () => boolean = () => false
+) {
+	const verdict = resource(
+		() => [workspace(), direct()] as const,
+		async ([ws, isDirect]) => {
+			if (!ws) return undefined
+			const readOnly =
+				(await isReadOnlySessionWorkspace(ws)) && !(isDirect && (await canWorkDirectly(ws)))
+			// Only a successful read settles a verdict; a failed one is read-only to fail closed.
+			return {
+				workspace: ws,
+				direct: isDirect,
+				readOnly,
+				rulesRead: settledReadOnlyVerdict(ws) !== undefined
+			}
+		}
+	)
+	// `resource` keeps the previous workspace's verdict while it asks about the next one. A direct
+	// session waits for its own verdict rather than take the workspace's.
 	const verdictFor = (ws: string): boolean | undefined => {
 		const landed = verdict.current
-		return landed?.workspace === ws ? landed.readOnly : settledReadOnlyVerdict(ws)
+		if (landed?.workspace === ws && landed.direct === direct()) return landed.readOnly
+		return direct() ? undefined : settledReadOnlyVerdict(ws)
 	}
 	return {
 		/** Read-only, and also while the rules have not been read yet: the preview's writes wait
@@ -47,9 +63,9 @@ export function useSessionReadOnly(workspace: () => string | undefined) {
 			const ws = workspace()
 			if (!ws) return false
 			const landed = verdict.current
-			return landed?.workspace === ws
+			return landed?.workspace === ws && landed.direct === direct()
 				? landed.readOnly && landed.rulesRead
-				: (settledReadOnlyVerdict(ws) ?? false)
+				: !direct() && (settledReadOnlyVerdict(ws) ?? false)
 		},
 		/** Whether the rules were read, a failed read included, which settles as read-only. */
 		get settled() {
@@ -62,6 +78,7 @@ export function useSessionReadOnly(workspace: () => string | undefined) {
 /** The session chat whose work mode the session UI follows. */
 type WorkModeHost = {
 	readonly workMode: AIWorkMode
+	readonly directIn?: string
 	readonly moving?: boolean
 	readonly moveStarted?: boolean
 }
@@ -84,8 +101,11 @@ export function useSessionPermissions(
 	const contextChat = getContext<WorkModeHost | undefined>('aiChatManager')
 	const rights = useEditRights(workspace)
 	const user = useActingUser(workspace)
-	const protectedWorkspace = useSessionReadOnly(workspace)
 	const host = $derived(chat?.() ?? contextChat)
+	const protectedWorkspace = useSessionReadOnly(
+		workspace,
+		() => !!host?.directIn && host.directIn === workspace()
+	)
 	const readOnly = $derived(
 		protectedWorkspace.current ||
 			!buildsAnything(rights.capabilities) ||

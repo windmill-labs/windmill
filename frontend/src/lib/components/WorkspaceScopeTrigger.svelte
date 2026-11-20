@@ -25,6 +25,8 @@
 		menuItems = undefined,
 		disableTitle = false,
 		forkableWorkspaces,
+		onClick = undefined,
+		compact = false,
 		class: className = ''
 	}: {
 		workspaceId?: string
@@ -61,6 +63,10 @@
 		// resolves its name/family for a workspace absent from `$userWorkspaces`.
 		// Omitted consumers fall back to the member-only list.
 		forkableWorkspaces?: UserWorkspace[]
+		// For a chip that is not a dropdown's trigger, such as Home's staged fork.
+		onClick?: () => void
+		// Fork icon, fork name and chevron only: no parent segment, "(new)" or dev badge.
+		compact?: boolean
 		class?: string
 	} = $props()
 
@@ -76,7 +82,7 @@
 	)
 	// The parent segment only appears for a fork of a fork — forking off the
 	// root is the default and doesn't need spelling out.
-	const shownParent = $derived(parentId !== root?.id ? parentName : undefined)
+	const shownParent = $derived(!compact && parentId !== root?.id ? parentName : undefined)
 
 	// A fork with a workspace color re-themes the whole chip: forkAccentStyle
 	// derives light/dark bg+text at that hue (matching the default blue's
@@ -115,6 +121,7 @@
 	<Button
 		variant="subtle"
 		unifiedSize="xs"
+		{onClick}
 		title={disableTitle ? undefined : showFork && shownParent ? `${shownParent} → ${name}` : name}
 		tabindex={interactive ? undefined : -1}
 		style={accentStyle ?? ''}
@@ -168,9 +175,9 @@
 					{showFork ? name : (rootLabel ?? name)}
 				</span>
 			{/if}
-			{#if pendingFork}
+			{#if pendingFork && !compact}
 				<span class="shrink-0 opacity-70 font-normal">(new)</span>
-			{:else if currentWs?.is_dev_workspace}
+			{:else if currentWs?.is_dev_workspace && !compact}
 				<DevWorkspaceBadge
 					label={currentWs.dev_workspace_label}
 					color={color ?? (pendingFork ? undefined : currentWs.color)}

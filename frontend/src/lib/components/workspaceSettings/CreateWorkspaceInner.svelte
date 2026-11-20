@@ -234,8 +234,12 @@
 	// Offer dev designation only once the server confirms there's no dev yet (returns null); stay
 	// conservative (no offer) while the check is loading (current is undefined). With every label
 	// taken the chain is full and there is nothing left to designate.
+	// A session's staged fork never adds a level to a dev chain: from Home, a dev base gets a fork.
 	let canDesignateDevWorkspace = $derived(
-		baseCanHostDev && availableDevLabels.length > 0 && devWorkspaceResource.current === null
+		baseCanHostDev &&
+			!(stage && baseWorkspaceEntry?.is_dev_workspace) &&
+			availableDevLabels.length > 0 &&
+			devWorkspaceResource.current === null
 	)
 
 	let devWorkspaceLabel = $state<DevWorkspaceLabelKey>('dev')
@@ -1324,8 +1328,14 @@
 			{/if}
 		</div>
 	</div>
-	<div class="flex flex-wrap flex-row {inModal ? 'justify-end' : 'justify-between'} gap-4 pt-4">
-		{#if !inModal}
+	<div
+		class="flex flex-wrap flex-row items-center {inModal && !stage
+			? 'justify-end'
+			: 'justify-between'} gap-4 pt-4"
+	>
+		{#if stage}
+			<span class="text-xs text-hint">Fork is created when the first message is sent</span>
+		{:else if !inModal}
 			<Button disabled={forkCreationLoading} variant="default" size="sm" href="/user/workspaces"
 				>&leftarrow; Back to workspaces</Button
 			>

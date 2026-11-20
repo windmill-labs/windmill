@@ -17,6 +17,7 @@
 		sessionPageHref,
 		sessionState,
 		setSessionDraftPrompt,
+		setSessionDirectIn,
 		takeHomeDraftFlash,
 		takeHomeDraftFocus
 	} from './sessionState.svelte'
@@ -24,6 +25,10 @@
 	import { AIWorkMode } from '$lib/components/copilot/chat/workMode'
 	import { homeComposerContext } from './homeComposerContext.svelte'
 	import WorkInForkToggle from './WorkInForkToggle.svelte'
+	import ProtectedBuildDialog from './ProtectedBuildDialog.svelte'
+	import { useForkStaging } from './forkStaging.svelte'
+	import { resource } from 'runed'
+	import { canWorkDirectly } from '$lib/components/copilot/chat/global/sessionAccess'
 
 	// Home's block is the unsent session's own chat, run by that session's manager: the
 	// composer, its controls and what a send does are the session's, not a copy of them.
@@ -49,7 +54,38 @@
 	const session = $derived(sessionState.sessions.find((s) => s.id === sessionId))
 	// The draft acts on the workspace the page header names: holdHomeDraft keeps it there, so
 	// the lock's way out to a dev workspace switches the page.
-	const workModeLock = useWorkModeLock(() => session, true)
+	const forkStaging = useForkStaging(() => session)
+	// On a protected workspace, picking a mode that builds asks where to build.
+	let protectedPick: { mode: AIWorkMode; workspace: string } | undefined = $state(undefined)
+	let protectedDialogOpen = $state(false)
+	const directAllowed = resource(
+		() => forkStaging.workspace,
+		async (ws) => (ws ? canWorkDirectly(ws) : false)
+	)
+	const workModeLock = useWorkModeLock(
+		() => session,
+		true,
+		() =>
+			forkStaging.available || directAllowed.current
+				? (mode) => {
+						const ws = forkStaging.workspace
+						if (!ws) return
+						protectedPick = { mode, workspace: ws }
+						protectedDialogOpen = true
+					}
+				: undefined
+	)
+	async function workInFork() {
+		const pick = protectedPick
+		if (pick && (await forkStaging.stage())) runtime.manager.setWorkMode(pick.mode)
+	}
+	function workDirectly() {
+		const pick = protectedPick
+		if (!pick) return
+		setSessionDirectIn(sessionId, pick.workspace)
+		void runtime.manager.refreshSessionAccess(pick.workspace)
+		runtime.manager.setWorkMode(pick.mode)
+	}
 	const starterPrompts = new StarterPrompts(
 		() => $workspaceStore ?? undefined,
 		() => !workModeLock.current && runtime.manager.workMode !== AIWorkMode.USE
@@ -111,9 +147,20 @@
 
 {#snippet actingOn()}
 	{#if session}
-		<WorkInForkToggle {session} />
+		<WorkInForkToggle {session} staging={forkStaging} />
 	{/if}
 {/snippet}
+
+{#if protectedPick}
+	<ProtectedBuildDialog
+		bind:isOpen={protectedDialogOpen}
+		workspace={protectedPick.workspace}
+		canFork={forkStaging.available}
+		canDirect={!!directAllowed.current}
+		onFork={() => void workInFork()}
+		onDirect={workDirectly}
+	/>
+{/if}
 
 <!-- Until a config has loaded the chat reads "AI not configured" and would flash its disabled
      state. Any loaded config will do, so a fork switch does not hide it while the fork's loads.
