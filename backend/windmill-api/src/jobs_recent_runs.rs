@@ -1,7 +1,7 @@
 //! What ran recently in a workspace, one entry per runnable: the workspace home's "Recently run"
 //! panel. Statuses and counts are settled here so the page only displays them.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use axum::{
     extract::{Path, Query},
@@ -9,7 +9,10 @@ use axum::{
 };
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use windmill_common::{db::UserDB, error::JsonResult};
+use windmill_common::{
+    db::{UserDB, DB},
+    error::{Error, JsonResult, Result},
+};
 
 use crate::{db::ApiAuthed, users::get_scope_tags};
 
@@ -56,6 +59,18 @@ pub(crate) struct RecentRuns {
     failing_items: i64,
     running_items: i64,
     items: Vec<RecentRunItem>,
+    /// The items the caller hid, within the folder, whether or not they ran in the window. Their
+    /// runs are left out of `items` and of every count.
+    hidden_items: Vec<HiddenRunItem>,
+}
+
+#[derive(Serialize, Deserialize, sqlx::FromRow)]
+pub(crate) struct HiddenRunItem {
+    kind: String,
+    path: String,
+    #[serde(default, skip_deserializing, skip_serializing_if = "Option::is_none")]
+    #[sqlx(skip)]
+    summary: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -91,6 +106,7 @@ pub(crate) struct RecentRun {
 
 pub(crate) async fn list_recent_runs(
     authed: ApiAuthed,
+    Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
     Query(q): Query<RecentRunsQuery>,
@@ -100,6 +116,20 @@ pub(crate) async fn list_recent_runs(
         .filter(|f| !f.is_empty())
         .map(|f| format!("f/{f}/"));
     let failed_ids_of = q.failed_ids_kind.zip(q.failed_ids_path);
+    let mut hidden_items = sqlx::query_as::<_, HiddenRunItem>(
+        "SELECT kind, path FROM recent_run_hidden_item
+         WHERE workspace_id = $1 AND email = $2 AND ($3::text IS NULL OR starts_with(path, $3))
+         ORDER BY hidden_at",
+    )
+    .bind(&w_id)
+    .bind(&authed.email)
+    .bind(&folder)
+    .fetch_all(&db)
+    .await?;
+    let hidden: HashSet<(&str, &str)> = hidden_items
+        .iter()
+        .map(|i| (i.kind.as_str(), i.path.as_str()))
+        .collect();
     let mut tx = user_db.begin(&authed).await?;
 
     // A run counts when it completed in the window or is running now, whenever it was queued:
@@ -168,6 +198,12 @@ pub(crate) async fn list_recent_runs(
     .await?;
 
     let capped = runs.len() as i64 == SCAN_LIMIT || runs.first().is_some_and(|r| r.examine_capped);
+    // Dropped before counting, not after `MAX_ITEMS` cuts the list: a hidden item past the cut
+    // would otherwise still add its runs to the counts.
+    let runs: Vec<RecentRun> = runs
+        .into_iter()
+        .filter(|r| !hidden.contains(&(r.kind.as_str(), r.path.as_str())))
+        .collect();
     let total_runs = runs.len() as i64;
     let failed_runs = runs.iter().filter(|r| r.status == "failure").count() as i64;
 
@@ -183,7 +219,10 @@ pub(crate) async fn list_recent_runs(
             Some(&i) => {
                 items[i].failed_runs += failed as i64;
                 if failed && wanted {
-                    items[i].failed_run_ids.get_or_insert_with(Vec::new).push(run.id);
+                    items[i]
+                        .failed_run_ids
+                        .get_or_insert_with(Vec::new)
+                        .push(run.id);
                 }
                 if items[i].runs.len() < RUNS_PER_ITEM {
                     items[i].runs.push(run);
@@ -207,8 +246,16 @@ pub(crate) async fn list_recent_runs(
     let running_items = items.iter().filter(|i| i.status == "running").count() as i64;
     items.truncate(MAX_ITEMS);
 
-    let kinds: Vec<String> = items.iter().map(|i| i.kind.clone()).collect();
-    let paths: Vec<String> = items.iter().map(|i| i.path.clone()).collect();
+    let kinds: Vec<String> = items
+        .iter()
+        .map(|i| i.kind.clone())
+        .chain(hidden_items.iter().map(|i| i.kind.clone()))
+        .collect();
+    let paths: Vec<String> = items
+        .iter()
+        .map(|i| i.path.clone())
+        .chain(hidden_items.iter().map(|i| i.path.clone()))
+        .collect();
     let summaries: HashMap<(String, String), String> =
         sqlx::query_as::<_, (String, String, Option<String>)>(
             "SELECT p.kind, p.path, CASE p.kind
@@ -237,6 +284,11 @@ pub(crate) async fn list_recent_runs(
             .get(&(item.kind.clone(), item.path.clone()))
             .cloned();
     }
+    for item in hidden_items.iter_mut() {
+        item.summary = summaries
+            .get(&(item.kind.clone(), item.path.clone()))
+            .cloned();
+    }
 
     Ok(Json(RecentRuns {
         window_hours: WINDOW_HOURS,
@@ -246,5 +298,72 @@ pub(crate) async fn list_recent_runs(
         failing_items,
         running_items,
         items,
+        hidden_items,
     }))
+}
+
+#[derive(Deserialize)]
+pub(crate) struct HiddenRunItems {
+    items: Vec<HiddenRunItem>,
+}
+
+/// Hides items from the caller's "Recently run" panel in the workspace.
+pub(crate) async fn hide_recent_run_items(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Json(body): Json<HiddenRunItems>,
+) -> Result<String> {
+    if let Some(i) = body
+        .items
+        .iter()
+        .find(|i| !matches!(i.kind.as_str(), "script" | "flow" | "agent"))
+    {
+        return Err(Error::BadRequest(format!(
+            "unknown item kind `{}`: expected script, flow or agent",
+            i.kind
+        )));
+    }
+    if body.items.iter().any(|i| i.path.chars().count() > 255) {
+        return Err(Error::BadRequest(
+            "item path is longer than 255 characters".to_string(),
+        ));
+    }
+    let (kinds, paths): (Vec<String>, Vec<String>) =
+        body.items.into_iter().map(|i| (i.kind, i.path)).unzip();
+    sqlx::query(
+        "INSERT INTO recent_run_hidden_item (workspace_id, email, kind, path)
+         SELECT $1, $2, p.kind, p.path FROM unnest($3::text[], $4::text[]) AS p(kind, path)
+         ON CONFLICT DO NOTHING",
+    )
+    .bind(&w_id)
+    .bind(&authed.email)
+    .bind(&kinds)
+    .bind(&paths)
+    .execute(&db)
+    .await?;
+    Ok("hidden".to_string())
+}
+
+/// Brings items back to the caller's "Recently run" panel in the workspace.
+pub(crate) async fn unhide_recent_run_items(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Json(body): Json<HiddenRunItems>,
+) -> Result<String> {
+    let (kinds, paths): (Vec<String>, Vec<String>) =
+        body.items.into_iter().map(|i| (i.kind, i.path)).unzip();
+    sqlx::query(
+        "DELETE FROM recent_run_hidden_item h
+         USING unnest($3::text[], $4::text[]) AS p(kind, path)
+         WHERE h.workspace_id = $1 AND h.email = $2 AND h.kind = p.kind AND h.path = p.path",
+    )
+    .bind(&w_id)
+    .bind(&authed.email)
+    .bind(&kinds)
+    .bind(&paths)
+    .execute(&db)
+    .await?;
+    Ok("unhidden".to_string())
 }
