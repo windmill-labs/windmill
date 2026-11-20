@@ -957,7 +957,13 @@
 									</div>
 								{/if}
 								{#if repo.auto_pull?.enabled}
-									{@const viaWebhook = repo.auto_pull?.webhook_id != null}
+									{@const hookId = repo.auto_pull?.webhook_id}
+									{@const viaWebhook =
+										hookId != null && repo.auto_pull?.webhook_verified_id === hookId}
+									{@const pollNote =
+										hookId != null
+											? ' Checking the tracked branch about every minute until the webhook delivers to this instance.'
+											: ' Checking the tracked branch about every minute.'}
 									{#if hasManagedCredential}
 										<div class="mt-2">
 											<Alert type="info" title="Already pulling with a CI job?" size="xs">
@@ -976,9 +982,7 @@
 													date={pullStatusDate(repo.auto_pull.last_pull_status)}
 													noSeconds
 												/>.
-												{viaWebhook
-													? ' Syncing instantly via webhook.'
-													: ' Checking the tracked branch about every minute.'}
+												{viaWebhook ? ' Syncing instantly via webhook.' : pollNote}
 											{:else}
 												<span class="text-red-600 dark:text-red-400">
 													Last sync failed
@@ -993,7 +997,7 @@
 										{:else}
 											{viaWebhook
 												? 'Connected via webhook. New commits to the tracked branch deploy instantly.'
-												: 'Checking the tracked branch about every minute. New commits deploy automatically.'}
+												: `${pollNote.trim()} New commits deploy automatically.`}
 										{/if}
 									</div>
 									{#if repo.auto_pull?.enabled_by}
