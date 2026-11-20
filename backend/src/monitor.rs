@@ -3190,6 +3190,16 @@ pub fn apply_no_default_maven_setting(value: Option<serde_json::Value>) {
     }
 }
 
+pub async fn reload_cargo_registries_setting(conn: &Connection) {
+    reload_option_setting_with_tracing(
+        conn,
+        windmill_common::global_settings::CARGO_REGISTRIES_SETTING,
+        "CARGO_REGISTRIES",
+        CARGO_REGISTRIES.clone(),
+    )
+    .await;
+}
+
 pub async fn reload_ruby_repos_setting(conn: &Connection) {
     reload_url_list_setting_with_tracing(
         conn,
