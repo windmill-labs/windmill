@@ -4992,10 +4992,10 @@ pub async fn pull(
                 };
 
                 if let Some(job) = job.as_ref() {
-                    if (job.is_flow() || job.is_dependency())
-                        && !(job.kind.is_preview()
-                            && PREVIEW_TAGS_OVERRIDE.load(std::sync::atomic::Ordering::Relaxed))
-                    {
+                    // An agent worker cannot drive a flow, so a flow preview on an agent's tag is
+                    // requeued too, preview tags override or not: the job keeps its tag in v2_job
+                    // for its steps.
+                    if job.is_flow() || job.is_dependency() {
                         let tag = match configured_dependency_job_tag(
                             &job.kind,
                             job.script_lang.as_ref(),

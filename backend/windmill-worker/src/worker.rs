@@ -5312,7 +5312,7 @@ pub async fn handle_queued_job(
             Ok(JobOutcome::Completed)
         } else {
             return Err(Error::internal_err(
-                "Could not handle flow job with agent worker".to_string(),
+                "Agent workers do not run flow jobs: the server hands a flow on an agent's tag to a regular worker serving the flow tag".to_string(),
             ));
         }
     } else {
