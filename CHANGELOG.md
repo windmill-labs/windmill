@@ -1,5 +1,40 @@
 # Changelog
 
+## [1.881.0](https://github.com/windmill-labs/windmill/compare/v1.880.1...v1.881.0) (2026-11-20)
+
+
+### Features
+
+* fill argument descriptions from JSDoc [@param](https://github.com/param) and Python Args: ([#12515](https://github.com/windmill-labs/windmill/issues/12515)) ([2eddc5d](https://github.com/windmill-labs/windmill/commit/2eddc5d9cc1b0205de65fb3f76fc8c3804f554d0))
+* give the chat's deploy confirmation a card of its own ([#12571](https://github.com/windmill-labs/windmill/issues/12571)) ([c8d0479](https://github.com/windmill-labs/windmill/commit/c8d047905e7abd58e603f208b359b6d520feb016))
+* hide items from home's recently run panel ([#12572](https://github.com/windmill-labs/windmill/issues/12572)) ([64995fa](https://github.com/windmill-labs/windmill/commit/64995fae4a9c5f40261e513ff666f9b006c5a038))
+* **hub:** publish a folder's AI agents with their project ([#12490](https://github.com/windmill-labs/windmill/issues/12490)) ([4fd4b04](https://github.com/windmill-labs/windmill/commit/4fd4b0494786cce6dbae30c868672b0f5d73e185))
+* lead the run graph's error handler to the node that receives its output ([#12516](https://github.com/windmill-labs/windmill/issues/12516)) ([6ec19f0](https://github.com/windmill-labs/windmill/commit/6ec19f0fe514e78552f766cb4d0205ce09810c82))
+* let a subflow step override its worker tag ([#12556](https://github.com/windmill-labs/windmill/issues/12556)) ([7f5bdee](https://github.com/windmill-labs/windmill/commit/7f5bdee83419e2392c150fdf92c47f7cab52711e))
+* outline an expanded subflow on hover and selection ([#12560](https://github.com/windmill-labs/windmill/issues/12560)) ([1d38a6b](https://github.com/windmill-labs/windmill/commit/1d38a6bd2520c5ec57ce7c291aee704962ffb145))
+* show selection actions in the flow canvas right-click menu ([#12561](https://github.com/windmill-labs/windmill/issues/12561)) ([775c371](https://github.com/windmill-labs/windmill/commit/775c3717376c91e03aa845117d86b8702f6701fe))
+
+
+### Bug Fixes
+
+* **cli:** show the workspace commands actually target in workspace list ([#12464](https://github.com/windmill-labs/windmill/issues/12464)) ([5819ced](https://github.com/windmill-labs/windmill/commit/5819ced95b0dcfdc73f6ce3cc1a2caab339f9dd6))
+* enforce access checks on cancel_persistent and flow_dependencies ([#12551](https://github.com/windmill-labs/windmill/issues/12551)) ([42c9cdd](https://github.com/windmill-labs/windmill/commit/42c9cdd0dc81b1e9a41d710cdeda5fe7ff27a40f))
+* hand flow previews on an agent's tag to a flow worker ([#12563](https://github.com/windmill-labs/windmill/issues/12563)) ([e061d11](https://github.com/windmill-labs/windmill/commit/e061d118265eb219c2bf4a9403a66d1b845724b4))
+* list running jobs in the inputs history of an older script version ([#12493](https://github.com/windmill-labs/windmill/issues/12493)) ([8ee2a7e](https://github.com/windmill-labs/windmill/commit/8ee2a7e50086596f7a0f8801e11b5e098f5f817c))
+* relax git auto-pull polling only once the webhook has delivered ([#12532](https://github.com/windmill-labs/windmill/issues/12532)) ([d538f2a](https://github.com/windmill-labs/windmill/commit/d538f2adfa21ea7f99a2958c37744b80aeabddf5))
+* reload the npmrc and cargo_registries settings without a restart ([#12569](https://github.com/windmill-labs/windmill/issues/12569)) ([a932614](https://github.com/windmill-labs/windmill/commit/a9326142d182bb26fd35b0bbe19ade2805a2b8d2))
+* resolve scoped packages in the npm proxy behind strict registries ([#12568](https://github.com/windmill-labs/windmill/issues/12568)) ([cdba6b0](https://github.com/windmill-labs/windmill/commit/cdba6b00367c25293bbc92454f7ce8d21e641e63))
+* respect minimal telemetry on manual stats send and download ([#12570](https://github.com/windmill-labs/windmill/issues/12570)) ([a44f315](https://github.com/windmill-labs/windmill/commit/a44f315269d48113037a251b4a525136d392e103))
+* retries, subflow error handlers and empty branches in the run graph ([#12511](https://github.com/windmill-labs/windmill/issues/12511)) ([fb13514](https://github.com/windmill-labs/windmill/commit/fb13514e50ca716131204222b42900ad59dea1c3))
+* send null for untouched nullable inputs in run forms ([#12553](https://github.com/windmill-labs/windmill/issues/12553)) ([666f3e5](https://github.com/windmill-labs/windmill/commit/666f3e5577a573da3ce6a72d65d625ed1a523f92))
+* session chat shows its own workspace's AI config ([#12573](https://github.com/windmill-labs/windmill/issues/12573)) ([8b3b692](https://github.com/windmill-labs/windmill/commit/8b3b692b3c7412f6756939fded521c7c66d57ab6))
+* store an artifact edit only when made on its latest version ([#12477](https://github.com/windmill-labs/windmill/issues/12477)) ([a8f7c56](https://github.com/windmill-labs/windmill/commit/a8f7c56c7e54287469d8b0e1e7ab560f3410e4ef))
+
+
+### Performance Improvements
+
+* keep only the open session's column off the sessions route ([#12558](https://github.com/windmill-labs/windmill/issues/12558)) ([d23f4d4](https://github.com/windmill-labs/windmill/commit/d23f4d46bb1b47809d115c87480d57bb98b93a65))
+
 ## [1.880.1](https://github.com/windmill-labs/windmill/compare/v1.880.0...v1.880.1) (2026-11-19)
 
 
