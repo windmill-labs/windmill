@@ -73,6 +73,9 @@
 				color={staged.settings?.color}
 				class="min-w-0"
 				compact
+				stagedDev={staged.settings?.is_dev_workspace
+					? { label: staged.settings.dev_workspace_label }
+					: undefined}
 				onClick={openSettings}
 			/>
 		{/if}

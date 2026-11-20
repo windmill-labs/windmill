@@ -119,19 +119,20 @@ export function useForkStaging(session: () => Session | undefined) {
 		}
 	}
 
-	// Whether the server lets this user fork `ws`: its `DisableWorkspaceForking` rule refuses
-	// everyone it does not list as a bypass.
-	async function forkingAllowed(ws: string): Promise<boolean> {
+	// How `ws`'s `DisableWorkspaceForking` rule treats this user: it refuses everyone it does not
+	// list as a bypass, and a bypass is an explicit choice in the fork form, never a default.
+	async function forkingRule(ws: string): Promise<'free' | 'bypass' | 'blocked'> {
 		const [rules, me] = await Promise.all([readProtectionRulesForWorkspace(ws), getUserExt(ws)])
-		if (!rules) return false
-		return (
-			!isRuleActiveInRulesets(rules, 'DisableWorkspaceForking') ||
-			canUserBypassRuleKindInRulesets(rules, 'DisableWorkspaceForking', me)
-		)
+		if (!rules) return 'blocked'
+		if (!isRuleActiveInRulesets(rules, 'DisableWorkspaceForking')) return 'free'
+		return canUserBypassRuleKindInRulesets(rules, 'DisableWorkspaceForking', me)
+			? 'bypass'
+			: 'blocked'
 	}
 
 	// The family's saved base, while it is still a workspace of the family the user may fork, else
-	// the default one. A base locked against forking gives way to its dev workspace.
+	// the default one. A base locked against forking gives way to its dev workspace; a bypasser
+	// without one keeps the base, and the form asks them to confirm the bypass.
 	async function defaultBase(saved: string | undefined): Promise<string | undefined> {
 		const family = root ? [root, ...findWorkspaceDescendants(root.id, workspaces.current)] : []
 		const savedWs = family.find((w) => w.id === saved)
@@ -139,8 +140,11 @@ export function useForkStaging(session: () => Session | undefined) {
 			savedWs && canFork(capabilitiesIn(undefined, savedWs))
 				? savedWs
 				: findDefaultForkBase(workspace, workspaces.current)
-		if (!base || (await forkingAllowed(base.id))) return base?.id
-		return findCanonicalDevWorkspace(base.id, workspaces.current)?.id
+		if (!base) return undefined
+		const rule = await forkingRule(base.id)
+		if (rule === 'free') return base.id
+		const dev = findCanonicalDevWorkspace(base.id, workspaces.current)?.id
+		return dev ?? (rule === 'bypass' ? base.id : undefined)
 	}
 
 	let staging = false

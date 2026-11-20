@@ -782,19 +782,30 @@
 			id = name.toLowerCase().replace(/\s/gi, '-')
 		}
 	})
-	// When creating a dev workspace, prefill the fork name with `<root>-<badge>` (the effect above
-	// slugifies it into the id). Only fill an empty field or one still holding a prior suggestion, so a
-	// user-typed name is never overwritten; changing the label updates the suffix, and turning the dev
-	// toggle back off clears the suggestion.
-	let lastAutoDevName = $state<string | undefined>(undefined)
+	// When creating a dev workspace, prefill the id with `<base>-<badge>` (a fork's name is its id).
+	// Only replace an empty id, a prior suggestion, or the name Home generated for a staged fork, so a
+	// user-typed id is never overwritten; changing the label updates the suffix, and turning the dev
+	// toggle back off restores what was there.
+	const generatedId = untrack(() => (stagedAtOpen && !staged?.is_dev_workspace ? id : ''))
+	// A staged dev workspace Home named `<base>-<badge>` is still that suggestion.
+	let lastAutoId = $state(
+		untrack(() =>
+			stagedAtOpen &&
+			staged?.is_dev_workspace &&
+			id === `${stagedAtOpen.parent_workspace_id}-${devBadgeText(staged.dev_workspace_label)}`
+				? id
+				: generatedId
+		)
+	)
 	$effect(() => {
+		// A requested dev toggle is not on yet: the id would be cleared before it is restored.
+		if (devRequestedFromUrl) return
+		const base = baseWorkspaceId ?? $workspaceStore
 		const target =
-			createAsDevWorkspace && $workspaceStore
-				? `${$workspaceStore}-${devBadgeText(devWorkspaceLabel)}`
-				: ''
-		if (name === '' || name === lastAutoDevName) {
-			name = target
-			lastAutoDevName = target === '' ? undefined : target
+			createAsDevWorkspace && base ? `${base}-${devBadgeText(devWorkspaceLabel)}` : generatedId
+		if (id === lastAutoId || (id === '' && createAsDevWorkspace)) {
+			id = target
+			lastAutoId = target
 		}
 	})
 	run(() => {

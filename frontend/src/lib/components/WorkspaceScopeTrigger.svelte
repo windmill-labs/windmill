@@ -27,6 +27,7 @@
 		forkableWorkspaces,
 		onClick = undefined,
 		compact = false,
+		stagedDev = undefined,
 		class: className = ''
 	}: {
 		workspaceId?: string
@@ -65,8 +66,10 @@
 		forkableWorkspaces?: UserWorkspace[]
 		// For a chip that is not a dropdown's trigger, such as Home's staged fork.
 		onClick?: () => void
-		// Fork icon, fork name and chevron only: no parent segment, "(new)" or dev badge.
+		// Fork icon, fork name and chevron only: no parent segment, "(new)" or the base's dev badge.
 		compact?: boolean
+		// A staged fork that will be created as a dev workspace: the compact chip shows its badge.
+		stagedDev?: { label?: string }
 		class?: string
 	} = $props()
 
@@ -175,7 +178,14 @@
 					{showFork ? name : (rootLabel ?? name)}
 				</span>
 			{/if}
-			{#if pendingFork && !compact}
+			{#if compact && stagedDev}
+				<DevWorkspaceBadge
+					label={stagedDev.label}
+					{color}
+					fallbackClass="dark:bg-surface-accent-primary text-white dark:text-white"
+					class="text-3xs px-1 py-0"
+				/>
+			{:else if pendingFork && !compact}
 				<span class="shrink-0 opacity-70 font-normal">(new)</span>
 			{:else if currentWs?.is_dev_workspace && !compact}
 				<DevWorkspaceBadge
