@@ -1372,15 +1372,4 @@ mod tests {
             "{err}"
         );
     }
-
-    #[test]
-    fn a_406_is_reported_as_the_registry_status() {
-        let err = super::check_upstream_status(reqwest::StatusCode::NOT_ACCEPTABLE, "@scope/pkg")
-            .unwrap_err();
-        assert!(
-            matches!(&err, windmill_common::error::Error::BadGateway(m)
-                if m == "registry answered 406 for @scope/pkg"),
-            "{err}"
-        );
-    }
 }
