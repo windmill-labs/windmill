@@ -1,20 +1,17 @@
 <script lang="ts">
 	import { ViewportPortal, type Node } from '@xyflow/svelte'
 	import { calculateNodesBoundsWithOffset } from './util'
-	import { Move, Copy, Trash2, EllipsisVertical, Group } from 'lucide-svelte'
+	import { EllipsisVertical } from 'lucide-svelte'
 	import { Button } from '../common'
 	import DropdownV2 from '../DropdownV2.svelte'
-	import { getGroupEditorContext } from './groupEditor.svelte'
 	import { getGraphContext } from './graphContext'
 	import MoveHandleButton from './MoveHandleButton.svelte'
-	import { tick } from 'svelte'
-	import { isMac, type Item } from '$lib/utils'
+	import type { Item } from '$lib/utils'
 
 	interface Props {
 		selectedNodes: string[]
 		allNodes: (Node & { type: string })[]
-		onDeleteSelected?: () => void
-		onDuplicateSelected?: () => void
+		menuItems: Item[]
 		onMoveSelected?: () => void
 		onCancelMove?: () => void
 		canMoveSelected?: boolean
@@ -25,8 +22,7 @@
 	let {
 		selectedNodes,
 		allNodes,
-		onDeleteSelected,
-		onDuplicateSelected,
+		menuItems,
 		onMoveSelected,
 		onCancelMove,
 		canMoveSelected = false,
@@ -36,56 +32,8 @@
 
 	let resolvedCount = $derived(resolvedModuleIds.length)
 
-	// Get GroupEditor context for group creation
-	const groupEditorContext = getGroupEditorContext()
-	// Get Graph context for clearFlowSelection function and moveManager
 	const graphContext = getGraphContext()
 	const moveManager = graphContext?.moveManager
-
-	let canCreateGroup = $derived(groupEditorContext?.canCreateGroup.val ?? false)
-
-	function handleAddGroup() {
-		if (selectedNodes.length > 0 && groupEditorContext?.groupEditor && graphContext) {
-			const flowNodes = graphContext.getFlowNodes?.() ?? []
-			groupEditorContext.groupEditor.createGroup(selectedNodes, flowNodes)
-
-			tick().then(() => {
-				graphContext?.clearFlowSelection?.()
-				graphContext?.selectionManager.clearSelection()
-			})
-		}
-	}
-
-	let menuItems: Item[] = $derived([
-		{
-			displayName: 'Move',
-			icon: Move,
-			action: () => onMoveSelected?.(),
-			disabled: !canMoveSelected
-		},
-		{
-			displayName: 'Duplicate',
-			icon: Copy,
-			action: () => onDuplicateSelected?.()
-		},
-		{
-			displayName: `Delete (${resolvedCount})`,
-			icon: Trash2,
-			type: 'delete',
-			shortcut: isMac() ? '⌫' : 'Del',
-			action: () => onDeleteSelected?.()
-		},
-		...(groupEditorContext?.groupEditor
-			? [
-					{
-						displayName: 'Create group',
-						icon: Group,
-						action: handleAddGroup,
-						disabled: !canCreateGroup
-					}
-				]
-			: [])
-	])
 
 	let bounds = $derived.by(() => {
 		if (selectedNodes.length === 0) {

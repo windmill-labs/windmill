@@ -9,15 +9,19 @@
 	import {
 		getContextMenuContainerClass,
 		CONTEXT_MENU_ITEM_BASE_CLASS,
-		CONTEXT_MENU_ITEM_HOVER_CLASS
+		CONTEXT_MENU_ITEM_HOVER_CLASS,
+		CONTEXT_MENU_ITEM_DISABLED_CLASS
 	} from '../common/contextmenu/contextMenuStyles'
 	import { getGraphContext } from './graphContext'
+	import type { Item } from '$lib/utils'
 
 	interface Props {
 		editMode?: boolean
+		/** Actions on the current multi-selection; when non-empty they replace "Add sticky note". */
+		selectionMenuItems?: Item[]
 	}
 
-	let { editMode = false }: Props = $props()
+	let { editMode = false, selectionMenuItems = [] }: Props = $props()
 
 	const { screenToFlowPosition } = useSvelteFlow()
 	const noteEditorContext = getNoteEditorContext()
@@ -43,7 +47,7 @@
 
 	function handlePaneContextMenu(event: MouseEvent) {
 		// Only show context menu in edit mode
-		if (!editMode || !noteEditorContext?.noteEditor) {
+		if (!editMode || (selectionMenuItems.length === 0 && !noteEditorContext?.noteEditor)) {
 			return
 		}
 
@@ -107,14 +111,39 @@
 				}
 			}}
 		>
-			<button
-				class="{CONTEXT_MENU_ITEM_BASE_CLASS} {CONTEXT_MENU_ITEM_HOVER_CLASS}"
-				onclick={handleAddStickyNote}
-				type="button"
-			>
-				<StickyNote size={14} class="mr-2" />
-				<span>Add sticky note</span>
-			</button>
+			{#if selectionMenuItems.length > 0}
+				{#each selectionMenuItems as item (item.displayName)}
+					<button
+						class="{CONTEXT_MENU_ITEM_BASE_CLASS} {CONTEXT_MENU_ITEM_HOVER_CLASS} {item.type ===
+						'delete'
+							? 'text-red-600 dark:text-red-400 hover:bg-red-500/10 dark:hover:bg-red-900/80'
+							: ''} {item.disabled ? CONTEXT_MENU_ITEM_DISABLED_CLASS : ''}"
+						disabled={item.disabled}
+						onclick={(e) => {
+							contextMenuVisible = false
+							item.action?.(e)
+						}}
+						type="button"
+					>
+						{#if item.icon}
+							<item.icon size={14} class="mr-2" />
+						{/if}
+						<span>{item.displayName}</span>
+						{#if item.shortcut}
+							<span class="ml-auto pl-4 text-2xs text-hint">{item.shortcut}</span>
+						{/if}
+					</button>
+				{/each}
+			{:else}
+				<button
+					class="{CONTEXT_MENU_ITEM_BASE_CLASS} {CONTEXT_MENU_ITEM_HOVER_CLASS}"
+					onclick={handleAddStickyNote}
+					type="button"
+				>
+					<StickyNote size={14} class="mr-2" />
+					<span>Add sticky note</span>
+				</button>
+			{/if}
 		</div>
 
 		<!-- Invisible click catcher to close context menu -->
