@@ -99,7 +99,13 @@ export function useRecentRuns(
 		const email = user.current?.email
 		return workspace && email ? `${workspace}:${email}` : undefined
 	})
-	let hiddenItems = $derived(hiddenScope ? (hiddenByScope[hiddenScope] ?? []) : [])
+	// Kept per workspace; listed only under the folder the read is filtered to, matched the way
+	// `listRecentRuns` matches it.
+	let hiddenItems = $derived.by(() => {
+		const all = hiddenScope ? (hiddenByScope[hiddenScope] ?? []) : []
+		const folder = args().folder
+		return folder ? all.filter((i) => i.path.startsWith(`f/${folder}/`)) : all
+	})
 	let shown = $derived(
 		runs.current && hiddenItems.length > 0
 			? withoutHidden(runs.current, new Set(hiddenItems.map(itemKey)))
@@ -120,7 +126,8 @@ export function useRecentRuns(
 		get current() {
 			return shown
 		},
-		/** Every item the user hid in this workspace, whether or not it ran in the window. */
+		/** The items the user hid in this workspace, within the folder filter, whether or not
+		 * they ran in the window. */
 		get hiddenItems() {
 			return hiddenItems
 		},
