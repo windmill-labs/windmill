@@ -24,7 +24,7 @@
 	let fairnessLoading = $state(true)
 	// Past transitions stay reviewable after fairness is turned off.
 	let hidden = $derived(
-		fairnessLoading || (!loading && !error && fairnessEnabled === false && events.length === 0)
+		fairnessLoading || (fairnessEnabled === false && events.length === 0 && (loading || !error))
 	)
 
 	async function loadFairnessEnabled() {
