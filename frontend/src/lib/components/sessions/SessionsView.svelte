@@ -294,12 +294,11 @@
 		})
 	)
 
-	// Chat columns stay mounted (stacked, visibility-toggled), the view itself
-	// included while the user is on another page, so coming back keeps scroll
-	// position, MRU-capped like preview tabs: every mounted column is a full
-	// transcript in the DOM. Unmounting drops only the column — the runtime keeps
-	// the chat — so a column is kept while its composer holds unsent input
-	// (component-local) or its turn is running.
+	// Chat columns stay mounted (stacked, visibility-toggled), so switching back to a
+	// session keeps its scroll position, MRU-capped like preview tabs: every mounted
+	// column is a full transcript in the DOM. Unmounting drops only the column — the
+	// runtime keeps the chat — so a column is kept while its composer holds unsent
+	// input (component-local) or its turn is running.
 	const MAX_MOUNTED_CHATS = 5
 	const mountedChatIds = new SvelteSet<string>()
 	function keepsChatMounted(id: string): boolean {
@@ -314,6 +313,19 @@
 			if (oldest !== id && !keepsChatMounted(oldest)) mountedChatIds.delete(oldest)
 		}
 	}
+	// Off the route only the session shown last keeps its column, beside those
+	// `keepsChatMounted` holds. Hiding and showing the view restyles every column it holds, so
+	// each warm sibling would slow every navigation to and from this page, and hold its
+	// transcript in memory while the user is elsewhere.
+	$effect(() => {
+		if (shown) return
+		const keep = sessionId
+		untrack(() => {
+			for (const id of [...mountedChatIds]) {
+				if (id !== keep && !keepsChatMounted(id)) mountedChatIds.delete(id)
+			}
+		})
+	})
 	// Off the route, an unsent session's column goes: it has no transcript to keep, its text is
 	// on its record, and Home's composer can take that same session meanwhile, which a column
 	// still holding the earlier text would contradict once the user is back.
