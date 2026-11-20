@@ -266,6 +266,7 @@ export type SubflowBoundN = {
 		preLabel: string | undefined
 		subflowId: string
 		selected: boolean
+		wrapperWidth?: number
 	}
 }
 

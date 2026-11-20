@@ -77,6 +77,7 @@
 	import NoteTool from './NoteTool.svelte'
 	import SelectionBoundingBox from './SelectionBoundingBox.svelte'
 	import GroupOverlay from './GroupOverlay.svelte'
+	import SubflowOverlay from './SubflowOverlay.svelte'
 	import {
 		GroupDisplayState,
 		getGroupEditorContext,
@@ -337,7 +338,7 @@
 	let paneContextMenu: PaneContextMenu | undefined = $state(undefined)
 	let flowContainer: HTMLDivElement | undefined = $state(undefined)
 
-	// Hover tracking for group overlay
+	let hoveredNodeId: string | undefined = $state(undefined)
 
 	// Selection manager - create one if not provided
 	let selectionManager = untrack(() => selectionManagerProp) || new SelectionManager()
@@ -826,8 +827,12 @@
 		let layoutedNodes = layoutNodes(graphNodeDeps, nodeExtraSpace)
 		let newNodes: (Node & NodeLayout)[] = layoutedNodes.map((n) => {
 			const merged = { ...n, ...graph.nodes[n.id] }
-			// Augment group head nodes with wrapper dimensions from compound layout
-			if (graph.nodes[n.id]?.type === 'groupHead' && lastGroupDimensions?.has(n.id)) {
+			// Augment group heads and subflow start bounds with wrapper dimensions from compound layout
+			const nodeType = graph.nodes[n.id]?.type
+			if (
+				(nodeType === 'groupHead' || nodeType === 'subflowBound') &&
+				lastGroupDimensions?.has(n.id)
+			) {
 				const dims = lastGroupDimensions.get(n.id)!
 				merged.data = { ...merged.data, wrapperWidth: dims.width, wrapperHeight: dims.height }
 			}
@@ -1391,6 +1396,8 @@
 				multiSelectionKey={'Shift'}
 				deleteKey={null}
 				nodesDraggable={false}
+				onnodepointerenter={({ node }) => (hoveredNodeId = node.id)}
+				onnodepointerleave={() => (hoveredNodeId = undefined)}
 				--background-color={false}
 			>
 				<div class="absolute inset-0 !bg-surface-secondary h-full" id="flow-graph-v2"></div>
@@ -1419,6 +1426,12 @@
 					allNodes={nodesWithOffset as (Node & { type: string })[]}
 					groups={allGroups}
 					groupDepths={currentGroupDepths}
+				/>
+
+				<SubflowOverlay
+					allNodes={nodesWithOffset as (Node & { type: string })[]}
+					{hoveredNodeId}
+					selectedIds={selectionManager.selectedIds}
 				/>
 
 				<!-- SelectionTool for handling selection changes and filtering -->

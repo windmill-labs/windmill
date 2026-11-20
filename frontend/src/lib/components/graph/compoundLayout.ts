@@ -15,7 +15,7 @@ type LayoutConstants = {
 }
 
 type CompoundGroup = {
-	type: 'branch' | 'loop' | 'group'
+	type: 'branch' | 'loop' | 'group' | 'subflow'
 	headId: string
 	endId: string
 	branches: {
@@ -34,12 +34,14 @@ type LayoutResult = {
 const LOOP_INDENT = 25
 export const GROUP_PADDING = 16
 export const GROUP_TOP_PADDING = 32
+export const SUBFLOW_END_SUFFIX = '-subflow-end'
 
 /**
  * Detect compound groups from a flat list of node IDs.
  * Uses ID naming conventions from graphBuilder:
  * - BranchAll/BranchOne: node X has children X-branch-N and X-end
  * - ForLoop/WhileLoop: node X has child X-start and X-end
+ * - Expanded subflow: start bound X and end bound X-subflow-end
  */
 function detectGroups(
 	nodeIds: Set<string>,
@@ -49,6 +51,21 @@ function detectGroups(
 	const groups: CompoundGroup[] = []
 
 	for (const id of nodeIds) {
+		if (id.endsWith(SUBFLOW_END_SUFFIX)) {
+			// Expanded subflow: head X + end X-subflow-end, body is everything between
+			const headId = id.slice(0, -SUBFLOW_END_SUFFIX.length)
+			if (!nodeIds.has(headId)) continue
+			const innerIds = findInnerIds(headId, id, nodeIds, childrenMap)
+			if (innerIds.length > 0) {
+				groups.push({
+					type: 'subflow',
+					headId,
+					endId: id,
+					branches: [{ labelId: innerIds[0], innerIds: innerIds.slice(1) }]
+				})
+			}
+			continue
+		}
 		if (!id.endsWith('-end')) continue
 
 		// Extract base ID (everything before -end)
@@ -413,6 +430,14 @@ function layoutLevel(
 			const groupHeadRow = GROUP_HEADER_HEIGHT + (headExtra?.bottom ?? 0) + GROUP_TOP_PADDING
 			// head row + body + bottom padding
 			wrapperHeight = groupHeadRow + bodyHeight + GROUP_PADDING
+		} else if (group.type === 'subflow') {
+			// Subflow: body centered under the head, padded like a group
+			const bodyWidth = branchLayouts[0]?.bbox.width ?? constants.nodeWidth
+			const bodyHeight = branchLayouts[0]?.bbox.height ?? 0
+			wrapperWidth = Math.max(bodyWidth + GROUP_PADDING * 2, constants.nodeWidth)
+			maxBranchHeight = bodyHeight
+			// head row + body + end row
+			wrapperHeight = rowHeight + bodyHeight + rowHeight
 		} else {
 			// Loop: body is indented
 			const bodyWidth = branchLayouts[0]?.bbox.width ?? constants.nodeWidth
@@ -493,6 +518,7 @@ function layoutLevel(
 		const rowHeight = constants.nodeHeight + constants.gapV
 		const isBranch = gl.group.type === 'branch'
 		const isGroup = gl.group.type === 'group'
+		const isSubflow = gl.group.type === 'subflow'
 
 		// Position the head node at the top-center of the wrapper
 		// Apply extra top padding so decorations above the head node have room
@@ -547,6 +573,21 @@ function layoutLevel(
 			positions.set(gl.group.endId, {
 				x: wrapperPos.x,
 				y: wrapperPos.y + groupHeadRow + bodyHeight + GROUP_PADDING
+			})
+		} else if (isSubflow) {
+			const bl = gl.branchLayouts[0]
+			if (bl) {
+				for (const [innerNodeId, innerPos] of bl.result.positions) {
+					positions.set(innerNodeId, {
+						x: wrapperPos.x + innerPos.x,
+						y: wrapperPos.y + rowHeight + innerPos.y
+					})
+				}
+			}
+			const bodyHeight = bl?.bbox.height ?? 0
+			positions.set(gl.group.endId, {
+				x: wrapperPos.x,
+				y: wrapperPos.y + rowHeight + bodyHeight + constants.gapV
 			})
 		} else {
 			// Loop: position start, body, and end
