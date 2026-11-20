@@ -22,6 +22,8 @@
 		searchArgs?: Record<string, any> | undefined
 		/** Workspace to read run history from; defaults to the nav workspace. */
 		workspace?: string
+		/** Path the running jobs are listed by, when runnableId is a script hash. */
+		runnablePath?: string | undefined
 	}
 
 	let {
@@ -32,7 +34,8 @@
 		placement = 'top-end',
 		limitPayloadSize = false,
 		searchArgs = undefined,
-		workspace = undefined
+		workspace = undefined,
+		runnablePath = undefined
 	}: Props = $props()
 
 	let ws = $derived(workspace ?? $operatingWorkspace)
@@ -111,7 +114,7 @@
 			({
 				filters: {
 					show_skipped: false,
-					path: runnableId,
+					path: runnablePath ?? runnableId,
 					status: 'running',
 					arg: searchArgs ? JSON.stringify(searchArgs) : ''
 				},
