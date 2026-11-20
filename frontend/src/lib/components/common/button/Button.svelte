@@ -516,9 +516,11 @@
 						'rounded-md m-0 p-0 center-center h-full',
 						variant === 'border' ? 'border-0 border-r border-y ' : 'border-0',
 						'rounded-r-md !rounded-l-none',
-						size === 'xs2' || size === 'xs' || unifiedSize === 'md' || unifiedSize === 'sm'
-							? '!w-8'
-							: '!w-10',
+						unifiedSize === 'xs' || unifiedSize === '2xs'
+							? '!w-6'
+							: size === 'xs2' || size === 'xs' || unifiedSize === 'md' || unifiedSize === 'sm'
+								? '!w-8'
+								: '!w-10',
 						dropdownBtnClasses
 					)}
 				>
