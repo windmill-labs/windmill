@@ -12,10 +12,15 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sql_builder::{bind::Bind, SqlBuilder};
 use sqlx::{FromRow, PgConnection};
 use std::fmt::Debug;
-use windmill_api_auth::{build_scope_path_predicate, check_scopes, ApiAuthed};
+use windmill_api_auth::{
+    build_scope_path_predicate, check_scopes,
+    composed::check_new_hub_paths,
+    ApiAuthed,
+};
 use windmill_common::{
     db::UserDB,
     error::{Error, JsonResult, Result},
+    runnable_ref::RunnableRef,
     trigger_history::{self, TriggerHistoryEvent, TriggerOperation, TriggerSource},
     user_drafts::{
         delete_all_drafts_for_path, delete_draft_only_for_path, delete_own_draft_for_path,
@@ -135,6 +140,13 @@ pub trait TriggerCrud: Send + Sync + 'static {
         _workspace_id: &str,
     ) -> Result<()> {
         Ok(())
+    }
+
+    /// The runnables this kind's config names besides its target and error handler, read from
+    /// JSON: a request serializes, and a stored row's `to_jsonb` reads, under the same field names.
+    /// A path that does not parse is left out, as it never runs.
+    fn config_runnables(_config: &serde_json::Value) -> Vec<RunnableRef> {
+        Vec::new()
     }
 
     fn scope_domain_name() -> &'static str {
@@ -476,6 +488,28 @@ pub trait TriggerCrud: Send + Sync + 'static {
     }
 }
 
+fn trigger_runnables<T: TriggerCrud>(trigger: &serde_json::Value) -> Vec<RunnableRef> {
+    let str_field = |name| trigger.get(name).and_then(|v| v.as_str());
+    let is_flow = trigger
+        .get("is_flow")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let mut runnables = T::config_runnables(trigger);
+    runnables
+        .extend(str_field("script_path").and_then(|p| RunnableRef::from_path(p, is_flow).ok()));
+    runnables.extend(
+        str_field("error_handler_path").and_then(|p| RunnableRef::from_path(p, false).ok()),
+    );
+    runnables
+}
+
+/// The runnables a trigger save names, for `check_new_hub_paths`.
+pub fn trigger_save_runnables<T: TriggerCrud>(
+    trigger: &TriggerData<T::TriggerConfigRequest>,
+) -> Result<Vec<RunnableRef>> {
+    Ok(trigger_runnables::<T>(&serde_json::to_value(trigger)?))
+}
+
 /// Append this mutation to `trigger_history`, diffing the row at `path` against
 /// `before`.
 ///
@@ -562,6 +596,8 @@ async fn create_trigger<T: TriggerCrud>(
     handler
         .validate_new(&db, &workspace_id, &new_trigger.config)
         .await?;
+    let new = trigger_save_runnables::<T>(&new_trigger)?;
+    check_new_hub_paths(&new, &[], &authed, &db, &workspace_id).await?;
 
     let mut tx = user_db.begin(&authed).await?;
 
@@ -835,6 +871,7 @@ async fn update_trigger<T: TriggerCrud>(
     handler
         .validate_edit(&db, &workspace_id, &edit_trigger.config, path)
         .await?;
+    let new_runnables = trigger_save_runnables::<T>(&edit_trigger)?;
 
     let mut tx = user_db.begin(&authed).await?;
 
@@ -878,6 +915,17 @@ async fn update_trigger<T: TriggerCrud>(
 
     let before =
         trigger_history::snapshot_row(&mut *tx, T::TABLE_NAME, &workspace_id, path).await?;
+    check_new_hub_paths(
+        &new_runnables,
+        &before
+            .as_ref()
+            .map(trigger_runnables::<T>)
+            .unwrap_or_default(),
+        &authed,
+        &db,
+        &workspace_id,
+    )
+    .await?;
 
     handler
         .update_trigger(&db, &mut *tx, &authed, &workspace_id, path, edit_trigger)

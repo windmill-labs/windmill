@@ -33,11 +33,14 @@ def get_client() -> httpx.Client
 # Args:
 #     endpoint: API endpoint path
 #     raise_for_status: Whether to raise an exception on HTTP errors
+#     retry_transient: Retry on 429 and 502-504 with exponential backoff, honoring
+#         Retry-After. Pass False for an endpoint with a side effect.
+#     retry_budget: Most seconds to spend sleeping between retries (at most 15)
 #     **kwargs: Additional arguments passed to httpx.get
 # 
 # Returns:
 #     HTTP response object
-def get(endpoint, raise_for_status = True, **kwargs) -> httpx.Response
+def get(endpoint, raise_for_status = True, *, retry_transient: bool = True, retry_budget: float | None = None, **kwargs) -> httpx.Response
 
 # Make an HTTP POST request to the Windmill API.
 # 
@@ -71,6 +74,16 @@ def run_script_by_hash_async(hash_: str, args: dict = None, scheduled_in_secs: i
 
 # Create a flow job and return its job id.
 def run_flow_async(path: str, args: dict = None, scheduled_in_secs: int = None, do_not_track_in_parent: bool = True, tag: str = None) -> str
+
+# Start the deployed flow at ``path`` with some steps overridden and return its job id.
+# 
+# See ``test_flow`` for ``steps``.
+def test_flow_async(path: str, args: dict = None, steps: dict = None) -> str
+
+# Run the deployed flow at ``path`` with some steps overridden and return its result.
+# 
+# See the module-level ``test_flow``.
+def test_flow(path: str, args: dict = None, steps: dict = None, timeout: dt.timedelta | int | float | None = None, verbose: bool = False, assert_result_is_not_none: bool = False) -> Any
 
 # Run script by path synchronously and return its result.
 def run_script_by_path(path: str, args: dict = None, timeout: dt.timedelta | int | float | None = None, verbose: bool = False, cleanup: bool = True, assert_result_is_not_none: bool = False, tag: str = None) -> Any

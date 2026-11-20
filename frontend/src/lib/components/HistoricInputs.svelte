@@ -1,4 +1,5 @@
 <script lang="ts">
+	import HostWindow from '$lib/components/common/HostWindow.svelte'
 	import { type RunnableType } from '$lib/gen/index.js'
 	import { sendUserToast } from '$lib/utils.js'
 	import RunningJobSchemaPicker from '$lib/components/schema/RunningJobSchemaPicker.svelte'
@@ -126,7 +127,7 @@
 	let jobs = $derived(jobsLoader?.jobs ?? [])
 </script>
 
-<svelte:window onkeydown={handleKeydown} />
+<HostWindow onkeydown={handleKeydown} />
 
 <div class="h-full max-h-full min-h-0 w-full flex flex-col gap-2 relative">
 	<div class="grow-0" data-schema-picker>

@@ -12,6 +12,7 @@ export declare const WORKFLOW_AS_CODE_BASE: string;
 export declare const FLOW_CHAT_SPECIAL_MODULES: string;
 export declare const DISPLAY_RESULTS_BASE: string;
 export declare const DISPLAY_CATALOG: string;
+export declare const CODE_MODE_BASE: string;
 export declare const SDK_TYPESCRIPT: string;
 export declare const SDK_PYTHON: string;
 export declare const WAC_SDK_TYPESCRIPT: string;

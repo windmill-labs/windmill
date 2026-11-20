@@ -7,6 +7,7 @@
 	import Row from '$lib/components/table/Row.svelte'
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
+	import { apiErrorMessage } from '$lib/utils'
 	import { type TrashItem, TrashService } from '$lib/gen'
 	import {
 		Trash2,
@@ -98,7 +99,7 @@
 			sendUserToast(`Restored ${getKindLabel(item.item_kind)} '${item.item_path}'`)
 			loadItems()
 		} catch (e) {
-			sendUserToast(`Failed to restore: ${e}`, true)
+			sendUserToast(`Failed to restore: ${apiErrorMessage(e)}`, true)
 		}
 	}
 
@@ -111,7 +112,7 @@
 			sendUserToast(`Permanently deleted '${item.item_path}'`)
 			loadItems()
 		} catch (e) {
-			sendUserToast(`Failed to delete: ${e}`, true)
+			sendUserToast(`Failed to delete: ${apiErrorMessage(e)}`, true)
 		}
 	}
 
@@ -121,7 +122,7 @@
 			sendUserToast(result)
 			loadItems()
 		} catch (e) {
-			sendUserToast(`Failed to empty trash: ${e}`, true)
+			sendUserToast(`Failed to empty trash: ${apiErrorMessage(e)}`, true)
 		}
 	}
 

@@ -1466,6 +1466,7 @@ mod tests {
             job_id,
             credential_expiry: None,
             mcp_client: None,
+            capabilities: Some(windmill_common::roles::RoleCapabilities::FULL),
         }
     }
 

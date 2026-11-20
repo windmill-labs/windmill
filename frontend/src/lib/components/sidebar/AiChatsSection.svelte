@@ -104,9 +104,10 @@
 						)}
 					>
 						{#if t.agent}
-							<Bot size={14} class="shrink-0 text-violet-500" />
+							<!-- mx-px gives the 14px icon a 16px item icon's slot, as the other rows have. -->
+							<Bot size={14} class="shrink-0 mx-px text-violet-500" />
 						{:else}
-							<BarsStaggered size={14} class="shrink-0 text-teal-500" />
+							<BarsStaggered size={14} class="shrink-0 mx-px text-teal-500" />
 						{/if}
 						<span class={rail ? 'sr-only' : 'truncate'}>{c.title || 'Untitled chat'}</span>
 					</a>

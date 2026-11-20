@@ -1,4 +1,5 @@
 <script lang="ts">
+	import HostWindow from '$lib/components/common/HostWindow.svelte'
 	import { dbManagerTabsStorageKey, dbTableLayoutStorageKey } from './dbManagerDrawerModel.svelte'
 	import { DbManagerTabs, type DbManagerTabKind } from './dbManagerTabs.svelte'
 	import DbSqlTab from './DbSqlTab.svelte'
@@ -279,7 +280,7 @@
 	export const tabsModel = () => tabs
 </script>
 
-<svelte:window
+<HostWindow
 	onkeydown={(e) => {
 		if (e.key === 'Escape') {
 			if (replResultData) {

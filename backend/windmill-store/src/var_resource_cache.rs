@@ -250,6 +250,9 @@ mod tests {
         fn is_operator(&self) -> bool {
             self.is_operator
         }
+        fn capabilities(&self) -> Option<windmill_common::roles::RoleCapabilities> {
+            None
+        }
         fn groups(&self) -> &[String] {
             &self.groups
         }

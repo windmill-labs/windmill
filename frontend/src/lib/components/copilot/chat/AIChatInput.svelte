@@ -887,6 +887,15 @@
 			// this node without being outside the composer. Dismissing on them would
 			// discard the edit the user opened the image from.
 			if (isImageViewerOpen()) return
+			// The pinned one-line copy of the message being edited (AIChatDisplay) brings the
+			// editor back into view; dismissing on it would discard the edit.
+			const target = event.target as Element | null
+			if (
+				editingMessageIndex !== null &&
+				target?.closest?.(`[data-sticky-user="${editingMessageIndex}"]`)
+			) {
+				return
+			}
 			if (node && !node.contains(event.target as Node)) {
 				onClickOutside()
 			}

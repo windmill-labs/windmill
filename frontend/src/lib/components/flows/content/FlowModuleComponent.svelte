@@ -1,4 +1,5 @@
 <script lang="ts">
+	import HostWindow from '$lib/components/common/HostWindow.svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
 	import Tab from '$lib/components/common/tabs/Tab.svelte'
@@ -872,7 +873,7 @@
 	})
 </script>
 
-<svelte:window onkeydown={onKeyDown} />
+<HostWindow onkeydown={onKeyDown} />
 
 {#if flowModule.value}
 	<div class="h-full bg-surface" bind:clientWidth={width}>

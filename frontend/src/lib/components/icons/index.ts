@@ -78,6 +78,7 @@ import AzureIcon from './AzureIcon.svelte'
 import OktaIcon from './OktaIcon.svelte'
 import OutreachIcon from './OutreachIcon.svelte'
 import Auth0Icon from './Auth0Icon.svelte'
+import AkeylessIcon from './AkeylessIcon.svelte'
 import MsSqlServerIcon from './MSSqlServerIcon.svelte'
 import AuthentikIcon from './AuthentikIcon.svelte'
 import AutheliaIcon from './AutheliaIcon.svelte'
@@ -335,6 +336,7 @@ import SplunkIcon from './SplunkIcon.svelte'
 import TufinIcon from './TufinIcon.svelte'
 import ZabbixIcon from './ZabbixIcon.svelte'
 import EricssonIcon from './EricssonIcon.svelte'
+import LinkupIcon from './LinkupIcon.svelte'
 import type { Component } from 'svelte'
 /**
  * ./triggers/ holds desaturated variants of some marks in this folder, used by the four
@@ -453,6 +455,7 @@ export const APP_TO_ICON_COMPONENT = {
 	okta: OktaIcon,
 	outreach: OutreachIcon,
 	auth0: Auth0Icon,
+	akeyless: AkeylessIcon,
 	authentik: AuthentikIcon,
 	authelia: AutheliaIcon,
 	kanidm: KanidmIcon,
@@ -720,6 +723,7 @@ export const APP_TO_ICON_COMPONENT = {
 	tufin: TufinIcon,
 	zabbix: ZabbixIcon,
 	ericsson_ep5g: EricssonIcon,
+	linkup: LinkupIcon,
 	oauth_client_credentials: OauthIcon
 } as unknown as Record<string, Component> // to generate correct svelte package types
 
@@ -1054,5 +1058,6 @@ export {
 	TufinIcon,
 	ZabbixIcon,
 	EricssonIcon,
+	LinkupIcon,
 	OauthIcon
 }
