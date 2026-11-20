@@ -301,8 +301,18 @@
 			}
 		}
 
+		// A nullable field's default is a real null: left undefined, the key is dropped
+		// from the submitted args and the runnable never receives it.
+		const unsetNullable =
+			nnullable &&
+			value === undefined &&
+			!ignoreValueUndefined &&
+			(inputCat === 'string' || inputCat === 'list')
 		if (nnullable && type === 'string' && value === '' && nvalue == null) {
 			value = null
+		} else if (unsetNullable && nvalue == null) {
+			value = null
+			lastValue = value
 		} else if (nvalue != null && !deepEqual(nvalue, value)) {
 			value = nvalue
 			lastValue = value
