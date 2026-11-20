@@ -148,10 +148,11 @@
 	let mod = $derived(
 		id && flowStore?.val?.value ? dfsPreviousResults(id, flowStore.val, false)[0] : undefined
 	)
-	// A script step is tested as a script preview, which operators are refused: running the
-	// deployed runnable is left to "Test flow".
+	// Script and inline steps are tested as a script preview, which the server allows only to a
+	// role with code and run, whatever its flows level.
 	let builderCannotTestStep = $derived(
-		$roleCaps.flows === 'compose' && mod?.value.type === 'script'
+		(mod?.value.type === 'script' || mod?.value.type === 'rawscript') &&
+			!($roleCaps.code && $roleCaps.run)
 	)
 	let moduleTest: ModuleTest | undefined = $state(undefined)
 	let testIsLoading = $state(false)
