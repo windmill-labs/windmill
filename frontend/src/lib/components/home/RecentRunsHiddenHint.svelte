@@ -53,9 +53,7 @@
 					>
 						<span class="flex flex-col min-w-0 flex-1">
 							<span class="truncate text-[12px] text-secondary">{itemTitle(item)}</span>
-							{#if item.summary}
-								<span class="truncate text-[10.5px]">{item.path}</span>
-							{/if}
+							<span class="truncate text-[10.5px]" title={item.path}>{item.path}</span>
 						</span>
 						<Button
 							variant="subtle"

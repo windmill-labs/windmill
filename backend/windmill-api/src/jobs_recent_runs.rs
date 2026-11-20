@@ -324,6 +324,11 @@ pub(crate) async fn hide_recent_run_items(
             i.kind
         )));
     }
+    if body.items.iter().any(|i| i.path.chars().count() > 255) {
+        return Err(Error::BadRequest(
+            "item path is longer than 255 characters".to_string(),
+        ));
+    }
     let (kinds, paths): (Vec<String>, Vec<String>) =
         body.items.into_iter().map(|i| (i.kind, i.path)).unzip();
     sqlx::query(
