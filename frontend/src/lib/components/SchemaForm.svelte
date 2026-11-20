@@ -363,6 +363,7 @@
 								simpleTooltip={schemaFieldTooltip[argName]}
 								{onlyMaskPassword}
 								nullable={formerProperty?.nullable}
+								fillNullableDefault
 								title={formerProperty?.title}
 								placeholder={formerProperty?.placeholder}
 								orderEditable={dndConfig != undefined}
@@ -444,6 +445,7 @@
 								simpleTooltipWarning={argName in schemaFieldWarnings}
 								{onlyMaskPassword}
 								nullable={prop?.nullable}
+								fillNullableDefault
 								title={prop?.title}
 								placeholder={prop?.placeholder}
 								orderEditable={dndConfig != undefined}

@@ -98,6 +98,12 @@
 		customErrorMessage?: string | undefined
 		onlyMaskPassword?: boolean
 		nullable?: boolean
+		/**
+		 * Write null into an untouched nullable string/list field. Only for forms whose value is
+		 * submitted as run args: elsewhere an undefined value has its own meaning (an unset schema
+		 * default, a step input still following its expression) that a written null would override.
+		 */
+		fillNullableDefault?: boolean
 		title?: string | undefined
 		placeholder?: string | undefined
 		order?: string[] | undefined
@@ -171,6 +177,7 @@
 		customErrorMessage = undefined,
 		onlyMaskPassword = false,
 		nullable = false,
+		fillNullableDefault = false,
 		title = $bindable(undefined),
 		placeholder = $bindable(undefined),
 		order = $bindable(undefined),
@@ -304,6 +311,7 @@
 		// A nullable field's default is a real null: left undefined, the key is dropped
 		// from the submitted args and the runnable never receives it.
 		const unsetNullable =
+			fillNullableDefault &&
 			nnullable &&
 			value === undefined &&
 			!ignoreValueUndefined &&
