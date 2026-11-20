@@ -203,7 +203,7 @@
 	<div
 		use:melt={$menuEl}
 		data-menu
-		class="z-[6000] transition-all duration-100 flex flex-col"
+		class="z-[6000] transition-all duration-100 flex flex-col outline-none"
 		transition:placementFly={{ duration: enableFlyTransition ? 100 : 0, placement }}
 	>
 		{#if customMenu}

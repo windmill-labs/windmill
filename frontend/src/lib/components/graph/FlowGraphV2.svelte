@@ -26,7 +26,9 @@
 		SelectionMode
 	} from '@xyflow/svelte'
 	import {
+		expandedSubflowOf,
 		graphBuilder,
+		type ExpandedSubflow,
 		type InlineScript,
 		type InsertKind,
 		type NodeLayout,
@@ -168,7 +170,7 @@
 		workspace?: string
 		editMode?: boolean
 		allowSimplifiedPoll?: boolean
-		expandedSubflows?: Record<string, { modules: FlowModule[]; groups?: FlowGroup[] }>
+		expandedSubflows?: Record<string, ExpandedSubflow>
 		isOwner?: boolean
 		isRunning?: boolean
 		individualStepTests?: boolean
@@ -584,7 +586,7 @@
 				)
 				return
 			}
-			expandedSubflows[id] = { modules: flow.value.modules, groups: flow.value.groups }
+			expandedSubflows[id] = expandedSubflowOf(flow)
 			expandedSubflows = expandedSubflows
 		},
 		minimizeSubflow: (id: string) => {
@@ -1288,7 +1290,7 @@
 				// collapsed it and re-expanded onto another flow: only commit onto the very
 				// expansion this response was fetched for.
 				if (expandedSubflows[id] !== expansion) continue
-				expandedSubflows[id] = { modules: flow.value.modules, groups: flow.value.groups }
+				expandedSubflows[id] = expandedSubflowOf(flow)
 			} catch (err) {
 				sendUserToast(`Could not reload expanded subflow ${path}: ${err.body ?? err}`, true)
 			}

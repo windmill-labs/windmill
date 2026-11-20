@@ -29,6 +29,7 @@
 		nodeState?: FlowNodeState
 		duration_ms?: number | undefined
 		retries?: number | undefined
+		retriedInside?: number
 		flowJobs:
 			| {
 					flowJobs: string[]
@@ -36,6 +37,14 @@
 					flowJobsSuccess: (boolean | undefined)[]
 					flowJobsLabels?: (string | null)[]
 					selectedManually: boolean | undefined
+			  }
+			| undefined
+		/** The attempts of a retried step, picked like a loop's iterations. */
+		attempts?:
+			| {
+					flowJobs: string[]
+					selected: number
+					flowJobsSuccess: (boolean | undefined)[]
 			  }
 			| undefined
 		editMode?: boolean
@@ -70,7 +79,9 @@
 		nodeState,
 		duration_ms = undefined,
 		retries = undefined,
+		retriedInside = 0,
 		flowJobs,
+		attempts = undefined,
 		editMode = false,
 		mockApplied = undefined,
 		onSelect,
@@ -166,7 +177,7 @@
 			<div
 				title={annotationTitle}
 				class={twMerge(
-					'absolute z-10 left-0 -top-5 center-center text-primary',
+					'absolute z-10 left-0 -top-4 center-center text-2xs font-normal text-secondary',
 					editMode ? '-top-4 text-gray-400 dark:text-gray-500 text-xs font-normal' : ''
 				)}
 			>
@@ -268,6 +279,16 @@
 			{:else}
 				<FlowModuleSchemaItem
 					{retries}
+					{retriedInside}
+					attempts={attempts && !insertable
+						? {
+								jobs: attempts.flowJobs,
+								success: attempts.flowJobsSuccess,
+								selected: attempts.selected,
+								moduleId,
+								onSelectedIteration
+							}
+						: undefined}
 					{editMode}
 					{moduleAction}
 					{menuItems}
