@@ -1,7 +1,11 @@
 import { describe, expect, it, vi } from 'vitest'
 import { get } from 'svelte/store'
 
-let requests: { workspace: string; resolve: (config: any) => void }[] = []
+let requests: {
+	workspace: string
+	resolve: (config: any) => void
+	reject: (err: unknown) => void
+}[] = []
 
 // aiStore pulls in the (heavy) copilot lib for workspaceAIClients; setCopilotInfo does not
 // exercise it.
@@ -11,7 +15,7 @@ vi.mock('./components/copilot/lib', () => ({
 vi.mock('./gen', () => ({
 	WorkspaceService: {
 		getCopilotInfo: ({ workspace }: { workspace: string }) =>
-			new Promise((resolve) => requests.push({ workspace, resolve }))
+			new Promise((resolve, reject) => requests.push({ workspace, resolve, reject }))
 	}
 }))
 
@@ -19,9 +23,12 @@ import {
 	isWebSearchEnabledForProvider,
 	setCopilotInfo,
 	copilotInfo,
+	copilotWorkspace,
 	getWorkspaceCopilotInfo,
 	invalidateWorkspaceCopilotInfo,
-	loadWorkspaceCopilotInfo
+	loadWorkspaceCopilotInfo,
+	applySavedWorkspaceCopilotInfo,
+	workspaceCopilotInfoFailed
 } from './aiStore'
 
 const withModel = (model: string) => ({
@@ -47,6 +54,47 @@ describe.each([
 		expect(modelOf(await load)).toBe('saved')
 		expect(modelOf(getWorkspaceCopilotInfo('ws'))).toBe('saved')
 	})
+})
+
+// A save hands over the config it wrote: what shows it never blanks, and a load that read the
+// config from before the save does not bring it back.
+it('a saved config is readable at once and outlives a pre-save load', async () => {
+	requests = []
+	invalidateWorkspaceCopilotInfo()
+	const load = loadWorkspaceCopilotInfo('ws')
+	applySavedWorkspaceCopilotInfo('ws', withModel('saved'))
+	expect(modelOf(getWorkspaceCopilotInfo('ws'))).toBe('saved')
+
+	requests[0].resolve(withModel('before-save'))
+	expect(modelOf(await load)).toBe('saved')
+	expect(modelOf(getWorkspaceCopilotInfo('ws'))).toBe('saved')
+})
+
+// The tab's copy is the workspace on screen's: a session saving another workspace leaves it alone.
+it('a save updates the tab copy only when the tab is on the saved workspace', () => {
+	setCopilotInfo(withModel('tab'))
+	copilotWorkspace.set('tab-ws')
+	applySavedWorkspaceCopilotInfo('fork', withModel('fork'))
+	expect(modelOf(get(copilotInfo))).toBe('tab')
+
+	applySavedWorkspaceCopilotInfo('tab-ws', withModel('tab-saved'))
+	expect(modelOf(get(copilotInfo))).toBe('tab-saved')
+})
+
+// A session waits on its workspace's config to show its transcript; a load that failed must end
+// the wait, and the next one that succeeds must clear it.
+it('records a failed load until one succeeds', async () => {
+	requests = []
+	invalidateWorkspaceCopilotInfo()
+	const failed = loadWorkspaceCopilotInfo('down')
+	requests[0].reject(new Error('500'))
+	await expect(failed).rejects.toThrow()
+	expect(workspaceCopilotInfoFailed('down')).toBe(true)
+
+	const retried = loadWorkspaceCopilotInfo('down')
+	requests[1].resolve(withModel('back'))
+	expect(modelOf(await retried)).toBe('back')
+	expect(workspaceCopilotInfoFailed('down')).toBe(false)
 })
 
 describe('setCopilotInfo legacy /thinking migration', () => {

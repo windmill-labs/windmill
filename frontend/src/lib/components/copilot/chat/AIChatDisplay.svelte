@@ -82,7 +82,6 @@
 	import { sendUserToast } from '$lib/toast'
 	import { overlayStack } from '$lib/components/common/overlayHost.svelte'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
-	import { copilotInfo } from '$lib/aiStore'
 	import ComposerSuggestions from './starter/ComposerSuggestions.svelte'
 	import type { DraftAttachments } from './messageDraft.svelte'
 	import type { ChatStarter } from './starter/starterPrompts.svelte'
@@ -97,7 +96,7 @@
 
 	// The free grant pays for the copilot's own model, so its banners belong only to a host
 	// that sends to that model. A flow chat's turn runs on the flow's provider.
-	const freeTier = $derived(chatHost.supportsModelSettings ? $copilotInfo.freeTier : undefined)
+	const freeTier = $derived(chatHost.supportsModelSettings ? chatHost.aiInfo?.freeTier : undefined)
 	// The user spent their one-time free Windmill AI grant: there is no model left to send
 	// to, so say so in the thread itself rather than only failing on send.
 	let freeTierExhausted = $derived(freeTier?.exhausted === true)

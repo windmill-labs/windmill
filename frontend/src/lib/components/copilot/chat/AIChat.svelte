@@ -8,7 +8,6 @@
 
 	const aiChatManager = getAiChatManager()
 	import { SUPPORTED_CHAT_SCRIPT_LANGUAGES } from './script/core'
-	import { copilotInfo } from '$lib/aiStore'
 	import type { ComposerSelection } from './composerBox'
 	import { overlayHostActive } from '$lib/components/common/overlayHost.svelte'
 
@@ -58,7 +57,10 @@
 	} = $props()
 
 	const isAdmin = $derived($userStore?.is_admin || $userStore?.is_super_admin)
-	const hasCopilot = $derived($copilotInfo.enabled)
+	// The session's own workspace's config, never the tab's. Undefined while it loads (disabled,
+	// with no message: nothing is known to be wrong yet) and after its load failed.
+	const aiInfo = $derived(aiChatManager.aiInfo)
+	const hasCopilot = $derived(aiInfo?.enabled === true)
 	// Another tab is running a turn on this session: transcript stays readable,
 	// composer locks, and the chat re-reads the shared record when the turn ends.
 	const runHeldElsewhere = $derived(aiChatManager.runHeldElsewhere)
@@ -73,7 +75,7 @@
 	// A spent free grant is not an unconfigured workspace: AIChatDisplay already shows an
 	// in-thread banner naming the real cause and linking to the key settings, so the generic
 	// "enable Windmill AI" line would both duplicate it and misstate why the chat is off.
-	const freeTierExhausted = $derived($copilotInfo.freeTier?.exhausted === true)
+	const freeTierExhausted = $derived(aiInfo?.freeTier?.exhausted === true)
 	const disabledMessage = $derived(
 		forceDisabled
 			? forceDisabledMessage
@@ -81,10 +83,12 @@
 				? // The typing indicator and the composer placeholder already carry
 					// this state; a footer note would say it a third time.
 					''
-				: freeTierExhausted
-					? ''
+				: freeTierExhausted || !aiInfo
+					? !aiInfo && aiChatManager.aiInfoFailed
+						? "Couldn't load this workspace's AI settings. Reload the page to try again."
+						: ''
 					: !hasCopilot
-						? $copilotInfo.workspaceDisabled
+						? aiInfo.workspaceDisabled
 							? 'Windmill AI is hidden in this workspace'
 							: $aiUserDisabled
 								? 'Windmill AI is disabled in your account settings'
