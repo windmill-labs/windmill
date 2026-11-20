@@ -325,6 +325,67 @@ class Windmill:
             raise Exception("path must be provided")
         return self.post(endpoint, json=args, params=params).text
 
+    def test_flow_async(
+        self,
+        path: str,
+        args: dict = None,
+        steps: dict = None,
+    ) -> str:
+        """Start the deployed flow at ``path`` with some steps overridden and return its job id.
+
+        See ``test_flow`` for ``steps``.
+        """
+        overrides = {}
+        uses_function = False
+        for step_id, o in (steps or {}).items():
+            if callable(o):
+                name = getattr(o, "__name__", None)
+                if not name or name == "<lambda>":
+                    raise Exception(
+                        f"step `{step_id}`: the replacing function must be a named, "
+                        "top-level function of this file"
+                    )
+                overrides[step_id] = {"function": name}
+                uses_function = True
+            else:
+                overrides[step_id] = {"return_value": o}
+        body = {"args": args or {}, "steps": overrides}
+        if uses_function:
+            caller_job_id = os.environ.get("WM_JOB_ID")
+            if not caller_job_id:
+                raise Exception(
+                    "replacing a step with a function only works from a script running in Windmill"
+                )
+            body["caller_job_id"] = caller_job_id
+        return self.post(
+            f"/w/{self.workspace}/jobs/run/flow_test/{path}", json=body
+        ).text
+
+    def test_flow(
+        self,
+        path: str,
+        args: dict = None,
+        steps: dict = None,
+        timeout: dt.timedelta | int | float | None = None,
+        verbose: bool = False,
+        assert_result_is_not_none: bool = False,
+    ) -> Any:
+        """Run the deployed flow at ``path`` with some steps overridden and return its result.
+
+        See the module-level ``test_flow``.
+        """
+        job_id = self.test_flow_async(path, args, steps)
+        return self.wait_job(
+            job_id,
+            timeout=timeout,
+            verbose=verbose,
+            assert_result_is_not_none=assert_result_is_not_none,
+        )
+
+    # Not pytest tests, despite the name.
+    test_flow.__test__ = False
+    test_flow_async.__test__ = False
+
     def run_script(
         self,
         path: str = None,
@@ -1775,6 +1836,81 @@ def run_flow_async(
         do_not_track_in_parent=do_not_track_in_parent,
         tag=tag,
     )
+
+
+@init_global_client
+def test_flow(
+    path: str,
+    args: Dict[str, Any] = None,
+    steps: Dict[str, Any] = None,
+    timeout: dt.timedelta | int | float | None = None,
+    verbose: bool = False,
+    assert_result_is_not_none: bool = False,
+) -> Any:
+    """Run the deployed flow at ``path`` with some steps overridden, wait for it and return its
+    result. Meant for test scripts.
+
+    Each entry of ``steps`` maps a step id to either:
+
+    - a value: the step is skipped and returns that value, or
+    - a top-level function of the calling script's own file: the step runs that function instead
+      of its own code, with the step's inputs as keyword arguments.
+
+    A step inside a subflow is named by the path of step ids to it, ``"sub:inner"`` for step
+    ``inner`` of the subflow that step ``sub`` calls. It applies to every call of that subflow
+    made by the tested flow and by the subflows it overrides; a subflow left as is still calls
+    the deployed one. Those subflows, and each one on the way to an override, run as you rather
+    than as their on-behalf-of identity. Result caching is off for the whole test run.
+
+    The flow's preprocessor does not run: ``args`` are what the flow receives after it. A subflow
+    never runs its own preprocessor, in a test or not. AI agent
+    tools cannot be overridden; override the agent step instead.
+
+    Example::
+
+        def fake_fetch(url: str):
+            return {"status": 200}
+
+        def main():
+            result = wmill.test_flow("f/flows/sync", {"user": "a"}, steps={
+                "fetch_users": fake_fetch,  # replaced logic
+                "send_email": "sent",       # mocked result
+            })
+
+    Args:
+        path: Flow path
+        args: Flow arguments
+        steps: Step id to mocked result, or to the function replacing the step
+        timeout: Maximum time to wait
+        verbose: Enable verbose logging
+        assert_result_is_not_none: Raise exception if result is None
+
+    Returns:
+        Flow result
+    """
+    return _client.test_flow(
+        path,
+        args=args,
+        steps=steps,
+        timeout=timeout,
+        verbose=verbose,
+        assert_result_is_not_none=assert_result_is_not_none,
+    )
+
+
+@init_global_client
+def test_flow_async(
+    path: str,
+    args: Dict[str, Any] = None,
+    steps: Dict[str, Any] = None,
+) -> str:
+    """Like ``test_flow``, but returns the job id without waiting for the flow."""
+    return _client.test_flow_async(path, args=args, steps=steps)
+
+
+# Not pytest tests, despite the name.
+test_flow.__test__ = False
+test_flow_async.__test__ = False
 
 
 @init_global_client

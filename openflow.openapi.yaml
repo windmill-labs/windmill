@@ -1,7 +1,7 @@
 openapi: '3.0.3'
 
 info:
-  version: 1.876.1
+  version: 1.880.1
   title: OpenFlow Spec
   contact:
     name: Ruben Fiszel
@@ -1426,6 +1426,14 @@ components:
             required:
               - id
               - job
+        test_subflows:
+          type: object
+          description: In a flow test run, deployed subflow path -> the flow value with the test's step overrides applied, run in place of the deployed subflow.
+          # A FlowValue, left untyped: FlowStatus is inlined into every job schema, and the
+          # python client generator (which dereferences the whole spec) runs out of memory
+          # when each copy also carries a full FlowValue.
+          additionalProperties:
+            type: object
       required:
         - step
         - modules

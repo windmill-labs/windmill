@@ -13,7 +13,7 @@
 	import DropdownV2Inner from './DropdownV2Inner.svelte'
 	import { pointerDownOutside } from '$lib/utils'
 	import { createDropdownMenu, melt, createSync } from '@melt-ui/svelte'
-	import { overlayPortalTarget } from '$lib/components/common/overlayHost.svelte'
+	import { overlayPortalTarget, overlayShown } from '$lib/components/common/overlayHost.svelte'
 	import type { MenubarMenuElements } from '@melt-ui/svelte'
 	import ResolveOpen from '$lib/components/common/menu/ResolveOpen.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
@@ -89,6 +89,7 @@
 
 	// Overlays belong to the enclosing pane when there is one — see overlayHost.
 	const hostPortal = overlayPortalTarget('body')
+	const shown = overlayShown()
 
 	const {
 		elements: { menu: menuEl, item, trigger },
@@ -198,7 +199,7 @@
 	{/if}
 </button>
 
-{#if open && !hidePopup}
+{#if open && !hidePopup && shown()}
 	<div
 		use:melt={$menuEl}
 		data-menu

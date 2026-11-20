@@ -3,6 +3,7 @@
 </script>
 
 <script lang="ts">
+	import HostWindow from '$lib/components/common/HostWindow.svelte'
 	import { createEventDispatcher, getContext, onDestroy, onMount, untrack } from 'svelte'
 	import StepGenQuick from '$lib/components/copilot/StepGenQuick.svelte'
 	import FlowInputsQuick from '../content/FlowInputsQuick.svelte'
@@ -187,7 +188,7 @@
 	let displayPath = $derived(height > 480)
 </script>
 
-<svelte:window onkeydown={onAiKeyDown} />
+<HostWindow onkeydown={onAiKeyDown} />
 <div
 	id="flow-editor-insert-module"
 	class="flex flex-col h-full gap-2 max-w-full {small ? 'w-[450px]' : 'w-[650px]'}"

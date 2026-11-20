@@ -541,10 +541,41 @@ pub struct ConstantDelay {
 #[serde(default)]
 pub struct ExponentialDelay {
     pub attempts: u32,
+    #[serde(deserialize_with = "deserialize_multiplier")]
     pub multiplier: u16,
     pub seconds: u16,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub random_factor: Option<i8>,
+}
+
+/// Accepts exactly the integers `u16` does: older workers parse the stored retry as `u16`, so
+/// even `1.0` must stay refused. Only the error is reworded.
+fn deserialize_multiplier<'de, D: Deserializer<'de>>(deserializer: D) -> Result<u16, D::Error> {
+    struct Multiplier;
+    impl<'de> serde::de::Visitor<'de> for Multiplier {
+        type Value = u16;
+        fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+            f.write_str("a whole number from 0 to 65535")
+        }
+        fn visit_u64<E: serde::de::Error>(self, v: u64) -> Result<u16, E> {
+            u16::try_from(v).map_err(|_| E::custom(multiplier_error(v)))
+        }
+        fn visit_i64<E: serde::de::Error>(self, v: i64) -> Result<u16, E> {
+            u16::try_from(v).map_err(|_| E::custom(multiplier_error(v)))
+        }
+        fn visit_f64<E: serde::de::Error>(self, v: f64) -> Result<u16, E> {
+            Err(E::custom(multiplier_error(v)))
+        }
+    }
+    deserializer.deserialize_any(Multiplier)
+}
+
+fn multiplier_error(got: impl std::fmt::Display) -> String {
+    format!(
+        "exponential retry multiplier must be a whole number from 0 to 65535, got {got}. \
+         The delay before retry n is multiplier * seconds^n: the multiplier scales every delay, \
+         seconds sets how fast they grow"
+    )
 }
 
 impl Default for ExponentialDelay {
@@ -1752,6 +1783,29 @@ mod tests {
         });
         let retry: Retry = serde_json::from_value(input.clone()).unwrap();
         assert_eq!(serde_json::to_value(&retry).unwrap(), input);
+    }
+
+    #[test]
+    fn exponential_retry_multiplier_error_is_clear() {
+        for multiplier in [json!(0.4), json!(1.0), json!(70000), json!(-1)] {
+            let input =
+                json!({ "exponential": { "attempts": 3, "multiplier": multiplier, "seconds": 2 } });
+            let err = serde_json::from_value::<Retry>(input)
+                .unwrap_err()
+                .to_string();
+            assert!(
+                err.contains("retry multiplier must be a whole number"),
+                "{err}"
+            );
+        }
+        let input = json!({ "exponential": { "attempts": 3, "multiplier": 65535, "seconds": 2 } });
+        assert_eq!(
+            serde_json::from_value::<Retry>(input)
+                .unwrap()
+                .exponential
+                .multiplier,
+            65535
+        );
     }
 
     #[test]

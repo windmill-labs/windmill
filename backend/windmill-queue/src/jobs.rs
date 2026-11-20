@@ -670,40 +670,63 @@ pub async fn push_periodic_bash_job<'c>(
     Ok(uuid)
 }
 
-pub async fn cancel_persistent_script_jobs<'c>(
+/// `admit` is called with the runs each batch found, before any of them is touched, and returns
+/// the ones to cancel; an error from it cancels none of that batch. The cancel itself runs on the
+/// root pool, so `admit` is where the caller's access to those runs must be checked.
+pub async fn cancel_persistent_script_jobs<F, Fut>(
     username: &str,
     reason: Option<String>,
     script_path: &str,
     w_id: &str,
     db: &Pool<Postgres>,
-) -> error::Result<Vec<Uuid>> {
+    mut admit: F,
+) -> error::Result<Vec<Uuid>>
+where
+    F: FnMut(Vec<Uuid>) -> Fut,
+    Fut: Future<Output = error::Result<Vec<Uuid>>>,
+{
     // There can be only one perpetual script run per 10 seconds window. We execute the cancel twice with 5s interval
     // to avoid the case of a job _about to be restarted_ when the first cancel is run.
-    let cancelled_job_ids_first_batch =
-        cancel_persistent_script_jobs_internal(username, reason.clone(), script_path, w_id, db)
-            .await?;
+    let cancelled_job_ids_first_batch = cancel_persistent_script_jobs_internal(
+        username,
+        reason.clone(),
+        script_path,
+        w_id,
+        db,
+        &mut admit,
+    )
+    .await?;
     sleep(std::time::Duration::from_secs(5)).await;
-    let cancelled_job_ids_second_batch =
-        cancel_persistent_script_jobs_internal(username, reason.clone(), script_path, w_id, db)
-            .await?;
+    let cancelled_job_ids_second_batch = cancel_persistent_script_jobs_internal(
+        username,
+        reason.clone(),
+        script_path,
+        w_id,
+        db,
+        &mut admit,
+    )
+    .await?;
     return Ok(cancelled_job_ids_first_batch
         .into_iter()
         .chain(cancelled_job_ids_second_batch)
         .collect_vec());
 }
 
-async fn cancel_persistent_script_jobs_internal<'c>(
+async fn cancel_persistent_script_jobs_internal<F, Fut>(
     username: &str,
     reason: Option<String>,
     script_path: &str,
     w_id: &str,
     db: &Pool<Postgres>,
-) -> error::Result<Vec<Uuid>> {
-    let mut tx = db.begin().await?;
-
-    // we could have retrieved the job IDs in the first query where we retrieve the hashes, but just in case a job was inserted in the queue right in-between the two above query, we re-do the fetch here
+    admit: &mut F,
+) -> error::Result<Vec<Uuid>>
+where
+    F: FnMut(Vec<Uuid>) -> Fut,
+    Fut: Future<Output = error::Result<Vec<Uuid>>>,
+{
     // Only the loops: a dependency job of this script shares its path, and a run of a version that
-    // does not restart itself ends on its own.
+    // does not restart itself ends on its own. A run that ends before the cancel below reaches it
+    // is skipped by `cancel_job`; its restart is caught by the next batch.
     let jobs_to_cancel = sqlx::query_scalar::<_, Uuid>(
         "SELECT j.id FROM v2_job_queue q JOIN v2_job j USING (id) \
          JOIN script s ON s.workspace_id = j.workspace_id AND s.hash = j.runnable_id \
@@ -712,10 +735,12 @@ async fn cancel_persistent_script_jobs_internal<'c>(
     )
     .bind(w_id)
     .bind(script_path)
-    .fetch_all(&mut *tx)
+    .fetch_all(db)
     .await?;
 
-    // Then we cancel all the jobs currently in the queue, one by one
+    let jobs_to_cancel = admit(jobs_to_cancel).await?;
+
+    let mut tx = db.begin().await?;
     for queued_job_id in jobs_to_cancel.clone() {
         let (new_tx, _) = cancel_job(
             username,
@@ -7398,6 +7423,7 @@ async fn push_inner<'c, 'd>(
                         memory_id: None,
                         no_inherited_flow_env: false,
                         continued_on_error: vec![],
+                        test_subflows: None,
                     }
                 }
                 _ => {
@@ -7799,6 +7825,7 @@ async fn push_inner<'c, 'd>(
                 memory_id: None,
                 no_inherited_flow_env: false,
                 continued_on_error: vec![],
+                test_subflows: None,
             };
             // The completed job's own scopes are gone with its `job_perms` row, so the restart
             // takes the flow's current setting (and the restarting caller's ceiling).
