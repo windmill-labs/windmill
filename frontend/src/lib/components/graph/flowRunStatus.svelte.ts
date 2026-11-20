@@ -34,6 +34,16 @@ export class FlowRunStatus {
 		return !state || state.type === 'WaitingForPriorSteps' || !!state.skipped
 	}
 
+	/** Steps inside the subflow step `id`, at any depth, that were retried in the shown attempt. */
+	retriedStepsInside(id: string): number {
+		const prefix = (id.startsWith('subflow:') ? id : 'subflow:' + id) + ':'
+		let count = 0
+		for (const [key, state] of this.#moduleStates) {
+			if (key.startsWith(prefix) && (state.retries ?? 0) > 0) count++
+		}
+		return count
+	}
+
 	setModuleStates(next: Record<string, GraphModuleState> | undefined) {
 		const incoming = next ?? {}
 		for (const id of [...this.#moduleStates.keys()]) {

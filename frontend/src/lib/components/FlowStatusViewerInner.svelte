@@ -343,7 +343,6 @@
 	}
 
 	let retry_selected = $state('')
-	let nodeRetrySelected = $state('')
 	let timeout: number | undefined = undefined
 
 	let selectionManager = new SelectionManager()
@@ -395,6 +394,13 @@
 			}
 			moduleState[key] = newState
 			return
+		}
+
+		// The attempt picked on the graph lives in the top states only: the step's own viewer does
+		// not hold it, so its writes must not drop it. A copy: the same `newValue` is written to the
+		// viewer's own states too, and a pick left there would be written back over the next one.
+		if (!('selectedAttempt' in newValue) && moduleState[key]?.selectedAttempt != undefined) {
+			newValue = { ...newValue, selectedAttempt: moduleState[key].selectedAttempt }
 		}
 
 		if (moduleState[key]?.selectedForLoopSetManually) {
@@ -581,7 +587,12 @@
 		}
 		updateInnerModules(status)
 
-		let count = status.retry?.fail_count
+		// The preprocessor (step -1) and the error handler (past the steps) retry outside `modules`.
+		const outsideSteps = status.step < 0 || status.step >= status.modules.length
+		let count =
+			job?.type === 'CompletedJob' || (retryingStepId == undefined && !outsideSteps)
+				? undefined
+				: status.retry?.fail_count
 		if (count) {
 			retryStatus.val[jobId ?? ''] = count
 		} else if (retryStatus.val[jobId ?? ''] != undefined) {
@@ -668,6 +679,8 @@
 		return parent != undefined && parent === deniedStepId ? deniedApprovalId : parent
 	}
 
+	/** The step waiting for or running its next attempt, if any. */
+	let retryingStepId: string | undefined = undefined
 	function updateInnerModules(status: FlowStatus) {
 		const found = findDeniedApproval(status)
 		const denied = found?.approval
@@ -685,6 +698,7 @@
 			failedJobs.length && !status.modules.some((m) => m.failed_retries?.includes(failedJobs[0]))
 				? status.modules[status.step]?.id
 				: undefined
+		retryingStepId = retryingId
 		const claimedAttempts = new Set<string>()
 		if (localModuleStates) {
 			innerModules?.forEach((mod, i) => {
@@ -775,10 +789,35 @@
 					: mod.id != undefined && mod.id === retryingId
 						? failedJobs
 						: undefined
-				if (!deepEqual(attempts, localModuleStates[mod.id ?? '']?.failed_retries)) {
+				// The step's own job is its last attempt, unless it is still one of the failed ones
+				// while the next waits to be scheduled.
+				const lastJob =
+					attempts?.length && mod.job && mod.job !== NIL_JOB && !attempts.includes(mod.job)
+						? mod.job
+						: undefined
+				const attemptJobs = attempts?.length
+					? [...attempts, ...(lastJob ? [lastJob] : [])]
+					: undefined
+				const attemptJobsSuccess = attemptJobs?.map((id) =>
+					id === lastJob
+						? mod.type === 'Success'
+							? true
+							: mod.type === 'Failure'
+								? false
+								: undefined
+						: false
+				)
+				const current = localModuleStates[mod.id ?? '']
+				if (
+					!deepEqual(attempts, current?.failed_retries) ||
+					!deepEqual(attemptJobs, current?.attempt_jobs) ||
+					!deepEqual(attemptJobsSuccess, current?.attempt_jobs_success)
+				) {
 					setModuleState(mod.id ?? '', {
 						retries: attempts?.length,
-						failed_retries: attempts
+						failed_retries: attempts,
+						attempt_jobs: attemptJobs,
+						attempt_jobs_success: attemptJobsSuccess
 					})
 				}
 
@@ -1044,6 +1083,10 @@
 		} else {
 			return arg == true
 		}
+	}
+
+	function pickedAttempt(mod: FlowStatusModule): string | undefined {
+		return getTopModuleStates?.[buildSubflowKey(mod.id ?? '', prefix)]?.selectedAttempt
 	}
 
 	// A running parallel module keeps this flow's own id in `job` (its children are only in
@@ -1439,6 +1482,26 @@
 			| { manuallySet: false; moduleId: string }
 	) {
 		let prefixedId = buildSubflowKey(detail.moduleId, prefix)
+		const attemptJobs = getTopModuleStates?.[prefixedId]?.attempt_jobs
+		if (detail.manuallySet && attemptJobs?.includes(detail.id)) {
+			// As for a loop iteration, the step's own viewer is pointed at the picked attempt. A
+			// subflow step's states for its own steps (`subflow:<step>:…`) are dropped first: the
+			// picked attempt may not run them all, and nothing else would clear them.
+			const shown = getTopModuleStates?.[prefixedId]?.job_id
+			if (shown && shown !== detail.id) {
+				const innerPrefix =
+					(prefixedId.startsWith('subflow:') ? prefixedId : 'subflow:' + prefixedId) + ':'
+				for (const states of [localModuleStates, ...globalModuleStates]) {
+					for (const key of Object.keys(states)) {
+						if (key.startsWith(innerPrefix)) delete states[key]
+					}
+				}
+			}
+			setParentModuleState(detail.moduleId, {
+				selectedAttempt: detail.id === attemptJobs[attemptJobs.length - 1] ? undefined : detail.id
+			})
+			return
+		}
 		if (detail.manuallySet) {
 			let rootJobId = detail.id
 			await tick()
@@ -1862,11 +1925,7 @@
 						{/if}
 						<li class="w-full border p-6 space-y-2 bg-blue-50/50 dark:bg-frost-900/50">
 							{#if render && selected == 'sequence'}
-								{@render failedAttempts(
-									localModuleStates[mod.id ?? '']?.failed_retries ?? [],
-									retry_selected,
-									(id) => (retry_selected = id)
-								)}
+								{@render failedAttempts(localModuleStates[mod.id ?? '']?.failed_retries ?? [])}
 							{/if}
 							{#if ['InProgress', 'Success', 'Failure'].includes(mod.type)}
 								{#if job.raw_flow?.modules[i]?.value.type == 'flow'}
@@ -1891,7 +1950,7 @@
 										]}
 										render={selected == 'sequence' && render}
 										{workspaceId}
-										jobId={mod.job ?? ''}
+										jobId={pickedAttempt(mod) ?? mod.job ?? ''}
 										{reducedPolling}
 										isSubflow
 										onJobsLoaded={({ job, force }) => {
@@ -1922,7 +1981,7 @@
 										{subflowParentsGlobalModuleStates}
 										{subflowParentsDurationStatuses}
 										{isSelectedBranch}
-										jobId={innerViewerJobId(mod)}
+										jobId={pickedAttempt(mod) ?? innerViewerJobId(mod)}
 										{reducedPolling}
 										innerModule={mod.flow_jobs ? job.raw_flow?.modules[i]?.value : undefined}
 										flowJobIds={mod.flow_jobs
@@ -2399,18 +2458,6 @@
 																			</div>
 																		{/if}
 																	</div>
-																	{#if selected == 'graph' && node.failed_retries?.length}
-																		<div class="flex flex-col gap-2">
-																			<div class="text-xs text-emphasis font-semibold"
-																				>Failed attempts</div
-																			>
-																			{@render failedAttempts(
-																				node.failed_retries,
-																				nodeRetrySelected,
-																				(id) => (nodeRetrySelected = id)
-																			)}
-																		</div>
-																	{/if}
 																	{#if !node.isListJob}
 																		<div>
 																			<div class="text-xs text-emphasis font-semibold mb-1"
@@ -2503,22 +2550,23 @@
 	<Skeleton layout={[[15], 1, [70]]}></Skeleton>
 {/if}
 
-{#snippet failedAttempts(attempts: string[], selectedAttempt: string, select: (id: string) => void)}
+{#snippet failedAttempts(attempts: string[])}
 	{#each attempts as failedRetry, j (failedRetry)}
+		{@const selectedAttempt = retry_selected}
 		<Button
-			variant={selectedAttempt === failedRetry ? 'accent' : 'default'}
-			destructive
+			variant="subtle"
+			selected={selectedAttempt === failedRetry}
 			unifiedSize="sm"
-			btnClasses="w-full flex justify-start"
-			onClick={() => select(selectedAttempt == failedRetry ? '' : failedRetry)}
+			btnClasses="w-full flex justify-start gap-2"
+			onClick={() => (retry_selected = selectedAttempt == failedRetry ? '' : failedRetry)}
 			endIcon={{
 				icon: ChevronDown,
 				classes: selectedAttempt == failedRetry ? '!rotate-180' : ''
 			}}
 		>
-			<span class="truncate font-mono">
-				# Attempt {j + 1}: {failedRetry}
-			</span>
+			<span class="inline-block w-2 h-2 rounded-full shrink-0 bg-red-500"></span>
+			<span class="text-xs">Attempt {j + 1}</span>
+			<span class="text-2xs text-secondary font-mono">{truncateRev(failedRetry, 10)}</span>
 		</Button>
 
 		<!-- A past attempt is viewed on its own: an attempt of a subflow step is a flow whose

@@ -33,7 +33,7 @@ pub fn effective_reasoning_effort<'a>(model: &str, effort: Option<&'a str>) -> O
 /// Providers ignore the limit field they don't read, so a wrong pick silently lifts the
 /// limit: DeepSeek reads only `max_tokens`, OpenAI's reasoning models refuse it, and
 /// Azure deployment and Custom AI model names don't reveal the model behind them.
-fn reads_max_completion_tokens(provider: &AIProvider) -> bool {
+pub fn reads_max_completion_tokens(provider: &AIProvider) -> bool {
     matches!(
         provider,
         AIProvider::OpenAI

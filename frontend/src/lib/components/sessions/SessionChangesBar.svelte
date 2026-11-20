@@ -20,7 +20,8 @@
 	} from '$lib/stores'
 	import { canCreateFork } from '$lib/utils/editInFork'
 	import { isCloudHosted } from '$lib/cloud'
-	import { sessionState, type Session } from './sessionState.svelte'
+	import { untrack } from 'svelte'
+	import type { Session } from './sessionState.svelte'
 	import { getRuntime } from './sessionRuntime.svelte'
 	import { useSessionPermissions } from './sessionPermissions.svelte'
 	import SessionDiffDrawer from './SessionDiffDrawer.svelte'
@@ -51,12 +52,15 @@
 	// session diff drawer.
 	let {
 		session,
+		onScreen,
 		onMove,
 		onCreateForkAndMove,
 		onArchive,
 		onDelete
 	}: {
 		session: Session
+		/** Whether this is the session the sessions page shows, with its route open. */
+		onScreen: boolean
 		onMove?: (workspaceId: string) => void
 		onCreateForkAndMove?: (fork: {
 			parent_workspace_id: string
@@ -135,22 +139,26 @@
 	})
 
 	// Refresh when the user comes back to this view — covers edits made
-	// elsewhere while we were away. Two signals: visibilitychange (another tab
-	// in the same window) and window focus (a second browser window, where this
+	// elsewhere while we were away. Three signals: coming back on screen from
+	// another session or page (the bar stays mounted meanwhile, so nothing else
+	// refetches; the first time, mounting did), visibilitychange (another tab in
+	// the same window) and window focus (a second browser window, where this
 	// tab never goes hidden so visibilitychange never fires — e.g. deploying
 	// from the full-page editor side by side).
+	let shownBefore = false
 	$effect(() => {
-		if (!committedId) return
-		function refreshIfCurrent() {
+		if (!committedId || !onScreen) return
+		if (shownBefore) untrack(refreshDock)
+		shownBefore = true
+		function refreshIfVisible() {
 			if (document.visibilityState !== 'visible') return
-			if (sessionState.currentSessionId !== session.id) return
 			refreshDock()
 		}
-		document.addEventListener('visibilitychange', refreshIfCurrent)
-		window.addEventListener('focus', refreshIfCurrent)
+		document.addEventListener('visibilitychange', refreshIfVisible)
+		window.addEventListener('focus', refreshIfVisible)
 		return () => {
-			document.removeEventListener('visibilitychange', refreshIfCurrent)
-			window.removeEventListener('focus', refreshIfCurrent)
+			document.removeEventListener('visibilitychange', refreshIfVisible)
+			window.removeEventListener('focus', refreshIfVisible)
 		}
 	})
 

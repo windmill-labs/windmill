@@ -5,7 +5,7 @@
 	import { zIndexes } from '$lib/zIndexes'
 
 	import { createTooltip, melt } from '@melt-ui/svelte'
-	import { overlayPortalTarget } from '$lib/components/common/overlayHost.svelte'
+	import { overlayPortalTarget, overlayShown } from '$lib/components/common/overlayHost.svelte'
 	import { fade } from 'svelte/transition'
 	import TooltipInner from '../TooltipInner.svelte'
 
@@ -50,6 +50,7 @@
 	// `null` is melt's "render in place" and must survive; only an absent prop defers to the host.
 	const hostPortal = overlayPortalTarget('body')
 	const effectivePortal = () => (portal === undefined ? hostPortal() : portal)
+	const shown = overlayShown()
 
 	const {
 		elements: { trigger, content },
@@ -130,7 +131,7 @@
 	</div>
 {/if}
 
-{#if $open && !disablePopup}
+{#if $open && !disablePopup && shown()}
 	<div use:melt={$content} transition:fade={{ duration: 100 }} style="z-index: {zIndexes.tooltip}">
 		<TooltipInner {documentationLink} {customBgClass}>
 			{#snippet children()}

@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.878.0
+  version: 1.880.1
   title: Windmill API
 
   contact:
@@ -17788,7 +17788,9 @@ paths:
                   $ref: "#/components/schemas/ScriptArgs"
                 steps:
                   type: object
-                  description: step id -> override
+                  description: >-
+                    step id -> override. A step inside a subflow is named by the path of step
+                    ids to it, `sub:inner` for step `inner` of the subflow that step `sub` calls.
                   additionalProperties:
                     type: object
                     properties:
@@ -25557,6 +25559,62 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/AutoscalingEvent"
+
+  /configs/autoscaling_diagnostics/{worker_group}:
+    get:
+      summary: Get the recorded autoscaling decisions of a worker group, and whether a recording is running
+      operationId: getAutoscalingDiagnostics
+      tags:
+        - config
+      parameters:
+        - name: worker_group
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: include_decisions
+          description: false returns the recording state and the decision count only
+          in: query
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: The recording state and the recorded decisions, oldest first
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AutoscalingDiagnostics"
+
+  /configs/autoscaling_recording/{worker_group}:
+    post:
+      summary: Start recording the autoscaling decisions of a worker group for 24 hours, or stop
+      operationId: setAutoscalingRecording
+      tags:
+        - config
+      parameters:
+        - name: worker_group
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                record:
+                  type: boolean
+              required:
+                - record
+      responses:
+        "200":
+          description: Recording started or stopped
+          content:
+            text/plain:
+              schema:
+                type: string
 
   /configs/test_autoscaling/{worker_group}:
     post:
@@ -40312,6 +40370,56 @@ components:
         applied_at:
           type: string
           format: date-time
+
+    AutoscalingDiagnostics:
+      type: object
+      properties:
+        recording_until:
+          type: string
+          format: date-time
+          nullable: true
+        recording_started_by:
+          type: string
+          nullable: true
+        decision_count:
+          type: integer
+          format: int64
+        decisions:
+          type: array
+          items:
+            $ref: "#/components/schemas/AutoscalingDecision"
+      required:
+        - decision_count
+        - decisions
+
+    AutoscalingDecision:
+      type: object
+      properties:
+        recorded_at:
+          type: string
+          format: date-time
+        worker_count:
+          type: integer
+        occupancy_rate_15s:
+          type: number
+          nullable: true
+        occupancy_rate_5m:
+          type: number
+          nullable: true
+        occupancy_rate_30m:
+          type: number
+          nullable: true
+        jobs_waiting:
+          type: object
+          additionalProperties:
+            type: integer
+        decision:
+          type: string
+      required:
+        - recorded_at
+        - worker_count
+        - jobs_waiting
+        - decision
 
     CriticalAlert:
       type: object

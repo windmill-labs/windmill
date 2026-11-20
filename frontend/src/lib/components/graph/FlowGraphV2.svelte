@@ -45,10 +45,16 @@
 	import ResultNode from './renderers/nodes/ResultNode.svelte'
 	import BaseEdge from './renderers/edges/BaseEdge.svelte'
 	import EmptyEdge from './renderers/edges/EmptyEdge.svelte'
-	import { Expand, MousePointer, Hand } from 'lucide-svelte'
+	import { Expand, MousePointer, Hand, Move, Copy, Trash2, Group, X } from 'lucide-svelte'
 	import Toggle from '../Toggle.svelte'
 	import DataflowEdge from './renderers/edges/DataflowEdge.svelte'
-	import { encodeState, readFieldsRecursively, getModifierKey, isMac } from '$lib/utils'
+	import {
+		encodeState,
+		readFieldsRecursively,
+		getModifierKey,
+		isMac,
+		type Item
+	} from '$lib/utils'
 	import BranchOneStart from './renderers/nodes/BranchOneStart.svelte'
 	import NoBranchNode from './renderers/nodes/NoBranchNode.svelte'
 	import HiddenBaseEdge from './renderers/edges/HiddenBaseEdge.svelte'
@@ -1306,6 +1312,58 @@
 		}
 	}
 
+	let visibleSelectedIds = $derived(
+		selectionManager.selectedIds.filter((id) => nodesWithOffset.some((n) => n.id === id))
+	)
+	let isMovingSelection = $derived(movingIds != null && movingIds.length > 0)
+
+	// One list for the selection's "..." dropdown and the pane's right-click menu.
+	let selectionMenuItems: Item[] = $derived(
+		!multiSelectEnabled || visibleSelectedIds.length < 2
+			? []
+			: isMovingSelection
+				? [
+						{
+							displayName: 'Cancel move',
+							icon: X,
+							type: 'delete',
+							action: () => onMoveMultiple?.(movingIds ?? [])
+						}
+					]
+				: resolvedModuleIds.length === 0
+					? []
+					: [
+							{
+								displayName: 'Move',
+								icon: Move,
+								action: () => onMoveMultiple?.(resolvedModuleIds),
+								disabled: !canMoveSelected
+							},
+							{
+								displayName: 'Duplicate',
+								icon: Copy,
+								action: () => onDuplicateMultiple?.(resolvedModuleIds)
+							},
+							{
+								displayName: `Delete (${resolvedModuleIds.length})`,
+								icon: Trash2,
+								type: 'delete',
+								shortcut: isMac() ? '⌫' : 'Del',
+								action: () => onDeleteMultiple?.(resolvedModuleIds)
+							},
+							...(groupEditorCtx?.groupEditor
+								? [
+										{
+											displayName: 'Create group',
+											icon: Group,
+											action: () => createGroupFromSelection(visibleSelectedIds),
+											disabled: !groupEditorCtx.canCreateGroup.val
+										}
+									]
+								: [])
+						]
+	)
+
 	const modifierKey = isMac() ? 'Meta' : 'Control'
 </script>
 
@@ -1355,7 +1413,7 @@
 					bind:this={viewportSynchronizer}
 				/>
 			{/if}
-			<PaneContextMenu {editMode} bind:this={paneContextMenu} />
+			<PaneContextMenu {editMode} {selectionMenuItems} bind:this={paneContextMenu} />
 			<SvelteFlow
 				onpaneclick={() => {
 					document.dispatchEvent(new Event('focus'))
@@ -1410,16 +1468,13 @@
 
 				{#if multiSelectEnabled}
 					<SelectionBoundingBox
-						selectedNodes={selectionManager.selectedIds.filter((id) =>
-							nodesWithOffset.some((n) => n.id === id)
-						)}
+						selectedNodes={visibleSelectedIds}
 						allNodes={nodesWithOffset as (Node & { type: string })[]}
-						onDeleteSelected={() => onDeleteMultiple?.(resolvedModuleIds)}
-						onDuplicateSelected={() => onDuplicateMultiple?.(resolvedModuleIds)}
+						menuItems={selectionMenuItems}
 						onMoveSelected={() => onMoveMultiple?.(resolvedModuleIds)}
 						onCancelMove={() => onMoveMultiple?.(movingIds ?? [])}
 						{canMoveSelected}
-						isMoving={movingIds != null && movingIds.length > 0}
+						isMoving={isMovingSelection}
 						{resolvedModuleIds}
 					/>
 				{/if}

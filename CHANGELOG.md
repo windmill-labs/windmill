@@ -1,5 +1,43 @@
 # Changelog
 
+## [1.880.1](https://github.com/windmill-labs/windmill/compare/v1.880.0...v1.880.1) (2026-11-19)
+
+
+### Bug Fixes
+
+* make the mssql database manager work under case-sensitive collations ([#12550](https://github.com/windmill-labs/windmill/issues/12550)) ([cb824de](https://github.com/windmill-labs/windmill/commit/cb824de928b35aee34bf1dda3a385d04eff277b3))
+
+## [1.880.0](https://github.com/windmill-labs/windmill/compare/v1.879.0...v1.880.0) (2026-11-19)
+
+
+### Features
+
+* record and download a worker group's autoscaling decisions ([#12542](https://github.com/windmill-labs/windmill/issues/12542)) ([5583c68](https://github.com/windmill-labs/windmill/commit/5583c680d4db7aa333227f09c2667733156cbe7a))
+
+
+### Bug Fixes
+
+* **api:** noindex public app pages on cloud ([#12547](https://github.com/windmill-labs/windmill/issues/12547)) ([cbf44b3](https://github.com/windmill-labs/windmill/commit/cbf44b36f339ae8fa624e70a34840cb82c5e32ca))
+* hold the configured AI key to its output token limits ([#12543](https://github.com/windmill-labs/windmill/issues/12543)) ([6c2c5cf](https://github.com/windmill-labs/windmill/commit/6c2c5cf46c8b5edb052e359d5dff76ef42b75ce2))
+* keep the AI sessions view mounted across navigation ([#12479](https://github.com/windmill-labs/windmill/issues/12479)) ([7fa093f](https://github.com/windmill-labs/windmill/commit/7fa093f7d493982add660e1ebeef96fb24c16411))
+* name a step inside a subflow sub:inner in flow tests ([#12549](https://github.com/windmill-labs/windmill/issues/12549)) ([50daf70](https://github.com/windmill-labs/windmill/commit/50daf70337dcec0749ea715942c1c0ec4f6e3b7e))
+
+## [1.879.0](https://github.com/windmill-labs/windmill/compare/v1.878.0...v1.879.0) (2026-11-19)
+
+
+### Features
+
+* **home:** link each primitive's explainer video in the New picker ([#12536](https://github.com/windmill-labs/windmill/issues/12536)) ([3591598](https://github.com/windmill-labs/windmill/commit/3591598d03f528b54aeb68349845c9958c0a73a9))
+* test flows from the SDKs with mocked or replaced steps, subflows included ([#12538](https://github.com/windmill-labs/windmill/issues/12538)) ([98439f8](https://github.com/windmill-labs/windmill/commit/98439f8521999222347f48b50bd032412e604439))
+
+
+### Bug Fixes
+
+* explain a fractional retry multiplier, check schedule retries on save ([#12539](https://github.com/windmill-labs/windmill/issues/12539)) ([558f83f](https://github.com/windmill-labs/windmill/commit/558f83fc9c74480369bab2ac88a8951136230651))
+* keep dedicated workers counted, busy and out of zombie restarts ([#12540](https://github.com/windmill-labs/windmill/issues/12540)) ([7b23884](https://github.com/windmill-labs/windmill/commit/7b2388476f0b72b5e403f5b3086cae5cb0a0e2e6))
+* keep the first undo after a redo in the flow editor ([#12537](https://github.com/windmill-labs/windmill/issues/12537)) ([a89886c](https://github.com/windmill-labs/windmill/commit/a89886c46a3c1866715771ba75389f8a42d20a1b))
+* stop hidden session preview tabs from acting on keys ([#12531](https://github.com/windmill-labs/windmill/issues/12531)) ([5bf5ff2](https://github.com/windmill-labs/windmill/commit/5bf5ff28bc4f9d47c4473cd5e71e0ee274dece31))
+
 ## [1.878.0](https://github.com/windmill-labs/windmill/compare/v1.877.0...v1.878.0) (2026-11-19)
 
 

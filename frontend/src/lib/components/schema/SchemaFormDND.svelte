@@ -27,6 +27,7 @@
 		dndType?: string
 		lightHeaderFont?: boolean
 		workspace?: string | undefined
+		fillNullableDefault?: boolean
 	}
 
 	let {
@@ -48,7 +49,8 @@
 		className = '',
 		dndType = generateRandomString(),
 		lightHeaderFont,
-		workspace = undefined
+		workspace = undefined,
+		fillNullableDefault = true
 	}: Props = $props()
 
 	$effect.pre(() => {
@@ -138,6 +140,7 @@
 	{onlyMaskPassword}
 	{disablePortal}
 	{disabled}
+	{fillNullableDefault}
 	{helperScript}
 	{className}
 	bind:schema

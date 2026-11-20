@@ -363,7 +363,7 @@ async runFlowAsync(path: string | null, args: Record<string, any> | null, schedu
  * - a function exported from the calling script's own file: the step runs that function
  *   instead of its own code, with the step's inputs as arguments (matched by name).
  * 
- * A step inside a subflow is named by the path of step ids to it, `"sub.inner"` for step `inner`
+ * A step inside a subflow is named by the path of step ids to it, `"sub:inner"` for step `inner`
  * of the subflow that step `sub` calls. It applies to every call of that subflow made by the
  * tested flow and by the subflows it overrides; a subflow left as is still calls the deployed
  * one. Those subflows, and each one on the way to an override, run as you rather than as their
