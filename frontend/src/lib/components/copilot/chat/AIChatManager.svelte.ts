@@ -106,6 +106,7 @@ import {
 	loadWorkspaceCopilotInfo,
 	resolveModelFor,
 	tryResolveModelFor,
+	workspaceCopilotInfoFailed,
 	type AiTarget,
 	type CopilotInfo
 } from '$lib/aiStore'
@@ -430,10 +431,14 @@ function isImageRejection(err: unknown, models: (string | undefined)[] = []): bo
 	return /\bimages?(_url)?\b|\binput_image\b|\bvision\b|\bmultimodal\b/.test(message)
 }
 
-function getSendRequestErrorMessage(err: unknown, webSearchUnavailable: boolean): string {
+function getSendRequestErrorMessage(
+	err: unknown,
+	webSearchUnavailable: boolean,
+	freeTier: boolean
+): string {
 	// The request went through; only its response was cut short.
 	if (err instanceof OutputTokenLimitError) {
-		return get(copilotInfo).freeTier ? FREE_TIER_OUTPUT_TOKEN_LIMIT_MESSAGE : err.message
+		return freeTier ? FREE_TIER_OUTPUT_TOKEN_LIMIT_MESSAGE : err.message
 	}
 	const errorMessage =
 		err instanceof Error ? err.message : typeof err === 'string' ? err : undefined
@@ -1137,6 +1142,12 @@ export class AIChatManager implements ChatViewHost {
 		if (!this.isSessionChat) return this.#copilotInfo.current
 		const workspace = this.operatingWorkspace
 		return workspace ? getWorkspaceCopilotInfo(workspace) : undefined
+	}
+
+	/** A session's config failed to load: there is nothing to wait for. */
+	get aiInfoFailed(): boolean {
+		const workspace = this.isSessionChat ? this.operatingWorkspace : undefined
+		return !!workspace && workspaceCopilotInfoFailed(workspace)
 	}
 
 	/** The session's workspace and loaded config, for code that cannot wait for the load. */
@@ -5043,7 +5054,10 @@ export class AIChatManager implements ChatViewHost {
 				}
 				this.flagLastMessageAsError()
 			}
-			sendUserToast(getSendRequestErrorMessage(err, webSearchUnavailable), true)
+			sendUserToast(
+				getSendRequestErrorMessage(err, webSearchUnavailable, !!this.aiInfo?.freeTier),
+				true
+			)
 		} finally {
 			this.loading = false
 			this.#turnScope = undefined

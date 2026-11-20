@@ -36,7 +36,6 @@
 	import { sendUserToast } from '$lib/toast'
 	import { truncate } from '$lib/utils'
 	import Toggle from '$lib/components/Toggle.svelte'
-	import { copilotInfo, copilotWorkspace } from '$lib/aiStore'
 	import { loadCopilot } from '$lib/components/copilot/loadCopilot'
 	import { Archive, ArchiveRestore, EllipsisVertical, GitFork, Pencil, Trash2 } from 'lucide-svelte'
 	import SessionChangesBar from './SessionChangesBar.svelte'
@@ -309,7 +308,7 @@
 	}
 
 	// Focus the chat input whenever this session is the active one.
-	// The textarea is disabled until copilotInfo loads (otherwise focus is
+	// The textarea is disabled until the session's AI config loads (otherwise focus is
 	// a silent no-op), so we wait for that too. Triggers on initial mount,
 	// warm-session switch via the picker, and the moment copilot finishes
 	// loading.
@@ -322,7 +321,7 @@
 			return
 		}
 		if (!aiChat) return
-		if (!$copilotInfo.enabled) return
+		if (!runtime?.manager.aiInfo?.enabled) return
 		const chat = aiChat
 		const selection = handoff
 		handoff = undefined
@@ -331,14 +330,15 @@
 	})
 
 	// The real composer is disabled until the copilot config of the workspace it acts on is in,
-	// so the active session keeps the placeholder, which takes typing, until then. Latched: a
+	// so the active session keeps the placeholder, which takes typing, until then (or until that
+	// load fails, which would otherwise hide the transcript for good). Latched: a
 	// later config reload must not swap a mounted chat, and its transcript, back out.
 	let chatShown = false
 	const showChat = $derived.by(() => {
 		chatShown ||=
 			!!aiChatComponent.current &&
 			!placeholderComposing &&
-			(!onScreen || $copilotWorkspace === (actingWorkspaceId ?? $workspaceStore))
+			(!onScreen || !!runtime?.manager.aiInfo || !!runtime?.manager.aiInfoFailed)
 		return chatShown
 	})
 
