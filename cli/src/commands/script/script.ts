@@ -9,6 +9,7 @@ import {
 import type { PermissionedAsContext } from "../../core/permissioned_as.ts";
 import { buildPermissionedAsContext } from "../../core/permissioned_as.ts";
 import { applyExtraPermsDiff } from "../../core/extra_perms.ts";
+import { ciTestBatchDeployed, ciTestBatchSkip } from "../../core/ci_test_batch.ts";
 import { writeFile, stat, mkdir } from "node:fs/promises";
 import { Buffer } from "node:buffer";
 import { colors } from "@cliffy/ansi/colors";
@@ -73,7 +74,11 @@ import { createTarBlob, type TarEntry } from "../../utils/tar.ts";
 import { withEsbuild } from "../../utils/esbuild_loader.ts";
 
 import { execSync } from "node:child_process";
-import { NewScript, Script, ScriptModule } from "../../../gen/types.gen.ts";
+import {
+  ListableScript,
+  NewScript,
+  ScriptModule,
+} from "../../../gen/types.gen.ts";
 import {
   isRawAppBackendPath as isRawAppBackendPathInternal,
   isAppInlineScriptPath as isAppInlineScriptPathInternal,
@@ -1002,7 +1007,9 @@ async function createScript(
   // skip_if_noop asks the backend to treat deploys identical to the parent
   // (same content, lockfile, and metadata) as a no-op, so the CLI does not
   // produce phantom git-sync / promotion commits on re-pushes.
-  const skipIfNoop = "skip_if_noop=true";
+  const skipIfNoop =
+    "skip_if_noop=true" +
+    (ciTestBatchSkip().skipCiTests ? "&skip_ci_tests=true" : "");
   const extraHeaders = getHeaders();
   if (!bundleContent) {
     try {
@@ -1067,6 +1074,7 @@ async function createScript(
       );
     }
   }
+  ciTestBatchDeployed("script", body.path);
   return performance.now() - start;
 }
 
@@ -1379,7 +1387,7 @@ async function list(
 
   let page = 0;
   const perPage = 10;
-  const total: Script[] = [];
+  const total: ListableScript[] = [];
   while (true) {
     const res = await wmill.listScripts({
       workspace: workspace.workspaceId,
@@ -1400,10 +1408,10 @@ async function list(
     console.log(JSON.stringify(total));
   } else {
     new Table()
-      .header(["path", "summary", "language", "created by"])
+      .header(["path", "summary", "language", "created at"])
       .padding(2)
       .border(true)
-      .body(total.map((x) => [x.path, x.summary, x.language, x.created_by]))
+      .body(total.map((x) => [x.path, x.summary, x.language, x.created_at]))
       .render();
   }
 }

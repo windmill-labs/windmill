@@ -94,7 +94,9 @@ import {
 	getRawAppPrompt,
 	getResourcePrompt,
 	getAgentPrompt,
-	getScriptPrompt
+	getScriptPrompt,
+	getDisplayPrompt,
+	getCodeModePrompt
 } from '$system_prompts'
 import type {
 	ChatCompletionSystemMessageParam,
@@ -178,6 +180,7 @@ import {
 	isReadOnlyAccess,
 	DEPLOY,
 	NONE,
+	RUN,
 	RUN_FLOW_PREVIEW,
 	RUN_PREVIEW,
 	WRITE_APP_DRAFT,
@@ -283,7 +286,16 @@ const INSTRUCTION_SUBJECTS = [
 // annotated scripts in a folder, so it gets authoring guidance, not a CRUD type.
 // `workspace_settings` is the settings document an admin reads and changes.
 // `agent` is a resource of type `ai_agent`, with authoring guidance of its own.
-const INSTRUCTION_SUBJECTS_EXTRA = ['agent', 'datatable', 'pipeline', 'workspace_settings'] as const
+// `display` is the rich-result format: tables and charts a return value renders as.
+// `code_mode` is doing a task with code run as a preview, then saving it to reuse.
+const INSTRUCTION_SUBJECTS_EXTRA = [
+	'agent',
+	'datatable',
+	'pipeline',
+	'workspace_settings',
+	'display',
+	'code_mode'
+] as const
 export const ALL_INSTRUCTION_SUBJECTS = [
 	...INSTRUCTION_SUBJECTS,
 	...INSTRUCTION_SUBJECTS_EXTRA
@@ -354,7 +366,7 @@ const scriptLangSchema = z.enum($ScriptLang.enum)
 
 const getInstructionsSchema = z.object({
 	subject: instructionSubjectSchema.describe(
-		'What to get authoring instructions for: a workspace item type (script, flow, resource, app), "agent" for a saved AI agent (an `ai_agent` resource, as the Agents page lists it), "pipeline" for building a data pipeline (a DAG of annotated scripts wired by storage assets — NOT a flow), or "datatable" for how data tables work (schema changes and migrations, roles and permissions) plus the wmill.datatable() SQL SDK used inside runnables, or "workspace_settings" for the keys and rules of the workspace settings (admins only). Schedules, triggers, and variables don\'t need instructions — their tool schemas describe everything.'
+		'What to get authoring instructions for: a workspace item type (script, flow, resource, app), "agent" for a saved AI agent (an `ai_agent` resource, as the Agents page lists it), "pipeline" for building a data pipeline (a DAG of annotated scripts wired by storage assets — NOT a flow), or "datatable" for how data tables work (schema changes and migrations, roles and permissions) plus the wmill.datatable() SQL SDK used inside runnables, "workspace_settings" for the keys and rules of the workspace settings (admins only), "display" for the tables and charts a return value renders as, or "code_mode" for doing a task the user asks for against the systems the workspace connects to by running code, then saving it to reuse. Schedules, triggers, and variables don\'t need instructions — their tool schemas describe everything.'
 	),
 	language: scriptLangSchema
 		.optional()
@@ -429,7 +441,12 @@ const listWorkspaceItemsSchema = z.object({
 		.describe(
 			'Optional item types to list. Defaults to scripts and flows. Pass schedule or trigger explicitly when needed (listing triggers spans 9 kinds and is heavier). "folder" lists folders with their owners and extraPerms; "group" lists groups with their extraPerms (read one for its members). path_prefix does not apply to these two.'
 		),
-	query: z.string().optional().describe('Optional case-insensitive path or summary search string.'),
+	query: z
+		.string()
+		.optional()
+		.describe(
+			'Optional search words matched against path and summary. Scripts and flows are searched across the whole workspace, every word in any order; other types are filtered by the whole string.'
+		),
 	path_prefix: z
 		.string()
 		.optional()
@@ -868,6 +885,28 @@ const testRunScriptToolDef = createToolDef(
 	testRunScriptSchema,
 	'test_run_script',
 	'Execute a preview-style test run of a script by path, preferring draft content when it exists. The user gets an argument form prefilled with `args` and may edit or dismiss it before it runs, so fill in every argument you can infer. For a secret argument prefer `$var:<path>` naming an existing workspace variable; a literal also works, but stays in this conversation.',
+	{ strict: false }
+)
+
+const testRunCodeSchema = z.object({
+	code: z
+		.string()
+		.describe(
+			'The whole script: a `main` function whose parameters are its inputs, in the language given.'
+		),
+	language: z
+		.string()
+		.optional()
+		.describe('A Windmill script language such as bun, python3 or deno. Defaults to bun.'),
+	args: testRunArgsSchema,
+	background: backgroundArgSchema,
+	wait_seconds: waitSecondsArgSchema
+})
+
+const testRunCodeToolDef = createToolDef(
+	testRunCodeSchema,
+	'test_run_code',
+	'Run code as a preview job in the workspace, without writing a draft first. To keep code that worked, write it as a script with write_script. The user gets an argument form prefilled with `args` and may edit or dismiss it before it runs.',
 	{ strict: false }
 )
 
@@ -1425,7 +1464,8 @@ This user's role does not let them create or edit {{refused_kinds}} here, so whe
 Rules:{{#can_write_any_draft}}
 - What you write is a per-user draft, saved server-side and visible only to this user. {{#can_deploy}}Nothing reaches the workspace until deploy_workspace_item deploys it, which you call only when the user asks.{{/can_deploy}}{{^can_deploy}}{{#can_deploy_any_kind}}Nothing reaches the workspace until it is deployed, and this workspace's deploy rules let this user deploy only the schedules and triggers their role manages: call deploy_workspace_item for those only when the user asks, and for anything else give them the draft's link and say it needs deploying by someone allowed to.{{/can_deploy_any_kind}}{{^can_deploy_any_kind}}Nothing reaches the workspace until it is deployed, which this workspace's deploy rules do not let this user do: when a draft is ready, give them its link and say it needs deploying by someone allowed to.{{/can_deploy_any_kind}}{{/can_deploy}}{{/can_write_any_draft}}
 {{#can_write_any_draft}}- The user sees no Windmill page next to this conversation. Tool results carry links instead: a run's page, a draft's editor (\`url\`), an app draft's editor with its live preview (\`preview_url\`), a deployed item's page. Whenever the user will want to see what you built or ran, or has to do a step in Windmill themselves: show it with show_run, show_runs, show_item or show_deploy_review when you have them (each card carries the link), otherwise open the link in a browser the user can see if you have one, and otherwise give the link.{{/can_write_any_draft}}{{^can_write_any_draft}}- The user sees no Windmill page next to this conversation. Tool results carry links instead: a run's page, an item's page. Whenever the user will want to see what you found{{#runs}} or ran{{/runs}}, or has to do a step in Windmill themselves: show it with show_run, show_runs or show_item when you have them (each card carries the link), otherwise open the link in a browser the user can see if you have one, and otherwise give the link.{{/can_write_any_draft}}
-- Find items with list_workspace_items and read one with read_workspace_item{{#can_write_any_draft}} before changing it{{/can_write_any_draft}}. An agent is a resource of type \`ai_agent\`{{#runs}}: {{#can_run_flow_preview}}test it with test_run_agent and {{/can_run_flow_preview}}run a deployed one with run_agent, never run_flow or run_script.{{/runs}}{{^runs}}.{{/runs}}{{#can_write_draft}}
+- Find items with list_workspace_items and read one with read_workspace_item{{#can_write_any_draft}} before changing it{{/can_write_any_draft}}. An agent is a resource of type \`ai_agent\`{{#runs}}: {{#can_run_flow_preview}}test it with test_run_agent and {{/can_run_flow_preview}}run a deployed one with run_agent, never run_flow or run_script.{{/runs}}{{^runs}}.{{/runs}}{{#can_run_preview}}
+- When the user asks for something done against the systems the workspace connects to, rather than for building an item, do it with code: look for a saved script that does it first (list_workspace_items with a query), else run code with test_run_code and, once it worked, offer to keep it as a script with write_script. get_instructions with subject "code_mode" has the details.{{/can_run_preview}}{{#can_write_draft}}
 - Call get_instructions before writing a script, flow, agent, resource or app, a data pipeline or a datatable migration. For a script, pass its language.{{#can_draft_triggers}} Call get_trigger_schema before write_trigger, since each trigger kind takes different fields, and{{/can_draft_triggers}}{{^can_draft_triggers}} Call{{/can_draft_triggers}} get_db_schema before writing SQL against a database resource.{{/can_write_draft}}{{^can_write_draft}}{{#can_draft_resources}}
 - Call get_instructions before writing a resource.{{#can_draft_triggers}} Call get_trigger_schema before write_trigger, since each trigger kind takes different fields.{{/can_draft_triggers}}{{/can_draft_resources}}{{/can_write_draft}}{{#can_write_draft}}{{#can_run_preview}}
 - After writing a script, flow, agent or app runnable, test it with test_run_script, test_run_flow, test_run_step, test_run_agent or test_run_app_runnable before saying it works. They run the draft, so nothing needs deploying.{{/can_run_preview}}{{/can_write_draft}}{{^can_write_draft}}{{#builds_flows}}{{#can_run_flow_preview}}
@@ -1561,6 +1601,7 @@ function accessFlags(access: SessionAccess | undefined) {
 	)
 	const canRunPreview = !access || access.has('run_preview')
 	const canRunFlowPreview = !access || access.has('run_flow_preview')
+	const canRun = !access || access.has('run')
 	// A role may code without composing flows, so the flow test tool is named only where it ships.
 	const testRunTools = canRunFlowPreview
 		? 'test_run_script, test_run_flow, or test_run_step'
@@ -1593,6 +1634,7 @@ function accessFlags(access: SessionAccess | undefined) {
 		refusedCode,
 		canRunPreview,
 		canRunFlowPreview,
+		canRun,
 		testRunTools,
 		canManageSchedules,
 		canManageTriggers,
@@ -1635,6 +1677,7 @@ const buildGlobalSystemPrompt = (
 		refusedCode,
 		canRunPreview,
 		canRunFlowPreview,
+		canRun,
 		testRunTools,
 		canManageSchedules,
 		canManageTriggers,
@@ -1696,6 +1739,11 @@ const buildGlobalSystemPrompt = (
 	)
 	const findItemsRule =
 		'- Use list_workspace_items to find items and read_workspace_item before changing an existing item. For triggers, pass trigger_kind.'
+	const codeModeRule = when(
+		canRunPreview,
+		`
+- When the user asks for something done against the systems the workspace connects to, rather than for building an item, do it with code: look for a saved script that does it first (list_workspace_items with a query), else run code with test_run_code and, once it worked, offer to keep it as a script with write_script. get_instructions with subject "code_mode" has the details.`
+	)
 	const deployRule = when(
 		canWriteAnyDraft && canDeployAnyKind,
 		`
@@ -1719,9 +1767,13 @@ const buildGlobalSystemPrompt = (
 		`
 - A request to run a flow goes to test_run_flow, which prefers the draft and needs no deployment. Use run_flow only when the user names the deployed version, and run_script for any script: those run the DEPLOYED item under this user's own permissions, so read it with read_workspace_item version: "deployed" first so the arguments match the deployed schema. Each shows the user an argument form prefilled with what you sent, so fill in every argument you can infer rather than asking for it in chat.`
 	)}${when(
-		!canRunPreview && !canRunFlowPreview,
+		!canRunPreview && !canRunFlowPreview && canRun,
 		`
 - run_script and run_flow are how you run anything here: they run the DEPLOYED item under this user's own permissions, and show them an argument form prefilled with what you sent. Read the item with read_workspace_item version: "deployed" first so the arguments match the deployed schema, and fill in every argument you can infer rather than asking for it in chat.`
+	)}${when(
+		!canRun,
+		`
+- This user's role cannot run scripts, flows or agents here: when they ask for a run, say plainly that you cannot start it, and suggest asking a workspace admin, who can grant their role more.`
 	)}`
 
 	const intro = `You are Windmill's global workspace assistant.
@@ -1732,7 +1784,7 @@ ${
 	canWriteDraft
 		? 'Use tools to inspect workspace items and create per-user drafts (saved server-side, visible only to this user — not deployed) for scripts, flows, schedules, triggers, resources, variables, and raw apps.'
 		: readOnly
-			? "Use tools to inspect workspace items, the workspace's run history and its data, and to run items that are already deployed. This session is read-only: you cannot create, edit, deploy or delete anything here, nor test-run code that is not deployed. When the user asks for such a change, say plainly that it cannot be made in this session, and tell them how to make it as the session context below says, rather than describing steps as if you had made it."
+			? `Use tools to inspect workspace items, the workspace's run history and its data${canRun ? ', and to run items that are already deployed' : ''}. This session is read-only: you cannot create, edit, deploy or delete anything here, nor test-run code that is not deployed. When the user asks for such a change, say plainly that it cannot be made in this session, and tell them how to make it as the session context below says, rather than describing steps as if you had made it.`
 			: `Use tools to inspect workspace items and the workspace's run history, and to run items that are already deployed. You cannot create or edit ${listJoin(refusedKinds, 'disjunction')} here — this user's role does not allow it — so when they ask for such a change, say plainly that you cannot make it rather than describing steps as if you had. Their role is refused ${listJoin(refusedCode)} outside this chat too, so for those suggest asking a workspace admin, who can grant their role more in ${OPERATOR_SETTINGS_LOCATION}, rather than creating them in the editor.${when(
 					canManageSchedules,
 					' To make something recur, they can schedule a deployed script or flow themselves; only when none does the job is there something to ask an admin for, and it is that script.'
@@ -1779,19 +1831,22 @@ ${
 	return `${intro}${paths}
 
 Rules:${draftsOnlyRule}
-${findItemsRule}
+${findItemsRule}${codeModeRule}
 ${groupMembershipRule}- Listings and reads return only what this user can see: items in folders they cannot read are hidden from you both. When an item the user names is missing, say it is not among what they can see and may be in a folder they cannot read, where someone with access can run it — never state that it does not exist or is not deployed.
+- To show a chart or a sortable table in a reply or an artifact, write a \`\`\`wm-display fenced block holding one JSON value in the chart or table format of get_instructions with subject "display" (read it first). Reach for it when a chart answers the question better than prose or a markdown table; keep small tables as markdown.
 - An agent, as the Agents page lists it, is a resource of type \`ai_agent\`: read it with read_workspace_item type "resource".${when(
 		// An agent draft is a resource draft that the server checks under the flow builder right.
 		canDraftResources && canWriteFlowDraft,
 		` You may draft a new agent or a change to one, after calling get_instructions with subject "agent". The user can review it on the agent's page, \`/agents/edit/<path>\`.`
 	)}${when(
 		buildsFlows,
-		' Its tools, like flow steps, may only reference deployed scripts and flows by path: the server refuses inline code and hub scripts.'
+		canWriteDraft
+			? ' Its tools, like flow steps, may only reference deployed scripts and flows, or hub scripts, by path: the server refuses inline code.'
+			: ' Its tools, like flow steps, may only reference deployed scripts and flows by path: the server refuses inline code and hub scripts.'
 	)}${when(
 		canRunFlowPreview,
 		' Test an agent, its draft included, with test_run_agent.'
-	)} Run a deployed agent with run_agent, never with run_flow or run_script.
+	)}${when(canRun, ' Run a deployed agent with run_agent, never with run_flow or run_script.')}
 - If the user message includes an ACTIVE EDITOR section, treat it as the currently open item and use it for references like "this", "current", or "open editor".${activePreviewRule}${deployRule}${when(
 		canWriteAnyDraft,
 		`
@@ -2115,7 +2170,8 @@ ${getScriptPrompt(selected)}`
 async function getFlowInstructions(
 	workspace: string | undefined,
 	composeOnly: boolean,
-	external = false
+	external: boolean,
+	hub: boolean
 ): Promise<string> {
 	// An external client's catalog is rendered where no workspace is known, so it gets none.
 	const aiAgentProviders = external
@@ -2134,7 +2190,9 @@ async function getFlowInstructions(
 - Every module needs a stable unique \`id\` and a useful \`summary\` when the schema supports it.
 ${
 	composeOnly
-		? '- Compose only path modules (`script` / `flow`) that reference items already deployed in the workspace. Rawscript modules and hub scripts are refused for this user.'
+		? hub
+			? '- Compose only path modules (`script` / `flow`) that reference items already deployed in the workspace or hub scripts. Rawscript modules are refused for this user.'
+			: '- Compose only path modules (`script` / `flow`) that reference items already deployed in the workspace. Rawscript modules and hub scripts are refused for this user.'
 		: `- Prefer path/script/flow modules when composing existing workspace logic. Use rawscript modules only when new inline code is needed.
 - When writing rawscript module code, call \`get_instructions\` with \`subject: "script"\` and the rawscript language first.`
 }
@@ -2162,7 +2220,13 @@ ${
 }${aiAgentProviders ? `\n${aiAgentProviders}\n` : ''}
 # Windmill flow authoring reference
 
-${composeOnly ? 'This reference is written for every author. For this user, skip what it says about inline code (rawscript steps, inline AI agent tools) and hub scripts: the server refuses them. Compose only path steps that reference deployed scripts and flows.\n\n' : ''}${getFlowPrompt()}`
+${
+	composeOnly
+		? hub
+			? 'This reference is written for every author. For this user, skip what it says about inline code (rawscript steps, inline AI agent tools): the server refuses it. Compose only path steps that reference deployed scripts and flows or hub scripts.\n\n'
+			: 'This reference is written for every author. For this user, skip what it says about inline code (rawscript steps, inline AI agent tools) and hub scripts: the server refuses them. Compose only path steps that reference deployed scripts and flows.\n\n'
+		: ''
+}${getFlowPrompt()}`
 }
 
 type InstructionSubject = (typeof ALL_INSTRUCTION_SUBJECTS)[number]
@@ -2170,7 +2234,8 @@ type InstructionSubject = (typeof ALL_INSTRUCTION_SUBJECTS)[number]
 function getAppInstructions(
 	language: ScriptLang | undefined,
 	composeOnly: boolean,
-	external = false
+	external: boolean,
+	hub: boolean
 ): string {
 	// getRawAppPrompt swaps in the Python SDK for python3, so the pointer has to swap with
 	// it: telling the model to re-fetch a reference it is already holding wastes a turn, and
@@ -2200,7 +2265,9 @@ ${
 - Frontend file paths start with \`/\` (e.g. \`/index.tsx\`, \`/App.tsx\`, \`/styles.css\`). Use \`write_app_file\` / \`patch_app_file\` / \`delete_app_file\`.
 ${
 	composeOnly
-		? '- Every backend runnable is a path runnable (`script` / `flow`) referencing an item already deployed in the workspace, created with `write_app_runnable` and removed with `delete_app_runnable`. Inline and hub runnables are refused for this user.'
+		? hub
+			? '- Every backend runnable is a path runnable (`script` / `flow` / `hubscript`) referencing an item already deployed in the workspace or a hub script, created with `write_app_runnable` and removed with `delete_app_runnable`. Inline runnables are refused for this user.'
+			: '- Every backend runnable is a path runnable (`script` / `flow`) referencing an item already deployed in the workspace, created with `write_app_runnable` and removed with `delete_app_runnable`. Inline and hub runnables are refused for this user.'
 		: `- Backend inline runnables are addressed as \`backend/<key>/main.{ts|py}\` from the file tools, but you create or update them via \`write_app_runnable\` / \`delete_app_runnable\` (which take the runnable shape directly: \`{ name, type, inlineScript?, path?, staticInputs? }\`).`
 }
 - \`/wmill.d.ts\` (or \`wmill.ts\`) is generated automatically from the backend runnables — never write it directly.${
@@ -2216,7 +2283,13 @@ ${composeOnly ? '' : `${sdkLine}\n`}- Use \`deploy_workspace_item\` after explic
 
 # Windmill raw app authoring reference
 
-${composeOnly ? 'This reference is written for every author. For this user, skip what it says about inline runnables, hub scripts and the data setup: the server refuses inline and hub runnables. Every runnable is a path runnable referencing a deployed script or flow.\n\n' : ''}${getRawAppPrompt(language)}`
+${
+	composeOnly
+		? hub
+			? 'This reference is written for every author. For this user, skip what it says about inline runnables and the data setup: the server refuses inline runnables. Every runnable is a path runnable referencing a deployed script or flow, or a hub script.\n\n'
+			: 'This reference is written for every author. For this user, skip what it says about inline runnables, hub scripts and the data setup: the server refuses inline and hub runnables. Every runnable is a path runnable referencing a deployed script or flow.\n\n'
+		: ''
+}${getRawAppPrompt(language)}`
 }
 
 function getResourceInstructions(): string {
@@ -2243,7 +2316,8 @@ async function getAgentInstructions(
 	/** The user cannot write inline code: the server refuses a rawscript tool from them. */
 	composeOnly: boolean,
 	/** The session cannot run `test_run_agent`. */
-	untestable: boolean
+	untestable: boolean,
+	hub: boolean
 ): Promise<string> {
 	const aiAgentProviders = external
 		? ''
@@ -2260,7 +2334,9 @@ async function getAgentInstructions(
 - The user can review the agent on its page, ${external ? 'the url `write_resource` returns' : '`/agents/edit/<path>`'}. Deploy it with \`deploy_workspace_item\` (type "resource") once they ask, as for any other draft.
 ${
 	composeOnly
-		? '- This user cannot write inline code, so skip what the reference says about inline tools: every script tool points at a deployed script, found with the workspace search tools. When none does the job, say so and suggest asking a workspace admin for that script; never add a rawscript tool.'
+		? hub
+			? '- This user cannot write inline code, so skip what the reference says about inline tools: every script tool points at a deployed script, found with the workspace search tools, or at a hub script. When none does the job, draft the script, and point the tool at it once it is deployed; never add a rawscript tool.'
+			: '- This user cannot write inline code, so skip what the reference says about inline tools: every script tool points at a deployed script, found with the workspace search tools. When none does the job, say so and suggest asking a workspace admin for that script; never add a rawscript tool.'
 		: '- Before writing an inline tool, look for a deployed script that already does the job with the workspace search tools.'
 }
 ${aiAgentProviders ? `\n${aiAgentProviders}\n` : ''}
@@ -2295,25 +2371,31 @@ export function getInstructions(
 	composeOnly: boolean,
 	external = false,
 	/** The session cannot run a flow preview, which an agent's test run is. */
-	untestable = false
+	untestable = false,
+	/** The role has code, which the server requires to add a hub path. */
+	hub = true
 ): string | Promise<string> {
 	switch (subject) {
 		case 'script':
 			return getScriptInstructions(language)
 		case 'flow':
-			return getFlowInstructions(workspace, composeOnly, external)
+			return getFlowInstructions(workspace, composeOnly, external, hub)
 		case 'resource':
 			return getResourceInstructions()
 		case 'agent':
-			return getAgentInstructions(workspace, external, composeOnly, untestable)
+			return getAgentInstructions(workspace, external, composeOnly, untestable, hub)
 		case 'app':
-			return getAppInstructions(language, composeOnly, external)
+			return getAppInstructions(language, composeOnly, external, hub)
 		case 'datatable':
 			return getDatatableInstructions(language)
 		case 'pipeline':
 			return getPipelineInstructions()
 		case 'workspace_settings':
 			return getWorkspaceSettingsPrompt()
+		case 'display':
+			return getDisplayPrompt()
+		case 'code_mode':
+			return getCodeModePrompt()
 	}
 }
 
@@ -2346,8 +2428,8 @@ export type SessionPromptContext = {
 	/** The family's dev workspace, where a read-only session sends the user to make changes. */
 	devWorkspace?: { id: string; name: string }
 	/** Why the session is in Use mode, where the workspace itself is not protected: the user
-	 * picked it, or their role builds nothing there. */
-	useMode?: 'chosen' | 'role'
+	 * picked it, their role builds nothing there, or their role cannot run there. */
+	useMode?: 'chosen' | 'role' | 'view_only'
 }
 
 /** Session-state guidance appended to the global system prompt so the model
@@ -2382,7 +2464,7 @@ export function getSessionContextPromptSection(
 		!readOnly && (canDeploy || unruledKinds.length) ? 'deploy_workspace_item' : 'A deploy'
 	const targets = (
 		readOnly
-			? ['reads', 'runs']
+			? ['reads', (!access || access.has('run')) && 'runs']
 			: ['reads', canWriteDraft && 'drafts', canRunPreview && 'test runs', 'deploys']
 	)
 		.filter(Boolean)
@@ -2430,6 +2512,10 @@ export function getSessionContextPromptSection(
 		lines.push(
 			"- The user put this session in Use mode with the composer's mode picker, so it is READ-ONLY until they switch. To make a change, call `enter_build_mode`, which asks them to switch to Use & build, or `enter_plan_mode` to agree on the change first; without those tools, ask them to switch the picker."
 		)
+	} else if (readOnly && ctx.useMode === 'view_only') {
+		lines.push(
+			`- This user's workspace role cannot run scripts, flows or agents here. That role, not this session, is why the session is held in Use mode and is READ-ONLY: it reads the workspace's items, runs and data, and nothing else. When they ask for a run or a change, say that their role does not allow it, and that a workspace admin can grant their role more in ${OPERATOR_SETTINGS_LOCATION}. Their mode picker shows Plan and Use & build greyed out, so never suggest switching modes.`
+		)
 	} else if (readOnly && ctx.useMode === 'role') {
 		lines.push(
 			`- This user's workspace role cannot create or change scripts, flows, apps, schedules or triggers, neither through you nor by hand anywhere in the workspace. That role, not this session, is why the session is held in Use mode and is READ-ONLY. When they ask for one, say that their role does not allow it, and that a workspace admin can create it for them or grant their role more in ${OPERATOR_SETTINGS_LOCATION}. Do not write its code or give steps: they can use neither. Their mode picker shows Plan and Use & build greyed out, so never suggest switching modes. Resources and variables are the exception: every role creates and edits those by hand, outside this session, on the workspace's own Resources and Variables pages.`
@@ -2450,7 +2536,7 @@ export function getSessionContextPromptSection(
 	}
 	lines.push(
 		'- Sessions are saved: the sidebar lists them under AI Sessions, and the user can reopen any of them.',
-		`- The composer has a mode picker in two parts. What you may do: Use (read and run deployed items, change nothing), Plan (research, then propose a plan for approval) and Use & build (everything Use does, plus changes). How tool confirmations work: Ask permission, Auto-accept edits, or Yolo (bypass permissions: tool confirmations are accepted without asking). Some options are hidden where they do not apply${protectedWorkspace ? ', and this workspace locks the picker to Use' : ctx.useMode === 'role' ? ", and this user's role locks the picker to Use" : ''}.`,
+		`- The composer has a mode picker in two parts. What you may do: Use (read and run deployed items, change nothing), Plan (research, then propose a plan for approval) and Use & build (everything Use does, plus changes). How tool confirmations work: Ask permission, Auto-accept edits, or Yolo (bypass permissions: tool confirmations are accepted without asking). Some options are hidden where they do not apply${protectedWorkspace ? ', and this workspace locks the picker to Use' : ctx.useMode === 'role' || ctx.useMode === 'view_only' ? ", and this user's role locks the picker to Use" : ''}.`,
 		"- The sliders button next to the model picker opens Assistant settings. Its Permissions section shows what the user's role lets them change and what you can change for them; point them there when they ask what they are allowed to do."
 	)
 	return lines.join('\n')
@@ -3342,7 +3428,8 @@ export const globalTools: SessionTool<{}>[] = [
 				ctx.workspace,
 				composeOnly,
 				false,
-				!!access && !access.has('run_flow_preview')
+				!!access && !access.has('run_flow_preview'),
+				!access || access.has('write_draft')
 			)
 		}
 	},
@@ -3756,9 +3843,24 @@ export const globalTools: SessionTool<{}>[] = [
 		autoCollapseDetails: false
 	},
 	{
-		// Ungated, unlike the test runs: this executes the DEPLOYED item under the user's own
-		// permissions, the one run an operator's token allows. `run_flow` likewise.
-		requires: NONE,
+		requires: RUN_PREVIEW,
+		def: testRunCodeToolDef,
+		fn: async (ctx) => {
+			const parsed = testRunCodeSchema.parse(ctx.args)
+			return testRunCode(parsed, ctx)
+		},
+		// No requiresConfirmation, for the reason test_run_script carries: the form is it.
+		bypassedByAutoAccept: true,
+		confirmationMessage: 'Run code',
+		streamingLabel: 'Preparing the run form...',
+		queuedLabel: () => 'Run code',
+		showDetails: true,
+		autoCollapseDetails: false
+	},
+	{
+		// Gated on `run` alone, unlike the test runs: this executes the DEPLOYED item under the
+		// user's own permissions, the one run an operator's token allows. `run_flow` likewise.
+		requires: RUN,
 		def: runScriptToolDef,
 		readOnlySafe: true,
 		fn: async (ctx) => {
@@ -3791,7 +3893,7 @@ export const globalTools: SessionTool<{}>[] = [
 		autoCollapseDetails: false
 	},
 	{
-		requires: NONE,
+		requires: RUN,
 		def: runFlowToolDef,
 		readOnlySafe: true,
 		fn: async (ctx) => {
@@ -3821,7 +3923,7 @@ export const globalTools: SessionTool<{}>[] = [
 		autoCollapseDetails: false
 	},
 	{
-		requires: NONE,
+		requires: RUN,
 		def: runAgentToolDef,
 		readOnlySafe: true,
 		fn: async (ctx) => {
@@ -5472,6 +5574,40 @@ async function testRunScriptByPath(
 			background: args.background,
 			detachAfterMs: waitSecondsToDetachMs(args.wait_seconds),
 			startJob: (submitted) => startPreparedRun('test_run_script', ctx, prepared.target, submitted)
+		},
+		ctx
+	)
+}
+
+async function testRunCode(
+	args: z.infer<typeof testRunCodeSchema>,
+	ctx: WriteDraftCtx & { args: unknown }
+): Promise<string> {
+	const prepared = await prepareRun('test_run_code', ctx)
+	const code = prepared.code ?? ''
+	const lang = prepared.lang!
+	const schema = await schemaForTestRun({ content: code, language: lang })
+
+	return await runThroughForm(
+		{
+			path: 'code',
+			schema,
+			kind: 'test',
+			code,
+			lang,
+			schemaNoun: 'code',
+			toolName: 'test_run_code',
+			proposed: args.args,
+			startMessage: prepared.start_message,
+			contextName: 'script',
+			autoAcceptable: true,
+			background: args.background,
+			detachAfterMs: waitSecondsToDetachMs(args.wait_seconds),
+			startJob: async (submitted) => {
+				const jobId = await startPreparedRun('test_run_code', ctx, prepared.target, submitted)
+				logFeatureUsage('code_mode', 'program_run', { key: lang })
+				return jobId
+			}
 		},
 		ctx
 	)
@@ -7599,6 +7735,10 @@ export function prepareGlobalUserMessage(
 			}
 			if (context.type === 'workspace_run') {
 				content += `- type: run, id: ${context.id}, of: ${context.path} (read it: get_run with id "${context.id}")\n`
+				continue
+			}
+			if (context.type === 'workspace_agent') {
+				content += `- type: agent, path: ${context.path} (an \`ai_agent\` resource)\n`
 				continue
 			}
 			const itemType =

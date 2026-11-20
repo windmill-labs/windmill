@@ -10,6 +10,7 @@
 	import { SUPPORTED_CHAT_SCRIPT_LANGUAGES } from './script/core'
 	import { copilotInfo } from '$lib/aiStore'
 	import type { ComposerSelection } from './composerBox'
+	import { overlayHostActive } from '$lib/components/common/overlayHost.svelte'
 
 	let {
 		hideHeader = false,
@@ -17,6 +18,7 @@
 		forceDisabled = false,
 		forceDisabledMessage = '',
 		wideLayout = false,
+		stickyUserMessage = false,
 		emptyHint,
 		starter = undefined,
 		onSent = undefined,
@@ -40,6 +42,7 @@
 		// columns are centered in a max-w-3xl px-8 box. Sessions opt
 		// in; the narrow global-chat panel leaves it off.
 		wideLayout?: boolean
+		stickyUserMessage?: boolean
 		emptyHint?: import('svelte').Snippet
 		starter?: import('./starter/starterPrompts.svelte').ChatStarter
 		onSent?: () => void
@@ -153,10 +156,15 @@
 	$effect(() => {
 		aiChatManager.updateMode(untrack(() => aiChatManager.mode))
 	})
+
+	// A chat kept mounted while hidden (the sessions page's, on every other page) must leave
+	// the browser its Cmd+L.
+	const hostActive = overlayHostActive()
 </script>
 
 <svelte:window
 	onkeydown={(e) => {
+		if (!hostActive()) return
 		if ((e.ctrlKey || e.metaKey) && e.key === 'l') {
 			e.preventDefault()
 			aiChatDisplay?.focusInput()
@@ -212,6 +220,7 @@
 	{hideHeader}
 	{hideModeSelector}
 	{wideLayout}
+	{stickyUserMessage}
 	{emptyHint}
 	{starter}
 	{onSent}

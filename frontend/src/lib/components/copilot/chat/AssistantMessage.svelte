@@ -6,6 +6,7 @@
 	import { thinkingPreferences } from './thinkingPreferences.svelte'
 	import CodeDisplay from './script/CodeDisplay.svelte'
 	import LinkRenderer from './LinkRenderer.svelte'
+	import MarkdownImage from './MarkdownImage.svelte'
 	import {
 		extractCandidatePaths,
 		remarkWindmillPaths,
@@ -98,11 +99,12 @@
 	})
 
 	const candidatePaths = $derived(extractCandidatePaths(message.content))
-	const reasoningPlugins = [gfmPlugin(), { renderer: { a: LinkRenderer } }]
+	const reasoningPlugins = [gfmPlugin(), { renderer: { a: LinkRenderer, img: MarkdownImage } }]
 	const rendererPlugin = {
 		renderer: {
 			pre: CodeDisplay,
-			a: LinkRenderer
+			a: LinkRenderer,
+			img: MarkdownImage
 		}
 	}
 
@@ -174,12 +176,14 @@
 {/if}
 
 {#if message.content && showActions}
-	<!-- Kept in flow while invisible, so revealing it on hover does not nudge the message
-	     below. A thinking-only row has no answer to copy, and its run's last answer links the run. -->
+	<!-- Zero height in the layout (h-4 = -mt-1 + -mb-3): it draws in the answer's bottom
+	     padding and the gap below the turn, so a turn's last answer is spaced like any other
+	     message. A thinking-only row has no answer to copy, and its run's last answer links
+	     the run. -->
 	<div
-		class="flex items-center gap-2 text-2xs text-tertiary opacity-0 transition-opacity duration-150 group-hover/answer:opacity-100 focus-within:opacity-100"
+		class="flex items-center gap-2 h-4 -mt-1 -mb-3 text-2xs text-tertiary opacity-0 transition-opacity duration-150 group-hover/answer:opacity-100 focus-within:opacity-100"
 	>
-		<CopyButton value={message.content} title="Copy answer" class="-ml-1" />
+		<CopyButton value={message.content} title="Copy answer" class="-ml-1" btnClasses="h-4" />
 		{#if timestamp}
 			<span>{timestamp}</span>
 		{/if}

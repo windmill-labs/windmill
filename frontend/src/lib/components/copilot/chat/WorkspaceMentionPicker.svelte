@@ -20,6 +20,7 @@ at the workspace root because the parent menu item already names the scope.
 	import {
 		withFolderContextLeaves,
 		type ContextElement,
+		type WorkspaceAgentElement,
 		type WorkspaceAppElement,
 		type WorkspaceFlowElement,
 		type WorkspaceFolderElement,
@@ -42,7 +43,7 @@ at the workspace root because the parent menu item already names the scope.
 	let picker: DrillPickerHandle | undefined = $state()
 
 	const operatingWorkspace = useOperatingWorkspace()
-	const WORKSPACE_KINDS: WorkspaceItemKind[] = ['flow', 'script', 'app']
+	const WORKSPACE_KINDS: WorkspaceItemKind[] = ['flow', 'script', 'app', 'agent']
 	const loader = useWorkspaceItemsLoader(
 		() => $operatingWorkspace,
 		() => WORKSPACE_KINDS
@@ -92,6 +93,15 @@ at the workspace root because the parent menu item already names the scope.
 				summary: item.summary,
 				deletable: true
 			} satisfies WorkspaceAppElement & { deletable: boolean }
+		}
+		if (item.kind === 'agent') {
+			return {
+				type: 'workspace_agent',
+				path: item.path,
+				title: item.path,
+				summary: item.summary,
+				deletable: true
+			} satisfies WorkspaceAgentElement & { deletable: boolean }
 		}
 	}
 

@@ -11064,6 +11064,12 @@ paths:
                                           description: >-
                                             Path to the flow in the workspace (e.g.,
                                             'f/flows/process_user')
+                                        tag_override:
+                                          type: string
+                                          description: >-
+                                            Override the subflow's worker group tag.
+                                            Its steps run on this tag unless the
+                                            subflow sets preserve_step_tags
                                         type:
                                           type: string
                                           enum:
@@ -37296,6 +37302,11 @@ components:
         path:
           type: string
           description: Path to the flow in the workspace (e.g., 'f/flows/process_user')
+        tag_override:
+          type: string
+          description: >-
+            Override the subflow's worker group tag. Its steps run on this tag
+            unless the subflow sets preserve_step_tags
         type:
           type: string
           enum:

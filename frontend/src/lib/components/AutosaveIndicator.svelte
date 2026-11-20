@@ -26,6 +26,7 @@
 		// take priority over "Loaded from draft" and offers "See others' drafts".
 		othersDraftsCount = 0,
 		onOpenOthersDrafts,
+		alwaysSaves = false,
 		compact = false
 	}: {
 		workspace: string
@@ -36,6 +37,9 @@
 		loadedFromDraft?: boolean
 		othersDraftsCount?: number
 		onOpenOthersDrafts?: () => void
+		/** The editor saves every edit whatever the auto-save toggle says, as one with no guard on
+		 *  leaving must: the toggle is left out rather than shown with no effect. */
+		alwaysSaves?: boolean
 		/** The icon alone, for a bar with no room for the label, which stays for screen readers. */
 		compact?: boolean
 	} = $props()
@@ -151,7 +155,10 @@
 				? 'app'
 				: itemKind === 'data_pipeline'
 					? 'pipeline'
-					: 'script'
+					: // The agent editor is the only one showing this for a resource draft.
+						itemKind === 'resource'
+						? 'agent'
+						: 'script'
 	)
 
 	// Each false → true transition fires a hint (others > loaded). Seeded to
@@ -210,7 +217,7 @@
 	// "Enable auto-save" preference — browser-wide, persisted by the syncer.
 	// When off, keystrokes park for Ctrl/Cmd+S and the indicator shows a muted
 	// cloud-off so the idle check-mark can't read as "everything saved".
-	const autosaveEnabled = $derived(UserDraftDbSyncer.autosaveEnabled)
+	const autosaveEnabled = $derived(alwaysSaves || UserDraftDbSyncer.autosaveEnabled)
 
 	let popoverOpen = $state(false)
 	let resetting = $state(false)
@@ -328,14 +335,16 @@
 							per-user — your teammates' editors keep their own.
 						</p>
 					{/if}
-					<Toggle
-						size="xs"
-						checked={autosaveEnabled}
-						options={{ right: 'Enable auto-save' }}
-						on:change={(e) => {
-							UserDraftDbSyncer.autosaveEnabled = e.detail
-						}}
-					/>
+					{#if !alwaysSaves}
+						<Toggle
+							size="xs"
+							checked={autosaveEnabled}
+							options={{ right: 'Enable auto-save' }}
+							on:change={(e) => {
+								UserDraftDbSyncer.autosaveEnabled = e.detail
+							}}
+						/>
+					{/if}
 					{#if othersDraftsCount > 0}
 						<div class="flex flex-col gap-2 border-t pt-3">
 							<p class="text-primary text-xs">

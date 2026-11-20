@@ -14,7 +14,7 @@ use windmill_common::{
     db::DB,
     error::Error,
     flow_conversations::{add_message_to_conversation_tx, MessageExtras, MessageType},
-    flow_status::AgentAction,
+    flow_status::{AgentAction, FlowStatus},
     flows::{InputTransform, Step},
     jobs::JobKind,
     scripts::{ScriptHash, ScriptLang},
@@ -141,47 +141,56 @@ pub async fn get_flow_job_runnable_and_raw_flow(
 
 #[derive(Debug, Clone, Default)]
 pub struct FlowContext {
+    /// `flow_input` of the flow running the step.
     pub flow_inputs: Option<HashMap<String, Box<RawValue>>>,
-    pub flow_status: Option<windmill_common::flow_status::FlowStatus>,
+    /// Status of the flow running the step, which `results.<step>` and the previous result read.
+    pub step_flow_status: Option<FlowStatus>,
+    /// Status of the root run, which holds the chat settings and the run's memory id.
+    pub run_status: Option<FlowStatus>,
     /// Path of the flow the run started from, which scopes a string memory id.
     pub flow_path: Option<String>,
+    /// The root run, whose user state `flow_user_state` reads.
+    pub root_job_id: Option<Uuid>,
 }
 
-/// Get flow context (chat settings + args + flow_status) from root flow's job data
-pub async fn get_flow_context(db: &DB, job: &MiniPulledJob) -> FlowContext {
-    let root_job_id = job
-        .root_job
-        .or(job.flow_innermost_root_job)
-        .or(job.parent_job);
-
-    let Some(root_job_id) = root_job_id else {
-        return FlowContext::default();
-    };
-
+/// Read the context an agent step evaluates its tools in. `flow_input` and `results` are those of
+/// `flow_job_id`, the flow the agent is a step of, as for any other step: inside a subflow that is
+/// not the root run. Chat and memory belong to the whole run.
+///
+/// The root is resolved from the flow job, as `get_root_job_id` does: a nested agent's own
+/// `root_job` names the agent calling it, which has no status row.
+pub async fn get_flow_context(db: &DB, job: &MiniPulledJob, flow_job_id: &Uuid) -> FlowContext {
     match sqlx::query!(
         r#"
         SELECT
-            j.args as "args: Json<HashMap<String, Box<RawValue>>>",
-            js.flow_status as "flow_status: Json<windmill_common::flow_status::FlowStatus>",
-            j.runnable_path
-        FROM v2_job_status js
-        INNER JOIN v2_job j ON j.id = js.id
-        WHERE js.id = $1
+            f.args as "args: Json<HashMap<String, Box<RawValue>>>",
+            fs.flow_status as "step_flow_status: Json<FlowStatus>",
+            rs.flow_status as "run_status: Json<FlowStatus>",
+            r.runnable_path,
+            r.id as root_job_id
+        FROM v2_job f
+        LEFT JOIN v2_job_status fs ON fs.id = f.id
+        INNER JOIN v2_job r
+            ON r.id = COALESCE(f.root_job, f.flow_innermost_root_job, f.parent_job, f.id)
+        LEFT JOIN v2_job_status rs ON rs.id = r.id
+        WHERE f.id = $1
         "#,
-        root_job_id
+        flow_job_id
     )
     .fetch_optional(db)
     .await
     {
         Ok(Some(row)) => FlowContext {
             flow_inputs: row.args.map(|j| j.0),
-            flow_status: row.flow_status.map(|j| j.0),
+            step_flow_status: row.step_flow_status.map(|j| j.0),
+            run_status: row.run_status.map(|j| j.0),
             flow_path: row.runnable_path,
+            root_job_id: Some(row.root_job_id),
         },
         Ok(None) => {
             tracing::warn!(
-                "No flow context found for root job {} (agent job {}), returning default",
-                root_job_id,
+                "No flow context found for flow job {} (agent job {}), returning default",
+                flow_job_id,
                 job.id
             );
             FlowContext::default()
@@ -307,34 +316,100 @@ pub async fn update_flow_status_module_with_actions_success(
     Ok(())
 }
 
-/// Record the outcome of the last of `action_count` actions, dropping any recorded past it.
-pub async fn set_flow_status_module_last_action_success(
+/// Record the outcome of the action at `index`, `None` while it runs. Outcomes are positional and
+/// a background call's comes after later actions' own, so it is set in place, padded with nulls.
+pub async fn set_flow_status_module_action_success_at(
     db: &DB,
     parent_job: &Uuid,
-    action_count: usize,
-    action_success: bool,
+    index: usize,
+    action_success: Option<bool>,
 ) -> Result<(), Error> {
     if let Step::Step { idx: step, .. } = get_step_of_flow_status(db, parent_job.to_owned()).await?
     {
-        sqlx::query(
+        sqlx::query!(
             "UPDATE v2_job_status SET
                 flow_status = jsonb_set(
                     flow_status,
-                    array['modules', $2::TEXT, 'agent_actions_success'],
+                    array['modules', $2::int::TEXT, 'agent_actions_success'],
+                    (
+                        SELECT jsonb_agg(CASE WHEN i = $3 THEN to_jsonb($4::bool) ELSE arr->i END ORDER BY i)
+                        FROM (SELECT COALESCE(
+                            flow_status->'modules'->$2::int->'agent_actions_success', '[]'::jsonb
+                        ) AS arr) a,
+                        generate_series(0, GREATEST(jsonb_array_length(arr) - 1, $3)) AS i
+                    )
+                )
+            WHERE id = $1",
+            parent_job,
+            step as i32,
+            index as i32,
+            action_success
+        )
+        .execute(db)
+        .await?;
+    }
+    Ok(())
+}
+
+/// Mark as failed the outcomes still `null`: background calls whose agent ended before they did,
+/// and whose jobs it cancels.
+pub async fn fail_unfinished_action_successes(db: &DB, parent_job: &Uuid) -> Result<(), Error> {
+    if let Step::Step { idx: step, .. } = get_step_of_flow_status(db, parent_job.to_owned()).await?
+    {
+        sqlx::query!(
+            "UPDATE v2_job_status SET
+                flow_status = jsonb_set(
+                    flow_status,
+                    array['modules', $2::int::TEXT, 'agent_actions_success'],
+                    (
+                        SELECT jsonb_agg(CASE WHEN e = 'null'::jsonb THEN 'false'::jsonb ELSE e END
+                            ORDER BY i)
+                        FROM jsonb_array_elements(
+                            flow_status->'modules'->$2::int->'agent_actions_success'
+                        ) WITH ORDINALITY AS t(e, i)
+                    )
+                )
+            WHERE id = $1
+                AND flow_status->'modules'->$2::int->'agent_actions_success' @> '[null]'::jsonb",
+            parent_job,
+            step as i32
+        )
+        .execute(db)
+        .await?;
+    }
+    Ok(())
+}
+
+/// Keep the first `keep` action outcomes, dropping any recorded past them, then append `append`.
+/// A resumed segment calls it so that one replayed after its worker died records nothing twice.
+pub async fn reset_flow_status_module_action_successes(
+    db: &DB,
+    parent_job: &Uuid,
+    keep: usize,
+    append: Option<bool>,
+) -> Result<(), Error> {
+    if let Step::Step { idx: step, .. } = get_step_of_flow_status(db, parent_job.to_owned()).await?
+    {
+        sqlx::query!(
+            "UPDATE v2_job_status SET
+                flow_status = jsonb_set(
+                    flow_status,
+                    array['modules', $2::int::TEXT, 'agent_actions_success'],
                     COALESCE((
                         SELECT jsonb_agg(e ORDER BY i)
                         FROM jsonb_array_elements(
-                            flow_status->'modules'->$2->'agent_actions_success'
+                            flow_status->'modules'->$2::int->'agent_actions_success'
                         ) WITH ORDINALITY AS t(e, i)
-                        WHERE i < $3
-                    ), '[]'::jsonb) || to_jsonb(ARRAY[$4::bool])
+                        WHERE i <= $3
+                    ), '[]'::jsonb) || CASE WHEN $4::bool IS NULL THEN '[]'::jsonb
+                        ELSE to_jsonb(ARRAY[$4::bool]) END
                 )
             WHERE id = $1",
+            parent_job,
+            step as i32,
+            keep as i64,
+            append
         )
-        .bind(parent_job)
-        .bind(step as i32)
-        .bind(action_count as i64)
-        .bind(action_success)
         .execute(db)
         .await?;
     }
@@ -441,6 +516,7 @@ fn convert_mcp_tools_to_windmill_tools(
                 }),
                 requires_approval: false,
                 question_timeout_secs: None,
+                background_after_secs: None,
             })
         })
         .collect()

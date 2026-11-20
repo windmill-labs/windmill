@@ -72,7 +72,12 @@ agent or AI decision), `mcp` for an MCP server tool, `websearch` for web search,
 built-in `ask_question` tool (the agent stops, without holding a worker, until someone answers from
 the run page or the chat; optional `value.timeout` in seconds, default 1800). Set
 `requires_approval: true` on a `flowmodule` or `mcp` tool to have a person approve or reject each of
-its calls before it runs.
+its calls before it runs. Set `background: true` on a `flowmodule` tool that runs long: the agent is
+answered as soon as its job starts and keeps working, and gets the result in a later message,
+waiting for it without holding a worker if it finishes its answer first. Prefer it to having the
+agent start jobs through a script or `runScriptByPath`, whose results it cannot wait on. For a tool
+that is usually quick but sometimes long, set `background_after_secs: <seconds>` instead: the agent
+waits that long for the result, then the call continues in the background.
 
 ```json
 {
@@ -198,7 +203,7 @@ server's own tool names, so none is name-checked at all — leave those summarie
 
 ## AI Decision Modules
 
-An `aidecision` module asks a decision model (TypeSafe's Jev, Cloudflare's Clef or OpenAI's Decisions API) typed questions about a `state` and
+An `aidecision` module asks a decision model (TypeSafe's Jev, Cloudflare's Clef, or OpenAI's or Gemini's Decisions API) typed questions about a `state` and
 answers each with calibrated probabilities instead of text. Prefer it over an `aiagent` when the step
 is a judgment (classify, route, score or a yes/no check) that needs no tools and no free text: it
 is faster, cheaper, and its answers have a fixed shape.
@@ -237,8 +242,9 @@ is faster, cheaper, and its answers have a fixed shape.
 ```
 
 - `provider.kind` is `typesafe` (`model` `jev-latest` unless a version is pinned), `cloudflare`
-  (`model` `clef`, or `clef-flash` for faster answers) or `openai` (`model` `gpt-6-luna`, never a
-  chat model); the resource is of that same type
+  (`model` `clef`, or `clef-flash` for faster answers), `openai` (`model` `gpt-6-luna`, never a
+  chat model) or `googleai` (`model` `gemini-decision-1`, never a chat model); the resource is of
+  that same type
 - `state` is the content to evaluate: usually a text, such as the message to classify. To combine
   several values, pass an object with descriptive keys holding only what the questions need
   (`({ message: flow_input.message, plan: results.get_account.plan })`); an array of strings also works
@@ -258,6 +264,10 @@ is faster, cheaper, and its answers have a fixed shape.
   refuses to answer fails the step. A `state` that is
   an array of user messages (`[{ role: "user", content: [{ type: "input_text", text }, { type: "input_image", image_url: "data:image/png;base64,..." }] }]`)
   is sent as is, which is how an image is evaluated; any other object or array is sent as JSON text
+- On `googleai` the `questions` and answers are the same as on `typesafe`. If Gemini blocks the
+  input, the step fails. A `state` that is a Gemini content block or an array of them (`[{ type: "text", text }, { type: "image", mime_type: "image/png", data: "<base64>" }]`,
+  where `image`, `audio`, `video` and `document` blocks take `data` or `uri`) is sent as is, which
+  is how an image or a document is evaluated; any other object or array is sent as JSON text
 
 ### Branching on the Answers
 
@@ -310,6 +320,7 @@ can call one, not an agent used as a tool.
 ## Loop Structure Rules
 
 - A `forloopflow` runs its `modules` once per element of `iterator`, a javascript expression returning an array (e.g. `results.get_items`); `parallel: true` runs the iterations concurrently, and `skip_failures: true` carries on past a failed iteration
+- When iterations are items a user will look for in a run (customers, files, ids), set `iteration_label` on the `forloopflow` value to a javascript expression naming each one, e.g. `flow_input.iter.value.name`; it only labels iterations in the run viewer and never changes what runs
 - For `whileloopflow`, break the loop with a module-level `stop_after_if`: on the loop module itself, or on an inner step (required when that step carries state via its own `results` — see below)
 - `stop_after_if` is always a sibling of `id` and `value` on a flow module — never a direct key of the loop's `value` object
 - `stop_after_all_iters_if` is for checks after the whole loop finishes, not the normal per-iteration break condition

@@ -75,7 +75,7 @@ use windmill_common::{
         add_virtual_items_if_necessary, FlowModule, FlowModuleValue, FlowValue, InputTransform,
         Retry, StopAfterIf,
     },
-    jobs::{runnable_ref_to_payload, JobKind, JobPayload, RawCode},
+    jobs::{runnable_ref_to_payload, JobKind, JobPayload, RawCode, RunOrigin},
     min_version::{MIN_VERSION_IS_AT_LEAST_1_432, MIN_VERSION_IS_AT_LEAST_1_440},
     runnable_ref::RunnableRef,
     schedule::Schedule,
@@ -84,8 +84,9 @@ use windmill_common::{
     utils::{not_found_if_none, report_critical_error, StripPath, WarnAfterExt},
     worker::{
         to_raw_value, CLOUD_HOSTED, DEPENDENCY_JOB_TAG, DISABLE_FLOW_SCRIPT, NO_LOGS,
-        PREVIEW_TAGS_OVERRIDE, WORKER_PULL_QUERIES, WORKER_PULL_QUERIES_FAIRNESS,
-        WORKER_SUSPENDED_PULL_QUERY, WORKSPACE_FAIRNESS_OVERLOADED,
+        PREVIEW_TAGS_OVERRIDE, WORKER_CONFIG, WORKER_PULL_QUERIES, WORKER_PULL_QUERIES_FAIRNESS,
+        WORKER_SUSPENDED_PULL_QUERY, WORKER_SUSPENDED_PULL_QUERY_FAIRNESS,
+        WORKSPACE_FAIRNESS_OVERLOADED,
     },
     DB, METRICS_ENABLED,
 };
@@ -669,40 +670,63 @@ pub async fn push_periodic_bash_job<'c>(
     Ok(uuid)
 }
 
-pub async fn cancel_persistent_script_jobs<'c>(
+/// `admit` is called with the runs each batch found, before any of them is touched, and returns
+/// the ones to cancel; an error from it cancels none of that batch. The cancel itself runs on the
+/// root pool, so `admit` is where the caller's access to those runs must be checked.
+pub async fn cancel_persistent_script_jobs<F, Fut>(
     username: &str,
     reason: Option<String>,
     script_path: &str,
     w_id: &str,
     db: &Pool<Postgres>,
-) -> error::Result<Vec<Uuid>> {
+    mut admit: F,
+) -> error::Result<Vec<Uuid>>
+where
+    F: FnMut(Vec<Uuid>) -> Fut,
+    Fut: Future<Output = error::Result<Vec<Uuid>>>,
+{
     // There can be only one perpetual script run per 10 seconds window. We execute the cancel twice with 5s interval
     // to avoid the case of a job _about to be restarted_ when the first cancel is run.
-    let cancelled_job_ids_first_batch =
-        cancel_persistent_script_jobs_internal(username, reason.clone(), script_path, w_id, db)
-            .await?;
+    let cancelled_job_ids_first_batch = cancel_persistent_script_jobs_internal(
+        username,
+        reason.clone(),
+        script_path,
+        w_id,
+        db,
+        &mut admit,
+    )
+    .await?;
     sleep(std::time::Duration::from_secs(5)).await;
-    let cancelled_job_ids_second_batch =
-        cancel_persistent_script_jobs_internal(username, reason.clone(), script_path, w_id, db)
-            .await?;
+    let cancelled_job_ids_second_batch = cancel_persistent_script_jobs_internal(
+        username,
+        reason.clone(),
+        script_path,
+        w_id,
+        db,
+        &mut admit,
+    )
+    .await?;
     return Ok(cancelled_job_ids_first_batch
         .into_iter()
         .chain(cancelled_job_ids_second_batch)
         .collect_vec());
 }
 
-async fn cancel_persistent_script_jobs_internal<'c>(
+async fn cancel_persistent_script_jobs_internal<F, Fut>(
     username: &str,
     reason: Option<String>,
     script_path: &str,
     w_id: &str,
     db: &Pool<Postgres>,
-) -> error::Result<Vec<Uuid>> {
-    let mut tx = db.begin().await?;
-
-    // we could have retrieved the job IDs in the first query where we retrieve the hashes, but just in case a job was inserted in the queue right in-between the two above query, we re-do the fetch here
+    admit: &mut F,
+) -> error::Result<Vec<Uuid>>
+where
+    F: FnMut(Vec<Uuid>) -> Fut,
+    Fut: Future<Output = error::Result<Vec<Uuid>>>,
+{
     // Only the loops: a dependency job of this script shares its path, and a run of a version that
-    // does not restart itself ends on its own.
+    // does not restart itself ends on its own. A run that ends before the cancel below reaches it
+    // is skipped by `cancel_job`; its restart is caught by the next batch.
     let jobs_to_cancel = sqlx::query_scalar::<_, Uuid>(
         "SELECT j.id FROM v2_job_queue q JOIN v2_job j USING (id) \
          JOIN script s ON s.workspace_id = j.workspace_id AND s.hash = j.runnable_id \
@@ -711,10 +735,12 @@ async fn cancel_persistent_script_jobs_internal<'c>(
     )
     .bind(w_id)
     .bind(script_path)
-    .fetch_all(&mut *tx)
+    .fetch_all(db)
     .await?;
 
-    // Then we cancel all the jobs currently in the queue, one by one
+    let jobs_to_cancel = admit(jobs_to_cancel).await?;
+
+    let mut tx = db.begin().await?;
     for queued_job_id in jobs_to_cancel.clone() {
         let (new_tx, _) = cancel_job(
             username,
@@ -798,7 +824,7 @@ async fn restart_perpetual_runs_at_path(
     // run, below.
     let script = RunnableRef::from_path(script_path, false)?;
     let (mut payload, tag, _, _, timeout, on_behalf_of) =
-        script_path_to_payload(&script, None, db.clone(), w_id, None).await?;
+        script_path_to_payload(&script, RunOrigin::Deployed, None, db.clone(), w_id, None).await?;
     // A replacement continues a loop rather than answering a trigger, and every perpetual restart
     // is pushed without debouncing for that reason. Deployed settings here would debounce the
     // loops at this path against each other and collapse those that share arguments into one.
@@ -3572,7 +3598,7 @@ pub async fn push_error_handler<'a, 'c, T: Serialize + Send + Sync>(
         w_id
     };
     let (payload, tag, on_behalf_of) =
-        runnable_ref_to_payload(on_failure, db, handler_w_id).await?;
+        runnable_ref_to_payload(on_failure, RunOrigin::Deployed, db, handler_w_id).await?;
 
     let mut extra = HashMap::new();
     if let Some(schedule_path) = schedule_path {
@@ -3766,7 +3792,8 @@ pub async fn push_success_handler<'a, 'c, T: Serialize + Send + Sync>(
     email: &str,
     priority: Option<i16>,
 ) -> windmill_common::error::Result<Uuid> {
-    let (payload, tag, on_behalf_of) = runnable_ref_to_payload(on_success, db, w_id).await?;
+    let (payload, tag, on_behalf_of) =
+        runnable_ref_to_payload(on_success, RunOrigin::Deployed, db, w_id).await?;
 
     let mut extra = HashMap::new();
     if let Some(schedule_path) = schedule_path {
@@ -4965,10 +4992,10 @@ pub async fn pull(
                 };
 
                 if let Some(job) = job.as_ref() {
-                    if (job.is_flow() || job.is_dependency())
-                        && !(job.kind.is_preview()
-                            && PREVIEW_TAGS_OVERRIDE.load(std::sync::atomic::Ordering::Relaxed))
-                    {
+                    // An agent worker cannot drive a flow, so a flow preview on an agent's tag is
+                    // requeued too, preview tags override or not: the job keeps its tag in v2_job
+                    // for its steps.
+                    if job.is_flow() || job.is_dependency() {
                         let tag = match configured_dependency_job_tag(
                             &job.kind,
                             job.script_lang.as_ref(),
@@ -5166,14 +5193,30 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<'c>(
             tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
             return Ok((None, false));
         }
-        let r = if suspend_first {
+        let r = if !suspend_first {
+            None
+        } else if WORKER_CONFIG.load().fairness_reserve {
+            // Parked WAC parents and parallelism-capped flow branches resume only through this
+            // pull, so a reserve must resume the ones it started, but never the overloaded
+            // workspace's. Refreshed here too: after a successful resume the worker keeps
+            // resuming first, and would never reach the refresh below.
+            crate::workspace_fairness::maybe_refresh_overloaded(db);
+            let overloaded = WORKSPACE_FAIRNESS_OVERLOADED.load_full();
+            if overloaded.is_empty() {
+                None
+            } else {
+                sqlx::query_as::<_, PulledJob>(&WORKER_SUSPENDED_PULL_QUERY_FAIRNESS.load())
+                    .bind(worker_name)
+                    .bind(overloaded.as_slice())
+                    .fetch_optional(db)
+                    .await?
+            }
+        } else {
             // tracing::info!("Pulling job with query: {}", query);
             sqlx::query_as::<_, PulledJob>(&query)
                 .bind(worker_name)
                 .fetch_optional(db)
                 .await?
-        } else {
-            None
         };
 
         if r.is_none() {
@@ -5205,8 +5248,13 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<'c>(
             crate::workspace_fairness::maybe_refresh_overloaded(db);
             let overloaded = WORKSPACE_FAIRNESS_OVERLOADED.load_full();
             let fairness_active = !overloaded.is_empty();
+            let reserve = WORKER_CONFIG.load().fairness_reserve;
 
-            if fairness_active && !crate::workspace_fairness::should_admit_capped() {
+            if reserve && !fairness_active {
+                return Ok((None, false));
+            }
+
+            if fairness_active && (reserve || !crate::workspace_fairness::should_admit_capped()) {
                 let fairness_queries = WORKER_PULL_QUERIES_FAIRNESS.load();
                 let overloaded_slice: &[String] = overloaded.as_slice();
                 for query in fairness_queries.iter() {
@@ -5229,7 +5277,9 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<'c>(
                 }
             }
 
-            if highest_priority_job.is_none() {
+            // A reserve worker never falls back: that fallback is how a capped workspace gets
+            // back onto a worker.
+            if highest_priority_job.is_none() && !reserve {
                 // Standard pull path. Also acts as the fallback when fairness
                 // filtered out every candidate: prefer running a capped
                 // workspace's job over leaving a worker idle. (The cap is
@@ -5797,10 +5847,9 @@ pub fn tag_reads_flow_expr(tag: &str) -> bool {
     tag.contains("$flow_expr[")
 }
 
-/// Renders the value at the dotted `path` below `root` as a dynamic tag component, shared by
-/// `$args[...]` and `$flow_expr[...]`: its JSON text with surrounding quotes trimmed, and empty
-/// once a segment is missing. Only object keys are followed, never array indexes.
-pub fn render_tag_path(root: Option<&RawValue>, path: &str) -> String {
+/// The JSON text of the value at the dotted `path` below `root`, empty once a segment is missing.
+/// Only object keys are followed, never array indexes.
+fn json_at_path(root: Option<&RawValue>, path: &str) -> String {
     let mut value = root.map(|x| x.get()).unwrap_or_default().to_string();
     for part in path.split('.').filter(|p| !p.is_empty()) {
         match serde_json::from_str::<serde_json::Value>(&value) {
@@ -5811,10 +5860,35 @@ pub fn render_tag_path(root: Option<&RawValue>, path: &str) -> String {
             }
         }
     }
+    value
+}
+
+/// Renders the value at the dotted `path` below `root` as a dynamic tag component, shared by
+/// `$args[...]` and `$flow_expr[...]`: its JSON text with surrounding quotes trimmed, and empty
+/// once a segment is missing or holds `null`. An optional input left unset is `null`, and must
+/// fall back like a missing one rather than name a queue `null` that no worker serves.
+pub fn render_tag_path(root: Option<&RawValue>, path: &str) -> String {
+    let value = json_at_path(root, path);
+    if value.trim() == "null" {
+        return String::new();
+    }
     value.trim_matches('"').to_string()
 }
 
+/// Fills in the `$workspace` and `$args[...]` of a concurrency or debounce key. A `null` argument
+/// renders as `null`, which the keys of already queued jobs were built with.
 pub fn interpolate_args(x: String, args: &PushArgs, workspace_id: &str) -> String {
+    interpolate_args_with(x, args, workspace_id, |root, path| {
+        json_at_path(root, path).trim_matches('"').to_string()
+    })
+}
+
+fn interpolate_args_with(
+    x: String,
+    args: &PushArgs,
+    workspace_id: &str,
+    render: impl Fn(Option<&RawValue>, &str) -> String,
+) -> String {
     // Save this value to avoid parsing twice
     let workspaced = x.as_str().replace("$workspace", workspace_id).to_string();
     if RE_ARG_TAG.is_match(&workspaced) {
@@ -5831,7 +5905,7 @@ pub fn interpolate_args(x: String, args: &PushArgs, workspace_id: &str) -> Strin
                         .or(args.extra.as_ref().and_then(|x| x.get(root)))
                 })
                 .flatten();
-            let arg_value = render_tag_path(root_value.map(|x| &**x), rest);
+            let arg_value = render(root_value.map(|x| &**x), rest);
             interpolated =
                 interpolated.replace(format!("$args[{}]", arg_name).as_str(), &arg_value);
         }
@@ -5863,7 +5937,13 @@ pub async fn resolve_push_tag(
     } else {
         workspace_id.to_string()
     };
-    Some(interpolate_args(tag.to_string(), args, &tag_ws))
+    Some(interpolate_args_with(
+        tag.to_string(),
+        args,
+        &tag_ws,
+        render_tag_path,
+    ))
+    .filter(|t| !t.is_empty())
 }
 
 /// The tag a dependency job is routed to when the instance's `dependency_job_tag` setting is
@@ -7342,6 +7422,8 @@ async fn push_inner<'c, 'd>(
                         chat_input_enabled: None,
                         memory_id: None,
                         no_inherited_flow_env: false,
+                        continued_on_error: vec![],
+                        test_subflows: None,
                     }
                 }
                 _ => {
@@ -7499,6 +7581,7 @@ async fn push_inner<'c, 'd>(
                     value: to_raw_value(&FlowModuleValue::Flow {
                         path: path.clone(),
                         input_transforms: main_input_transforms,
+                        tag_override: None,
                         pass_flow_input_directly: None,
                     }),
                     retry,
@@ -7742,6 +7825,8 @@ async fn push_inner<'c, 'd>(
                 chat_input_enabled: None,
                 memory_id: None,
                 no_inherited_flow_env: false,
+                continued_on_error: vec![],
+                test_subflows: None,
             };
             // The completed job's own scopes are gone with its `job_perms` row, so the restart
             // takes the flow's current setting (and the restarting caller's ceiling).
@@ -8780,6 +8865,7 @@ fn create_restarted_module(
                 flow_jobs: Some(new_flow_jobs),
                 flow_jobs_success: new_flow_jobs_success,
                 flow_jobs_duration: new_flow_jobs_timeline,
+                flow_jobs_labels: None,
                 branch_chosen: None,
                 branchall: Some(BranchAllStatus {
                     branch: branch_or_iteration_n - 1,
@@ -8818,6 +8904,10 @@ fn create_restarted_module(
             if let Some(new_flow_jobs_timeline) = new_flow_jobs_timeline.as_mut() {
                 new_flow_jobs_timeline.truncate(branch_or_iteration_n);
             }
+            let mut new_flow_jobs_labels = module.flow_jobs_labels();
+            if let Some(new_flow_jobs_labels) = new_flow_jobs_labels.as_mut() {
+                new_flow_jobs_labels.truncate(branch_or_iteration_n);
+            }
             Ok(FlowStatusModule::InProgress {
                 id: module.id(),
                 job: new_flow_jobs[new_flow_jobs.len() - 1],
@@ -8829,6 +8919,7 @@ fn create_restarted_module(
                 flow_jobs: Some(new_flow_jobs),
                 flow_jobs_success: new_flow_jobs_success,
                 flow_jobs_duration: new_flow_jobs_timeline,
+                flow_jobs_labels: new_flow_jobs_labels,
                 branch_chosen: None,
                 branchall: None,
                 parallel,
@@ -8893,6 +8984,7 @@ fn reuse_completed_zombie_module(module: FlowStatusModule) -> FlowStatusModule {
             flow_jobs,
             flow_jobs_success,
             flow_jobs_duration,
+            flow_jobs_labels,
             branch_chosen,
             agent_actions,
             agent_actions_success,
@@ -8906,6 +8998,7 @@ fn reuse_completed_zombie_module(module: FlowStatusModule) -> FlowStatusModule {
                 .map(|v| v.into_iter().map(|_| Some(true)).collect()),
             flow_jobs,
             flow_jobs_duration,
+            flow_jobs_labels,
             branch_chosen,
             approvers: vec![],
             failed_retries: vec![],
@@ -9546,13 +9639,16 @@ mod render_tag_path_tests {
         )
     }
 
-    // Existing `$args[...]` tags route on exactly these renderings.
+    // Existing `$args[...]` tags route on exactly these renderings, except that `null` now falls
+    // back like a missing value.
     #[test]
     fn renders_like_args_tags() {
         assert_eq!(render(r#""eu""#, ""), "eu");
         assert_eq!(render(r#"{"a": {"b": "eu"}}"#, "a.b"), "eu");
         assert_eq!(render(r#"{"n": 4}"#, "n"), "4");
-        assert_eq!(render("null", ""), "null");
+        assert_eq!(render("null", ""), "");
+        assert_eq!(render(r#"{"a": null}"#, "a"), "");
+        assert_eq!(render(r#""null""#, ""), "null");
         assert_eq!(render(r#"{"a": 1}"#, "b.c"), "");
         assert_eq!(render(r#"{"a": ["eu"]}"#, "a.0"), "");
         assert_eq!(render_tag_path(None, "a"), "");
@@ -9572,6 +9668,14 @@ mod render_tag_path_tests {
         assert_eq!(
             interpolate_args("$args[_MODULES]private".to_string(), &push_args, "ws"),
             "private"
+        );
+
+        // Concurrency and debounce keys keep rendering `null`, as queued jobs' keys were built.
+        let args = HashMap::from([("r".to_string(), raw("null"))]);
+        let push_args = PushArgs { args: &args, extra: None };
+        assert_eq!(
+            interpolate_args("k-$args[r]".to_string(), &push_args, "ws"),
+            "k-null"
         );
     }
 

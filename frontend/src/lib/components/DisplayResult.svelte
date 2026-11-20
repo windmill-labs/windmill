@@ -7,7 +7,13 @@
 	import { parseDbtRun } from '$lib/components/dbt/parseDbtRun'
 	import { copyToClipboard, parseS3Object, roughSizeOfObject } from '$lib/utils'
 	import ExpandableImage from '$lib/components/common/image/ExpandableImage.svelte'
-	import { downloadViaClient, shouldDownloadViaClient } from '$lib/utils/downloadFile'
+	import {
+		downloadBlob,
+		downloadViaClient,
+		fetchViaClient,
+		shouldDownloadViaClient
+	} from '$lib/utils/downloadFile'
+	import { sendUserToast } from '$lib/toast'
 	import { appendViewToken } from '$lib/viewToken'
 	import { Badge, Button, Drawer, DrawerContent } from './common'
 	import {
@@ -38,6 +44,8 @@
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import MapResult from './MapResult.svelte'
+	import ChartResult from './display/ChartResult.svelte'
+	import { isChartResult } from './display/displayCatalog'
 	import DownloadCsv from './table/DownloadCsv.svelte'
 	import { convertJsonToCsv } from './table/tableUtils'
 	import Tooltip from './Tooltip.svelte'
@@ -89,6 +97,7 @@
 		| 'nondisplayable'
 		| 'pdf'
 		| 'aiagent'
+		| 'chart'
 		| undefined
 	let resultKind: ResultKind = $state()
 	/** Kinds whose renderer leaves the page: S3/ducklake previews fetch the file or
@@ -258,6 +267,50 @@
 	)
 	let resultDownloadName = $derived(`${filename ?? 'result'}.json`)
 
+	// A result over the backend's inline cap arrives as 'WINDMILL_TOO_BIG'. Ask the backend for
+	// `file.filename` alone to tell a `{ file: { content, filename } }` result. The root
+	// `{ file, filename }` shape is a file only when those are its sole keys, which cannot be
+	// checked without reading the large value, so it keeps the JSON download.
+	let tooBigFilename: string | undefined = $state(undefined)
+	let downloadingTooBigFile = $state(false)
+	async function fetchResultAt(apiPath: string, jsonPath: string): Promise<unknown> {
+		const r = await fetchViaClient(
+			`${apiPath}${apiPath.includes('?') ? '&' : '?'}json_path=${jsonPath}`
+		)
+		if (!r.ok) throw new Error(`${r.status} ${r.statusText}`)
+		return r.json()
+	}
+	$effect(() => {
+		tooBigFilename = undefined
+		const apiPath = result === 'WINDMILL_TOO_BIG' ? resultApiPath : undefined
+		if (!apiPath) return
+		let stale = false
+		fetchResultAt(apiPath, 'file.filename').then(
+			(name) => {
+				if (!stale && typeof name === 'string') tooBigFilename = name
+			},
+			() => {}
+		)
+		return () => (stale = true)
+	})
+	async function downloadTooBigFile(apiPath: string, name: string) {
+		downloadingTooBigFile = true
+		try {
+			const content = await fetchResultAt(apiPath, 'file.content')
+			if (typeof content !== 'string' || !content) throw new Error('the result has no file content')
+			const bin = atob(content)
+			// Filled byte by byte: a per-character array is several times the file's size
+			const bytes = new Uint8Array(bin.length)
+			for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
+			// A blob, not a data: URL, which browsers cap well below a large file's size
+			downloadBlob(new Blob([bytes]), name)
+		} catch (e) {
+			sendUserToast(`Download failed: ${e instanceof Error ? e.message : e}`, true)
+		} finally {
+			downloadingTooBigFile = false
+		}
+	}
+
 	function checkIfS3(result: any, keys: string[]) {
 		return keys.includes('s3') && typeof result.s3 === 'string'
 	}
@@ -378,7 +431,11 @@
 				}
 
 				if (keys.length != 0) {
-					if (
+					// Only a chart the catalog accepts: any other `{ chart }` result stays JSON. The
+					// catalog caps its rows, so it is exempt from the display size limit.
+					if (keys.length == 1 && keys[0] === 'chart' && isChartResult(result)) {
+						return 'chart'
+					} else if (
 						keys.length == 1 &&
 						[...IMG_KINDS, 'html', 'map', 'pdf', 'file', 'error'].includes(keys[0])
 					) {
@@ -907,6 +964,8 @@
 							{@html renderResultMarkup(result.html)}
 						{/if}
 					</div>
+				{:else if !forceJson && resultKind === 'chart'}
+					<ChartResult chart={result.chart} />
 				{:else if !forceJson && resultKind === 'map'}
 					<div class="h-full" data-interactive>
 						<MapResult
@@ -1318,6 +1377,19 @@
 							>
 						</div>
 					{:else}
+						{#if tooBigFilename && resultApiPath}
+							<div class="flex">
+								<Button
+									onclick={() => downloadTooBigFile(resultApiPath!, tooBigFilename!)}
+									disabled={downloadingTooBigFile}
+									startIcon={{ icon: Download }}
+									variant="subtle"
+									unifiedSize="sm"
+								>
+									Download {tooBigFilename}
+								</Button>
+							</div>
+						{/if}
 						{#if largeObject}
 							<div class="text-xs text-emphasis"
 								>{#if resultApiPath && shouldDownloadViaClient()}

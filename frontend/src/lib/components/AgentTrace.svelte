@@ -16,9 +16,12 @@
 	interface Props {
 		entries: AgentTraceEntry[]
 		workspaceId?: string
+		/** Identifies the run. Without it a new `entries` counts as another run, which is
+		 *  wrong for a streamed trace: it gets new entries on every poll. */
+		runKey?: string
 	}
 
-	let { entries, workspaceId }: Props = $props()
+	let { entries, workspaceId, runKey }: Props = $props()
 
 	let expanded = new SvelteSet<number>()
 	// A search opens on its sources, so for it the reader's toggle records a close.
@@ -26,7 +29,7 @@
 	// Row state is keyed by position, which means nothing once the viewer is handed
 	// another run: row 0 would stay open showing the previous run's job.
 	$effect(() => {
-		entries
+		runKey ?? entries
 		expanded.clear()
 		collapsedSearches.clear()
 		jobs.clear()
@@ -109,12 +112,14 @@
 			</ChatCollapsibleCard>
 		{:else}
 			{@const job = jobOf(entry.jobId)}
-			{@const failed = job?.type === 'CompletedJob' && !job.success}
+			{@const failed = entry.failed || (job?.type === 'CompletedJob' && !job.success)}
 			{@const search = webSearchResultOf(entry.result)}
 			<ChatCollapsibleCard
 				label={toolLabel(entry, search)}
 				expanded={expanded.has(index)}
 				onToggle={() => toggle(index, entry)}
+				shimmer={entry.running}
+				labelClass={entry.failed ? 'text-red-500' : ''}
 				contentClass="space-y-3"
 			>
 				{#if entry.args}
@@ -130,6 +135,7 @@
 						title="Result"
 						content={entry.result}
 						error={failed ? entry.result : undefined}
+						loading={entry.running}
 					/>
 				{/if}
 				{#if entry.resourcePath}

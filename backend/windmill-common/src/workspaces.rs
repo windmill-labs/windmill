@@ -206,7 +206,7 @@ pub enum ObjectType {
     DatatableMigration,
 }
 
-pub const LATEST_GIT_SYNC_SCRIPT_PATH: &str = "hub/30174/sync-script-to-git-repo-windmill";
+pub const LATEST_GIT_SYNC_SCRIPT_PATH: &str = "hub/30453/sync-script-to-git-repo-windmill";
 
 /// Hub script that applies a repository's state back into a workspace
 /// (the repo → Windmill / "pull" direction). Same script the UI runs from
@@ -214,12 +214,12 @@ pub const LATEST_GIT_SYNC_SCRIPT_PATH: &str = "hub/30174/sync-script-to-git-repo
 /// ignores the slug, so the slug is kept free of characters that would be
 /// percent-encoded into the run URL (a `:` becomes `%3A`, which some hardened
 /// reverse proxies reject as double-encoding when the client re-encodes it).
-pub const GIT_SYNC_PULL_SCRIPT_PATH: &str = "hub/30172/git-sync-init-repository-windmill";
+pub const GIT_SYNC_PULL_SCRIPT_PATH: &str = "hub/30451/git-sync-init-repository-windmill";
 
 /// Hub script that reviews a pull request with the workspace's AI (`ai_review_prs`): clones
 /// the base branch, fetches the pull request's head and runs `wmill review --json` from the
 /// `windmill-cli` it pins. The server posts what it returns.
-pub const GIT_SYNC_REVIEW_SCRIPT_PATH: &str = "hub/30173/git-sync-review-pull-request-windmill";
+pub const GIT_SYNC_REVIEW_SCRIPT_PATH: &str = "hub/30452/git-sync-review-pull-request-windmill";
 
 /// Prefix used to identify fork workspaces. A workspace whose id starts with this string is a
 /// fork of another workspace.
@@ -1099,6 +1099,18 @@ pub async fn billable_seats(db: &crate::DB, w_id: &str) -> Result<BillableSeats>
 #[cfg(feature = "cloud")]
 pub async fn count_paid_seats(db: &crate::DB, w_id: &str) -> Result<i64> {
     Ok(billable_seats(db, w_id).await?.seats)
+}
+
+/// Whether a workspace may use what Windmill Cloud reserves for paid plans (public apps, HTML
+/// and redirect job responses). Resolved through the fork/dev root; always true off the cloud.
+/// Reads billing state on the unrestricted pool: callers must already have authorized the
+/// request for `w_id`.
+pub async fn paid_features_allowed(_db: &crate::DB, _w_id: &str) -> Result<bool> {
+    #[cfg(feature = "cloud")]
+    if *crate::worker::CLOUD_HOSTED {
+        return Ok(get_team_plan_status(_db, _w_id).await?.premium);
+    }
+    Ok(true)
 }
 
 #[cfg(feature = "cloud")]
@@ -3994,6 +4006,7 @@ mod tests {
             folders: &folders,
             scopes: &scopes,
             token_prefix: &token_prefix,
+            capabilities: Some(crate::roles::RoleCapabilities::FULL),
         };
 
         assert!(can_use_datatable_role(&tenants(&["u/alice"]), &authed));
@@ -4032,6 +4045,7 @@ mod tests {
             folders: &folders,
             scopes: &scopes,
             token_prefix: &token_prefix,
+            capabilities: Some(crate::roles::RoleCapabilities::FULL),
         };
         assert!(!can_use_datatable_role(&tenants(&["*"]), &admin));
         assert!(!can_use_datatable_role(&tenants(&["u/alice"]), &admin));

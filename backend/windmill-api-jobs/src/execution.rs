@@ -37,7 +37,7 @@ use windmill_common::{
     get_latest_flow_version_info_for_path,
     jobs::{
         check_tag_available_for_workspace_internal, format_result, script_path_to_payload,
-        JobPayload,
+        ChosenBy, JobPayload,
     },
     runnable_ref::RunnableRef,
     triggers::TriggerMetadata,
@@ -577,7 +577,7 @@ pub async fn run_wait_result_internal(
                     SELECT
                         result AS \"result: sqlx::types::Json<Box<RawValue>>\",
                         result_columns,
-                        status = 'success' AS \"success!\"
+                        status IN ('success', 'skipped') AS \"success!\"
                     FROM
                         v2_job_completed
                     WHERE
@@ -623,8 +623,146 @@ pub async fn run_wait_result_internal(
     }
 }
 
-pub fn result_to_response(result: Box<RawValue>, success: bool) -> error::Result<Response> {
+/// Content types a workspace without a paid plan may serve on Windmill Cloud: data, never a
+/// document a browser renders as a page (HTML, SVG, XML, PDF, JS, ...).
+const PLAIN_CONTENT_TYPES: [&str; 9] = [
+    "application/json",
+    "application/x-ndjson",
+    "text/plain",
+    "text/csv",
+    "text/calendar",
+    "image/png",
+    "image/jpeg",
+    "image/gif",
+    "image/webp",
+];
+
+/// `windmill_headers` a workspace without a paid plan may not set on Windmill Cloud. Each turns
+/// our domain into something other than a data API: a redirect, a file download, a native login
+/// prompt, or a cookie or cleared site data on it. `Content-Type` is checked by value instead:
+/// set there it overrides the JSON body's own.
+const PAID_ONLY_HEADERS: [&str; 6] = [
+    "location",
+    "refresh",
+    "content-disposition",
+    "www-authenticate",
+    "set-cookie",
+    "clear-site-data",
+];
+
+fn content_type_allowed(ct: &str) -> bool {
+    // A browser reads a comma-separated Content-Type as a list and uses its last valid type,
+    // so `text/plain, text/html` renders as HTML.
+    if ct.contains(',') {
+        return false;
+    }
+    let media_type = ct.split(';').next().unwrap_or("").trim();
+    PLAIN_CONTENT_TYPES
+        .iter()
+        .any(|t| t.eq_ignore_ascii_case(media_type))
+}
+
+fn content_type_hint(ct: &str) -> String {
+    let ct = ct.to_ascii_lowercase();
+    if ct.contains(',') {
+        "Set a single content type.".to_string()
+    } else if ct.contains("svg") {
+        "Render the image as image/png instead.".to_string()
+    } else {
+        format!(
+            "Allowed content types are {}.",
+            PLAIN_CONTENT_TYPES.join(", ")
+        )
+    }
+}
+
+/// Why serving this composite result would make our domain serve a web page, a redirect or one
+/// of [`PAID_ONLY_HEADERS`], which a free cloud workspace may not do, with how to fix it.
+/// `None` when it serves data only.
+fn paid_plan_refusal(
+    status_code: Option<u16>,
+    content_type: Option<&str>,
+    headers: Option<&HashMap<String, String>>,
+) -> Option<String> {
+    if let Some(c) = status_code.filter(|c| (300..400).contains(c)) {
+        return Some(format!(
+            "windmill_status_code {c} is a redirect. Return the URL in the result instead."
+        ));
+    }
+    if let Some(ct) = content_type.filter(|ct| !content_type_allowed(ct)) {
+        return Some(format!(
+            "windmill_content_type \"{ct}\" is not allowed. {}",
+            content_type_hint(ct)
+        ));
+    }
+    for (k, v) in headers.into_iter().flatten() {
+        let name = k.trim();
+        if name.eq_ignore_ascii_case("content-type") {
+            if !content_type_allowed(v) {
+                return Some(format!(
+                    "windmill_headers \"{k}: {v}\" is not allowed. {}",
+                    content_type_hint(v)
+                ));
+            }
+        } else if PAID_ONLY_HEADERS
+            .iter()
+            .any(|n| n.eq_ignore_ascii_case(name))
+        {
+            let hint = if ["location", "refresh"]
+                .iter()
+                .any(|n| n.eq_ignore_ascii_case(name))
+            {
+                " Return the URL in the result instead."
+            } else {
+                ""
+            };
+            return Some(format!("windmill_headers \"{k}\" is not allowed.{hint}"));
+        }
+    }
+    None
+}
+
+/// [`result_to_response`] for a response served over HTTP, with the workspace's plan applied.
+/// The plan is looked up only for a result that needs it, so a plan lookup failure never
+/// holds up an ordinary response. Callers must already have authorized the request for `w_id`
+/// and the job that produced `result`.
+pub async fn result_to_http_response(
+    db: &DB,
+    w_id: &str,
+    result: Box<RawValue>,
+    success: bool,
+) -> error::Result<Response> {
     let composite_result = parse_result_object::<WindmillCompositeResult>(result.get());
+    let needs_plan = composite_result.as_ref().is_some_and(|c| {
+        paid_plan_refusal(
+            c.windmill_status_code,
+            c.windmill_content_type.as_deref(),
+            c.windmill_headers.as_ref(),
+        )
+        .is_some()
+    });
+    let rich_responses_allowed =
+        !needs_plan || windmill_common::workspaces::paid_features_allowed(db, w_id).await?;
+    composite_to_response(composite_result, result, success, rich_responses_allowed)
+}
+
+/// Shapes a job result into a response. `rich_responses_allowed: false` refuses a result that
+/// [`paid_plan_refusal`] refuses; HTTP callers get it from [`result_to_http_response`].
+pub fn result_to_response(
+    result: Box<RawValue>,
+    success: bool,
+    rich_responses_allowed: bool,
+) -> error::Result<Response> {
+    let composite_result = parse_result_object::<WindmillCompositeResult>(result.get());
+    composite_to_response(composite_result, result, success, rich_responses_allowed)
+}
+
+fn composite_to_response(
+    composite_result: Option<WindmillCompositeResult>,
+    result: Box<RawValue>,
+    success: bool,
+    rich_responses_allowed: bool,
+) -> error::Result<Response> {
     match composite_result {
         Some(WindmillCompositeResult {
             windmill_status_code,
@@ -633,6 +771,19 @@ pub fn result_to_response(result: Box<RawValue>, success: bool) -> error::Result
             windmill_content_transfer_encoding,
             result: result_value,
         }) => {
+            if !rich_responses_allowed {
+                if let Some(reason) = paid_plan_refusal(
+                    windmill_status_code,
+                    windmill_content_type.as_deref(),
+                    windmill_headers.as_ref(),
+                ) {
+                    return Err(Error::BadRequest(format!(
+                        "The job ran, but its response was refused: {reason} Web pages, \
+                         redirects and some response headers require a paid plan on Windmill \
+                         Cloud: upgrade this workspace in Workspace Settings > Premium plans."
+                    )));
+                }
+            }
             if windmill_content_type.is_none()
                 && windmill_status_code.is_none()
                 && windmill_headers.is_none()
@@ -802,7 +953,7 @@ pub async fn run_wait_result(
     )
     .await?;
 
-    result_to_response(result, success)
+    result_to_http_response(db, w_id, result, success).await
 }
 
 // ---------------------------------------------------------------------------
@@ -878,11 +1029,31 @@ pub async fn check_queue_too_long(db: &DB, queue_limit: Option<i64>) -> error::R
 // Flow run helpers
 // ---------------------------------------------------------------------------
 
+/// Record the run's memory id, and make the run the one turn that holds it: a run started with a
+/// memory id a still-queued run holds is refused with a 409, so two turns never write the same
+/// memory over each other. A holder whose agent parked hands the turn over instead. For a chat flow, call it after `handle_chat_conversation_messages`,
+/// whose refusal names the running turn the way the chat follows it.
 pub async fn set_flow_memory_id(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    w_id: &str,
     job_id: Uuid,
     memory_id: Uuid,
 ) -> error::Result<()> {
+    if let Some(refused) = claim_memory_turn(tx, w_id, memory_id, job_id).await? {
+        let error = if refused.parked {
+            "another run with this memory_id is waiting, but has steps after its AI agent, so it \
+             cannot hand its conversation over. Wait for it, or pass `take_over=true` to stop it \
+             and run this one instead."
+        } else {
+            "another run with this memory_id is still running. Wait for it, or pass \
+             `take_over=true` to stop it and run this one instead."
+        };
+        return Err(Error::Generic(
+            StatusCode::CONFLICT,
+            serde_json::json!({ "error": error, "running_turn": { "job_id": refused.holder } })
+                .to_string(),
+        ));
+    }
     sqlx::query!(
         "UPDATE v2_job_status
          SET flow_status = jsonb_set(
@@ -897,6 +1068,248 @@ pub async fn set_flow_memory_id(
     .execute(&mut **tx)
     .await?;
     Ok(())
+}
+
+/// A claim refused: the queued run that holds the memory id, and whether its agent is parked
+/// where the run cannot hand its conversation over.
+struct RefusedClaim {
+    holder: Uuid,
+    parked: bool,
+}
+
+/// Make `job_id` the holder of the memory id, or return the queued run that holds it and cannot
+/// hand it over.
+///
+/// Lock, then look, in separate statements: under read committed, a statement that waited on a
+/// row lock still evaluates its subqueries with the snapshot it started with, so a single upsert
+/// checking the queue would miss the holder that committed while it waited.
+async fn claim_memory_turn(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    w_id: &str,
+    memory_id: Uuid,
+    job_id: Uuid,
+) -> error::Result<Option<RefusedClaim>> {
+    // A claim the monitor deletes while this waits on it is gone, not held: insert again.
+    for _ in 0..3 {
+        let inserted = sqlx::query_scalar!(
+            "INSERT INTO ai_memory_turn (workspace_id, memory_id, job_id) VALUES ($1, $2, $3)
+             ON CONFLICT (workspace_id, memory_id) DO NOTHING RETURNING job_id",
+            w_id,
+            memory_id,
+            job_id
+        )
+        .fetch_optional(&mut **tx)
+        .await?;
+        if inserted.is_some() {
+            return Ok(None);
+        }
+        let claim = sqlx::query!(
+            "SELECT job_id, handed_jobs FROM ai_memory_turn
+             WHERE workspace_id = $1 AND memory_id = $2 FOR UPDATE",
+            w_id,
+            memory_id
+        )
+        .fetch_optional(&mut **tx)
+        .await?;
+        let Some((holder, unadopted)) = claim.map(|c| (c.job_id, c.handed_jobs)) else {
+            continue;
+        };
+        let queued = sqlx::query_scalar!(
+            r#"SELECT EXISTS (SELECT 1 FROM v2_job_queue WHERE id = $1) AS "queued!""#,
+            holder
+        )
+        .fetch_one(&mut **tx)
+        .await?;
+        let handed_jobs = if queued {
+            match hand_over_parked_turn(tx, holder).await? {
+                Some(jobs) => Some(jobs),
+                None => {
+                    let parked = sqlx::query_scalar!(
+                        r#"SELECT EXISTS (SELECT 1 FROM ai_agent_checkpoint c
+                             JOIN v2_job_queue q ON q.id = c.job_id JOIN v2_job j ON j.id = c.job_id
+                             WHERE (j.parent_job = $1 OR j.root_job = $1)
+                               AND q.suspend > 0 AND q.suspend_until IS NOT NULL) AS "parked!""#,
+                        holder
+                    )
+                    .fetch_one(&mut **tx)
+                    .await?;
+                    return Ok(Some(RefusedClaim { holder, parked }));
+                }
+            }
+        } else {
+            // Jobs handed to the ended run and never adopted: cancelled, as the monitor does
+            // for a claim it deletes, rather than dropped with the row.
+            if let Some(unadopted) = &unadopted {
+                windmill_common::flow_conversations::cancel_unadopted_handed_jobs(
+                    &mut **tx, unadopted,
+                )
+                .await?;
+            }
+            None
+        };
+        sqlx::query!(
+            "UPDATE ai_memory_turn SET job_id = $3, handed_jobs = $4
+             WHERE workspace_id = $1 AND memory_id = $2",
+            w_id,
+            memory_id,
+            job_id,
+            handed_jobs
+        )
+        .execute(&mut **tx)
+        .await?;
+        return Ok(None);
+    }
+    Err(Error::internal_err(format!(
+        "Could not claim memory id {memory_id}: its claim kept being released"
+    )))
+}
+
+/// A run whose agent parked has given its answer or waits on a person, so a new turn continues
+/// the conversation rather than being refused. The parked agent is woken to end with what it has,
+/// any open approval or question dropped, and its background jobs are returned by flow step id
+/// for the new run's agent to adopt. `None` when there is no such agent.
+///
+/// Only an agent that is the run's last top-level step, where the run is at: after it the run
+/// ends, so nothing of it can write the memory or the chat beside the new turn. A step after it,
+/// or one in a parallel branch, would. `refuse_running_turn` holds the same condition.
+///
+/// Zeroing `suspend` under the row lock is what keeps the monitor's wake and an answer from
+/// resuming the old turn as well: both only act on a row still parked.
+async fn hand_over_parked_turn(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    holder: Uuid,
+) -> error::Result<Option<serde_json::Value>> {
+    let parked = sqlx::query!(
+        r#"UPDATE v2_job_queue q SET suspend = 0
+         FROM ai_agent_checkpoint c, v2_job j, v2_job_status s
+         WHERE c.job_id = q.id AND j.id = q.id AND j.parent_job = $1 AND s.id = $1
+           AND (s.flow_status->>'step')::int = jsonb_array_length(s.flow_status->'modules') - 1
+           AND s.flow_status->'modules'->-1->>'job' = q.id::text
+           AND q.suspend > 0 AND q.suspend_until IS NOT NULL
+         RETURNING q.id, j.flow_step_id, c.checkpoint->'background' AS "background""#,
+        holder
+    )
+    .fetch_all(&mut **tx)
+    .await?;
+    if parked.is_empty() {
+        return Ok(None);
+    }
+    let ids: Vec<Uuid> = parked.iter().map(|p| p.id).collect();
+    sqlx::query!(
+        "UPDATE ai_agent_checkpoint
+         SET checkpoint = jsonb_set(checkpoint, '{handed_over}', 'true'), waiting_on = '{}'
+         WHERE job_id = ANY($1)",
+        &ids
+    )
+    .execute(&mut **tx)
+    .await?;
+    let jobs = parked
+        .into_iter()
+        .filter_map(|p| Some((p.flow_step_id?, p.background?)))
+        .collect::<serde_json::Map<_, _>>();
+    Ok(Some(serde_json::Value::Object(jobs)))
+}
+
+/// How long `take_over_memory_turn` waits for the stopped run to leave the queue: an agent step's
+/// cancel grace period, plus the time its worker takes to notice the cancel.
+const TAKE_OVER_WAIT: std::time::Duration = std::time::Duration::from_secs(40);
+
+/// With `take_over`, stop the run that holds the memory id so this one can claim it: cancel it,
+/// then wait for it to leave the queue, which its agents spend saving what they have to memory.
+/// Only who started that run, or an admin, can stop it, and a restricted token only with an
+/// unconfined `jobs:cancel` grant: the memory id is not confined to the flow being run.
+pub async fn take_over_memory_turn(
+    db: &DB,
+    authed: &ApiAuthed,
+    w_id: &str,
+    flow_path: &str,
+    run_query: &RunJobQuery,
+) -> error::Result<()> {
+    if !run_query.take_over.unwrap_or(false) {
+        return Ok(());
+    }
+    let Some(memory_id) = run_query.memory_key(w_id, flow_path) else {
+        return Err(Error::BadRequest("take_over needs a memory_id".to_string()));
+    };
+    let scopes = authed.scopes.as_deref();
+    if scopes.is_some()
+        && !(windmill_api_auth::scopes::has_job_cancel_grant(scopes)
+            && windmill_api_auth::scopes::job_cancel_path_confinement(scopes).is_none())
+    {
+        return Err(Error::NotAuthorized(
+            "take_over needs a token that can cancel any job (`jobs:cancel`)".to_string(),
+        ));
+    }
+    let holder = sqlx::query!(
+        "SELECT t.job_id, j.created_by, j.tag FROM ai_memory_turn t
+         JOIN v2_job_queue q ON q.id = t.job_id
+         JOIN v2_job j ON j.id = t.job_id
+         WHERE t.workspace_id = $1 AND t.memory_id = $2",
+        w_id,
+        memory_id
+    )
+    .fetch_optional(db)
+    .await?;
+    let Some((job_id, created_by, tag)) = holder.map(|h| (h.job_id, h.created_by, h.tag)) else {
+        return Ok(());
+    };
+    // A token confined to tags reads, and so cancels, only jobs on them.
+    if get_scope_tags(authed).is_some_and(|tags| !tags.contains(&tag.as_str())) {
+        return Err(Error::NotAuthorized(format!(
+            "the running turn is on tag {tag}, which this token cannot reach"
+        )));
+    }
+    if created_by != authed.username && !authed.is_admin {
+        return Err(Error::NotAuthorized(
+            "only who started the running turn, or an admin, can take it over".to_string(),
+        ));
+    }
+    let (tx, _) = windmill_queue::cancel_job(
+        &authed.username,
+        Some("taken over by a new run".to_string()),
+        job_id,
+        w_id,
+        db.begin().await?,
+        db,
+        false,
+        false,
+    )
+    .await?;
+    tx.commit().await?;
+    windmill_audit::audit_oss::audit_log(
+        db,
+        authed,
+        "jobs.cancel",
+        ActionKind::Delete,
+        w_id,
+        Some(&job_id.to_string()),
+        None,
+    )
+    .await?;
+
+    let deadline = std::time::Instant::now() + TAKE_OVER_WAIT;
+    loop {
+        let queued = sqlx::query_scalar!(
+            r#"SELECT EXISTS (SELECT 1 FROM v2_job_queue WHERE id = $1) AS "queued!""#,
+            job_id
+        )
+        .fetch_one(db)
+        .await?;
+        if !queued {
+            return Ok(());
+        }
+        if std::time::Instant::now() > deadline {
+            return Err(Error::Generic(
+                StatusCode::CONFLICT,
+                serde_json::json!({
+                    "error": "the running turn was cancelled but has not stopped yet; retry shortly",
+                    "running_turn": { "job_id": job_id },
+                })
+                .to_string(),
+            ));
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+    }
 }
 
 pub async fn handle_chat_conversation_messages(
@@ -1014,6 +1427,7 @@ pub async fn run_flow<'c>(
 )> {
     let mut run_query = run_query;
     drop_unclaimable_run_lineage(db, w_id, &mut run_query, authed).await?;
+    take_over_memory_turn(db, authed, w_id, flow_path, &run_query).await?;
     let on_behalf_of = flow_version_info.on_behalf_of(w_id, &db).await?;
     let FlowVersionInfo {
         version,
@@ -1117,11 +1531,6 @@ pub async fn run_flow<'c>(
     )
     .await?;
 
-    // Set memory_id if provided (for agent memory)
-    if let Some(memory_id) = run_query.memory_key(w_id, flow_path) {
-        set_flow_memory_id(&mut tx, uuid, memory_id).await?;
-    }
-
     // Handle conversation messages for chat-enabled flows
     if chat_input_enabled.unwrap_or(false) {
         handle_chat_conversation_messages(
@@ -1136,6 +1545,11 @@ pub async fn run_flow<'c>(
             &args.args,
         )
         .await?;
+    }
+
+    // Set memory_id if provided (for agent memory)
+    if let Some(memory_id) = run_query.memory_key(w_id, flow_path) {
+        set_flow_memory_id(&mut tx, w_id, uuid, memory_id).await?;
     }
 
     // If we were given a transaction, return it; otherwise commit it
@@ -1167,7 +1581,7 @@ pub async fn run_flow_and_wait_result(
     run_query: RunJobQuery,
     args: PushArgsOwned,
     trigger: Option<TriggerMetadata>,
-) -> error::Result<Response> {
+) -> error::Result<(Box<RawValue>, bool)> {
     let (uuid, early_return, has_failure_module, _) = run_flow(
         authed,
         db,
@@ -1182,7 +1596,7 @@ pub async fn run_flow_and_wait_result(
     )
     .await?;
 
-    run_wait_result(
+    run_wait_result_internal(
         &db,
         uuid,
         w_id,
@@ -1242,6 +1656,7 @@ pub async fn push_flow_job_by_path_into_queue<'c>(
 
 pub async fn push_script_job_by_path_into_queue<'c>(
     authed: ApiAuthed,
+    chosen_by: ChosenBy,
     db: DB,
     tx_o: Option<sqlx::Transaction<'c, sqlx::Postgres>>,
     user_db: UserDB,
@@ -1267,6 +1682,7 @@ pub async fn push_script_job_by_path_into_queue<'c>(
     let (job_payload, tag, delete_after_use, delete_after_secs, timeout, on_behalf_of) =
         script_path_to_payload(
             script,
+            chosen_by.origin(authed.to_authed_ref()),
             Some(userdb_authed),
             db.clone(),
             &w_id,
@@ -1381,6 +1797,7 @@ mod result_to_response_tests {
                 r#"{{"wm_content_type":"application/pdf","wm_content_transfer_encoding":"base64","result":"{b64}"}}"#
             )),
             true,
+            true,
         )
         .expect("response");
 
@@ -1399,6 +1816,7 @@ mod result_to_response_tests {
                 r#"{"wm_content_type":"application/pdf","wm_content_transfer_encoding":"base64","result":"not valid base64!!"}"#,
             ),
             true,
+            true,
         );
         assert!(res.is_err(), "invalid base64 must not silently fall back");
     }
@@ -1412,6 +1830,7 @@ mod result_to_response_tests {
                 raw(&format!(
                     r#"{{"wm_content_type":"application/octet-stream","wm_content_transfer_encoding":"base64","result":{result}}}"#
                 )),
+                true,
                 true,
             );
             assert!(
@@ -1428,6 +1847,7 @@ mod result_to_response_tests {
                 r#"{"wm_content_type":"text/plain","wm_content_transfer_encoding":"gzip","result":"x"}"#,
             ),
             true,
+            true,
         );
         assert!(res.is_err());
     }
@@ -1436,6 +1856,7 @@ mod result_to_response_tests {
     async fn transfer_encoding_without_content_type_is_rejected() {
         let res = result_to_response(
             raw(r#"{"wm_content_transfer_encoding":"base64","result":"aGk="}"#),
+            true,
             true,
         );
         assert!(res.is_err());
@@ -1447,6 +1868,7 @@ mod result_to_response_tests {
         // (quotes stripped), not base64-decoded.
         let resp = result_to_response(
             raw(r#"{"wm_content_type":"text/html","result":"<h1>hi</h1>"}"#),
+            true,
             true,
         )
         .expect("response");
@@ -1483,6 +1905,7 @@ mod result_to_response_tests {
                 r#"{"wm_headers":{"content-type":"text/html","content-security-policy":"default-src *","x-content-type-options":"none"},"result":"<h1>hi</h1>"}"#,
             ),
             true,
+            true,
         )
         .expect("response");
 
@@ -1503,6 +1926,7 @@ mod result_to_response_tests {
                     r#"{{"wm_content_type":"text/html","wm_headers":{{"{name}":"content-security-policy, x-content-type-options"}},"result":"<h1>hi</h1>"}}"#
                 )),
                 true,
+                true,
             );
             assert!(res.is_err(), "hop-by-hop header must be rejected: {name}");
         }
@@ -1511,9 +1935,69 @@ mod result_to_response_tests {
     #[tokio::test]
     async fn array_result_is_not_a_composite_response() {
         let json = r#"[201,"text/html",null,null,"<h1>hi</h1>"]"#;
-        let resp = result_to_response(raw(json), true).expect("response");
+        let resp = result_to_response(raw(json), true, true).expect("response");
 
         assert_eq!(resp.status(), StatusCode::OK);
         assert_eq!(body_bytes(resp).await, json.as_bytes());
+    }
+
+    #[tokio::test]
+    async fn pages_and_redirects_need_a_paid_plan() {
+        let refused = [
+            r#"{"wm_content_type":"text/html","result":"<h1>hi</h1>"}"#,
+            r#"{"wm_content_type":"TEXT/HTML; charset=utf-8","result":"<h1>hi</h1>"}"#,
+            r#"{"wm_content_type":"image/svg+xml","result":"<svg/>"}"#,
+            r#"{"wm_content_type":"application/pdf","result":"x"}"#,
+            r#"{"wm_status_code":302,"result":null}"#,
+            r#"{"wm_status_code":308,"result":null}"#,
+            r#"{"wm_headers":{"Location":"https://example.com"},"result":null}"#,
+            r#"{"wm_headers":{"refresh":"0;url=https://example.com"},"result":null}"#,
+            r#"{"wm_headers":{"Content-Type":"text/html"},"result":"<h1>hi</h1>"}"#,
+            r#"{"wm_content_type":"text/plain","wm_headers":{"Content-Disposition":"attachment; filename=\"x.exe\""},"result":"x"}"#,
+            r#"{"wm_status_code":401,"wm_headers":{"WWW-Authenticate":"Basic realm=\"login\""}}"#,
+            r#"{"wm_content_type":"text/plain; charset=utf-8, text/html","result":"<h1>hi</h1>"}"#,
+            r#"{"wm_headers":{"set-cookie":"token=x; Path=/"},"result":{"a":1}}"#,
+            r#"{"wm_headers":{"content-type":"image/svg+xml"},"result":"<svg/>"}"#,
+            r#"{"wm_headers":{"Clear-Site-Data":"\"cookies\""},"result":{"a":1}}"#,
+        ];
+        for json in refused {
+            let res = result_to_response(raw(json), true, false);
+            assert!(
+                matches!(res, Err(Error::BadRequest(_))),
+                "must be refused: {json}"
+            );
+            assert!(
+                result_to_response(raw(json), true, true).is_ok(),
+                "paid: {json}"
+            );
+        }
+
+        let allowed = [
+            r#"{"a":1}"#,
+            r#"{"wm_content_type":"application/json","result":{"a":1}}"#,
+            r#"{"wm_content_type":"text/plain; charset=utf-8","result":"hi"}"#,
+            r#"{"wm_content_type":"image/png","wm_content_transfer_encoding":"base64","result":"aGk="}"#,
+            r#"{"wm_status_code":201,"wm_headers":{"x-custom":"1"},"result":{"a":1}}"#,
+            r#"{"wm_status_code":400,"result":"bad"}"#,
+            r#"{"wm_headers":{"content-type":"image/gif"},"result":"R0lGODlh"}"#,
+        ];
+        for json in allowed {
+            assert!(
+                result_to_response(raw(json), true, false).is_ok(),
+                "must be allowed: {json}"
+            );
+        }
+
+        let Err(Error::BadRequest(msg)) = result_to_response(
+            raw(r#"{"wm_headers":{"content-type":"image/svg+xml"},"result":"<svg/>"}"#),
+            true,
+            false,
+        ) else {
+            panic!("svg must be refused");
+        };
+        assert!(
+            msg.contains("\"content-type: image/svg+xml\"") && msg.contains("image/png"),
+            "error must name the refused key and value and suggest a fix: {msg}"
+        );
     }
 }

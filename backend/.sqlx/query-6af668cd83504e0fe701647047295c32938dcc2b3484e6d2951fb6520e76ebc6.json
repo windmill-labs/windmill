@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT DISTINCT imported_path FROM dependency_map WHERE workspace_id = $1 AND importer_path = $2 AND importer_kind = 'script'",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "imported_path",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "6af668cd83504e0fe701647047295c32938dcc2b3484e6d2951fb6520e76ebc6"
+}

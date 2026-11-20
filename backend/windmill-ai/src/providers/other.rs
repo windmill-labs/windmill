@@ -1,4 +1,7 @@
-use super::{completions_tools_need_reasoning_off, REASONING_OFF_SENTINEL};
+use super::{
+    completions_tools_need_reasoning_off, force_claude_structured_output_tool,
+    reads_max_completion_tokens, REASONING_OFF_SENTINEL,
+};
 use crate::{
     ai_providers::AIProvider,
     image_handler::prepare_messages_for_api,
@@ -12,6 +15,14 @@ use async_trait::async_trait;
 use serde::Serialize;
 use serde_json;
 use windmill_common::{client::AuthedClient, error::Error};
+
+#[derive(Serialize, Debug, Clone)]
+#[serde(rename_all = "lowercase")]
+pub enum ToolChoice {
+    #[allow(dead_code)]
+    Auto,
+    Required,
+}
 
 /// Stream options for OpenAI API to include usage in streaming responses
 #[derive(Serialize)]
@@ -33,10 +44,15 @@ pub struct OpenAICompletionRequest<'a> {
     /// token (`reasoning_effort: "none"` is rejected by their API).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub thinking: Option<serde_json::Value>,
+    /// At most one of the two limit fields is set: `reads_max_completion_tokens` picks which.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_tokens: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_completion_tokens: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub response_format: Option<ResponseFormat>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_choice: Option<ToolChoice>,
     pub stream: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stream_options: Option<StreamOptions>,
@@ -125,6 +141,15 @@ impl OtherQueryBuilder {
             None
         };
 
+        let tool_choice = if should_use_structured_output_tool
+            && has_output_properties
+            && force_claude_structured_output_tool(args.model, args.reasoning_effort)
+        {
+            Some(ToolChoice::Required)
+        } else {
+            None
+        };
+
         let (reasoning_effort, thinking, temperature) =
             provider_reasoning_fields(&self.provider_kind, args.reasoning_effort, args.temperature);
         // With tools, gpt-5.5+ only run here with reasoning off: turn it off where the model
@@ -137,6 +162,13 @@ impl OtherQueryBuilder {
             reasoning_effort
         };
 
+        let (max_tokens, max_completion_tokens) =
+            if reads_max_completion_tokens(&self.provider_kind) {
+                (None, args.max_tokens)
+            } else {
+                (args.max_tokens, None)
+            };
+
         // Build request with stream_options for usage tracking
         let request_with_usage = OpenAICompletionRequest {
             model: args.model,
@@ -145,8 +177,10 @@ impl OtherQueryBuilder {
             temperature,
             reasoning_effort,
             thinking: thinking.clone(),
-            max_completion_tokens: args.max_tokens,
+            max_tokens,
+            max_completion_tokens,
             response_format: response_format.clone(),
+            tool_choice: tool_choice.clone(),
             stream: true,
             stream_options: Some(StreamOptions { include_usage: true }),
         };
@@ -159,8 +193,10 @@ impl OtherQueryBuilder {
             temperature,
             reasoning_effort,
             thinking,
-            max_completion_tokens: args.max_tokens,
+            max_tokens,
+            max_completion_tokens,
             response_format,
+            tool_choice,
             stream: true,
             stream_options: None,
         };
@@ -346,5 +382,67 @@ mod tests {
         assert_eq!(effort, Some("high"));
         assert!(thinking.is_none());
         assert_eq!(temperature, Some(0.3));
+    }
+
+    #[tokio::test]
+    async fn writes_the_limit_in_the_one_field_the_provider_reads() {
+        let client = AuthedClient::new(
+            "http://localhost:8000".to_string(),
+            "ws".to_string(),
+            "token".to_string(),
+            None,
+        );
+        let messages = vec![OpenAIMessage {
+            role: "user".to_string(),
+            content: Some(OpenAIContent::Text("hi".to_string())),
+            ..Default::default()
+        }];
+        // The field each provider must get the limit in; `None` is a request with no limit.
+        #[rustfmt::skip]
+        let cases: &[(AIProvider, &str, Option<&str>)] = &[
+            (AIProvider::OpenAI, "gpt-4o", Some("max_completion_tokens")),
+            (AIProvider::AzureOpenAI, "my-deployment", Some("max_completion_tokens")),
+            (AIProvider::Groq, "llama-3.3-70b", Some("max_completion_tokens")),
+            (AIProvider::OpenRouter, "meta-llama/llama-3", Some("max_completion_tokens")),
+            (AIProvider::AzureFoundry, "Llama-3.3-70B-Instruct", Some("max_completion_tokens")),
+            (AIProvider::CustomAI, "production", Some("max_completion_tokens")),
+            (AIProvider::DeepSeek, "deepseek-flash", Some("max_tokens")),
+            (AIProvider::Mistral, "mistral-medium-latest", Some("max_tokens")),
+            (AIProvider::TogetherAI, "meta-llama/Llama-3-8b", Some("max_tokens")),
+            (AIProvider::DeepSeek, "deepseek-flash", None),
+        ];
+        for (provider, model, field) in cases {
+            let args = BuildRequestArgs {
+                messages: &messages,
+                tools: None,
+                model,
+                temperature: None,
+                reasoning_effort: None,
+                max_tokens: field.map(|_| 40),
+                output_schema: None,
+                output_type: &OutputType::Text,
+                system_prompt: None,
+                user_message: "hi",
+                attachments: None,
+                has_websearch: false,
+                prompt_cache_key: None,
+                reasoning_summary: false,
+            };
+            let built = OtherQueryBuilder::new(provider.clone())
+                .build_text_requests(&args, &client, "ws")
+                .await
+                .unwrap();
+            for body in [built.with_usage, built.without_usage] {
+                let body: serde_json::Value = serde_json::from_str(&body).unwrap();
+                for name in ["max_tokens", "max_completion_tokens"] {
+                    let expected = (Some(name) == *field).then(|| serde_json::json!(40));
+                    assert_eq!(
+                        body.get(name).cloned(),
+                        expected,
+                        "{provider:?} {model} {name}"
+                    );
+                }
+            }
+        }
     }
 }

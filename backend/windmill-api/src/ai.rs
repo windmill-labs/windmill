@@ -39,7 +39,7 @@ use windmill_ai::providers::{
         handle_google_ai_chat_proxy, handle_google_ai_models_proxy, GoogleAIProxyResponse,
         GoogleAIProxyResponseBody,
     },
-    is_chat_completions_only,
+    is_chat_completions_only, reads_max_completion_tokens,
 };
 use windmill_ai::proxy::{
     fim::maybe_transform_fim_request, proxy_execution_mode, validate_proxy_path, ProxyBuildArgs,
@@ -47,6 +47,9 @@ use windmill_ai::proxy::{
 };
 use windmill_ai::retry::send_with_retries;
 use windmill_ai::types::{OpenAIContent, OpenAIMessage};
+use windmill_ai::vertex_workload_identity::{
+    check_vertex_base_url, exchange_oidc_token, GcpAccessToken, VertexWorkloadIdentity,
+};
 use windmill_ai::web_search::{WebPage, WebSearchProvider, WebSearchResult};
 use windmill_audit::{audit_oss::audit_log, ActionKind};
 use windmill_common::client::AuthedClient;
@@ -132,6 +135,10 @@ lazy_static::lazy_static! {
     /// federation settings, user email). Like BEDROCK_ASSUMED_ROLE_CACHE, an entry
     /// is never handed to another user than the one the OIDC token named.
     static ref ANTHROPIC_FEDERATED_TOKEN_CACHE: Cache<(String, AnthropicFederation, String), FederatedAccessToken> = Cache::new(500);
+
+    /// Google access tokens from a Vertex Workload Identity Federation exchange,
+    /// keyed like ANTHROPIC_FEDERATED_TOKEN_CACHE by (workspace, settings, user email).
+    static ref VERTEX_WORKLOAD_IDENTITY_TOKEN_CACHE: Cache<(String, VertexWorkloadIdentity, String), GcpAccessToken> = Cache::new(500);
 }
 
 #[cfg(feature = "bedrock")]
@@ -146,6 +153,8 @@ lazy_static::lazy_static! {
 pub(crate) fn invalidate_ai_request_cache_for_workspace(workspace_id: &str) {
     AI_REQUEST_CACHE.retain(|(cached_workspace_id, _), _| cached_workspace_id != workspace_id);
     ANTHROPIC_FEDERATED_TOKEN_CACHE
+        .retain(|(cached_workspace_id, _, _), _| cached_workspace_id != workspace_id);
+    VERTEX_WORKLOAD_IDENTITY_TOKEN_CACHE
         .retain(|(cached_workspace_id, _, _), _| cached_workspace_id != workspace_id);
     // Dropped alongside the credentials that named the role, so that changing a
     // workspace's AI settings does not leave a session assumed under the old ones
@@ -249,6 +258,14 @@ struct AIStandardResource {
     /// Custom HTTP headers to include in AI requests
     #[serde(default)]
     headers: HashMap<String, String>,
+    /// Set only by `vertex_ai_federated` resources, which authenticate to Vertex AI
+    /// through Google Cloud Workload Identity Federation.
+    #[serde(default, deserialize_with = "empty_string_as_none")]
+    workload_identity_provider: Option<String>,
+    #[serde(default, deserialize_with = "empty_string_as_none")]
+    service_account_email: Option<String>,
+    #[serde(default, deserialize_with = "empty_string_as_none")]
+    workload_identity_audience: Option<String>,
     /// The API token of a `cloudflare` resource, which names it `token` rather than `api_key`.
     #[serde(default, deserialize_with = "empty_string_as_none")]
     token: Option<String>,
@@ -306,6 +323,19 @@ async fn resolve_var(
     match (user_db, authed) {
         (Some(udb), Some(auth)) => Ok(get_variable_or_self_as(path, db, udb, auth, w_id).await?),
         _ => Ok(get_variable_or_self(path, db, w_id).await?),
+    }
+}
+
+async fn resolve_optional_var(
+    value: Option<String>,
+    db: &DB,
+    w_id: &str,
+    user_db: Option<&UserDB>,
+    authed: Option<&ApiAuthed>,
+) -> Result<Option<String>> {
+    match value {
+        Some(value) => Ok(Some(resolve_var(value, db, w_id, user_db, authed).await?)),
+        None => Ok(None),
     }
 }
 
@@ -374,6 +404,41 @@ async fn resolve_provider_credentials(
             } else {
                 None
             };
+            let workload_identity_provider = resolve_optional_var(
+                resource.workload_identity_provider,
+                db,
+                w_id,
+                user_db.as_ref(),
+                authed,
+            )
+            .await?;
+            let service_account_email = resolve_optional_var(
+                resource.service_account_email,
+                db,
+                w_id,
+                user_db.as_ref(),
+                authed,
+            )
+            .await?;
+            let workload_identity_audience = resolve_optional_var(
+                resource.workload_identity_audience,
+                db,
+                w_id,
+                user_db.as_ref(),
+                authed,
+            )
+            .await?;
+            let vertex_workload_identity = VertexWorkloadIdentity::from_resource(
+                provider,
+                workload_identity_provider.as_deref(),
+                service_account_email.as_deref(),
+                workload_identity_audience.as_deref(),
+            )?;
+            let platform = if vertex_workload_identity.is_some() {
+                AIPlatform::GoogleVertexAi
+            } else {
+                resource.platform
+            };
 
             Ok(ProviderCredentials {
                 provider: provider.clone(),
@@ -388,7 +453,8 @@ async fn resolve_provider_credentials(
                 aws_session_token,
                 oidc_role_arn,
                 anthropic_federation: None,
-                platform: resource.platform,
+                vertex_workload_identity,
+                platform,
                 custom_headers: resource.headers,
             })
         }
@@ -427,6 +493,7 @@ async fn resolve_provider_credentials(
                     service_account_id: resource.service_account_id,
                     workspace_id: resource.workspace_id,
                 }),
+                vertex_workload_identity: None,
                 platform: AIPlatform::Standard,
                 custom_headers: HashMap::new(),
             })
@@ -453,6 +520,7 @@ async fn resolve_provider_credentials(
                 aws_session_token: None,
                 oidc_role_arn: None,
                 anthropic_federation: None,
+                vertex_workload_identity: None,
                 platform: AIPlatform::Standard,
                 custom_headers: HashMap::new(),
             })
@@ -672,17 +740,291 @@ async fn mint_anthropic_oidc_token(db: &DB, w_id: &str, authed: &ApiAuthed) -> R
     }
 }
 
+/// Exchange an OIDC token minted for the requesting user for a Google access
+/// token, sent as the Vertex bearer token, when the resource authenticates through
+/// Workload Identity Federation. Runs after the workspace credential cache for the
+/// same reason the Anthropic exchange does: the token names the user.
+async fn resolve_vertex_workload_identity_credentials(
+    db: &DB,
+    w_id: &str,
+    authed: &ApiAuthed,
+    credentials: &mut ProviderCredentials,
+) -> Result<()> {
+    let Some(identity) = credentials.vertex_workload_identity.as_ref() else {
+        return Ok(());
+    };
+    check_vertex_base_url(&credentials.base_url)?;
+
+    let cache_key = (w_id.to_string(), identity.clone(), authed.email.clone());
+    let token = match VERTEX_WORKLOAD_IDENTITY_TOKEN_CACHE
+        .get(&cache_key)
+        .filter(GcpAccessToken::is_fresh)
+    {
+        Some(cached) => cached,
+        None => {
+            let subject_token =
+                mint_vertex_oidc_token(db, w_id, authed, &identity.oidc_audience()).await?;
+            let token = exchange_oidc_token(identity, &subject_token).await?;
+            VERTEX_WORKLOAD_IDENTITY_TOKEN_CACHE.insert(cache_key, token.clone());
+            token
+        }
+    };
+
+    credentials.api_key = Some(token.access_token);
+    Ok(())
+}
+
+async fn mint_vertex_oidc_token(
+    db: &DB,
+    w_id: &str,
+    authed: &ApiAuthed,
+    audience: &str,
+) -> Result<String> {
+    #[cfg(all(feature = "enterprise", feature = "openidconnect", feature = "private"))]
+    {
+        use windmill_ai::vertex_workload_identity::VERTEX_OIDC_TOKEN_LIFETIME_SECS;
+        use windmill_common::oidc_oss::{generate_id_token, OidcCaller, WorkspaceClaim};
+
+        let id_token = generate_id_token(
+            OidcCaller::GoogleVertex,
+            Some(db),
+            WorkspaceClaim { workspace: w_id.to_string() },
+            audience,
+            format!("{}::{}", authed.email, w_id),
+            Some(authed.email.clone()),
+            Some(VERTEX_OIDC_TOKEN_LIFETIME_SECS),
+        )
+        .await?;
+        Ok(id_token.to_string())
+    }
+    #[cfg(not(all(feature = "enterprise", feature = "openidconnect", feature = "private")))]
+    {
+        let _ = (db, w_id, authed, audience);
+        Err(Error::BadRequest(
+            "Vertex AI Workload Identity Federation through Windmill's OIDC provider requires an enterprise license"
+                .to_string(),
+        ))
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct ExpiringProviderCredentials {
     credentials: ProviderCredentials,
+    policy: ModelPolicy,
     expires_at: std::time::Instant,
     instance_ai_config_revision: Option<u64>,
 }
 
+/// The models a request served with the effective AI config's own key may ask one provider
+/// for, and the output limit each is held to. The UI only offers what the settings enable;
+/// this holds a direct API caller to it.
+#[derive(Clone, Debug, Default)]
+pub struct ModelPolicy {
+    models: std::collections::HashSet<String>,
+    max_tokens: HashMap<String, i64>,
+}
+
+/// The fields of a proxied body that [`ModelPolicy::check_body`] reads.
+#[derive(Deserialize)]
+struct ProxiedModel {
+    model: String,
+    models: Option<Box<RawValue>>,
+    fallbacks: Option<Box<RawValue>>,
+}
+
+impl ModelPolicy {
+    fn new(config: &AIConfig, provider: &AIProvider) -> Self {
+        let enabled = config
+            .providers
+            .as_ref()
+            .and_then(|providers| providers.get(provider))
+            .into_iter()
+            .flat_map(|p| p.models.iter());
+        // Settings allow picking these without enabling them in the provider's list.
+        let picked = [
+            &config.default_model,
+            &config.metadata_model,
+            &config.code_completion_model,
+        ]
+        .into_iter()
+        .flatten()
+        .filter(|m| &m.provider == provider)
+        .map(|m| &m.model);
+        // The browser sends a legacy `x/thinking` entry as `x`.
+        let models = enabled
+            .chain(picked)
+            .map(|m| m.strip_suffix("/thinking").unwrap_or(m).to_string())
+            .collect();
+        let prefix = format!(
+            "{}:",
+            serde_json::to_string(provider)
+                .unwrap_or_default()
+                .trim_matches('"')
+        );
+        let max_tokens = config
+            .max_tokens_per_model
+            .iter()
+            .flatten()
+            .filter_map(|(key, limit)| {
+                Some((key.strip_prefix(&prefix)?.to_string(), i64::from(*limit)))
+            })
+            .collect();
+        Self { models, max_tokens }
+    }
+
+    /// The output limit to send `model` with: `requested` capped at the configured limit, or
+    /// the limit itself when none was requested. Below 1 counts as none, since `-1` or `0`
+    /// mean "no limit" on servers such as Ollama. A model with no limit keeps `requested`.
+    fn output_tokens(&self, model: &str, requested: Option<i64>) -> Option<i64> {
+        let Some(&limit) = self.max_tokens.get(model) else {
+            return requested;
+        };
+        Some(
+            requested
+                .filter(|n| *n >= 1)
+                .map_or(limit, |n| n.min(limit)),
+        )
+    }
+
+    /// Writes the configured limit into a body [`Self::check_body`] accepted for `model`. A
+    /// model with no limit keeps its body byte for byte.
+    fn limit_body(
+        &self,
+        model: &str,
+        provider: &AIProvider,
+        platform: &AIPlatform,
+        ai_path: &str,
+        body: &Bytes,
+    ) -> Result<Bytes> {
+        if !self.max_tokens.contains_key(model) {
+            return Ok(body.clone());
+        }
+        let mut value: serde_json::Value = serde_json::from_slice(body)
+            .map_err(|e| Error::BadRequest(format!("invalid AI request body: {e}")))?;
+        let Some(obj) = value.as_object_mut() else {
+            return Ok(body.clone());
+        };
+        // The limit holds per choice, so several choices would multiply it. Legacy completions
+        // answer each prompt of a list; a flat list of tokens is one prompt.
+        let batched = obj
+            .get("prompt")
+            .and_then(|p| p.as_array())
+            .is_some_and(|a| a.len() > 1 && !a.iter().all(|v| v.is_number()));
+        if batched
+            || ["n", "best_of"].iter().any(|k| {
+                obj.get(*k)
+                    .is_some_and(|v| !v.is_null() && v.as_u64() != Some(1))
+            })
+        {
+            return Err(Error::BadRequest(
+                "only one prompt and one choice per request are supported with the workspace's AI key"
+                    .to_string(),
+            ));
+        }
+        // Bedrock and Anthropic on Vertex generate for any POST, whatever its path; FIM is
+        // matched as its conversion matches it. A path that neither generates nor counts is
+        // refused rather than forwarded without the limit.
+        let path = ai_path.trim_end_matches('/');
+        let fim = path.contains("fim/completions");
+        let any_post_generates = *provider == AIProvider::AWSBedrock
+            || *provider == AIProvider::Anthropic && *platform == AIPlatform::GoogleVertexAi;
+        let generates = any_post_generates
+            || fim
+            || ["completions", "responses", "messages"]
+                .iter()
+                .any(|p| path.ends_with(p));
+        if !generates {
+            if ["count_tokens", "input_tokens", "embeddings"]
+                .iter()
+                .any(|p| path.ends_with(p))
+            {
+                return Ok(body.clone());
+            }
+            return Err(Error::BadRequest(format!(
+                "\"{ai_path}\" can't be held to the token limit set for \"{model}\""
+            )));
+        }
+        // A caller's `max_tokens` stays where it is: any provider's base URL may point at a
+        // server that reads only `max_tokens` (Ollama), and the browser sends it there.
+        let field = if any_post_generates
+            || fim
+            || path.ends_with("messages")
+            || *provider == AIProvider::GoogleAI
+        {
+            "max_tokens"
+        } else if path.ends_with("responses") {
+            "max_output_tokens"
+        } else if path.ends_with("chat/completions")
+            && reads_max_completion_tokens(provider)
+            && !obj.contains_key("max_tokens")
+        {
+            "max_completion_tokens"
+        } else {
+            "max_tokens"
+        };
+        // The smallest asked for that `output_tokens` counts as a request.
+        let requested = ["max_tokens", "max_completion_tokens", "max_output_tokens"]
+            .iter()
+            .filter_map(|f| obj.remove(*f)?.as_i64())
+            .filter(|n| *n >= 1)
+            .min();
+        obj.insert(
+            field.to_string(),
+            self.output_tokens(model, requested).into(),
+        );
+        Ok(Bytes::from(serde_json::to_vec(&value).map_err(to_anyhow)?))
+    }
+
+    fn check_model(&self, model: &str) -> Result<()> {
+        if self.models.contains(model) {
+            Ok(())
+        } else {
+            Err(Error::BadRequest(format!(
+                "model \"{model}\" is not enabled for this workspace"
+            )))
+        }
+    }
+
+    /// A body-less GET (a model listing) passes; any other request must be a JSON object
+    /// naming an enabled model, which is returned.
+    fn check_body(&self, method: &Method, body: &Bytes) -> Result<Option<String>> {
+        if method == Method::GET && body.is_empty() {
+            return Ok(None);
+        }
+        let invalid = |e: String| {
+            Error::BadRequest(format!(
+                "with the workspace's AI key, the request body must be a JSON object with a string \"model\": {e}"
+            ))
+        };
+        // A struct also deserializes from a positional array, which the limit can't be written into.
+        if !body.trim_ascii_start().starts_with(b"{") {
+            return Err(invalid("not an object".to_string()));
+        }
+        let parsed: ProxiedModel =
+            serde_json::from_slice(body).map_err(|e| invalid(e.to_string()))?;
+        // Gateways fall back to the models listed here (OpenRouter `models`, LiteLLM
+        // `fallbacks`), which would run unchecked.
+        for (field, value) in [("models", &parsed.models), ("fallbacks", &parsed.fallbacks)] {
+            if value.is_some() {
+                return Err(Error::BadRequest(format!(
+                    "\"{field}\" (fallback models) is not supported with the workspace's AI key"
+                )));
+            }
+        }
+        self.check_model(&parsed.model)?;
+        Ok(Some(parsed.model))
+    }
+}
+
 impl ExpiringProviderCredentials {
-    fn new(credentials: ProviderCredentials, instance_ai_config_revision: Option<u64>) -> Self {
+    fn new(
+        credentials: ProviderCredentials,
+        policy: ModelPolicy,
+        instance_ai_config_revision: Option<u64>,
+    ) -> Self {
         Self {
             credentials,
+            policy,
             expires_at: std::time::Instant::now() + std::time::Duration::from_secs(60),
             instance_ai_config_revision,
         }
@@ -887,16 +1229,17 @@ async fn configured_credentials(
     db: &DB,
     w_id: &str,
     provider: &AIProvider,
-) -> Result<Option<ProviderCredentials>> {
+) -> Result<Option<(ProviderCredentials, ModelPolicy)>> {
     let cache_key = (w_id.to_string(), provider.clone());
     if let Some(cached) = AI_REQUEST_CACHE.get(&cache_key).filter(|c| !c.is_expired()) {
-        return Ok(Some(cached.credentials));
+        return Ok(Some((cached.credentials, cached.policy)));
     }
     let Some((mut ai_config, resource_workspace, instance_ai_config_revision)) =
         effective_ai_config(db, w_id).await?
     else {
         return Ok(None);
     };
+    let policy = ModelPolicy::new(&ai_config, provider);
     let provider_config = ai_config
         .providers
         .as_mut()
@@ -920,9 +1263,13 @@ async fn configured_credentials(
         resolve_provider_credentials(provider, db, &resource_workspace, resource, None).await?;
     AI_REQUEST_CACHE.insert(
         cache_key,
-        ExpiringProviderCredentials::new(credentials.clone(), instance_ai_config_revision),
+        ExpiringProviderCredentials::new(
+            credentials.clone(),
+            policy.clone(),
+            instance_ai_config_revision,
+        ),
     );
-    Ok(Some(credentials))
+    Ok(Some((credentials, policy)))
 }
 
 fn parse_ai_resource(
@@ -1489,7 +1836,7 @@ async fn complete(
 ) -> JsonResult<CompleteResponse> {
     let not_configured =
         || Error::BadRequest("AI is not configured for this workspace".to_string());
-    let model = match request.model {
+    let mut model = match request.model {
         Some(model) => model,
         None => effective_ai_config(&db, &w_id)
             .await?
@@ -1502,18 +1849,26 @@ async fn complete(
                 )
             })?,
     };
+    if let Some(base) = model.model.strip_suffix("/thinking") {
+        model.model = base.to_string();
+    }
     if model.provider.is_decision_provider() {
         return Err(Error::BadRequest(format!(
             "{:?} serves decision models, which answer typed questions rather than messages",
             model.provider
         )));
     }
-    let mut credentials = configured_credentials(&db, &w_id, &model.provider)
+    let (mut credentials, policy) = configured_credentials(&db, &w_id, &model.provider)
         .await?
         .ok_or_else(not_configured)?;
+    policy.check_model(&model.model)?;
+    let max_tokens = policy
+        .output_tokens(&model.model, request.max_tokens.map(i64::from))
+        .map(|n| u32::try_from(n).unwrap_or(u32::MAX));
     #[cfg(feature = "bedrock")]
     resolve_bedrock_oidc_credentials(&db, &w_id, &authed, &mut credentials).await?;
     resolve_anthropic_federated_credentials(&db, &w_id, &authed, &mut credentials).await?;
+    resolve_vertex_workload_identity_credentials(&db, &w_id, &authed, &mut credentials).await?;
     // The query builders send the api key; only a federated Anthropic token has a way in.
     if credentials.access_token.is_some() && credentials.anthropic_federation.is_none() {
         return Err(Error::BadRequest(format!(
@@ -1560,7 +1915,7 @@ async fn complete(
             query_builder: query_builder.as_ref(),
             credentials: &credentials,
             model: &model.model,
-            max_tokens: request.max_tokens,
+            max_tokens,
             reasoning_effort: None,
             timeout: Duration::from_secs(*AI_TIMEOUT_SECS),
             client: &client,
@@ -1624,6 +1979,7 @@ async fn global_proxy(
         aws_session_token: None,
         oidc_role_arn: None,
         anthropic_federation: None,
+        vertex_workload_identity: None,
         platform: AIPlatform::Standard,
         custom_headers: HashMap::new(),
     };
@@ -1730,6 +2086,8 @@ async fn proxy(
     // Set when serving the request through Windmill's free AI tier (the lent key). Holds
     // the per-user concurrency lock and drives response metering.
     let mut free_lease: Option<crate::ai_free_tier_oss::FreeTierLease> = None;
+    // Set when serving a request that names a model with the effective AI config's own key.
+    let mut policy: Option<(ModelPolicy, String)> = None;
     // An unsaved resource value (percent-encoded JSON), so a resource can be tested
     // before it is stored. `$var:` references resolve as the caller, and since the
     // caller also picks the base URL they are sent to, a scoped token needs the same
@@ -1786,7 +2144,12 @@ async fn proxy(
             )
             .await?;
         }
-        if let Some(credentials) = configured_credentials(&db, &w_id, &provider).await? {
+        if let Some((credentials, configured)) =
+            configured_credentials(&db, &w_id, &provider).await?
+        {
+            policy = configured
+                .check_body(&method, &body)?
+                .map(|model| (configured, model));
             break 'cred credentials;
         }
         // Nothing configured: fall back to Windmill's free AI tier (EE-only) if a lent
@@ -1814,11 +2177,15 @@ async fn proxy(
     #[cfg(feature = "bedrock")]
     resolve_bedrock_oidc_credentials(&db, &w_id, &authed, &mut credentials).await?;
     resolve_anthropic_federated_credentials(&db, &w_id, &authed, &mut credentials).await?;
+    resolve_vertex_workload_identity_credentials(&db, &w_id, &authed, &mut credentials).await?;
 
     // Free tier: pin the model and clamp max_tokens server-side before forwarding,
     // since the request body is otherwise client-controlled.
     if free_lease.is_some() {
         body = crate::ai_free_tier_oss::enforce_free_tier_body(&body)?;
+    }
+    if let Some((policy, model)) = &policy {
+        body = policy.limit_body(model, &provider, &credentials.platform, &ai_path, &body)?;
     }
 
     if let Some(fim_transform) =
@@ -2023,6 +2390,7 @@ mod tests {
             aws_session_token: None,
             oidc_role_arn: None,
             anthropic_federation: None,
+            vertex_workload_identity: None,
             platform: AIPlatform::Standard,
             custom_headers: HashMap::new(),
         }
@@ -2083,15 +2451,27 @@ mod tests {
         AI_REQUEST_CACHE.clear();
         AI_REQUEST_CACHE.insert(
             ("workspace-a".to_string(), AIProvider::OpenAI),
-            ExpiringProviderCredentials::new(sample_provider_credentials(), None),
+            ExpiringProviderCredentials::new(
+                sample_provider_credentials(),
+                ModelPolicy::default(),
+                None,
+            ),
         );
         AI_REQUEST_CACHE.insert(
             ("workspace-a".to_string(), AIProvider::Anthropic),
-            ExpiringProviderCredentials::new(sample_provider_credentials(), None),
+            ExpiringProviderCredentials::new(
+                sample_provider_credentials(),
+                ModelPolicy::default(),
+                None,
+            ),
         );
         AI_REQUEST_CACHE.insert(
             ("workspace-b".to_string(), AIProvider::OpenAI),
-            ExpiringProviderCredentials::new(sample_provider_credentials(), None),
+            ExpiringProviderCredentials::new(
+                sample_provider_credentials(),
+                ModelPolicy::default(),
+                None,
+            ),
         );
         #[cfg(feature = "bedrock")]
         let assumed_role_key = {
@@ -2128,12 +2508,292 @@ mod tests {
     }
 
     #[test]
+    fn configured_key_serves_only_enabled_models() {
+        let config: AIConfig = serde_json::from_value(serde_json::json!({
+            "providers": {
+                "openai": {"resource_path": "r", "models": ["gpt-4o"]},
+                "anthropic": {"resource_path": "r", "models": ["claude-x"]}
+            },
+            "default_model": {"provider": "openai", "model": "picked/thinking"}
+        }))
+        .unwrap();
+        let policy = ModelPolicy::new(&config, &AIProvider::OpenAI);
+        let check = |body: serde_json::Value| {
+            policy.check_body(&Method::POST, &Bytes::from(body.to_string()))
+        };
+
+        let refused = check(serde_json::json!({"model": "claude-x"})).unwrap_err();
+        assert!(refused.to_string().contains("\"claude-x\" is not enabled"));
+        assert!(check(serde_json::json!({"model": "picked"})).is_ok());
+        assert!(policy.check_body(&Method::GET, &Bytes::new()).is_ok());
+        assert!(policy.check_body(&Method::POST, &Bytes::new()).is_err());
+        assert!(check(serde_json::json!({"model": "gpt-4o", "models": ["other"]})).is_err());
+        assert!(check(serde_json::json!({"model": "gpt-4o", "fallbacks": ["other"]})).is_err());
+        assert!(check(serde_json::json!({"messages": []})).is_err());
+        assert!(check(serde_json::json!(["gpt-4o", null, null])).is_err());
+        assert!(policy
+            .check_body(&Method::POST, &Bytes::from_static(b"--boundary"))
+            .is_err());
+    }
+
+    #[test]
+    fn configured_key_holds_requests_to_token_limits() {
+        let config: AIConfig = serde_json::from_value(serde_json::json!({
+            "providers": {
+                "openai": {"resource_path": "r", "models": ["gpt-4o", "gpt-5", "unlimited"]},
+                "googleai": {"resource_path": "r", "models": ["gemini-x"]},
+                "anthropic": {"resource_path": "r", "models": ["claude-x"]},
+                "aws_bedrock": {"resource_path": "r", "models": ["bedrock-x"]},
+                "azure_openai": {"resource_path": "r", "models": ["production"]},
+                "azure_foundry": {"resource_path": "r", "models": ["mistral-x"]},
+                "customai": {"resource_path": "r", "models": ["llama"]},
+                "deepseek": {"resource_path": "r", "models": ["deepseek-chat"]}
+            },
+            "max_tokens_per_model": {
+                "openai:gpt-4o": 4000, "openai:gpt-5": 4000,
+                "googleai:gemini-x": 4000, "anthropic:claude-x": 4000,
+                "aws_bedrock:bedrock-x": 4000, "azure_openai:production": 4000,
+                "azure_foundry:mistral-x": 4000, "customai:llama": 4000,
+                "deepseek:deepseek-chat": 4000
+            }
+        }))
+        .unwrap();
+        let run_on =
+            |provider: AIProvider, platform: AIPlatform, path: &str, body: serde_json::Value| {
+                let policy = ModelPolicy::new(&config, &provider);
+                let body = Bytes::from(body.to_string());
+                let model = policy.check_body(&Method::POST, &body)?.unwrap();
+                policy.limit_body(&model, &provider, &platform, path, &body)
+            };
+        let run = |path: &str, body: serde_json::Value| {
+            run_on(AIProvider::OpenAI, AIPlatform::Standard, path, body)
+        };
+
+        // Only the field the upstream reads reaches it, at the lowest valid value asked for, capped.
+        let limits = |body: Bytes| {
+            serde_json::from_slice::<serde_json::Map<String, serde_json::Value>>(&body)
+                .unwrap()
+                .into_iter()
+                .filter(|(k, _)| k.starts_with("max_"))
+                .collect::<serde_json::Map<_, _>>()
+        };
+        use serde_json::json;
+        use AIPlatform::{GoogleVertexAi as Vertex, Standard};
+        for (provider, platform, path, model, asked, sent) in [
+            (
+                AIProvider::GoogleAI,
+                Standard,
+                "chat/completions",
+                "gemini-x",
+                json!({"max_completion_tokens": 10}),
+                json!({"max_tokens": 10}),
+            ),
+            (
+                AIProvider::Anthropic,
+                Standard,
+                "messages",
+                "claude-x",
+                json!({"max_completion_tokens": 100000}),
+                json!({"max_tokens": 4000}),
+            ),
+            (
+                AIProvider::OpenAI,
+                Standard,
+                "fim/completions",
+                "gpt-4o",
+                json!({"max_completion_tokens": 100000}),
+                json!({"max_tokens": 4000}),
+            ),
+            (
+                AIProvider::OpenAI,
+                Standard,
+                "fim/completions/x",
+                "gpt-4o",
+                json!({}),
+                json!({"max_tokens": 4000}),
+            ),
+            (
+                AIProvider::CustomAI,
+                Standard,
+                "chat/completions",
+                "llama",
+                json!({"max_tokens": 100000, "max_completion_tokens": 9000}),
+                json!({"max_tokens": 4000}),
+            ),
+            (
+                AIProvider::CustomAI,
+                Standard,
+                "chat/completions",
+                "llama",
+                json!({}),
+                json!({"max_completion_tokens": 4000}),
+            ),
+            (
+                AIProvider::AzureFoundry,
+                Standard,
+                "chat/completions",
+                "mistral-x",
+                json!({"max_completion_tokens": 100000}),
+                json!({"max_completion_tokens": 4000}),
+            ),
+            (
+                AIProvider::DeepSeek,
+                Standard,
+                "chat/completions",
+                "deepseek-chat",
+                json!({"max_completion_tokens": 100000}),
+                json!({"max_tokens": 4000}),
+            ),
+            (
+                AIProvider::OpenAI,
+                Standard,
+                "chat/completions",
+                "gpt-4o",
+                json!({"max_tokens": 100000, "max_completion_tokens": 10}),
+                json!({"max_tokens": 10}),
+            ),
+            (
+                AIProvider::OpenAI,
+                Standard,
+                "chat/completions",
+                "gpt-4o",
+                json!({"max_tokens": -1, "max_output_tokens": 0}),
+                json!({"max_tokens": 4000}),
+            ),
+            (
+                AIProvider::AzureOpenAI,
+                Standard,
+                "chat/completions",
+                "production",
+                json!({}),
+                json!({"max_completion_tokens": 4000}),
+            ),
+            (
+                AIProvider::OpenAI,
+                Standard,
+                "responses",
+                "gpt-5",
+                json!({"max_tokens": 100000}),
+                json!({"max_output_tokens": 4000}),
+            ),
+            (
+                AIProvider::OpenAI,
+                Standard,
+                "completions",
+                "gpt-4o",
+                json!({"max_tokens": 500}),
+                json!({"max_tokens": 500}),
+            ),
+            // Bedrock and Anthropic on Vertex generate for any POST, whatever its path.
+            (
+                AIProvider::AWSBedrock,
+                Standard,
+                "responses",
+                "bedrock-x",
+                json!({"max_output_tokens": 100000}),
+                json!({"max_tokens": 4000}),
+            ),
+            (
+                AIProvider::AWSBedrock,
+                Standard,
+                "x",
+                "bedrock-x",
+                json!({}),
+                json!({"max_tokens": 4000}),
+            ),
+            (
+                AIProvider::Anthropic,
+                Vertex,
+                "messages/count_tokens",
+                "claude-x",
+                json!({}),
+                json!({"max_tokens": 4000}),
+            ),
+            (
+                AIProvider::Anthropic,
+                Standard,
+                "messages/count_tokens",
+                "claude-x",
+                json!({}),
+                json!({}),
+            ),
+            (
+                AIProvider::OpenAI,
+                Standard,
+                "embeddings",
+                "gpt-4o",
+                json!({}),
+                json!({}),
+            ),
+        ] {
+            let mut body = asked.clone();
+            body["model"] = model.into();
+            let out = run_on(provider.clone(), platform, path, body).unwrap();
+            assert_eq!(
+                serde_json::Value::Object(limits(out)),
+                sent,
+                "{provider:?} {path} {asked}"
+            );
+        }
+
+        // A model with no limit is forwarded byte for byte.
+        let raw = Bytes::from_static(br#"{ "model": "unlimited", "max_tokens": 9 }"#);
+        let policy = ModelPolicy::new(&config, &AIProvider::OpenAI);
+        assert_eq!(
+            policy
+                .limit_body(
+                    "unlimited",
+                    &AIProvider::OpenAI,
+                    &Standard,
+                    "chat/completions",
+                    &raw
+                )
+                .unwrap(),
+            raw
+        );
+        assert_eq!(policy.output_tokens("gpt-4o", Some(100000)), Some(4000));
+        assert_eq!(policy.output_tokens("gpt-4o", None), Some(4000));
+        assert_eq!(policy.output_tokens("unlimited", Some(9)), Some(9));
+        assert_eq!(policy.output_tokens("unlimited", None), None);
+        assert_eq!(policy.output_tokens("unlimited", Some(0)), Some(0));
+        for no_limit in [0, -1] {
+            assert_eq!(policy.output_tokens("gpt-4o", Some(no_limit)), Some(4000));
+        }
+
+        // Where the limit can't be placed, the request is refused rather than sent without it.
+        assert!(run_on(
+            AIProvider::Anthropic,
+            Standard,
+            "conversations",
+            json!({"model": "claude-x"})
+        )
+        .is_err());
+        for many in [
+            json!({"model": "gpt-4o", "n": 2}),
+            json!({"model": "gpt-4o", "best_of": 2}),
+            json!({"model": "gpt-4o", "prompt": ["a", "b"]}),
+            json!({"model": "gpt-4o", "prompt": [[1, 2], [3]]}),
+        ] {
+            assert!(run("completions", many).is_err());
+        }
+        for one in [
+            json!({"model": "gpt-4o", "n": 1}),
+            json!({"model": "gpt-4o", "prompt": "a"}),
+            json!({"model": "gpt-4o", "prompt": ["a"]}),
+            json!({"model": "gpt-4o", "prompt": [1, 2, 3]}),
+        ] {
+            assert!(run("completions", one).is_ok());
+        }
+    }
+
+    #[test]
     fn instance_backed_cache_entries_expire_when_revision_changes() {
         let _guard = TEST_LOCK.lock().unwrap();
         AI_REQUEST_CACHE.clear();
 
         let cached = ExpiringProviderCredentials::new(
             sample_provider_credentials(),
+            ModelPolicy::default(),
             Some(current_instance_ai_config_revision()),
         );
         assert!(!cached.is_expired());

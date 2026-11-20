@@ -125,6 +125,11 @@
           },
           {
             "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/lint-frontend.sh",
+            "timeout": 30
+          },
+          {
+            "type": "command",
             "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/format-backend.sh",
             "timeout": 30
           }

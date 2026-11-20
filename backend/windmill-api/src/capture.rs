@@ -569,6 +569,17 @@ async fn set_config(
         _ => nc,
     };
 
+    // The listener runs a capture's `$script:`/`$flow:` URL as its saver, as it does a
+    // trigger's, so the URL takes the trigger save's Hub rule. A capture keeps nothing to compare.
+    #[cfg(feature = "websocket")]
+    if matches!(nc.trigger_kind, TriggerKind::Websocket) {
+        use windmill_api_auth::composed::check_new_hub_paths;
+        use windmill_trigger::TriggerCrud;
+        let config = serde_json::to_value(&nc.trigger_config)?;
+        let new = windmill_trigger_websocket::WebsocketTrigger::config_runnables(&config);
+        check_new_hub_paths(&new, &[], &authed, &db, &w_id).await?;
+    }
+
     let mut tx = user_db.begin(&authed).await?;
     if matches!(nc.trigger_kind, TriggerKind::Postgres) {
         windmill_common::datatable_roles::lock_datatable_streams(&mut *tx, false).await?;

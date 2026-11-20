@@ -53,6 +53,7 @@ async fn hub_target_with_retry_runs_its_preprocessor(db: Pool<Postgres>) -> anyh
             is_admin: true,
             ..Default::default()
         },
+        windmill_common::jobs::ChosenBy::Deployed,
         "test-workspace",
         &windmill_common::runnable_ref::RunnableRef::from_path(
             &format!("hub/{version}/test/pre"),

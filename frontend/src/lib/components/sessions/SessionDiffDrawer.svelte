@@ -78,7 +78,7 @@
 	}
 
 	const isAgent = (item: DeployItem) =>
-		item.deployKind === 'resource' && (agentPaths?.has(item.path) ?? false)
+		item.agent || (item.deployKind === 'resource' && (agentPaths?.has(item.path) ?? false))
 
 	const title = 'Edited during session'
 

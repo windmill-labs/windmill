@@ -113,4 +113,82 @@ mod ci_tests {
 
         Ok(())
     }
+
+    /// A deploy made with `skip_ci_tests` queues no test, even from its dependency job, and
+    /// the batch trigger holds the tests back until that lock has landed.
+    #[sqlx::test(fixtures("base"))]
+    async fn test_ci_tests_deferred_to_batch(db: Pool<Postgres>) -> anyhow::Result<()> {
+        let (client, port, _s) = init_client(db.clone()).await;
+        let bun_ns = |content: &str, path: &str| NewScript {
+            language: ScriptLang::Bun,
+            ..quick_ns(content, path, None)
+        };
+        client
+            .create_script(
+                "test-workspace",
+                &bun_ns(
+                    "// test: script/u/test-user/batch_target\nexport function main() { return true }",
+                    "u/test-user/ci_test_for_batch",
+                ),
+            )
+            .await
+            .unwrap();
+        let mut completed = listen_for_completed_jobs(&db).await;
+        in_test_worker(&db, completed.next(), port).await;
+
+        let http = reqwest::Client::new();
+        let api = format!("http://localhost:{port}/api/w/test-workspace/scripts");
+        http.post(format!("{api}/create?skip_ci_tests=true"))
+            .bearer_auth("SECRET_TOKEN")
+            .json(&bun_ns(
+                "export function main() { return 42 }",
+                "u/test-user/batch_target",
+            ))
+            .send()
+            .await?
+            .error_for_status()?;
+
+        let trigger_batch = || async {
+            http.post(format!("{api}/trigger_ci_tests_batch"))
+                .bearer_auth("SECRET_TOKEN")
+                .json(&serde_json::json!({
+                    "items": [{ "kind": "script", "path": "u/test-user/batch_target" }]
+                }))
+                .send()
+                .await?
+                .error_for_status()?
+                .json::<serde_json::Value>()
+                .await
+        };
+        let ci_jobs = || {
+            sqlx::query_scalar!(
+                "SELECT count(*) FROM v2_job WHERE workspace_id = 'test-workspace' \
+                 AND trigger_kind = 'ci_test'"
+            )
+            .fetch_one(&db)
+        };
+
+        let pending = trigger_batch().await?;
+        assert_eq!(
+            pending["pending"],
+            serde_json::json!(["u/test-user/batch_target"])
+        );
+        assert_eq!(pending["job_ids"], serde_json::json!([]));
+
+        let mut completed = listen_for_completed_jobs(&db).await;
+        in_test_worker(&db, completed.next(), port).await;
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        assert_eq!(
+            ci_jobs().await?,
+            Some(0),
+            "the lock generation queued a CI test"
+        );
+
+        let triggered = trigger_batch().await?;
+        assert_eq!(triggered["pending"], serde_json::json!([]));
+        assert_eq!(triggered["job_ids"].as_array().map(|a| a.len()), Some(1));
+        assert_eq!(ci_jobs().await?, Some(1));
+
+        Ok(())
+    }
 }

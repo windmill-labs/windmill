@@ -230,6 +230,11 @@ pub struct ListedResource {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[sqlx(default)]
     pub draft_path: Option<String>,
+    /// The linked OAuth account's grant: `client_credentials` connects as the app, anything
+    /// else as the user who connected it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[sqlx(default)]
+    pub grant_type: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -372,6 +377,7 @@ async fn list_resources(
             "variable.is_oauth",
             "variable.account",
             "account.refresh_error",
+            "account.grant_type",
             "account.scopes",
             "resource.created_by",
             "resource.edited_at",
@@ -584,7 +590,7 @@ async fn list_resources(
                 // Synthesized rows are the authed user's draft.
                 is_draft: Some(true),
             };
-            rows.push(ListedResource { resource, agent_memory, draft_path });
+            rows.push(ListedResource { resource, agent_memory, draft_path, grant_type: None });
         }
     }
 
@@ -1255,6 +1261,8 @@ fn note_resource_write(w_id: &str, path: &str, resource_type: &str) {
 #[derive(Deserialize)]
 struct CreateResourceQuery {
     update_if_exists: Option<bool>,
+    #[serde(default)]
+    skip_ci_tests: bool,
 }
 async fn create_resource(
     authed: ApiAuthed,
@@ -1438,6 +1446,10 @@ async fn create_resource(
         None,
     )
     .await?;
+    if authed.is_admin {
+        windmill_common::git_sync_oss::approve_github_app_repo(&mut *tx, &w_id, &resource.path)
+            .await?;
+    }
     tx.commit().await?;
 
     handle_deployment_metadata(
@@ -1458,7 +1470,7 @@ async fn create_resource(
     );
 
     // Trigger CI tests for items that reference this resource
-    {
+    if !q.skip_ci_tests {
         let db2 = db.clone();
         let path2 = resource.path.clone();
         let email2 = authed.email.clone();
@@ -2134,6 +2146,7 @@ async fn update_resource(
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, path)): Path<(String, StripPath)>,
+    Query(ci): Query<windmill_dep_map::ci_tests::SkipCiTestsQuery>,
     Json(ns): Json<EditResource>,
 ) -> Result<String> {
     use sql_builder::prelude::*;
@@ -2400,6 +2413,9 @@ async fn update_resource(
         None,
     )
     .await?;
+    if authed.is_admin && ns.value.is_some() {
+        windmill_common::git_sync_oss::approve_github_app_repo(&mut *tx, &w_id, &npath).await?;
+    }
     tx.commit().await?;
 
     // Detect if this was a rename operation
@@ -2449,7 +2465,7 @@ async fn update_resource(
     );
 
     // Trigger CI tests for items that reference this resource
-    {
+    if !ci.skip_ci_tests {
         let db2 = db.clone();
         let npath2 = npath.clone();
         let email2 = authed.email.clone();
@@ -2674,6 +2690,9 @@ async fn set_resource_value(
         None,
     )
     .await?;
+    if authed.is_admin {
+        windmill_common::git_sync_oss::approve_github_app_repo(&mut *tx, w_id, path).await?;
+    }
     tx.commit().await?;
 
     note_resource_write(w_id, path, &resource_type);
@@ -4092,26 +4111,27 @@ async fn get_git_commit_hash(
     let Some(git_repo_resource_value) = git_repo_resource_value else {
         return Err(Error::NotFound(format!("Resource {} not found", path)).into());
     };
+    let caller = if authed.is_admin {
+        GitRemoteCaller::AdminOrSystem
+    } else {
+        GitRemoteCaller::NonAdmin
+    };
 
     // App-backed repos store a tokenless URL, so the `ls-remote` below can't
     // authenticate. Reuse the poller's REST head lookup, which mints an
     // installation token server-side rather than embedding one in a URL here.
     // It returns `None` for a repo that isn't app-backed, which is exactly the
-    // ls-remote case below.
-    //
-    // Admin-only for the same reason as the archive route: the repository is
-    // named by the resource's own `url`, which anyone with write on its path
-    // controls, so reading it would let a caller aim the installation
-    // credential at any repository it can reach.
+    // ls-remote case below. It serves a non-admin only the repository an admin
+    // approved on the resource.
     #[cfg(all(feature = "enterprise", feature = "private"))]
     if git_repo_resource_value
         .get("is_github_app")
         .and_then(|v| v.as_bool())
         .unwrap_or(false)
     {
-        require_admin(authed.is_admin, &authed.username)?;
         if let Some((_, commit_hash)) =
-            windmill_common::git_sync_ee::get_app_repo_head_for_autopull(&db, &w_id, path).await?
+            windmill_common::git_sync_ee::get_app_repo_head_for_autopull(&db, &w_id, path, caller)
+                .await?
         {
             return Ok(Json(GitCommitHashResponse { commit_hash }));
         }
@@ -4121,18 +4141,14 @@ async fn get_git_commit_hash(
         .map_err(|e| {
         Error::BadRequest(format!("Invalid git repository resource format: {}", e))
     })?;
-    let caller = if authed.is_admin {
-        GitRemoteCaller::AdminOrSystem
-    } else {
-        GitRemoteCaller::NonAdmin
-    };
     git_resource.url =
         resolve_azure_devops_url(&db_with_opt_authed, &w_id, &git_resource.url, false, caller)
             .await?;
     // A credential is stored under the repository it was issued for, so a
     // resource repointed elsewhere finds none. Which credential can be attached
-    // is bounded by that; who may use it is bounded here, on the same terms as
-    // the installation credential above.
+    // is bounded by that; who may use it is bounded here: admins only, since
+    // nothing records an admin's approval of the URL as for the installation
+    // credential above.
     let plain_url = git_resource.url.clone();
     git_resource.url =
         windmill_common::git_sync_oss::with_stored_credential(&db, &w_id, git_resource.url).await?;

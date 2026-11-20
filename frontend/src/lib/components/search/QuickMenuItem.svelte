@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { isMac } from '$lib/utils'
 	import { isNewTabClick } from '$lib/navigation'
 	import { onDestroy, onMount, untrack } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
@@ -61,12 +60,7 @@
 	}: Props = $props()
 
 	if (untrack(() => small)) {
-		kbdClass = twMerge(
-			kbdClass,
-			'!text-[10px]  px-1',
-			false && isMac() ? '!text-lg ' : 'text-xs',
-			'leading-none'
-		)
+		kbdClass = twMerge(kbdClass, '!text-[10px]  px-1', 'text-xs', 'leading-none')
 	} else {
 		kbdClass += ' !text-xs px-1.5'
 	}

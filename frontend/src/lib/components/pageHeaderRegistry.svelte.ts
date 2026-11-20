@@ -2,6 +2,17 @@ import type { Snippet } from 'svelte'
 import type { WorkspaceItemKind } from './workspacePicker'
 import type { OpenInSessionSource } from './sessions/OpenInSessionButton.svelte'
 
+/** One pane of a page with several, such as a workspace settings section. */
+export type PageHeaderSubpage = {
+	label: string
+	/** Absolute, keeping the query the page needs (an embed's `nomenubar`). */
+	href: string
+	/** Header the pane is listed under. */
+	group?: string
+	current?: boolean
+	disabled?: boolean
+}
+
 /** An item the page is working on: the breadcrumb walks its path and ends with its summary. */
 export type PageHeaderItem = {
 	/** Absent for an item the picker does not file under a kind — an agent's detail page. The
@@ -28,6 +39,12 @@ export type PageHeaderSection = {
 	/** The page the section belongs to, when the section is one pane of it — a settings page's
 	 *  active tab. Drawn as a lead segment before `label`. */
 	parent?: string
+	/** Makes `parent` a link, for a page whose panes have an index of their own to return to. */
+	parentHref?: string
+	/** The panes of the page `parent` names. The chevron's picker lists them under that page in
+	 *  Pages and opens on them; in an embed, where the picker must not lead out of the host's
+	 *  workspace, it lists them alone. */
+	subpages?: PageHeaderSubpage[]
 	/** Rendered in place of `label` when the name is itself a control, such as an editable title. */
 	content?: Snippet
 	/** Scopes the segment's picker, when the section maps to a kind of item. */
@@ -96,6 +113,9 @@ export type PageHeaderContent = {
 	 *  running in a fork. The breadcrumb then names that workspace, and its fork part shows only
 	 *  when it really is a fork. */
 	actingWorkspaceId?: string
+	/** Offered a workspace picked in the breadcrumb before the app switches to it; true means
+	 *  the page took the pick over and no switch happens. */
+	onPickWorkspace?: (id: string, landOnHome: boolean) => boolean
 	/** Width in px, at the right of the viewport, that this page owns from the top down — a
 	 *  session's side panel. The band stops there instead of running over it, and the band floats
 	 *  above the page rather than pushing it down, so that column starts at the top. */
@@ -186,6 +206,7 @@ export const pageHeader = {
 			if (c.afterName !== undefined) merged.afterName = c.afterName
 			if (c.contexts !== undefined) merged.contexts = c.contexts
 			if (c.actingWorkspaceId !== undefined) merged.actingWorkspaceId = c.actingWorkspaceId
+			if (c.onPickWorkspace !== undefined) merged.onPickWorkspace = c.onPickWorkspace
 			if (c.barRightInset !== undefined) merged.barRightInset = c.barRightInset
 			if (c.actionsFlexible !== undefined) merged.actionsFlexible = c.actionsFlexible
 			if (c.actionsFill !== undefined) merged.actionsFill = c.actionsFill

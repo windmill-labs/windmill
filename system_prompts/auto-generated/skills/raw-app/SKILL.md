@@ -317,6 +317,10 @@ Svelte (`index.ts`): `mount(App, { target: document.getElementById('root')! })`.
 
 **Always begin every React file (`.tsx`/`.jsx`) that uses JSX with `import React from 'react'`.** esbuild uses the classic JSX transform, so `React` must be in scope wherever JSX appears — a missing import compiles fine but throws `React is not defined` at runtime, leaving a blank screen.
 
+### Styling
+
+Plain CSS imported from the entrypoint (`import './index.css'`) is bundled as is. For **Tailwind CSS v4**, add `tailwindcss` (`^4`) to `package.json` and start `index.css` with `@import "tailwindcss";`: the bundler then compiles it, generating the utilities used in the app's files and in the workspace's shared `/ui` folder, along with `@theme`, `@utility`, `@apply` and `@custom-variant`. A design system's stylesheet can live in `/ui` and be imported with `@import "/ui/theme.css";`. There is no `tailwind.config.js`: configure Tailwind in CSS. `@plugin` and `@config` are compiled only by the CLI (`wmill app bundle` / `wmill app push`), not by the web editor, and `wmill app dev` must be restarted to pick up an edit to one of them or to a file they import. Without the `tailwindcss` dependency, Tailwind directives are left uncompiled.
+
 ### Generated bindings (`wmill.d.ts` / `wmill.ts`)
 
 The frontend imports a generated module that mirrors the backend runnables. **Never write to it directly** — it gets regenerated whenever backend runnables change. Modifying it by hand will be overwritten.

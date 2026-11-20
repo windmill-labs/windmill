@@ -26,6 +26,7 @@ serde_json.workspace = true
 regex.workspace = true
 lazy_static.workspace = true
 md-5.workspace = true
+fs4.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

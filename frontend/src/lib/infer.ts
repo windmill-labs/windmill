@@ -219,9 +219,10 @@ function parseVolumeAnnotations(code: string, commentPrefix: string): AssetWithA
 		if (!trimmed || trimmed.slice(0, 5).toLowerCase() === '<?php') continue
 		if (!trimmed.startsWith(commentPrefix)) break
 		const after = trimmed.slice(commentPrefix.length).trim()
-		const match = after.match(/^volume:\s*(\S+)/)
+		// `volume:ro <name>`; with a space after the colon, `ro` is the volume's name
+		const match = after.match(/^volume:(ro(?=\s))?\s*(\S+)/)
 		if (match) {
-			volumes.push({ kind: 'volume', path: match[1], access_type: 'rw' })
+			volumes.push({ kind: 'volume', path: match[2], access_type: match[1] ? 'r' : 'rw' })
 		}
 	}
 	return volumes
@@ -570,8 +571,22 @@ export async function inferArgs(
 		argSigToJsonSchemaType(arg.typ, schema.properties[arg.name])
 
 		// For T | T[] detection for debouncing arg accumulation
-		if ((arg as any).otyp && (arg as any).otyp.includes('[') && (arg as any).otyp.includes('|')) {
-			schema.properties[arg.name].originalType = (arg as any).otyp
+		const otyp: string | undefined = (arg as any).otyp
+		if (otyp && otyp.includes('[') && otyp.includes('|')) {
+			schema.properties[arg.name].originalType = otyp
+		} else if (
+			otyp &&
+			['python3', 'deno', 'bun', 'bunnative', 'nativets'].includes(language ?? '')
+		) {
+			// Python docstring `Args:` and TS JSDoc `@param` text: the parsers pass it as `otyp`.
+			// It only fills an empty description, never replaces one typed in the schema. This
+			// runs on every edit of the live schema, so a description the previous run filled
+			// from the doc still follows it: otherwise it would freeze at the first keystroke.
+			const current = schema.properties[arg.name].description
+			const previousDoc = (lastRun?.[1]?.args.find((a) => a.name == arg.name) as any)?.otyp
+			if (!current || current === previousDoc) {
+				schema.properties[arg.name].description = otyp
+			}
 		}
 
 		// Most languages cannot write a resource default in code, so one picked in the

@@ -184,7 +184,15 @@ export function summarizeAgentResult(result: AgentResult): AgentResultSummary {
 
 export type AgentStreamEntry =
 	| { kind: 'assistant'; content: string }
-	| { kind: 'tool'; callId: string; name: string; running: boolean; success?: boolean }
+	| {
+			kind: 'tool'
+			callId: string
+			name: string
+			running: boolean
+			success?: boolean
+			args?: string
+			result?: string
+	  }
 
 export type AgentStream = {
 	/**
@@ -229,6 +237,10 @@ const TOOL_TURN_STARTED: AgentStreamEvent['type'][] = [
 function isWellFormedEvent(event: AgentStreamEvent): boolean {
 	if (event.type === 'token_delta' || event.type === 'reasoning_token_delta') {
 		return typeof event.content === 'string'
+	}
+	// Says the agent waits on its background tools, which the run page shows on their rows.
+	if (event.type === 'background_wait') {
+		return false
 	}
 	return (
 		typeof event.call_id === 'string' &&
@@ -278,7 +290,7 @@ export function advanceAgentStream(
 	}
 	const stream: AgentStream = { ...previous.stream, entries: [...previous.stream.entries] }
 	for (const event of parseStreamEvents(raw.slice(previous.consumed, complete))) {
-		if (!isWellFormedEvent(event)) {
+		if (!isWellFormedEvent(event) || event.type === 'background_wait') {
 			continue
 		}
 		if (event.type === 'token_delta') {
@@ -311,17 +323,19 @@ export function advanceAgentStream(
 				e.kind === 'tool' && e.callId === event.call_id
 		)
 		const settled = event.type === 'tool_result'
-		if (existing) {
-			existing.running = !settled
-			existing.success = settled ? event.success === true : existing.success
-		} else {
-			stream.entries.push({
-				kind: 'tool',
-				callId: event.call_id,
-				name: event.function_name,
-				running: !settled,
-				success: settled ? event.success === true : undefined
-			})
+		let entry = existing
+		if (!entry) {
+			entry = { kind: 'tool', callId: event.call_id, name: event.function_name, running: true }
+			stream.entries.push(entry)
+		}
+		entry.running = !settled
+		if (settled) {
+			entry.success = event.success === true
+			if (typeof event.result === 'string') entry.result = event.result
+		}
+		// Sent whole once the model has finished writing them, not as deltas.
+		if (event.type === 'tool_call_arguments' && typeof event.arguments === 'string') {
+			entry.args = event.arguments || undefined
 		}
 	}
 	return { consumed: complete, stream }

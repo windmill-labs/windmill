@@ -43,6 +43,13 @@
 		groups = result
 	}
 
+	// Bumped per saved group, so only that group's row refetches its members.
+	let saveCounts: Record<string, number> = $state({})
+	function onGroupSaved(name: string): Promise<void> {
+		saveCounts[name] = (saveCounts[name] ?? 0) + 1
+		return loadGroups()
+	}
+
 	$effect(() => {
 		if ($workspaceStore) {
 			untrack(() => loadGroups())
@@ -50,7 +57,7 @@
 	})
 </script>
 
-<GroupEditorDrawer bind:this={groupEditorDrawer} onSaved={loadGroups} />
+<GroupEditorDrawer bind:this={groupEditorDrawer} onSaved={onGroupSaved} />
 <AccessDrawer bind:this={accessDrawer} />
 
 {#if $workspaceStore && !$roleCapabilities.visibility.groups}
@@ -130,7 +137,7 @@
 									</div>
 								</Cell>
 								<Cell>
-									<GroupInfo {name} />
+									<GroupInfo {name} reloadKey={saveCounts[name]} />
 								</Cell>
 								<Cell last actions shouldStopPropagation>
 									<Dropdown

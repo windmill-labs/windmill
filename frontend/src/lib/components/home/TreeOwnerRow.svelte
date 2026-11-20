@@ -18,8 +18,6 @@
 		toggleLabel?: string
 		/** The line under the name, usually its item count. */
 		detail: Snippet
-		/** Controls rendered next to the name. Clicks on them do not toggle the row. */
-		actions?: Snippet
 		/** Always-visible control before the icon (e.g. a checkbox). Clicks on it do not
 		 * toggle the row. */
 		lead?: Snippet
@@ -37,7 +35,6 @@
 		indent = 0,
 		toggleLabel,
 		detail,
-		actions,
 		lead,
 		trailing,
 		expandable = true
@@ -65,22 +62,7 @@
 		{/if}
 		<Icon size={16} class="text-secondary shrink-0" />
 		<div>
-			<div class="flex flex-row items-center gap-1">
-				<span class="whitespace-nowrap text-xs text-emphasis font-semibold">{name}</span>
-				{#if actions}
-					<!-- Shown for the hovered row, a tabbed-into one, or one whose menu is open.
-					     `-my-0.5` keeps the 20px trigger from making this line taller than the
-					     name alone, so rows with and without actions line up. -->
-					<!-- svelte-ignore a11y_click_events_have_key_events -->
-					<!-- svelte-ignore a11y_no_static_element_interactions -->
-					<div
-						class="-my-0.5 opacity-0 transition-opacity duration-100 group-hover/row:opacity-100 group-has-[:focus-visible]/row:opacity-100 has-[[aria-expanded=true]]:opacity-100"
-						onclick={(e) => e.stopPropagation()}
-					>
-						{@render actions()}
-					</div>
-				{/if}
-			</div>
+			<span class="whitespace-nowrap text-xs text-emphasis font-semibold">{name}</span>
 			<div class="text-2xs font-normal text-secondary whitespace-nowrap">
 				{@render detail()}
 			</div>
@@ -104,5 +86,8 @@
 				<ChevronDown size={16} />
 			{/if}
 		</button>
+	{:else if trailing}
+		<!-- The chevron's width, so trailing controls line up with those of expandable rows. -->
+		<span class="w-4 shrink-0" aria-hidden="true"></span>
 	{/if}
 </div>

@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use crate::ai_providers::{AIPlatform, AIProvider};
+use crate::vertex_workload_identity::VertexWorkloadIdentity;
 
 /// Resolved provider credentials shared by API proxy and worker execution.
 ///
@@ -36,6 +37,11 @@ pub struct ProviderCredentials {
     /// resource. The API proxy exchanges an OIDC token minted for the requesting
     /// user for a short-lived access token, which then goes out as `access_token`.
     pub anthropic_federation: Option<AnthropicFederation>,
+    /// Google Cloud Workload Identity Federation settings, from a `vertex_ai_federated`
+    /// resource. The OIDC token is exchanged for a Google access token, sent as
+    /// the Vertex bearer token: by the API proxy for the requesting user, by the
+    /// worker for the job.
+    pub vertex_workload_identity: Option<VertexWorkloadIdentity>,
     pub platform: AIPlatform,
     pub custom_headers: HashMap<String, String>,
 }

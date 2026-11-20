@@ -829,6 +829,44 @@ describe('runChatLoop history sanitization', () => {
 	})
 })
 
+describe('runChatLoop mid-turn messages', () => {
+	beforeEach(() => {
+		vi.resetAllMocks()
+		mocks.modelSupportsWebSearch.mockReturnValue(false)
+		mocks.resolveRequestReasoning.mockReturnValue(undefined)
+	})
+
+	// Ahead of a batch's tool results, the providers reject the request for an unanswered
+	// tool call; kept out of the history, the next request would no longer show it.
+	it('adds the message after the tool results, for the next request and the history', async () => {
+		const config = createConfig({
+			workspace: `workspace-${randomUUID()}`,
+			modelProvider: { provider: 'groq', model: 'llama-3.3-70b-versatile' }
+		})
+		config.maxIterations = 2
+		const midTurn = user('use Postgres instead')
+		config.takeMidTurnMessage = vi.fn().mockReturnValueOnce(midTurn)
+		mocks.getCompletion.mockResolvedValue({})
+		mocks.parseOpenAICompletion
+			.mockImplementationOnce(async (_completion, _callbacks, messages, addedMessages) => {
+				messages.push(assistantTools('call_1'), tool('call_1'))
+				addedMessages.push(assistantTools('call_1'), tool('call_1'))
+				return { shouldContinue: true, tokenUsage }
+			})
+			.mockResolvedValueOnce({ shouldContinue: false, tokenUsage })
+
+		const result = await runChatLoop(config)
+
+		expect(config.takeMidTurnMessage).toHaveBeenCalledTimes(1)
+		expect(mocks.getCompletion.mock.calls[1][0].slice(-3)).toEqual([
+			assistantTools('call_1'),
+			tool('call_1'),
+			midTurn
+		])
+		expect(result.addedMessages).toEqual([assistantTools('call_1'), tool('call_1'), midTurn])
+	})
+})
+
 describe('runChatLoop per-iteration vision gating', () => {
 	beforeEach(() => {
 		vi.resetAllMocks()

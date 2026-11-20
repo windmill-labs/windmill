@@ -44,9 +44,12 @@ struct Models {
 
 /// The kinds that serve decision models only, which an AI agent step cannot run on.
 const DECISION_ONLY_KINDS: &[&str] = &["typesafe", "cloudflare"];
-/// The model of OpenAI's Decisions API, the one kind both step types run on.
-const OPENAI_DECISION_MODEL: &str = "gpt-6-luna";
-const DECISION_PROVIDER_KINDS: &[&str] = &["typesafe", "cloudflare", "openai"];
+/// The kinds both step types run on, with the model and name of their Decisions API.
+const CHAT_KIND_DECISION_MODELS: &[(&str, &str, &str)] = &[
+    ("openai", "gpt-6-luna", "OpenAI's Decisions API"),
+    ("googleai", "gemini-decision-1", "Gemini's Decisions API"),
+];
+const DECISION_PROVIDER_KINDS: &[&str] = &["typesafe", "cloudflare", "openai", "googleai"];
 const MAX_PROMPTED_MODELS: usize = 25;
 const PROVIDER_SHAPE: &str = r#"{ "type": "static", "value": { "kind": "<provider kind>", "resource": "$res:<resource path>", "model": "<model id>" } }"#;
 
@@ -270,7 +273,7 @@ fn check_provider(value: Option<&Value>, catalog: &Catalog, step_type: &str) -> 
         ));
     }
     if step_type == "aidecision" && !DECISION_PROVIDER_KINDS.contains(&kind) {
-        return blocking(format!("an AI decision step runs on a decision model: provider.kind must be \"typesafe\", \"cloudflare\" or \"openai\", not \"{kind}\""));
+        return blocking(format!("an AI decision step runs on a decision model: provider.kind must be \"typesafe\", \"cloudflare\", \"openai\" or \"googleai\", not \"{kind}\""));
     }
     if step_type != "aidecision" && DECISION_ONLY_KINDS.contains(&kind) {
         return blocking(format!("\"{kind}\" serves decision models, which answer typed questions rather than messages: use an \"aidecision\" step rather than an AI agent"));
@@ -307,10 +310,16 @@ fn check_provider(value: Option<&Value>, catalog: &Catalog, step_type: &str) -> 
             found.kind
         ));
     }
-    // An OpenAI resource lists its chat models, which says nothing about its decision model.
-    if step_type == "aidecision" && kind == "openai" {
-        return (model != OPENAI_DECISION_MODEL).then(|| Issue {
-            message: format!("model \"{model}\" is not the model OpenAI's Decisions API is known to serve, \"{OPENAI_DECISION_MODEL}\""),
+    // An OpenAI or Google AI resource lists its chat models, which says nothing about its
+    // decision model.
+    let decision_model = CHAT_KIND_DECISION_MODELS
+        .iter()
+        .find(|(k, _, _)| *k == kind);
+    if let (true, Some((_, decision_model, api))) = (step_type == "aidecision", decision_model) {
+        return (model != *decision_model).then(|| Issue {
+            message: format!(
+                "model \"{model}\" is not the model {api} is known to serve, \"{decision_model}\""
+            ),
             blocking: false,
             settled: false,
         });

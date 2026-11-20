@@ -41,7 +41,11 @@
 	}
 
 	function onFolderSaved(name: string, created: boolean) {
-		if (created) $userStore?.folders.push(name)
+		if (created) {
+			// The creator owns the new folder; the server only resends these on the next whoami.
+			$userStore?.folders.push(name)
+			$userStore?.folders_owners.push(name)
+		}
 		// Returned, not fired: the drawer reports a failed reload, and it can only see one
 		// through the promise this hands back.
 		return loadFolders()

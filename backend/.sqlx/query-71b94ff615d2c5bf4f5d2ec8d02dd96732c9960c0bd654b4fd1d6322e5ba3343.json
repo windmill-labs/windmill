@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT checkpoint AS \"checkpoint: sqlx::types::Json<Box<serde_json::value::RawValue>>\"\n           FROM ai_agent_checkpoint WHERE job_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "checkpoint: sqlx::types::Json<Box<serde_json::value::RawValue>>",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "71b94ff615d2c5bf4f5d2ec8d02dd96732c9960c0bd654b4fd1d6322e5ba3343"
+}

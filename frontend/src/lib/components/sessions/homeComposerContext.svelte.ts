@@ -5,9 +5,9 @@ import type { SessionRuntime } from './sessionRuntime.svelte'
 /** Resolves once the element is in the draft, so several attach in the order given. */
 type Attach = (element: ContextElement) => Promise<void>
 
-/** What the composer can take as context from a workspace item: a script, a flow or a code
- * app, as "+" → Mention file builds it. A visual-builder app or an agent has no context
- * element, so it gets none. */
+/** What the composer can take as context from a workspace item: a script, a flow, a code app
+ * or an agent, as "+" → Mention file builds it. A visual-builder app has no context element,
+ * so it gets none. */
 export function itemContextElement(item: {
 	kind: BulkKind
 	path: string
@@ -21,7 +21,9 @@ export function itemContextElement(item: {
 				? 'workspace_flow'
 				: item.kind === 'app' && item.rawApp
 					? 'workspace_app'
-					: undefined
+					: item.kind === 'agent'
+						? 'workspace_agent'
+						: undefined
 	if (!type) return undefined
 	return { type, path: item.path, title: item.path, summary: item.summary, deletable: true }
 }

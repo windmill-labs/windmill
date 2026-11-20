@@ -4,6 +4,7 @@
 </script>
 
 <script lang="ts">
+	import HostWindow from '$lib/components/common/HostWindow.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import FlowScriptPickerQuick from '../pickers/FlowScriptPickerQuick.svelte'
 	import { defaultScriptLanguages, processInlineLangs } from '$lib/scripts'
@@ -297,9 +298,8 @@
 			: []
 	)
 
-	// Hub runnables carry code the workspace never reviewed, and the backend refuses them in a
-	// flow a builder authors, so the hub browser and its integration filters are not offered.
-	let showHub = $derived(!composeOnlyFlows)
+	// The server adds a hub path only for a role that has code, whatever its flows level.
+	let showHub = $derived($roleCaps.code)
 
 	// Every result row lives in one keyboard index space, and hovering a row moves that index, so
 	// mouse and keyboard can never highlight two different rows. Offsets follow the render order.
@@ -310,7 +310,7 @@
 	let hubOffset = $derived(aiSandboxOffset + aiSandboxRows.length)
 </script>
 
-<svelte:window onkeydown={onKeyDown} />
+<HostWindow onkeydown={onKeyDown} />
 <div class="flex flex-row grow min-w-0 divide-x relative bg-surface-tertiary rounded-md">
 	{#if selectedKind != 'preprocessor'}
 		<div class="h-full overflow-auto p-2 w-36 shrink-0 gap-1 flex flex-col">

@@ -388,9 +388,23 @@ export const sessionState = $state<{
 // Keyed per session: a single shared timer would let a keystroke in one draft
 // cancel a sibling draft's pending flush, dropping that draft's first-touch write.
 const draftPromptFlushHandles = new Map<string, ReturnType<typeof setTimeout>>()
+
+// The composer's unsent input in a session already sent, which a chat column mounted again
+// reads back: the composer's draft is component-local, and the sessions view unmounts on the
+// pages outside the logged layout (`/user/*`). Kept apart from `draftPrompt` and
+// `draftAttachments`, which hold the first message until the commit consumes it. In memory
+// only: a reload drops it.
+const sentSessionDraftText = new Map<string, string>()
+const sentSessionDraftAttachments = new Map<string, DraftAttachments>()
+
 export function setSessionDraftPrompt(sessionId: string, text: string): void {
 	const s = sessionState.sessions.find((x) => x.id === sessionId)
-	if (!s || s.workspace_id) return
+	if (!s) return
+	if (s.workspace_id) {
+		if (text === '') sentSessionDraftText.delete(sessionId)
+		else sentSessionDraftText.set(sessionId, text)
+		return
+	}
 	// No-op on an unchanged prompt, so opening an untouched draft never persists
 	// it. Writes of '' are real edits (a draft typed then erased is still a
 	// session), which is why the composer reports edits only — see AIChatInput.
@@ -410,12 +424,10 @@ export function setSessionDraftPrompt(sessionId: string, text: string): void {
 	)
 }
 
-// Read back the persisted composer text when a pending session's chat mounts.
-// Returns nothing once the session is committed (its draft prompt was consumed).
 export function getSessionDraftPrompt(sessionId: string): string | undefined {
 	const s = sessionState.sessions.find((x) => x.id === sessionId)
-	if (!s || s.workspace_id) return undefined
-	return s.draftPrompt
+	if (!s) return undefined
+	return s.workspace_id ? sentSessionDraftText.get(sessionId) : s.draftPrompt
 }
 
 // The rest of an unsent draft (collapsed pastes, images, files), so a composer mounted again
@@ -428,10 +440,15 @@ export function setSessionDraftAttachments(sessionId: string, attachments: Draft
 	const empty = Object.values(attachments).every((lane) => lane.length === 0)
 	if (empty) {
 		draftAttachments.delete(sessionId)
+		sentSessionDraftAttachments.delete(sessionId)
 		return
 	}
 	const s = sessionState.sessions.find((x) => x.id === sessionId)
-	if (!s || s.workspace_id) return
+	if (!s) return
+	if (s.workspace_id) {
+		sentSessionDraftAttachments.set(sessionId, attachments)
+		return
+	}
 	draftAttachments.set(sessionId, attachments)
 	// Attaching is a touch, as typing is: a draft holding only an image would otherwise still
 	// read as a blank, be reused by the next hand-off with the image in it, or be dropped.
@@ -440,8 +457,10 @@ export function setSessionDraftAttachments(sessionId: string, attachments: Draft
 
 export function getSessionDraftAttachments(sessionId: string): DraftAttachments | undefined {
 	const s = sessionState.sessions.find((x) => x.id === sessionId)
-	if (!s || s.workspace_id) return undefined
-	return draftAttachments.get(sessionId)
+	if (!s) return undefined
+	return s.workspace_id
+		? sentSessionDraftAttachments.get(sessionId)
+		: draftAttachments.get(sessionId)
 }
 
 // A hand-off arrives within a navigation; anything older than this is the debris
@@ -1517,7 +1536,18 @@ export async function materializeFork(
 	fork: PendingFork,
 	onCreationStarted?: (creationId: string) => void
 ): Promise<string | undefined> {
-	if (get(userWorkspaces).some((w) => w.id === fork.id)) return fork.id
+	return (await materializeForkOutcome(fork, onCreationStarted))?.id
+}
+
+/**
+ * `materializeFork`, also telling whether this call created the fork. `created: false` is a
+ * fork that already existed under that id, whose drafts the clone never wrote.
+ */
+export async function materializeForkOutcome(
+	fork: PendingFork,
+	onCreationStarted?: (creationId: string) => void
+): Promise<{ id: string; created: boolean } | undefined> {
+	if (get(userWorkspaces).some((w) => w.id === fork.id)) return { id: fork.id, created: false }
 	try {
 		let resumed = false
 		if (fork.creation_id) {
@@ -1541,12 +1571,12 @@ export async function materializeFork(
 		}
 		usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces())
 		sendUserToast(`Created fork ${fork.name}`)
-		return fork.id
+		return { id: fork.id, created: true }
 	} catch (e: any) {
 		const msg = String(e?.body ?? e?.message ?? e)
 		if (msg.includes('is already being created') && (await forkJoinedWorkspaces(fork.id))) {
 			sendUserToast(`Created fork ${fork.name}`)
-			return fork.id
+			return { id: fork.id, created: false }
 		}
 		if (/workspace_pkey|duplicate key|already exists/i.test(msg)) {
 			// Self-heal: the create likely already succeeded. Refresh + adopt the
@@ -1556,7 +1586,8 @@ export async function materializeFork(
 			// it and propagate up through commitSessionWorkspace/beforeSend).
 			try {
 				usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces())
-				if (get(userWorkspaces).some((w) => w.id === fork.id)) return fork.id
+				if (get(userWorkspaces).some((w) => w.id === fork.id))
+					return { id: fork.id, created: false }
 			} catch (refreshErr) {
 				console.error('Failed to refresh workspaces during fork self-heal', refreshErr)
 			}
@@ -1595,6 +1626,30 @@ export async function moveSessionToWorkspace(id: string, newWorkspaceId: string)
 	delete s.pending_fork
 	s.workspace_root_id = workspaceRootId(newWorkspaceId, get(userWorkspaces)) ?? newWorkspaceId
 	await putSession(s)
+}
+
+/**
+ * Adopt the workspace another tab moved this session to. A tab acting on the session's
+ * previous workspace would otherwise keep writing drafts and running jobs there.
+ */
+export async function adoptStoredSessionWorkspace(id: string): Promise<boolean> {
+	const s = sessionState.sessions.find((x) => x.id === id)
+	if (!BROWSER || !s || s.transient) return false
+	const db = await sessionsDb.whenReady()
+	const stored = await db?.get('sessions', id).catch(() => undefined)
+	if (!stored?.workspace_id || stored.workspace_id === s.workspace_id) return false
+	// A fork created by that tab is missing from this tab's list, which would read the
+	// session's workspace as gone.
+	if (!get(userWorkspaces).some((w) => w.id === stored.workspace_id)) {
+		const listed = await WorkspaceService.listUserWorkspaces().catch(() => undefined)
+		if (listed) usersWorkspaceStore.set(listed)
+	}
+	s.workspace_id = stored.workspace_id
+	s.workspace_root_id = stored.workspace_root_id
+	s.moves = stored.moves
+	delete s.pending_workspace_id
+	delete s.pending_fork
+	return true
 }
 
 // Create a brand-new fork and re-assign a committed session to it. Used
@@ -1658,6 +1713,8 @@ export function deleteSession(id: string) {
 	clearTimeout(draftPromptFlushHandles.get(id))
 	draftPromptFlushHandles.delete(id)
 	draftAttachments.delete(id)
+	sentSessionDraftText.delete(id)
+	sentSessionDraftAttachments.delete(id)
 	sessionState.sessions = sessionState.sessions.filter((x) => x.id !== id)
 	if (sessionState.currentSessionId === id) {
 		sessionState.currentSessionId = sessionState.sessions[0]?.id

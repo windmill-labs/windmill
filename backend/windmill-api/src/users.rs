@@ -284,11 +284,14 @@ async fn rename_user(
 
     validate_username(&ru.new_username)?;
 
-    let old_instance_username =
-        sqlx::query_scalar!("SELECT username FROM password WHERE email = $1", user_email)
-            .fetch_optional(&mut *tx)
-            .await?
-            .flatten();
+    let old_instance_account = sqlx::query!(
+        "SELECT username, super_admin FROM password WHERE email = $1",
+        user_email
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+    let is_super_admin = old_instance_account.as_ref().is_some_and(|a| a.super_admin);
+    let old_instance_username = old_instance_account.and_then(|a| a.username);
 
     sqlx::query!(
         "UPDATE password SET username = $1 WHERE email = $2",
@@ -302,8 +305,13 @@ async fn rename_user(
     // outside their workspaces has none, yet an app can name them: their principal is
     // `u/{password.username}`, which this rename just moved. Matching on the address as well
     // keeps a like-named member of some other workspace out of it.
-    if let Some(old_username) = old_instance_username.filter(|u| *u != ru.new_username) {
-        let old_principal = windmill_common::users::username_to_permissioned_as(&old_username);
+    if let Some((old_username, old_principal)) = old_instance_username
+        .filter(|u| *u != ru.new_username)
+        .and_then(|u| {
+            let principal = windmill_common::users::username_to_own_permissioned_as(&u)?;
+            Some((u, principal))
+        })
+    {
         let new_principal = windmill_common::users::username_to_permissioned_as(&ru.new_username);
         // An agent records no address, so a workspace where the name is a member's own is
         // left to the per-workspace sweep: there the principal is that member.
@@ -319,6 +327,17 @@ async fn rename_user(
         .bind(&old_username)
         .execute(&mut *tx)
         .await?;
+        // Where no member holds the name, `u/{name}` resolves to the superadmin with that
+        // `password.username`, so only a superadmin's rows there are theirs to move.
+        if is_super_admin {
+            move_run_as_principal(
+                &mut tx,
+                &old_principal,
+                &new_principal,
+                RunAsScope::WithoutMember(&old_username),
+            )
+            .await?;
+        }
         sqlx::query!(
             "UPDATE app SET policy = jsonb_set(policy, ARRAY['on_behalf_of'], to_jsonb($1::text))
              WHERE policy->>'on_behalf_of' = $2 AND policy->>'on_behalf_of_email' = $3",
@@ -378,6 +397,190 @@ async fn rename_user(
         "updated username of user {} to {}",
         &user_email, &ru.new_username
     ))
+}
+
+pub(crate) const TRIGGER_TABLES: [&str; 11] = [
+    "http_trigger",
+    "websocket_trigger",
+    "kafka_trigger",
+    "postgres_trigger",
+    "mqtt_trigger",
+    "amqp_trigger",
+    "nats_trigger",
+    "sqs_trigger",
+    "gcp_trigger",
+    "azure_trigger",
+    "email_trigger",
+];
+
+enum RunAsScope<'a> {
+    Workspace(&'a str),
+    /// Every workspace where no member holds this username.
+    WithoutMember(&'a str),
+}
+
+/// Moves the run-as principal of schedules, triggers and folder default rules. A row left on
+/// the old principal no longer resolves: a schedule is disabled at its next push, a trigger
+/// fails when it fires, and a folder rule rejects every runnable it matches.
+/// `old_principal` must come from `username_to_own_permissioned_as`, never a group's.
+async fn move_run_as_principal(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    old_principal: &str,
+    new_principal: &str,
+    scope: RunAsScope<'_>,
+) -> error::Result<()> {
+    debug_assert!(!old_principal.starts_with(windmill_common::users::PERMISSIONED_AS_GROUP_PREFIX));
+    let (scope_sql, scope_bind) = match scope {
+        RunAsScope::Workspace(w_id) => ("t.workspace_id = $3", w_id),
+        RunAsScope::WithoutMember(username) => (
+            "NOT EXISTS (SELECT 1 FROM usr WHERE usr.workspace_id = t.workspace_id AND usr.username = $3)",
+            username,
+        ),
+    };
+    // SAFETY: `table` comes from a hardcoded list and `scope_sql` from the match above.
+    for table in std::iter::once("schedule").chain(TRIGGER_TABLES) {
+        sqlx::query(&format!(
+            "UPDATE {table} t SET permissioned_as = $1 WHERE t.permissioned_as = $2 AND {scope_sql}"
+        ))
+        .bind(new_principal)
+        .bind(old_principal)
+        .bind(scope_bind)
+        .execute(&mut **tx)
+        .await?;
+    }
+    // The rules are ordered, first match wins, so the rewrite keeps their order.
+    sqlx::query(&format!(
+        r#"UPDATE folder t SET default_permissioned_as = (
+            SELECT jsonb_agg(
+                CASE WHEN rule->>'permissioned_as' = $2
+                     THEN jsonb_set(rule, ARRAY['permissioned_as'], to_jsonb($1::text))
+                     ELSE rule END
+                ORDER BY ord)
+            FROM jsonb_array_elements(t.default_permissioned_as) WITH ORDINALITY AS r(rule, ord))
+        WHERE t.default_permissioned_as @> jsonb_build_array(jsonb_build_object('permissioned_as', $2::text))
+          AND {scope_sql}"#
+    ))
+    .bind(new_principal)
+    .bind(old_principal)
+    .bind(scope_bind)
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
+/// Moves the handlers that name a runnable under `old_prefix` (e.g. `u/alice/`) to the same path
+/// under `new_prefix`, in the form each column stores: schedule handlers and the workspace
+/// handlers' `path` carry a `script/` or `flow/` kind, a schedule's skip handler and a trigger's
+/// error handler are bare script paths. A handler left on the old path fails exactly when it fires.
+/// The Slack and Teams command scripts and the workspace's default app move the same way.
+pub(crate) async fn move_handler_paths(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    w_id: &str,
+    old_prefix: &str,
+    new_prefix: &str,
+) -> error::Result<()> {
+    // `starts_with` rather than `LIKE`/regex: a legacy email-shaped username carries `.` and `_`,
+    // which those would treat as wildcards and so rewrite another user's paths.
+    let moved = |col: &str| {
+        format!(
+            "CASE WHEN starts_with({col}, $1) THEN $2 || substr({col}, char_length($1) + 1) ELSE {col} END"
+        )
+    };
+    let moved_kind = |col: &str| {
+        format!(
+            "CASE WHEN starts_with({col}, 'script/' || $1) THEN 'script/' || $2 || substr({col}, char_length($1) + 8)
+                  WHEN starts_with({col}, 'flow/' || $1) THEN 'flow/' || $2 || substr({col}, char_length($1) + 6)
+                  ELSE {col} END"
+        )
+    };
+    let names_old = |col: &str| {
+        format!("(starts_with({col}, 'script/' || $1) OR starts_with({col}, 'flow/' || $1))")
+    };
+
+    // SAFETY: the interpolated column names are literals from this function.
+    sqlx::query(&format!(
+        "UPDATE schedule SET on_failure = {}, on_recovery = {}, on_success = {}, dynamic_skip = {}
+         WHERE workspace_id = $3 AND ({} OR {} OR {} OR starts_with(dynamic_skip, $1))",
+        moved_kind("on_failure"),
+        moved_kind("on_recovery"),
+        moved_kind("on_success"),
+        moved("dynamic_skip"),
+        names_old("on_failure"),
+        names_old("on_recovery"),
+        names_old("on_success"),
+    ))
+    .bind(old_prefix)
+    .bind(new_prefix)
+    .bind(w_id)
+    .execute(&mut **tx)
+    .await?;
+
+    // SAFETY: `table` comes from the hardcoded `TRIGGER_TABLES`, not user input.
+    for table in TRIGGER_TABLES {
+        // A listener keeps the config it started with and its ping does not compare the handler,
+        // so clearing `server_id` is what makes it restart on the rewritten path.
+        let restart = match table {
+            "http_trigger" | "email_trigger" => "",
+            _ => ", server_id = NULL",
+        };
+        sqlx::query(&format!(
+            "UPDATE {table} SET error_handler_path = {}{restart}
+             WHERE workspace_id = $3 AND starts_with(error_handler_path, $1)",
+            moved("error_handler_path"),
+        ))
+        .bind(old_prefix)
+        .bind(new_prefix)
+        .bind(w_id)
+        .execute(&mut **tx)
+        .await?;
+    }
+
+    for setting in [
+        "error_handler",
+        "success_handler",
+        "variable_expiration_handler",
+    ] {
+        let path = format!("({setting}->>'path')");
+        sqlx::query(&format!(
+            "UPDATE workspace_settings SET {setting} = jsonb_set({setting}, '{{path}}', to_jsonb({}))
+             WHERE workspace_id = $3 AND {}",
+            moved_kind(&path),
+            names_old(&path),
+        ))
+        .bind(old_prefix)
+        .bind(new_prefix)
+        .bind(w_id)
+        .execute(&mut **tx)
+        .await?;
+    }
+
+    // The command scripts are read with `RunnableRef::from_setting`, which takes a bare script
+    // path as well as a prefixed one, so both forms are moved.
+    let moved_command = |col: &str| {
+        format!(
+            "CASE WHEN {} THEN {} ELSE {} END",
+            names_old(col),
+            moved_kind(col),
+            moved(col)
+        )
+    };
+    let names_command = |col: &str| format!("({} OR starts_with({col}, $1))", names_old(col));
+    sqlx::query(&format!(
+        "UPDATE workspace_settings
+         SET slack_command_script = {}, teams_command_script = {}, default_app = {}
+         WHERE workspace_id = $3 AND ({} OR {} OR starts_with(default_app, $1))",
+        moved_command("slack_command_script"),
+        moved_command("teams_command_script"),
+        moved("default_app"),
+        names_command("slack_command_script"),
+        names_command("teams_command_script"),
+    ))
+    .bind(old_prefix)
+    .bind(new_prefix)
+    .bind(w_id)
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
 }
 
 async fn update_username_in_workpsace<'c>(
@@ -703,20 +906,6 @@ async fn update_username_in_workpsace<'c>(
     .execute(&mut **tx)
     .await?;
 
-    // Canonicalised through `username_to_permissioned_as`, not `'u/' || name`: an
-    // email-shaped username is stored bare, so the prefixed form would miss those rows and
-    // leave them naming a user that no longer exists.
-    let old_principal = windmill_common::users::username_to_permissioned_as(old_username);
-    let new_principal = windmill_common::users::username_to_permissioned_as(new_username);
-    sqlx::query!(
-        "UPDATE script SET on_behalf_of = $1 WHERE on_behalf_of = $2 AND workspace_id = $3",
-        &new_principal,
-        &old_principal,
-        w_id
-    )
-    .execute(&mut **tx)
-    .await?;
-
     // ---- flows ----
     sqlx::query!(
         r#"INSERT INTO flow
@@ -798,15 +987,6 @@ async fn update_username_in_workpsace<'c>(
     .execute(&mut **tx)
     .await?;
 
-    sqlx::query!(
-        "UPDATE flow SET on_behalf_of = $1 WHERE on_behalf_of = $2 AND workspace_id = $3",
-        &new_principal,
-        &old_principal,
-        w_id
-    )
-    .execute(&mut **tx)
-    .await?;
-
     // ---- draft ----
     sqlx::query!(
         r#"UPDATE draft SET path = REGEXP_REPLACE(path,'u/' || $2 || '/(.*)','u/' || $1 || '/\1') WHERE path LIKE ('u/' || $2 || '/%') AND workspace_id = $3"#,
@@ -821,18 +1001,6 @@ async fn update_username_in_workpsace<'c>(
         r#"UPDATE draft SET value = to_json(jsonb_set(to_jsonb(value), ARRAY['path'], to_jsonb(REGEXP_REPLACE(value->>'path','u/' || $2 || '/(.*)','u/' || $1 || '/\1')))) WHERE value->>'path' LIKE ('u/' || $2 || '/%') AND workspace_id = $3"#,
         new_username,
         old_username,
-        w_id
-    ).execute(&mut **tx)
-    .await?;
-
-    // A draft carries the principal in its value, so a rename must reach it there too —
-    // deploying a draft that still names the old principal would be rejected as a pair naming
-    // somebody who no longer exists. Through the same canonical form as the columns above: a
-    // legacy `group-ops` username is named `g/ops`, which `'u/' || …` would never match.
-    sqlx::query!(
-        r#"UPDATE draft SET value = to_json(jsonb_set(to_jsonb(value), ARRAY['on_behalf_of'], to_jsonb($1::text))) WHERE value->>'on_behalf_of' = $2 AND workspace_id = $3"#,
-        &new_principal,
-        &old_principal,
         w_id
     ).execute(&mut **tx)
     .await?;
@@ -868,7 +1036,7 @@ async fn update_username_in_workpsace<'c>(
     .await?;
 
     // An app draft carries a copy of the deployed policy, so the rename must reach it
-    // there too — same reason as the script/flow draft sweep above.
+    // there too — same reason as the script/flow draft sweep below.
     sqlx::query!(
         r#"UPDATE draft SET value = to_json(jsonb_set(to_jsonb(value), ARRAY['policy', 'on_behalf_of'], to_jsonb('u/' || $1))) WHERE typ IN ('app', 'raw_app') AND value->'policy'->>'on_behalf_of' = ('u/' || $2) AND workspace_id = $3"#,
         new_username,
@@ -936,6 +1104,78 @@ async fn update_username_in_workpsace<'c>(
     )
     .execute(&mut **tx)
     .await?;
+
+    // ---- triggers ----
+    // `starts_with` rather than `LIKE`/regex: a legacy email-shaped username carries `.` and `_`,
+    // which those would treat as wildcards and so rewrite another user's paths.
+    // SAFETY: `table` comes from the hardcoded `TRIGGER_TABLES`, not user input.
+    for table in TRIGGER_TABLES {
+        sqlx::query(&format!(
+            "UPDATE {table} SET
+                path = CASE WHEN starts_with(path, 'u/' || $2 || '/')
+                    THEN 'u/' || $1 || substr(path, char_length($2) + 3) ELSE path END,
+                script_path = CASE WHEN starts_with(script_path, 'u/' || $2 || '/')
+                    THEN 'u/' || $1 || substr(script_path, char_length($2) + 3) ELSE script_path END,
+                edited_by = CASE WHEN edited_by = $2 THEN $1 ELSE edited_by END,
+                extra_perms = CASE WHEN extra_perms ? ('u/' || $2)
+                    THEN extra_perms - ('u/' || $2) || jsonb_build_object('u/' || $1, extra_perms->('u/' || $2))
+                    ELSE extra_perms END
+            WHERE workspace_id = $3
+              AND (starts_with(path, 'u/' || $2 || '/') OR starts_with(script_path, 'u/' || $2 || '/')
+                   OR edited_by = $2 OR extra_perms ? ('u/' || $2))"
+        ))
+        .bind(new_username)
+        .bind(old_username)
+        .bind(w_id)
+        .execute(&mut **tx)
+        .await?;
+    }
+
+    // ---- run-as principal ----
+    // Canonicalised, not `'u/' || name`: an email-shaped username is stored bare, so the
+    // prefixed form would miss those rows and leave them naming a user that no longer exists.
+    if let Some(old_principal) =
+        windmill_common::users::username_to_own_permissioned_as(old_username)
+    {
+        let new_principal = windmill_common::users::username_to_permissioned_as(new_username);
+        sqlx::query!(
+            "UPDATE script SET on_behalf_of = $1 WHERE on_behalf_of = $2 AND workspace_id = $3",
+            &new_principal,
+            &old_principal,
+            w_id
+        )
+        .execute(&mut **tx)
+        .await?;
+
+        sqlx::query!(
+            "UPDATE flow SET on_behalf_of = $1 WHERE on_behalf_of = $2 AND workspace_id = $3",
+            &new_principal,
+            &old_principal,
+            w_id
+        )
+        .execute(&mut **tx)
+        .await?;
+
+        // A draft carries the principal in its value: deploying one that still names the old
+        // principal would be rejected as a pair naming somebody who no longer exists.
+        sqlx::query!(
+            r#"UPDATE draft SET value = to_json(jsonb_set(to_jsonb(value), ARRAY['on_behalf_of'], to_jsonb($1::text))) WHERE value->>'on_behalf_of' = $2 AND workspace_id = $3"#,
+            &new_principal,
+            &old_principal,
+            w_id
+        ).execute(&mut **tx)
+        .await?;
+
+        move_run_as_principal(
+            tx,
+            &old_principal,
+            &new_principal,
+            RunAsScope::Workspace(w_id),
+        )
+        .await?;
+    }
+
+    move_handler_paths(tx, w_id, &old_prefix, &new_prefix).await?;
 
     // ---- group_ ----
 

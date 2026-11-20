@@ -412,7 +412,7 @@
 		replication_slot_name = cfg?.replication_slot_name
 		permsPath = path
 		permsForWrite = cfg?.extra_perms
-		transaction_to_track = [...cfg?.publication?.transaction_to_track]
+		transaction_to_track = [...(cfg?.publication?.transaction_to_track ?? [])]
 		relations = cfg?.publication?.table_to_track ?? []
 		errorHandler = handlerDraftFromStored(
 			'error',

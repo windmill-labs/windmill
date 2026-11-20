@@ -225,7 +225,7 @@
 	}
 
 	async function loadTriggers(): Promise<void> {
-		await triggersState.fetchTriggers(triggersCount, workspace, path, true, undefined, actingUser)
+		await triggersState.fetchTriggers(triggersCount, workspace, path, true)
 	}
 
 	let pinnedVersion: number | undefined = $state(undefined)
@@ -321,22 +321,24 @@
 		loading = true
 		const scheduledFor = scheduledForStr ? new Date(scheduledForStr).toISOString() : undefined
 		try {
-			let run = await JobService.runFlowByPath({
+			const params = {
 				workspace: workspace!,
-				path,
 				invisibleToOwner,
 				requestBody: args,
 				scheduledFor,
 				tag: overrideTag,
 				skipPreprocessor: true
-			})
+			}
+			// A pinned version runs as shown, not the latest deployed one.
+			let run =
+				pinnedVersion !== undefined
+					? await JobService.runFlowByVersion({ ...params, version: pinnedVersion })
+					: await JobService.runFlowByPath({ ...params, path })
 			// The call asked for this run; it follows the job rather than starting one, and
 			// shows it in place of this page — so navigating here as well would leave two
 			// surfaces open on the same job.
 			if (!call?.adopt(run, args, flow?.schema ?? {}))
 				await onNavigate('/run/' + run + '?workspace=' + workspace)
-		} catch (e) {
-			throw e
 		} finally {
 			loading = false
 		}

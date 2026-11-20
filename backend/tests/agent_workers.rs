@@ -528,6 +528,146 @@ export function main() {
     Ok(())
 }
 
+/// Every test that sets the fleet's minimum version holds this: tests share the process.
+#[cfg(all(feature = "parquet", feature = "enterprise"))]
+static FLEET_VERSION: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+#[cfg(all(feature = "parquet", feature = "enterprise"))]
+struct OnDrop<F: FnMut()>(F);
+
+#[cfg(all(feature = "parquet", feature = "enterprise"))]
+impl<F: FnMut()> Drop for OnDrop<F> {
+    fn drop(&mut self) {
+        (self.0)()
+    }
+}
+
+/// An agent worker's `volume:ro` pull takes no lease, waits for a write in progress to close,
+/// and writes nothing back.
+#[cfg(all(feature = "parquet", feature = "enterprise"))]
+#[sqlx::test(fixtures("base"))]
+async fn test_agent_worker_read_only_volume(db: Pool<Postgres>) -> anyhow::Result<()> {
+    let leased_by = run_agent_read_only_volume(db, true).await?;
+    assert_eq!(leased_by.as_deref(), Some("other-worker"));
+    Ok(())
+}
+
+/// Until every worker marks its writes, a `volume:ro` mount pulls under the lease, and holding
+/// it must not make the mount writable.
+#[cfg(all(feature = "parquet", feature = "enterprise"))]
+#[sqlx::test(fixtures("base"))]
+async fn test_agent_worker_read_only_volume_leased(db: Pool<Postgres>) -> anyhow::Result<()> {
+    let leased_by = run_agent_read_only_volume(db, false).await?;
+    assert_eq!(leased_by, None, "the lease should be released");
+    Ok(())
+}
+
+/// Another worker holds the volume and rewrites `hello.txt` after 3s: under a write window
+/// (odd generation, lease held for an hour) when the fleet supports lease-free pulls, or as an
+/// older worker would, with no window and a lease that lapses after 4s. Either way the
+/// `volume:ro` job must read the rewritten file and leave nothing behind. Returns `leased_by`.
+#[cfg(all(feature = "parquet", feature = "enterprise"))]
+async fn run_agent_read_only_volume(
+    db: Pool<Postgres>,
+    fleet_supports_lease_free: bool,
+) -> anyhow::Result<Option<String>> {
+    use windmill_common::min_version::{MIN_VERSION, MIN_VERSION_SUPPORTS_LEASE_FREE_VOLUMES};
+    let _fleet = FLEET_VERSION.lock().await;
+    // Put back for the rest of the binary, panics included
+    let before = MIN_VERSION.load_full();
+    let _restore = OnDrop(move || MIN_VERSION.store(before.clone()));
+    let mut fleet = MIN_VERSION_SUPPORTS_LEASE_FREE_VOLUMES.version().clone();
+    if !fleet_supports_lease_free {
+        fleet.minor -= 1;
+    }
+    MIN_VERSION.store(std::sync::Arc::new(fleet));
+
+    let (_client, port, _server) = init_client_agent_mode(db.clone()).await;
+
+    let storage_dir = tempfile::tempdir()?;
+    let lfs_config = json!({
+        "type": "FilesystemStorage",
+        "root_path": storage_dir.path().to_string_lossy(),
+        "public_resource": null,
+        "advanced_permissions": null,
+        "volume_storage": "primary"
+    });
+    sqlx::query!(
+        "UPDATE workspace_settings SET large_file_storage = $1 WHERE workspace_id = 'test-workspace'",
+        lfs_config,
+    )
+    .execute(&db)
+    .await?;
+    let vol_dir = storage_dir.path().join("volumes/test-workspace/test-vol");
+    std::fs::create_dir_all(&vol_dir)?;
+    std::fs::write(vol_dir.join("hello.txt"), b"hello from volume")?;
+
+    let (lease_secs, generation) = if fleet_supports_lease_free {
+        (3600, 1)
+    } else {
+        (4, 0)
+    };
+    sqlx::query!(
+        "INSERT INTO volume (workspace_id, name, size_bytes, created_by, lease_until, leased_by, generation)
+         VALUES ('test-workspace', 'test-vol', 0, 'test-user', now() + make_interval(secs => $1), 'other-worker', $2)",
+        lease_secs as f64,
+        generation
+    )
+    .execute(&db)
+    .await?;
+    let db_c = db.clone();
+    let hello = vol_dir.join("hello.txt");
+    let writer = tokio::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+        std::fs::write(&hello, b"hello after the write").unwrap();
+        if fleet_supports_lease_free {
+            sqlx::query!(
+                "UPDATE volume SET generation = 2 WHERE workspace_id = 'test-workspace' AND name = 'test-vol'"
+            )
+            .execute(&db_c)
+            .await?;
+        }
+        Ok::<_, sqlx::Error>(())
+    });
+
+    let code = r#"// volume:ro test-vol data
+import { readFileSync, writeFileSync } from "fs";
+
+export function main() {
+    const content = readFileSync("data/hello.txt", "utf-8");
+    writeFileSync("data/output.txt", "discarded");
+    return { read_content: content };
+}"#;
+    let uuid = RunJob::from(JobPayload::Code(bun_code(code)))
+        .push(&db)
+        .await;
+    let listener = listen_for_completed_jobs(&db).await;
+    let conn = testing_http_connection_with_tags(
+        port,
+        vec!["bun".into(), "flow".into(), "dependency".into()],
+    )
+    .await;
+    in_test_worker(conn, listener.find(&uuid), port).await;
+    writer.await??;
+
+    let result = completed_job(uuid, &db).await;
+    assert!(result.success, "job should succeed: {:?}", result.result);
+    assert_eq!(
+        result.json_result().unwrap()["read_content"],
+        json!("hello after the write"),
+        "the pull must wait for the other worker's write"
+    );
+    assert!(
+        !vol_dir.join("output.txt").exists(),
+        "a read-only mount must not write back"
+    );
+    Ok(sqlx::query_scalar!(
+        "SELECT leased_by FROM volume WHERE workspace_id = 'test-workspace' AND name = 'test-vol'"
+    )
+    .fetch_one(&db)
+    .await?)
+}
+
 /// Test the volume release endpoint (error/cancel path).
 #[cfg(feature = "parquet")]
 #[sqlx::test(fixtures("base"))]
