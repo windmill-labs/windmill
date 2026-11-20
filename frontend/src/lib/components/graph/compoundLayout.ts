@@ -335,6 +335,8 @@ function layoutLevel(
 	for (const group of groups) {
 		if (!nodeIdSet.has(group.headId)) continue
 		for (const branch of group.branches) {
+			// A group or subflow body starts at its first step, which can head a nested one
+			allGroupOwnedIds.add(branch.labelId)
 			for (const innerId of branch.innerIds) {
 				allGroupOwnedIds.add(innerId)
 			}
@@ -345,6 +347,13 @@ function layoutLevel(
 	const topLevelGroups = groups.filter(
 		(g) => nodeIdSet.has(g.headId) && !allGroupOwnedIds.has(g.headId)
 	)
+
+	// The head is shifted down by its reserved decoration space (group notes, assets),
+	// so the subflow body has to start below that too
+	const subflowHeadRow = (headId: string) => {
+		const extra = nodeExtraSpace?.get(headId)
+		return (extra?.top ?? 0) + constants.nodeHeight + (extra?.bottom ?? 0) + constants.gapV
+	}
 
 	// Build final groupOwnedIds and groupByHeadId from top-level only
 	const groupOwnedIds = new Set<string>()
@@ -436,8 +445,8 @@ function layoutLevel(
 			const bodyHeight = branchLayouts[0]?.bbox.height ?? 0
 			wrapperWidth = Math.max(bodyWidth + GROUP_PADDING * 2, constants.nodeWidth)
 			maxBranchHeight = bodyHeight
-			// head row + body + end row
-			wrapperHeight = rowHeight + bodyHeight + rowHeight
+			// head row (with its decorations) + body + end row
+			wrapperHeight = subflowHeadRow(group.headId) + bodyHeight + rowHeight
 		} else {
 			// Loop: body is indented
 			const bodyWidth = branchLayouts[0]?.bbox.width ?? constants.nodeWidth
@@ -575,19 +584,20 @@ function layoutLevel(
 				y: wrapperPos.y + groupHeadRow + bodyHeight + GROUP_PADDING
 			})
 		} else if (isSubflow) {
+			const headRow = subflowHeadRow(headId)
 			const bl = gl.branchLayouts[0]
 			if (bl) {
 				for (const [innerNodeId, innerPos] of bl.result.positions) {
 					positions.set(innerNodeId, {
 						x: wrapperPos.x + innerPos.x,
-						y: wrapperPos.y + rowHeight + innerPos.y
+						y: wrapperPos.y + headRow + innerPos.y
 					})
 				}
 			}
 			const bodyHeight = bl?.bbox.height ?? 0
 			positions.set(gl.group.endId, {
 				x: wrapperPos.x,
-				y: wrapperPos.y + rowHeight + bodyHeight + constants.gapV
+				y: wrapperPos.y + headRow + bodyHeight + constants.gapV
 			})
 		} else {
 			// Loop: position start, body, and end
