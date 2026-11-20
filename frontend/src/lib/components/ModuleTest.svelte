@@ -174,7 +174,9 @@
 				val.path,
 				args,
 				callbacks,
-				flowStore?.val?.tag ?? (val.tag_override || undefined)
+				flowStore?.val?.tag && !flowStore.val.value?.preserve_step_tags
+					? flowStore.val.tag
+					: val.tag_override || undefined
 			)
 		} else if (val.type == 'aiagent') {
 			const { schema } = await loadSchemaFromModule(mod, opWs)
