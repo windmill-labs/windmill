@@ -16,7 +16,10 @@
 		const nodeMap = new Map(allNodes.map((n) => [n.id, n]))
 		const result: { id: string; x: number; y: number; width: number; height: number }[] = []
 		for (const start of allNodes) {
-			if (start.type !== 'subflowBound' || start.id.endsWith(SUBFLOW_END_SUFFIX)) continue
+			if (start.type !== 'subflowBound') continue
+			const d = start.data as SubflowBoundN['data']
+			// The end bound carries the same subflowId under another id
+			if (d.subflowId !== start.id) continue
 			const endId = start.id + SUBFLOW_END_SUFFIX
 			// Inner node ids are `subflow:<path>:<id>`, where <path> already carries the
 			// parent subflows of a nested one (see buildPrefix in graphBuilder)
@@ -28,7 +31,6 @@
 				selectedIds.some((id) => id === start.id || id === endId || id.startsWith(innerPrefix))
 			const end = nodeMap.get(endId)
 			if (!active || !end) continue
-			const d = start.data as SubflowBoundN['data']
 			result.push({
 				id: start.id,
 				...wrapperBounds(start, end, d.wrapperWidth, {

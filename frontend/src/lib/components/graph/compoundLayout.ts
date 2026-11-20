@@ -5,6 +5,9 @@ import { GROUP_HEADER_HEIGHT } from './groupEditor.svelte'
 type LayoutNode = {
 	id: string
 	parentIds?: string[]
+	// Start bound of an expanded subflow, whose end bound is `${id}${SUBFLOW_END_SUFFIX}`.
+	// Set by the caller: step ids may themselves end in `-subflow-end`.
+	subflowHead?: boolean
 }
 
 type LayoutConstants = {
@@ -41,7 +44,7 @@ export const SUBFLOW_END_SUFFIX = '-subflow-end'
  * Uses ID naming conventions from graphBuilder:
  * - BranchAll/BranchOne: node X has children X-branch-N and X-end
  * - ForLoop/WhileLoop: node X has child X-start and X-end
- * - Expanded subflow: start bound X and end bound X-subflow-end
+ * - Expanded subflow: start bound X (flagged subflowHead by the caller) and end bound X-subflow-end
  */
 function detectGroups(
 	nodeIds: Set<string>,
@@ -51,16 +54,15 @@ function detectGroups(
 	const groups: CompoundGroup[] = []
 
 	for (const id of nodeIds) {
-		if (id.endsWith(SUBFLOW_END_SUFFIX)) {
-			// Expanded subflow: head X + end X-subflow-end, body is everything between
-			const headId = id.slice(0, -SUBFLOW_END_SUFFIX.length)
-			if (!nodeIds.has(headId)) continue
-			const innerIds = findInnerIds(headId, id, nodeIds, childrenMap)
+		if (allNodes.get(id)?.subflowHead) {
+			const endId = id + SUBFLOW_END_SUFFIX
+			if (!nodeIds.has(endId)) continue
+			const innerIds = findInnerIds(id, endId, nodeIds, childrenMap)
 			if (innerIds.length > 0) {
 				groups.push({
 					type: 'subflow',
-					headId,
-					endId: id,
+					headId: id,
+					endId,
 					branches: [{ labelId: innerIds[0], innerIds: innerIds.slice(1) }]
 				})
 			}
@@ -688,7 +690,7 @@ function layoutLevel(
  * column allocated to the node so neighbors are pushed further away.
  */
 export function compoundLayout(
-	nodes: { id: string; parentIds?: string[] }[],
+	nodes: LayoutNode[],
 	constants?: Partial<LayoutConstants>,
 	nodeExtraSpace?: Map<string, { top: number; bottom: number; left: number; right: number }>
 ): LayoutResult {

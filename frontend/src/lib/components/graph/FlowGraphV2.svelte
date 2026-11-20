@@ -444,6 +444,7 @@
 	type NodeDep = {
 		id: string
 		parentIds?: string[]
+		subflowHead?: boolean
 		data?: { assets?: AssetWithAltAccessType[]; module?: any }
 	}
 	type NodePos = { position: { x: number; y: number } }
@@ -804,6 +805,7 @@
 		const graphNodeDeps = Object.values(graph.nodes).map((n) => ({
 			id: n.id,
 			parentIds: n.parentIds,
+			subflowHead: n.type === 'subflowBound' && n.data.subflowId === n.id,
 			data: { assets: (n.data as any).assets, module: (n.data as any).module }
 		}))
 		currentGraphNodeDeps = graphNodeDeps

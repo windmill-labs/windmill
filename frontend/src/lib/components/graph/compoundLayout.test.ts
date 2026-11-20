@@ -6,10 +6,10 @@ describe('compoundLayout expanded subflows', () => {
 	it('lays out subflows nested as each other first step once per level', () => {
 		// in -> s0 -> s1 -> ... -> leaf -> ... -> s1-subflow-end -> s0-subflow-end
 		const depth = 30
-		const nodes: { id: string; parentIds?: string[] }[] = [{ id: 'in' }]
+		const nodes: { id: string; parentIds?: string[]; subflowHead?: boolean }[] = [{ id: 'in' }]
 		let prev = 'in'
 		for (let i = 0; i < depth; i++) {
-			nodes.push({ id: `s${i}`, parentIds: [prev] })
+			nodes.push({ id: `s${i}`, parentIds: [prev], subflowHead: true })
 			prev = `s${i}`
 		}
 		nodes.push({ id: 'leaf', parentIds: [prev] })
@@ -31,7 +31,7 @@ describe('compoundLayout expanded subflows', () => {
 	it('starts the subflow body below the space reserved above its start bound', () => {
 		const nodes = [
 			{ id: 'in' },
-			{ id: 'b', parentIds: ['in'] },
+			{ id: 'b', parentIds: ['in'], subflowHead: true },
 			{ id: 'c1', parentIds: ['b'] },
 			{ id: 'b-subflow-end', parentIds: ['c1'] }
 		]
@@ -40,5 +40,26 @@ describe('compoundLayout expanded subflows', () => {
 
 		const startBottom = positions.get('b')!.y + NODE.height
 		expect(positions.get('c1')!.y - startBottom).toBe(NODE.gap.vertical)
+	})
+
+	it('leaves steps whose ids end in -subflow-end or -subflow alone', () => {
+		const plain = compoundLayout([
+			{ id: 'in' },
+			{ id: 'a-subflow-end', parentIds: ['in'] },
+			{ id: 'a', parentIds: ['a-subflow-end'] },
+			{ id: 'out', parentIds: ['a'] }
+		])
+		const ys = ['in', 'a-subflow-end', 'a', 'out'].map((id) => plain.positions.get(id)?.y)
+		expect(ys).toEqual([...ys].sort((p, q) => p! - q!))
+		expect(new Set(ys).size).toBe(4)
+
+		// A for loop whose step id ends in -subflow keeps its indented loop layout
+		const loop = compoundLayout([
+			{ id: 'x-subflow' },
+			{ id: 'x-subflow-start', parentIds: ['x-subflow'] },
+			{ id: 'c', parentIds: ['x-subflow-start'] },
+			{ id: 'x-subflow-end', parentIds: ['c'] }
+		])
+		expect(loop.positions.get('c')!.x).toBeGreaterThan(loop.positions.get('x-subflow')!.x)
 	})
 })
