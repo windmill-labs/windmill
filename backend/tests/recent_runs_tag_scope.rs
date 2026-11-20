@@ -1,6 +1,7 @@
 //! `jobs/recent_runs`: it aggregates over the workspace through `user_db`, which applies RLS but
 //! not a token's `if_jobs:filter_tags` scope, so the handler filters on it itself; and it reports a
-//! resolved failure apart from an unresolved one.
+//! resolved failure apart from an unresolved one, and leaves an item the caller hid out of its
+//! counts.
 
 use sqlx::{Pool, Postgres};
 use windmill_test_utils::*;
@@ -83,8 +84,20 @@ async fn insert_root_run(
 async fn test_recent_runs_resolved_failures(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
     insert_root_run(&db, "a0000000-0000-0000-0000-000000000001", "failure", true).await?;
-    insert_root_run(&db, "a0000000-0000-0000-0000-000000000002", "failure", false).await?;
-    insert_root_run(&db, "a0000000-0000-0000-0000-000000000003", "canceled", true).await?;
+    insert_root_run(
+        &db,
+        "a0000000-0000-0000-0000-000000000002",
+        "failure",
+        false,
+    )
+    .await?;
+    insert_root_run(
+        &db,
+        "a0000000-0000-0000-0000-000000000003",
+        "canceled",
+        true,
+    )
+    .await?;
     // A failed single-step flow wrapping a flow at the same path: the flow's failure, not the
     // script's, though a job listing by path and kind cannot tell them apart.
     sqlx::query(
@@ -127,9 +140,18 @@ async fn test_recent_runs_resolved_failures(db: Pool<Postgres>) -> anyhow::Resul
             .find(|r| r["id"] == id)
             .map(|r| r["status"].clone())
     };
-    assert_eq!(status_of("a0000000-0000-0000-0000-000000000001"), Some("resolved".into()));
-    assert_eq!(status_of("a0000000-0000-0000-0000-000000000002"), Some("failure".into()));
-    assert_eq!(status_of("a0000000-0000-0000-0000-000000000003"), Some("canceled".into()));
+    assert_eq!(
+        status_of("a0000000-0000-0000-0000-000000000001"),
+        Some("resolved".into())
+    );
+    assert_eq!(
+        status_of("a0000000-0000-0000-0000-000000000002"),
+        Some("failure".into())
+    );
+    assert_eq!(
+        status_of("a0000000-0000-0000-0000-000000000003"),
+        Some("canceled".into())
+    );
     assert_eq!(item["failed_runs"], 1, "{body}");
     // Only the item named in the query carries its ids, and they are its own unresolved failures.
     assert_eq!(
@@ -145,5 +167,66 @@ async fn test_recent_runs_resolved_failures(db: Pool<Postgres>) -> anyhow::Resul
         .expect("flow item");
     assert!(flow.get("failed_run_ids").is_none(), "{body}");
     assert_eq!(body["failed_runs"], 2, "{body}");
+    Ok(())
+}
+
+/// A hidden item's runs are dropped before anything is counted, so it leaves every count, and it
+/// comes back in `hidden_items` for the caller only.
+#[sqlx::test(fixtures("base", "jobs_read_auth"))]
+async fn test_recent_runs_hidden_item(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    insert_root_run(
+        &db,
+        "b0000000-0000-0000-0000-000000000001",
+        "failure",
+        false,
+    )
+    .await?;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let before: serde_json::Value =
+        serde_json::from_str(&recent_runs(port, "SECRET_TOKEN_2").await)?;
+    let resp = reqwest::Client::new()
+        .post(format!(
+            "http://localhost:{port}/api/w/test-workspace/jobs/recent_runs/hide"
+        ))
+        .header("Authorization", "Bearer SECRET_TOKEN_2")
+        .json(&serde_json::json!({"items": [{"kind": "script", "path": "u/test-user-2/flaky"}]}))
+        .send()
+        .await?;
+    assert!(resp.status().is_success(), "{}", resp.status());
+
+    let after: serde_json::Value =
+        serde_json::from_str(&recent_runs(port, "SECRET_TOKEN_2").await)?;
+    let n = |v: &serde_json::Value, k: &str| v[k].as_i64().unwrap();
+    assert_eq!(
+        n(&after, "total_runs"),
+        n(&before, "total_runs") - 1,
+        "{after}"
+    );
+    assert_eq!(
+        n(&after, "failed_runs"),
+        n(&before, "failed_runs") - 1,
+        "{after}"
+    );
+    assert_eq!(
+        n(&after, "failing_items"),
+        n(&before, "failing_items") - 1,
+        "{after}"
+    );
+    assert!(!after["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|i| i["path"] == "u/test-user-2/flaky"));
+    assert_eq!(
+        after["hidden_items"],
+        serde_json::json!([{"kind": "script", "path": "u/test-user-2/flaky"}]),
+        "{after}"
+    );
+
+    let other: serde_json::Value = serde_json::from_str(&recent_runs(port, "SECRET_TOKEN").await)?;
+    assert_eq!(other["hidden_items"], serde_json::json!([]), "{other}");
     Ok(())
 }
