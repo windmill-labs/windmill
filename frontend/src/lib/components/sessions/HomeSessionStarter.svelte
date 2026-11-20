@@ -23,6 +23,7 @@
 	import { useWorkModeLock } from './workModeLock.svelte'
 	import { AIWorkMode } from '$lib/components/copilot/chat/workMode'
 	import { homeComposerContext } from './homeComposerContext.svelte'
+	import WorkInForkToggle from './WorkInForkToggle.svelte'
 
 	// Home's block is the unsent session's own chat, run by that session's manager: the
 	// composer, its controls and what a send does are the session's, not a copy of them.
@@ -108,6 +109,12 @@
 	})
 </script>
 
+{#snippet actingOn()}
+	{#if session}
+		<WorkInForkToggle {session} />
+	{/if}
+{/snippet}
+
 <!-- Until a config has loaded the chat reads "AI not configured" and would flash its disabled
      state. Any loaded config will do, so a fork switch does not hide it while the fork's loads.
      The item count decides whether the composer rests collapsed, so it waits for that too
@@ -128,6 +135,7 @@
 				restsOpen: starterPrompts.empty
 			}}
 			{onSent}
+			{actingOn}
 			workModeLock={workModeLock.current}
 		/>
 	</div>

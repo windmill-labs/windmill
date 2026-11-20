@@ -43,6 +43,13 @@ export function syncWorkspaceTo(workspaceId: string | undefined): void {
 }
 import { WorkspaceService } from '$lib/gen'
 import { createWorkspaceForkAndWait, waitForForkCreation } from '$lib/utils/forkCreation'
+import { stagedForkRequest, type StagedFork } from './sessionForkDefaults'
+import {
+	canUserBypassRuleKindInRulesets,
+	isRuleActiveInRulesets,
+	readProtectionRulesForWorkspace
+} from '$lib/workspaceProtectionRules.svelte'
+import { getUserExt } from '$lib/user'
 import { sendUserToast } from '$lib/toast'
 import { onUserChange } from '$lib/userScopedStorage'
 
@@ -73,13 +80,7 @@ export function isForkSession(
 	return !!ws.parent_workspace_id
 }
 
-export type PendingFork = {
-	// Existing workspace to fork from (drives routing/scope pre-send).
-	parent_workspace_id: string
-	// Slug the new fork will use, e.g. `wm-fork-foo`.
-	id: string
-	// Display name shown in the workspace bar.
-	name: string
+export type PendingFork = StagedFork & {
 	// The background creation this fork started, so a reload mid-copy waits for it rather than
 	// requesting the fork again, which the server refuses while that creation runs.
 	creation_id?: string
@@ -102,8 +103,8 @@ export type Session = {
 	// into workspace_id at first send and then becomes irrelevant.
 	pending_workspace_id?: string
 	// Intent to create a new fork at first send (via commitSessionWorkspace), so
-	// cancelling the draft doesn't leave an orphan fork behind. Found only on records
-	// older clients wrote: no control stages one.
+	// cancelling the draft doesn't leave an orphan fork behind. Staged by Home's "Work in
+	// fork"; `pending_workspace_id` stays the header's workspace it was staged from.
 	pending_fork?: PendingFork
 	// Stable root workspace id used only for sidebar grouping. Lifecycle follows
 	// workspace_id, not this field. Root sessions store the same id in both fields.
@@ -1125,7 +1126,8 @@ function followHomeDraft(): void {
 	const s = homeDraft.id ? sessionState.sessions.find((x) => x.id === homeDraft.id) : undefined
 	const ws = get(workspaceStore)
 	if (!s || !ws || s.workspace_id || sendUnderWay(s.id)) return
-	if (s.pending_workspace_id === ws && !s.pending_fork) return
+	// A fork staged from the header's workspace stays; picking another workspace drops it.
+	if (s.pending_workspace_id === ws) return
 	if (s.pending_workspace_id && workspaceRootId(ws, get(userWorkspaces)) !== sessionRootId(s)) {
 		return
 	}
@@ -1291,6 +1293,20 @@ export function setSessionPendingWorkspace(id: string, workspace_id: string) {
 	// Picking an existing workspace cancels any pending fork intent.
 	s.pending_fork = undefined
 	if (changed) persistTouched(s)
+}
+
+/** Stage `fork` for a session's first send, or drop the staged one (`undefined`). A fork staged
+ *  for the user (`byUser: false`) is not a touch, so it leaves an unused draft unstored, as
+ *  `setNewSessionWorkspace` does. */
+export function setSessionPendingFork(
+	id: string,
+	fork: StagedFork | undefined,
+	{ byUser = true }: { byUser?: boolean } = {}
+) {
+	const s = sessionState.sessions.find((x) => x.id === id)
+	if (!s || s.workspace_id) return
+	s.pending_fork = fork && { ...fork }
+	if (byUser || !s.transient) persistTouched(s)
 }
 
 // Keep a just-created session in memory until the user starts it (see `untilStarted`).
@@ -1532,9 +1548,19 @@ export async function materializeForkOutcome(
 			)
 		}
 		if (!resumed) {
+			const base = fork.parent_workspace_id
+			const [datatables, readRules, user] = await Promise.all([
+				WorkspaceService.listDataTables({ workspace: base }),
+				readProtectionRulesForWorkspace(base),
+				getUserExt(base)
+			])
+			const rules = readRules ?? []
+			const requireIsolation =
+				isRuleActiveInRulesets(rules, 'RequireIsolatedForks') &&
+				!canUserBypassRuleKindInRulesets(rules, 'RequireIsolatedForks', user)
 			await createWorkspaceForkAndWait(
-				fork.parent_workspace_id,
-				{ id: fork.id, name: fork.name },
+				base,
+				stagedForkRequest(fork, { datatables, requireIsolation }),
 				{ onCreationStarted }
 			)
 		}

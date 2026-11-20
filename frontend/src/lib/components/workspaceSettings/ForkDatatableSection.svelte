@@ -16,6 +16,8 @@
 	import { TriangleAlert } from 'lucide-svelte'
 	import Alert from '../common/alert/Alert.svelte'
 	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
+	import { forkDatatableDbName } from '$lib/utils/forkCreation'
+	import { untrack } from 'svelte'
 
 	interface Props {
 		// Workspace whose datatables are cloned into the fork (the fork's base). Falls back to the
@@ -24,6 +26,8 @@
 		// A protection rule on the base forbids `keep_original` for the base's own datatables.
 		requireIsolation?: boolean
 		itemCount?: number
+		// The copies a staged fork was saved with, read once.
+		initialBehaviors?: Record<string, 'schema_only' | 'schema_and_data'>
 		onAllDone?: () => void
 		onCanceled?: () => void
 	}
@@ -32,6 +36,7 @@
 		sourceWorkspace,
 		requireIsolation = false,
 		itemCount = $bindable(),
+		initialBehaviors,
 		onAllDone,
 		onCanceled
 	}: Props = $props()
@@ -48,7 +53,9 @@
 	})
 
 	type Behavior = 'schema_only' | 'schema_and_data' | 'keep_original'
-	let datatableBehaviors: Record<string, Behavior> = $state({})
+	let datatableBehaviors: Record<string, Behavior> = $state(
+		untrack(() => ({ ...initialBehaviors }))
+	)
 
 	// An entry whose database another workspace owns is not the base's data: the rule leaves it
 	// alone, as the server does.
@@ -82,8 +89,7 @@
 				name: dt.name,
 				resourceType: dt.resource_type,
 				behavior: behaviorOf(dt) as 'schema_only' | 'schema_and_data',
-				// A dev workspace's id has no `wm-fork-` prefix; its copies are named like a fork's
-				_newDbName: `wm_fork_${targetWorkspaceId.replace(/^wm-fork-/, '').replace(/-/g, '_')}__${dt.name}`
+				_newDbName: forkDatatableDbName(targetWorkspaceId, dt.name)
 			}))
 	}
 
