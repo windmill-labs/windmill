@@ -251,12 +251,21 @@
 	// Capture phase is required: Monaco and mounted-but-closed Modal2
 	// instances consume window Escapes before they bubble.
 	let panelEl: HTMLDivElement | undefined = $state()
-	// An open drawer or modal, such as the deploy card's diff, takes the Escape that closes it.
-	// Focus stays on the button that opened it, so it would otherwise cancel the pending deploy.
+	// A drawer or modal opened from the chat, such as the deploy card's diff, takes the Escape that
+	// closes it: focus stays on the button that opened it, so it would otherwise cancel the pending
+	// deploy. The ones the chat sits in (the flow editor's Test flow drawer) leave it the Escape.
 	const overlays = overlayStack()
+	function overlaysHoldingChat(): number {
+		let n = 0
+		for (let el = panelEl?.parentElement; el; el = el.parentElement) {
+			if (el.matches('aside.drawer.open, [role="dialog"]')) n++
+		}
+		return n
+	}
 	$effect(() => {
 		function onWindowKeydownCapture(e: KeyboardEvent) {
-			if (e.key !== 'Escape' || !chatHost.loading || overlays.val.length > 0) return
+			if (e.key !== 'Escape' || !chatHost.loading) return
+			if (overlays.val.length > overlaysHoldingChat()) return
 			const active = document.activeElement
 			// Focus parked on the body answers for the panel on screen only: the flow chat keeps
 			// a panel per conversation mounted, several of which can be loading, and a hidden

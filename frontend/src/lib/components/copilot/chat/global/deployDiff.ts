@@ -12,6 +12,9 @@ import type { TriggerKind, WorkspaceItemType } from './workspaceItems'
 
 export interface DeployDiff {
 	kind: UserDraftItemKind
+	/** Where the deploy lands: a draft created in an editor is stored at a synthetic
+	 *  `u/<user>/draft_<uuid>` key, which the model may pass, with its chosen path in the draft. */
+	path: string
 	deployed: unknown
 	draft: unknown
 	/** Never deployed: this deploy creates the item. */
@@ -75,5 +78,7 @@ export async function loadDeployDiff(
 			else if (line.startsWith('-') && !line.startsWith('---')) counts.removed++
 		}
 	}
-	return { kind: target.kind, deployed: values.deployed, draft, isNew, ...counts }
+	const staged = draft as { draft_path?: string; path?: string } | undefined
+	const landsAt = (target.draftOnly ? (staged?.draft_path ?? staged?.path) : undefined) ?? path
+	return { kind: target.kind, path: landsAt, deployed: values.deployed, draft, isNew, ...counts }
 }

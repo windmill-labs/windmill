@@ -61,7 +61,8 @@
 
 	// Where the deploy lands: the draft's path unless the user picks another for a first deploy.
 	let deployPath: string | undefined = $state(undefined)
-	const targetPath = $derived(deployPath ?? args.path)
+	const draftPath = $derived(review.current?.path ?? args.path)
+	const targetPath = $derived(deployPath ?? draftPath)
 	const pathKind = $derived(
 		review.current?.kind === 'script' || review.current?.kind === 'flow'
 			? review.current.kind
@@ -122,7 +123,7 @@
 	toolCallId={message.tool_call_id}
 	{workspace}
 	type={args.type}
-	path={args.path}
+	path={draftPath}
 	{pathKind}
 	bind:deployPath
 	review={reviewState}
