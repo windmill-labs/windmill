@@ -6,6 +6,8 @@ import { persistedResource } from '$lib/persistedResource.svelte'
 import { homeComposerContext } from '$lib/components/sessions/homeComposerContext.svelte'
 import { runContextElement } from '$lib/components/copilot/chat/context'
 import { runsTimeframes } from '$lib/components/runs/timeframes'
+import { userStore } from '$lib/stores'
+import { fromStore } from 'svelte/store'
 
 export type RecentRuns = ListRecentRunsResponse
 export type RecentRunItem = RecentRuns['items'][number]
@@ -15,6 +17,60 @@ export type RecentRunStatus = RecentRun['status']
 /** Home stays open in many tabs and each read can examine tens of thousands of completions, while
  * the panel only shows ages to the minute: a tighter rate multiplies that load for nothing. */
 const REFRESH_MS = 30000
+
+const HIDDEN_ITEMS_SETTING = 'wm-home-runs-hidden'
+
+/** An item hidden from the recent runs. The summary is kept so the hidden list can name an item
+ * that has not run in the window. */
+export type HiddenRunItem = Pick<RecentRunItem, 'kind' | 'path'> & { summary?: string }
+
+/** Hidden items under `workspace:email`: browser storage outlives a logout, and one person's
+ * hidden items must not hide rows from the next. */
+let hiddenByScope = $state<Record<string, HiddenRunItem[]>>(readHiddenItems())
+
+function readHiddenItems(): Record<string, HiddenRunItem[]> {
+	try {
+		const raw = JSON.parse(getLocalSetting(HIDDEN_ITEMS_SETTING) ?? '{}')
+		if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {}
+		return Object.fromEntries(
+			Object.entries(raw).map(([scope, items]) => [
+				scope,
+				Array.isArray(items)
+					? items.filter((i) => typeof i?.kind === 'string' && typeof i?.path === 'string')
+					: []
+			])
+		)
+	} catch {
+		return {}
+	}
+}
+
+function setHiddenItems(scope: string, items: HiddenRunItem[]) {
+	const next = { ...hiddenByScope }
+	if (items.length > 0) next[scope] = items
+	else delete next[scope]
+	hiddenByScope = next
+	try {
+		storeLocalSetting(
+			HIDDEN_ITEMS_SETTING,
+			Object.keys(next).length > 0 ? JSON.stringify(next) : undefined
+		)
+	} catch {}
+}
+
+/** The read without the hidden items, its counts with theirs taken out. `total_runs` stays as
+ * read: an item's `runs` holds only its newest runs, so its share of the total is not known. */
+function withoutHidden(data: RecentRuns, hidden: Set<string>): RecentRuns {
+	const removed = data.items.filter((i) => hidden.has(itemKey(i)))
+	if (removed.length === 0) return data
+	return {
+		...data,
+		items: data.items.filter((i) => !hidden.has(itemKey(i))),
+		failed_runs: data.failed_runs - removed.reduce((n, i) => n + i.failed_runs, 0),
+		failing_items: data.failing_items - removed.filter((i) => i.status === 'failure').length,
+		running_items: data.running_items - removed.filter((i) => i.status === 'running').length
+	}
+}
 
 /**
  * What ran recently in the workspace, read from `listRecentRuns`. The side panel and the header
@@ -37,6 +93,18 @@ export function useRecentRuns(
 				workspace && enabled ? { workspace, args: { folder } } : undefined
 		}
 	)
+	const user = fromStore(userStore)
+	let hiddenScope = $derived.by(() => {
+		const workspace = args().workspace
+		const email = user.current?.email
+		return workspace && email ? `${workspace}:${email}` : undefined
+	})
+	let hiddenItems = $derived(hiddenScope ? (hiddenByScope[hiddenScope] ?? []) : [])
+	let shown = $derived(
+		runs.current && hiddenItems.length > 0
+			? withoutHidden(runs.current, new Set(hiddenItems.map(itemKey)))
+			: runs.current
+	)
 	// The rows' ages ("3m") are read against this, so they move on with each refresh.
 	let now = $state(Date.now())
 	const visible = new IsDocumentVisible()
@@ -48,8 +116,33 @@ export function useRecentRuns(
 		}
 	})
 	return {
+		/** The latest read, without the items the user hid. */
 		get current() {
-			return runs.current
+			return shown
+		},
+		/** Every item the user hid in this workspace, whether or not it ran in the window. */
+		get hiddenItems() {
+			return hiddenItems
+		},
+		/** Absent without an account to remember the choice against. */
+		get hide() {
+			const scope = hiddenScope
+			if (!scope) return undefined
+			return (item: RecentRunItem) => {
+				const items = hiddenByScope[scope] ?? []
+				if (items.some((i) => itemKey(i) === itemKey(item))) return
+				const { kind, path, summary } = item
+				setHiddenItems(scope, [...items, { kind, path, summary: summary || undefined }])
+			}
+		},
+		unhide(items: HiddenRunItem[]) {
+			const scope = hiddenScope
+			if (!scope) return
+			const drop = new Set(items.map(itemKey))
+			setHiddenItems(
+				scope,
+				(hiddenByScope[scope] ?? []).filter((i) => !drop.has(itemKey(i)))
+			)
 		},
 		/** A read is in flight; with no `current` yet, nothing is known about the window. */
 		get loading() {

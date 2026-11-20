@@ -3,6 +3,7 @@
 	import { ExternalLink, ListFilter, PanelRightClose, Sparkles } from 'lucide-svelte'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import RecentRunRow from './RecentRunRow.svelte'
+	import RecentRunsHiddenHint from './RecentRunsHiddenHint.svelte'
 	import {
 		allRunsHref,
 		askAI,
@@ -158,7 +159,7 @@
 				Could not load recent runs.
 				<Button variant="subtle" unifiedSize="xs" onClick={() => runs.retry()}>Retry</Button>
 			</p>
-		{:else if data && data.items.length === 0}
+		{:else if data && data.items.length === 0 && runs.hiddenItems.length === 0}
 			<p class="px-2.5 text-xs text-hint">Runs show up here once something runs.</p>
 		{:else if data}
 			<!-- Fades in once, when the first read lands; refreshes update the rows in place. -->
@@ -170,8 +171,10 @@
 						prefix={prefixes.get(itemKey(item))}
 						onResolve={runs.resolveFailures}
 						onSelect={onFocusItem}
+						onHide={runs.hide}
 					/>
 				{/each}
+				<RecentRunsHiddenHint {runs} class="px-2.5 pt-1" />
 			</div>
 		{/if}
 	</div>
