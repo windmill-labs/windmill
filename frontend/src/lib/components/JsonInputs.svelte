@@ -1,4 +1,5 @@
 <script lang="ts">
+	import HostWindow from '$lib/components/common/HostWindow.svelte'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import { createEventDispatcher, onDestroy, untrack } from 'svelte'
 	import { setEditorUnparseable } from './pendingEditorFlush'
@@ -106,7 +107,7 @@
 	}
 </script>
 
-<svelte:window onkeydown={handleKeydown} />
+<HostWindow onkeydown={handleKeydown} />
 
 <!-- Add a hidden button that can receive focus -->
 <button bind:this={focusTrap} class="sr-only" tabindex="-1" aria-hidden="true">Focus trap</button>

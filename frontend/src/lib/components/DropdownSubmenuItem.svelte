@@ -47,7 +47,13 @@
 		{item.displayName}
 	</p>
 	{@render item.extra?.()}
-	<ChevronRight size={14} class="ml-auto shrink-0 text-tertiary" />
+	{#if item.detail}
+		<span class="ml-auto shrink-0 pl-4 text-2xs text-secondary">{item.detail}</span>
+	{/if}
+	<ChevronRight
+		size={14}
+		class={twMerge(item.detail ? '' : 'ml-auto', 'shrink-0 text-tertiary', item.chevronClass)}
+	/>
 </button>
 
 {#if $subOpen}
@@ -58,7 +64,7 @@
 			: 'w-48 py-1'} origin-top-right rounded-lg shadow-lg focus:outline-none"
 	>
 		{#if CustomSubmenu}
-			<CustomSubmenu {...item.customSubmenuProps} close={closeMenu} />
+			<CustomSubmenu {...item.customSubmenuProps} close={closeMenu} {meltItem} />
 		{:else}
 			<!-- The scroll sits on this wrapper, not on the melt element: that element is the containing
 			     block of a nested submenu, which its overflow would clip. -->
@@ -119,8 +125,11 @@
 			{subItem.displayName}
 		</p>
 		{@render subItem.extra?.()}
-		{#if subItem.shortcut || subItem.selected || subItem.toggle !== undefined}
+		{#if subItem.detail || subItem.shortcut || subItem.selected || subItem.toggle !== undefined}
 			<div class="ml-auto flex shrink-0 items-center gap-2">
+				{#if subItem.detail}
+					<span class="pl-4 text-2xs text-secondary">{subItem.detail}</span>
+				{/if}
 				{#if subItem.shortcut}
 					<span class="pl-4 text-2xs text-secondary">{subItem.shortcut}</span>
 				{/if}

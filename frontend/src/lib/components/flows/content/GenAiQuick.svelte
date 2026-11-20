@@ -1,4 +1,5 @@
 <script lang="ts">
+	import HostWindow from '$lib/components/common/HostWindow.svelte'
 	import { createBubbler } from 'svelte/legacy'
 
 	const bubble = createBubbler()
@@ -23,7 +24,7 @@
 	}
 </script>
 
-<svelte:window onkeydown={onKeyDown} />
+<HostWindow onkeydown={onKeyDown} />
 <button
 	class="px-3 py-2 gap-2 w-full text-left flex flex-row items-center transition-all rounded-md {selected
 		? 'bg-surface-hover'

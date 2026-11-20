@@ -3,6 +3,8 @@
 	import Markdown from 'svelte-exmarkdown'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import LinkRenderer from '../LinkRenderer.svelte'
+	import MarkdownImage from '../MarkdownImage.svelte'
+	import MarkdownImageSource from '../MarkdownImageSource.svelte'
 	import { artifactPlugins } from './artifactPlugins'
 	import '@fontsource-variable/jetbrains-mono/wght.css'
 	import './artifactDocument.css'
@@ -27,7 +29,14 @@
 	// link pill and, when given, its code block sit on top of it.
 	const plugins = $derived([
 		...artifactPlugins,
-		{ renderer: { a: LinkRenderer, ...(pre ? { pre } : {}) } }
+		{
+			renderer: {
+				a: LinkRenderer,
+				img: MarkdownImage,
+				source: MarkdownImageSource,
+				...(pre ? { pre } : {})
+			}
+		}
 	])
 </script>
 

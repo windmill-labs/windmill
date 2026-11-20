@@ -2151,6 +2151,20 @@ pub async fn delete_expired_items(db: &DB) -> () {
         tracing::error!("Error deleting autoscaling event on CE: {:?}", e);
     }
 
+    // A recording lasts at most a day (`AUTOSCALING_RECORDING_SECS`), so its decisions are
+    // still there for a day after it ends.
+    if let Err(e) = sqlx::query!(
+        "WITH decisions AS (
+            DELETE FROM autoscaling_decision WHERE recorded_at <= now() - interval '48 hours'
+        )
+        DELETE FROM autoscaling_recording WHERE until <= now()"
+    )
+    .execute(db)
+    .await
+    {
+        tracing::error!("Error deleting autoscaling decisions: {:?}", e);
+    }
+
     // native_retry_attempt has no FK to v2_job (kept off the hot bulk delete).
     // Retention sweeps markers alongside the jobs it deletes, but direct job
     // deletions (workspace/job/schedule clearing) leave markers orphaned — reap
@@ -5330,6 +5344,7 @@ async fn poll_git_auto_pull_inner(db: &Pool<Postgres>) -> error::Result<()> {
                             db,
                             &row.workspace_id,
                             &repo.git_repo_resource_path,
+                            windmill_common::ssrf::GitRemoteCaller::AdminOrSystem,
                         )
                         .await
                     }
@@ -8531,7 +8546,9 @@ mod loggable_setting_value_tests {
     fn never_prints_string_or_structured_values() {
         let token = "ghp_secret_token";
         for v in [
-            json!(format!("[install.scopes]\n\"@org\" = {{ token = \"{token}\" }}")),
+            json!(format!(
+                "[install.scopes]\n\"@org\" = {{ token = \"{token}\" }}"
+            )),
             json!({ "registry": { "token": token } }),
             json!([token]),
         ] {

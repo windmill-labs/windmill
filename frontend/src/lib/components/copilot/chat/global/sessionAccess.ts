@@ -130,6 +130,9 @@ function protects(rulesets: ProtectionRuleset[] | undefined): boolean {
 const READ_ONLY_TTL_MS = 60_000
 const readOnlyVerdicts = new Map<string, { at: number; verdict: Promise<boolean> }>()
 const settledVerdicts = new Map<string, { at: number; readOnly: boolean }>()
+// A read started before `forgetReadOnlyVerdicts` must not write its older answer back over
+// the reads started after it.
+let verdictGeneration = 0
 
 /** The read-only verdict alone, for the UI around a session. Fails closed as the chat does; a
  * failed read is not kept, so the next ask reads the rules again. */
@@ -137,13 +140,23 @@ export function isReadOnlySessionWorkspace(workspace: string): Promise<boolean> 
 	const cached = readOnlyVerdicts.get(workspace)
 	if (cached && Date.now() - cached.at < READ_ONLY_TTL_MS) return cached.verdict
 	const at = Date.now()
+	const generation = verdictGeneration
 	const verdict = readProtectionRulesForWorkspace(workspace).then((rulesets) => {
-		if (!rulesets) readOnlyVerdicts.delete(workspace)
-		else settledVerdicts.set(workspace, { at, readOnly: protects(rulesets) })
+		if (generation === verdictGeneration) {
+			if (!rulesets) readOnlyVerdicts.delete(workspace)
+			else settledVerdicts.set(workspace, { at, readOnly: protects(rulesets) })
+		}
 		return protects(rulesets)
 	})
 	readOnlyVerdicts.set(workspace, { at, verdict })
 	return verdict
+}
+
+/** Drops the memoized verdicts, so the next ask reads the rules. */
+export function forgetReadOnlyVerdicts(): void {
+	verdictGeneration++
+	readOnlyVerdicts.clear()
+	settledVerdicts.clear()
 }
 
 /** The verdict read for `workspace` within the minute, without asking: what the UI stands on

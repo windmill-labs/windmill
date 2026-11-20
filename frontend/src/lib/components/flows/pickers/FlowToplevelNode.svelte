@@ -1,4 +1,5 @@
 <script lang="ts">
+	import HostWindow from '$lib/components/common/HostWindow.svelte'
 	import { createEventDispatcher } from 'svelte'
 	import TopLevelNode from './TopLevelNode.svelte'
 
@@ -22,6 +23,6 @@
 	}
 </script>
 
-<svelte:window onkeydown={handleKeydown} />
+<HostWindow onkeydown={handleKeydown} />
 
 <TopLevelNode {label} {selected} returnIcon neutral onSelect={click} {onHover} />

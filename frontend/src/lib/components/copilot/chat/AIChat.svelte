@@ -10,6 +10,7 @@
 	import { SUPPORTED_CHAT_SCRIPT_LANGUAGES } from './script/core'
 	import { copilotInfo } from '$lib/aiStore'
 	import type { ComposerSelection } from './composerBox'
+	import { overlayHostActive } from '$lib/components/common/overlayHost.svelte'
 
 	let {
 		hideHeader = false,
@@ -155,10 +156,15 @@
 	$effect(() => {
 		aiChatManager.updateMode(untrack(() => aiChatManager.mode))
 	})
+
+	// A chat kept mounted while hidden (the sessions page's, on every other page) must leave
+	// the browser its Cmd+L.
+	const hostActive = overlayHostActive()
 </script>
 
 <svelte:window
 	onkeydown={(e) => {
+		if (!hostActive()) return
 		if ((e.ctrlKey || e.metaKey) && e.key === 'l') {
 			e.preventDefault()
 			aiChatDisplay?.focusInput()

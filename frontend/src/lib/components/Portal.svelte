@@ -49,6 +49,8 @@
 </script>
 
 <script>
+	import { overlayShown } from '$lib/components/common/overlayHost.svelte'
+
 	/**
 	 * @typedef {Object} Props
 	 * @property { HTMLElement|string} [target] - DOM Element or CSS Selector
@@ -59,8 +61,12 @@
 
 	/** @type {Props} */
 	let { target = 'body', name = undefined, class: clazz = undefined, children } = $props()
+
+	const shown = overlayShown()
 </script>
 
-<div use:portal={{ target, name }} hidden class={clazz}>
-	{@render children?.()}
-</div>
+{#if shown()}
+	<div use:portal={{ target, name }} hidden class={clazz}>
+		{@render children?.()}
+	</div>
+{/if}

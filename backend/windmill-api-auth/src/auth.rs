@@ -171,6 +171,15 @@ impl AuthCache {
         // from a job's WM_TOKEN, even on an AUTH_CACHE hit whose cached authed
         // predates this field.
         opt_job_authed.authed.job_id = opt_job_authed.job_id;
+        // Read for each request, before any handler opens a transaction, so a check inside one
+        // never needs a second connection. Never cached with the login: the role caches it reads
+        // are the ones role changes clear. An unreadable role stays `None`, read again later.
+        if let Some(w_id) = w_id.as_deref() {
+            opt_job_authed.authed.capabilities =
+                windmill_common::roles::caller_capabilities(&self.db, w_id, &opt_job_authed.authed)
+                    .await
+                    .ok();
+        }
         // The no-account rule is enforced here, once, for every guest request — not per
         // handler, where each guest-reachable route would have to remember it. Uncached,
         // so an account provisioned after the mint ends the guest session, and every
@@ -348,6 +357,7 @@ impl AuthCache {
                     job_id: None,
                     credential_expiry: Some(credential_expiry),
                     mcp_client: None,
+                    capabilities: None,
                 };
                 AUTH_CACHE.insert(
                     key,
@@ -394,6 +404,7 @@ impl AuthCache {
                             job_id: None,
                             credential_expiry: None,
                             mcp_client: claims.mcp_client,
+                            capabilities: None,
                         };
                         // Fail closed: a `job_id` claim that does not parse must reject
                         // the token rather than resolve to `None`, which would clear the
@@ -526,6 +537,7 @@ impl AuthCache {
                                                 job_id: None,
                                                 credential_expiry: None,
                                                 mcp_client: None,
+                                                capabilities: None,
                                             })
                                         } else {
                                             tracing::warn!(
@@ -581,6 +593,7 @@ impl AuthCache {
                                                 job_id: None,
                                                 credential_expiry: None,
                                                 mcp_client: None,
+                                                capabilities: None,
                                             })
                                         } else {
                                             tracing::warn!(
@@ -681,6 +694,7 @@ impl AuthCache {
                                                 job_id: None,
                                                 credential_expiry: None,
                                                 mcp_client: None,
+                                                capabilities: None,
                                             })
                                         }
                                         None if super_admin => {
@@ -707,6 +721,7 @@ impl AuthCache {
                                                     job_id: None,
                                                     credential_expiry: None,
                                                     mcp_client: None,
+                                                    capabilities: None,
                                                 }),
                                                 Err(e) => {
                                                     tracing::error!(
@@ -746,6 +761,7 @@ impl AuthCache {
                                                 job_id: None,
                                                 credential_expiry: None,
                                                 mcp_client: None,
+                                                capabilities: None,
                                             })
                                         }
                                         None => None,
@@ -767,6 +783,7 @@ impl AuthCache {
                                         job_id: None,
                                         credential_expiry: None,
                                         mcp_client: None,
+                                        capabilities: None,
                                     })
                                 }
                             }
@@ -808,6 +825,7 @@ impl AuthCache {
                         job_id: None,
                         credential_expiry: None,
                         mcp_client: None,
+                        capabilities: None,
                     };
                     Some(OptJobAuthed { authed, job_id: None })
                 } else {
@@ -1183,6 +1201,7 @@ fn no_auth_admin_authed() -> ApiAuthed {
         job_id: None,
         credential_expiry: None,
         mcp_client: None,
+        capabilities: None,
     }
 }
 

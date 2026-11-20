@@ -17,7 +17,12 @@
 	import { debounce, pointerDownOutside } from '$lib/utils'
 	import { twMerge } from 'tailwind-merge'
 	import { createEventDispatcher, untrack } from 'svelte'
-	import { getOverlayHost, overlayPortalTarget } from '$lib/components/common/overlayHost.svelte'
+	import {
+		getOverlayHost,
+		overlayHostActive,
+		overlayPortalTarget,
+		overlayShown
+	} from '$lib/components/common/overlayHost.svelte'
 	import { Button } from '$lib/components/common'
 	import DocLink from '$lib/components/apps/editor/settingsPanel/DocLink.svelte'
 	import type { FloatingConfig } from '@melt-ui/svelte/internal/actions/floating'
@@ -119,6 +124,8 @@
 	// drawer), else the document.
 	const overlayHost = getOverlayHost()
 	const hostPortal = overlayPortalTarget('body')
+	const shown = overlayShown()
+	const hostActive = overlayHostActive()
 	const fullScreenHost = $derived(fullScreen ? overlayHost?.el() : undefined)
 	// `null` is melt's "render in place" and must survive; only an absent prop defers to the host.
 	let dynamicPortal = $derived(
@@ -233,7 +240,7 @@
 	})
 </script>
 
-<svelte:window onkeydown={(e) => isOpen && onKeyDown(e)} />
+<svelte:window onkeydown={(e) => isOpen && hostActive() && onKeyDown(e)} />
 
 <button
 	class={className}
@@ -266,12 +273,12 @@
 	{@render trigger?.({ isOpen })}
 </button>
 
-{#if fullScreen && isOpen && !disablePopup}
+{#if fullScreen && isOpen && !disablePopup && shown()}
 	<div use:melt={$overlay} class="{fullScreenHost ? 'absolute' : 'fixed'} inset-0 z-10 bg-black/50"
 	></div>
 {/if}
 
-{#if isOpen && !disablePopup}
+{#if isOpen && !disablePopup && shown()}
 	<div
 		onmouseenter={() => {
 			if (openOnHover) {

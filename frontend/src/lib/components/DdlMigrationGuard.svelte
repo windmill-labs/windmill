@@ -1,4 +1,5 @@
 <script lang="ts">
+	import HostWindow from '$lib/components/common/HostWindow.svelte'
 	import { Button } from './common'
 	import Modal2 from './common/modal/Modal2.svelte'
 	import NewDataTableMigrationModal from './workspaceSettings/NewDataTableMigrationModal.svelte'
@@ -136,7 +137,7 @@
 	}
 </script>
 
-<svelte:window onkeydown={onKeyDown} />
+<HostWindow onkeydown={onKeyDown} />
 
 <Modal2
 	title={promptStatements.length > 1 ? 'Schema changes detected' : 'Schema change detected'}

@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { overlayHostActive } from '$lib/components/common/overlayHost.svelte'
+	const hostActive = overlayHostActive()
 	import type { FlowEditorContext } from '../types'
 	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
 	import type { OpenInSessionSource } from '$lib/components/sessions/OpenInSessionButton.svelte'
@@ -129,7 +131,7 @@
 		if (!moveManager.movingModuleId) return
 
 		function onKeyDown(e: KeyboardEvent) {
-			if (e.key === 'Escape') {
+			if (hostActive() && e.key === 'Escape') {
 				moveManager.clearMoving()
 			}
 		}
