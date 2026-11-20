@@ -38,6 +38,7 @@
 	} from '$lib/components/sessions/PreviewRouterPicker.svelte'
 	import { goto } from '$lib/navigation'
 	import { useWorkspaceAiHidden } from '$lib/components/copilot/workspaceAiHidden.svelte'
+	import { rereadReadOnlyVerdicts } from './sessionPermissions.svelte'
 	import SessionWrapper from '$lib/components/sessions/SessionWrapper.svelte'
 	import type PreviewTabHost from '$lib/components/sessions/PreviewTabHost.svelte'
 	import { useIsDarkMode } from '$lib/components/DarkModeObserver.svelte'
@@ -293,12 +294,11 @@
 		})
 	)
 
-	// Chat columns stay mounted (stacked, visibility-toggled), the view itself
-	// included while the user is on another page, so coming back keeps scroll
-	// position, MRU-capped like preview tabs: every mounted column is a full
-	// transcript in the DOM. Unmounting drops only the column — the runtime keeps
-	// the chat — so a column is kept while its composer holds unsent input
-	// (component-local) or its turn is running.
+	// Chat columns stay mounted (stacked, visibility-toggled), so switching back to a
+	// session keeps its scroll position, MRU-capped like preview tabs: every mounted
+	// column is a full transcript in the DOM. Unmounting drops only the column — the
+	// runtime keeps the chat — so a column is kept while its composer holds unsent
+	// input (component-local) or its turn is running.
 	const MAX_MOUNTED_CHATS = 5
 	const mountedChatIds = new SvelteSet<string>()
 	function keepsChatMounted(id: string): boolean {
@@ -313,6 +313,19 @@
 			if (oldest !== id && !keepsChatMounted(oldest)) mountedChatIds.delete(oldest)
 		}
 	}
+	// Off the route only the session shown last keeps its column, beside those
+	// `keepsChatMounted` holds. Hiding and showing the view restyles every column it holds, so
+	// each warm sibling would slow every navigation to and from this page, and hold its
+	// transcript in memory while the user is elsewhere.
+	$effect(() => {
+		if (shown) return
+		const keep = sessionId
+		untrack(() => {
+			for (const id of [...mountedChatIds]) {
+				if (id !== keep && !keepsChatMounted(id)) mountedChatIds.delete(id)
+			}
+		})
+	})
 	// Off the route, an unsent session's column goes: it has no transcript to keep, its text is
 	// on its record, and Home's composer can take that same session meanwhile, which a column
 	// still holding the earlier text would contradict once the user is back.
@@ -359,6 +372,20 @@
 	// that would refresh `copilotInfo`, so the verdict is read for the workspace itself.
 	const workspaceAiHidden = useWorkspaceAiHidden(() => previewWorkspace)
 	const aiHiddenVerdict = $derived(workspaceAiHidden.hidden)
+	// The AI setting and the protection rules are changed on other pages, so coming back reads
+	// them again: kept from before, an un-hidden workspace would stay covered and an unprotected
+	// one locked in Use until a reload.
+	let shownBefore = false
+	$effect(() => {
+		if (!shown) return
+		if (shownBefore) {
+			untrack(() => {
+				workspaceAiHidden.refresh()
+				rereadReadOnlyVerdicts()
+			})
+		}
+		shownBefore = true
+	})
 	// The full loader is for the page's first verdict only. Later, picking another workspace in
 	// "Acting on" leaves the session on screen, inert until its verdict lands: covering it for
 	// a request reads as the page reloading.
