@@ -16,6 +16,7 @@
 	import type { ModuleActionInfo } from '$lib/components/flows/flowDiff'
 	import { getGraphContext } from '$lib/components/graph/graphContext'
 	import { nextMock } from '../flowMock'
+	import { Bug } from 'lucide-svelte'
 
 	interface Props {
 		moduleId: string
@@ -29,7 +30,6 @@
 		nodeState?: FlowNodeState
 		duration_ms?: number | undefined
 		retries?: number | undefined
-		retriedInside?: number
 		flowJobs:
 			| {
 					flowJobs: string[]
@@ -64,6 +64,8 @@
 		isOwner?: boolean
 		maximizeSubflow?: () => void
 		menuItems?: Item[]
+		/** The step is the flow's error handler, drawn in a run with the bug icon its header button uses. */
+		errorHandler?: boolean
 	}
 
 	let {
@@ -79,7 +81,6 @@
 		nodeState,
 		duration_ms = undefined,
 		retries = undefined,
-		retriedInside = 0,
 		flowJobs,
 		attempts = undefined,
 		editMode = false,
@@ -91,7 +92,8 @@
 		flowJob,
 		isOwner = false,
 		maximizeSubflow,
-		menuItems = undefined
+		menuItems = undefined,
+		errorHandler = false
 	}: Props = $props()
 
 	const { selectionManager, moveManager } = getGraphContext()
@@ -279,7 +281,6 @@
 			{:else}
 				<FlowModuleSchemaItem
 					{retries}
-					{retriedInside}
 					attempts={attempts && !insertable
 						? {
 								jobs: attempts.flowJobs,
@@ -331,7 +332,11 @@
 								: mod.value.type === 'script'
 									? 14
 									: 16}
-						<FlowModuleIcon module={mod} {size} />
+						{#if errorHandler}
+							<Bug size={16} class="text-red-400 dark:text-red-500" />
+						{:else}
+							<FlowModuleIcon module={mod} {size} />
+						{/if}
 					{/snippet}
 				</FlowModuleSchemaItem>
 			{/if}

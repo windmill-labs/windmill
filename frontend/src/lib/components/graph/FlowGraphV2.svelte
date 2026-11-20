@@ -176,6 +176,8 @@
 		isRunning?: boolean
 		individualStepTests?: boolean
 		flowJob?: Job | undefined
+		/** The run the graph shows has finished, so a step without a state never ran. */
+		runDone?: boolean
 		showJobStatus?: boolean
 		suspendStatus?: Record<string, { job: Job; nb: number }>
 		noteMode?: boolean
@@ -293,6 +295,7 @@
 		onHideJobStatus = undefined,
 		individualStepTests = false,
 		flowJob = undefined,
+		runDone = false,
 		showJobStatus = false,
 		suspendStatus = {},
 		flowHasChanged = false,
@@ -397,6 +400,7 @@
 	})
 	$effect(() => {
 		flowRunStatus.showsRun = flowModuleStates !== undefined
+		flowRunStatus.runDone = runDone
 	})
 	$effect(() => {
 		// Each step's state object is replaced rather than mutated, so reading the top level

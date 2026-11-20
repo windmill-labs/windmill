@@ -172,6 +172,10 @@ export type ModuleN = {
 		isOwner: boolean
 		assets: AssetWithAltAccessType[] | undefined
 		moduleAction: ModuleActionInfo | undefined
+		isErrorHandler?: boolean
+		/** A loop whose iterations may have run an error handler: its flow has one (each iteration
+		 * runs a copy), or a subflow step sits inside it. */
+		mayRunErrorHandler?: boolean
 	}
 }
 
@@ -516,9 +520,17 @@ export function graphBuilder(
 		// In the editor the error handler is configured from its own header button, so its graph node
 		// is only a marker of the last run: inert, dismissable, and never selectable. Everywhere else
 		// (run view, viewers) it stays a regular step card.
+		function loopMayRunErrorHandler(module: FlowModule, prefix: string | undefined) {
+			const body = 'modules' in module.value ? module.value.modules : []
+			return (
+				!!failureModulesByPrefix[prefix == undefined ? '' : 'subflow:' + prefix] ||
+				getAllModules(body).some((m) => m.value.type === 'flow')
+			)
+		}
+
 		function addFailureNode(module: FlowModule) {
 			if (!extra.editMode) {
-				return addNode(module)
+				return addNode(module, { isErrorHandler: true })
 			}
 
 			nodes.push({
@@ -545,6 +557,7 @@ export function graphBuilder(
 		)
 
 		const parents: { [key: string]: string[] } = {}
+		const handlerTargets: Record<string, string> = {}
 
 		//
 		function detectCycle(nodeId: string, visited: Set<string>, currentPath: Set<string>): boolean {
@@ -587,6 +600,7 @@ export function graphBuilder(
 				subModules?: FlowModule[]
 				currentItems?: FlowStructureNode[]
 				disableMoveIds?: string[]
+				handler?: true
 			}
 		) {
 			parents[targetId] = [...(parents[targetId] ?? []), sourceId]
@@ -629,7 +643,8 @@ export function graphBuilder(
 					disableAi: extra.disableAi,
 					isOwner: extra.isOwner,
 					insertable: extra.insertable && !options?.disableInsert && prefix == undefined,
-					shouldOffsetInsertBtnDueToAssetNode: nodeIdsWithOutputAssets.has(sourceId)
+					shouldOffsetInsertBtnDueToAssetNode: nodeIdsWithOutputAssets.has(sourceId),
+					handler: options?.handler
 				},
 				selectable: false
 			})
@@ -707,7 +722,12 @@ export function graphBuilder(
 			simplifiedTriggerView: boolean,
 			prefix: string | undefined,
 			disableMoveIds: string[] = [],
-			parentIndex?: string
+			parentIndex?: string,
+			// Node an error handler's output goes to when one of these steps fails: the enclosing
+			// loop or branch-all collects it as that iteration's entry, a branch-one passes it
+			// through, and otherwise it is the end of the flow drawn (Result, or an expanded
+			// subflow's end).
+			handlerTarget?: string
 		) {
 			// For subflow prefix rewriting, clone modules into moduleMap with prefixed IDs
 			// (avoid mutating reactive originals which would trigger state_unsafe_mutation in $derived)
@@ -826,7 +846,8 @@ export function graphBuilder(
 								simplifiedTriggerView,
 								prefix,
 								localDisableMoveIds,
-								parentIndex
+								parentIndex,
+								handlerTarget
 							)
 
 							previousId = endId
@@ -861,6 +882,9 @@ export function graphBuilder(
 					const module = moduleMap.get(item.id)
 					if (!module) return
 					const localDisableMoveIds = [...disableMoveIds, module.id]
+					if (handlerTarget) {
+						handlerTargets[module.id] = handlerTarget
+					}
 
 					// Inter-module edge: connect previous → current (expanded subflows handle their own)
 					if (index > 0 && previousId && expandedSubflows[module.id] == undefined) {
@@ -945,7 +969,10 @@ export function graphBuilder(
 									false,
 									prefix,
 									localDisableMoveIds,
-									parentIndex ? `${parentIndex}-${index}-${branchIndex}` : `${index}-${branchIndex}`
+									parentIndex
+										? `${parentIndex}-${index}-${branchIndex}`
+										: `${index}-${branchIndex}`,
+									endNode.id
 								)
 							})
 						}
@@ -953,7 +980,7 @@ export function graphBuilder(
 						previousId = endNode.id
 					} else if (module.value.type === 'forloopflow') {
 						if (!simplifiedTriggerView) {
-							addNode(module)
+							addNode(module, { mayRunErrorHandler: loopMayRunErrorHandler(module, prefix) })
 						}
 
 						const startNode: NodeLayout = {
@@ -1004,12 +1031,13 @@ export function graphBuilder(
 							localDisableMoveIds,
 							parentIndex
 								? `${parentIndex}-${index}-${selectedIterIndex ?? '?'}`
-								: `${index}-${selectedIterIndex ?? '?'}`
+								: `${index}-${selectedIterIndex ?? '?'}`,
+							endNode.id
 						)
 
 						previousId = endNode.id
 					} else if (module.value.type === 'whileloopflow') {
-						addNode(module)
+						addNode(module, { mayRunErrorHandler: loopMayRunErrorHandler(module, prefix) })
 
 						const startNode: NodeLayout = {
 							id: `${module.id}-start`,
@@ -1043,7 +1071,8 @@ export function graphBuilder(
 							localDisableMoveIds,
 							parentIndex
 								? `${parentIndex}-${index}-${selectedIterIndex ?? '?'}`
-								: `${index}-${selectedIterIndex ?? '?'}`
+								: `${index}-${selectedIterIndex ?? '?'}`,
+							endNode.id
 						)
 
 						previousId = endNode.id
@@ -1059,6 +1088,9 @@ export function graphBuilder(
 							type: 'branchOneEnd'
 						}
 						nodes.push(endNode)
+						// The handler's output is the branch-one's result, which ends the flow unless the
+						// branch-one continues on error.
+						const branchHandlerTarget = module.continue_on_error ? endNode.id : handlerTarget
 
 						const defaultBranch: NodeLayout = {
 							id: `${module.id}-branch-default`,
@@ -1089,7 +1121,8 @@ export function graphBuilder(
 							false,
 							prefix,
 							localDisableMoveIds,
-							parentIndex ? `${parentIndex}-${index}` : index.toString()
+							parentIndex ? `${parentIndex}-${index}` : index.toString(),
+							branchHandlerTarget
 						)
 
 						module.value.branches.forEach((branch, branchIndex) => {
@@ -1124,7 +1157,8 @@ export function graphBuilder(
 								false,
 								prefix,
 								localDisableMoveIds,
-								parentIndex ? `${parentIndex}-${index}` : index.toString()
+								parentIndex ? `${parentIndex}-${index}` : index.toString(),
+								branchHandlerTarget
 							)
 						})
 
@@ -1203,7 +1237,9 @@ export function graphBuilder(
 								endNode,
 								false,
 								subflowPrefix,
-								localDisableMoveIds
+								localDisableMoveIds,
+								undefined,
+								endId
 							)
 
 							previousId = endNode.id
@@ -1236,7 +1272,17 @@ export function graphBuilder(
 		if (simplifiableFlow?.simplifiedFlow === true && triggerNode) {
 			processModules(topLevelItems, undefined, triggerNode, undefined, true, undefined)
 		} else {
-			processModules(topLevelItems, undefined, inputNode, resultNode, false, undefined)
+			processModules(
+				topLevelItems,
+				undefined,
+				inputNode,
+				resultNode,
+				false,
+				undefined,
+				[],
+				undefined,
+				resultNode.id
+			)
 		}
 
 		// Before the failure markers: the preprocessor can be the step that failed, and a marker is
@@ -1271,7 +1317,34 @@ export function graphBuilder(
 				return
 			}
 			addFailureNode({ ...module, id })
-			addEdge(parentId, id, undefined, undefined, { type: 'empty' })
+			// An expanded subflow step failed as a whole, so its marker hangs off the subflow's end.
+			const anchor = expandedSubflows[parentId] ? `${parentId}-subflow-end` : parentId
+			addEdge(anchor, id, undefined, undefined, { type: 'empty', handler: true })
+			const target = handlerTargets[parentId]
+			// The failure went to the handler, so the step's own way out was not taken, even where
+			// it leads to a node with no run state of its own (a loop or branch end). A loop or
+			// branch that failed as a whole leaves through its end node. Where the way out leads to
+			// the handler's own target, the handler's edge replaces it: drawn both, they read as
+			// two paths into that node.
+			const exits = [anchor, `${anchor}-end`]
+			for (const edge of edges) {
+				if (exits.includes(edge.source) && edge.target !== id) {
+					edge.data = { ...edge.data, bypassed: edge.target === target ? 'replaced' : true }
+				}
+			}
+			// The step's own edge stays: the steps after it are still part of the flow, and their
+			// state shows they did not run. Kept out of `parents`, which the layout reads: an edge
+			// leaving a branch for Result would pull Result into that branch's group.
+			if (target) {
+				edges.push({
+					id: `edge:${id}->${target}`,
+					source: id,
+					target,
+					type: 'empty',
+					data: { handler: true },
+					selectable: false
+				})
+			}
 		})
 
 		if (failureModule && !extra.flowModuleStates) {
@@ -1320,6 +1393,14 @@ export function graphBuilder(
 					})
 				})
 			}
+		}
+
+		// Static, so it never invalidates the edge set; the renderer reads run state on its own.
+		const stepIds = new Set(nodes.filter((n) => n.type === 'module').map((n) => n.id))
+		for (const edge of edges) {
+			if (edge.type !== 'edge' && edge.type !== 'empty') continue
+			const steps = [edge.source, edge.target].filter((id) => stepIds.has(id))
+			if (steps.length) edge.data = { ...edge.data, steps }
 		}
 
 		return { nodes: Object.fromEntries(nodes.map((n) => [n.id, n])), edges }
