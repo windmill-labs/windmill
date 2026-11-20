@@ -902,7 +902,7 @@
 					module={flowModule}
 					on:tagChange={(e) => {
 						console.log('tagChange', e.detail)
-						if (flowModule.value.type == 'script') {
+						if (flowModule.value.type == 'script' || flowModule.value.type == 'flow') {
 							flowModule.value.tag_override = e.detail
 						} else if (
 							flowModule.value.type == 'rawscript' ||

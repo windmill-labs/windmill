@@ -7581,6 +7581,7 @@ async fn push_inner<'c, 'd>(
                     value: to_raw_value(&FlowModuleValue::Flow {
                         path: path.clone(),
                         input_transforms: main_input_transforms,
+                        tag_override: None,
                         pass_flow_input_directly: None,
                     }),
                     retry,

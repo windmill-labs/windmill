@@ -1130,6 +1130,8 @@ pub enum FlowModuleValue {
         input_transforms: HashMap<String, InputTransform>,
         path: String,
         #[serde(skip_serializing_if = "Option::is_none")]
+        tag_override: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         pass_flow_input_directly: Option<bool>,
     },
     ForloopFlow {
@@ -1304,6 +1306,7 @@ impl<'de> Deserialize<'de> for FlowModuleValue {
                 path: untagged
                     .path
                     .ok_or_else(|| serde::de::Error::missing_field("path"))?,
+                tag_override: untagged.tag_override,
                 pass_flow_input_directly: untagged.pass_flow_input_directly,
             }),
             "forloopflow" => Ok(FlowModuleValue::ForloopFlow {
