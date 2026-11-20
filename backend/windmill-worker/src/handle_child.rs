@@ -1,8 +1,8 @@
 use futures::Future;
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
-use nix::sys::signal::{self, Signal};
-#[cfg(any(target_os = "linux", target_os = "macos"))]
+use nix::sys::signal::Signal;
+#[cfg(target_os = "linux")]
 use nix::unistd::Pid;
 use process_wrap::tokio::TokioChildWrapper;
 use windmill_common::agent_workers::PingJobStatusResponse;
@@ -11,7 +11,6 @@ use windmill_common::result_stream::extract_stream_from_logs;
 
 #[cfg(windows)]
 use std::process::Stdio;
-use tokio::fs::File;
 #[cfg(windows)]
 use tokio::process::Command;
 use windmill_common::error::to_anyhow;
@@ -151,6 +150,17 @@ pub struct HandleChildResult {
 struct OutputLine {
     stderr: bool,
     line: String,
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn send_job_signal(child: &dyn TokioChildWrapper, sig: Signal) {
+    // Under the ProcessGroup wrap this is a killpg on the group recorded at spawn, so a
+    // wrapper that does not forward signals (unshare --fork, sh) cannot shield the job.
+    // It stops at a wrapper that starts its own group (tini, nsjail without
+    // skip_setsid), which must forward it. Without the wrap it signals the child only.
+    if let Err(e) = child.signal(sig as i32) {
+        tracing::debug!("failed to send {sig} to the job process: {e}");
+    }
 }
 
 /// - wait until child exits and return with exit status
@@ -381,11 +391,10 @@ pub async fn handle_child(
             if cfg!(any(target_os = "linux", target_os = "macos")) { s } else { "none" }
         };
         let kill = async {
-            #[allow(unused_variables)]
-            if let Some(id) = child.id() {
+            if child.id().is_some() {
                 if *MAX_WAIT_FOR_SIGINT > 0 {
                     #[cfg(any(target_os = "linux", target_os = "macos"))]
-                    signal::kill(Pid::from_raw(id as i32), Signal::SIGINT).unwrap();
+                    send_job_signal(child.as_ref(), Signal::SIGINT);
 
                     for _ in 0..*MAX_WAIT_FOR_SIGINT {
                         if child.try_wait().is_ok_and(|x| x.is_some()) {
@@ -400,7 +409,7 @@ pub async fn handle_child(
                 }
                 if sigterm {
                     #[cfg(any(target_os = "linux", target_os = "macos"))]
-                    signal::kill(Pid::from_raw(id as i32), Signal::SIGTERM).unwrap();
+                    send_job_signal(child.as_ref(), Signal::SIGTERM);
 
                     for _ in 0..*MAX_WAIT_FOR_SIGTERM {
                         if child.try_wait().is_ok_and(|x| x.is_some()) {
@@ -797,55 +806,88 @@ async fn handle_wac_step_marker(
     Ok(())
 }
 
-pub(crate) async fn get_mem_peak(pid: Option<u32>, nsjail: bool) -> i32 {
-    if pid.is_none() {
-        return -1;
-    }
-    let pid = if nsjail {
-        // Read /proc/<nsjail_pid>/task/<nsjail_pid>/children and extract pid
-        let nsjail_pid = pid.unwrap();
-        let children_path = format!("/proc/{}/task/{}/children", nsjail_pid, nsjail_pid);
-        if let Ok(mut file) = File::open(children_path).await {
-            let mut contents = String::new();
-            if tokio::io::AsyncReadExt::read_to_string(&mut file, &mut contents)
-                .await
-                .is_ok()
-            {
-                if let Some(child_pid) = contents.split_whitespace().next() {
-                    if let Ok(child_pid) = child_pid.parse::<u32>() {
-                        child_pid
-                    } else {
-                        return -1;
-                    }
-                } else {
-                    return -1;
-                }
-            } else {
-                return -1;
-            }
-        } else {
-            return -1;
-        }
-    } else {
-        pid.unwrap()
+lazy_static::lazy_static! {
+    /// Process names of the wrappers a job may run under, whose own memory is not the job's:
+    /// nsjail when a script annotation jails the job while `nsjail` is not passed (global
+    /// sandboxing off), and `unshare` (then optionally `tini`) under pid namespace isolation.
+    /// The configured binaries are included as the kernel names them: basename, 15 bytes.
+    static ref MEM_PEAK_WRAPPERS: Vec<String> = {
+        let comm = |path: &str| {
+            let name = std::path::Path::new(path)
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            String::from_utf8_lossy(&name.as_bytes()[..name.len().min(15)]).into_owned()
+        };
+        let mut names: Vec<String> =
+            ["nsjail", "unshare", "tini", "tini-static"].map(String::from).to_vec();
+        names.push(comm(crate::NSJAIL_PATH.as_str()));
+        names.push(comm(crate::UNSHARE_TINI_PATH.as_str()));
+        names
     };
+}
 
-    if let Ok(file) = File::open(format!("/proc/{}/status", pid)).await {
-        let mut lines = BufReader::new(file).lines();
-        while let Some(line) = lines.next_line().await.unwrap_or(None) {
-            if line.starts_with("VmHWM:") {
-                return line
-                    .split_whitespace()
-                    .nth(1)
-                    .and_then(|s| s.parse::<i32>().ok())
-                    .unwrap_or(-1);
-            };
-        }
-        -2
-    } else {
-        // rand::random::<i32>() % 100 // to remove - used to fake memory data on MacOS
-        -3
+pub(crate) async fn get_mem_peak(pid: Option<u32>, nsjail: bool) -> i32 {
+    get_mem_peak_in(
+        std::path::Path::new("/proc"),
+        pid,
+        nsjail,
+        &MEM_PEAK_WRAPPERS,
+    )
+    .await
+}
+
+async fn get_mem_peak_in(
+    proc_root: &std::path::Path,
+    pid: Option<u32>,
+    nsjail: bool,
+    wrappers: &[String],
+) -> i32 {
+    let Some(mut pid) = pid else {
+        return -1;
+    };
+    if nsjail {
+        let Some(child) = first_child_pid(proc_root, pid).await else {
+            return -1;
+        };
+        pid = child;
     }
+    // unshare -> tini -> job
+    for _ in 0..3 {
+        let Ok(status) = tokio::fs::read_to_string(proc_root.join(format!("{pid}/status"))).await
+        else {
+            return -3;
+        };
+        let name = status
+            .lines()
+            .find_map(|l| l.strip_prefix("Name:"))
+            .map(str::trim);
+        if name.is_some_and(|n| wrappers.iter().any(|w| w == n)) {
+            // The wrapper may not have forked the job yet.
+            let Some(child) = first_child_pid(proc_root, pid).await else {
+                return -1;
+            };
+            pid = child;
+            continue;
+        }
+        return status
+            .lines()
+            .find_map(|l| l.strip_prefix("VmHWM:"))
+            .and_then(|v| v.split_whitespace().next())
+            .and_then(|v| v.parse::<i32>().ok())
+            .unwrap_or(-2);
+    }
+    -1
+}
+
+async fn first_child_pid(proc_root: &std::path::Path, pid: u32) -> Option<u32> {
+    tokio::fs::read_to_string(proc_root.join(format!("{pid}/task/{pid}/children")))
+        .await
+        .ok()?
+        .split_whitespace()
+        .next()?
+        .parse()
+        .ok()
 }
 
 /// The job state a command run outside the main script needs to stay
@@ -1324,6 +1366,87 @@ mod tests {
                 "",
                 "last",
             ]
+        );
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[tokio::test]
+    async fn send_job_signal_reaches_child_behind_a_wrapper_ignoring_sigterm() {
+        use std::process::Stdio;
+        let mut cmd = tokio::process::Command::new("sh");
+        cmd.args(["-c", "sleep 60 &\ntrap '' TERM\necho ready\nwait"])
+            .stdout(Stdio::piped());
+        let mut child = crate::common::start_child_process(cmd, "sh", false)
+            .await
+            .unwrap();
+
+        let stdout = child.stdout().take().unwrap();
+        let mut lines = BufReader::new(stdout).lines();
+        assert_eq!(lines.next_line().await.unwrap().as_deref(), Some("ready"));
+
+        send_job_signal(child.as_ref(), Signal::SIGTERM);
+
+        tokio::time::timeout(Duration::from_secs(2), Box::into_pin(child.wait()))
+            .await
+            .expect("wrapper should exit once its child receives SIGTERM")
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn mem_peak_is_read_past_wrapper_processes() {
+        let dir = tempfile::tempdir().unwrap();
+        let proc = dir.path();
+        let write_proc = |pid: u32, name: &str, hwm_kb: u32, child: Option<u32>| {
+            let task_dir = proc.join(format!("{pid}/task/{pid}"));
+            std::fs::create_dir_all(&task_dir).unwrap();
+            std::fs::write(
+                proc.join(format!("{pid}/status")),
+                format!("Name:\t{name}\nVmPeak:\t{hwm_kb} kB\nVmHWM:\t   {hwm_kb} kB\n"),
+            )
+            .unwrap();
+            let children = child.map(|c| format!("{c} ")).unwrap_or_default();
+            std::fs::write(task_dir.join("children"), children).unwrap();
+        };
+
+        // unshare -> tini -> python3
+        write_proc(100, "unshare", 1692, Some(101));
+        write_proc(101, "tini", 820, Some(102));
+        write_proc(102, "python3", 115616, None);
+        // nsjail -> bun
+        write_proc(200, "nsjail", 11056, Some(201));
+        write_proc(201, "bun", 236936, None);
+        // a wrapper that has not forked its child yet
+        write_proc(300, "unshare", 1692, None);
+        // a jail binary under another name, known only from the flag
+        write_proc(400, "nsjail-3.4", 11056, Some(401));
+        write_proc(401, "python3", 115616, None);
+
+        let wrappers: Vec<String> = ["nsjail", "unshare", "tini"].map(String::from).to_vec();
+        assert_eq!(
+            get_mem_peak_in(proc, Some(100), false, &wrappers).await,
+            115616
+        );
+        assert_eq!(
+            get_mem_peak_in(proc, Some(102), false, &wrappers).await,
+            115616
+        );
+        assert_eq!(
+            get_mem_peak_in(proc, Some(200), false, &wrappers).await,
+            236936
+        );
+        assert_eq!(get_mem_peak_in(proc, Some(300), false, &wrappers).await, -1);
+        assert_eq!(get_mem_peak_in(proc, Some(999), false, &wrappers).await, -3);
+        assert_eq!(
+            get_mem_peak_in(proc, Some(400), true, &wrappers).await,
+            115616
+        );
+        assert_eq!(
+            get_mem_peak_in(proc, Some(200), true, &wrappers).await,
+            236936
+        );
+        assert_eq!(
+            get_mem_peak_in(proc, Some(400), false, &wrappers).await,
+            11056
         );
     }
 }

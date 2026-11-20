@@ -4006,6 +4006,7 @@ mod tests {
             folders: &folders,
             scopes: &scopes,
             token_prefix: &token_prefix,
+            capabilities: Some(crate::roles::RoleCapabilities::FULL),
         };
 
         assert!(can_use_datatable_role(&tenants(&["u/alice"]), &authed));
@@ -4044,6 +4045,7 @@ mod tests {
             folders: &folders,
             scopes: &scopes,
             token_prefix: &token_prefix,
+            capabilities: Some(crate::roles::RoleCapabilities::FULL),
         };
         assert!(!can_use_datatable_role(&tenants(&["*"]), &admin));
         assert!(!can_use_datatable_role(&tenants(&["u/alice"]), &admin));

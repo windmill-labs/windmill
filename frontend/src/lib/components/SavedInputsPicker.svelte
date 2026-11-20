@@ -1,4 +1,5 @@
 <script lang="ts">
+	import HostWindow from '$lib/components/common/HostWindow.svelte'
 	import { Button } from '$lib/components/common'
 	import { InputService, type Input, type RunnableType } from '$lib/gen/index.js'
 	import { userStore } from '$lib/stores.js'
@@ -162,7 +163,7 @@
 
 	function handleKeydown(event: KeyboardEvent) {
 		if (event.key === 'Escape' && isEditing) {
-			setEditing(null)
+			setEditing(null, true)
 			event.stopPropagation()
 			event.preventDefault()
 		} else if (event.key === 'Escape' && selectedInput) {
@@ -172,15 +173,24 @@
 		}
 
 		if (event.key === 'Enter' && isEditing) {
+			const session = editSession
 			updateInput(isEditing).then(() => {
-				setEditing(null)
+				// a rename opened while this one was saving, even of the same row, stays open
+				if (editSession === session) setEditing(null)
 			})
 			event.stopPropagation()
 			event.preventDefault()
 		}
 	}
 
-	function setEditing(input: EditableInput | null) {
+	// The rename field edits the listed input itself, so a cancelled rename must put its name back,
+	// unless its save is in flight: that has already sent the new name.
+	let nameBeforeEdit = ''
+	let editSession = 0
+	function setEditing(input: EditableInput | null, cancel = false) {
+		editSession++
+		if (cancel && isEditing && !isEditing.isSaving) isEditing.name = nameBeforeEdit
+		nameBeforeEdit = input?.name ?? ''
 		isEditing = input
 		dispatch('isEditing', !!input)
 	}
@@ -218,7 +228,7 @@
 	})
 </script>
 
-<svelte:window onkeydown={handleKeydown} />
+<HostWindow onkeydown={handleKeydown} />
 
 <div class="w-full flex flex-col gap-1 h-full overflow-y-auto pb-4">
 	{#if !noButton}
@@ -331,7 +341,7 @@
 													updateInput(isEditing)
 													setEditing(null)
 												} else {
-													setEditing(item)
+													setEditing(item, true)
 												}
 											}}
 											startIcon={{ icon: Pencil }}

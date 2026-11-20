@@ -16,6 +16,7 @@
 		onPick,
 		itemHref,
 		rowTitle,
+		itemDisabled,
 		row,
 		actions,
 		footer,
@@ -42,6 +43,9 @@
 		 * doing; on a plain click `onPick` may `preventDefault()` to open it in place instead. */
 		itemHref?: (item: T) => string | undefined
 		rowTitle?: (item: T) => string
+		/** A row that does nothing when picked: drawn dimmed, without hover, and ignored on click.
+		 * It stays focusable so arrow keys still reach it and its `rowTitle` can say why. */
+		itemDisabled?: (item: T) => boolean
 		/** Content of the row's primary button. */
 		row: Snippet<[T]>
 		/** Trailing per-row action buttons (outside the primary button). */
@@ -130,9 +134,12 @@
 			<div class="flex min-h-0 flex-col" bind:this={listRoot} onkeydown={handleListKeydown}>
 				<div role="list" class="{maxHeightClass} overflow-y-auto py-1">
 					{#each items as item, index (itemKey(item))}
-						{@const href = itemHref?.(item)}
+						{@const disabled = itemDisabled?.(item) ?? false}
+						{@const href = disabled ? undefined : itemHref?.(item)}
 						<div
-							class="flex items-center gap-2 py-1 pl-3 pr-2 hover:bg-surface-hover focus-within:bg-surface-hover"
+							class="flex items-center gap-2 py-1 pl-3 pr-2 {disabled
+								? 'opacity-60 has-[:focus-visible]:bg-surface-hover'
+								: 'hover:bg-surface-hover focus-within:bg-surface-hover'}"
 							role="listitem"
 						>
 							<svelte:element
@@ -143,9 +150,13 @@
 								target={href ? '_blank' : undefined}
 								rel={href ? 'noopener' : undefined}
 								data-status-row
-								class="flex min-w-0 flex-1 items-center gap-2 text-left font-normal focus:outline-none text-[color:inherit]"
+								aria-disabled={disabled || undefined}
+								class="flex min-w-0 flex-1 items-center gap-2 text-left font-normal focus:outline-none text-[color:inherit] {disabled
+									? 'cursor-default'
+									: ''}"
 								title={rowTitle?.(item)}
 								onclick={(e: MouseEvent) => {
+									if (disabled) return
 									if (href && isNewTabClick(e)) return
 									pick(item, e)
 								}}

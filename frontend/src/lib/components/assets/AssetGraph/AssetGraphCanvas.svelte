@@ -1,4 +1,5 @@
 <script lang="ts">
+	import HostWindow from '$lib/components/common/HostWindow.svelte'
 	import '@xyflow/svelte/dist/base.css'
 	import { randomUUID } from '$lib/utils/uuid'
 	import { onMount } from 'svelte'
@@ -2310,6 +2311,8 @@
 		if (paneMenu && !(e.target as HTMLElement | null)?.closest('[data-pane-menu]'))
 			paneMenu = undefined
 	}}
+/>
+<HostWindow
 	onkeydown={(e) => {
 		if (e.key === 'Escape') paneMenu = undefined
 	}}

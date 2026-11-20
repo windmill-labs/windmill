@@ -39,6 +39,10 @@ export function useWorkspaceAiHidden(workspace: () => string | undefined) {
 		/** Whether any verdict has landed yet, for any workspace. */
 		get settledOnce(): boolean {
 			return verdict.current !== undefined
+		},
+		/** Reads the verdict again, keeping the current one until the new one lands. */
+		refresh() {
+			void verdict.refetch()
 		}
 	}
 }

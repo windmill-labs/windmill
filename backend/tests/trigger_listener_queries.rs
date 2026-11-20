@@ -180,6 +180,7 @@ fn make_authed() -> windmill_api_auth::ApiAuthed {
         job_id: None,
         credential_expiry: None,
         mcp_client: None,
+        capabilities: Some(windmill_common::roles::RoleCapabilities::FULL),
     }
 }
 

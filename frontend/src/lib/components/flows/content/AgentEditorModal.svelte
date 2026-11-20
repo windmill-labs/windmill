@@ -1,4 +1,6 @@
 <script lang="ts">
+	import HostWindow from '$lib/components/common/HostWindow.svelte'
+	import { overlayHostActive } from '$lib/components/common/overlayHost.svelte'
 	import {
 		DiffIcon,
 		FlaskConical,
@@ -254,6 +256,7 @@
 	function saveDraft() {
 		if (draftQuery) void UserDraftDbSyncer.flush(draftQuery)
 	}
+	const hostActive = overlayHostActive()
 	function onKeyDown(event: KeyboardEvent) {
 		if ((event.ctrlKey || event.metaKey) && !event.shiftKey && event.key.toLowerCase() === 's') {
 			if (!draftQuery) return
@@ -263,8 +266,9 @@
 	}
 	// Monaco swallows the keydown, so a focused code editor re-broadcasts it instead.
 	$effect(() => {
-		window.addEventListener('wm-monaco-save-shortcut', saveDraft)
-		return () => window.removeEventListener('wm-monaco-save-shortcut', saveDraft)
+		const onSaveShortcut = () => hostActive() && saveDraft()
+		window.addEventListener('wm-monaco-save-shortcut', onSaveShortcut)
+		return () => window.removeEventListener('wm-monaco-save-shortcut', onSaveShortcut)
 	})
 
 	/** With auto-save off, edits wait for Ctrl/Cmd+S, and closing the dialog would leave them
@@ -1001,4 +1005,4 @@
 {/if}
 
 <!-- Capture: the form's fields stop the key on its way back up. -->
-<svelte:window onkeydowncapture={onKeyDown} />
+<HostWindow onkeydowncapture={onKeyDown} />
