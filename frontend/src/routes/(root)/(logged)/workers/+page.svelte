@@ -50,7 +50,7 @@
 
 	import YAML from 'yaml'
 	import { cleanWorkerGroupConfig } from '$lib/components/worker_group'
-	import { DEFAULT_TAGS_WORKSPACES_SETTING } from '$lib/consts'
+	import { DEFAULT_TAGS_WORKSPACES_SETTING, WORKSPACE_FAIRNESS_ENABLED_SETTING } from '$lib/consts'
 	import AutoscalingEvents from '$lib/components/AutoscalingEvents.svelte'
 	import HttpAgentWorkerDrawer from '$lib/components/HttpAgentWorkerDrawer.svelte'
 	import WorkerRepl from '$lib/components/WorkerRepl.svelte'
@@ -575,8 +575,22 @@
 
 	let newGroupPopover: Popover | undefined = $state(undefined)
 
+	let workspaceFairnessEnabled: boolean | undefined = $state(undefined)
+	async function loadWorkspaceFairnessEnabled() {
+		try {
+			workspaceFairnessEnabled =
+				(await SettingService.getGlobal({ key: WORKSPACE_FAIRNESS_ENABLED_SETTING })) === true
+		} catch (err) {
+			console.error('Failed to load the workspace fairness setting:', err)
+		}
+	}
+
 	$effect(() => {
 		;($superadmin || $devopsRole) && untrack(() => loadDefaultTagsPerWorkspace())
+	})
+
+	$effect(() => {
+		;($superadmin || $devopsRole) && untrack(() => loadWorkspaceFairnessEnabled())
 	})
 
 	$effect(() => {
@@ -975,6 +989,7 @@
 							}}
 							activeWorkers={activeWorkers?.length ?? 0}
 							{defaultTagPerWorkspace}
+							{workspaceFairnessEnabled}
 							{width}
 							shouldAutoOpenDrawer={shouldAutoOpenDrawer === worker_group[0]}
 							onDrawerOpened={() => {
@@ -1360,6 +1375,7 @@
 								name={worker_group[0]}
 								config={worker_group[1]}
 								activeWorkers={0}
+								{workspaceFairnessEnabled}
 								{width}
 								shouldAutoOpenDrawer={shouldAutoOpenDrawer === worker_group[0]}
 								onDrawerOpened={() => {

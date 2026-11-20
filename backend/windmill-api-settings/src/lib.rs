@@ -1519,6 +1519,9 @@ pub async fn get_global_setting(
         // would be refused, and they are usually not a superadmin. Not a secret: pointing
         // any MCP client at the instance discovers the same answer.
         && key != MCP_DISABLE_TOKEN_QUERY_PARAM_SETTING
+        // A devops editing a worker group reads it to know whether a fairness reserve would
+        // ever pull a job.
+        && key != WORKSPACE_FAIRNESS_ENABLED_SETTING
     {
         require_super_admin(&db, &authed).await?;
     }
