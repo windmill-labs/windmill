@@ -26,9 +26,11 @@ export function rereadReadOnlyVerdicts(): void {
 /** Whether a session in `workspace` is read-only because the workspace is protected: the verdict
  * `resolveSessionAccess` gives the chat, so the UI and the toolset agree. */
 export function useSessionReadOnly(workspace: () => string | undefined) {
-	const verdict = resource([workspace, () => verdictEpoch], async ([ws]) => {
+	const verdict = resource([workspace, () => verdictEpoch], async ([ws], _prev, { signal }) => {
 		if (!ws) return undefined
 		const readOnly = await isReadOnlySessionWorkspace(ws)
+		// A superseded read answers for older rules: runed would still land it over the newer one.
+		if (signal.aborted) throw new DOMException('superseded', 'AbortError')
 		// Only a successful read settles a verdict; a failed one is read-only to fail closed.
 		return { workspace: ws, readOnly, rulesRead: settledReadOnlyVerdict(ws) !== undefined }
 	})
