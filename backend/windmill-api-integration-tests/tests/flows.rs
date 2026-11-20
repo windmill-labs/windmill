@@ -371,3 +371,40 @@ async fn test_list_search_scope_filtering(db: Pool<Postgres>) -> anyhow::Result<
 
     Ok(())
 }
+
+/// Deployment status of a flow the caller cannot read is hidden by RLS, and refused to a
+/// token scoped outside its path.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_deployment_status_enforces_rls_and_scopes(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let resp = authed(client().post(format!(
+        "http://localhost:{port}/api/w/test-workspace/flows/create"
+    )))
+    .json(&new_flow("u/test-user/secret", ""))
+    .send()
+    .await
+    .unwrap();
+    assert_eq!(resp.status(), 201, "create: {}", resp.text().await?);
+
+    sqlx::query(
+        "INSERT INTO token (token_hash, token_prefix, token, email, label, super_admin, scopes) VALUES
+         (encode(sha256('SCOPED_TOKEN'::bytea), 'hex'), 'SCOPED_TOK', 'SCOPED_TOKEN', 'test@windmill.dev', 'scoped', true, ARRAY['flows:read:f/other/*'])",
+    )
+    .execute(&db)
+    .await?;
+
+    let get = |token: &'static str| {
+        client()
+            .get(flow_url(port, "deployment_status/p", "u/test-user/secret"))
+            .header("Authorization", format!("Bearer {token}"))
+            .send()
+    };
+    assert_eq!(get("SECRET_TOKEN").await?.status(), 200, "owner");
+    assert_eq!(get("SECRET_TOKEN_2").await?.status(), 404, "non-owner");
+    assert_eq!(get("SCOPED_TOKEN").await?.status(), 403, "out of scope");
+
+    Ok(())
+}
