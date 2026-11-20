@@ -25045,6 +25045,10 @@ paths:
                     type: number
                   resources:
                     type: number
+                    description: resources other than AI agents
+                  agents:
+                    type: number
+                    description: saved AI agents (resources of type `ai_agent`)
                   variables:
                     type: number
                   schedules:
@@ -25054,6 +25058,7 @@ paths:
                   - flows
                   - apps
                   - resources
+                  - agents
                   - variables
                   - schedules
 

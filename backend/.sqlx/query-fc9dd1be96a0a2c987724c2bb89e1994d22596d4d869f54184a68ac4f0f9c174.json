@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT count(path) FROM resource WHERE path LIKE 'f/' || $1 || '%'  AND workspace_id = $2",
+  "query": "SELECT count(path) FROM resource WHERE path LIKE 'f/' || $1 || '%' AND resource_type = 'ai_agent' AND workspace_id = $2",
   "describe": {
     "columns": [
       {
@@ -19,5 +19,5 @@
       null
     ]
   },
-  "hash": "8cc4fa257cb8053d27eb7a555d6e1b993e4a74b063eac632df8da24f6b87130e"
+  "hash": "fc9dd1be96a0a2c987724c2bb89e1994d22596d4d869f54184a68ac4f0f9c174"
 }

@@ -19,7 +19,9 @@ const state = vi.hoisted(() => ({
 	updatedApps: [] as any[],
 	updatedFlows: [] as any[],
 	flows: [] as any[],
-	updatedTriggers: [] as any[]
+	updatedTriggers: [] as any[],
+	agents: [] as any[],
+	updatedAgents: [] as any[]
 }))
 
 vi.mock('$lib/gen', () => ({
@@ -42,7 +44,12 @@ vi.mock('$lib/gen', () => ({
 	},
 	ScheduleService: { updateSchedule: vi.fn() },
 	ResourceService: {
-		deleteResource: vi.fn(async ({ path }: any) => state.deletedResources.push(path))
+		deleteResource: vi.fn(async ({ path }: any) => state.deletedResources.push(path)),
+		listResource: vi.fn(async () => state.agents.map((a: any) => ({ path: a.path }))),
+		getResourceValue: vi.fn(
+			async ({ path }: any) => state.agents.find((a: any) => a.path === path)?.value
+		),
+		updateResource: vi.fn(async (p: any) => state.updatedAgents.push(p))
 	}
 }))
 
@@ -118,6 +125,8 @@ describe('applyRetarget', () => {
 		state.flows = []
 		state.updatedFlows = []
 		state.updatedTriggers = []
+		state.agents = []
+		state.updatedAgents = []
 	})
 
 	// `updateAppRaw` refuses without a bundle, and the browser cannot rebuild one. The bundle
@@ -374,6 +383,80 @@ describe('applyRetarget', () => {
 		expect(outcome.gaps.map((g) => g.path)).toEqual(['u/alice/report'])
 		expect(outcome.stubDeleted).toBe(false)
 		expect(state.deletedResources).toEqual([])
+	})
+	it("moves an imported agent's provider and MCP server, keeping who it runs as", async () => {
+		state.apps = []
+		state.agents = [
+			{
+				path: 'f/proj/helpdesk',
+				value: {
+					on_behalf_of: 'u/service',
+					provider: { kind: 'smtp', resource: `$res:${FROM}` },
+					tools: [
+						{ id: 'm', value: { tool_type: 'mcp', resource_path: FROM } },
+						// A script sharing the path is not the resource being moved.
+						{ id: 's', value: { type: 'script', path: FROM, input_transforms: {} } }
+					]
+				}
+			}
+		]
+		const out = await run()
+		const sent = state.updatedAgents[0].requestBody
+		expect(sent.preserve_on_behalf_of).toBe(true)
+		expect(sent.value.on_behalf_of).toBe('u/service')
+		expect(sent.value.provider.resource).toBe(`$res:${TO}`)
+		expect(sent.value.tools[0].value.resource_path).toBe(TO)
+		expect(sent.value.tools[1].value.path).toBe(FROM)
+		expect(out.rewritten.map((r) => r.kind)).toEqual(['agent'])
+		// The script tool still names the path, which no rewrite here may touch.
+		expect(out.stubDeleted).toBe(false)
+	})
+
+	it("keeps a nested agent's MCP server enabled under the resource it moved to", async () => {
+		state.apps = []
+		state.agents = [
+			{
+				path: 'f/proj/helpdesk',
+				value: {
+					tools: [
+						{
+							id: 'inner',
+							value: {
+								tool_type: 'flowmodule',
+								type: 'aiagent',
+								tools: [{ id: 'm', value: { tool_type: 'mcp', resource_path: FROM } }],
+								input_transforms: { enabled_tools: { type: 'static', value: [FROM, 'lookup'] } }
+							}
+						}
+					]
+				}
+			}
+		]
+		const out = await run()
+		const inner = state.updatedAgents[0].requestBody.value.tools[0].value
+		expect(inner.tools[0].value.resource_path).toBe(TO)
+		expect(inner.input_transforms.enabled_tools.value).toEqual([TO, 'lookup'])
+		expect(out.stubDeleted).toBe(true)
+	})
+
+	it('drops the stub once the only agent reading it has moved', async () => {
+		state.apps = []
+		state.agents = [
+			{ path: 'f/proj/helpdesk', value: { provider: { resource: `$res:${FROM}` }, tools: [] } }
+		]
+		const out = await run()
+		expect(out.stubDeleted).toBe(true)
+		expect(state.deletedResources).toEqual([FROM])
+	})
+
+	it('keeps the stub for an agent outside the project that reads it', async () => {
+		state.apps = []
+		state.agents = [
+			{ path: 'u/someone/agent', value: { provider: { resource: `$res:${FROM}` }, tools: [] } }
+		]
+		const out = await run()
+		expect(state.updatedAgents).toEqual([])
+		expect(out.stubDeleted).toBe(false)
 	})
 })
 
