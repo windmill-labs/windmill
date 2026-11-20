@@ -4992,8 +4992,9 @@ pub async fn pull(
                 };
 
                 if let Some(job) = job.as_ref() {
-                    // An agent worker cannot drive a flow, so this holds for flow previews on
-                    // the preview tag too: the job keeps its tag in v2_job for its steps.
+                    // An agent worker cannot drive a flow, so a flow preview on an agent's tag is
+                    // requeued too, preview tags override or not: the job keeps its tag in v2_job
+                    // for its steps.
                     if job.is_flow() || job.is_dependency() {
                         let tag = match configured_dependency_job_tag(
                             &job.kind,
