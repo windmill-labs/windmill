@@ -78,7 +78,13 @@ export async function loadDeployDiff(
 			else if (line.startsWith('-') && !line.startsWith('---')) counts.removed++
 		}
 	}
-	const staged = draft as { draft_path?: string; path?: string } | undefined
-	const landsAt = (target.draftOnly ? (staged?.draft_path ?? staged?.path) : undefined) ?? path
+	// Read from the local cell before canonicalizing: the raw-app canonical value drops `draft_path`.
+	type Staged = { draft_path?: string; path?: string } | null | undefined
+	const local = localCell as Staged
+	const saved = draft as Staged
+	const landsAt =
+		(target.draftOnly
+			? (local?.draft_path ?? local?.path ?? saved?.draft_path ?? saved?.path)
+			: undefined) ?? path
 	return { kind: target.kind, path: landsAt, deployed: values.deployed, draft, isNew, ...counts }
 }
