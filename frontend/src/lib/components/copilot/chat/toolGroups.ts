@@ -116,7 +116,8 @@ function groupableCall(message: DisplayMessage): ToolDisplayMessage | undefined 
 	if (message.needsConfirmation || message.blockedByPlanMode) return undefined
 	if (message.outOfScope && !message.outOfScope.decision) return undefined
 	if (message.heldForFolderInstructions) return undefined
-	if (message.runForm || message.inspectedRun || message.userQuestion) return undefined
+	if (message.runForm || message.inspectedRun || message.userQuestion || message.secretRequest)
+		return undefined
 	// An app edit's diff covers one file of many, so it stays a row inside the app's group.
 	if (message.codeDiff && EDIT_TOOLS[message.toolName] !== 'app') return undefined
 	if (message.imageUrl || message.webSearchSources) return undefined

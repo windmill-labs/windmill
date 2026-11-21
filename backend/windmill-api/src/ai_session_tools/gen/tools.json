@@ -399,6 +399,51 @@
 		"read_only": true
 	},
 	{
+		"name": "request_secret",
+		"description": "Ask the user for a secret (API key, token, password) through a secure input card. The value is saved as a deployed secret variable and never reaches you: you get back only \"$var:<path>\" to reference from a resource value or a run argument. Use it whenever you need a secret, and never ask the user to paste one in chat or create a placeholder variable for them to fill. One call per secret. To connect a service: ask anything else you cannot default in one askUserQuestion first, then request_secret, then write the resource without opening it, then deploy_workspace_item when you can.",
+		"parameters": {
+			"type": "object",
+			"properties": {
+				"path": {
+					"description": "Path of the secret variable the value is saved to, following the path conventions (e.g. \"u/<username>/openai_api_key\"). It must be free unless replace is set: check it first.",
+					"type": "string",
+					"minLength": 1
+				},
+				"replace": {
+					"description": "Set only when the user asked to replace the value of the existing variable at path.",
+					"type": "boolean"
+				},
+				"label": {
+					"description": "What the value is, as the user would name it, e.g. \"OpenAI API key\".",
+					"type": "string",
+					"minLength": 1
+				},
+				"description": {
+					"description": "One short sentence on what it is used for. Becomes the variable description.",
+					"type": "string"
+				},
+				"help_url": {
+					"description": "The provider's page where the user can create or copy the value, when you know it.",
+					"type": "string"
+				},
+				"resource_type": {
+					"description": "The resource type the secret is for, when it goes into a resource.",
+					"type": "string"
+				},
+				"resource_path": {
+					"description": "The path of the resource you will reference the variable from.",
+					"type": "string"
+				}
+			},
+			"required": [
+				"path",
+				"label"
+			],
+			"additionalProperties": false
+		},
+		"read_only": false
+	},
+	{
 		"name": "update_user_instructions",
 		"description": "Modify your own persistent personal instructions for the Global assistant. Use when the user asks you to remember a preference, always/never do something, or change/stop a behavior. Edits only the user-level instructions (the USER INSTRUCTIONS block, not workspace-level); changes persist in this browser and take effect on your next message.",
 		"parameters": {

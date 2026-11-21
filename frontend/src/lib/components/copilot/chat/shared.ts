@@ -585,6 +585,34 @@ export type UserQuestionDisplay = {
 	canceled?: boolean
 }
 
+/** What the AI asks the user to type into the secret card. The value itself never appears
+ * here or anywhere else in the transcript: the card saves it as a secret variable and the
+ * chat only ever learns the variable's path. */
+export type SecretRequest = {
+	workspace: string
+	/** The secret variable the value is saved to. */
+	path: string
+	/** What the value is, as the user would name it ("OpenAI API key"). */
+	label: string
+	description?: string
+	/** Where the user can get the value (the provider's API keys page). */
+	helpUrl?: string
+	/** The resource the AI will reference the variable from, shown so the user sees what
+	 * the secret is for. */
+	resourceType?: string
+	resourcePath?: string
+	/** The user asked to replace the variable at `path`. Without it, `request_secret` refuses
+	 * a taken path before the card shows. */
+	replace?: boolean
+}
+
+export type SecretRequestOutcome = { path: string; replaced: boolean }
+
+export type SecretRequestDisplay = SecretRequest & {
+	saved?: SecretRequestOutcome
+	canceled?: boolean
+}
+
 // The single place that understands the legacy answer shape: new code writes
 // selectedChoices, but history persisted before multi-select only has the
 // scalar selectedChoice. Read answers through this so both shapes resolve.
@@ -722,6 +750,7 @@ export type ToolDisplayMessage = {
 	showFade?: boolean
 	actions?: ToolDisplayAction[]
 	userQuestion?: UserQuestionDisplay
+	secretRequest?: SecretRequestDisplay
 	runForm?: RunFormDisplay
 	/** A run this call inspected rather than started, rendered by the same card. The card
 	 * reads its panes from this job, so the user sees its own args and result in full, and its
@@ -831,6 +860,18 @@ export function isActiveUserQuestion(message: DisplayMessage | undefined): boole
 	)
 }
 
+export function isActiveSecretRequest(message: DisplayMessage | undefined): boolean {
+	return Boolean(
+		message &&
+			message.role === 'tool' &&
+			message.secretRequest &&
+			message.isLoading &&
+			!message.error &&
+			!message.secretRequest.saved &&
+			!message.secretRequest.canceled
+	)
+}
+
 export function isActiveRunForm(message: DisplayMessage | undefined): boolean {
 	return Boolean(
 		message &&
@@ -869,7 +910,9 @@ export function pendingUserActionDetail(
 		// A run form is a confirmation carrying arguments, not a question: it parks the
 		// turn the same way, but Run or Cancel resolves it and typing never does — so it
 		// must not claim the answer affordance a pending question offers.
-		if (isActiveRunForm(message)) {
+		// Typing in the composer must never answer a secret card: the composer's text reaches
+		// the model.
+		if (isActiveRunForm(message) || isActiveSecretRequest(message)) {
 			return { action: 'confirmation', toolCallId: message.tool_call_id }
 		}
 		if (
@@ -1602,6 +1645,12 @@ export interface ToolCallbacks {
 		toolId: string,
 		question: UserQuestionDisplay
 	) => Promise<string[] | undefined>
+	/** Park the loop on the secret card and resolve with the saved variable's path, or
+	 * undefined if the user dismissed it. Wired only where the card can be rendered. */
+	requestSecret?: (
+		toolId: string,
+		request: SecretRequest
+	) => Promise<SecretRequestOutcome | undefined>
 	/** Park the loop on an argument form and resolve with the args the user submitted, or
 	 * undefined if they cancelled. Wired only where the form can be rendered. `autoAccepted`
 	 * says YOLO already answered it with what it opened with, so there is no card to wait on. */

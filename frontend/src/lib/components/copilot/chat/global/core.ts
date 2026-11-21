@@ -120,9 +120,11 @@ import {
 	type PreviewCardKind,
 	type RunFormAnswer,
 	type RunFormDisplay,
+	type SecretRequest,
 	type ToolCallbacks,
 	type ToolDisplayAction
 } from '../shared'
+import { secretRequestToolResult, secretVariableExists } from '../secretRequest'
 import { scriptLangToEditorLang } from '$lib/scripts'
 import { appFileEditorLang } from '../appFileEditorLang'
 import { isMentionContext, isUserContextPath, type ContextElement } from '../context'
@@ -392,6 +394,41 @@ const askUserQuestionSchema = z.object({
 		.describe(
 			'When true, the user may select several answers; use only when the choices can genuinely co-apply (not mutually exclusive). Defaults to single-select.'
 		)
+})
+
+const requestSecretSchema = z.object({
+	path: z
+		.string()
+		.min(1)
+		.describe(
+			'Path of the secret variable the value is saved to, following the path conventions (e.g. "u/<username>/openai_api_key"). It must be free unless replace is set: check it first.'
+		),
+	replace: z
+		.boolean()
+		.optional()
+		.describe(
+			'Set only when the user asked to replace the value of the existing variable at path.'
+		),
+	label: z
+		.string()
+		.min(1)
+		.describe('What the value is, as the user would name it, e.g. "OpenAI API key".'),
+	description: z
+		.string()
+		.optional()
+		.describe('One short sentence on what it is used for. Becomes the variable description.'),
+	help_url: z
+		.string()
+		.optional()
+		.describe("The provider's page where the user can create or copy the value, when you know it."),
+	resource_type: z
+		.string()
+		.optional()
+		.describe('The resource type the secret is for, when it goes into a resource.'),
+	resource_path: z
+		.string()
+		.optional()
+		.describe('The path of the resource you will reference the variable from.')
 })
 
 // Matches the per-mode cap enforced by the prompt-settings UI (AIPromptsModal) and
@@ -1748,7 +1785,7 @@ const buildGlobalSystemPrompt = (
 	const deployRule = when(
 		canWriteAnyDraft && canDeployAnyKind,
 		`
-- Use deploy_workspace_item only after the user explicitly asks to deploy. It persists a draft to the workspace.`
+- Use deploy_workspace_item only after the user explicitly asks to deploy. It persists a draft to the workspace. One exception: a request to connect a service (a resource holding a secret you got with request_secret) is a request to deploy it. Call deploy_workspace_item right after writing the resource, without asking first and without opening it: the call shows the user a card where they confirm or decline.`
 	)
 	const resourceTypeRule = canCreateResourceType
 		? '- create_resource_type creates a resource type the workspace lacks. The user confirms the schema in the call itself, so that is where you propose it rather than asking first in chat.\n'
@@ -2293,14 +2330,19 @@ ${
 }${getRawAppPrompt(language)}`
 }
 
-function getResourceInstructions(): string {
+// An external client has no secret card and no question card, so it keeps the write_variable route.
+function getResourceInstructions(external: boolean): string {
 	return `# Global draft resource & variable instructions
 
 - Global mode writes complete draft payloads only; it does not save, deploy, run, scaffold local files, or generate metadata.
 - A resource draft is a workspace item: \`{ type: 'resource', path, summary?, value, isDraft }\`. \`value\` is a CreateResource body: \`{ path, value, description?, resource_type, labels? }\` where the inner \`value\` is the resource type's data shape.
 - Reading a variable returns \`{ type: 'variable', path, summary?, isSecret, isDraft }\` — never its value, secret or not. \`isSecret\` tells you whether the value is encrypted.
 - \`write_variable\` takes \`{ path, value?, is_secret?, description?, is_oauth?, expires_at?, value_valid_until?, labels? }\`. Creating a variable needs \`value\` and \`is_secret\`; editing one needs only the fields you are changing. Omitting \`value\` keeps the stored value, which is the only way to edit a secret variable — you cannot read its value, so passing any \`value\` you did not get from the user destroys it.
-- For secret fields in a resource value, create the variable with \`write_variable\` and \`is_secret: true\`, and deploy it before the resource (see "Secrets" in the reference below).
+${external ? `- For secret fields in a resource value, create the variable with \`write_variable\` and \`is_secret: true\`, and deploy it before the resource (see "Secrets" in the reference below).` : `- Connecting a service (a resource with a secret field) happens in the chat, not in an editor:
+  1. Anything else you need from the user and cannot default (which account, where the resource goes), ask first, in one \`askUserQuestion\`. Default what has a sensible default rather than asking.
+  2. Get each secret with \`request_secret\`, on a variable path you checked is free (list the variables near it first): the user types it into a secure card, it is saved as a deployed secret variable, and you reference the \`$var:\` path it returns, which is the one the user chose if it differs from yours. Never ask for a secret in chat, and never create a secret variable with a placeholder or empty value for the user to fill in.
+  3. Write the resource referencing that path. Do not open it in the preview or a page.
+  4. When you can deploy, call \`deploy_workspace_item\` for it: its card is where the user confirms. Do not ask in text whether to deploy.`}
 - Reference formats inside resource values: \`$var:g/all/name\` (global), \`$var:u/user/name\` (user), \`$var:f/folder/name\` (folder). Reference another resource with \`$res:path/to/resource\`. The same strings are also how a resource or variable is passed as a run argument (see the run-argument rule in the resource reference below); what they are never valid as is a variable's own value.
 - Use \`search_resource_types\` to discover valid \`resource_type\` names and their JSON Schemas. Match the resource value to that schema.
 - For an agent (an \`ai_agent\` resource), call \`get_instructions\` with \`subject: "agent"\` instead.
@@ -2382,7 +2424,7 @@ export function getInstructions(
 		case 'flow':
 			return getFlowInstructions(workspace, composeOnly, external, hub)
 		case 'resource':
-			return getResourceInstructions()
+			return getResourceInstructions(external)
 		case 'agent':
 			return getAgentInstructions(workspace, external, composeOnly, untestable, hub)
 		case 'app':
@@ -3506,6 +3548,58 @@ export const globalTools: SessionTool<{}>[] = [
 				isLoading: false
 			})
 			return answerText
+		}
+	},
+	{
+		// Saving is the user's own action on the card, as pressing Deploy is, so the card is
+		// offered in Use mode too. A workspace whose deploy rules refuse the variable shows the
+		// server's refusal on the card.
+		requires: NONE,
+		readOnlySafe: true,
+		def: createToolDef(
+			requestSecretSchema,
+			'request_secret',
+			'Ask the user for a secret (API key, token, password) through a secure input card. The value is saved as a deployed secret variable and never reaches you: you get back only "$var:<path>" to reference from a resource value or a run argument. Use it whenever you need a secret, and never ask the user to paste one in chat or create a placeholder variable for them to fill. One call per secret. To connect a service: ask anything else you cannot default in one askUserQuestion first, then request_secret, then write the resource without opening it, then deploy_workspace_item when you can.'
+		),
+		streamingLabel: 'Asking the user for a secret...',
+		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
+			const parsed = requestSecretSchema.parse(args)
+			const request: SecretRequest = {
+				workspace,
+				path: parsed.path,
+				label: parsed.label,
+				description: parsed.description,
+				helpUrl: parsed.help_url,
+				resourceType: parsed.resource_type,
+				resourcePath: parsed.resource_path,
+				replace: parsed.replace
+			}
+			// Refused before the card shows, so a path the AI did not check costs it a retry
+			// rather than costing the user a choice it should have made.
+			if (!parsed.replace && (await secretVariableExists(workspace, parsed.path))) {
+				const message = `A variable already exists at ${parsed.path}. Ask again with a free path, or with replace: true only if the user asked to replace that variable's value.`
+				toolCallbacks.setToolStatus(toolId, { content: message, error: message })
+				return JSON.stringify({ success: false, error: message })
+			}
+			if (!toolCallbacks.requestSecret) {
+				const message = 'This chat context cannot show the secure input.'
+				toolCallbacks.setToolStatus(toolId, { content: message, error: message })
+				return JSON.stringify({ success: false, error: message })
+			}
+			toolCallbacks.setToolStatus(toolId, {
+				content: `Asking for ${parsed.label}`,
+				secretRequest: request,
+				isLoading: true
+			})
+			const outcome = await toolCallbacks.requestSecret(toolId, request)
+			toolCallbacks.setToolStatus(toolId, {
+				content: outcome
+					? `Saved ${parsed.label} to ${outcome.path}`
+					: `Asked for ${parsed.label} — dismissed`,
+				secretRequest: outcome ? { ...request, saved: outcome } : { ...request, canceled: true },
+				isLoading: false
+			})
+			return secretRequestToolResult(outcome, parsed.path)
 		}
 	},
 	{
