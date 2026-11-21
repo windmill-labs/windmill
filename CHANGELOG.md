@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.881.1](https://github.com/windmill-labs/windmill/compare/v1.881.0...v1.881.1) (2026-11-21)
+
+
+### Bug Fixes
+
+* pin oracle instantclient stage to amd64 in full ee image ([dc84446](https://github.com/windmill-labs/windmill/commit/dc84446e479633f7bd9b069a859e14bb6aece11a))
+
 ## [1.881.0](https://github.com/windmill-labs/windmill/compare/v1.880.1...v1.881.0) (2026-11-20)
 
 
