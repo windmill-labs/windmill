@@ -102,6 +102,9 @@
 
 			// At the end, set the validity
 			outputs?.validity.set(isValid)
+		} else {
+			outputs?.result.set(undefined)
+			outputs?.validity.set(true)
 		}
 		fireOnChange()
 	})
