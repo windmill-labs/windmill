@@ -67,7 +67,7 @@
 	let css = $state(initCss($app.css?.timeinputcomponent, untrack(() => customCss)))
 	$effect.pre(() => {
 		resolvedConfig.defaultValue
-		!value && untrack(() => handleDefault(resolvedConfig.defaultValue))
+		untrack(() => handleDefault(resolvedConfig.defaultValue))
 	})
 	$effect.pre(() => {
 		if (value) {
