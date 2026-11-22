@@ -5,8 +5,8 @@ use sqlx::{Pool, Postgres};
 
 #[sqlx::test(fixtures("base"))]
 async fn prune_keeps_head_recent_draft_base_and_low_code(db: Pool<Postgres>) -> anyhow::Result<()> {
-    // 106 is deployed yet has the oldest timestamp, 105 was superseded by 104 minutes ago,
-    // and a draft is based on 102.
+    // 106 is deployed yet has the oldest timestamp, so 104 and the 105 it replaced were both
+    // superseded minutes ago at the earliest. A draft is based on 102.
     sqlx::raw_sql(
         "INSERT INTO app (id, workspace_id, path, policy, versions) VALUES
             (100, 'test-workspace', 'u/test-user/raw', '{}', '{101,102,103,105,104,106}'),
@@ -29,14 +29,14 @@ async fn prune_keeps_head_recent_draft_base_and_low_code(db: Pool<Postgres>) -> 
     .execute(&db)
     .await?;
 
-    assert_eq!(windmill_api::prune_raw_app_versions(&db).await?, 3);
+    assert_eq!(windmill_api::prune_raw_app_versions(&db).await?, 2);
 
     let versions = |app: i64| {
         sqlx::query_scalar::<_, Vec<i64>>("SELECT versions FROM app WHERE id = $1")
             .bind(app)
             .fetch_one(&db)
     };
-    assert_eq!(versions(100).await?, [102, 105, 106]);
+    assert_eq!(versions(100).await?, [102, 105, 104, 106]);
     assert_eq!(versions(200).await?, [201, 202]);
     let bundles: Vec<i64> = sqlx::query_scalar("SELECT app_version_id FROM app_bundles")
         .fetch_all(&db)

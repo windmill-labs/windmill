@@ -24,14 +24,14 @@ pub async fn prune_raw_app_versions(db: &DB) -> Result<u64> {
         return Ok(0);
     };
 
-    // Newest is last in `app.versions`, as in the history, not latest `created_at`.
-    // The hour since a version was superseded is for the dependency jobs and page loads still
-    // using it.
+    // Newest is last in `app.versions`, as in the history, not latest `created_at`, which is
+    // when the deploy started: a version was superseded no earlier than both its own and its
+    // successor's. The hour after that is for the dependency jobs and page loads still using it.
     let apps = sqlx::query!(
         r#"WITH ranked AS (
             SELECT av.id, av.app_id,
                 row_number() OVER newest_first AS rn,
-                lag(av.created_at) OVER newest_first AS superseded_at
+                GREATEST(av.created_at, lag(av.created_at) OVER newest_first) AS superseded_at
             FROM app_version av
             LEFT JOIN (
                 SELECT app.id AS app_id, v.id, v.ord
@@ -69,8 +69,9 @@ pub async fn prune_raw_app_versions(db: &DB) -> Result<u64> {
     Ok(pruned)
 }
 
-/// A draft's base stays, for the diff against it. Read per batch rather than with the candidates:
-/// a first pass over a long history runs for minutes, and drafts are saved meanwhile.
+/// A draft's base stays, for the diff against it. Read per batch, as a first pass over a long
+/// history runs for minutes. Best effort, so no lock against draft saves: an editor can save a
+/// draft on a version deleted long before, and a rebase then shows the whole draft as the diff.
 async fn without_draft_bases(db: &DB, w_id: &str, versions: &[i64]) -> Result<Vec<i64>> {
     Ok(sqlx::query_scalar!(
         r#"SELECT c.id AS "id!" FROM unnest($2::bigint[]) AS c(id)
