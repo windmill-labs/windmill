@@ -62,7 +62,7 @@ pub async fn prune_raw_app_versions(db: &DB) -> Result<u64> {
             }
             // Objects first: once the rows are gone nothing names them to a later pass.
             #[cfg(all(feature = "enterprise", feature = "parquet"))]
-            delete_stored_bundles(&app.workspace_id, &versions).await?;
+            delete_stored_bundles(db, &app.workspace_id, &versions).await?;
             pruned += delete_versions(db, &app.workspace_id, app.app_id, &versions).await?;
         }
     }
@@ -127,11 +127,16 @@ async fn delete_versions(db: &DB, w_id: &str, app_id: i64, versions: &[i64]) -> 
 }
 
 #[cfg(all(feature = "enterprise", feature = "parquet"))]
-async fn delete_stored_bundles(w_id: &str, versions: &[i64]) -> Result<()> {
+async fn delete_stored_bundles(db: &DB, w_id: &str, versions: &[i64]) -> Result<()> {
     use futures::StreamExt;
     use windmill_object_store::object_store_reexports::{ObjectStoreError, Path};
 
     let Some(store) = windmill_object_store::get_object_store().await else {
+        if windmill_object_store::instance_object_store_configured(db).await? {
+            return Err(Error::internal_err(
+                "instance object storage is unavailable, keeping the versions to retry",
+            ));
+        }
         return Ok(());
     };
     let paths: Vec<_> = versions
