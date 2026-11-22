@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.882.0](https://github.com/windmill-labs/windmill/compare/v1.881.1...v1.882.0) (2026-11-22)
+
+
+### Features
+
+* add an instance setting for raw app versions to keep ([#12577](https://github.com/windmill-labs/windmill/issues/12577)) ([4e5fc30](https://github.com/windmill-labs/windmill/commit/4e5fc300f3fbfd26c1f7ec1a55e11255e225e7b6))
+
 ## [1.881.1](https://github.com/windmill-labs/windmill/compare/v1.881.0...v1.881.1) (2026-11-21)
 
 
