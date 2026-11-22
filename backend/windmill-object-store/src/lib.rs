@@ -397,6 +397,25 @@ pub enum ObjectStoreReload {
     Never,
 }
 
+/// Whether the instance object store is set up, working or not, by the rules
+/// [`reload_object_store_setting`] installs it with. [`get_object_store`] answers `None` both
+/// when there is none and when it failed to build or to refresh its credentials.
+#[cfg(feature = "parquet")]
+pub async fn instance_object_store_configured(db: &windmill_common::DB) -> error::Result<bool> {
+    use windmill_common::{
+        ee_oss::{get_license_plan, LicensePlan},
+        global_settings::{load_value_from_global_settings, OBJECT_STORE_CONFIG_SETTING},
+    };
+
+    if matches!(get_license_plan().await, LicensePlan::Pro) {
+        return Ok(false);
+    }
+    Ok(std::env::var("S3_CACHE_BUCKET").is_ok()
+        || load_value_from_global_settings(db, OBJECT_STORE_CONFIG_SETTING)
+            .await?
+            .is_some())
+}
+
 #[cfg(feature = "parquet")]
 pub async fn reload_object_store_setting(db: &windmill_common::DB) -> ObjectStoreReload {
     use windmill_common::{

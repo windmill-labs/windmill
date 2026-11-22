@@ -4751,6 +4751,25 @@ pub async fn monitor_db(
         }
     };
 
+    // run every 120 iterations (~20min at the default LISTEN_NEW_EVENTS_INTERVAL_SEC). Spawned:
+    // a first pass over a long history would outlast the join's deadline.
+    let raw_app_versions_retention_f = async {
+        if server_mode && iteration.is_some() && iteration.as_ref().unwrap().should_run(120) {
+            if let Some(db) = conn.as_sql() {
+                let db = db.clone();
+                tokio::spawn(async move {
+                    match windmill_api::prune_raw_app_versions(&db).await {
+                        Ok(0) => {}
+                        Ok(pruned) => {
+                            tracing::info!("pruned {pruned} raw app versions past the retention")
+                        }
+                        Err(e) => tracing::error!("Error pruning raw app versions: {e:#}"),
+                    }
+                });
+            }
+        }
+    };
+
     // run every 2 iterations (~20s at the default LISTEN_NEW_EVENTS_INTERVAL_SEC).
     // Enterprise feature: the active `// freshness` backstop lives in
     // windmill-queue's `freshness_watchdog` (`private`); OSS gets a no-op stub.
@@ -4780,6 +4799,7 @@ pub async fn monitor_db(
         zombie_jobs_f,
         stale_jobs_f,
         trim_resource_versions_f,
+        raw_app_versions_retention_f,
         vacuum_queue_f,
         expose_queue_metrics_f,
         verify_license_key_f,

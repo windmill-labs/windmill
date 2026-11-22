@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { instanceBannerFormError } from './instanceBanner'
 import { ACCENT_COLOR_SETTING, parseAccentColor } from '$lib/accentColor'
 import { parseMaxTokenExpirationDays } from '$lib/tokenExpiration'
+import { parseCount } from '$lib/parseCount'
 import { writable } from 'svelte/store'
 import { OidcService } from '$lib/gen'
 import { workspaceRolesErrors } from '$lib/workspaceRoles'
@@ -114,6 +115,9 @@ export interface Setting {
 }
 
 export type SettingStorage = 'setting'
+
+// Mirrors `RAW_APP_VERSIONS_TO_KEEP_BOUND` in windmill-common.
+const RAW_APP_VERSIONS_TO_KEEP_BOUND = 1_000_000
 
 const positiveNumber = z.number().positive('Must be a positive number')
 const nonNegativeNumber = z.number().nonnegative('Must be zero or a positive number')
@@ -343,6 +347,22 @@ export const settings: Record<string, Setting[]> = {
 			storage: 'setting',
 			ee_only: '',
 			hideInQuickSetup: true
+		},
+		{
+			label: 'Full-code app versions to keep',
+			key: 'raw_app_versions_to_keep',
+			description:
+				'Number of versions to keep for each full-code app, counting the deployed one. Older versions and their bundles are permanently deleted within about 20 minutes, except versions replaced less than an hour ago and versions a draft is based on. Leave empty to keep every version.',
+			fieldType: 'number',
+			placeholder: 'all versions',
+			storage: 'setting',
+			hideInQuickSetup: true,
+			error: 'Must be a whole number of versions, from 1 to 1,000,000',
+			isValid: (value: unknown) =>
+				value === undefined ||
+				value === null ||
+				value === '' ||
+				parseCount(value, RAW_APP_VERSIONS_TO_KEEP_BOUND) !== undefined
 		},
 		{
 			label: 'Maximum token expiration (days)',
