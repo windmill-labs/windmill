@@ -26,7 +26,7 @@ pub async fn prune_raw_app_versions(db: &DB) -> Result<u64> {
 
     // Newest is last in `app.versions`, as in the history, not latest `created_at`.
     // The hour since a version was superseded is for the dependency jobs and page loads still
-    // using it. A draft's base stays because rebasing the draft diffs against it.
+    // using it.
     let apps = sqlx::query!(
         r#"WITH ranked AS (
             SELECT av.id, av.app_id,
@@ -47,12 +47,6 @@ pub async fn prune_raw_app_versions(db: &DB) -> Result<u64> {
         JOIN app a ON a.id = r.app_id
         WHERE r.rn > $1
             AND r.superseded_at < now() - interval '1 hour'
-            AND NOT EXISTS (
-                SELECT 1 FROM draft d
-                WHERE d.workspace_id = a.workspace_id
-                    AND d.typ IN ('app', 'raw_app')
-                    AND d.base = r.id::text
-            )
         GROUP BY a.id"#,
         keep,
     )
@@ -61,14 +55,34 @@ pub async fn prune_raw_app_versions(db: &DB) -> Result<u64> {
 
     let mut pruned = 0;
     for app in apps {
-        for versions in app.versions.chunks(DELETE_BATCH) {
+        for candidates in app.versions.chunks(DELETE_BATCH) {
+            let versions = without_draft_bases(db, &app.workspace_id, candidates).await?;
+            if versions.is_empty() {
+                continue;
+            }
             // Objects first: once the rows are gone nothing names them to a later pass.
             #[cfg(all(feature = "enterprise", feature = "parquet"))]
-            delete_stored_bundles(&app.workspace_id, versions).await?;
-            pruned += delete_versions(db, &app.workspace_id, app.app_id, versions).await?;
+            delete_stored_bundles(&app.workspace_id, &versions).await?;
+            pruned += delete_versions(db, &app.workspace_id, app.app_id, &versions).await?;
         }
     }
     Ok(pruned)
+}
+
+/// A draft's base stays, for the diff against it. Read per batch rather than with the candidates:
+/// a first pass over a long history runs for minutes, and drafts are saved meanwhile.
+async fn without_draft_bases(db: &DB, w_id: &str, versions: &[i64]) -> Result<Vec<i64>> {
+    Ok(sqlx::query_scalar!(
+        r#"SELECT c.id AS "id!" FROM unnest($2::bigint[]) AS c(id)
+        WHERE NOT EXISTS (
+            SELECT 1 FROM draft d
+            WHERE d.workspace_id = $1 AND d.typ IN ('app', 'raw_app') AND d.base = c.id::text
+        )"#,
+        w_id,
+        versions,
+    )
+    .fetch_all(db)
+    .await?)
 }
 
 /// `app_script` rows stay: versions share them, and past jobs show their code from them.
