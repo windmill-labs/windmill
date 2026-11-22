@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE app SET versions = ARRAY(\n            SELECT v.id FROM unnest(versions) WITH ORDINALITY AS v(id, ord)\n            WHERE v.id <> ALL($2) ORDER BY v.ord\n        ) WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8Array"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "b2dc52d4b21cc2e62ea3b8725be6d72341440080cc857ebb5ddd237ad638c5ec"
+}

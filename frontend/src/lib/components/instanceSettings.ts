@@ -115,6 +115,12 @@ export interface Setting {
 
 export type SettingStorage = 'setting'
 
+// Accepts what `parse_raw_app_versions_to_keep` (windmill-common) does.
+function isValidVersionsToKeep(value: unknown): boolean {
+	const count = String(value ?? '').trim()
+	return count === '' || (/^\d+$/.test(count) && Number(count) >= 1 && Number(count) <= 1_000_000)
+}
+
 const positiveNumber = z.number().positive('Must be a positive number')
 const nonNegativeNumber = z.number().nonnegative('Must be zero or a positive number')
 
@@ -343,6 +349,18 @@ export const settings: Record<string, Setting[]> = {
 			storage: 'setting',
 			ee_only: '',
 			hideInQuickSetup: true
+		},
+		{
+			label: 'Full-code app versions to keep',
+			key: 'raw_app_versions_to_keep',
+			description:
+				'Number of versions to keep for each full-code app, counting the deployed one. Older versions and their bundles are permanently deleted within about 20 minutes, except versions replaced less than an hour ago and versions a draft is based on. Leave empty to keep every version.',
+			fieldType: 'number',
+			placeholder: 'all versions',
+			storage: 'setting',
+			hideInQuickSetup: true,
+			error: 'Must be a whole number of versions, from 1 to 1,000,000',
+			isValid: isValidVersionsToKeep
 		},
 		{
 			label: 'Maximum token expiration (days)',

@@ -1310,6 +1310,10 @@ async fn run_setting_pre_write_hook(
                     error::Error::BadRequest(format!("{MAX_TOKEN_EXPIRATION_DAYS_SETTING}: {e}"))
                 })?;
         }
+        windmill_common::global_settings::RAW_APP_VERSIONS_TO_KEEP_SETTING => {
+            windmill_common::global_settings::parse_raw_app_versions_to_keep(Some(value))
+                .map_err(|e| error::Error::BadRequest(format!("{key}: {e}")))?;
+        }
         INSTANCE_BANNER_SETTING => {
             match value {
                 // Clearing (delete row) is handled by the caller; allow it through.

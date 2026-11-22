@@ -139,7 +139,32 @@ pub const MAX_TOKEN_EXPIRATION_DAYS_BOUND: i64 = 1_000_000;
 pub fn parse_max_token_expiration_days(
     value: Option<&serde_json::Value>,
 ) -> Result<Option<i64>, String> {
-    let days = match value {
+    parse_optional_count(value, MAX_TOKEN_EXPIRATION_DAYS_BOUND).map_err(|()| {
+        format!(
+            "must be a whole number of days from 1 to {MAX_TOKEN_EXPIRATION_DAYS_BOUND}, or empty for no limit"
+        )
+    })
+}
+/// How many versions of each raw app to keep. Unset keeps them all.
+pub const RAW_APP_VERSIONS_TO_KEEP_SETTING: &str = "raw_app_versions_to_keep";
+pub const RAW_APP_VERSIONS_TO_KEEP_BOUND: i64 = 1_000_000;
+
+/// Reads a stored `raw_app_versions_to_keep`, `Ok(None)` when unset or cleared. Zero is an
+/// error rather than "keep all" or "keep none": the deployed version always has to stay.
+pub fn parse_raw_app_versions_to_keep(
+    value: Option<&serde_json::Value>,
+) -> Result<Option<i64>, String> {
+    parse_optional_count(value, RAW_APP_VERSIONS_TO_KEEP_BOUND).map_err(|()| {
+        format!(
+            "must be a whole number of versions from 1 to {RAW_APP_VERSIONS_TO_KEEP_BOUND}, or empty to keep them all"
+        )
+    })
+}
+
+/// A whole number within `1..=max` stored as an integer, an integral float or a string of
+/// digits, or `None` when null or empty.
+fn parse_optional_count(value: Option<&serde_json::Value>, max: i64) -> Result<Option<i64>, ()> {
+    let count = match value {
         None | Some(serde_json::Value::Null) => return Ok(None),
         Some(serde_json::Value::String(s)) if s.trim().is_empty() => return Ok(None),
         Some(serde_json::Value::Number(n)) => n
@@ -148,13 +173,12 @@ pub fn parse_max_token_expiration_days(
         Some(serde_json::Value::String(s)) => s.trim().parse::<i64>().ok(),
         Some(_) => None,
     };
-    match days {
-        Some(days) if (1..=MAX_TOKEN_EXPIRATION_DAYS_BOUND).contains(&days) => Ok(Some(days)),
-        _ => Err(format!(
-            "must be a whole number of days from 1 to {MAX_TOKEN_EXPIRATION_DAYS_BOUND}, or empty for no limit"
-        )),
+    match count {
+        Some(count) if (1..=max).contains(&count) => Ok(Some(count)),
+        _ => Err(()),
     }
 }
+
 pub const AUTO_LOGIN_PROVIDER_SETTING: &str = "auto_login_provider";
 /// Name of the SAML attribute or OIDC userinfo claim carrying the user's IdP groups. Unset or
 /// empty leaves instance-group membership entirely to SCIM.

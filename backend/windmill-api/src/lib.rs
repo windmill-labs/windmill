@@ -76,6 +76,8 @@ mod ai_sessions;
 pub use ai_sessions::sweep_expired_ai_session_backups;
 mod ai_shared_artifacts;
 mod ai_shared_sessions;
+mod app_versions_retention;
+pub use app_versions_retention::prune_raw_app_versions;
 mod apps;
 mod apps_raw_bundle;
 pub use apps::invalidate_app_policy_cache;
