@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { instanceBannerFormError } from './instanceBanner'
 import { ACCENT_COLOR_SETTING, parseAccentColor } from '$lib/accentColor'
 import { parseMaxTokenExpirationDays } from '$lib/tokenExpiration'
+import { parseCount } from '$lib/parseCount'
 import { writable } from 'svelte/store'
 import { OidcService } from '$lib/gen'
 import { workspaceRolesErrors } from '$lib/workspaceRoles'
@@ -115,11 +116,8 @@ export interface Setting {
 
 export type SettingStorage = 'setting'
 
-// Accepts what `parse_raw_app_versions_to_keep` (windmill-common) does.
-function isValidVersionsToKeep(value: unknown): boolean {
-	const count = String(value ?? '').trim()
-	return count === '' || (/^\d+$/.test(count) && Number(count) >= 1 && Number(count) <= 1_000_000)
-}
+// Mirrors `RAW_APP_VERSIONS_TO_KEEP_BOUND` in windmill-common.
+const RAW_APP_VERSIONS_TO_KEEP_BOUND = 1_000_000
 
 const positiveNumber = z.number().positive('Must be a positive number')
 const nonNegativeNumber = z.number().nonnegative('Must be zero or a positive number')
@@ -360,7 +358,11 @@ export const settings: Record<string, Setting[]> = {
 			storage: 'setting',
 			hideInQuickSetup: true,
 			error: 'Must be a whole number of versions, from 1 to 1,000,000',
-			isValid: isValidVersionsToKeep
+			isValid: (value: unknown) =>
+				value === undefined ||
+				value === null ||
+				value === '' ||
+				parseCount(value, RAW_APP_VERSIONS_TO_KEEP_BOUND) !== undefined
 		},
 		{
 			label: 'Maximum token expiration (days)',
