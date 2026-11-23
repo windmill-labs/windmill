@@ -202,6 +202,7 @@ pub enum DeployedContent<'a> {
     Script {
         content: &'a str,
         modules: Option<serde_json::Value>,
+        codebase: Option<&'a str>,
     },
     Flow(&'a serde_json::value::RawValue),
     /// `None` when the write clears the value.
@@ -221,11 +222,13 @@ impl DeployedContent<'_> {
 /// Enforces `RequirePassingCiTests` on a deploy of `path` in `w_id`. The workspace's own CI tests
 /// of the item must all have passed, in a fork of it holding the same content, on that content
 /// and with the same test code. A user who may bypass the rule deploys anyway, and a deploy that
-/// would have been refused is audited.
+/// would have been refused is audited. A rename also answers to the tests of the path it leaves,
+/// since their references follow it.
 pub async fn check_ci_tests_rule(
     db: &sqlx::Pool<sqlx::Postgres>,
     w_id: &str,
     path: &str,
+    renamed_from: Option<&str>,
     content: DeployedContent<'_>,
     author: &impl windmill_audit::audit_oss::AuditAuthorable,
     groups: &[String],
@@ -242,7 +245,7 @@ pub async fn check_ci_tests_rule(
     {
         return Ok(());
     }
-    let Some(failure) = ci_tests_failure(db, w_id, path, &content).await? else {
+    let Some(failure) = ci_tests_failure(db, w_id, path, renamed_from, &content).await? else {
         return Ok(());
     };
     match check_user_against_rule(
@@ -280,6 +283,7 @@ async fn ci_tests_failure(
     db: &sqlx::Pool<sqlx::Postgres>,
     w_id: &str,
     path: &str,
+    renamed_from: Option<&str>,
     content: &DeployedContent<'_>,
 ) -> error::Result<Option<String>> {
     let kind = content.kind();
@@ -287,21 +291,24 @@ async fn ci_tests_failure(
         "SELECT test_script_path, tested_item_path, has_wildcard AS \"has_wildcard!\" \
          FROM ci_test_reference \
          WHERE workspace_id = $1 AND tested_item_kind = $2 \
-           AND (has_wildcard OR tested_item_path = $3)",
+           AND (has_wildcard OR tested_item_path = $3 OR tested_item_path = $4)",
         w_id,
         kind,
-        path
+        path,
+        renamed_from
     )
     .fetch_all(db)
     .await?;
-    let tests: BTreeSet<String> = refs
-        .into_iter()
-        .filter(|r| {
-            !r.has_wildcard
-                || windmill_common::schema::ci_test_path_matches(path, &r.tested_item_path)
-        })
-        .map(|r| r.test_script_path)
-        .collect();
+    let tests: BTreeSet<String> =
+        refs.into_iter()
+            .filter(|r| {
+                !r.has_wildcard
+                    || [Some(path), renamed_from].into_iter().flatten().any(|p| {
+                        windmill_common::schema::ci_test_path_matches(p, &r.tested_item_path)
+                    })
+            })
+            .map(|r| r.test_script_path)
+            .collect();
     if tests.is_empty() {
         return Ok(None);
     }
@@ -349,8 +356,8 @@ async fn fork_deployed_at(
     value: Option<&serde_json::Value>,
 ) -> error::Result<Option<chrono::DateTime<chrono::Utc>>> {
     Ok(match (content, value) {
-        (DeployedContent::Script { content: c, modules }, _) => sqlx::query!(
-            "SELECT content, modules, created_at FROM script \
+        (DeployedContent::Script { content: c, modules, codebase }, _) => sqlx::query!(
+            "SELECT content, modules, codebase, created_at FROM script \
              WHERE workspace_id = $1 AND path = $2 AND deleted = false AND archived = false \
              ORDER BY created_at DESC LIMIT 1",
             fork,
@@ -358,7 +365,7 @@ async fn fork_deployed_at(
         )
         .fetch_optional(db)
         .await?
-        .filter(|s| s.content == *c && s.modules == *modules)
+        .filter(|s| s.content == *c && s.modules == *modules && s.codebase.as_deref() == *codebase)
         .map(|s| s.created_at),
         (DeployedContent::Flow(_), Some(v)) => sqlx::query!(
             "SELECT f.value AS \"value: sqlx::types::Json<serde_json::Value>\", \
@@ -406,12 +413,13 @@ async fn fork_tests_failure(
         let run = sqlx::query!(
             "SELECT j.created_at, jc.status::text AS status, \
                     (s.content IS NOT DISTINCT FROM t.content \
-                     AND s.modules IS NOT DISTINCT FROM t.modules) AS \"same_test!\" \
+                     AND s.modules IS NOT DISTINCT FROM t.modules \
+                     AND s.codebase IS NOT DISTINCT FROM t.codebase) AS \"same_test!\" \
              FROM v2_job j \
              LEFT JOIN v2_job_completed jc ON jc.id = j.id \
              LEFT JOIN script s ON s.workspace_id = j.workspace_id AND s.hash = j.runnable_id \
              LEFT JOIN LATERAL ( \
-                 SELECT content, modules FROM script \
+                 SELECT content, modules, codebase FROM script \
                  WHERE workspace_id = $4 AND path = $2 AND deleted = false AND archived = false \
                  ORDER BY created_at DESC LIMIT 1 \
              ) t ON true \
@@ -442,36 +450,38 @@ async fn fork_tests_failure(
     Ok(None)
 }
 
-/// A flow carries over to its parent without the hashes of its script steps, and its locks
-/// are recomputed per workspace: neither tells two versions of its logic apart. Step arguments
-/// are user data, compared as they are even where they look like a step.
-fn same_flow(a: &serde_json::Value, b: &serde_json::Value) -> bool {
-    fn strip(v: &serde_json::Value) -> serde_json::Value {
+/// A flow carries over to its parent without the hashes its script steps pin, and the locks
+/// of its steps are recomputed per workspace: neither tells two versions of its logic apart.
+/// Only the fork's pins are dropped: a deploy pinning a step to a revision of its own runs code
+/// no fork has tested. A step is an object with an `id` and a `value`, so arguments that merely
+/// look like one are compared as they are.
+fn same_flow(fork: &serde_json::Value, deployed: &serde_json::Value) -> bool {
+    fn strip(v: &serde_json::Value, keys: &[&str]) -> serde_json::Value {
         match v {
             serde_json::Value::Object(m) => {
-                let step = matches!(
-                    m.get("type").and_then(|t| t.as_str()),
-                    Some("rawscript" | "script" | "flow")
-                );
-                serde_json::Value::Object(
-                    m.iter()
-                        .filter(|(k, _)| !(step && matches!(k.as_str(), "hash" | "lock")))
-                        .map(|(k, v)| {
-                            let v = if k == "input_transforms" {
-                                v.clone()
-                            } else {
-                                strip(v)
-                            };
-                            (k.clone(), v)
-                        })
-                        .collect(),
-                )
+                let mut m: serde_json::Map<_, _> =
+                    m.iter().map(|(k, v)| (k.clone(), strip(v, keys))).collect();
+                if m.contains_key("id") {
+                    if let Some(serde_json::Value::Object(step)) = m.get_mut("value") {
+                        if matches!(
+                            step.get("type").and_then(|t| t.as_str()),
+                            Some("rawscript" | "script" | "flow")
+                        ) {
+                            keys.iter().for_each(|k| {
+                                step.remove(*k);
+                            });
+                        }
+                    }
+                }
+                serde_json::Value::Object(m)
             }
-            serde_json::Value::Array(a) => serde_json::Value::Array(a.iter().map(strip).collect()),
+            serde_json::Value::Array(a) => {
+                serde_json::Value::Array(a.iter().map(|v| strip(v, keys)).collect())
+            }
             v => v.clone(),
         }
     }
-    strip(a) == strip(b)
+    strip(fork, &["hash", "lock"]) == strip(deployed, &["lock"])
 }
 
 /// An agent carries over to its parent with the principal it runs as replaced.
@@ -509,6 +519,9 @@ mod tests {
         let mut changed_code = merged.clone();
         changed_code["modules"][0]["value"]["content"] = json!("y");
         assert!(!same_flow(&fork, &changed_code));
+        let mut pinned = merged.clone();
+        pinned["modules"][1]["value"]["hash"] = json!("h2");
+        assert!(!same_flow(&fork, &pinned));
         let (mut fork_arg, mut merged_arg) = (fork.clone(), merged);
         fork_arg["modules"][0]["value"]["input_transforms"]["lock"]["value"] =
             json!({"type": "script", "hash": "v1"});

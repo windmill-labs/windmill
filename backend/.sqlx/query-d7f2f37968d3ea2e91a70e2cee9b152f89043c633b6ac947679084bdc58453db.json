@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT content, modules, created_at FROM script WHERE workspace_id = $1 AND path = $2 AND deleted = false AND archived = false ORDER BY created_at DESC LIMIT 1",
+  "query": "SELECT content, modules, codebase, created_at FROM script WHERE workspace_id = $1 AND path = $2 AND deleted = false AND archived = false ORDER BY created_at DESC LIMIT 1",
   "describe": {
     "columns": [
       {
@@ -15,6 +15,11 @@
       },
       {
         "ordinal": 2,
+        "name": "codebase",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
         "name": "created_at",
         "type_info": "Timestamptz"
       }
@@ -28,8 +33,9 @@
     "nullable": [
       false,
       true,
+      true,
       false
     ]
   },
-  "hash": "8d3bf3ac9f130748fdda52ff82fb391f7ae18d1d7e5c946b2991ed3ac7f853e1"
+  "hash": "d7f2f37968d3ea2e91a70e2cee9b152f89043c633b6ac947679084bdc58453db"
 }

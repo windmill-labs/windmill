@@ -1381,22 +1381,6 @@ async fn create_script_internal<'c>(
 )> {
     windmill_common::workspaces::check_role_can_code(&db, &w_id, &authed, "create scripts").await?;
     check_scopes(&authed, || format!("scripts:write:{}", ns.path))?;
-    windmill_dep_map::ci_tests::check_ci_tests_rule(
-        &db,
-        &w_id,
-        &ns.path,
-        windmill_dep_map::ci_tests::DeployedContent::Script {
-            content: &ns.content,
-            modules: ns
-                .modules
-                .as_ref()
-                .and_then(|m| serde_json::to_value(m).ok()),
-        },
-        &authed,
-        &authed.groups,
-        authed.is_admin,
-    )
-    .await?;
 
     // Normalize positive-only settings so a `<= 0` value (e.g. a CLI-pushed `0`) persists as
     // disabled rather than as a zero-slot concurrency cap or a 0-second timeout. Deserialization
@@ -1865,6 +1849,27 @@ async fn create_script_internal<'c>(
             r
         }
     }?;
+    windmill_dep_map::ci_tests::check_ci_tests_rule(
+        &db,
+        &w_id,
+        &ns.path,
+        parent_hashes_and_perms
+            .as_ref()
+            .map(|p| p.p_path.as_str())
+            .filter(|p| *p != ns.path),
+        windmill_dep_map::ci_tests::DeployedContent::Script {
+            content: &ns.content,
+            modules: ns
+                .modules
+                .as_ref()
+                .and_then(|m| serde_json::to_value(m).ok()),
+            codebase: ns.codebase.as_deref(),
+        },
+        &authed,
+        &authed.groups,
+        authed.is_admin,
+    )
+    .await?;
     let p_hashes = parent_hashes_and_perms.as_ref().map(|v| &v.p_hashes[..]);
     let extra_perms = parent_hashes_and_perms
         .as_ref()

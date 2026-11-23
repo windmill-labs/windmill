@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT test_script_path, tested_item_path, has_wildcard AS \"has_wildcard!\" FROM ci_test_reference WHERE workspace_id = $1 AND tested_item_kind = $2 AND (has_wildcard OR tested_item_path = $3)",
+  "query": "SELECT test_script_path, tested_item_path, has_wildcard AS \"has_wildcard!\" FROM ci_test_reference WHERE workspace_id = $1 AND tested_item_kind = $2 AND (has_wildcard OR tested_item_path = $3 OR tested_item_path = $4)",
   "describe": {
     "columns": [
       {
@@ -23,6 +23,7 @@
       "Left": [
         "Text",
         "Text",
+        "Text",
         "Text"
       ]
     },
@@ -32,5 +33,5 @@
       true
     ]
   },
-  "hash": "4d7d4f72e8c5dc489f2f230b93d6569f941100dd9641655ad4518e6e9fb76949"
+  "hash": "542b6e52b5bd9ea7d5db25b445eb4bfa94082264ef065551b06016c7a629053b"
 }

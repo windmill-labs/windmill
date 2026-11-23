@@ -1319,6 +1319,7 @@ async fn create_resource(
         &db,
         &w_id,
         &resource.path,
+        None,
         windmill_dep_map::ci_tests::DeployedContent::Resource(resource.value.as_deref()),
         &authed,
         &authed.groups,
@@ -2214,12 +2215,31 @@ async fn update_resource(
             .as_ref(),
     )
     .await?;
-    if let Some(value) = ns.value.as_deref() {
+    let renamed_from = ns.path.as_deref().filter(|p| *p != path).map(|_| path);
+    if ns.value.is_some() || renamed_from.is_some() {
+        // A rename that leaves the value unset moves the stored one to the new path.
+        let kept = match ns.value {
+            Some(_) => None,
+            None => sqlx::query_scalar!(
+                "SELECT value::text FROM resource WHERE workspace_id = $1 AND path = $2",
+                &w_id,
+                path
+            )
+            .fetch_optional(&db)
+            .await?
+            .flatten()
+            .map(RawValue::from_string)
+            .transpose()
+            .map_err(|e| Error::internal_err(e.to_string()))?,
+        };
         windmill_dep_map::ci_tests::check_ci_tests_rule(
             &db,
             &w_id,
             ns.path.as_deref().unwrap_or(path),
-            windmill_dep_map::ci_tests::DeployedContent::Resource(Some(value)),
+            renamed_from,
+            windmill_dep_map::ci_tests::DeployedContent::Resource(
+                ns.value.as_deref().or(kept.as_deref()),
+            ),
             &authed,
             &authed.groups,
             authed.is_admin,
@@ -2679,6 +2699,7 @@ async fn set_resource_value(
         db,
         w_id,
         path,
+        None,
         windmill_dep_map::ci_tests::DeployedContent::Resource(raw.as_deref()),
         authed,
         &authed.groups,
