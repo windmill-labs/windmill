@@ -8916,6 +8916,9 @@ async fn create_failed_only_module(
     module_definition: &FlowModule,
     restart_step_id: &str,
 ) -> Result<FlowStatusModule, Error> {
+    windmill_common::min_version::MIN_VERSION_SUPPORTS_FAILED_ONLY_RESTART
+        .assert()
+        .await?;
     let (is_loop, branch_count) = match module_definition.get_value()? {
         FlowModuleValue::ForloopFlow { parallel: true, .. } => (true, None),
         FlowModuleValue::BranchAll { parallel: true, branches, .. } => (false, Some(branches.len())),
