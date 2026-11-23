@@ -62,6 +62,9 @@
 			<div>
 				<div>{label}</div>
 				{#if path != ''}<div>{path}</div>{/if}
+				{#if id?.startsWith('subflow:')}
+					<div class="text-tertiary">{id.slice('subflow:'.length).split(':').join(' › ')}</div>
+				{/if}
 				{#if showExploreHint}
 					<div class="mt-1 text-tertiary">double click, or click again, to explore</div>
 				{/if}
@@ -98,8 +101,8 @@
 				</span>
 			</Badge>
 		{:else if id?.startsWith('subflow:')}
-			<Badge color="blue" wrapperClass="max-w-full" baseClass="!px-1" title={id}>
-				<!-- The step's own id: its subflow path is in the title, and would crowd out the summary. -->
+			<Badge color="blue" wrapperClass="max-w-full" baseClass="!px-1">
+				<!-- The step's own id: its subflow path is in the label's popover, and would crowd out the summary. -->
 				<span class="block max-w-12 text-2xs truncate">{id.split(':').at(-1)}</span></Badge
 			>
 		{/if}

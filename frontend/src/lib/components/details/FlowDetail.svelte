@@ -616,6 +616,7 @@
 		}
 	}
 	let stepDetail: FlowModule | string | undefined = $state(undefined)
+	let subflowPathChain: string[] | undefined = $state(undefined)
 	let rightPaneSelected = $state('saved_inputs')
 	let savedInputsV2: SavedInputsV2 | undefined = $state(undefined)
 	let detailLayout: DetailPageLayout | undefined = $state(undefined)
@@ -984,6 +985,7 @@
 							triggerNode={true}
 							download
 							{flow}
+							bind:subflowPathChain
 							noSide={true}
 							minHeight={graphMinHeight}
 							on:select={(e) => {
@@ -1027,7 +1029,7 @@
 	{#snippet flow_step({ onBack }: { onBack?: () => void })}
 		{#if flow}
 			{#if stepDetail}
-				<FlowGraphViewerStep schema={flow.schema} {stepDetail} {onBack} />
+				<FlowGraphViewerStep schema={flow.schema} {stepDetail} {subflowPathChain} {onBack} />
 			{/if}
 		{/if}
 	{/snippet}
@@ -1057,6 +1059,7 @@
 					triggerNode={true}
 					download
 					{flow}
+					bind:subflowPathChain
 					noSide={true}
 					noBorder
 					minHeight={flowGraphHeight}

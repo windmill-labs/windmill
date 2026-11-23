@@ -16,7 +16,7 @@
 
 	import { twMerge } from 'tailwind-merge'
 	import FlowModuleScript from './flows/content/FlowModuleScript.svelte'
-	import { Expand, ExternalLink } from 'lucide-svelte'
+	import { ChevronRight, Expand, ExternalLink } from 'lucide-svelte'
 	import HighlightTheme from './HighlightTheme.svelte'
 	import LanguageIcon from './common/languageIcons/LanguageIcon.svelte'
 	import FlowGraphViewerStepHeader from './FlowGraphViewerStepHeader.svelte'
@@ -34,6 +34,9 @@
 		workspace?: string
 		/** Given, the step header starts with a back control that calls it. */
 		onBack?: () => void
+		/** For a step inside an inline-expanded subflow: path of each subflow crossed, outermost
+		 * first. */
+		subflowPathChain?: string[]
 	}
 
 	let {
@@ -42,7 +45,8 @@
 		jobScriptHash = undefined,
 		hideDefaultInputs = false,
 		workspace = undefined,
-		onBack = undefined
+		onBack = undefined,
+		subflowPathChain = undefined
 	}: Props = $props()
 	let ws = $derived(workspace ?? $operatingWorkspace)
 	let codeViewer: Drawer | undefined = $state()
@@ -134,6 +138,22 @@
 		<!-- A direct child of the scrolling root: a sticky row can only hold within its parent's
 		     box, so wrapped with the path link below it would scroll away with that wrapper. -->
 		<FlowGraphViewerStepHeader {stepDetail} {onBack} />
+		{#if subflowPathChain?.length}
+			<div class="flex flex-wrap items-center gap-1 pb-2 text-xs text-secondary">
+				<span>In</span>
+				{#each subflowPathChain as path, i (i)}
+					{#if i > 0}
+						<ChevronRight size={12} class="shrink-0" />
+					{/if}
+					<a
+						class="text-accent hover:underline"
+						href={`/flows/get/${path}?workspace=${encodeURIComponent(ws ?? '')}`}
+						target="_blank"
+						rel="noreferrer">{path}</a
+					>
+				{/each}
+			</div>
+		{/if}
 		<div class="">
 			{#if stepDetail.value.type == 'script'}
 				<div class="pb-2">
