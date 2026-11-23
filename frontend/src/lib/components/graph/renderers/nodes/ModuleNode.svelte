@@ -353,7 +353,7 @@
 				: undefined}
 		/>
 
-		{#if type === 'WaitingForExecutor' && state?.waiting_reason && state.scheduled_for}
+		{#if type === 'WaitingForExecutor' && state?.waiting_reason}
 			<WaitingMark
 				reason={state.waiting_reason}
 				until={state.scheduled_for}

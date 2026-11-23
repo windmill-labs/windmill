@@ -34,7 +34,7 @@
 	let waitingText = $derived.by(() => {
 		const next = job?.flow_status?.modules?.[job.flow_status.step]
 		const s = next?.type === 'WaitingForExecutor' ? stepStates?.[next.id ?? ''] : undefined
-		if (s?.type !== 'WaitingForExecutor' || !s.scheduled_for) return undefined
+		if (s?.type !== 'WaitingForExecutor') return undefined
 		const until = displayDate(s.scheduled_for, true)
 		return s.waiting_reason === 'sleep'
 			? `Sleeping before step ${next?.id} until ${until}`

@@ -16,7 +16,7 @@
 		type FlowValue,
 		ConcurrencyGroupsService
 	} from '$lib/gen'
-	import { forLater } from '$lib/forLater'
+	import { getDbClockNow } from '$lib/forLater'
 	import FlowJobResult from './FlowJobResult.svelte'
 	import WorkflowTimeline from './WorkflowTimeline.svelte'
 	import DisplayResult from './DisplayResult.svelte'
@@ -684,15 +684,63 @@
 	/** The step waiting for or running its next attempt, if any. */
 	let retryingStepId: string | undefined = undefined
 
-	// A concurrency limit moves a waiting step's due time each time it holds it back, so a
-	// step still waiting once that time has passed is read again, at most every 5s.
+	// A concurrency limit moves a waiting step's due time each time it holds it back, often by
+	// only a few seconds, so a step still waiting once that time has passed is read again, at
+	// most every 5s. The parent flow does not change meanwhile, hence the timer below.
 	const waitingStepChecks = new Map<string, number>()
 	function waitingStepDue(mod: FlowStatusModule): boolean {
 		const last = waitingStepChecks.get(mod.job ?? '')
 		if (last != undefined && Date.now() - last < 5000) return false
 		const scheduledFor = localModuleStates[mod.id ?? '']?.scheduled_for
-		return scheduledFor == undefined || !forLater(String(scheduledFor))
+		return scheduledFor == undefined || new Date(scheduledFor) <= getDbClockNow()
 	}
+
+	function loadWaitingStep(mod: FlowStatusModule, retrying: boolean) {
+		waitingStepChecks.set(mod.job ?? '', Date.now())
+		const workspace = workspaceId ?? $operatingWorkspace ?? ''
+		Promise.all([
+			JobService.getJob({ workspace, id: mod.job ?? '', noLogs: true, noCode: true }),
+			ConcurrencyGroupsService.getConcurrencyKeyStatus({ id: mod.job ?? '' }).catch(() => undefined)
+		])
+			.then(([job, held]) => {
+				const scheduledFor: string | undefined = job?.['scheduled_for']
+				// A held job is admitted only as a worker pulls it, so it is held until it runs.
+				const waiting_reason: GraphModuleState['waiting_reason'] = held?.deferred_from
+					? 'concurrency'
+					: scheduledFor &&
+						  new Date(scheduledFor) > getDbClockNow() &&
+						  !retrying &&
+						  sleepsBefore(mod.id)
+						? 'sleep'
+						: undefined
+				setModuleState(mod.id ?? '', {
+					type: mod.type,
+					scheduled_for: job?.['scheduled_for'],
+					waiting_reason,
+					concurrency_key: waiting_reason === 'concurrency' ? held?.key : undefined,
+					job_id: job?.id,
+					parent_module: failedStepOf(mod),
+					args: job?.args,
+					tag: job?.tag,
+					script_hash: job?.script_hash
+				})
+			})
+			.catch((e) => {
+				console.error(`Could not load inner module for job ${mod.job}`, e)
+			})
+	}
+
+	$effect(() => {
+		if (job?.type !== 'QueuedJob' || isReplay) return
+		const id = setInterval(() => {
+			innerModules?.forEach((mod) => {
+				if (mod.type === 'WaitingForExecutor' && waitingStepDue(mod)) {
+					loadWaitingStep(mod, mod.id === retryingStepId)
+				}
+			})
+		}, 5000)
+		return () => clearInterval(id)
+	})
 
 	/** Whether the step before `id` sleeps once done, which pushes `id` back by that long. */
 	function sleepsBefore(id: string | undefined): boolean {
@@ -734,46 +782,7 @@
 					})
 				} else if (mod.type === 'WaitingForExecutor' && waitingStepDue(mod)) {
 					if (!isReplay) {
-						waitingStepChecks.set(mod.job ?? '', Date.now())
-						const retrying = mod.id === retryingId
-						JobService.getJob({
-							workspace: workspaceId ?? $operatingWorkspace ?? '',
-							id: mod.job ?? '',
-							noLogs: true,
-							noCode: true
-						})
-							.then(async (job) => {
-								const scheduledFor: string | undefined = job?.['scheduled_for']
-								let waiting_reason: GraphModuleState['waiting_reason'] = undefined
-								let concurrency_key: string | undefined = undefined
-								if (scheduledFor && forLater(scheduledFor)) {
-									const held = await ConcurrencyGroupsService.getConcurrencyKeyStatus({
-										id: job.id
-									}).catch(() => undefined)
-									if (held?.deferred_from) {
-										waiting_reason = 'concurrency'
-										concurrency_key = held.key
-									} else if (!retrying && sleepsBefore(mod.id)) {
-										waiting_reason = 'sleep'
-									}
-								}
-								const newState = {
-									type: mod.type,
-									scheduled_for: job?.['scheduled_for'],
-									waiting_reason,
-									concurrency_key,
-									job_id: job?.id,
-									parent_module: failedStepOf(mod),
-									args: job?.args,
-									tag: job?.tag,
-									script_hash: job?.script_hash
-								}
-
-								setModuleState(mod.id ?? '', newState)
-							})
-							.catch((e) => {
-								console.error(`Could not load inner module for job ${mod.job}`, e)
-							})
+						loadWaitingStep(mod, mod.id === retryingId)
 					}
 				} else if (
 					(mod.flow_jobs || mod.branch_chosen) &&

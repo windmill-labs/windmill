@@ -5,7 +5,7 @@
 
 	interface Props {
 		reason: NonNullable<GraphModuleState['waiting_reason']>
-		until: Date | string
+		until: Date | string | undefined
 		concurrencyKey?: string
 	}
 
@@ -17,7 +17,7 @@
 		return () => clearInterval(id)
 	})
 
-	let left = $derived(Math.max(new Date(until).getTime() - now, 0))
+	let left = $derived(Math.max(new Date(until ?? now).getTime() - now, 0))
 	let title = $derived(
 		reason === 'sleep'
 			? `Sleeping after the previous step until ${displayDate(until, true)}`

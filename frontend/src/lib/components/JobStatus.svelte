@@ -102,17 +102,18 @@
 		</Badge>
 		{@render continuedOnErrorBadge()}
 	</div>
+{:else if job && 'running' in job && heldByConcurrency}
+	<!-- A held job is admitted only as a worker pulls it, so it is held until it runs. -->
+	<div>
+		<Badge color="orange" {large} title="Next check by {displayDate(job.scheduled_for, true)}">
+			Waiting for a concurrency slot
+		</Badge>
+	</div>
 {:else if job && 'running' in job && 'scheduled_for' in job && job.scheduled_for && forLater(job.scheduled_for)}
 	<div>
-		{#if heldByConcurrency}
-			<Badge color="orange" {large} title="Next check by {displayDate(job.scheduled_for, true)}">
-				Waiting for a concurrency slot
-			</Badge>
-		{:else}
-			<Badge color="blue" {large}>
-				Scheduled for {displayDate(job.scheduled_for)}
-			</Badge>
-		{/if}
+		<Badge color="blue" {large}>
+			Scheduled for {displayDate(job.scheduled_for)}
+		</Badge>
 	</div>
 {:else if job && 'running' in job}
 	<div class="flex flex-row gap-1 items-center">

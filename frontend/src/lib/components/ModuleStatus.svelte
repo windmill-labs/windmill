@@ -35,18 +35,16 @@
 	</span>
 {:else if type == 'WaitingForExecutor'}
 	<span class="italic text-xs text-primary">
-		{#if scheduled_for && forLater(scheduled_for.toString())}
-			{#if waiting_reason === 'sleep'}
-				<Timer class="inline" size={14} />
-				Sleeping after the previous step until {displayDate(scheduled_for, true)}
-			{:else if waiting_reason === 'concurrency'}
-				<Lock class="inline" size={14} />
-				Held back by its concurrency limit{concurrency_key ? ` (key ${concurrency_key})` : ''}, next
-				check by {displayDate(scheduled_for, true)}
-			{:else}
-				<Hourglass class="inline" size={14} />
-				Job is scheduled to be executed at {displayDate(scheduled_for, true)}
-			{/if}
+		{#if waiting_reason === 'sleep'}
+			<Timer class="inline" size={14} />
+			Sleeping after the previous step until {displayDate(scheduled_for, true)}
+		{:else if waiting_reason === 'concurrency'}
+			<Lock class="inline" size={14} />
+			Held back by its concurrency limit{concurrency_key ? ` (key ${concurrency_key})` : ''}, next
+			check by {displayDate(scheduled_for, true)}
+		{:else if scheduled_for && forLater(scheduled_for.toString())}
+			<Hourglass class="inline" size={14} />
+			Job is scheduled to be executed at {displayDate(scheduled_for, true)}
 		{:else}
 			<Hourglass class="inline" size={14} />
 			Job is waiting for an executor
