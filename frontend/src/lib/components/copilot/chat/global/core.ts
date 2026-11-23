@@ -2594,6 +2594,7 @@ export const readSkillTool: SessionTool<{}> = {
 		'Load the full instructions for an AI skill by resource path. Skills are listed in the system prompt under "Skills"; call this before acting on a task a skill covers, then follow its instructions.'
 	),
 	planModeSafe: true,
+	lookup: true,
 	fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 		const parsed = readSkillSchema.parse(args)
 		const name = skillNameFromPath(parsed.path)
@@ -3380,6 +3381,7 @@ export const globalTools: SessionTool<{}>[] = [
 			'Get authoring guidance for scripts, flows, AI agents, data pipelines, resources, apps, or data tables: their migrations and permissions, and the SQL SDK (wmill.datatable()) used inside runnables.'
 		),
 		planModeSafe: true,
+		lookup: true,
 		fn: async (ctx) => {
 			const { args, toolId, toolCallbacks } = ctx
 			const parsed = getInstructionsSchema.parse(args)
@@ -3592,6 +3594,7 @@ export const globalTools: SessionTool<{}>[] = [
 			'List workspace items and drafts. Returns metadata only, up to limit items per item type per page (default 50); pass page to continue past a full page.'
 		),
 		planModeSafe: true,
+		lookup: true,
 		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 			listWorkspaceItemsSchema.parse(args)
 			toolCallbacks.setToolStatus(toolId, { content: 'Listing workspace items...' })
@@ -3613,6 +3616,7 @@ export const globalTools: SessionTool<{}>[] = [
 			'List the data pipelines of the workspace: each folder holding at least one pipeline script, with its number of scripts. A pipeline is named by its folder, not by an item path.'
 		),
 		planModeSafe: true,
+		lookup: true,
 		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 			toolCallbacks.setToolStatus(toolId, { content: 'Listing data pipelines...' })
 			const { text } = await runOnServer('list_pipelines', workspace, args)
@@ -3630,6 +3634,7 @@ export const globalTools: SessionTool<{}>[] = [
 			'Read one workspace item or draft. Prefers your draft when one exists; pass version: "deployed" to read the deployed state instead. A deployed item carries extraPerms (a draft does not; pass version: "deployed" for it): who it is shared with beyond its owner, as u/<user> or g/<group> → true (write) or false (read-only). A folder returns its owners and extraPerms; a group returns its members and extraPerms (who may manage it). For a folder or group, path is its name. A g/<group> entry grants every member of that group (g/all is everyone), and workspace admins can read and write every folder and item whatever these lists say.'
 		),
 		planModeSafe: true,
+		lookup: true,
 		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 			const parsed = readWorkspaceItemSchema.parse(args)
 			const { type } = parsed
@@ -3780,6 +3785,7 @@ export const globalTools: SessionTool<{}>[] = [
 			'Get the configuration schema for one trigger kind — its config fields differ per kind.'
 		),
 		planModeSafe: true,
+		lookup: true,
 		fn: async (ctx) => {
 			const { kind } = getTriggerSchemaSchema.parse(ctx.args)
 			return triggerConfigJsonSchema(kind)
@@ -3793,6 +3799,7 @@ export const globalTools: SessionTool<{}>[] = [
 			"Get the shape of a schedule's `advanced` object: retry, pausing, tags, and error-handler tuning."
 		),
 		planModeSafe: true,
+		lookup: true,
 		fn: async () => JSON.stringify(advancedScheduleShape(), null, 2)
 	},
 	{
@@ -3961,6 +3968,7 @@ export const globalTools: SessionTool<{}>[] = [
 			'List recent runs (jobs), most recent first. Optionally filter by path, creator, label, or status. Returns compact metadata only — use get_run with a returned id to see what a run was called with, returned and logged.'
 		),
 		planModeSafe: true,
+		lookup: true,
 		showDetails: true,
 		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 			listRunsSchema.parse(args)
@@ -3981,6 +3989,7 @@ export const globalTools: SessionTool<{}>[] = [
 			'List the workers connected to this Windmill instance (those that pinged in the last 5 minutes), with their worker group, custom tags, seconds since their last ping, and jobs executed. Pair with list_runs to diagnose a stuck queue: runs queued on a tag no listed worker picks up will never start. Three blind spots to report rather than reason past: an empty result states whether no worker is connected or whether workers may be hidden from you, so relay the one it gives instead of picking; a missing custom_tags can mean tags are hidden from you, not unset; and only the 100 most recently pinging workers are listed, so on a bigger instance a tag none of them carries may still be served.'
 		),
 		planModeSafe: true,
+		lookup: true,
 		showDetails: true,
 		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 			toolCallbacks.setToolStatus(toolId, { content: 'Listing workers...' })
@@ -4006,6 +4015,7 @@ export const globalTools: SessionTool<{}>[] = [
 			"Inspect one run: its status, arguments, result and logs, plus — for a flow — the per-step execution tree with each step's status and truncated result (subflow steps, loop iterations, branches and retries included). Works on running jobs too. Pass step to fetch one step's result in full (up to 12k chars)."
 		),
 		planModeSafe: true,
+		lookup: true,
 		showDetails: true,
 		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 			const parsed = getRunSchema.parse(args)
@@ -4129,6 +4139,7 @@ export const globalTools: SessionTool<{}>[] = [
 		// Safe while planning: diff only flushes user-authored parked autosaves, honors the
 		// autosave toggle, and never changes content, deploys, or runs user code.
 		planModeSafe: true,
+		lookup: true,
 		showDetails: true,
 		fn: async (ctx) => {
 			const parsed = diffSchema.parse(ctx.args)
@@ -4263,6 +4274,7 @@ export const globalTools: SessionTool<{}>[] = [
 			'Search workspace resource types and schemas.'
 		),
 		planModeSafe: true,
+		lookup: true,
 		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 			const parsed = searchResourceTypesSchema.parse(args)
 			toolCallbacks.setToolStatus(toolId, {
@@ -4313,6 +4325,7 @@ export const globalTools: SessionTool<{}>[] = [
 			'Read inline script code from one flow module.'
 		),
 		planModeSafe: true,
+		lookup: true,
 		fn: async (ctx) => {
 			const parsed = readFlowModuleCodeSchema.parse(ctx.args)
 			ctx.toolCallbacks.setToolStatus(ctx.toolId, {
@@ -4363,6 +4376,7 @@ export const globalTools: SessionTool<{}>[] = [
 			'Read one raw app frontend file or inline backend runnable. Large files are truncated to a head slice; pass offset/limit to page through the rest.'
 		),
 		planModeSafe: true,
+		lookup: true,
 		fn: async (ctx) => {
 			const parsed = readAppFileSchema.parse(ctx.args)
 			ctx.toolCallbacks.setToolStatus(ctx.toolId, {
@@ -4379,6 +4393,7 @@ export const globalTools: SessionTool<{}>[] = [
 			"Grep across all of a raw app's frontend files and inline backend runnables in one call. Returns matching file:line rows (capped), not file bodies — use it to locate a symbol or string before read_app_file instead of reading whole files one by one."
 		),
 		planModeSafe: true,
+		lookup: true,
 		fn: async (ctx) => {
 			const parsed = searchAppSchema.parse(ctx.args)
 			if (parsed.query.length > 0) {
@@ -4537,6 +4552,7 @@ export const globalTools: SessionTool<{}>[] = [
 			'Check whether the side-panel preview is open in this AI session and which item (kind + path) it is showing — for an artifact tab, also the version the user has pinned in its version picker, which may be older than the latest. Call this before offering or calling open_preview so you do not re-open a preview that is already showing the item you just edited, and whenever the user asks what they are looking at with no ACTIVE PREVIEW section to answer from. Only meaningful inside a session.'
 		),
 		planModeSafe: true,
+		lookup: true,
 		fn: async (ctx) => getSessionPreviewStatus(sessionIdFromCtx(ctx))
 	},
 	{
@@ -4560,6 +4576,7 @@ export const globalTools: SessionTool<{}>[] = [
 			'Fetch the most recent browser console logs (and uncaught errors) from the raw app preview currently open in this AI session. Also reports the build: right after an edit it waits (up to 20s) for the rebuild, and when the build failed it returns the build error and bundler logs first.'
 		),
 		planModeSafe: true,
+		lookup: true,
 		showDetails: true,
 		fn: async (ctx) => {
 			const parsed = getRuntimeLogsSchema.parse(ctx.args)
@@ -4584,6 +4601,7 @@ export const globalTools: SessionTool<{}>[] = [
 			'List the backend runnable executions (jobs) the raw app preview currently open in this AI session has triggered, newest first.'
 		),
 		planModeSafe: true,
+		lookup: true,
 		showDetails: true,
 		fn: async (ctx) => {
 			const parsed = listAppRunsSchema.parse(ctx.args)
@@ -4604,6 +4622,7 @@ export const globalTools: SessionTool<{}>[] = [
 			'Search the live rendered HTML of the raw app preview open in this AI session with a regex, returning matching lines with their line numbers. Use it to check what actually rendered (verify an edit landed, diagnose a blank/empty view). Scope to an element with `selector`, or omit it for the whole page. The DOM is read live, so it reflects the current state.'
 		),
 		planModeSafe: true,
+		lookup: true,
 		showDetails: true,
 		fn: async (ctx) => {
 			const parsed = searchDomSchema.parse(ctx.args)
@@ -4633,6 +4652,7 @@ export const globalTools: SessionTool<{}>[] = [
 			'Read a bounded window of the live rendered HTML of the raw app preview open in this AI session, pretty-printed and line-numbered. Scope to an element with `selector`, or omit it for the whole page. Use search_dom first to locate content, then read_dom to see a specific region. The DOM is read live.'
 		),
 		planModeSafe: true,
+		lookup: true,
 		showDetails: true,
 		fn: async (ctx) => {
 			const parsed = readDomSchema.parse(ctx.args)
@@ -4664,6 +4684,7 @@ export const globalTools: SessionTool<{}>[] = [
 			'Capture a screenshot of the raw app preview currently open in this AI session and attach it as an image so you can see the rendered UI. Use it when the user raises how the app looks, whether reporting a problem or asking for the design improved, rather than to check your own edits. The image is attached in the following message. Requires the raw app preview open (open_preview kind="raw_app").'
 		),
 		planModeSafe: true,
+		lookup: true,
 		showDetails: true,
 		fn: async (ctx) => {
 			// A known text-only model would reject the follow-up image message and fail

@@ -53,6 +53,7 @@ export const workspaceSettingsTools: SessionTool<{}>[] = [
 			'Read the workspace settings as YAML, in the layout of the settings.yaml file the CLI syncs. Secrets read as `__SENSITIVE_AND_UNCHANGED__`.'
 		),
 		planModeSafe: true,
+		lookup: true,
 		showDetails: true,
 		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 			const parsed = getWorkspaceSettingsSchema.parse(args)

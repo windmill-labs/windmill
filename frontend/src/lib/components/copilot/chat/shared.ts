@@ -1414,6 +1414,10 @@ export interface Tool<T> {
 	schemaFor?: (helpers: any) => Promise<ChatCompletionFunctionTool>
 	/** Safe to run while plan mode is active. Absence fails closed. */
 	planModeSafe?: boolean
+	/** Only looks something up, so the transcript may fold its row into a run of other
+	 * lookups. Requires `planModeSafe`, which also admits writes (plan documents, artifacts)
+	 * and a test run; absence keeps the row on its own. */
+	lookup?: boolean
 	/** Shows an item without changing or running it, though not `planModeSafe`: working
 	 * folders never hold it, so the AI can show what it reads in any folder. */
 	viewOnly?: boolean
@@ -1878,6 +1882,7 @@ export const getHubIntegrationTool = {
 	def: getHubIntegrationToolDef,
 	// Reads one hub document over a GET and writes nothing, so planning may use it.
 	planModeSafe: true,
+	lookup: true,
 	fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 		const { integration } = getHubIntegrationSchema.parse(args)
 		toolCallbacks.setToolStatus(toolId, { content: `Reading the ${integration} integration...` })
@@ -1899,6 +1904,7 @@ export const createSearchHubScriptsTool = (withContent: boolean = false) => ({
 	requires: NONE,
 	def: searchHubScriptsToolDef,
 	planModeSafe: true,
+	lookup: true,
 	fn: async ({ args, toolId, toolCallbacks }) => {
 		const parsedArgs = searchHubScriptsSchema.parse(args)
 		// The hub's own query param is `app`; the tool exposes it as `integration`,
@@ -3046,6 +3052,7 @@ export const workspaceRunnablesSearch = new WorkspaceRunnablesSearch()
 export const createSearchWorkspaceTool = () => ({
 	def: searchWorkspaceToolDef,
 	planModeSafe: true,
+	lookup: true,
 	fn: async ({
 		args,
 		workspace,
@@ -3097,6 +3104,7 @@ const getRunnableDetailsToolDef = createToolDef(
 export const createGetRunnableDetailsTool = () => ({
 	def: getRunnableDetailsToolDef,
 	planModeSafe: true,
+	lookup: true,
 	fn: async ({
 		args,
 		workspace,
