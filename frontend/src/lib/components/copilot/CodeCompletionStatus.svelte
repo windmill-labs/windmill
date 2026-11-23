@@ -21,7 +21,7 @@
 		}}
 		options={{ right: 'AI code completion' }}
 	/>
-{:else}
+{:else if aiInfo}
 	<Toggle
 		disabled
 		size="xs"
