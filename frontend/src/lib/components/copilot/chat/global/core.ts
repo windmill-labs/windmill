@@ -428,7 +428,7 @@ const requestSecretSchema = z.object({
 		.string()
 		.optional()
 		.describe(
-			"Two or three short steps to get the value at the user's provider, shown on the card. Include what Windmill needs that the provider's default does not give, e.g. for Supabase: the Session pooler connection string, since the direct host is IPv6-only."
+			"Markdown, shown on the card: a numbered list of two or three short steps to get the value at the user's provider. Include what Windmill needs that the provider's default does not give, e.g. for Supabase: the Session pooler connection string, since the direct host is IPv6-only."
 		),
 	resource_type: z
 		.string()

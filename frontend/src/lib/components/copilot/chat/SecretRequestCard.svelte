@@ -6,6 +6,10 @@
 	import Path from '$lib/components/Path.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import { safeHref } from '$lib/utils/safeHref'
+	import Markdown from 'svelte-exmarkdown'
+	import { gfmPlugin } from 'svelte-exmarkdown/gfm'
+	import { markdownProse } from '$lib/components/markdownProse'
+	import LinkRenderer from './LinkRenderer.svelte'
 	import {
 		SecretCheckFailed,
 		connectionStringParts,
@@ -30,6 +34,8 @@
 
 	// The model writes this URL, so a prompt injection could make it `javascript:`.
 	const helpHref = $derived(safeHref(request.helpUrl, window.location.href))
+	// LinkRenderer applies the same check to the links the model puts in its steps.
+	const helpPlugins = [gfmPlugin(), { renderer: { a: LinkRenderer } }]
 	const resource = $derived(request.resource)
 	const secretFields = $derived(secretFieldsOf(request))
 
@@ -206,7 +212,9 @@
 						{/if}
 					</p>
 					{#if request.helpText}
-						<p class="mt-1 whitespace-pre-line text-2xs text-primary">{request.helpText}</p>
+						<div class="mt-1 {markdownProse.xs}">
+							<Markdown md={request.helpText} plugins={helpPlugins} />
+						</div>
 					{/if}
 				</div>
 				{#if helpHref}
