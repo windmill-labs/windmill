@@ -70,7 +70,7 @@
 			size="xs"
 		/>
 		{#if limited}
-			<ScopeSelector bind:selectedScopes={standardScopes}>
+			<ScopeSelector bind:selectedScopes={standardScopes} workspaceId={workspaceId || undefined}>
 				{#snippet topSlot()}
 					<Toggle
 						bind:checked={readOnly}

@@ -19,6 +19,9 @@
 		topSlot?: Snippet
 		/** What an empty selection means, shown when no scope is selected. */
 		emptyLabel?: string
+		/** Workspace whose folders and items the path pickers list: the token's own, which an
+		 *  edited token may hold apart from the workspace on screen. Defaults to the latter. */
+		workspaceId?: string
 	}
 
 	interface ScopeState {
@@ -41,7 +44,8 @@
 		disabled = false,
 		class: className = '',
 		topSlot,
-		emptyLabel = 'No scopes selected. Token will have full access.'
+		emptyLabel = 'No scopes selected. Token will have full access.',
+		workspaceId
 	}: Props = $props()
 
 	let scopeDomains = $state<ScopeDomain[] | null>(null)
@@ -154,7 +158,7 @@
 		if (!writeScope) {
 			return domain.scopes.map((scope) => scope.value)
 		}
-		const runScopes = domain.scopes.filter((scope) => scope.value.includes(':run:'))
+		const runScopes = domain.scopes.filter((scope) => /:run(:|$)/.test(scope.value))
 		return [writeScope.value, ...runScopes.map((scope) => scope.value)]
 	}
 
@@ -616,6 +620,7 @@
 												}
 												kinds={pathPickerKinds(scope.value)}
 												validate={validateResourcePath}
+												{workspaceId}
 												{disabled}
 											/>
 										{:else}

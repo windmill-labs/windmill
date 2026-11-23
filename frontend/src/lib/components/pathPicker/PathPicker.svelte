@@ -40,6 +40,9 @@ is offered as is, so a pattern needs no second input.
 		type DrillNode
 	} from '../drillPicker'
 	import { useOperatingWorkspace } from '../operatingWorkspace.svelte'
+	import { overlayStack } from '../common/overlayHost.svelte'
+	import { randomUUID } from '$lib/utils/uuid'
+	import { onDestroy } from 'svelte'
 
 	interface Props {
 		value: string[]
@@ -85,6 +88,14 @@ is offered as is, so a pattern needs no second input.
 	)
 
 	let open = $state(false)
+	// While open, the picker sits on the overlay stack, so an enclosing Modal or Drawer leaves
+	// Escape to it instead of closing itself (and discarding the form) under the list.
+	const overlays = overlayStack()
+	const overlayId = `path-picker-${randomUUID()}`
+	function leaveOverlayStack() {
+		overlays.val = overlays.val.filter((id) => id !== overlayId)
+	}
+	onDestroy(leaveOverlayStack)
 	let query = $state('')
 	let cwd = $state('')
 	let highlighted = $state(0)
@@ -189,12 +200,14 @@ is offered as is, so a pattern needs no second input.
 	function openPicker() {
 		if (disabled || open) return
 		open = true
+		overlays.val.push(overlayId)
 		loader.ensureAll()
 		highlighted = 0
 	}
 
 	function close() {
 		open = false
+		leaveOverlayStack()
 		query = ''
 		cwd = ''
 	}
