@@ -7425,6 +7425,7 @@ async fn push_inner<'c, 'd>(
                             branch_chosen: restarted_from_val.branch_chosen,
                             nested: restarted_from_val.nested,
                             failed_only: restarted_from_val.failed_only,
+                            from_iteration_start: restarted_from_val.from_iteration_start,
                         }),
                         user_states,
                         preprocessor_module: None,
@@ -7783,6 +7784,7 @@ async fn push_inner<'c, 'd>(
             branch_chosen,
             nested,
             failed_only,
+            from_iteration_start,
         } => {
             refuse_failed_only_on_outdated_workers(failed_only, nested.as_deref()).await?;
             let (
@@ -7832,6 +7834,7 @@ async fn push_inner<'c, 'd>(
                     branch_chosen,
                     nested,
                     failed_only,
+                    from_iteration_start,
                 }),
                 user_states,
                 preprocessor_module: None,

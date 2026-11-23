@@ -210,3 +210,42 @@ async fn test_restart_edited_body_starts_failed_iterations_over(
     }
     Ok(())
 }
+
+#[sqlx::test(fixtures("base", "hello"))]
+async fn test_restart_failed_only_from_iteration_start(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let first_run = run(&db, port, flow(false, "['x', 'y', 'z']"), "first", None).await;
+    let original = first_module(&db, first_run.id).await.flow_jobs().unwrap();
+
+    let restart = RestartedFrom {
+        flow_job_id: first_run.id,
+        step_id: "loop".into(),
+        failed_only: true,
+        from_iteration_start: true,
+        ..Default::default()
+    };
+    let restarted = run(
+        &db,
+        port,
+        flow(false, "['x', 'y', 'z']"),
+        "second",
+        Some(restart),
+    )
+    .await;
+    assert_eq!(
+        restarted.json_result().unwrap(),
+        json!(["first:x", "second:y", "second:z"])
+    );
+    let rerun = first_module(&db, restarted.id).await.flow_jobs().unwrap();
+    assert_eq!(rerun[0], original[0]);
+    for slot in 1..3 {
+        assert_ne!(
+            first_module(&db, rerun[slot]).await.job(),
+            first_module(&db, original[slot]).await.job()
+        );
+    }
+    Ok(())
+}

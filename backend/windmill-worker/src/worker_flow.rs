@@ -6139,6 +6139,7 @@ fn nested_restart_payload(
         branch_chosen: nested.branch_chosen,
         nested: nested.nested,
         failed_only: nested.failed_only,
+        from_iteration_start: nested.from_iteration_start,
     })
 }
 

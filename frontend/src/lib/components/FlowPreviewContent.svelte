@@ -426,12 +426,19 @@
 							restartBranchNames={restart.restartBranchNames}
 							presetIterationN={restart.topLevelLoopIteration}
 							iterationCounts={restart.iterationCounts}
-							onRestart={(stepId, branchOrIterationN, _flowVersion, failedOnly) => {
+							onRestart={(
+								stepId,
+								branchOrIterationN,
+								_flowVersion,
+								failedOnly,
+								fromIterationStart
+							) => {
 								runPreview(previewArgs.val, {
 									flow_job_id: jobId,
 									step_id: stepId,
 									branch_or_iteration_n: branchOrIterationN,
-									failed_only: failedOnly || undefined
+									failed_only: failedOnly || undefined,
+									from_iteration_start: fromIterationStart || undefined
 								})
 							}}
 						/>

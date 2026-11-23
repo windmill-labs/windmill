@@ -413,7 +413,12 @@ async function rerun(
 }
 
 async function restart(
-  opts: GlobalOptions & { step: string; iteration?: number; failedOnly?: boolean },
+  opts: GlobalOptions & {
+    step: string;
+    iteration?: number;
+    failedOnly?: boolean;
+    fromIterationStart?: boolean;
+  },
   id: string
 ) {
   log.setSilent(true);
@@ -428,6 +433,7 @@ async function restart(
       step_id: opts.step,
       branch_or_iteration_n: opts.iteration,
       failed_only: opts.failedOnly,
+      from_iteration_start: opts.fromIterationStart,
     },
   });
 
@@ -482,7 +488,8 @@ const command = listOptions(new Command()
   .arguments("<id:string>")
   .option("--step <stepId:string>", "Top-level step id to restart the flow from", { required: true })
   .option("--iteration <n:number>", "For a top-level branchall or for-loop step, the iteration to restart at")
-  .option("--failed-only", "For a parallel for-loop or branchall step, rerun only the iterations (branches) that failed, keeping the others' results")
+  .option("--failed-only", "For a parallel for-loop or branchall step, rerun only the iterations (branches) that failed, keeping the others' results. Each resumes at the step where it failed")
+  .option("--from-iteration-start", "With --failed-only, rerun each failed iteration (branch) from its first step instead of the step where it failed")
   .action(restart as any);
 
 export default command;

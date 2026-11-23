@@ -17409,6 +17409,9 @@ paths:
                 failed_only:
                   type: boolean
                   description: for a parallel for-loop or branch-all at the restart point (`step_id`, or the last `nested_path` entry), keep the iterations (branches) that succeeded and rerun only the others, each in its original position. Cannot be combined with an iteration to restart at on that same step.
+                from_iteration_start:
+                  type: boolean
+                  description: with `failed_only`, rerun each failed iteration (branch) from its first step rather than from the step where it failed.
                 nested_path:
                   type: array
                   description: path of additional steps to descend into AFTER `step_id`. Each entry represents one level of nesting inside the spawned child of the previous level's container (BranchOne / sequential ForLoop iteration / Subflow). When non-empty, the actual restart point is the LAST entry's step_id.
@@ -39087,6 +39090,9 @@ components:
         failed_only:
           type: boolean
           description: For a parallel for-loop or branch-all at `step_id`, keep the iterations (branches) that succeeded and rerun only the others.
+        from_iteration_start:
+          type: boolean
+          description: With `failed_only`, rerun each failed iteration (branch) from its first step rather than from the step where it failed.
 
     Policy:
       type: object

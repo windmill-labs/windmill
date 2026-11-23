@@ -88,7 +88,7 @@ impl FailedOnlySlots {
         let Some(original_run) = status
             .restarted_from
             .as_ref()
-            .filter(|r| r.step_id == step_id)
+            .filter(|r| r.step_id == step_id && !r.from_iteration_start)
             .map(|r| r.flow_job_id)
         else {
             return Ok(());
@@ -173,6 +173,7 @@ impl FailedOnlySlots {
                     branch_chosen: None,
                     nested: None,
                     failed_only: false,
+                    from_iteration_start: false,
                 }
             }
             JobPayload::RawFlow { value, path, restarted_from: None }

@@ -28,6 +28,7 @@ async fn push_restart(
             branch_chosen: None,
             nested: None,
             failed_only: false,
+            from_iteration_start: false,
         },
         windmill_queue::PushArgs::from(&args),
         "test-user",
