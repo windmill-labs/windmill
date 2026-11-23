@@ -1,7 +1,6 @@
 <script lang="ts">
 	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
-	import { Badge } from './common'
-	import { AlertTriangle, ArrowDown, ArrowUp, Pencil } from 'lucide-svelte'
+	import { AlertTriangle, ArrowDown, ArrowUp, Loader2, Pencil } from 'lucide-svelte'
 	import {
 		roleCapabilities,
 		workspaceStore,
@@ -73,9 +72,6 @@
 		return !!c && !c.skipped_comparison && c.summary.total_diffs === 0
 	}
 	let upToDate = $derived(hasAnswer && isUpToDate(comparison))
-	// Up to date with the parent but local drafts are pending — show the draft
-	// state (same text + CTA as the draft banner) instead of "Everything is up to date".
-	let showDraftsOnly = $derived(upToDate && draftCount > 0)
 
 	// Leaving for a workspace with no comparison of its own has to invalidate whatever
 	// is in flight too, or that response lands as this one's answer.
@@ -148,8 +144,7 @@
 		}
 	}
 
-	/** The compare page opened on one direction, for a badge that counts exactly that. The button
-	 *  beside them still chooses on the reader's behalf; a badge means the one thing it names. */
+	/** The compare page opened on one direction. */
 	function compareDirHref(dir: 'deploy_to' | 'update'): string | undefined {
 		if (!parentWorkspaceId || !$workspaceStore) return undefined
 		return (
@@ -158,9 +153,6 @@
 			(dir === 'update' ? '&dir=update' : '')
 		)
 	}
-	const deployToHref = $derived(compareDirHref('deploy_to'))
-	const updateHref = $derived(compareDirHref('update'))
-
 	const draftCompareHref = $derived(
 		$workspaceStore
 			? '/forks/compare?workspace_id=' + encodeURIComponent($workspaceStore) + '&mode=draft'
@@ -182,48 +174,39 @@
 		compareDirHref(hasAnswer && changesAhead === 0 ? 'update' : 'deploy_to')
 	)
 
-	// Folded into Home's ⋮ menu, the badges and the button are one row that says what they counted.
-	const menuId = homeHeaderMenu.register(0, () => {
-		if (!showBanner || !homeActionsGathered()) return []
-		if (showDraftsOnly) {
-			return [
-				{
-					displayName: `Review & deploy ${draftCount} draft${draftCount !== 1 ? 's' : ''}`,
-					href: draftCompareHref
-				}
-			]
-		}
-		const counts = [
-			changesAhead > 0 ? `${changesAhead} ahead` : '',
-			changesBehind > 0 ? `${changesBehind} behind` : '',
-			(comparison?.summary.conflicts ?? 0) > 0
-				? `${comparison?.summary.conflicts} conflict${comparison?.summary.conflicts !== 1 ? 's' : ''}`
-				: '',
+	function countConflicts(c: WorkspaceComparison | undefined): number {
+		return c?.summary.conflicts ?? 0
+	}
+	const conflicts = $derived(hasAnswer ? countConflicts(comparison) : 0)
+	// Every count opens the same compare page, on its own tab. Drafts get their tab only when they
+	// are the only change: the other tabs show the drafts count in their toggle and flag the rows
+	// that carry one.
+	const changesHref = $derived(
+		hasAnswer && changesAhead === 0 && changesBehind === 0 && draftCount > 0
+			? draftCompareHref
+			: comparisonHref
+	)
+	const countParts = $derived(
+		[
+			hasAnswer && changesAhead > 0 ? `${changesAhead} ahead of ${parentWorkspaceId}` : '',
+			hasAnswer && changesBehind > 0 ? `${changesBehind} behind` : '',
+			conflicts > 0 ? `${conflicts} conflict${conflicts !== 1 ? 's' : ''}` : '',
 			draftCount > 0 ? `${draftCount} draft${draftCount !== 1 ? 's' : ''}` : ''
 		].filter(Boolean)
+	)
+
+	// Folded into Home's ⋮ menu, the button is one row that says what it counted.
+	const menuId = homeHeaderMenu.register(0, () => {
+		if (!showBanner || !homeActionsGathered()) return []
 		return [
 			{
-				displayName:
-					!hasAnswer || changesAhead > 0 ? 'Review changes' : `Review & Update ${currentNoun}`,
-				description: hasAnswer && counts.length > 0 ? counts.join(' · ') : undefined,
-				href: comparisonHref
+				displayName: 'Review changes',
+				description: countParts.length > 0 ? countParts.join(' · ') : undefined,
+				href: changesHref
 			}
 		]
 	})
 	onDestroy(() => homeHeaderMenu.release(menuId))
-
-	function forkAheadBehindMessage(changesAhead: number, changesBehind: number) {
-		let msg: string[] = []
-		if (changesAhead > 0 || changesBehind > 0) {
-			msg.push(`This ${currentNoun} is `)
-			if (changesAhead > 0)
-				msg.push(`${changesAhead} change${changesAhead > 1 ? 's' : ''} ahead of `)
-			if (changesAhead > 0 && changesBehind > 0) msg.push('and ')
-			if (changesBehind > 0)
-				msg.push(`${changesBehind} change${changesBehind > 1 ? 's' : ''} behind `)
-		}
-		return msg.join('')
-	}
 </script>
 
 {#if showBanner && !homeActionsGathered()}
@@ -234,121 +217,56 @@
 {/if}
 
 {#snippet forkAction()}
-	{@const total = comparison?.summary.total_diffs ?? 0}
-	{@const conflicts = comparison?.summary.conflicts ?? 0}
-	{@const status = loading
-		? 'loading'
-		: error
-			? 'error'
-			: showDraftsOnly
-				? 'drafts'
-				: total > 0
-					? 'drift'
-					: undefined}
-	<!-- What the comparison has to say is a mark beside the button, never instead of it: a fork
-	     still being counted, or one whose count failed, is exactly when a reader wants the page
-	     that does the counting properly. The button below renders in every state. -->
-	<!-- Keyed on what it says, so each answer the comparison lands with fades in rather than
-	     popping into a bar that is already showing. -->
-	{#key status}
-		<span class="flex items-center gap-2 wm-page-in" class:hidden={!status}>
+	<!-- One button for every count, since they all open the compare page; a count of its own
+	     beside it would read as a second way in. The colours stay on the icons, the ones the
+	     compare page gives these kinds. A conflict is ahead and behind at once, so it has no arrow
+	     of its own; drafts are work not deployed anywhere yet, told apart by the pencil. -->
+	<Button
+		variant="default"
+		unifiedSize="sm"
+		href={changesHref}
+		btnClasses="tabular-nums"
+		title={error
+			? error
+			: countParts.length > 0
+				? `${countParts.join(', ')}: review changes`
+				: `Review this ${currentNoun} against ${parentWorkspaceId}`}
+	>
+		<span class="flex items-center gap-2.5 wm-page-in">
 			{#if loading}
-				<span class="text-2xs text-tertiary">Checking for changes…</span>
+				<Loader2 class="w-3 h-3 animate-spin text-hint" />
 			{:else if error}
-				<span class="text-2xs text-red-600 dark:text-red-400" title={error}>Comparison failed</span>
-			{:else if showDraftsOnly}
-				<Badge color="blue" small>
-					{draftCount} draft{draftCount !== 1 ? 's' : ''}
-				</Badge>
-			{:else if total > 0}
-				<!-- Which way the drift goes is the thing to know at a glance: ahead is what this fork has
-				     to give its parent, behind is what it has yet to take. -->
-				<!-- The colours and the icons the compare page gives these three, so the counts in the bar
-				     and the rows behind the button say the same thing the same way. -->
-				{#if changesAhead > 0}
-					<Badge
-						color="green"
-						small
-						clickable
-						href={deployToHref}
-						title="{changesAhead} ahead of {parentWorkspaceId} — review what this {currentNoun} has to give"
-					>
-						<ArrowUp class="w-3 h-3 inline" />
-						{changesAhead}{compactCounts ? '' : ' ahead'}
-					</Badge>
-				{/if}
-				{#if changesBehind > 0}
-					<Badge
-						color="blue"
-						small
-						clickable
-						href={updateHref}
-						title="{changesBehind} behind {parentWorkspaceId} — review what this {currentNoun} has yet to take"
-					>
-						<ArrowDown class="w-3 h-3 inline" />
-						{changesBehind}{compactCounts ? '' : ' behind'}
-					</Badge>
-				{/if}
-				{#if conflicts > 0}
-					<!-- A conflict is ahead and behind at once, so it has no direction of its own; it opens
-					     the side the reader resolves it from before deploying. -->
-					<Badge
-						color="orange"
-						small
-						clickable
-						href={deployToHref}
-						title="{conflicts} conflicting item{conflicts !== 1 ? 's' : ''} — review them"
-					>
-						<AlertTriangle class="w-3 h-3 inline" />
-						{conflicts}{compactCounts ? '' : ` conflict${conflicts !== 1 ? 's' : ''}`}
-					</Badge>
-				{/if}
-				<!-- Drafts are a different axis from the drift beside them: ahead and behind count deployed
-				     items against the parent, this counts work in this fork that is not deployed anywhere
-				     yet. It shares blue with "behind" and is told apart by the pencil and by naming what it
-				     counts, rather than by an arrow that would read as a third direction. Clicking goes to
-				     the drafts half of the compare page rather than the drawer the button opens. It shows at
-				     every drift — a fork both behind and holding drafts said nothing about the drafts. -->
-				{#if draftCount > 0}
-					<Badge
-						color="blue"
-						small
-						clickable
-						href={draftCompareHref}
-						title="{draftCount} draft{draftCount !== 1
-							? 's'
-							: ''} in this {currentNoun}, not deployed anywhere yet — review and deploy"
-					>
-						<Pencil class="w-3 h-3 inline" />
-						{draftCount}{compactCounts ? '' : ` draft${draftCount !== 1 ? 's' : ''}`}
-					</Badge>
-				{/if}
+				<AlertTriangle class="w-3 h-3 text-red-600 dark:text-red-400" />
+			{/if}
+			{#if hasAnswer && changesAhead > 0}
+				<span class="flex items-center gap-1">
+					<ArrowUp class="w-3 h-3 text-green-600 dark:text-green-400" />
+					{changesAhead}{compactCounts ? '' : ' ahead'}
+				</span>
+			{/if}
+			{#if hasAnswer && changesBehind > 0}
+				<span class="flex items-center gap-1">
+					<ArrowDown class="w-3 h-3 text-blue-600 dark:text-blue-400" />
+					{changesBehind}{compactCounts ? '' : ' behind'}
+				</span>
+			{/if}
+			{#if conflicts > 0}
+				<span class="flex items-center gap-1">
+					<AlertTriangle class="w-3 h-3 text-orange-600 dark:text-orange-400" />
+					{conflicts}{compactCounts ? '' : ` conflict${conflicts !== 1 ? 's' : ''}`}
+				</span>
+			{/if}
+			{#if draftCount > 0}
+				<span class="flex items-center gap-1">
+					<Pencil class="w-3 h-3 text-accent" />
+					{draftCount}{compactCounts ? '' : ` draft${draftCount !== 1 ? 's' : ''}`}
+				</span>
+			{/if}
+			{#if !hasAnswer && draftCount === 0}
+				Compare
+			{:else if upToDate && draftCount === 0}
+				Up to date
 			{/if}
 		</span>
-	{/key}
-	{#if showDraftsOnly}
-		<Button
-			variant="subtle"
-			unifiedSize="sm"
-			href={draftCompareHref}
-			title={`Review and deploy this workspace's drafts`}
-		>
-			Review & deploy drafts
-		</Button>
-	{:else}
-		<Button
-			variant="subtle"
-			unifiedSize="sm"
-			href={comparisonHref}
-			title={hasAnswer
-				? `${forkAheadBehindMessage(changesAhead, changesBehind)} ${parentWorkspaceId} over ${total} items`
-				: `Review this ${currentNoun} against ${parentWorkspaceId}`}
-		>
-			{#if !hasAnswer || changesAhead > 0}
-				Review changes
-			{:else}
-				Review & Update {currentNoun}
-			{/if}
-		</Button>
-	{/if}
+	</Button>
 {/snippet}

@@ -1,18 +1,22 @@
 <script lang="ts">
 	import { workspaceStore, userWorkspaces } from '$lib/stores'
 	import { workspaceIsFork } from '$lib/utils/workspaceHierarchy'
-	import { Badge, Button } from './common'
+	import { Button } from './common'
+	import { Pencil } from 'lucide-svelte'
 	import { useWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
 	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
 	import { pageHeader, PHONE_BAR } from '$lib/components/pageHeaderRegistry.svelte'
 	import { onDestroy } from 'svelte'
-	import { homeActionsGathered, homeHeaderMenu } from './home/homeHeaderMenu.svelte'
+	import {
+		homeActionsGathered,
+		homeCountLabels,
+		homeHeaderMenu
+	} from './home/homeHeaderMenu.svelte'
 
 	// Surfaces pending drafts (scripts/flows/apps) for the current workspace and
 	// links to the compare page in draft mode. Mutually exclusive with
 	// ForkWorkspaceBanner: that one self-gates on `isFork`, this one on `!isFork`,
-	// so a fork workspace never shows both. In a fork, drafts are discovered via
-	// the on-page "Deployed ↔ draft (N)" toggle badge instead.
+	// so a fork workspace never shows both. A fork counts its drafts in its changes button.
 	let isFork = $derived(workspaceIsFork($workspaceStore, $userWorkspaces))
 
 	// Count comes from the shared Workspace Drafts resource (count ≡ the draft
@@ -48,27 +52,19 @@
 {/if}
 
 {#snippet draftsAction()}
-	<!-- On a phone the badge becomes the button: the count is the part that has to be seen, and
-	     the bar has room for one thing. -->
-	{#if phone}
-		<Button
-			btnClasses="wm-page-in"
-			variant="subtle"
-			unifiedSize="sm"
-			href={draftCompareHref}
-			title="Review & deploy drafts"
-		>
-			<Badge color="blue" small>{draftCount}</Badge>
-		</Button>
-	{:else}
-		<!-- Fades in: the count lands after the bar it joins has already painted. -->
-		<span class="flex items-center gap-2 wm-page-in">
-			<Badge color="blue" small>
-				{draftCount} draft{draftCount !== 1 ? 's' : ''}
-			</Badge>
-			<Button variant="subtle" unifiedSize="sm" href={draftCompareHref}>
-				Review & deploy drafts
-			</Button>
+	<!-- The count is the button, shaped like a fork's changes button: a count beside a button that
+	     goes to the same place reads as two ways in. Fades in: the count lands after the bar it
+	     joins has already painted. -->
+	<Button
+		btnClasses="wm-page-in tabular-nums"
+		variant="default"
+		unifiedSize="sm"
+		href={draftCompareHref}
+		title="{draftCount} draft{draftCount !== 1 ? 's' : ''} not deployed yet: review and deploy"
+	>
+		<span class="flex items-center gap-1">
+			<Pencil class="w-3 h-3 text-accent" />
+			{draftCount}{phone || !homeCountLabels() ? '' : ` draft${draftCount !== 1 ? 's' : ''}`}
 		</span>
-	{/if}
+	</Button>
 {/snippet}
