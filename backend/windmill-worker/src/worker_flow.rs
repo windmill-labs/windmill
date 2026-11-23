@@ -6080,8 +6080,9 @@ struct IterationResume {
     job: Uuid,
     /// The flow node the original job ran, when it ran one.
     node: Option<i64>,
-    /// The original job's steps up to and including the one it resumes at.
+    /// The original job's steps, and the index of the one it resumes at.
     steps: Vec<String>,
+    at: usize,
 }
 
 impl FailedOnlySlots {
@@ -6174,19 +6175,23 @@ impl FailedOnlySlots {
                 continue;
             };
             // A restart needs every step before its restart point to have succeeded. Only a
-            // step that ran and failed is resumed at: one left waiting behind an approval that
-            // was never given, or cut off by a cancel, starts its iteration over.
-            let steps = row.flow_status.as_ref().and_then(|s| {
+            // step that ran and failed is resumed at: one held back by an approval that was
+            // rejected or timed out is recorded as failed with no job, and restarting past that
+            // approval is refused, so its iteration starts over and asks for it again.
+            let resume = row.flow_status.as_ref().and_then(|s| {
                 let modules = &s.0.modules;
-                let i = modules
+                let at = modules
                     .iter()
                     .position(|m| !matches!(m, FlowStatusModule::Success { .. }))?;
-                (i > 0 && matches!(modules[i], FlowStatusModule::Failure { .. }))
-                    .then(|| modules[..=i].iter().map(|m| m.id()).collect::<Vec<_>>())
+                let ran =
+                    matches!(modules[at], FlowStatusModule::Failure { job, .. } if !job.is_nil());
+                (at > 0 && ran).then(|| (modules.iter().map(|m| m.id()).collect(), at))
             });
-            if let Some(steps) = steps {
-                self.resumes
-                    .insert(slot, IterationResume { job, node: row.runnable_id, steps });
+            if let Some((steps, at)) = resume {
+                self.resumes.insert(
+                    slot,
+                    IterationResume { job, node: row.runnable_id, steps, at },
+                );
             }
         }
         Ok(())
@@ -6195,13 +6200,13 @@ impl FailedOnlySlots {
     /// The payload for `slot`: its fresh iteration, or a restart of its original job from the
     /// failed step when the iteration's definition can still run it. A deployed iteration runs
     /// a content-addressed flow node, so an unchanged node means an unchanged definition. An
-    /// inline one is resumed only if its steps up to the failed one are unchanged in order,
-    /// since a restart reuses the earlier steps' results by position.
+    /// inline one is resumed only if its steps are the same, in the same order: a restart reuses
+    /// the earlier steps' results by position and runs only the steps the original run had.
     fn resume_payload(&self, slot: usize, payload: JobPayload) -> JobPayload {
         let Some(resume) = self.resumes.get(&slot) else {
             return payload;
         };
-        let Some(step_id) = resume.steps.last().cloned() else {
+        let Some(step_id) = resume.steps.get(resume.at).cloned() else {
             return payload;
         };
         match payload {
@@ -6217,12 +6222,7 @@ impl FailedOnlySlots {
                 }
             }
             JobPayload::RawFlow { value, path, restarted_from: None }
-                if value.modules.len() >= resume.steps.len()
-                    && value
-                        .modules
-                        .iter()
-                        .zip(&resume.steps)
-                        .all(|(m, id)| &m.id == id) =>
+                if value.modules.iter().map(|m| &m.id).eq(resume.steps.iter()) =>
             {
                 JobPayload::RawFlow {
                     value,

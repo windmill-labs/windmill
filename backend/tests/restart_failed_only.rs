@@ -167,8 +167,8 @@ async fn test_restart_nested_parallel_loop_failed_only(db: Pool<Postgres>) -> an
     Ok(())
 }
 
-/// A restart reuses the steps before its restart point by position, so an inline loop body
-/// edited before its failed step starts each failed iteration over.
+/// A restart reuses earlier steps by position and runs only the steps the original run had, so
+/// an inline loop body whose steps changed starts each failed iteration over.
 #[sqlx::test(fixtures("base", "hello"))]
 async fn test_restart_edited_body_starts_failed_iterations_over(
     db: Pool<Postgres>,
@@ -180,14 +180,14 @@ async fn test_restart_edited_body_starts_failed_iterations_over(
     let first_run = run(&db, port, flow(false, "['x', 'y', 'z']"), "first", None).await;
     let original = first_module(&db, first_run.id).await.flow_jobs().unwrap();
 
-    // A step inserted between `prep` and the failed `inner`.
+    // A step appended after the failed `inner`, returning what `inner` does.
     let mut edited = serde_json::to_value(flow(false, "['x', 'y', 'z']"))?;
     let body = edited["modules"][0]["value"]["modules"]
         .as_array_mut()
         .unwrap();
-    let mut extra = body[0].clone();
+    let mut extra = body[1].clone();
     extra["id"] = json!("extra");
-    body.insert(1, extra);
+    body.push(extra);
     let edited: FlowValue = serde_json::from_value(edited)?;
 
     let restart = RestartedFrom {
