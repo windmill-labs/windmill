@@ -1,6 +1,6 @@
 <script lang="ts">
 	import Tooltip from '$lib/components/meltComponents/Tooltip.svelte'
-	import { ChevronRight } from 'lucide-svelte'
+	import { ChevronRight, ExternalLink } from 'lucide-svelte'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import type { FlowNodeColorClasses } from '$lib/components/graph'
 	import { twMerge } from 'tailwind-merge'
@@ -17,6 +17,7 @@
 	interface Props {
 		label?: string
 		path?: string
+		pathHref?: string
 		id?: string
 		bold?: boolean
 		editId?: boolean
@@ -29,6 +30,7 @@
 	let {
 		label = '',
 		path = '',
+		pathHref = undefined,
 		id = '',
 		bold = false,
 		editId = $bindable(false),
@@ -60,8 +62,18 @@
 			{label}
 		</div>
 		{#snippet text()}
-			<div>{label}</div>
-			{#if path != '' && path != label}<div class="text-secondary">{path}</div>{/if}
+			{#if path == '' || path != label}<div>{label}</div>{/if}
+			{#if pathHref}
+				<a
+					href={pathHref}
+					target="_blank"
+					rel="noreferrer"
+					class="inline-flex items-center gap-1 text-accent hover:underline"
+					>{path}<ExternalLink size={12} class="shrink-0" /></a
+				>
+			{:else if path != '' && path != label}
+				<div class="text-secondary">{path}</div>
+			{/if}
 			{#if showExploreHint}
 				<div class="mt-1 text-hint">double click, or click again, to explore</div>
 			{/if}
