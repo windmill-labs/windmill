@@ -1,6 +1,7 @@
 import { AIAutonomyMode } from './AIChatManager.svelte'
 import { AIWorkMode } from './workMode'
 import type { ChatViewHost } from './chatViewHost'
+import { chatLookupTools } from './lookupTools'
 import type { DisplayMessage } from './shared'
 import { AttachedFilesStore } from './files/attachedFiles.svelte'
 import { SessionArtifactsStore } from './artifacts/artifactsState.svelte'
@@ -79,6 +80,7 @@ export function readOnlyChatViewHost(options: {
 		attachmentAccept: '',
 		attachmentsAsBlobs: false,
 		tools: [],
+		lookupTools: chatLookupTools(),
 		autonomyMode: AIAutonomyMode.DEFAULT,
 		setAutonomyMode: noop,
 		workModesAvailable: false,

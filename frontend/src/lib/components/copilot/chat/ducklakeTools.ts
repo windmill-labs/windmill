@@ -61,6 +61,7 @@ export function getDucklakeTools(): SessionTool<{}>[] {
 			requires: NONE,
 			def: listDataMetricsToolDef,
 			planModeSafe: true,
+			lookup: true,
 			showDetails: true,
 			fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 				listDataMetricsSchema.parse(args)
@@ -77,6 +78,7 @@ export function getDucklakeTools(): SessionTool<{}>[] {
 			requires: NONE,
 			def: listDucklakesToolDef,
 			planModeSafe: true,
+			lookup: true,
 			fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 				toolCallbacks.setToolStatus(toolId, { content: 'Listing DuckLake catalogs...' })
 				const { text } = await runOnServer('list_ducklakes', workspace, args)

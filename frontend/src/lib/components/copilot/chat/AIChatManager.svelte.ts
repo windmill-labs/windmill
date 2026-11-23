@@ -203,6 +203,8 @@ import {
 	assembleGlobalTools,
 	type GlobalAssemblyOpts
 } from './global/globalAssembly'
+import type { LookupTools } from './toolGroups'
+import { chatLookupTools } from './lookupTools'
 import { formatChatJobCompletion } from './datatableTools'
 import { loadMcpServers, type McpServer } from './global/mcpTools'
 import type { PipelineAIChatHelpers } from './pipeline/core'
@@ -927,6 +929,10 @@ export class AIChatManager implements ChatViewHost {
 			...(this.workModesAvailable && !this.#useOnly ? Object.values(this.#workModeSwitches) : [])
 		])
 	)
+	// A getter: the manager is built while the tool modules that lookupTools.ts imports still load.
+	get lookupTools(): LookupTools {
+		return chatLookupTools()
+	}
 	/** Whether a tool the call was made with is no longer shipped: a switch to Use withdraws
 	 * every write while its card waits. The mode transitions are not assembled, so never are. */
 	isToolWithdrawn = (toolName: string): boolean => {

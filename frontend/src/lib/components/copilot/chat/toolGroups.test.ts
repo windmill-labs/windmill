@@ -8,6 +8,25 @@ import {
 	type ToolGroup
 } from './toolGroups'
 
+// What the chat's tool definitions mark `lookup`, for the calls these cases make.
+const LOOKUPS = new Set([
+	'read_workspace_item',
+	'list_workspace_items',
+	'search_workspace',
+	'search_docs',
+	'list_runs',
+	'list_workers',
+	'read_flow_module_code',
+	'inspect_inline_script',
+	'get_lint_errors',
+	'read_app_file',
+	'search_app',
+	'search_mcp_tools',
+	'call_mcp_read_tool',
+	'get_db_schema',
+	'search_hub_scripts'
+])
+
 let nextId = 0
 function tool(
 	toolName: string,
@@ -28,13 +47,13 @@ function assistant(content: string, extra = {}): DisplayMessage {
 }
 
 function shape(messages: DisplayMessage[]) {
-	return groupToolRuns(messages).map((item) =>
+	return groupToolRuns(messages, LOOKUPS).map((item) =>
 		item.kind === 'group' ? { [item.groupKind]: item.entries.map((e) => e.index) } : item.index
 	)
 }
 
 function header(messages: DisplayMessage[], state: GroupState = 'settled') {
-	const group = groupToolRuns(messages).find((item) => item.kind === 'group') as ToolGroup
+	const group = groupToolRuns(messages, LOOKUPS).find((item) => item.kind === 'group') as ToolGroup
 	const { prefix, label } = groupHeader(group, state)
 	return prefix ? `${prefix} ${label}` : label
 }
@@ -303,14 +322,17 @@ describe('groupToolRuns', () => {
 	})
 
 	it('names the first three kinds of call and leaves the rest to `more`', () => {
-		const group = groupToolRuns([
-			tool('search_workspace'),
-			tool('list_runs'),
-			tool('read_workspace_item'),
-			tool('search_docs'),
-			tool('search_workspace'),
-			tool('list_workers')
-		]).find((item) => item.kind === 'group') as ToolGroup
+		const group = groupToolRuns(
+			[
+				tool('search_workspace'),
+				tool('list_runs'),
+				tool('read_workspace_item'),
+				tool('search_docs'),
+				tool('search_workspace'),
+				tool('list_workers')
+			],
+			LOOKUPS
+		).find((item) => item.kind === 'group') as ToolGroup
 		expect(groupHeader(group, 'settled')).toEqual({
 			prefix: '',
 			label: 'Search workspace 2 times, list runs, read workspace item',
@@ -328,8 +350,8 @@ describe('createChatItemGrouper', () => {
 			tool('list_runs'),
 			assistant('more')
 		]
-		const first = group([...history, assistant('a', { streaming: true })])
-		const second = group([...history, assistant('ab', { streaming: true })])
+		const first = group([...history, assistant('a', { streaming: true })], LOOKUPS)
+		const second = group([...history, assistant('ab', { streaming: true })], LOOKUPS)
 		expect(second).toHaveLength(first.length)
 		second.slice(0, -1).forEach((item, i) => expect(item).toBe(first[i]))
 		expect(second.at(-1)).toMatchObject({ kind: 'message', index: 4, message: { content: 'ab' } })
@@ -343,9 +365,9 @@ describe('createChatItemGrouper', () => {
 	it('keeps every row but the one a tool status change replaced', () => {
 		const group = createChatItemGrouper()
 		const history = [assistant('done'), tool('run_script'), assistant('more')]
-		const first = group(history)
+		const first = group(history, LOOKUPS)
 		const updated = [history[0], { ...history[1], isLoading: false }, history[2]]
-		const second = group(updated)
+		const second = group(updated, LOOKUPS)
 		expect(second[0]).toBe(first[0])
 		expect(second[1]).not.toBe(first[1])
 		expect(second[1]).toMatchObject({ message: updated[1] })
