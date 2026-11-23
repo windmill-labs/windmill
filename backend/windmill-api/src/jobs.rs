@@ -7736,10 +7736,10 @@ pub struct RestartFlowRequestBody {
     /// (branches) that did not succeed, keeping the others' results in their slots.
     #[serde(default)]
     failed_only: bool,
-    /// With `failed_only`: rerun each failed iteration (branch) from its first step rather
-    /// than from the step where it failed.
+    /// With `failed_only`: resume each failed iteration (branch) at the step where it failed
+    /// rather than rerunning it from its first step.
     #[serde(default)]
-    from_iteration_start: bool,
+    from_failed_step: bool,
 }
 
 #[cfg(feature = "enterprise")]
@@ -7945,7 +7945,7 @@ async fn resolve_nested_restart(
         branch_chosen: child_branch_chosen,
         nested: deeper_nested,
         failed_only: false,
-        from_iteration_start: false,
+        from_failed_step: false,
     };
 
     Ok((parent_branch_chosen, Some(Box::new(nested_chain))))
@@ -7964,7 +7964,7 @@ pub async fn restart_flow(
         flow_version,
         nested_path,
         failed_only,
-        from_iteration_start,
+        from_failed_step,
     }): Json<RestartFlowRequestBody>,
 ) -> error::Result<(StatusCode, String)> {
     check_license_key_valid().await?;
@@ -7972,9 +7972,9 @@ pub async fn restart_flow(
     let restart_point_n = nested_path
         .last()
         .map_or(branch_or_iteration_n, |s| s.branch_or_iteration_n);
-    if from_iteration_start && !failed_only {
+    if from_failed_step && !failed_only {
         return Err(Error::BadRequest(
-            "from_iteration_start only applies with failed_only".to_string(),
+            "from_failed_step only applies with failed_only".to_string(),
         ));
     }
     if failed_only && restart_point_n.unwrap_or(0) != 0 {
@@ -8036,7 +8036,7 @@ pub async fn restart_flow(
     while let Some(level) = innermost {
         if level.nested.is_none() {
             level.failed_only = failed_only;
-            level.from_iteration_start = from_iteration_start;
+            level.from_failed_step = from_failed_step;
             break;
         }
         innermost = level.nested.as_deref_mut();
@@ -8057,7 +8057,7 @@ pub async fn restart_flow(
             branch_chosen: top_branch_chosen,
             nested: nested_chain,
             failed_only: failed_only && !nested,
-            from_iteration_start: from_iteration_start && !nested,
+            from_failed_step: from_failed_step && !nested,
         },
         push_args,
         &authed.username,

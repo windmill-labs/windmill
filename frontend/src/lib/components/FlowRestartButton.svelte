@@ -72,7 +72,7 @@
 			branchOrIterationN: number,
 			flowVersion?: number,
 			failedOnly?: boolean,
-			fromIterationStart?: boolean
+			fromFailedStep?: boolean
 		) => void
 		/** Called when flow restart completes with the new job ID. Used for navigation in non-SvelteKit contexts */
 		onRestartComplete?: (newJobId: string) => void
@@ -119,7 +119,7 @@
 
 	let branchOrIterationN = $state(0)
 	let rerun: 'failed' | 'all' = $state('failed')
-	let fromFailedStep = $state(true)
+	let fromFailedStep = $state(false)
 
 	// Iteration inputs for nested-step restart inside one or more ForLoop ancestors.
 	// Each editable position keeps a local copy that the popup can mutate; on
@@ -159,7 +159,7 @@
 		}
 		iterationEdits = next
 		rerun = parallelFailedCount === 0 ? 'all' : 'failed'
-		fromFailedStep = true
+		fromFailedStep = false
 		// The button outlives the selection, so a previous step's iteration must not carry over.
 		branchOrIterationN =
 			selectedJobStepType === 'forloop' && presetIterationN !== undefined ? presetIterationN : 0
@@ -211,14 +211,14 @@
 						branch_or_iteration_n: iterationEdits[`inner-${i}`] ?? entry.branch_or_iteration_n
 					})),
 					failed_only: failedOnly || undefined,
-					from_iteration_start: (failedOnly && !fromFailedStep) || undefined
+					from_failed_step: (failedOnly && fromFailedStep) || undefined
 				}
 			: {
 					step_id: stepId,
 					branch_or_iteration_n: branchOrIterationN,
 					flow_version: flowVersion,
 					failed_only: failedOnly || undefined,
-					from_iteration_start: (failedOnly && !fromFailedStep) || undefined
+					from_failed_step: (failedOnly && fromFailedStep) || undefined
 				}
 		let run = await JobService.restartFlowAtStep({
 			workspace: $operatingWorkspace!,
@@ -266,7 +266,7 @@
 				branchOrIterationN,
 				getFlowVersionForRestart(),
 				failedOnly,
-				failedOnly && !fromFailedStep
+				failedOnly && fromFailedStep
 			)
 		} else {
 			const flowVersion = getFlowVersionForRestart()
@@ -385,7 +385,7 @@
 								<ToggleButton
 									value="failed"
 									label="Failed only{failedCount ? ` (${failedCount})` : ''}"
-									tooltip="Keep the results that succeeded and rerun the failed ones, each in its original position"
+									tooltip="Keep the results that succeeded and rerun the failed ones from their first step, each in its original position"
 									showTooltipIcon
 									disabled={failedCount === 0}
 									{item}
@@ -401,7 +401,7 @@
 								options={{
 									right: 'From the failed step',
 									rightTooltip:
-										'Resume each failed one at the step where it failed, keeping the steps before it. Off, it reruns from its first step.'
+										'Resume each failed one at the step where it failed, keeping the results of the steps before it'
 								}}
 							/>
 						{/if}

@@ -120,6 +120,7 @@ async fn test_restart_parallel_loop_failed_only(db: Pool<Postgres>) -> anyhow::R
         flow_job_id: first_run.id,
         step_id: "loop".into(),
         failed_only: true,
+        from_failed_step: true,
         ..Default::default()
     };
     // The reruns use the restarted run's items, not the edited iterator's.
@@ -149,6 +150,7 @@ async fn test_restart_nested_parallel_loop_failed_only(db: Pool<Postgres>) -> an
             flow_job_id: first_branch,
             step_id: "loop".into(),
             failed_only: true,
+            from_failed_step: true,
             ..Default::default()
         })),
         ..Default::default()
@@ -194,6 +196,7 @@ async fn test_restart_edited_body_starts_failed_iterations_over(
         flow_job_id: first_run.id,
         step_id: "loop".into(),
         failed_only: true,
+        from_failed_step: true,
         ..Default::default()
     };
     let restarted = run(&db, port, edited, "second", Some(restart)).await;
@@ -211,8 +214,9 @@ async fn test_restart_edited_body_starts_failed_iterations_over(
     Ok(())
 }
 
+/// Without `from_failed_step`, each failed iteration reruns from its first step.
 #[sqlx::test(fixtures("base", "hello"))]
-async fn test_restart_failed_only_from_iteration_start(db: Pool<Postgres>) -> anyhow::Result<()> {
+async fn test_restart_failed_only_starts_over_by_default(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
     let server = ApiServer::start(db.clone()).await?;
     let port = server.addr.port();
@@ -224,7 +228,6 @@ async fn test_restart_failed_only_from_iteration_start(db: Pool<Postgres>) -> an
         flow_job_id: first_run.id,
         step_id: "loop".into(),
         failed_only: true,
-        from_iteration_start: true,
         ..Default::default()
     };
     let restarted = run(

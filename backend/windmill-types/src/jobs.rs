@@ -606,8 +606,8 @@ pub enum JobPayload {
         nested: Option<Box<crate::flow_status::RestartedFrom>>,
         /// See `RestartedFrom::failed_only`.
         failed_only: bool,
-        /// See `RestartedFrom::from_iteration_start`.
-        from_iteration_start: bool,
+        /// See `RestartedFrom::from_failed_step`.
+        from_failed_step: bool,
     },
     RawFlow {
         value: FlowValue,

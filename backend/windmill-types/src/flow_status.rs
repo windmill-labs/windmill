@@ -101,10 +101,10 @@ pub struct RestartedFrom {
     /// succeeded and rerun only the others, each in its original slot.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub failed_only: bool,
-    /// With `failed_only`: rerun each failed iteration from its first step rather than from
-    /// the step where it failed.
+    /// With `failed_only`: resume each failed iteration at the step where it failed, keeping
+    /// the steps before it, rather than rerunning it from its first step.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
-    pub from_iteration_start: bool,
+    pub from_failed_step: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

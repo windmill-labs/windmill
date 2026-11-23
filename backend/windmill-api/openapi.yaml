@@ -17408,10 +17408,10 @@ paths:
                   description: specific flow version to use for restart (optional, uses current version if not specified)
                 failed_only:
                   type: boolean
-                  description: for a parallel for-loop or branch-all at the restart point (`step_id`, or the last `nested_path` entry), keep the iterations (branches) that succeeded and rerun only the others, each in its original position. Cannot be combined with an iteration to restart at on that same step.
-                from_iteration_start:
+                  description: for a parallel for-loop or branch-all at the restart point (`step_id`, or the last `nested_path` entry), keep the iterations (branches) that succeeded and rerun only the others from their first step, each in its original position. Cannot be combined with an iteration to restart at on that same step.
+                from_failed_step:
                   type: boolean
-                  description: with `failed_only`, rerun each failed iteration (branch) from its first step rather than from the step where it failed.
+                  description: with `failed_only`, resume each failed iteration (branch) at the step where it failed, keeping the steps before it, rather than rerunning it from its first step.
                 nested_path:
                   type: array
                   description: path of additional steps to descend into AFTER `step_id`. Each entry represents one level of nesting inside the spawned child of the previous level's container (BranchOne / sequential ForLoop iteration / Subflow). When non-empty, the actual restart point is the LAST entry's step_id.
@@ -39090,9 +39090,9 @@ components:
         failed_only:
           type: boolean
           description: For a parallel for-loop or branch-all at `step_id`, keep the iterations (branches) that succeeded and rerun only the others.
-        from_iteration_start:
+        from_failed_step:
           type: boolean
-          description: With `failed_only`, rerun each failed iteration (branch) from its first step rather than from the step where it failed.
+          description: With `failed_only`, resume each failed iteration (branch) at the step where it failed rather than rerunning it from its first step.
 
     Policy:
       type: object
