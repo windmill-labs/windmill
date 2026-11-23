@@ -1,4 +1,4 @@
-import type { DisplayMessage, ToolDisplayMessage } from './shared'
+import { isActiveRunForm, type DisplayMessage, type ToolDisplayMessage } from './shared'
 import { DRAFT_CONFLICT_RESULT, DRAFT_SAVE_FAILED_RESULT } from './draftWriteResults'
 import { webSearchResultOf } from './webSearchResult'
 
@@ -45,6 +45,23 @@ const PATHLESS_FLOW_MODE_TOOLS = new Set([
 	'inspect_inline_script',
 	'get_lint_errors'
 ])
+
+type TestedItemKind = EditedItemKind | 'script' | 'agent' | 'code'
+
+// Test runs fold into a test group, by the kind of item they run. A step test runs its flow,
+// and an app runnable its app, so either one's runs are runs of the same item. Runs of the
+// deployed version (run_script, run_flow, run_agent) are left out: they act on production.
+const TEST_RUN_TOOLS: Record<string, TestedItemKind> = {
+	test_run_script: 'script',
+	test_run_flow: 'flow',
+	test_run_step: 'flow',
+	test_run_agent: 'agent',
+	test_run_app_runnable: 'app',
+	test_run_code: 'code'
+}
+// The edits a test group takes between two runs of a script, besides the flow and app tools
+// above. edit_code is the script editor's own, which acts on the open script.
+const SCRIPT_EDIT_TOOLS = new Set(['write_script', 'edit_script', 'edit_code'])
 // Calls that only look things up. Not derived from `planModeSafe`, which also admits test
 // runs and plan-document writes.
 const READ_TOOLS = new Set([
@@ -89,11 +106,13 @@ const READ_TOOLS = new Set([
 export type ToolGroup = {
 	kind: 'group'
 	/** 'edit': edits of one flow or app. 'explore': consecutive lookups of anything.
-	 * 'waiting': calls queued behind the one running or awaiting the user. */
-	groupKind: 'edit' | 'explore' | 'waiting'
+	 * 'waiting': calls queued behind the one running or awaiting the user. 'test': test runs
+	 * of one item and its edits between them; it always ends on a run, whose card stays shown.
+	 */
+	groupKind: 'edit' | 'explore' | 'waiting' | 'test'
 	/** First call's id, so the group keeps its identity (and expand state) as it grows. */
 	key: string
-	/** Edit groups: the item's path, or '' for the flow open in the editor. */
+	/** Edit and test groups: the item's path, or '' for the item open in the editor. */
 	target: string
 	entries: { message: DisplayMessage; index: number }[]
 }
@@ -108,21 +127,37 @@ export function chatItemKey(item: ChatItem): string {
 	return `m:${item.index}`
 }
 
+// A row waiting on the user, or refused by plan mode, is a decision the user must see, and so
+// is the user's own refusal; a call held for folder instructions never ran, so it is not a
+// change, a lookup or a run. No group takes these.
+function standsAlone(message: ToolDisplayMessage): boolean {
+	return Boolean(
+		message.needsConfirmation ||
+			message.blockedByPlanMode ||
+			(message.outOfScope && !message.outOfScope.decision) ||
+			message.heldForFolderInstructions ||
+			message.userQuestion ||
+			message.declinedByUser
+	)
+}
+
+// A row with its own card (run, image, sources) is the content itself.
+function hasContentCard(message: ToolDisplayMessage): boolean {
+	return Boolean(
+		message.runForm ||
+			message.inspectedRun ||
+			message.imageUrl ||
+			message.webSearchSources ||
+			(!message.error && webSearchResultOf(message.result))
+	)
+}
+
 function groupableCall(message: DisplayMessage): ToolDisplayMessage | undefined {
 	if (message.role !== 'tool' || !message.toolName) return undefined
-	// A row waiting on the user, or refused by plan mode, is a decision the user must see; a
-	// row with its own card (run, question, diff, image, sources) is the content itself; a call
-	// held for folder instructions never ran, so it is not a change or a lookup.
-	if (message.needsConfirmation || message.blockedByPlanMode) return undefined
-	if (message.outOfScope && !message.outOfScope.decision) return undefined
-	if (message.heldForFolderInstructions) return undefined
-	if (message.runForm || message.inspectedRun || message.userQuestion) return undefined
-	// An app edit's diff covers one file of many, so it stays a row inside the app's group.
+	if (standsAlone(message) || hasContentCard(message)) return undefined
+	// A diff is the content too, but an app edit's diff covers one file of many, so it stays a
+	// row inside the app's group.
 	if (message.codeDiff && EDIT_TOOLS[message.toolName] !== 'app') return undefined
-	if (message.imageUrl || message.webSearchSources) return undefined
-	if (!message.error && webSearchResultOf(message.result)) return undefined
-	// The user's own refusal is a decision, not a failure to fold away.
-	if (message.declinedByUser) return undefined
 	return message
 }
 
@@ -142,25 +177,27 @@ function streamedPath(text: string): string | undefined {
 	}
 }
 
+// No `parameters` at all: a call queued before its arguments reached the row (tools that do
+// not stream them), so its item is not known yet. Arguments without a path mean the open item
+// only for a tool that can be offered without one; any other tool requires a path, so its
+// item is unknown.
+function callPath(call: ToolDisplayMessage, pathless: boolean): string | undefined {
+	if (typeof call.parameters === 'string') return streamedPath(call.parameters)
+	if (call.parameters === undefined) return undefined
+	if (typeof call.parameters.path === 'string') return call.parameters.path
+	return pathless ? '' : undefined
+}
+
+function callParams(call: ToolDisplayMessage): Record<string, unknown> {
+	return typeof call.parameters === 'object' && call.parameters ? call.parameters : {}
+}
+
 function itemMembership(message: DisplayMessage): Membership | undefined {
 	const call = groupableCall(message)
 	if (!call) return undefined
-	const streaming = typeof call.parameters === 'string'
-	const params = streaming ? {} : (call.parameters ?? {})
+	const params = callParams(call)
 	const tool = call.toolName!
-	// No `parameters` at all: a call queued before its arguments reached the row (tools that do
-	// not stream them), so its item is not known yet. Arguments without a path mean the open
-	// flow only for a tool flow mode offers without one; any other tool requires a path, so
-	// its item is unknown.
-	const path = streaming
-		? streamedPath(call.parameters)
-		: call.parameters === undefined
-			? undefined
-			: typeof params.path === 'string'
-				? params.path
-				: PATHLESS_FLOW_MODE_TOOLS.has(tool)
-					? ''
-					: undefined
+	const path = callPath(call, PATHLESS_FLOW_MODE_TOOLS.has(tool))
 	if (Object.hasOwn(EDIT_TOOLS, tool)) return { kind: EDIT_TOOLS[tool], path, edit: true }
 	if (Object.hasOwn(ITEM_READ_TOOLS, tool)) {
 		return { kind: ITEM_READ_TOOLS[tool], path, edit: false }
@@ -267,12 +304,72 @@ function waitingGroupAt(
 	}
 }
 
+type TestedItem = { kind: TestedItemKind; path: string | undefined }
+
+// A run form waiting for the user's arguments is the thing they must act on, so it stays out
+// of every group until it is answered.
+function testRunOf(message: DisplayMessage): TestedItem | undefined {
+	if (message.role !== 'tool' || !message.toolName) return undefined
+	if (!Object.hasOwn(TEST_RUN_TOOLS, message.toolName)) return undefined
+	if (standsAlone(message) || isActiveRunForm(message)) return undefined
+	const kind = TEST_RUN_TOOLS[message.toolName]
+	// A run form replaces the row's `parameters` with the run's arguments, so its item is read
+	// off the form. test_run_code runs the code it is sent, so its runs are all of one item,
+	// the code being worked on; the editors' own test tools take no path: they run the open
+	// item.
+	if (message.runForm && kind !== 'code') return { kind, path: message.runForm.path }
+	return { kind, path: kind === 'code' ? '' : callPath(message, true) }
+}
+
+// An edit or read of the item between two of its runs: what the model changes before running
+// it again. Its diff folds with it, since the next run is what says whether the change worked.
+function touchesTestedItem(message: DisplayMessage, item: TestedItem): boolean {
+	if (message.role !== 'tool' || !message.toolName) return false
+	if (standsAlone(message) || hasContentCard(message)) return false
+	const tool = message.toolName
+	const type = callParams(message).type
+	const kind: TestedItemKind | undefined =
+		EDIT_TOOLS[tool] ??
+		ITEM_READ_TOOLS[tool] ??
+		(SCRIPT_EDIT_TOOLS.has(tool) ? 'script' : undefined) ??
+		(tool === 'read_workspace_item' && (type === 'script' || type === 'flow' || type === 'app')
+			? type
+			: undefined)
+	if (!kind) return false
+	const path = callPath(message, PATHLESS_FLOW_MODE_TOOLS.has(tool) || tool === 'edit_code')
+	return sameTestedItem(item, { kind, path })
+}
+
+// An editor holds one item, so two pathless calls act on the same one whatever their kind:
+// the script editor's lint check is filed under the flow tools.
+// A call whose path has not arrived yet stays with the group, as in an edit group.
+function sameTestedItem(item: TestedItem, other: TestedItem): boolean {
+	if (item.path === '' && (other.path === '' || other.path === undefined)) return true
+	return other.kind === item.kind && (other.path === undefined || other.path === item.path)
+}
+
+function testGroupAt(messages: DisplayMessage[], start: number): ToolGroup | undefined {
+	const item = testRunOf(messages[start])
+	if (!item || item.path === undefined) return undefined
+	let end = runEnd(messages, start, (m) => {
+		const run = testRunOf(m)
+		return run ? sameTestedItem(item, run) : touchesTestedItem(m, item)
+	})
+	// Edits after the last run are not yet tested, so they are left to group as edits.
+	while (end > start && !testRunOf(messages[end])) end--
+	const runs = messages.slice(start, end + 1).filter((m) => testRunOf(m)).length
+	if (runs < 2) return undefined
+	return toolGroup(messages, start, end, 'test', item.path)
+}
+
 // An edit group wins over an explore group: its reads belong to the edits they prepare, so an
 // explore run also stops before a read that starts one. Both win over a waiting row, which
-// stops before either: its header says less than `Edit f/a/flow · 2 changes`.
+// stops before either: its header says less than `Edit f/a/flow · 2 changes`. A test group
+// starts on a run, which no other group takes, so it never competes for a start.
 function kindGroupAt(messages: DisplayMessage[], start: number): ToolGroup | undefined {
 	const explores = (m: DisplayMessage, j: number) => isReadCall(m) && !editGroupAt(messages, j)
 	return (
+		testGroupAt(messages, start) ??
 		editGroupAt(messages, start) ??
 		(isReadCall(messages[start])
 			? toolGroup(messages, start, runEnd(messages, start, explores), 'explore', '')
@@ -391,6 +488,16 @@ export type GroupState = 'queued' | 'running' | 'settled'
 // keeps its first kinds legible instead of being cut off by the row's ellipsis.
 const LISTED_KINDS = 3
 
+// What a test group's header names when its runs took no path: the item open in the editor,
+// or for test_run_code the code it was sent.
+const OPEN_ITEM: Record<TestedItemKind, string> = {
+	flow: 'the flow',
+	app: 'the app',
+	script: 'the script',
+	agent: 'the agent',
+	code: 'code'
+}
+
 /** The group's header, e.g. `Edited` + `f/a/flow · 3 changes`,
  * `search workspace 2 times, read 2 workspace item`, `github` + `list issues, get issue 2 times`.
  * `more` holds the kinds left out of `label`. */
@@ -408,6 +515,24 @@ export function groupHeader(
 			prefix: `${plural(calls.length, 'more call')} waiting:`,
 			label: names.slice(0, LISTED_KINDS).join(', '),
 			more: names.slice(LISTED_KINDS)
+		}
+	}
+	if (group.groupKind === 'test') {
+		const runs = calls.filter((m) => Object.hasOwn(TEST_RUN_TOOLS, m.toolName ?? ''))
+		const edits = calls.filter(
+			(m) =>
+				(Object.hasOwn(EDIT_TOOLS, m.toolName ?? '') || SCRIPT_EDIT_TOOLS.has(m.toolName ?? '')) &&
+				!callFailed(m)
+		).length
+		const kind = TEST_RUN_TOOLS[runs[0]?.toolName ?? ''] ?? 'script'
+		return {
+			prefix: { queued: 'Test', running: 'Testing', settled: 'Tested' }[state],
+			label: [
+				group.target || OPEN_ITEM[kind],
+				plural(runs.length, 'run'),
+				...(edits ? [plural(edits, 'change')] : [])
+			].join(' · '),
+			more: []
 		}
 	}
 	if (group.groupKind === 'edit') {

@@ -243,6 +243,24 @@ describe('groupToolRuns', () => {
 		).toEqual([{ explore: [0, 1, 2] }, 3, { explore: [4, 5] }, 6, 7])
 	})
 
+	it('folds test runs of one item and the edits between them, leaving a form awaiting input out', () => {
+		const a = { path: 'f/a/script' }
+		// A run form's row carries the run's arguments as `parameters`, and its path on the form.
+		const run = (path = a.path, extra = {}) =>
+			tool('test_run_script', { x: 1 }, { runForm: { path, args: { x: 1 } }, ...extra })
+		const messages = [
+			run(a.path, { error: 'boom' }),
+			tool('edit_script', a, { codeDiff: { before: '1', after: '2' } }),
+			run(),
+			tool('edit_script', a),
+			run('f/b/script'),
+			run(),
+			run(a.path, { isLoading: true })
+		]
+		expect(shape(messages)).toEqual([{ test: [0, 1, 2] }, 3, 4, 5, 6])
+		expect(header(messages)).toBe('Tested f/a/script · 2 runs · 1 change')
+	})
+
 	it('names what a group did', () => {
 		const flow = { path: 'f/a/flow' }
 		expect(
