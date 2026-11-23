@@ -1989,27 +1989,43 @@ fn get_memory_from_meminfo() -> Option<i64> {
 }
 
 #[cfg(not(windows))]
+fn cgroup_v2_memory_limit(cgroup_root: &Path, cgroup_path: &Path) -> Option<i64> {
+    let mut min_limit: Option<i64> = None;
+    for dir in cgroup_path.ancestors() {
+        if !dir.starts_with(cgroup_root) {
+            break;
+        }
+        if let Ok(contents) = fs::read_to_string(dir.join("memory.max")) {
+            if let Ok(limit) = contents.trim().parse::<i64>() {
+                if limit > 0 {
+                    min_limit = Some(min_limit.map_or(limit, |m| m.min(limit)));
+                }
+            }
+        }
+        if dir == cgroup_root {
+            break;
+        }
+    }
+    min_limit
+}
+
+#[cfg(not(windows))]
 pub fn get_memory() -> Option<i64> {
     let memory_limit: Option<i64> =
         if Path::new("/sys/fs/cgroup/memory/memory.limit_in_bytes").exists() {
             // cgroup v1
             parse_file("/sys/fs/cgroup/memory/memory.limit_in_bytes")
         } else {
-            // cgroup v2
-            let cgroup_path = get_cgroupv2_path()?;
-            let memory_max_path = format!("{cgroup_path}/memory.max");
-
-            parse_file(&memory_max_path)
+            // cgroup v2: walk up to the cgroup root for the tightest numeric limit;
+            // "max" means uncapped at that level
+            get_cgroupv2_path()
+                .and_then(|p| cgroup_v2_memory_limit(Path::new("/sys/fs/cgroup"), Path::new(&p)))
         };
 
-    // if memory_max is super high, read machine total memory (meminfo)
-    if memory_limit
-        .as_ref()
-        .is_some_and(|x| x > &(1024 * 1024 * 1024 * 1024 * 1024))
-    {
-        get_memory_from_meminfo()
-    } else {
-        memory_limit
+    // if uncapped ("max" on cgroup v2) or super high (cgroup v1), fall back to host RAM
+    match memory_limit {
+        Some(limit) if limit > 0 && limit <= 1024 * 1024 * 1024 * 1024 * 1024 => Some(limit),
+        _ => get_memory_from_meminfo(),
     }
 }
 
@@ -4441,5 +4457,42 @@ mod tests {
         assert!(is_allowed_file_location(job_dir_str, "dangling/payload").is_err());
 
         let _ = std::fs::remove_dir_all(&base);
+    }
+
+    // Tests for cgroup v2 memory limit
+    #[cfg(not(windows))]
+    #[test]
+    fn test_cgroup_v2_memory_limit_walks_ancestors_and_handles_max() {
+        let root = std::env::temp_dir().join(format!("wm_cgv2_mem_{}", uuid::Uuid::new_v4()));
+        let slice = root.join("kubepods.slice/pod1");
+        let leaf = slice.join("container1");
+        std::fs::create_dir_all(&leaf).unwrap();
+
+        // All "max" -> None (caller falls back to /proc/meminfo)
+        std::fs::write(slice.join("memory.max"), "max\n").unwrap();
+        std::fs::write(leaf.join("memory.max"), "max\n").unwrap();
+        assert_eq!(cgroup_v2_memory_limit(&root, &leaf), None);
+
+        // Leaf is "max" but parent slice has a 4 GiB limit -> inherits 4 GiB
+        std::fs::write(slice.join("memory.max"), "4294967296\n").unwrap();
+        assert_eq!(cgroup_v2_memory_limit(&root, &leaf), Some(4_294_967_296));
+
+        // Leaf has 8 GiB, parent has 4 GiB -> minimum effective limit (4 GiB)
+        std::fs::write(leaf.join("memory.max"), "8589934592\n").unwrap();
+        assert_eq!(cgroup_v2_memory_limit(&root, &leaf), Some(4_294_967_296));
+
+        // Leaf has 2 GiB, parent has 4 GiB -> leaf's tighter limit (2 GiB)
+        std::fs::write(leaf.join("memory.max"), "2147483648\n").unwrap();
+        assert_eq!(cgroup_v2_memory_limit(&root, &leaf), Some(2_147_483_648));
+
+        // Container cgroup namespace (`0::/` -> "/sys/fs/cgroup/") reads root/memory.max
+        std::fs::write(root.join("memory.max"), "1073741824\n").unwrap();
+        let root_with_slash = PathBuf::from(format!("{}/", root.display()));
+        assert_eq!(
+            cgroup_v2_memory_limit(&root, &root_with_slash),
+            Some(1_073_741_824)
+        );
+
+        let _ = std::fs::remove_dir_all(&root);
     }
 }
