@@ -2,6 +2,10 @@
 	import { getLocalDraftHint } from '$lib/localDraftHints.svelte'
 	import { page } from '$app/state'
 	import oauthConnectRegistry from '$oauth_connect_registry'
+	import {
+		NATIVE_TRIGGER_SERVICES,
+		serviceForResourceType
+	} from '$lib/components/triggers/native/utils'
 	import { isNewTabClick } from '$lib/navigation'
 	import AppConnect from '$lib/components/AppConnectDrawer.svelte'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
@@ -1398,7 +1402,11 @@
 																		<div>
 																			Latest exchange of the refresh token did not succeed. Error: {refresh_error}
 																		</div>
-																		{@render oauthIdentity(resource_type, grant_type)}
+																		{@render oauthIdentity(
+																			resource_type,
+																			grant_type,
+																			is_workspace_integration
+																		)}
 																		{@render oauthScopes(resource_type, scopes)}
 																	{/snippet}
 																</Popover>
@@ -1415,7 +1423,11 @@
 																			this variable is fetched or you can request is to be refreshed
 																			in the dropdown on the right.
 																		</div>
-																		{@render oauthIdentity(resource_type, grant_type)}
+																		{@render oauthIdentity(
+																			resource_type,
+																			grant_type,
+																			is_workspace_integration
+																		)}
 																		{@render oauthScopes(resource_type, scopes)}
 																	{/snippet}
 																</Popover>
@@ -1430,7 +1442,11 @@
 																			The resource was connected through OAuth and the token is not
 																			expired.
 																		</div>
-																		{@render oauthIdentity(resource_type, grant_type)}
+																		{@render oauthIdentity(
+																			resource_type,
+																			grant_type,
+																			is_workspace_integration
+																		)}
 																		{@render oauthScopes(resource_type, scopes)}
 																	{/snippet}
 																</Popover>
@@ -1735,11 +1751,24 @@
 
 <!-- Slack's bot and user tokens both come from the sign-in flow, so its grant does not
      say whose identity the token carries. -->
-{#snippet oauthIdentity(resourceType: string, grantType: string | undefined)}
+{#snippet oauthIdentity(
+	resourceType: string,
+	grantType: string | undefined,
+	viaWorkspaceApp: boolean | undefined
+)}
 	{#if grantType === 'client_credentials'}
 		<div class="mt-2">Connected as an app, with client credentials.</div>
 	{:else if !(oauthConnectRegistry as Record<string, any>)[resourceType]?.user_scopes}
 		<div class="mt-2">Connected as the user who connected it, with authorization code.</div>
+	{/if}
+	{@const service = viaWorkspaceApp ? serviceForResourceType(resourceType) : undefined}
+	{#if service}
+		<div class="mt-2">
+			Connected through the workspace's own {NATIVE_TRIGGER_SERVICES[service].serviceDisplayName} app
+			(Workspace settings → Integration triggers).
+		</div>
+	{:else}
+		<div class="mt-2">Connected through the instance's OAuth client.</div>
 	{/if}
 {/snippet}
 
