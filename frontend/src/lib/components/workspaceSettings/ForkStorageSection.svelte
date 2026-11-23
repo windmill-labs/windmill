@@ -2,6 +2,7 @@
 	import { SettingService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { resource } from 'runed'
+	import { untrack } from 'svelte'
 	import Select from '../select/Select.svelte'
 	import { TriangleAlert } from 'lucide-svelte'
 
@@ -10,8 +11,15 @@
 	let {
 		sourceWorkspace,
 		requireIsolation = false,
-		itemCount = $bindable()
-	}: { sourceWorkspace?: string; requireIsolation?: boolean; itemCount?: number } = $props()
+		itemCount = $bindable(),
+		initialShared
+	}: {
+		sourceWorkspace?: string
+		requireIsolation?: boolean
+		itemCount?: number
+		// The names a staged fork was saved sharing, read once.
+		initialShared?: string[]
+	} = $props()
 	let effectiveSource = $derived(sourceWorkspace ?? $workspaceStore ?? undefined)
 
 	let storages = resource(
@@ -26,7 +34,9 @@
 		itemCount = storages.current?.length ?? 0
 	})
 
-	let behaviors: Record<string, 'isolated' | 'shared'> = $state({})
+	let behaviors: Record<string, 'isolated' | 'shared'> = $state(
+		untrack(() => Object.fromEntries((initialShared ?? []).map((n) => [n, 'shared' as const])))
+	)
 
 	// Sent as `shared_storages` on the create-fork request; unlisted storages are isolated.
 	export function getSharedStorages(): string[] {

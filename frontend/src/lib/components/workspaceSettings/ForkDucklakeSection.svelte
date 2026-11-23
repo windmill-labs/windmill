@@ -2,6 +2,7 @@
 	import { WorkspaceService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { resource } from 'runed'
+	import { untrack } from 'svelte'
 	import Select from '../select/Select.svelte'
 	import { TriangleAlert } from 'lucide-svelte'
 
@@ -11,8 +12,15 @@
 	let {
 		sourceWorkspace,
 		requireIsolation = false,
-		itemCount = $bindable()
-	}: { sourceWorkspace?: string; requireIsolation?: boolean; itemCount?: number } = $props()
+		itemCount = $bindable(),
+		initialShared
+	}: {
+		sourceWorkspace?: string
+		requireIsolation?: boolean
+		itemCount?: number
+		// The names a staged fork was saved sharing, read once.
+		initialShared?: string[]
+	} = $props()
 	let effectiveSource = $derived(sourceWorkspace ?? $workspaceStore ?? undefined)
 
 	// Keyed on the source so a direct page load (store hydrates after mount) still fetches.
@@ -25,7 +33,9 @@
 		itemCount = allDucklakes.current?.length ?? 0
 	})
 
-	let lakeBehaviors: Record<string, 'isolated' | 'shared'> = $state({})
+	let lakeBehaviors: Record<string, 'isolated' | 'shared'> = $state(
+		untrack(() => Object.fromEntries((initialShared ?? []).map((n) => [n, 'shared' as const])))
+	)
 
 	// Lakes the user explicitly opted out of isolation for — sent as
 	// `shared_ducklakes` on the create-fork request. Unlisted lakes default to the
