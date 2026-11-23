@@ -200,7 +200,7 @@
 	let plusMenuOpen = $state(false)
 	let editingMessageIndex = $state<number | null>(null)
 	const groupChatItems = createChatItemGrouper()
-	const chatItems = $derived(groupChatItems(messages))
+	const chatItems = $derived(groupChatItems(messages, chatHost.groupingTools))
 
 	// Mounting a message parses its markdown, so a long transcript mounted at once blocks the
 	// page for every message in it. Only the tail is mounted when a transcript arrives; older

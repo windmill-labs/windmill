@@ -362,7 +362,7 @@
 		{/if}
 		{#if maxExpirationSecs != undefined}
 			<div>
-				<span class="block mb-1 text-xs text-emphasis font-semibold">Expires In</span>
+				<span class="block mb-1 text-xs text-emphasis font-semibold">Expires in</span>
 				<Select
 					bind:value={() => newTokenExpiration, (v) => (pickedExpiration = v)}
 					placeholder="Pick an expiration"
@@ -512,30 +512,21 @@
 				</div>
 			{/if}
 
-			{#if !scopes || scopes.length === 0}
-				<ScopesPicker
-					mode="standard"
-					workspaceId={scopeWorkspaceId}
-					bind:value={pickedScopes}
-					bind:readOnly
-				/>
-			{/if}
-
-			<div class="mt-2 grid grid-cols-1 md:grid-cols-2 gap-4">
+			<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
 				{#if !mcpOnly}
-					<div>
-						<span class="block mb-1 text-emphasis text-xs font-semibold"
-							>Label <span class="text-xs text-primary">(optional)</span></span
-						>
+					<div class="flex flex-col gap-1">
+						<span class="text-xs font-semibold text-emphasis">
+							Label <span class="font-normal text-secondary">(optional)</span>
+						</span>
 						<TextInput inputProps={{ type: 'text' }} bind:value={newTokenLabel} class="w-full" />
 					</div>
 				{/if}
 
-				<div>
-					<span class="block mb-1 text-xs text-emphasis font-semibold">
-						Expires In
+				<div class="flex flex-col gap-1">
+					<span class="text-xs font-semibold text-emphasis">
+						Expires in
 						{#if maxExpirationSecs == undefined}
-							<span class="text-xs text-primary">(optional)</span>
+							<span class="font-normal text-secondary">(optional)</span>
 						{/if}
 					</span>
 					<Select
@@ -545,12 +536,23 @@
 						items={expirationItems}
 					/>
 					{#if maxExpirationSecs != undefined}
-						<p class="mt-1 text-xs text-tertiary">
+						<p class="text-2xs text-hint">
 							This instance limits tokens to {maxExpirationLabel}.
 						</p>
 					{/if}
 				</div>
 			</div>
+
+			{#if !scopes || scopes.length === 0}
+				<div class="mt-4">
+					<ScopesPicker
+						mode="standard"
+						workspaceId={scopeWorkspaceId}
+						bind:value={pickedScopes}
+						bind:readOnly
+					/>
+				</div>
+			{/if}
 
 			<div class="mt-4 flex justify-end gap-2 flex-row">
 				{#if !mcpOnly}

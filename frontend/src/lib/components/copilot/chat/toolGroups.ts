@@ -1,9 +1,15 @@
-import { isActiveRunForm, type DisplayMessage, type ToolDisplayMessage } from './shared'
+import {
+	isActiveRunForm,
+	type DisplayMessage,
+	type TestedItemKind,
+	type Tool,
+	type ToolDisplayMessage
+} from './shared'
 import { DRAFT_CONFLICT_RESULT, DRAFT_SAVE_FAILED_RESULT } from './draftWriteResults'
 import { webSearchResultOf } from './webSearchResult'
 
-// A tool missing from these lists always renders as its own row, so a new write never gets
-// hidden by default.
+// A tool missing from these lists, whose definition sets neither `lookup` nor `testRun`,
+// renders as its own row, so a new write never gets hidden by default.
 
 type EditedItemKind = 'flow' | 'app'
 
@@ -45,63 +51,28 @@ const PATHLESS_FLOW_MODE_TOOLS = new Set([
 	'inspect_inline_script',
 	'get_lint_errors'
 ])
-
-type TestedItemKind = EditedItemKind | 'script' | 'agent' | 'code'
-
-// Test runs fold into a test group, by the kind of item they run. A step test runs its flow,
-// and an app runnable its app, so either one's runs are runs of the same item. Runs of the
-// deployed version (run_script, run_flow, run_agent) are left out: they act on production.
-const TEST_RUN_TOOLS: Record<string, TestedItemKind> = {
-	test_run_script: 'script',
-	test_run_flow: 'flow',
-	test_run_step: 'flow',
-	test_run_agent: 'agent',
-	test_run_app_runnable: 'app',
-	test_run_code: 'code'
-}
 // The edits a test group takes between two runs of a script, besides the flow and app tools
 // above. edit_code is the script editor's own, which acts on the open script.
 const SCRIPT_EDIT_TOOLS = new Set(['write_script', 'edit_script', 'edit_code'])
-// Calls that only look things up. Not derived from `planModeSafe`, which also admits test
-// runs and plan-document writes.
-const READ_TOOLS = new Set([
-	...Object.keys(ITEM_READ_TOOLS),
-	'list_workspace_items',
-	'read_workspace_item',
-	'search_workspace',
-	'get_runnable_details',
-	'search_hub_scripts',
-	'search_resource_types',
-	'resource_type',
-	'search_docs',
-	'read_docs_page',
-	'get_db_schema',
-	'search_npm_packages',
-	'get_instructions',
-	'get_instructions_for_code_generation',
-	'read_skill',
-	'get_trigger_schema',
-	'get_schedule_schema',
-	'list_runs',
-	'list_workers',
-	'list_app_runs',
-	'get_app_runtime_logs',
-	'get_preview_status',
-	'get_current_page_name',
-	'search_dom',
-	'read_dom',
-	'read_file',
-	'search_files',
-	'list_data_metrics',
-	'list_ducklakes',
-	'get_pipeline_graph',
-	'read_pipeline_node',
-	'list_artifacts',
-	'read_artifact',
-	'list_artifact_versions',
-	'search_mcp_tools',
-	'call_mcp_read_tool'
-])
+
+/** What the definitions in the chat showing the transcript declare, by tool name: the tools
+ * that set `lookup`, and those that set `testRun` with the kind of item they run. A name that
+ * chat does not define (a flow's own agent tools) is neither. */
+export type GroupingTools = {
+	lookups: ReadonlySet<string>
+	testRuns: ReadonlyMap<string, TestedItemKind>
+}
+
+export function groupingToolsOf(tools: Iterable<Tool<any>>): GroupingTools {
+	const lookups = new Set<string>()
+	const testRuns = new Map<string, TestedItemKind>()
+	for (const tool of tools) {
+		const name = tool.def.function.name
+		if (tool.lookup) lookups.add(name)
+		if (tool.testRun) testRuns.set(name, tool.testRun)
+	}
+	return { lookups, testRuns }
+}
 
 export type ToolGroup = {
 	kind: 'group'
@@ -115,6 +86,8 @@ export type ToolGroup = {
 	/** Edit and test groups: the item's path, or '' for the item open in the editor. */
 	target: string
 	entries: { message: DisplayMessage; index: number }[]
+	/** Test groups: the kind of item run, and how many of the entries are its runs. */
+	tested?: { kind: TestedItemKind; runs: number }
 }
 
 export type ChatItem = { kind: 'message'; message: DisplayMessage; index: number } | ToolGroup
@@ -215,9 +188,9 @@ function sameItem(a: Membership | undefined, b: Membership): boolean {
 	return a !== undefined && a.kind === b.kind && (a.path === undefined || a.path === b.path)
 }
 
-function isReadCall(message: DisplayMessage): boolean {
+function isReadCall(message: DisplayMessage, tools: GroupingTools): boolean {
 	const call = groupableCall(message)
-	return call !== undefined && READ_TOOLS.has(call.toolName!)
+	return call !== undefined && tools.lookups.has(call.toolName!)
 }
 
 // Thinking between two calls stays inside the group; visible text ends it. The live
@@ -288,13 +261,18 @@ function inFlight(message: DisplayMessage): boolean {
 function waitingGroupAt(
 	messages: DisplayMessage[],
 	start: number,
-	previous: ChatItem | undefined
+	previous: ChatItem | undefined,
+	tools: GroupingTools
 ): ToolGroup | undefined {
 	if (!isWaitingCall(messages[start]) || !previous) return undefined
 	const ahead =
 		previous.kind === 'group' ? previous.entries.map((e) => e.message) : [previous.message]
 	if (!ahead.some(inFlight)) return undefined
-	const end = runEnd(messages, start, (m, j) => isWaitingCall(m) && !kindGroupAt(messages, j))
+	const end = runEnd(
+		messages,
+		start,
+		(m, j) => isWaitingCall(m) && !kindGroupAt(messages, j, tools)
+	)
 	return {
 		kind: 'group',
 		groupKind: 'waiting',
@@ -309,12 +287,12 @@ type TestedItem = { kind: TestedItemKind; path: string | undefined }
 // A run form waiting for the user's arguments is the thing they must act on, so it stays out
 // of every group until it is answered, and so does a run that has not reached its form yet:
 // joining before the form opens would fold the group, then unfold it as the form appears.
-function testRunOf(message: DisplayMessage): TestedItem | undefined {
+function testRunOf(message: DisplayMessage, tools: GroupingTools): TestedItem | undefined {
 	if (message.role !== 'tool' || !message.toolName) return undefined
-	if (!Object.hasOwn(TEST_RUN_TOOLS, message.toolName)) return undefined
+	const kind = tools.testRuns.get(message.toolName)
+	if (!kind) return undefined
 	if (standsAlone(message) || isActiveRunForm(message)) return undefined
 	if (message.isQueued || message.isStreamingArguments) return undefined
-	const kind = TEST_RUN_TOOLS[message.toolName]
 	// test_run_app_runnable runs without a form and nests its inputs under `args`, so its
 	// `path` is the app's.
 	if (kind === 'app') return { kind, path: callPath(message, false) }
@@ -356,40 +334,51 @@ function sameTestedItem(item: TestedItem, other: TestedItem): boolean {
 	return other.kind === item.kind && (other.path === undefined || other.path === item.path)
 }
 
-function testGroupAt(messages: DisplayMessage[], start: number): ToolGroup | undefined {
-	const item = testRunOf(messages[start])
+function testGroupAt(
+	messages: DisplayMessage[],
+	start: number,
+	tools: GroupingTools
+): ToolGroup | undefined {
+	const item = testRunOf(messages[start], tools)
 	if (!item || item.path === undefined) return undefined
 	let end = runEnd(messages, start, (m) => {
-		const run = testRunOf(m)
+		const run = testRunOf(m, tools)
 		return run ? sameTestedItem(item, run) : touchesTestedItem(m, item)
 	})
 	// Edits after the last run are not yet tested, so they are left to group as edits.
-	while (end > start && !testRunOf(messages[end])) end--
-	const runs = messages.slice(start, end + 1).filter((m) => testRunOf(m)).length
+	while (end > start && !testRunOf(messages[end], tools)) end--
+	const runs = messages.slice(start, end + 1).filter((m) => testRunOf(m, tools)).length
 	if (runs < 2) return undefined
-	return toolGroup(messages, start, end, 'test', item.path)
+	const group = toolGroup(messages, start, end, 'test', item.path)
+	return group && { ...group, tested: { kind: item.kind, runs } }
 }
 
 // An edit group wins over an explore group: its reads belong to the edits they prepare, so an
 // explore run also stops before a read that starts one. Both win over a waiting row, which
 // stops before either: its header says less than `Edit f/a/flow · 2 changes`. A test group
 // starts on a run, which no other group takes, so it never competes for a start.
-function kindGroupAt(messages: DisplayMessage[], start: number): ToolGroup | undefined {
-	const explores = (m: DisplayMessage, j: number) => isReadCall(m) && !editGroupAt(messages, j)
+function kindGroupAt(
+	messages: DisplayMessage[],
+	start: number,
+	tools: GroupingTools
+): ToolGroup | undefined {
+	const explores = (m: DisplayMessage, j: number) =>
+		isReadCall(m, tools) && !editGroupAt(messages, j)
 	return (
-		testGroupAt(messages, start) ??
+		testGroupAt(messages, start, tools) ??
 		editGroupAt(messages, start) ??
-		(isReadCall(messages[start])
+		(isReadCall(messages[start], tools)
 			? toolGroup(messages, start, runEnd(messages, start, explores), 'explore', '')
 			: undefined)
 	)
 }
 
-export function groupToolRuns(messages: DisplayMessage[]): ChatItem[] {
+export function groupToolRuns(messages: DisplayMessage[], tools: GroupingTools): ChatItem[] {
 	const items: ChatItem[] = []
 	let i = 0
 	while (i < messages.length) {
-		const group = kindGroupAt(messages, i) ?? waitingGroupAt(messages, i, items.at(-1))
+		const group =
+			kindGroupAt(messages, i, tools) ?? waitingGroupAt(messages, i, items.at(-1), tools)
 		if (group) {
 			items.push(group)
 			i = group.entries.at(-1)!.index + 1
@@ -410,6 +399,8 @@ function sameChatItem(a: ChatItem, b: ChatItem): boolean {
 		a.groupKind === b.groupKind &&
 		a.key === b.key &&
 		a.target === b.target &&
+		a.tested?.kind === b.tested?.kind &&
+		a.tested?.runs === b.tested?.runs &&
 		a.entries.length === b.entries.length &&
 		a.entries.every((e, i) => e.message === b.entries[i].message && e.index === b.entries[i].index)
 	)
@@ -422,20 +413,29 @@ function sameChatItem(a: ChatItem, b: ChatItem): boolean {
  *
  * A changed message is told apart by identity alone, so a row must be replaced, never mutated
  * in place, for its grouping to update. */
-export function createChatItemGrouper(): (messages: DisplayMessage[]) => ChatItem[] {
+export function createChatItemGrouper(): (
+	messages: DisplayMessage[],
+	tools: GroupingTools
+) => ChatItem[] {
 	let settled: DisplayMessage[] = []
 	let settledItems: ChatItem[] = []
-	return (messages) => {
+	let settledTools: GroupingTools | undefined
+	return (messages, tools) => {
 		// The live answer only ever comes last, and it can neither join nor end a group
 		// differently than the end of the transcript does, so it is grouped on its own and the
 		// rows before it are not regrouped while it streams.
 		const last = messages.at(-1)
 		const live = last?.role === 'assistant' && last.streaming ? last : undefined
 		const n = live ? messages.length - 1 : messages.length
-		if (n !== settled.length || settled.some((m, i) => m !== messages[i])) {
+		if (
+			tools !== settledTools ||
+			n !== settled.length ||
+			settled.some((m, i) => m !== messages[i])
+		) {
 			const previous = new Map(settledItems.map((item) => [chatItemKey(item), item]))
 			settled = messages.slice(0, n)
-			settledItems = groupToolRuns(settled).map((item) => {
+			settledTools = tools
+			settledItems = groupToolRuns(settled, tools).map((item) => {
 				const before = previous.get(chatItemKey(item))
 				return before && sameChatItem(before, item) ? before : item
 			})
@@ -525,19 +525,18 @@ export function groupHeader(
 			more: names.slice(LISTED_KINDS)
 		}
 	}
-	if (group.groupKind === 'test') {
-		const runs = calls.filter((m) => Object.hasOwn(TEST_RUN_TOOLS, m.toolName ?? ''))
+	if (group.groupKind === 'test' && group.tested) {
+		const { kind, runs } = group.tested
 		const edits = calls.filter(
 			(m) =>
 				(Object.hasOwn(EDIT_TOOLS, m.toolName ?? '') || SCRIPT_EDIT_TOOLS.has(m.toolName ?? '')) &&
 				!callFailed(m)
 		).length
-		const kind = TEST_RUN_TOOLS[runs[0]?.toolName ?? ''] ?? 'script'
 		return {
 			prefix: { queued: 'Test', running: 'Testing', settled: 'Tested' }[state],
 			label: [
 				group.target || OPEN_ITEM[kind],
-				plural(runs.length, 'run'),
+				plural(runs, 'run'),
 				...(edits ? [plural(edits, 'change')] : [])
 			].join(' · '),
 			more: []
