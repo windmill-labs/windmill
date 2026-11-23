@@ -2630,30 +2630,31 @@ async fn test_datatable_connection(
     let db_resource = get_datatable_resource_from_db_unchecked(&db, &w_id, &datatable_name).await?;
     let pg_db: PgDatabase = serde_json::from_value(db_resource)
         .map_err(|e| Error::internal_err(format!("Failed to parse database credentials: {}", e)))?;
-    let (client, connection) = pg_db.connect(Some(&db)).await?;
-    let join_handle = tokio::spawn(async move { connection.await });
+    let conn = DatatableClient::connect(&db, pg_db).await?;
 
     // One round trip, no side effects: `has_*_privilege` answers for the
     // connected role without attempting the operation.
-    let rows = client
-        .simple_query(
-            "SELECT current_user AS usr, \
+    let rows = conn
+        .bounded(async {
+            conn.client
+                .simple_query(
+                    "SELECT current_user AS usr, \
                     current_schema() AS sch, \
                     current_database() AS db, \
                     has_schema_privilege(current_schema(), 'CREATE') AS can_create_table, \
                     has_database_privilege(current_database(), 'CREATE') AS can_create_schema, \
                     to_regclass('_wm_migrations') IS NOT NULL AS has_migrations_table",
-        )
-        .await
-        .map_err(|e| {
-            Error::internal_err(format!(
-                "Failed to inspect data table privileges: {}",
-                pg_error_message(&e)
-            ))
-        });
-
-    drop(client);
-    let _ = windmill_common::shutdown_pg_connection(join_handle).await;
+                )
+                .await
+                .map_err(|e| {
+                    Error::internal_err(format!(
+                        "Failed to inspect data table privileges: {}",
+                        pg_error_message(&e)
+                    ))
+                })
+        })
+        .await;
+    let pg_db = conn.pg_db;
 
     let row = rows?
         .into_iter()
@@ -2782,9 +2783,6 @@ async fn list_datatable_tables(
     Ok(Json(results))
 }
 
-/// Covers the connection (itself capped at 20s) and the listing queries.
-const DATATABLE_LISTING_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(45);
-
 async fn list_one_datatable_tables(
     db: &DB,
     authed: &ApiAuthed,
@@ -2821,21 +2819,7 @@ async fn list_one_datatable_tables(
         entry.permissioned = usable.permissioned;
         entry.usable_roles = usable.roles;
         entry.default_role = usable.default_role;
-        // The listing queries have no deadline of their own: a database that accepts the
-        // connection but never answers (a saturated pooler, a lock) would leave the whole
-        // request, and every data table after this one, pending forever.
-        let listing = tokio::time::timeout(
-            DATATABLE_LISTING_TIMEOUT,
-            get_datatable_tables(db, authed, w_id, &entry.datatable_name, role),
-        )
-        .await
-        .map_err(|_| {
-            Error::internal_err(format!(
-                "Listing the tables of this data table timed out after {}s: its database \
-                 accepted the connection but did not answer",
-                DATATABLE_LISTING_TIMEOUT.as_secs()
-            ))
-        })??;
+        let listing = get_datatable_tables(db, authed, w_id, &entry.datatable_name, role).await?;
         entry.schemas = listing.schemas;
         entry.can_create_schema = listing.can_create_schema;
         entry.creatable_schemas = listing.creatable_schemas;
@@ -2914,6 +2898,59 @@ async fn resolve_datatable_pg_as_caller(
         .map_err(|e| Error::internal_err(format!("Failed to parse database credentials: {}", e)))
 }
 
+/// How long the server-side readers of a data table wait on its database once connected (the
+/// connection itself is capped separately). Without it, a database that accepts the connection
+/// but never answers (a saturated pooler, a lock) holds the request open forever, and the DB
+/// manager's tree spins with it.
+const DATATABLE_QUERY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(25);
+
+/// A connection to a data table's own database, for the server-side readers below.
+struct DatatableClient {
+    pg_db: PgDatabase,
+    client: tokio_postgres::Client,
+    connection: tokio::task::JoinHandle<()>,
+}
+
+impl DatatableClient {
+    async fn connect(db: &DB, pg_db: PgDatabase) -> Result<Self> {
+        let (client, connection) = pg_db.connect(Some(db)).await?;
+        let connection = tokio::spawn(async move {
+            if let Err(e) = connection.await {
+                tracing::error!("Datatable connection error: {}", e);
+            }
+        });
+        Ok(Self { pg_db, client, connection })
+    }
+
+    /// Runs `queries` under [`DATATABLE_QUERY_TIMEOUT`]. On expiry the query is cancelled on the
+    /// server and the connection closed: dropping a client with a query in flight leaves both the
+    /// connection task and the server's backend waiting on it.
+    async fn bounded<T>(&self, queries: impl std::future::Future<Output = Result<T>>) -> Result<T> {
+        match tokio::time::timeout(DATATABLE_QUERY_TIMEOUT, queries).await {
+            Ok(result) => result,
+            Err(_) => {
+                let token_auth = !matches!(
+                    windmill_common::PgAuthMode::of(&self.pg_db),
+                    Ok(windmill_common::PgAuthMode::Password)
+                );
+                let cancel = self
+                    .pg_db
+                    .cancel_query(self.client.cancel_token(), token_auth);
+                match tokio::time::timeout(std::time::Duration::from_secs(5), cancel).await {
+                    Ok(Ok(())) => {}
+                    Ok(Err(e)) => tracing::warn!("Could not cancel a data table query: {e}"),
+                    Err(_) => tracing::warn!("Cancelling a data table query timed out"),
+                }
+                self.connection.abort();
+                Err(Error::ExecutionErr(format!(
+                    "The data table's database did not answer within {}s",
+                    DATATABLE_QUERY_TIMEOUT.as_secs()
+                )))
+            }
+        }
+    }
+}
+
 async fn get_datatable_schema(
     db: &DB,
     authed: &ApiAuthed,
@@ -2921,17 +2958,11 @@ async fn get_datatable_schema(
     datatable_name: &str,
 ) -> Result<SchemaMap> {
     let pg_db = resolve_datatable_pg_as_caller(db, authed, w_id, datatable_name, None).await?;
+    let conn = DatatableClient::connect(db, pg_db).await?;
+    conn.bounded(read_datatable_schema(&conn.client)).await
+}
 
-    // Connect to the datatable database
-    let (client, connection) = pg_db.connect(Some(db)).await?;
-
-    // Spawn the connection handler
-    tokio::spawn(async move {
-        if let Err(e) = connection.await {
-            tracing::error!("Datatable connection error: {}", e);
-        }
-    });
-
+async fn read_datatable_schema(client: &tokio_postgres::Client) -> Result<SchemaMap> {
     // First, get all non-system schemas (including empty ones)
     let schema_rows = client
         .query(
@@ -3022,14 +3053,11 @@ async fn get_datatable_tables(
     role: Option<&str>,
 ) -> Result<DatatableTableListing> {
     let pg_db = resolve_datatable_pg_as_caller(db, authed, w_id, datatable_name, role).await?;
-    let (client, connection) = pg_db.connect(Some(db)).await?;
+    let conn = DatatableClient::connect(db, pg_db).await?;
+    conn.bounded(read_datatable_tables(&conn.client)).await
+}
 
-    tokio::spawn(async move {
-        if let Err(e) = connection.await {
-            tracing::error!("Datatable connection error: {}", e);
-        }
-    });
-
+async fn read_datatable_tables(client: &tokio_postgres::Client) -> Result<DatatableTableListing> {
     let schema_rows = client
         .query(
             r#"
@@ -3119,33 +3147,34 @@ async fn get_datatable_table_columns(
     }
 
     let pg_db = resolve_datatable_pg_as_caller(db, authed, w_id, datatable_name, role).await?;
-    let (client, connection) = pg_db.connect(Some(db)).await?;
+    let conn = DatatableClient::connect(db, pg_db).await?;
 
-    tokio::spawn(async move {
-        if let Err(e) = connection.await {
-            tracing::error!("Datatable connection error: {}", e);
-        }
-    });
-
-    let rows = client
-        .query(
-            r#"
-            SELECT
-                column_name::text,
-                udt_name::text,
-                is_nullable::text,
-                column_default::text
-            FROM information_schema.columns
-            WHERE table_schema = $1
-              AND table_name = $2
-            ORDER BY ordinal_position
-            "#,
-            &[&schema_name, &table_name],
-        )
-        .await
-        .map_err(|e| {
-            Error::internal_err(format!("Failed to query columns: {}", pg_error_message(&e)))
-        })?;
+    let rows = conn
+        .bounded(async {
+            conn.client
+                .query(
+                    r#"
+                    SELECT
+                        column_name::text,
+                        udt_name::text,
+                        is_nullable::text,
+                        column_default::text
+                    FROM information_schema.columns
+                    WHERE table_schema = $1
+                      AND table_name = $2
+                    ORDER BY ordinal_position
+                    "#,
+                    &[&schema_name, &table_name],
+                )
+                .await
+                .map_err(|e| {
+                    Error::internal_err(format!(
+                        "Failed to query columns: {}",
+                        pg_error_message(&e)
+                    ))
+                })
+        })
+        .await?;
 
     if rows.is_empty() {
         return Err(Error::NotFound(format!(
