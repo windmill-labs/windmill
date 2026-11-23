@@ -373,7 +373,7 @@
 								<ToggleButton
 									value="failed"
 									label="Failed only{failedCount ? ` (${failedCount})` : ''}"
-									tooltip="Keep the results that succeeded and rerun the failed ones, each in its original position"
+									tooltip="Keep the results that succeeded and rerun the failed ones, each from the step where it failed"
 									disabled={failedCount === 0}
 									{item}
 								/>
