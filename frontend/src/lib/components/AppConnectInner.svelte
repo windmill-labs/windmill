@@ -319,7 +319,7 @@
 			? defaultCcScopes()
 			: useUserToken
 				? [...(registryEntry()?.user_scope_options ?? []), ...(registryEntry()?.user_scopes ?? [])]
-				: [...(registryEntry()?.scope_options ?? []), ...instanceScopes]
+				: [...(registryEntry()?.scope_options ?? []), ...instanceScopes, ...requiredScopes]
 	)
 
 	/** Their slice of the resource type's schema, so they render with the type's own
@@ -719,8 +719,10 @@
 
 	async function getScopesAndParams() {
 		await loadScopesAndParams()
-		if (!useClientCredentials) {
-			scopes = [...new Set([...scopes, ...requiredScopes])]
+		// A trigger's connection, or a reconnect, asks for what its caller needs rather than the
+		// provider's defaults, which are meant for scripts (Google's are admin directory scopes).
+		if (!useClientCredentials && requiredScopes.length > 0) {
+			scopes = [...new Set(requiredScopes)]
 		}
 	}
 
