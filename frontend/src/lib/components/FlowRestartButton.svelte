@@ -117,9 +117,6 @@
 
 	let branchOrIterationN = $state(0)
 	let rerun: 'failed' | 'all' = $state('failed')
-	const failedOnly = $derived(
-		selectedJobStepType === 'parallel' && rerun === 'failed' && parallelFailedCount !== 0
-	)
 
 	// Iteration inputs for nested-step restart inside one or more ForLoop ancestors.
 	// Each editable position keeps a local copy that the popup can mutate; on
@@ -129,6 +126,21 @@
 	// after picking a different iteration in the graph picks up the new value.
 	type IterField = { key: 'top' | `inner-${number}`; label: string; value: number }
 	let iterationEdits: Record<string, number> = $state({})
+
+	// The count describes the outer iterations the graph shows, so it is unknown once the
+	// popup restarts another one.
+	const failedCount = $derived(
+		Object.entries(iterationEdits).some(([key, value]) =>
+			key === 'top'
+				? value !== nestedTopBranchOrIterationN
+				: value !== nestedPath?.[Number(key.slice('inner-'.length))]?.branch_or_iteration_n
+		)
+			? undefined
+			: parallelFailedCount
+	)
+	const failedOnly = $derived(
+		selectedJobStepType === 'parallel' && rerun === 'failed' && failedCount !== 0
+	)
 
 	function resetEditsFromProps() {
 		const next: Record<string, number> = {}
@@ -360,9 +372,9 @@
 							{#snippet children({ item })}
 								<ToggleButton
 									value="failed"
-									label="Failed only{parallelFailedCount ? ` (${parallelFailedCount})` : ''}"
+									label="Failed only{failedCount ? ` (${failedCount})` : ''}"
 									tooltip="Keep the results that succeeded and rerun the failed ones, each in its original position"
-									disabled={parallelFailedCount === 0}
+									disabled={failedCount === 0}
 									{item}
 								/>
 								<ToggleButton value="all" label="All" {item} />

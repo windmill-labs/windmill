@@ -7381,6 +7381,11 @@ async fn push_inner<'c, 'd>(
 
             let flow_status: FlowStatus = match restarted_from {
                 Some(restarted_from_val) => {
+                    refuse_failed_only_on_outdated_workers(
+                        restarted_from_val.failed_only,
+                        restarted_from_val.nested.as_deref(),
+                    )
+                    .await?;
                     let (_, _, _, step_n, truncated_modules, user_states, cleanup_module, _) =
                         restarted_flows_resolution(
                             db,
@@ -7776,6 +7781,7 @@ async fn push_inner<'c, 'd>(
             nested,
             failed_only,
         } => {
+            refuse_failed_only_on_outdated_workers(failed_only, nested.as_deref()).await?;
             let (
                 version,
                 flow_path,
@@ -8941,6 +8947,26 @@ fn create_restarted_module(
     }
 }
 
+/// A worker that predates `failed_only` drops it from a restart chain and reruns the whole
+/// step, so a chain carrying it anywhere is refused until every worker reads it.
+async fn refuse_failed_only_on_outdated_workers(
+    failed_only: bool,
+    nested: Option<&RestartedFrom>,
+) -> Result<(), Error> {
+    let mut any = failed_only;
+    let mut level = nested;
+    while let Some(l) = level {
+        any |= l.failed_only;
+        level = l.nested.as_deref();
+    }
+    if any {
+        windmill_common::min_version::MIN_VERSION_SUPPORTS_FAILED_ONLY_RESTART
+            .assert()
+            .await?;
+    }
+    Ok(())
+}
+
 /// Status of a parallel ForLoop / BranchAll restarted with `failed_only`: a slot whose job
 /// succeeded keeps it, every other slot holds `Uuid::nil()`. The worker reads a nil slot as
 /// "rerun this iteration (branch) here" and counts the kept ones as already completed, so the
@@ -8952,9 +8978,6 @@ async fn create_failed_only_module(
     module_definition: &FlowModule,
     restart_step_id: &str,
 ) -> Result<FlowStatusModule, Error> {
-    windmill_common::min_version::MIN_VERSION_SUPPORTS_FAILED_ONLY_RESTART
-        .assert()
-        .await?;
     let (is_loop, branch_count) = match module_definition.get_value()? {
         FlowModuleValue::ForloopFlow { parallel: true, .. } => (true, None),
         FlowModuleValue::BranchAll { parallel: true, branches, .. } => (false, Some(branches.len())),
