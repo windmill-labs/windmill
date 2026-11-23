@@ -211,6 +211,15 @@ use windmill_common::bench::{benchmark_init, benchmark_verify, BenchmarkInfo, Be
 
 use windmill_common::add_time;
 
+// Kept out of the main block below, which is at the macro recursion limit.
+lazy_static::lazy_static! {
+    /// Override for the nsjail `rlimit_fsize` cap (largest single file a jailed
+    /// python3/ansible/dbt job may write). MiB, or `unlimited`/`none`/`inf`/`0` to
+    /// uncap. Unset keeps the historical 1000 MiB. See `render_nsjail_rlimit_fsize`.
+    pub static ref NSJAIL_RLIMIT_FSIZE_MB: Option<String> =
+        std::env::var("NSJAIL_RLIMIT_FSIZE_MB").ok();
+}
+
 lazy_static::lazy_static! {
     pub static ref PY310_CACHE_DIR: String = format!("{}python_3_10", *ROOT_CACHE_DIR);
     pub static ref PY311_CACHE_DIR: String = format!("{}python_3_11", *ROOT_CACHE_DIR);
@@ -396,12 +405,6 @@ lazy_static::lazy_static! {
         std::env::var("NSJAIL_ANSIBLE_RLIMIT_AS_MB").ok();
     pub static ref NSJAIL_DBT_RLIMIT_AS_MB: Option<String> =
         std::env::var("NSJAIL_DBT_RLIMIT_AS_MB").ok();
-
-    /// Override for the nsjail `rlimit_fsize` cap (largest single file a jailed
-    /// python3/ansible/dbt job may write). MiB, or `unlimited`/`none`/`inf`/`0` to
-    /// uncap. Unset keeps the historical 1000 MiB. See `render_nsjail_rlimit_fsize`.
-    pub static ref NSJAIL_RLIMIT_FSIZE_MB: Option<String> =
-        std::env::var("NSJAIL_RLIMIT_FSIZE_MB").ok();
 
     // pub static ref DISABLE_NSJAIL: bool = false;
     pub static ref DISABLE_NSJAIL: bool = std::env::var("DISABLE_NSJAIL")
