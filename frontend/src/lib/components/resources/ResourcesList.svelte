@@ -1767,7 +1767,7 @@
 			Connected through the workspace's own {NATIVE_TRIGGER_SERVICES[service].serviceDisplayName} app
 			(Workspace settings → Integration triggers).
 		</div>
-	{:else}
+	{:else if grantType !== 'client_credentials'}
 		<div class="mt-2">Connected through the instance's OAuth client.</div>
 	{/if}
 {/snippet}
