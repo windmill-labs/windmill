@@ -47,6 +47,10 @@ export type GraphModuleState = {
 	result?: any
 	tag?: string
 	scheduled_for?: Date
+	/** Why a `WaitingForExecutor` step is due later: the previous step's sleep, or its own
+	 * concurrency limit holding it back (`concurrency_key`). */
+	waiting_reason?: 'sleep' | 'concurrency'
+	concurrency_key?: string
 	job_id?: string
 	parent_module?: string
 	selectedForloop?: string

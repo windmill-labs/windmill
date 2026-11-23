@@ -1,17 +1,26 @@
 <script lang="ts">
 	import type { FlowStatusModule } from '$lib/gen'
+	import type { GraphModuleState } from './graph'
 	import { Badge } from './common'
 	import { forLater } from '$lib/forLater'
 	import { displayDate } from '$lib/utils'
-	import { Hourglass } from 'lucide-svelte'
+	import { Hourglass, Lock, Timer } from 'lucide-svelte'
 
 	interface Props {
-		type: FlowStatusModule['type'];
-		scheduled_for: Date | undefined;
-		skipped?: boolean;
+		type: FlowStatusModule['type']
+		scheduled_for: Date | undefined
+		waiting_reason?: GraphModuleState['waiting_reason']
+		concurrency_key?: string
+		skipped?: boolean
 	}
 
-	let { type, scheduled_for, skipped = false }: Props = $props();
+	let {
+		type,
+		scheduled_for,
+		waiting_reason = undefined,
+		concurrency_key = undefined,
+		skipped = false
+	}: Props = $props()
 </script>
 
 {#if type == 'WaitingForEvents'}
@@ -26,10 +35,20 @@
 	</span>
 {:else if type == 'WaitingForExecutor'}
 	<span class="italic text-xs text-primary">
-		<Hourglass class="inline" />
 		{#if scheduled_for && forLater(scheduled_for.toString())}
-			Job is scheduled to be executed at {displayDate(scheduled_for, true)}
+			{#if waiting_reason === 'sleep'}
+				<Timer class="inline" size={14} />
+				Sleeping after the previous step until {displayDate(scheduled_for, true)}
+			{:else if waiting_reason === 'concurrency'}
+				<Lock class="inline" size={14} />
+				Held back by its concurrency limit{concurrency_key ? ` (key ${concurrency_key})` : ''}, next
+				check by {displayDate(scheduled_for, true)}
+			{:else}
+				<Hourglass class="inline" size={14} />
+				Job is scheduled to be executed at {displayDate(scheduled_for, true)}
+			{/if}
 		{:else}
+			<Hourglass class="inline" size={14} />
 			Job is waiting for an executor
 		{/if}
 	</span>

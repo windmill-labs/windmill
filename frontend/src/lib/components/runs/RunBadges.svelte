@@ -1,11 +1,16 @@
 <script lang="ts">
 	import Tooltip from '$lib/components/meltComponents/Tooltip.svelte'
 	import PreprocessedArgsDisplay from '$lib/components/runs/PreprocessedArgsDisplay.svelte'
-	import { getJobKindDisplayLabel, truncateHash } from '$lib/utils'
+	import {
+		displayDate,
+		getJobKindDisplayLabel,
+		msToCompactDuration,
+		truncateHash
+	} from '$lib/utils'
 	import { truncateRev } from '$lib/utils'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
-	import { ListFilter, Tag } from 'lucide-svelte'
+	import { ListFilter, Lock, Tag } from 'lucide-svelte'
 	import type { Job } from '$lib/gen'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 	import { userWorkspaces } from '$lib/stores'
@@ -24,6 +29,8 @@
 		displayPersistentScriptDefinition?: boolean
 		openPersistentScriptDrawer?: () => void
 		concurrencyKey?: string
+		/** When the job was first due, if its concurrency limit held it back. */
+		concurrencyDeferredFrom?: string
 		showScriptHash?: boolean
 		onFilterByConcurrencyKey?: (key: string) => void
 		large?: boolean
@@ -34,10 +41,17 @@
 		displayPersistentScriptDefinition,
 		openPersistentScriptDrawer,
 		concurrencyKey,
+		concurrencyDeferredFrom,
 		showScriptHash = true,
 		onFilterByConcurrencyKey,
 		large = false
 	}: Props = $props()
+
+	let heldBackMs = $derived(
+		concurrencyDeferredFrom && job.started_at
+			? new Date(job.started_at).getTime() - new Date(concurrencyDeferredFrom).getTime()
+			: undefined
+	)
 </script>
 
 {#if job.script_hash && showScriptHash && job.job_kind !== 'aiagent'}
@@ -142,4 +156,18 @@
 			{/if}
 		</Tooltip>
 	</div>
+	{#if heldBackMs != undefined && heldBackMs > 0}
+		<div>
+			<Badge
+				color="orange"
+				{large}
+				title="Its concurrency limit held this job back from {displayDate(
+					concurrencyDeferredFrom,
+					true
+				)} until it started"
+			>
+				<Lock size={10} class="inline -mt-px" />Held back {msToCompactDuration(heldBackMs, 0)}
+			</Badge>
+		</div>
+	{/if}
 {/if}

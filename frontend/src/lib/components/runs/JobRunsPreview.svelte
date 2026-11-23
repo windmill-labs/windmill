@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { ConcurrencyGroupsService, type Job, type WorkflowStatus } from '../../gen'
+	import { type Job, type WorkflowStatus } from '../../gen'
+	import { useConcurrencyKeyStatus } from './useConcurrencyKeyStatus.svelte'
 	import JobLoader from '../JobLoader.svelte'
 	import DisplayResult from '../DisplayResult.svelte'
 	import JobArgs from '../JobArgs.svelte'
@@ -34,12 +35,7 @@
 	let loadError: string | undefined = $state(undefined)
 	let isLoadingJobDetails: boolean = $state(false)
 
-	let lastJobId: string | undefined = $state(undefined)
-	let concurrencyKey: string | undefined = $state(undefined)
-	async function getConcurrencyKey(job: Job) {
-		lastJobId = job.id
-		concurrencyKey = await ConcurrencyGroupsService.getConcurrencyKey({ id: job.id })
-	}
+	const concurrency = useConcurrencyKeyStatus(() => job)
 
 	let viewTab = $state('logs')
 
@@ -99,10 +95,6 @@
 		}
 	})
 
-	$effect(() => {
-		job?.id && lastJobId !== job.id && untrack(() => job && getConcurrencyKey(job))
-	})
-
 	let jobLoader: JobLoader | undefined = $state(undefined)
 
 	// Set all tabs content to the same height to prevent layout jumps
@@ -151,7 +143,8 @@
 			<JobDetailHeader
 				{job}
 				compact
-				{concurrencyKey}
+				concurrencyKey={concurrency.key}
+				concurrencyDeferredFrom={concurrency.deferredFrom}
 				onFilterByConcurrencyKey={handleFilterByConcurrencyKey}
 				onFilterByWorker={handleFilterByWorker}
 				{onResolutionChanged}

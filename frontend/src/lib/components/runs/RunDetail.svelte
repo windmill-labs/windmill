@@ -6,7 +6,6 @@
 		type Script,
 		type WorkflowStatus,
 		type NewScript,
-		ConcurrencyGroupsService,
 		MetricsService,
 		WorkerService,
 		type ScriptArgs
@@ -74,6 +73,7 @@
 	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
 	import { pageHeader } from '$lib/components/pageHeaderRegistry.svelte'
 	import JobDetailHeader from '$lib/components/runs/JobDetailHeader.svelte'
+	import { useConcurrencyKeyStatus } from '$lib/components/runs/useConcurrencyKeyStatus.svelte'
 	import ScriptRetryChain from '$lib/components/runs/ScriptRetryChain.svelte'
 	import FlowExecutionStatus from '$lib/components/runs/FlowExecutionStatus.svelte'
 	import JobArgs from '$lib/components/JobArgs.svelte'
@@ -265,19 +265,12 @@
 		(localStorage.getItem('hideExplicitProgressTip') ?? 'false') == 'false'
 	)
 
-	let lastJobId: string | undefined = $state(undefined)
-	let concurrencyKey: string | undefined = $state(undefined)
+	const concurrency = useConcurrencyKeyStatus(() => job)
 
 	setContext(
 		'FlowGraphAssetContext',
 		initFlowGraphAssetsCtx({ getModules: () => job?.raw_flow?.modules ?? [] })
 	)
-
-	async function getConcurrencyKey(job: Job | undefined) {
-		if (!job) return
-		lastJobId = job.id
-		concurrencyKey = await ConcurrencyGroupsService.getConcurrencyKey({ id: job.id })
-	}
 
 	// Share read link: if the URL carries a `view_token`, install it so every job
 	// read on this page (incl. flow steps, args, logs, SSE) is authorized by it.
@@ -705,9 +698,6 @@
 		return openEditInFork(kind, itemPath, workspaceId)
 	}
 
-	$effect(() => {
-		job?.id && lastJobId !== job.id && untrack(() => getConcurrencyKey(job))
-	})
 	$effect(() => {
 		workspaceId && runId && untrack(() => onRunsPageChange())
 	})
@@ -1425,7 +1415,8 @@
 					openPersistentScriptDrawer={() => {
 						persistentScriptDrawer?.open?.(persistentScriptDefinition)
 					}}
-					{concurrencyKey}
+					concurrencyKey={concurrency.key}
+					concurrencyDeferredFrom={concurrency.deferredFrom}
 				/>
 			{/if}
 		</div>
@@ -1448,6 +1439,7 @@
 					textPosition="bottom"
 					slim
 					showStepId
+					stepStates={graphModuleStates}
 				>
 					{#snippet errorAction()}
 						<!-- A saved agent's run is its one step: naming it adds nothing. -->

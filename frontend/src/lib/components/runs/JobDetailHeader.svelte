@@ -52,6 +52,8 @@
 		displayPersistentScriptDefinition?: boolean
 		openPersistentScriptDrawer?: () => void
 		concurrencyKey?: string
+		/** When the job was first due, if its concurrency limit held it back. */
+		concurrencyDeferredFrom?: string
 		compact?: boolean
 		extraCompact?: boolean
 		onFilterByConcurrencyKey?: (key: string) => void
@@ -67,6 +69,7 @@
 		displayPersistentScriptDefinition = false,
 		openPersistentScriptDrawer,
 		concurrencyKey,
+		concurrencyDeferredFrom,
 		compact = false,
 		extraCompact = false,
 		onFilterByConcurrencyKey,
@@ -386,7 +389,7 @@
 		<div class="flex flex-row flex-wrap justify-between items-center gap-x-4 py-2 px-3">
 			<div class="flex flex-row flex-wrap gap-2 items-center flex-1">
 				{#if job}
-					<JobStatus {job} />
+					<JobStatus {job} heldByConcurrency={!!concurrencyDeferredFrom} />
 					<div class="flex items-baseline gap-1 text-xs">
 						<span class="text-secondary flex-shrink-0">Job ID</span>
 						<span class="text-primary">
@@ -511,13 +514,14 @@
 
 						<!-- Job Status -->
 						<div class="flex items-baseline flex-wrap gap-x-2 gap-y-1">
-							<JobStatus {job} />
+							<JobStatus {job} heldByConcurrency={!!concurrencyDeferredFrom} />
 
 							<RunBadges
 								{job}
 								{displayPersistentScriptDefinition}
 								{openPersistentScriptDrawer}
 								{concurrencyKey}
+								{concurrencyDeferredFrom}
 								{onFilterByConcurrencyKey}
 								showScriptHash={showScriptHashInBadges}
 								large={false}

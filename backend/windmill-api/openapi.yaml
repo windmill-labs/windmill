@@ -27764,6 +27764,33 @@ paths:
             application/json:
               schema:
                 type: string
+  /concurrency_groups/{id}/key_status:
+    get:
+      summary: Get a job's concurrency key and whether its limit held it back
+      description: Requires read access to the job, the same as reading the run itself. Returns null when the job has no concurrency key.
+      operationId: getConcurrencyKeyStatus
+      tags:
+        - concurrencyGroups
+      parameters:
+        - $ref: "#/components/parameters/JobId"
+      responses:
+        "200":
+          description: concurrency key and deferral of the given job
+          content:
+            application/json:
+              schema:
+                type: object
+                nullable: true
+                properties:
+                  key:
+                    type: string
+                  deferred_from:
+                    type: string
+                    format: date-time
+                    nullable: true
+                    description: When the job was first due. Set the first time its concurrency limit held it back, and kept after it ran.
+                required:
+                  - key
   /w/{workspace}/concurrency_groups/list_jobs:
     get:
       summary: Get intervals of job runtime concurrency

@@ -13,8 +13,10 @@
 		type CompletedJob,
 		type WorkflowStatus,
 		type FlowNote,
-		type FlowValue
+		type FlowValue,
+		ConcurrencyGroupsService
 	} from '$lib/gen'
+	import { forLater } from '$lib/forLater'
 	import FlowJobResult from './FlowJobResult.svelte'
 	import WorkflowTimeline from './WorkflowTimeline.svelte'
 	import DisplayResult from './DisplayResult.svelte'
@@ -681,6 +683,23 @@
 
 	/** The step waiting for or running its next attempt, if any. */
 	let retryingStepId: string | undefined = undefined
+
+	// A concurrency limit moves a waiting step's due time each time it holds it back, so a
+	// step still waiting once that time has passed is read again, at most every 5s.
+	const waitingStepChecks = new Map<string, number>()
+	function waitingStepDue(mod: FlowStatusModule): boolean {
+		const last = waitingStepChecks.get(mod.job ?? '')
+		if (last != undefined && Date.now() - last < 5000) return false
+		const scheduledFor = localModuleStates[mod.id ?? '']?.scheduled_for
+		return scheduledFor == undefined || !forLater(String(scheduledFor))
+	}
+
+	/** Whether the step before `id` sleeps once done, which pushes `id` back by that long. */
+	function sleepsBefore(id: string | undefined): boolean {
+		const raw = job?.raw_flow?.modules ?? []
+		const i = raw.findIndex((m) => m.id === id)
+		return i > 0 && !!raw[i - 1].sleep
+	}
 	function updateInnerModules(status: FlowStatus) {
 		const found = findDeniedApproval(status)
 		const denied = found?.approval
@@ -713,21 +732,36 @@
 						tag: job?.tag,
 						script_hash: job?.script_hash
 					})
-				} else if (
-					mod.type === 'WaitingForExecutor' &&
-					localModuleStates[mod.id ?? '']?.scheduled_for == undefined
-				) {
+				} else if (mod.type === 'WaitingForExecutor' && waitingStepDue(mod)) {
 					if (!isReplay) {
+						waitingStepChecks.set(mod.job ?? '', Date.now())
+						const retrying = mod.id === retryingId
 						JobService.getJob({
 							workspace: workspaceId ?? $operatingWorkspace ?? '',
 							id: mod.job ?? '',
 							noLogs: true,
 							noCode: true
 						})
-							.then((job) => {
+							.then(async (job) => {
+								const scheduledFor: string | undefined = job?.['scheduled_for']
+								let waiting_reason: GraphModuleState['waiting_reason'] = undefined
+								let concurrency_key: string | undefined = undefined
+								if (scheduledFor && forLater(scheduledFor)) {
+									const held = await ConcurrencyGroupsService.getConcurrencyKeyStatus({
+										id: job.id
+									}).catch(() => undefined)
+									if (held?.deferred_from) {
+										waiting_reason = 'concurrency'
+										concurrency_key = held.key
+									} else if (!retrying && sleepsBefore(mod.id)) {
+										waiting_reason = 'sleep'
+									}
+								}
 								const newState = {
 									type: mod.type,
 									scheduled_for: job?.['scheduled_for'],
+									waiting_reason,
+									concurrency_key,
 									job_id: job?.id,
 									parent_module: failedStepOf(mod),
 									args: job?.args,
@@ -2092,6 +2126,8 @@
 								<ModuleStatus
 									type={mod.type}
 									scheduled_for={localModuleStates?.[mod.id ?? '']?.scheduled_for}
+									waiting_reason={localModuleStates?.[mod.id ?? '']?.waiting_reason}
+									concurrency_key={localModuleStates?.[mod.id ?? '']?.concurrency_key}
 								/>
 							{/if}
 						</li>
@@ -2435,6 +2471,8 @@
 																		<ModuleStatus
 																			type={node.type}
 																			scheduled_for={node.scheduled_for}
+																			waiting_reason={node.waiting_reason}
+																			concurrency_key={node.concurrency_key}
 																			skipped={node.skipped}
 																		/>
 																		{#if node.duration_ms}

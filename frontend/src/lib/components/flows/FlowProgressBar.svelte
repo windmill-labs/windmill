@@ -4,6 +4,8 @@
 	import { forLater } from '$lib/forLater'
 	import { waitingRequest } from '../agentRequest'
 	import type { Snippet } from 'svelte'
+	import type { GraphModuleState } from '../graph'
+	import { displayDate } from '$lib/utils'
 
 	interface Props {
 		job?: Job | undefined
@@ -13,6 +15,8 @@
 		textPosition?: 'top' | 'bottom'
 		// Prefer step ID over step index when both are available
 		showStepId?: boolean
+		/** The run graph's step states, which say why a step that has not started is waiting. */
+		stepStates?: Record<string, GraphModuleState>
 		errorAction?: Snippet
 	}
 
@@ -23,8 +27,21 @@
 		slim = false,
 		textPosition = 'top',
 		showStepId = false,
+		stepStates = undefined,
 		errorAction
 	}: Props = $props()
+
+	let waitingText = $derived.by(() => {
+		const next = job?.flow_status?.modules?.[job.flow_status.step]
+		const s = next?.type === 'WaitingForExecutor' ? stepStates?.[next.id ?? ''] : undefined
+		if (s?.type !== 'WaitingForExecutor' || !s.scheduled_for) return undefined
+		const until = displayDate(s.scheduled_for, true)
+		return s.waiting_reason === 'sleep'
+			? `Sleeping before step ${next?.id} until ${until}`
+			: s.waiting_reason === 'concurrency'
+				? `Step ${next?.id} waiting for a concurrency slot, next check by ${until}`
+				: undefined
+	})
 
 	let error: number | undefined = $state(undefined)
 	let index = $state(0)
@@ -193,5 +210,6 @@
 	{isCanceled}
 	{isScheduled}
 	{isSkipped}
+	{waitingText}
 	{errorAction}
 />

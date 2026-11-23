@@ -12,6 +12,7 @@
 	} from 'lucide-svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import NodeWrapper from './NodeWrapper.svelte'
+	import WaitingMark from './WaitingMark.svelte'
 	import AiDecisionNodeBranch from './AiDecisionNodeBranch.svelte'
 	import type { ModuleN } from '../../graphBuilder.svelte'
 	import { jobToGraphModuleState } from '$lib/components/modulesTest.svelte'
@@ -352,11 +353,19 @@
 				: undefined}
 		/>
 
-		{#await hiddenErrorHandlers}
-			{@render insideBar(retriedInside, undefined)}
-		{:then handlers}
-			{@render insideBar(retriedInside, handlers)}
-		{/await}
+		{#if type === 'WaitingForExecutor' && state?.waiting_reason && state.scheduled_for}
+			<WaitingMark
+				reason={state.waiting_reason}
+				until={state.scheduled_for}
+				concurrencyKey={state.concurrency_key}
+			/>
+		{:else}
+			{#await hiddenErrorHandlers}
+				{@render insideBar(retriedInside, undefined)}
+			{:then handlers}
+				{@render insideBar(retriedInside, handlers)}
+			{/await}
+		{/if}
 
 		{#if (data.module?.value?.type === 'branchall' || data.module?.value?.type === 'branchone') && data.insertable}
 			<div class="absolute -bottom-10 left-1/2 transform -translate-x-1/2 z-10 flex gap-1">
