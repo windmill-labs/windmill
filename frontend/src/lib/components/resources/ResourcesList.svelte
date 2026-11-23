@@ -210,6 +210,7 @@
 	let appConnect: AppConnect | undefined = $state(undefined)
 	let supabaseConnect: SupabaseConnect | undefined = $state(undefined)
 	let deleteConfirmedCallback: (() => void) | undefined = $state(undefined)
+	let reconnectConfirm: { path: string; reconnect: () => void } | undefined = $state(undefined)
 	let deleteIsLinked = $state(false)
 	let deletePath = $state('')
 	let loading = $state({
@@ -893,6 +894,25 @@
 	</div>
 </ConfirmationModal>
 
+<ConfirmationModal
+	open={Boolean(reconnectConfirm)}
+	title="Reconnect shared resource"
+	confirmationText="Reconnect"
+	type="reload"
+	on:canceled={() => {
+		reconnectConfirm = undefined
+	}}
+	on:confirmed={() => {
+		reconnectConfirm?.reconnect()
+		reconnectConfirm = undefined
+	}}
+>
+	<span>
+		<span class="font-semibold break-all">{reconnectConfirm?.path}</span> is shared. Once reconnected,
+		every script, flow and trigger using it acts as the account you sign in with.
+	</span>
+</ConfirmationModal>
+
 <DeployWorkspaceDrawer bind:this={deploymentDrawer} />
 
 <Drawer bind:this={inferrer} size="800px">
@@ -1543,13 +1563,24 @@
 																			icon: Plug,
 																			disabled: !canWrite || !showCreateButtons,
 																			// A workspace app's account names its service, not a client.
-																			action: () =>
-																				appConnect?.open?.(
-																					client?.endsWith('_sandbox') ? client : resource_type,
-																					path,
-																					scopes ?? [],
-																					is_workspace_integration ?? false
-																				)
+																			action: () => {
+																				const reconnect = () =>
+																					appConnect?.open?.(
+																						client?.endsWith('_sandbox') ? client : resource_type,
+																						path,
+																						scopes ?? [],
+																						is_workspace_integration ?? false
+																					)
+																				// Everyone using a shared resource acts as whoever reconnects it.
+																				if (
+																					path.startsWith('f/') ||
+																					Object.keys(extra_perms ?? {}).length > 0
+																				) {
+																					reconnectConfirm = { path, reconnect }
+																				} else {
+																					reconnect()
+																				}
+																			}
 																		}
 																	]
 																: []),
