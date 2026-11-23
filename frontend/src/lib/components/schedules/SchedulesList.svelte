@@ -422,7 +422,7 @@
 		)}
 		style={depth > 0 ? `padding-left: ${(depth + 1) * 16}px;` : ''}
 	>
-		<div class="w-full flex flex-wrap xl:flex-nowrap gap-x-4 gap-y-2 items-center">
+		<div class="w-full flex flex-wrap xl:flex-nowrap gap-x-3 md:gap-x-4 gap-y-2 items-center">
 			<RowIcon kind={is_flow ? 'flow' : 'script'} />
 
 			<a
@@ -432,7 +432,7 @@
 					handledHash = `#${path}`
 					editSchedule(path, is_flow)
 				}}
-				class="min-w-[8rem] basis-0 xl:basis-auto grow hover:underline decoration-gray-400"
+				class="min-w-0 md:min-w-[8rem] basis-0 xl:basis-auto grow hover:underline decoration-gray-400"
 			>
 				<div class="text-emphasis flex-wrap text-left text-xs font-semibold mb-1 truncate">
 					{summary || script_path}{hasDraft ? '*' : ''}
@@ -443,7 +443,7 @@
 			</a>
 			<!-- Below xl this group wraps onto its own line under the name, so the name keeps its width. -->
 			<div
-				class="order-last basis-full pl-8 xl:order-none xl:basis-auto xl:pl-0 flex flex-wrap gap-2 items-center min-w-0"
+				class="order-last basis-full pl-7 md:pl-8 xl:order-none xl:basis-auto xl:pl-0 flex flex-wrap gap-2 items-center min-w-0"
 			>
 				{#if labels?.length}
 					{#each labels as label (label)}
@@ -494,7 +494,9 @@
 				</div>
 			</div>
 
-			<div class="w-4 md:w-10 shrink-0">
+			<!-- Below md an empty status column is dropped, so a draft-only row's badge and toggle
+			     still fit beside the name. -->
+			<div class="w-4 md:w-10 shrink-0 max-md:[&:not(:has(*))]:hidden">
 				{#if error}
 					<Popover notClickable>
 						<span class="flex h-4 w-4">
@@ -641,6 +643,7 @@
 						{
 							displayName: 'View runs',
 							icon: List,
+							disabled: draft_only,
 							href: `/runs/?schedule_path=${path}&job_trigger_kind=schedule&show_future_jobs=true`
 						},
 						{

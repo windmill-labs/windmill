@@ -615,7 +615,9 @@
 		{@const pinging = ping && ping.getTime() > new Date().getTime() - 15 * 1000}
 		{@const effectiveMode = row.draft_only ? 'disabled' : row.mode}
 		{@const enabled = effectiveMode === 'enabled' || effectiveMode === 'suspended'}
-		<div class="w-4 md:w-10 shrink-0">
+		<!-- Below md an empty status column is dropped, so a draft-only row's badge and toggle
+		     still fit beside the title. -->
+		<div class="w-4 md:w-10 shrink-0 max-md:[&:not(:has(*))]:hidden">
 			{#if (enabled && (!pinging || row.error)) || (!enabled && row.error) || (enabled && !row.server_id)}
 				<Popover notClickable>
 					<span class="flex h-4 w-4">
@@ -732,7 +734,7 @@
 		)}
 		style={depth > 0 ? `padding-left: ${(depth + 1) * 16}px;` : ''}
 	>
-		<div class="w-full flex flex-wrap xl:flex-nowrap gap-x-5 gap-y-2 items-center">
+		<div class="w-full flex flex-wrap xl:flex-nowrap gap-x-3 md:gap-x-5 gap-y-2 items-center">
 			<RowIcon kind={is_flow ? 'flow' : 'script'} />
 
 			<a
@@ -742,7 +744,7 @@
 					if (hosted) e.preventDefault()
 					openEdit(path, is_flow)
 				}}
-				class="min-w-[8rem] basis-0 xl:basis-auto grow hover:underline decoration-gray-400"
+				class="min-w-0 md:min-w-[8rem] basis-0 xl:basis-auto grow hover:underline decoration-gray-400"
 			>
 				{@render rowTitle(row, hasDraft)}
 			</a>
@@ -751,7 +753,7 @@
 			     width. Hidden when it holds no badge, so such a row gains no blank line: `empty:` misses
 			     it because Svelte leaves comment and text nodes behind. -->
 			<div
-				class="order-last basis-full pl-9 xl:order-none xl:basis-auto xl:pl-0 flex flex-wrap gap-1 items-center min-w-0 [&:not(:has(*))]:hidden"
+				class="order-last basis-full pl-7 md:pl-9 xl:order-none xl:basis-auto xl:pl-0 flex flex-wrap gap-1 items-center min-w-0 [&:not(:has(*))]:hidden"
 			>
 				<SharedBadge
 					canWrite={canWrite(path, extra_perms!, operatingUser.current)}
