@@ -67,6 +67,22 @@ import {
 	type PushBody
 } from './sessionMirrorPlan'
 
+/** A session preview tab loads the app in a frame of the app itself. Its storage is the
+ * page's, so the backup is left to the page: the frame only writes marks, which the page
+ * uploads, since its own restore would hold the user's lock against the page's flushes, and
+ * Firefox rejects a lock request from a frame's document while it is being removed. A frame
+ * under another origin (the app embedded in another site) keeps its own backup: no top-level
+ * page of the app reads its storage. */
+const inAppFrame = BROWSER && window.self !== window.top && sameOriginTop()
+
+function sameOriginTop(): boolean {
+	try {
+		return window.top?.location.origin === window.location.origin
+	} catch {
+		return false
+	}
+}
+
 /** A flush waits for the marks to go quiet this long. */
 const QUIET_MS = 15_000
 /** ...but never longer than this after the first unflushed mark. */
@@ -352,12 +368,14 @@ function clearTimers(): void {
 }
 
 function scheduleFlush(): void {
+	if (inAppFrame) return
 	clearTimeout(quietTimer)
 	quietTimer = setTimeout(runFlush, QUIET_MS)
 	maxTimer ??= setTimeout(runFlush, MAX_DELAY_MS)
 }
 
 function runFlush(): void {
+	if (inAppFrame) return
 	clearTimers()
 	void enqueue(flush)
 }
@@ -1557,7 +1575,7 @@ async function restoreWorkspace(
  * touched; only ones this browser lacks are brought back.
  */
 export function restoreSessionBackups(currentWorkspace: string): void {
-	if (!BROWSER) return
+	if (!BROWSER || inAppFrame) return
 	// A restore writes an absent session's pieces page by page and prunes what an earlier
 	// one staged: two tabs doing that at once would write over each other, so it runs only
 	// under the tab lock. Where Web Locks do not exist (a plain http origin), the browser
