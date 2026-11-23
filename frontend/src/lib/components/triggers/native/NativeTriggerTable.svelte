@@ -115,7 +115,7 @@
 				<div
 					class="hover:bg-surface-hover w-full items-center px-4 py-2 gap-4 first-of-type:!border-t-0 first-of-type:rounded-t-md last-of-type:rounded-b-md flex flex-col"
 				>
-					<div class="w-full flex gap-5 items-center">
+					<div class="w-full flex gap-3 md:gap-5 items-center">
 						<RowIcon kind={isFlow ? 'flow' : 'script'} />
 
 						<a
@@ -124,7 +124,7 @@
 								if (isNewTabClick(e)) return
 								onEdit?.(trigger)
 							}}
-							class="min-w-[8rem] grow hover:underline decoration-gray-400"
+							class="min-w-0 md:min-w-[8rem] grow hover:underline decoration-gray-400"
 						>
 							<div class="text-emphasis flex-wrap text-left text-xs font-semibold mb-1 truncate">
 								{#if trigger.marked}
