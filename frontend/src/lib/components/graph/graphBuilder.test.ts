@@ -145,3 +145,22 @@ describe('topologicalSort', () => {
 		expect(sorted.map((n) => n.id)).toEqual(['orphan', 'b', 'a'])
 	})
 })
+
+describe('graphBuilder expanded subflows', () => {
+	it('draws the same subflow expanded at two steps, sharing step ids with the parent', () => {
+		const flow = (id: string): FlowModule => ({
+			id,
+			value: { type: 'flow', path: 'u/admin/child', input_transforms: {} }
+		})
+		const child = {
+			modules: [script('x'), script('b')],
+			groups: [{ start_id: 'x', end_id: 'b' }]
+		}
+		const r = build([flow('a'), flow('b')], {}, { a: child, b: child })
+
+		expect((r as any).error).toBeUndefined()
+		expect(r.nodes['group:subflow:a:x:subflow:a:b']).toBeDefined()
+		expect(r.nodes['group:subflow:b:x:subflow:b:b']).toBeDefined()
+		expect(hasEdge(r.edges, 'a-subflow-end', 'b')).toBe(true)
+	})
+})

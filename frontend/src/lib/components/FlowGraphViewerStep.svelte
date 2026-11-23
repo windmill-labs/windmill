@@ -11,7 +11,7 @@
 	import FlowPathViewer from './flows/content/FlowPathViewer.svelte'
 	import SchemaViewer from './SchemaViewer.svelte'
 	import { scriptPathToHref } from '$lib/scripts'
-	import { cleanExpr, copyToClipboard } from '$lib/utils'
+	import { cleanExpr, copyToClipboard, msToCompactDuration } from '$lib/utils'
 	import { hubBaseUrlStore } from '$lib/stores'
 
 	import { twMerge } from 'tailwind-merge'
@@ -301,6 +301,42 @@
 				</Button>
 			</div>
 			<FlowPathViewer noSide path={stepDetail.value.path} />
+		{/if}
+		{#if stepDetail.suspend}
+			{@const suspend = stepDetail.suspend}
+			{@const groups = suspend.user_groups_required}
+			<div class="text-xs mt-6">
+				<h3 class="mb-1 font-semibold text-xs text-emphasis">Approval</h3>
+				<ul class="flex flex-col gap-1 text-primary">
+					<li>
+						{suspend.required_events ?? 1}
+						{(suspend.required_events ?? 1) > 1 ? 'approvals' : 'approval'} required, timeout after
+						{msToCompactDuration((suspend.timeout ?? 1800) * 1000)}
+					</li>
+					{#if suspend.user_auth_required}
+						{#if groups?.type == 'static' && Array.isArray(groups.value) && groups.value.length > 0}
+							<li class="flex flex-wrap items-center gap-1">
+								Approvers: members of
+								{#each groups.value as group (group)}
+									<Badge color="blue">{group}</Badge>
+								{/each}
+							</li>
+						{:else if groups?.type == 'javascript'}
+							<li>Approvers: members of the groups returned by</li>
+							<li class="border p-2 rounded-md bg-surface-input">
+								<HighlightCode language="frontend" code={groups.expr} />
+							</li>
+						{:else}
+							<li>Approvers: any logged in user of the workspace</li>
+						{/if}
+						{#if suspend.self_approval_disabled}
+							<li>The user who started the flow cannot approve it</li>
+						{/if}
+					{:else}
+						<li>Approvers: anyone with the approval link, no login required</li>
+					{/if}
+				</ul>
+			</div>
 		{/if}
 	{:else}
 		<p class="font-medium text-secondary text-center pt-4 pb-8">
