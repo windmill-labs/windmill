@@ -228,6 +228,19 @@ describe('groupToolRuns', () => {
 		).toEqual([{ explore: [0, 1] }, { edit: [2, 3] }])
 	})
 
+	it('folds draft writes of any item kind, leaving out one awaiting approval', () => {
+		const run = [
+			tool('write_schedule', { path: 'f/a/daily' }),
+			assistant('', { reasoning: 'next' }),
+			tool('write_schedule', { path: 'f/a/hourly' }),
+			tool('write_trigger', { kind: 'http', config: { path: 'f/a/hook' } }),
+			tool('write_variable', { path: 'f/a/token' }, { error: 'invalid value' }),
+			tool('write_resource', { path: 'f/a/db' }, { needsConfirmation: true, isLoading: true })
+		]
+		expect(shape(run)).toEqual([{ draft: [0, 1, 2, 3, 4] }, 5])
+		expect(header(run)).toBe('Drafted 2 schedules, 1 trigger')
+	})
+
 	it('folds consecutive lookups of any tool, split by a write or a row with its own card', () => {
 		expect(
 			shape([

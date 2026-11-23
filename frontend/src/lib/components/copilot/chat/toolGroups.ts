@@ -25,6 +25,15 @@ const EDIT_TOOLS: Record<string, EditedItemKind> = {
 	write_app_runnable: 'app',
 	delete_app_runnable: 'app'
 }
+// Draft writes of items without a diff card, by the word the group header counts them as.
+// Unlike edits they fold across items and kinds: a setup turn drafts several in a row, and
+// each row only names its item.
+const DRAFT_WRITE_TOOLS: Record<string, string> = {
+	write_schedule: 'schedule',
+	write_trigger: 'trigger',
+	write_resource: 'resource',
+	write_variable: 'variable'
+}
 // Reads of the item being edited: the model reads a step or file before changing it, and
 // splitting the group on every read would leave one group per edit.
 const ITEM_READ_TOOLS: Record<string, EditedItemKind> = {
@@ -88,9 +97,10 @@ const READ_TOOLS = new Set([
 
 export type ToolGroup = {
 	kind: 'group'
-	/** 'edit': edits of one flow or app. 'explore': consecutive lookups of anything.
+	/** 'edit': edits of one flow or app. 'draft': draft writes of schedules, triggers,
+	 * resources and variables. 'explore': consecutive lookups of anything.
 	 * 'waiting': calls queued behind the one running or awaiting the user. */
-	groupKind: 'edit' | 'explore' | 'waiting'
+	groupKind: 'edit' | 'draft' | 'explore' | 'waiting'
 	/** First call's id, so the group keeps its identity (and expand state) as it grows. */
 	key: string
 	/** Edit groups: the item's path, or '' for the flow open in the editor. */
@@ -176,6 +186,11 @@ function itemMembership(message: DisplayMessage): Membership | undefined {
 // would leave its own group and the header would read as settled.
 function sameItem(a: Membership | undefined, b: Membership): boolean {
 	return a !== undefined && a.kind === b.kind && (a.path === undefined || a.path === b.path)
+}
+
+function isDraftWrite(message: DisplayMessage): boolean {
+	const call = groupableCall(message)
+	return call !== undefined && Object.hasOwn(DRAFT_WRITE_TOOLS, call.toolName!)
 }
 
 function isReadCall(message: DisplayMessage): boolean {
@@ -274,6 +289,9 @@ function kindGroupAt(messages: DisplayMessage[], start: number): ToolGroup | und
 	const explores = (m: DisplayMessage, j: number) => isReadCall(m) && !editGroupAt(messages, j)
 	return (
 		editGroupAt(messages, start) ??
+		(isDraftWrite(messages[start])
+			? toolGroup(messages, start, runEnd(messages, start, isDraftWrite), 'draft', '')
+			: undefined) ??
 		(isReadCall(messages[start])
 			? toolGroup(messages, start, runEnd(messages, start, explores), 'explore', '')
 			: undefined)
@@ -417,6 +435,20 @@ export function groupHeader(
 		return {
 			prefix: { queued: 'Edit', running: 'Editing', settled: 'Edited' }[state],
 			label: `${group.target || 'the flow'} · ${plural(edits, 'change')}`,
+			more: []
+		}
+	}
+	if (group.groupKind === 'draft') {
+		const drafted = new Map<string, number>()
+		for (const call of calls) {
+			if (callFailed(call)) continue
+			const kind = DRAFT_WRITE_TOOLS[call.toolName!]
+			drafted.set(kind, (drafted.get(kind) ?? 0) + 1)
+		}
+		const kinds = [...drafted].map(([kind, n]) => plural(n, kind))
+		return {
+			prefix: { queued: 'Draft', running: 'Drafting', settled: 'Drafted' }[state],
+			label: kinds.length ? kinds.join(', ') : plural(0, 'draft'),
 			more: []
 		}
 	}
