@@ -255,9 +255,11 @@ describe('groupToolRuns', () => {
 			tool('edit_script', a),
 			run('f/b/script'),
 			run(),
+			// Still preparing: its form has not opened yet.
+			tool('test_run_script', a, { isLoading: true }),
 			run(a.path, { isLoading: true })
 		]
-		expect(shape(messages)).toEqual([{ test: [0, 1, 2] }, 3, 4, 5, 6])
+		expect(shape(messages)).toEqual([{ test: [0, 1, 2] }, 3, 4, 5, 6, 7])
 		expect(header(messages)).toBe('Tested f/a/script · 2 runs · 1 change')
 	})
 

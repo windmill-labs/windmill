@@ -306,12 +306,23 @@ function waitingGroupAt(
 
 type TestedItem = { kind: TestedItemKind; path: string | undefined }
 
+// The global chat's test runs go through a run form and always name their item, except
+// test_run_code, which has no item; the editors' test tools take no path and open no form,
+// and test_run_app_runnable runs without one.
+function opensRunForm(call: ToolDisplayMessage): boolean {
+	if (call.toolName === 'test_run_code') return true
+	return call.toolName !== 'test_run_app_runnable' && Boolean(callPath(call, false))
+}
+
 // A run form waiting for the user's arguments is the thing they must act on, so it stays out
-// of every group until it is answered.
+// of every group until it is answered, and so does a run that has not reached its form yet:
+// joining before the form opens would fold the group, then unfold it as the form appears.
 function testRunOf(message: DisplayMessage): TestedItem | undefined {
 	if (message.role !== 'tool' || !message.toolName) return undefined
 	if (!Object.hasOwn(TEST_RUN_TOOLS, message.toolName)) return undefined
 	if (standsAlone(message) || isActiveRunForm(message)) return undefined
+	if (message.isQueued || message.isStreamingArguments) return undefined
+	if (!message.runForm && opensRunForm(message)) return undefined
 	const kind = TEST_RUN_TOOLS[message.toolName]
 	// A run form replaces the row's `parameters` with the run's arguments, so its item is read
 	// off the form. test_run_code runs the code it is sent, so its runs are all of one item,
