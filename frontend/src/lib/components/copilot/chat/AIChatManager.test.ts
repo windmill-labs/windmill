@@ -554,8 +554,16 @@ describe('AIChatManager secret request', () => {
 		manager.cancel()
 		expect(await toolResult).toBeUndefined()
 
+		// Opening another chat first would settle this card in that one.
+		const loadPast = vi.spyOn(manager.historyManager, 'loadPastChat').mockResolvedValue(undefined)
+		const switched = manager.loadPastChat('other')
+		await Promise.resolve()
+		expect(loadPast).not.toHaveBeenCalled()
+
 		land({ path: 'u/a/key', replaced: false })
 		await saved
+		await switched
+		expect(loadPast).toHaveBeenCalled()
 		const card = manager.displayMessages[0]
 		expect(card.role === 'tool' && card.secretRequest).toMatchObject({
 			saved: { path: 'u/a/key' },

@@ -2500,7 +2500,9 @@ export class AIChatManager implements ChatViewHost {
 						...m,
 						error: undefined,
 						isLoading: false,
-						content: outcome ? `Saved ${label} to ${outcome.path}` : `Asked for ${label} — dismissed`,
+						content: outcome
+							? `Saved ${label} to ${outcome.path}`
+							: `Asked for ${label} — dismissed`,
 						secretRequest: outcome
 							? { ...m.secretRequest, saving: false, saved: outcome }
 							: { ...m.secretRequest, saving: false, canceled: true }
@@ -5416,6 +5418,8 @@ export class AIChatManager implements ChatViewHost {
 		// chat already carries the turn's own checkpoint. Gated on `sendInFlight`
 		// too, for the pre-`loading` window `sendOrQueue` documents.
 		if (this.loading || this.sendInFlight) return
+		// A save settles its card in whatever conversation is on screen when it lands.
+		await this.#secretSavesLanded()
 		const chat = await this.historyManager.loadPastChat(id)
 		if (chat) {
 			// Drop any message queued in the current conversation so it doesn't
