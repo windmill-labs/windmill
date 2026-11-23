@@ -94,13 +94,14 @@
 		try {
 			await save({
 				path: savePath,
-				// The user asked the AI to replace what is there, which the path picker may not show:
-				// it checks the resource path, not the variables beside it.
-				replace: taken || !!request.replace,
+				// The user asked the AI to replace what is at its path, which the path picker may not
+				// show: it checks the resource path, not the variables beside it. Only that path.
+				replace: taken || (!!request.replace && savePath === request.path),
 				...(connectionParts
 					? {
 							secrets: { [secretFields[0].field]: connectionParts.secret },
-							fields: { ...resource?.value, ...connectionParts.fields }
+							// Only what the string says, which is all the card shows.
+							fields: connectionParts.fields
 						}
 					: { secrets: $state.snapshot(secrets), fields: submittedFields() })
 			})
