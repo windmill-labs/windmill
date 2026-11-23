@@ -422,9 +422,7 @@
 							selectedJobStep={restart.restartStepId ?? selectedJobStep}
 							selectedJobStepType={restart.selectedJobStepType}
 							parallelFailedCount={restart.parallelFailedCount}
-							retargetedFrom={restart.restartStepId !== selectedJobStep
-								? selectedJobStep
-								: undefined}
+							parallelUnit={restart.parallelUnit}
 							restartBranchNames={restart.restartBranchNames}
 							presetIterationN={restart.topLevelLoopIteration}
 							iterationCounts={restart.iterationCounts}

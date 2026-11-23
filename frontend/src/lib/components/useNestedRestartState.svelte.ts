@@ -172,12 +172,21 @@ export function useNestedRestartState(opts: {
 		return out
 	})
 
+	const parallelUnit = $derived.by((): 'iterations' | 'branches' | undefined => {
+		if ((selectedJobStepType as string) !== 'parallel') return undefined
+		const mod = opts.job()?.raw_flow?.modules.find((m) => m.id === restartStepId)
+		return mod?.value.type === 'branchall' ? 'branches' : 'iterations'
+	})
+
 	return {
 		get restartStepId() {
 			return restartStepId
 		},
 		get parallelFailedCount() {
 			return parallelFailedCount
+		},
+		get parallelUnit() {
+			return parallelUnit
 		},
 		get selectedJobStepIsTopLevel() {
 			return selectedJobStepIsTopLevel

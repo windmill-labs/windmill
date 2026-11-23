@@ -1041,9 +1041,7 @@
 			selectedJobStep={step}
 			selectedJobStepType={state.selectedJobStepType}
 			parallelFailedCount={state.parallelFailedCount}
-			retargetedFrom={state === selectedRestart && selectedRestart.restartStepId !== selectedJobStep
-				? selectedJobStep
-				: undefined}
+			parallelUnit={state.parallelUnit}
 			restartBranchNames={state.restartBranchNames}
 			nestedPath={state.nestedRestartSupported ? state.nestedRestartPath : undefined}
 			nestedTopStepId={state.nestedRestartTopStepId}

@@ -19,8 +19,8 @@
 		 * run. Rerunning only those is offered when it is non-zero.
 		 */
 		parallelFailedCount?: number
-		/** The step the user selected, when the restart targets its enclosing parallel step. */
-		retargetedFrom?: string
+		/** What a parallel step reruns: its loop's iterations or its branches. */
+		parallelUnit?: 'iterations' | 'branches'
 		restartBranchNames?: [number, string][]
 		flowPath?: string
 		/** The flow version ID used in this run (from job.script_hash) */
@@ -81,7 +81,7 @@
 		selectedJobStep,
 		selectedJobStepType,
 		parallelFailedCount = undefined,
-		retargetedFrom = undefined,
+		parallelUnit = 'iterations',
 		restartBranchNames = [],
 		flowPath = undefined,
 		flowVersionId = undefined,
@@ -352,7 +352,9 @@
 					</label>
 				{:else if selectedJobStepType === 'parallel'}
 					<div>
-						<div class="pb-1 text-xs font-semibold text-emphasis">Rerun</div>
+						<div class="pb-1 text-xs font-semibold text-emphasis">
+							Rerun {parallelUnit} of <code class="text-xs">{selectedJobStep}</code>
+						</div>
 						<ToggleButtonGroup bind:selected={rerun}>
 							{#snippet children({ item })}
 								<ToggleButton
@@ -365,11 +367,6 @@
 								<ToggleButton value="all" label="All" {item} />
 							{/snippet}
 						</ToggleButtonGroup>
-						{#if retargetedFrom}
-							<div class="pt-2 text-2xs text-secondary">
-								Steps inside a parallel step restart with it.
-							</div>
-						{/if}
 					</div>
 				{:else if selectedJobStepType === 'branchall'}
 					<label>
