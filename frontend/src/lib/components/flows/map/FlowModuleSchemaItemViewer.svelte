@@ -1,5 +1,6 @@
 <script lang="ts">
-	import Popover from '$lib/components/Popover.svelte'
+	import Tooltip from '$lib/components/meltComponents/Tooltip.svelte'
+	import { ChevronRight } from 'lucide-svelte'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import type { FlowNodeColorClasses } from '$lib/components/graph'
 	import { twMerge } from 'tailwind-merge'
@@ -51,7 +52,7 @@
 		</div>
 	{/if}
 
-	<Popover
+	<Tooltip
 		class="absolute left-1/2 transform -translate-x-1/2 center-center"
 		style="max-width: calc(100% - {marginLeft}px)"
 	>
@@ -59,18 +60,13 @@
 			{label}
 		</div>
 		{#snippet text()}
-			<div>
-				<div>{label}</div>
-				{#if path != ''}<div>{path}</div>{/if}
-				{#if id?.startsWith('subflow:')}
-					<div class="text-tertiary">{id.slice('subflow:'.length).split(':').join(' › ')}</div>
-				{/if}
-				{#if showExploreHint}
-					<div class="mt-1 text-tertiary">double click, or click again, to explore</div>
-				{/if}
-			</div>
+			<div>{label}</div>
+			{#if path != '' && path != label}<div class="text-secondary">{path}</div>{/if}
+			{#if showExploreHint}
+				<div class="mt-1 text-hint">double click, or click again, to explore</div>
+			{/if}
 		{/snippet}
-	</Popover>
+	</Tooltip>
 
 	<div class="flex items-center space-x-2 relative" bind:clientWidth={idBadgeWidth}>
 		<!-- A saved agent's run is that one step, already named by the run page. -->
@@ -101,10 +97,25 @@
 				</span>
 			</Badge>
 		{:else if id?.startsWith('subflow:')}
-			<Badge color="blue" wrapperClass="max-w-full" baseClass="!px-1">
-				<!-- The step's own id: its subflow path is in the label's popover, and would crowd out the summary. -->
-				<span class="block max-w-12 text-2xs truncate">{id.split(':').at(-1)}</span></Badge
-			>
+			<!-- The step's own id: the subflow steps it sits in would crowd out the summary, so they
+			     are in the badge's tooltip. -->
+			<Tooltip class="max-w-full">
+				<Badge color="blue" wrapperClass="max-w-full" baseClass="!px-1">
+					<span class="block max-w-12 text-2xs truncate">{id.split(':').at(-1)}</span></Badge
+				>
+				{#snippet text()}
+					<div class="flex flex-wrap items-center gap-1">
+						{#each id.slice('subflow:'.length).split(':') as step, i (i)}
+							{#if i > 0}
+								<ChevronRight size={12} class="shrink-0 text-hint" />
+							{/if}
+							<Badge color="blue" baseClass="!px-1">
+								<span class="text-2xs">{step}</span>
+							</Badge>
+						{/each}
+					</div>
+				{/snippet}
+			</Tooltip>
 		{/if}
 	</div>
 </div>
