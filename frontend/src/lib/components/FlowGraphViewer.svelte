@@ -14,6 +14,8 @@
 	import { publishLinkedAgentTools } from './flows/flowState'
 	import { linkedToolsScope } from './flows/linkedAgentToolsStore.svelte'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import type { ExpandedSubflow } from './graph/graphBuilder.svelte'
+	import { resolveLoadedExpandedSubflowStep } from './flows/expandedSubflowStep'
 
 	const operatingWorkspace = useOperatingWorkspace()
 
@@ -31,6 +33,8 @@
 		noGraph?: boolean
 		triggerNode?: boolean
 		stepDetail?: FlowModule | string | undefined
+		/** Subflows crossed to reach `stepDetail`, set when it is inside an expanded subflow. */
+		subflowPathChain?: string[]
 		workspace?: string | undefined
 		minHeight?: number
 		noBorder?: boolean
@@ -50,6 +54,7 @@
 		noGraph = false,
 		triggerNode = false,
 		stepDetail = $bindable(undefined),
+		subflowPathChain = $bindable(),
 		workspace = $operatingWorkspace,
 		minHeight = 400,
 		noBorder = false,
@@ -60,6 +65,7 @@
 	}: Props = $props()
 
 	let availableHeight = $state(0)
+	let expandedSubflows: Record<string, ExpandedSubflow> = $state({})
 
 	if (provideTriggerContext && !hasContext('TriggerContext')) {
 		const triggersCount = writable<TriggersCount | undefined>(undefined)
@@ -136,7 +142,9 @@
 				preprocessorModule={flow?.value?.preprocessor_module}
 				notes={flow?.value?.notes}
 				groups={flow?.value?.groups}
+				bind:expandedSubflows
 				onSelect={(nodeId) => {
+					subflowPathChain = undefined
 					if (nodeId === 'Trigger') {
 						dispatch('triggerDetail')
 						return
@@ -144,6 +152,14 @@
 						stepDetail = flow?.value?.failure_module
 					} else if (nodeId === 'preprocessor') {
 						stepDetail = flow?.value?.preprocessor_module
+					} else if (typeof nodeId === 'string' && nodeId.startsWith('subflow:')) {
+						const resolved = resolveLoadedExpandedSubflowStep(
+							nodeId,
+							flow?.value?.modules ?? [],
+							expandedSubflows
+						)
+						stepDetail = resolved?.module
+						subflowPathChain = resolved?.pathChain
 					} else {
 						stepDetail = dfs(flow?.value?.modules ?? [], (m) => m).find((m) => m?.id === nodeId)
 					}
@@ -162,7 +178,13 @@
 				noGraph ? 'border-0 w-max' : ''
 			)}
 		>
-			<FlowGraphViewerStep schema={flow?.schema} {stepDetail} {hideDefaultInputs} {workspace} />
+			<FlowGraphViewerStep
+				schema={flow?.schema}
+				{stepDetail}
+				{subflowPathChain}
+				{hideDefaultInputs}
+				{workspace}
+			/>
 		</div>
 	{/if}
 </div>
