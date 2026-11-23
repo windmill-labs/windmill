@@ -15,13 +15,16 @@
 		resolvePreviewTab,
 		parsePreviewItemRoute,
 		parsePreviewSelectedId,
+		parseImageRoute,
 		showsView
 	} from './previewRouter'
 	import { withMenuHidden } from './sessionMode.svelte'
 	import { useSessionPermissions } from './sessionPermissions.svelte'
 	import ArtifactViewer from '../copilot/chat/artifacts/ArtifactViewer.svelte'
 	import RunFormPreviewSlot from './RunFormPreviewSlot.svelte'
+	import ImagePreviewSlot from './ImagePreviewSlot.svelte'
 	import { setOverlayHost } from '../common/overlayHost.svelte'
+	import { setImageOpener } from '../common/image/imageOpener'
 	import { setReadOnlyWorkspace } from '../operatingWorkspace.svelte'
 
 	let {
@@ -82,6 +85,8 @@
 		() => runtime?.manager
 	)
 	setReadOnlyWorkspace((ws) => !!ws && ws === workspaceId && permissions.readOnly)
+	// An image inside a tab (a run's result, a test result in an editor) opens in a tab beside it.
+	setImageOpener((source, label) => runtime?.manager.openImage?.(source, label))
 	// Every route into an editor ends here, the breadcrumb and the chat's openers included, so
 	// this is where an editor the user cannot save is turned into the deployed page.
 	const mode = $derived(
@@ -503,6 +508,20 @@
 			/>
 		{:else if !runtime?.manager.artifacts.loading}
 			<div class="p-4 text-sm text-tertiary">This artifact is no longer available.</div>
+		{/if}
+	</div>
+{:else if slot.kind === 'image' && mounted}
+	<div
+		class="absolute inset-0 flex flex-col min-h-0 bg-surface {visibility}"
+		aria-hidden={!active}
+		{inert}
+	>
+		{#if runtime}
+			<ImagePreviewSlot
+				manager={runtime.manager}
+				source={slot.source}
+				label={parseImageRoute(tab.url)?.label ?? ''}
+			/>
 		{/if}
 	</div>
 {:else if slot.kind === 'runform' && mounted}

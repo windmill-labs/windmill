@@ -7,6 +7,8 @@
 	import { parseDbtRun } from '$lib/components/dbt/parseDbtRun'
 	import { copyToClipboard, parseS3Object, roughSizeOfObject } from '$lib/utils'
 	import ExpandableImage from '$lib/components/common/image/ExpandableImage.svelte'
+	import { getImageOpener } from '$lib/components/common/image/imageOpener'
+	import type { ImageResultFormat } from '$lib/components/sessions/previewRouter'
 	import {
 		downloadBlob,
 		downloadViaClient,
@@ -535,6 +537,35 @@
 		return false
 	}
 
+	const imageOpener = getImageOpener()
+
+	/** In a session, an image result opens in the preview panel. Only a result whose job is
+	 * known: the tab refetches it from there, and a result shown without one (a replay, a
+	 * value an app computed) keeps expanding in place. */
+	function openResultImage(format: ImageResultFormat): (() => void) | undefined {
+		if (!imageOpener || !jobId || !workspaceId) return undefined
+		const opener = imageOpener
+		const job = jobId
+		const workspace = workspaceId
+		const node = nodeId
+		return () =>
+			opener(
+				{ kind: 'result', workspace, jobId: job, format, ...(node ? { nodeId: node } : {}) },
+				node ? `${node} result` : `Result ${job.slice(-8)}`
+			)
+	}
+
+	function openS3Image(s3object: {
+		s3: string
+		storage?: string
+		presigned?: string
+	}): (() => void) | undefined {
+		if (!imageOpener) return undefined
+		const opener = imageOpener
+		const url = s3DisplayUrl(s3object)
+		return () => opener({ kind: 'url', url }, s3object.s3.split('/').pop() || s3object.s3)
+	}
+
 	function contentOrRootString(obj: string | { filename: string; content: string } | undefined) {
 		if (obj == undefined || obj == null) {
 			return ''
@@ -980,6 +1011,7 @@
 						<ExpandableImage
 							alt="png rendered"
 							class="w-auto h-full"
+							onOpen={openResultImage('png')}
 							src="data:image/png;base64,{contentOrRootString(result.png)}"
 						/>
 					</div>
@@ -988,6 +1020,7 @@
 						<ExpandableImage
 							alt="jpeg rendered"
 							class="w-auto h-full"
+							onOpen={openResultImage('jpeg')}
 							src="data:image/jpeg;base64,{contentOrRootString(result.jpeg)}"
 						/>
 					</div>
@@ -1017,6 +1050,7 @@
 						<ExpandableImage
 							alt="gif rendered"
 							class="w-auto h-full"
+							onOpen={openResultImage('gif')}
 							src="data:image/gif;base64,{contentOrRootString(result.gif)}"
 						/>
 					</div>
@@ -1249,6 +1283,7 @@
 										title={s3object?.s3}
 										class="w-auto h-full"
 										src={s3DisplayUrl(s3object)}
+										onOpen={openS3Image(s3object)}
 									/>
 								</div>
 							{:else if s3object?.s3?.endsWith('.pdf')}
@@ -1319,6 +1354,7 @@
 												title={s3object?.s3}
 												class="w-auto h-full"
 												src={s3DisplayUrl(s3object)}
+												onOpen={openS3Image(s3object)}
 											/>
 										</div>
 									{:else}

@@ -36,7 +36,17 @@
 
 {#snippet chip(card: Card)}
 	{#if card.kind === 'folder'}
-		<AttachedFolderChip folder={card.folder} onRemove={() => removeCard(card)} />
+		<AttachedFolderChip
+			folder={card.folder}
+			onRemove={() => removeCard(card)}
+			onOpenImage={aiChatManager.openImage
+				? (f) =>
+						aiChatManager.openImage?.(
+							{ kind: 'file', name: f.name },
+							f.name.split('/').pop() || f.name
+						)
+				: undefined}
+		/>
 	{:else}
 		<AttachedFileChip file={card.file} onRemove={() => removeCard(card)} />
 	{/if}

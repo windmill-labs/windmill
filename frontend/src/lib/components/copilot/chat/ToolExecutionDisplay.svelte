@@ -12,6 +12,7 @@
 		ExternalLink,
 		BookOpen
 	} from 'lucide-svelte'
+	import { imageContentKey } from './files/imageFiles'
 	import { truncateRev } from '$lib/utils'
 	import {
 		EXIT_PLAN_MODE_TOOL,
@@ -32,6 +33,13 @@
 	import { getChatViewHost } from './chatViewHost'
 
 	const chatHost = getChatViewHost()
+
+	// Only a loaded image: a reloaded chat holds a reference until its bytes come back.
+	function toolImageOpener(url: string): (() => void) | undefined {
+		const open = chatHost.openImage
+		if (!open || !url.startsWith('data:')) return undefined
+		return () => open({ kind: 'message', hash: imageContentKey(url) }, 'Screenshot')
+	}
 	import { isActiveUserQuestion, webSearchResultOf, type ToolDisplayMessage } from './shared'
 	import ChatCollapsibleCard from './ChatCollapsibleCard.svelte'
 	import { twMerge } from 'tailwind-merge'
@@ -387,10 +395,12 @@
 		{#snippet belowHeader()}
 			{#if message.imageUrl}
 				<div class="my-1">
+					<!-- A fixed frame, letterboxed: a capture can be any shape, a one-line app included. -->
 					<ExpandableImage
 						src={message.imageUrl}
 						alt="App preview screenshot"
-						class="max-h-48 max-w-full rounded border border-border-light"
+						class="h-24 w-40 object-contain rounded border border-border-light bg-surface-secondary"
+						onOpen={toolImageOpener(message.imageUrl)}
 					/>
 				</div>
 			{/if}

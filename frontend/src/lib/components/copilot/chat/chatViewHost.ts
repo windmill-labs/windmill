@@ -13,7 +13,7 @@ import type { PasteAttachment } from './pasteTokens'
 import type { ScopeDecision } from './workingScope'
 import type { AttachedFilesStore } from './files/attachedFiles.svelte'
 import type { SessionArtifactsStore } from './artifacts/artifactsState.svelte'
-import type { ArtifactVersionTarget } from '$lib/components/sessions/previewRouter'
+import type { ArtifactVersionTarget, ImageSource } from '$lib/components/sessions/previewRouter'
 import type { FlowAIChatHelpers } from './flow/core'
 import type { AppAIChatHelpers } from './app/core'
 import type AIChatInput from './AIChatInput.svelte'
@@ -196,6 +196,9 @@ export interface ChatViewHost {
 	attachedFiles: AttachedFilesStore
 	artifacts: SessionArtifactsStore
 	openArtifact?: (artifactId: string, name: string, version?: ArtifactVersionTarget) => void
+	/** Opens an image in a preview panel beside the chat. Undefined where there is none, and
+	 * a message image then expands in place. */
+	openImage?: (source: ImageSource, label: string) => void
 	flowAiChatHelpers?: FlowAIChatHelpers
 	appAiChatHelpers?: AppAIChatHelpers
 }

@@ -19,10 +19,14 @@ import {
 } from './fileEngine'
 import type { AttachedFile, AttachedFilesStore } from './attachedFiles.svelte'
 import { sanitizeAttachmentName } from '../textFileUtils'
+import { isViewableImageName } from './imageFiles'
+import type { ImageSource } from '$lib/components/sessions/previewRouter'
 
 /** Slice of the GLOBAL tool helpers that exposes the attached-files store. */
 export interface AttachedFilesHelper {
 	attachedFiles?: AttachedFilesStore
+	/** Session chats only: shows an image in the side-panel preview. */
+	openImage?: (source: ImageSource, label: string) => void
 }
 
 function storeFrom(helpers: unknown): AttachedFilesStore | undefined {
@@ -37,6 +41,8 @@ function storeFrom(helpers: unknown): AttachedFilesStore | undefined {
  */
 function notReadyMessage(store: AttachedFilesStore, file: string): string | undefined {
 	const entry = store.resolve(file)
+	if (entry?.image)
+		return `"${file}" is an image, which has no text to read or search. Show it to the user with show_file.`
 	if (entry?.status === 'ready') return undefined
 	if (entry?.status === 'indexing')
 		return `File "${file}" is still being indexed. Try again shortly.`
@@ -196,7 +202,41 @@ export const readFileTool: SessionTool<{}> = {
 	}
 }
 
-export const fileTools: SessionTool<{}>[] = [searchFilesTool, readFileTool]
+const showFileSchema = z.object({
+	file: z.string().describe('Exact filename of the attached image, as the roster lists it.')
+})
+
+const showFileToolDef = createToolDef(
+	showFileSchema,
+	'show_file',
+	'Show an image the user attached (png, jpeg, gif, webp, avif, bmp, ico or svg) in the side-panel preview next to the chat, where the user can zoom and pan it. You cannot see the image yourself: this only displays it to the user.'
+)
+
+export const showFileTool: SessionTool<{}> = {
+	requires: NONE,
+	def: showFileToolDef,
+	planModeSafe: true,
+	fn: async ({ args, helpers }) => {
+		const store = storeFrom(helpers)
+		const openImage = (helpers as AttachedFilesHelper | undefined)?.openImage
+		if (!store || !openImage) return 'Images can only be shown inside an AI session.'
+		const parsed = showFileSchema.parse(args)
+		const entry = store.resolve(parsed.file)
+		if (!entry || entry.messageScoped || entry.isFolderRoot) {
+			return notReadyMessage(store, parsed.file) ?? `No attached file matching "${parsed.file}".`
+		}
+		if (!isViewableImageName(entry.sourceName ?? entry.name)) {
+			return `"${entry.name}" is not an image. Read it with read_file instead.`
+		}
+		if (entry.status !== 'ready') {
+			return notReadyMessage(store, parsed.file) ?? `"${entry.name}" is not available.`
+		}
+		openImage({ kind: 'file', name: entry.name }, entry.name.split('/').pop() || entry.name)
+		return `Showing "${entry.name}" in the preview panel.`
+	}
+}
+
+export const fileTools: SessionTool<{}>[] = [searchFilesTool, readFileTool, showFileTool]
 
 function rosterLine(f: AttachedFile): string {
 	// Message rows are addressed by their stable id (names may collide); session
@@ -209,6 +249,7 @@ function rosterLine(f: AttachedFile): string {
 	if (f.status === 'locked') return `- ${ref} (locked — needs the user to restore access)`
 	if (f.status === 'unavailable') return `- ${ref} (unavailable)`
 	if (f.status === 'error') return `- ${ref} (failed to load)`
+	if (f.image) return `- ${ref} — image, ${humanSize(f.size)}`
 	return `- ${ref} — ${f.lineCount} lines, ${humanSize(f.size)}`
 }
 
@@ -251,6 +292,9 @@ export function buildAttachedFilesRoster(
 		'## Attached files',
 		'The user has attached the following files to this conversation. Their contents are NOT included here.',
 		'Use the `search_files` tool to find content with a regex, and `read_file` to read a bounded window of lines.',
+		...([...store.folders.flatMap((d) => d.files), ...store.standalone].some((f) => f.image)
+			? ['Images have no text: `show_file` displays one to the user, where it is available.']
+			: []),
 		'Reference a file by its file id when one is shown, otherwise by its filename.',
 		'',
 		lines.join('\n')

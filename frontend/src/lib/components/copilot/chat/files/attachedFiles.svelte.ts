@@ -26,6 +26,7 @@ import {
 } from './attachedFilesDB'
 import { sanitizeAttachmentName } from '../textFileUtils'
 import { enumerateDir, isIgnoredPath, queryReadPermission, requestReadPermission } from './fsAccess'
+import { isRasterImageName } from './imageFiles'
 
 export type AttachedFileStatus = 'indexing' | 'ready' | 'error' | 'locked' | 'unavailable'
 
@@ -59,6 +60,9 @@ export interface AttachedFile extends FileEntry {
 	 * sanitize identically are different files even with equal stats. Falls back
 	 * to `name` for rows persisted before provenance existed. */
 	sourceName?: string
+	/** A binary image (png, jpeg, …): kept so the session's preview can show it, but
+	 * never line-indexed and never handed to the text tools. */
+	image?: boolean
 }
 
 /** A linked folder as a first-class object — consumers read this instead of re-grouping rows. */
@@ -128,8 +132,9 @@ export class AttachedFilesStore {
 		return undefined
 	}
 	readyFiles(): AttachedFile[] {
-		// Folder-root placeholders aren't real files — never expose them to the read/search tools.
-		return this.files.filter((f) => f.status === 'ready' && !f.isFolderRoot)
+		// Folder-root placeholders aren't real files and images have no lines — never expose
+		// either to the read/search tools.
+		return this.files.filter((f) => f.status === 'ready' && !f.isFolderRoot && !f.image)
 	}
 	get count(): number {
 		return this.files.length
@@ -259,7 +264,7 @@ export class AttachedFilesStore {
 				continue // silent no-op on re-link
 			}
 
-			const reason = await this.#preflight(file)
+			const reason = await this.#preflight(file, rawPath)
 			if (reason) {
 				result.rejected.push({ name: sanitizeAttachmentName(rawPath), reason })
 				continue
@@ -315,7 +320,7 @@ export class AttachedFilesStore {
 		const files = await enumerateDir(dirHandle)
 		const sourceId = createLongHash()
 		for (const { file, path } of files) {
-			if (!(await this.#sniffText(file))) {
+			if (!(await this.#admissible(file, path))) {
 				result.rejected.push({ name: path, reason: 'Not a text file' })
 				continue
 			}
@@ -497,9 +502,14 @@ export class AttachedFilesStore {
 	}
 
 	/** Returns a rejection reason, or undefined if the file may be linked. */
-	async #preflight(file: File): Promise<string | undefined> {
-		if (!(await this.#sniffText(file))) return 'Not a text file'
+	async #preflight(file: File, rawPath: string): Promise<string | undefined> {
+		if (!(await this.#admissible(file, rawPath))) return 'Not a text file'
 		return undefined
+	}
+
+	/** A file the store links: text, or a binary image by its name. */
+	async #admissible(file: Blob, path: string): Promise<boolean> {
+		return isRasterImageName(path) || (await this.#sniffText(file))
 	}
 
 	async #sniffText(file: Blob): Promise<boolean> {
@@ -521,6 +531,9 @@ export class AttachedFilesStore {
 		messageScoped?: boolean
 		id?: string
 	}): void {
+		// Message rows are decoded text by construction; every other row is judged by
+		// the name it had on disk.
+		const image = !p.messageScoped && isRasterImageName(p.sourceName ?? p.name)
 		this.files = [
 			...this.files,
 			{
@@ -530,7 +543,8 @@ export class AttachedFilesStore {
 				size: p.file.size,
 				lineIndex: [],
 				lineCount: 0,
-				status: 'indexing',
+				status: image ? 'ready' : 'indexing',
+				image: image || undefined,
 				folder: p.folder,
 				sourceId: p.sourceId,
 				handle: p.handle,
@@ -539,7 +553,7 @@ export class AttachedFilesStore {
 				id: p.id
 			}
 		]
-		void this.#indexFile(p.name, p.file)
+		if (!image) void this.#indexFile(p.name, p.file)
 	}
 
 	#pushPlaceholder(
@@ -576,7 +590,7 @@ export class AttachedFilesStore {
 		const folder = dirHandle.name
 		const children = await enumerateDir(dirHandle)
 		for (const { file, path } of children) {
-			if (!(await this.#sniffText(file))) continue
+			if (!(await this.#admissible(file, path))) continue
 			const name = this.#claimName(path)
 			this.#pushIndexing({
 				name,
@@ -632,7 +646,7 @@ export class AttachedFilesStore {
 			const cur = existing.get(path)
 			if (!cur) {
 				// newly added on disk
-				if (!(await this.#sniffText(file))) continue
+				if (!(await this.#admissible(file, path))) continue
 				const name = this.#claimName(path)
 				this.#pushIndexing({
 					name,
@@ -649,9 +663,11 @@ export class AttachedFilesStore {
 					// content changed → re-read + re-index. Patch by row identity — a
 					// message attachment may share the display name.
 					this.files = this.files.map((f) =>
-						f === cur ? { ...f, file, size: file.size, status: 'indexing' } : f
+						f === cur
+							? { ...f, file, size: file.size, status: cur.image ? 'ready' : 'indexing' }
+							: f
 					)
-					void this.#indexFile(cur.name, file)
+					if (!cur.image) void this.#indexFile(cur.name, file)
 				}
 			}
 		}

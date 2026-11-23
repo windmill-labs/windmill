@@ -13,6 +13,7 @@
 	import { messageDraft, segments } from './chatDraft'
 	import { lineCountLabel } from './pasteTokens'
 	import ExpandableImage from '$lib/components/common/image/ExpandableImage.svelte'
+	import { imageContentKey } from './files/imageFiles'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
 	const operatingWorkspace = useOperatingWorkspace()
@@ -178,6 +179,13 @@
 									src={image.dataUrl}
 									alt={image.name ?? 'attached image'}
 									class="max-h-40 max-w-[min(20rem,100%)] rounded-lg border border-border-light"
+									onOpen={chatHost.openImage
+										? () =>
+												chatHost.openImage?.(
+													{ kind: 'message', hash: imageContentKey(image.dataUrl) },
+													image.name ?? 'Image'
+												)
+										: undefined}
 								/>
 							{/each}
 						</div>
