@@ -372,6 +372,7 @@ Manage jobs (list, inspect, cancel)
 - `job restart <id:string>` - Restart a completed flow at a given top-level step. Prints the new flow job UUID on stdout.
   - `--step <stepId:string>` - Top-level step id to restart the flow from
   - `--iteration <n:number>` - For a top-level branchall or for-loop step, the iteration to restart at
+  - `--failed-only` - For a parallel for-loop or branchall step, rerun only the iterations (branches) that failed, keeping the others' results
 
 ### jobs
 
