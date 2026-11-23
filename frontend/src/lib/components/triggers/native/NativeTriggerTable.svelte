@@ -124,7 +124,7 @@
 								if (isNewTabClick(e)) return
 								onEdit?.(trigger)
 							}}
-							class="min-w-0 grow hover:underline decoration-gray-400"
+							class="min-w-[8rem] grow hover:underline decoration-gray-400"
 						>
 							<div class="text-emphasis flex-wrap text-left text-xs font-semibold mb-1 truncate">
 								{#if trigger.marked}
@@ -165,7 +165,7 @@
 							</div>
 						</a>
 
-						<div class="flex gap-2 items-center justify-end">
+						<div class="flex gap-2 items-center justify-end shrink-0">
 							<TriggerModeToggle
 								canWrite={canEdit}
 								title={$triggerLock}
@@ -179,6 +179,7 @@
 								unifiedSize="md"
 								startIcon={{ icon: canEdit ? Pen : Eye }}
 								variant="subtle"
+								wrapperClasses="max-md:hidden"
 							>
 								{canEdit ? 'Edit' : 'View'}
 							</Button>
@@ -189,6 +190,11 @@
 										displayName: `View ${isFlow ? 'Flow' : 'Script'}`,
 										icon: Eye,
 										href
+									},
+									{
+										displayName: canEdit ? 'Edit' : 'View',
+										icon: canEdit ? Pen : Eye,
+										action: () => onEdit?.(trigger)
 									},
 									{
 										displayName: 'Delete',
