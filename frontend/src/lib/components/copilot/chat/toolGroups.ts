@@ -188,9 +188,21 @@ function sameItem(a: Membership | undefined, b: Membership): boolean {
 	return a !== undefined && a.kind === b.kind && (a.path === undefined || a.path === b.path)
 }
 
+// An agent is drafted through write_resource but gets its own way in (a preview chip, or an
+// Open agent action), and a group shows only one chip: it stays a row. Read from the
+// arguments, not the chip, which lands only once the save does.
+function isAgentWrite(call: ToolDisplayMessage): boolean {
+	if (call.toolName !== 'write_resource') return false
+	return typeof call.parameters === 'string'
+		? /"resource_type"\s*:\s*"ai_agent"/.test(call.parameters)
+		: call.parameters?.resource_type === 'ai_agent'
+}
+
 function isDraftWrite(message: DisplayMessage): boolean {
 	const call = groupableCall(message)
-	return call !== undefined && Object.hasOwn(DRAFT_WRITE_TOOLS, call.toolName!)
+	return (
+		call !== undefined && Object.hasOwn(DRAFT_WRITE_TOOLS, call.toolName!) && !isAgentWrite(call)
+	)
 }
 
 function isReadCall(message: DisplayMessage): boolean {
