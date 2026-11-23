@@ -209,9 +209,7 @@
 	<SecretRequestCard
 		request={message.secretRequest}
 		interactive={isActiveSecretRequest(message) && saveSecret !== undefined}
-		save={saveSecret
-			? (value, path, replace) => saveSecret(message.tool_call_id, value, path, replace)
-			: undefined}
+		save={saveSecret ? (submission) => saveSecret(message.tool_call_id, submission) : undefined}
 		onDismiss={() => dismissSecret?.(message.tool_call_id)}
 	/>
 {:else if activeUserQuestion}

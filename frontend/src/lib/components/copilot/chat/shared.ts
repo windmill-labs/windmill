@@ -590,23 +590,41 @@ export type UserQuestionDisplay = {
  * chat only ever learns the variable's path. */
 export type SecretRequest = {
 	workspace: string
-	/** The secret variable the value is saved to. */
+	/** The resource's path when `resource` is set, else the secret variable's. */
 	path: string
-	/** What the value is, as the user would name it ("OpenAI API key"). */
+	/** What the user is giving or connecting, as they would name it ("OpenAI API key",
+	 * "OpenAI"). */
 	label: string
 	description?: string
 	/** Where the user can get the value (the provider's API keys page). */
 	helpUrl?: string
-	/** The resource the AI will reference the variable from, shown so the user sees what
-	 * the secret is for. */
-	resourceType?: string
-	resourcePath?: string
-	/** The user asked to replace the variable at `path`. Without it, `request_secret` refuses
-	 * a taken path before the card shows. */
+	/** Set to connect a service: one confirmation saves the secrets and creates the resource. */
+	resource?: SecretRequestResource
+	/** The user asked to replace what is at `path`. Without it, `request_secret` refuses a
+	 * taken path before the card shows. */
 	replace?: boolean
 }
 
-export type SecretRequestOutcome = { path: string; replaced: boolean }
+export type SecretRequestResource = {
+	type: string
+	/** The non-secret fields the AI prepared, which the user can correct on the card. */
+	value: Record<string, unknown>
+	/** The fields the user types, each saved as a secret variable the resource references. */
+	secretFields: { field: string; label: string }[]
+}
+
+/** `path` is the resource's or the variable's, as in the request; `variables` holds the
+ * secrets. */
+export type SecretRequestOutcome = { path: string; replaced: boolean; variables: string[] }
+
+/** What the user confirmed on the card. `secrets` is keyed by secret field (`""` for a bare
+ * variable); `fields` is the resource's non-secret value as the user left it. */
+export type SecretSubmission = {
+	path: string
+	replace: boolean
+	secrets: Record<string, string>
+	fields?: Record<string, unknown>
+}
 
 export type SecretRequestDisplay = SecretRequest & {
 	saved?: SecretRequestOutcome

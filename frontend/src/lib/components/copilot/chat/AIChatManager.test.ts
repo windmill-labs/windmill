@@ -38,7 +38,7 @@ const mocks = vi.hoisted(() => ({
 	getJob: vi.fn(),
 	getJobUpdates: vi.fn(),
 	whoami: vi.fn(),
-	saveSecretVariable: vi.fn(),
+	saveSecretRequest: vi.fn(),
 	workspace: 'test_workspace' as string | undefined,
 	// The workspace being browsed, which a session chat's own workspace need not be.
 	navWorkspace: undefined as string | undefined,
@@ -170,7 +170,7 @@ vi.mock('./api/apiTools', () => ({
 
 vi.mock('./secretRequest', async (importOriginal) => ({
 	...(await importOriginal<typeof import('./secretRequest')>()),
-	saveSecretVariable: mocks.saveSecretVariable
+	saveSecretRequest: mocks.saveSecretRequest
 }))
 
 // Mock only runChatLoop; keep the real truncateToToolPairedPrefix (pure) that
@@ -546,11 +546,15 @@ describe('AIChatManager secret request', () => {
 		manager.displayMessages = [
 			{ role: 'tool', tool_call_id: 'call_s', content: '', isLoading: true, secretRequest: request }
 		]
-		let land!: (outcome: { path: string; replaced: boolean }) => void
-		mocks.saveSecretVariable.mockReturnValueOnce(new Promise((resolve) => (land = resolve)))
+		let land!: (outcome: { path: string; replaced: boolean; variables: string[] }) => void
+		mocks.saveSecretRequest.mockReturnValueOnce(new Promise((resolve) => (land = resolve)))
 
 		const toolResult = manager.requestSecret('call_s', request)
-		const saved = manager.saveSecret('call_s', 'sk-1', 'u/a/key', false)
+		const saved = manager.saveSecret('call_s', {
+			path: 'u/a/key',
+			replace: false,
+			secrets: { '': 'sk-1' }
+		})
 		manager.cancel()
 		expect(await toolResult).toBeUndefined()
 
@@ -562,7 +566,7 @@ describe('AIChatManager secret request', () => {
 
 		// A follow-up sent while it waits keeps its conversation.
 		manager.loading = true
-		land({ path: 'u/a/key', replaced: false })
+		land({ path: 'u/a/key', replaced: false, variables: ['u/a/key'] })
 		await saved
 		await switched
 		expect(loadPast).not.toHaveBeenCalled()

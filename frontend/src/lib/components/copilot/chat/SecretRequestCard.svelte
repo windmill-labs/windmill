@@ -4,16 +4,23 @@
 	import Password from '$lib/components/Password.svelte'
 	import IconedResourceType from '$lib/components/IconedResourceType.svelte'
 	import Path from '$lib/components/Path.svelte'
+	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import { safeHref } from '$lib/utils/safeHref'
-	import { resourcePageUrl, variablePageUrl } from './secretRequest'
-	import type { SecretRequestDisplay } from './shared'
+	import {
+		resourcePageUrl,
+		secretFieldsOf,
+		secretVariablePaths,
+		variablePageUrl
+	} from './secretRequest'
+	import type { SecretRequestDisplay, SecretSubmission } from './shared'
 
 	interface Props {
 		request: SecretRequestDisplay
 		/** Inert copies (an answered request in history) render the form but cannot save. */
 		interactive?: boolean
-		/** Saves the value; the chat settles the card once it lands. Rejects with the refusal. */
-		save?: (value: string, path: string, replace: boolean) => Promise<void>
+		/** Saves what the user confirmed; the chat settles the card once it lands. Rejects with
+		 * the refusal. */
+		save?: (submission: SecretSubmission) => Promise<void>
 		onDismiss?: () => void
 	}
 
@@ -21,32 +28,78 @@
 
 	// The model writes this URL, so a prompt injection could make it `javascript:`.
 	const helpHref = $derived(safeHref(request.helpUrl, window.location.href))
+	const resource = $derived(request.resource)
+	const secretFields = $derived(secretFieldsOf(request))
 
-	let value = $state('')
+	let secrets = $state<Record<string, string>>({})
+	// Only what the user changed; the rest stays as the AI prepared it.
+	let fieldEdits = $state<Record<string, string>>({})
 	let submitting = $state(false)
 	const saving = $derived(submitting || !!request.saving)
 	let saveError = $state<string | undefined>()
 
-	// A taken path is the only error that still lets the user save: saving then updates the
-	// variable that is there.
-	const TAKEN = 'This path is already taken. Pick another or update the secret already there.'
+	// A taken path is the only error that still lets the user save: saving then updates what
+	// is there.
+	const TAKEN = $derived(
+		resource
+			? 'This path is already taken. Pick another or update the resource already there.'
+			: 'This path is already taken. Pick another or update the secret already there.'
+	)
 	let pickedPath = $state<string | undefined>()
 	let pathError = $state<string | undefined>()
 	const savePath = $derived(pickedPath || request.path)
 	const taken = $derived(pathError === TAKEN)
-	const canSave = $derived(interactive && value.length > 0 && !saving && (!pathError || taken))
+	const variablePaths = $derived(secretVariablePaths(savePath, secretFields))
+	const canSave = $derived(
+		interactive &&
+			secretFields.every((f) => (secrets[f.field] ?? '').length > 0) &&
+			!saving &&
+			(!pathError || taken)
+	)
+
+	/** Simple fields are editable; anything nested is shown as the AI wrote it. */
+	function isEditable(v: unknown): v is string | number {
+		return typeof v === 'string' || typeof v === 'number'
+	}
+
+	function submittedFields(): Record<string, unknown> | undefined {
+		if (!resource) return undefined
+		return Object.fromEntries(
+			Object.entries(resource.value).map(([k, v]) => {
+				if (!(k in fieldEdits)) return [k, v]
+				const edited = fieldEdits[k]
+				return [
+					k,
+					typeof v === 'number' && edited.trim() !== '' && !isNaN(+edited) ? +edited : edited
+				]
+			})
+		)
+	}
 
 	async function submit() {
 		if (!canSave || !save) return
 		submitting = true
 		saveError = undefined
 		try {
-			await save(value, savePath, taken)
-			value = ''
+			await save({
+				path: savePath,
+				replace: taken,
+				secrets: $state.snapshot(secrets),
+				fields: submittedFields()
+			})
+			secrets = {}
 		} catch (e) {
 			saveError = e instanceof Error ? e.message : String(e)
 		} finally {
 			submitting = false
+		}
+	}
+
+	function onSecretKeyDown(e: KeyboardEvent) {
+		// Enter is a newline: a pasted private key keeps its line breaks.
+		if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+			e.preventDefault()
+			void submit()
 		}
 	}
 </script>
@@ -56,15 +109,27 @@
 	<div class="my-0.5 flex min-w-0 items-start gap-2 py-0.5 font-mono text-2xs leading-4">
 		<ShieldCheck class="mt-px h-3.5 w-3.5 shrink-0 text-green-600 dark:text-green-400" />
 		<span class="min-w-0 font-medium text-secondary">
-			{request.saved.replaced ? 'Replaced' : 'Saved'}
-			{request.label} in secret variable
-			<a class="text-accent hover:underline" href={variablePageUrl(request.saved.path, request.workspace)}
-				>{request.saved.path}</a
-			>
-			{#if request.resourcePath}
-				· used by
-				<a class="text-accent hover:underline" href={resourcePageUrl(request.resourcePath, request.workspace)}
-					>{request.resourcePath}</a
+			{#if resource}
+				{request.saved.replaced ? 'Updated' : 'Connected'}
+				{request.label} as
+				<a
+					class="text-accent hover:underline"
+					href={resourcePageUrl(request.saved.path, request.workspace)}>{request.saved.path}</a
+				>
+				· secrets in
+				{#each request.saved.variables as variable, i (variable)}
+					{#if i > 0},
+					{/if}
+					<a class="text-accent hover:underline" href={variablePageUrl(variable, request.workspace)}
+						>{variable}</a
+					>
+				{/each}
+			{:else}
+				{request.saved.replaced ? 'Replaced' : 'Saved'}
+				{request.label} in secret variable
+				<a
+					class="text-accent hover:underline"
+					href={variablePageUrl(request.saved.path, request.workspace)}>{request.saved.path}</a
 				>
 			{/if}
 		</span>
@@ -73,7 +138,7 @@
 	<div class="my-0.5 flex min-w-0 items-start gap-2 py-0.5 font-mono text-2xs leading-4">
 		<Lock class="mt-px h-3.5 w-3.5 shrink-0 text-tertiary" />
 		<span class="min-w-0 font-medium text-tertiary"
-			>Secret request for {request.label} dismissed</span
+			>{resource ? 'Connection' : 'Secret request'} for {request.label} dismissed</span
 		>
 	</div>
 {:else}
@@ -93,24 +158,24 @@
 
 		<div class="flex flex-col gap-3 p-3">
 			<div class="flex items-start gap-2">
-				{#if request.resourceType}
+				{#if resource}
 					<div class="shrink-0 pt-0.5">
-						<IconedResourceType name={request.resourceType} silent width="20px" height="20px" />
+						<IconedResourceType name={resource.type} silent width="20px" height="20px" />
 					</div>
 				{:else}
 					<KeyRound class="mt-0.5 h-4 w-4 shrink-0 text-secondary" />
 				{/if}
 				<div class="min-w-0 flex-1">
-					<p class="text-xs font-semibold text-emphasis">{request.label}</p>
+					<p class="text-xs font-semibold text-emphasis">
+						{resource ? `Connect ${request.label}` : request.label}
+					</p>
 					<p class="text-2xs text-secondary">
-						The AI needs this to
-						{#if request.resourcePath}
-							connect <span class="font-mono">{request.resourcePath}</span>.
-						{:else}
-							continue.
-						{/if}
 						{#if request.description}
 							{request.description}
+						{:else if resource}
+							Check what the AI prepared and enter the secrets.
+						{:else}
+							The AI needs this to continue.
 						{/if}
 					</p>
 				</div>
@@ -126,25 +191,53 @@
 				{/if}
 			</div>
 
-			<Password
-				bind:password={value}
-				placeholder="Paste the value here"
-				disabled={!interactive || saving}
-				autocomplete="off"
-				error={saveError !== undefined}
-				onKeyDown={(e) => {
-					// Enter is a newline: a pasted private key keeps its line breaks.
-					if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-						e.preventDefault()
-						void submit()
-					}
-				}}
-			/>
+			{#each secretFields as secretField (secretField.field)}
+				<div class="flex flex-col gap-1">
+					{#if resource}
+						<span class="text-2xs font-medium text-secondary">{secretField.label}</span>
+					{/if}
+					<Password
+						bind:password={secrets[secretField.field]}
+						placeholder="Paste the value here"
+						disabled={!interactive || saving}
+						autocomplete="off"
+						error={saveError !== undefined}
+						onKeyDown={onSecretKeyDown}
+					/>
+				</div>
+			{/each}
+
+			{#if resource}
+				{#each Object.entries(resource.value) as [key, fieldValue] (key)}
+					<div class="flex flex-col gap-1">
+						<span class="text-2xs font-medium text-secondary">{key}</span>
+						{#if isEditable(fieldValue)}
+							<TextInput
+								size="sm"
+								value={key in fieldEdits ? fieldEdits[key] : String(fieldValue)}
+								inputProps={{
+									disabled: !interactive || saving,
+									oninput: (e: Event) => {
+										fieldEdits[key] = (e.currentTarget as HTMLInputElement).value
+									}
+								}}
+							/>
+						{:else}
+							<pre
+								class="overflow-x-auto rounded-md bg-surface-secondary px-2 py-1 text-2xs text-secondary"
+								>{JSON.stringify(fieldValue, null, 2)}</pre
+							>
+						{/if}
+					</div>
+				{/each}
+			{/if}
 
 			<div class="flex flex-col gap-1">
-				<span class="text-2xs font-medium text-secondary">Saved as the secret variable</span>
+				<span class="text-2xs font-medium text-secondary">
+					{resource ? 'Saved as the resource' : 'Saved as the secret variable'}
+				</span>
 				<Path
-					kind="variable"
+					kind={resource ? 'resource' : 'variable'}
 					initialPath={request.path}
 					bind:path={pickedPath}
 					bind:error={pathError}
@@ -162,14 +255,18 @@
 				<li class="flex items-start gap-1.5">
 					<ShieldCheck class="mt-0.5 h-3 w-3 shrink-0 text-green-600 dark:text-green-400" />
 					<span>
-						Encrypted and stored in this workspace.
+						{#if resource}
+							Encrypted and stored in this workspace as secret
+							{variablePaths.length === 1 ? 'variable' : 'variables'}
+							<span class="font-mono">{variablePaths.join(', ')}</span>.
+						{:else}
+							Encrypted and stored in this workspace.
+						{/if}
 					</span>
 				</li>
 				<li class="flex items-start gap-1.5">
 					<ShieldCheck class="mt-0.5 h-3 w-3 shrink-0 text-green-600 dark:text-green-400" />
-					<span>
-						The AI never receives the value, only the path to reference it.
-					</span>
+					<span>The AI never receives the values, only the path to reference them.</span>
 				</li>
 			</ul>
 
@@ -194,7 +291,11 @@
 					loading={saving}
 					startIcon={{ icon: Lock }}
 				>
-					{taken ? 'Update secret' : 'Save secret'}
+					{#if resource}
+						{taken ? 'Update resource' : 'Save and connect'}
+					{:else}
+						{taken ? 'Update secret' : 'Save secret'}
+					{/if}
 				</Button>
 			</div>
 		</div>

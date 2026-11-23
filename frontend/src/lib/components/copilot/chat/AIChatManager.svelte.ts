@@ -1,5 +1,5 @@
 import type { AttachedBlob } from './blobUtils'
-import { saveSecretVariable } from './secretRequest'
+import { saveSecretRequest } from './secretRequest'
 import type { ChatViewHost } from './chatViewHost'
 import type { ScriptLang } from '$lib/gen/types.gen'
 import { JobService, type CompletedJob } from '$lib/gen'
@@ -27,6 +27,7 @@ import {
 	type ToolDisplayMessage,
 	type UserQuestionDisplay,
 	type SecretRequest,
+	type SecretSubmission,
 	type SecretRequestOutcome,
 	type RunFormAnswer,
 	type RunFormDisplay,
@@ -995,6 +996,8 @@ export class AIChatManager implements ChatViewHost {
 			request: SecretRequest
 			resolve: (outcome: SecretRequestOutcome | undefined) => void
 			save?: Promise<void>
+			/** The variables a refused try already wrote, which a retry updates. */
+			own: Set<string>
 			/** The turn stopped while the save was in flight. */
 			stopped?: boolean
 		}
@@ -2457,7 +2460,7 @@ export class AIChatManager implements ChatViewHost {
 		request: SecretRequest
 	): Promise<SecretRequestOutcome | undefined> => {
 		return new Promise((resolve) => {
-			this.#secretRequests.set(toolId, { request, resolve })
+			this.#secretRequests.set(toolId, { request, resolve, own: new Set() })
 			// The tool checks the path before it asks, so a stop during that check has already
 			// settled every open request: this one would park the turn for good.
 			if (this.abortController?.signal.aborted) void this.#settleSecretRequest(toolId, undefined)
@@ -2466,11 +2469,11 @@ export class AIChatManager implements ChatViewHost {
 
 	/** Saves the value the user typed on the card. Rejects with the server's refusal, which the
 	 * card shows; the request stays open for another try. */
-	saveSecret = (toolId: string, value: string, path: string, replace: boolean): Promise<void> => {
+	saveSecret = (toolId: string, submission: SecretSubmission): Promise<void> => {
 		const entry = this.#secretRequests.get(toolId)
 		if (!entry) return Promise.reject(new Error('This request is no longer open.'))
 		if (entry.save) return entry.save
-		const save = saveSecretVariable(entry.request, value, path, replace).then(
+		const save = saveSecretRequest(entry.request, submission, entry.own).then(
 			(outcome) => this.#settleSecretRequest(toolId, outcome),
 			(e) => {
 				entry.save = undefined
@@ -2504,7 +2507,9 @@ export class AIChatManager implements ChatViewHost {
 						error: undefined,
 						isLoading: false,
 						content: outcome
-							? `Saved ${label} to ${outcome.path}`
+							? entry.request.resource
+								? `Connected ${label} as ${outcome.path}`
+								: `Saved ${label} to ${outcome.path}`
 							: `Asked for ${label} — dismissed`,
 						secretRequest: outcome
 							? { ...m.secretRequest, saving: false, saved: outcome }
@@ -2518,7 +2523,9 @@ export class AIChatManager implements ChatViewHost {
 		}
 		const note = outcome
 			? this.queueModelNote(
-					`The user's ${label} was saved after the turn stopped: it is the secret variable ${outcome.path}, referenced as "$var:${outcome.path}".`
+					entry.request.resource
+					? `The user connected ${label} after the turn stopped: it is the deployed resource ${outcome.path}, referenced as "$res:${outcome.path}".`
+					: `The user's ${label} was saved after the turn stopped: it is the secret variable ${outcome.path}, referenced as "$var:${outcome.path}".`
 				)
 			: Promise.resolve()
 		// The variable is saved whatever happens here, so a failed write must not reach the card.

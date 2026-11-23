@@ -400,39 +400,68 @@
 	},
 	{
 		"name": "request_secret",
-		"description": "Ask the user for a secret (API key, token, password) through a secure input card. The value is saved as a deployed secret variable and never reaches you: you get back only \"$var:<path>\" to reference from a resource value or a run argument. Use it whenever you need a secret, and never ask the user to paste one in chat or create a placeholder variable for them to fill. One call per secret. To connect a service: ask anything else you cannot default in one askUserQuestion first, then request_secret, then write the resource without opening it, then deploy_workspace_item when you can.",
+		"description": "Ask the user for secrets (API key, token, password) through a secure input card. The values are saved as deployed secret variables and never reach you. With resource_type it connects a service: the card shows the resource you prepared and asks for all its secrets, and one confirmation saves them and creates the resource, deployed; you get back \"$res:<path>\". Without it, it asks for one secret and you get back \"$var:<path>\" to reference from a run argument or elsewhere. Use it whenever you need a secret; never ask the user to paste one in chat or create a placeholder variable for them to fill.",
 		"parameters": {
 			"type": "object",
 			"properties": {
 				"path": {
-					"description": "Path of the secret variable the value is saved to, following the path conventions (e.g. \"u/<username>/openai_api_key\"). It must be free unless replace is set: check it first.",
+					"description": "With resource_type, the path of the resource to create; otherwise the path of the secret variable. Follow the path conventions (e.g. \"u/<username>/openai\"). It must be free unless replace is set: check it first.",
 					"type": "string",
 					"minLength": 1
 				},
 				"replace": {
-					"description": "Set only when the user asked to replace the value of the existing variable at path.",
+					"description": "Set only when the user asked to replace what is at path.",
 					"type": "boolean"
 				},
 				"label": {
-					"description": "What the value is, as the user would name it, e.g. \"OpenAI API key\".",
+					"description": "What the user is giving or connecting, as they would name it: \"OpenAI API key\" for a bare secret, \"OpenAI\" for a resource.",
 					"type": "string",
 					"minLength": 1
 				},
 				"description": {
-					"description": "One short sentence on what it is used for. Becomes the variable description.",
+					"description": "One short sentence on what it is used for. Becomes the description of what is saved.",
 					"type": "string"
 				},
 				"help_url": {
-					"description": "The provider's page where the user can create or copy the value, when you know it.",
+					"description": "The provider's page where the user can create or copy the secrets, when you know it.",
 					"type": "string"
 				},
 				"resource_type": {
-					"description": "The resource type the secret is for, when it goes into a resource.",
+					"description": "To connect a service: the resource type. The card then creates the resource at path, deployed, once the user enters its secrets.",
 					"type": "string"
 				},
-				"resource_path": {
-					"description": "The path of the resource you will reference the variable from.",
-					"type": "string"
+				"resource_value": {
+					"description": "With resource_type: the resource's non-secret fields, matching the type's schema. The user can correct them on the card.",
+					"type": "object",
+					"propertyNames": {
+						"type": "string"
+					},
+					"additionalProperties": {}
+				},
+				"secret_fields": {
+					"description": "With resource_type: every secret field of the resource, all asked on the one card.",
+					"minItems": 1,
+					"type": "array",
+					"items": {
+						"type": "object",
+						"properties": {
+							"field": {
+								"description": "The secret field of the resource type, e.g. \"api_key\".",
+								"type": "string",
+								"minLength": 1
+							},
+							"label": {
+								"description": "How the user would name it, e.g. \"API key\".",
+								"type": "string",
+								"minLength": 1
+							}
+						},
+						"required": [
+							"field",
+							"label"
+						],
+						"additionalProperties": false
+					}
 				}
 			},
 			"required": [
