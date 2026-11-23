@@ -689,7 +689,7 @@
 	// most every 5s. The parent flow does not change meanwhile, hence the timer below.
 	const waitingStepChecks = new Map<string, number>()
 	// A step's concurrency key is written as it is queued: one without can never be held, so
-	// only a change of the parent flow can change what it waits for.
+	// past the end of its sleep only a change of the parent flow can change what it waits for.
 	const unlimitedSteps = new Set<string>()
 	function waitingStepDue(mod: FlowStatusModule): boolean {
 		const last = waitingStepChecks.get(mod.job ?? '')
@@ -706,6 +706,9 @@
 			ConcurrencyGroupsService.getConcurrencyKeyStatus({ id: mod.job ?? '' }).catch(() => undefined)
 		])
 			.then(([job, held]) => {
+				// The step may have started or ended while this was in flight.
+				const now = innerModules?.find((m) => m.id === mod.id)
+				if (now?.type !== 'WaitingForExecutor' || now.job !== mod.job) return
 				if (held === null) unlimitedSteps.add(mod.job ?? '')
 				const scheduledFor: string | undefined = job?.['scheduled_for']
 				// A held job is admitted only as a worker pulls it, so it is held until it runs.
@@ -740,7 +743,8 @@
 			innerModules?.forEach((mod) => {
 				if (
 					mod.type === 'WaitingForExecutor' &&
-					!unlimitedSteps.has(mod.job ?? '') &&
+					(!unlimitedSteps.has(mod.job ?? '') ||
+						localModuleStates[mod.id ?? '']?.waiting_reason === 'sleep') &&
 					waitingStepDue(mod)
 				) {
 					loadWaitingStep(mod, mod.id === retryingStepId)
