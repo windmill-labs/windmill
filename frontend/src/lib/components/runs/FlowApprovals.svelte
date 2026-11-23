@@ -129,7 +129,8 @@
 							</span>
 						{/if}
 					{:else}
-						{#each row.status.approvers ?? [] as approver (approver.resume_id)}
+						<!-- Unkeyed: the status stores resume ids truncated to 16 bits, so two can collide. -->
+						{#each row.status.approvers ?? [] as approver}
 							<span>
 								<span class="text-primary">{approver.approver}</span>
 								{#if approver.approved_at}
