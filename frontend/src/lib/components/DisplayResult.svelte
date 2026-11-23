@@ -1551,6 +1551,7 @@
 				<DisplayResult
 					{noControls}
 					{result}
+					{resultPath}
 					{markupTrust}
 					{filename}
 					{jobId}

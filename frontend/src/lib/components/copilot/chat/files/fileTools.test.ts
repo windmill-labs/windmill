@@ -58,6 +58,23 @@ describe('search_files — attachments present but nothing readable', () => {
 		expect(msg).toMatch(/re-link/i)
 	})
 
+	it('reports an image row by its status until it is ready', async () => {
+		const gone = await runSearch(
+			fakeStore([{ name: 'a.png', status: 'unavailable', image: true }]),
+			{
+				pattern: 'x',
+				file: 'a.png'
+			}
+		)
+		expect(gone).toMatch(/re-link/i)
+		const ready = await runSearch(fakeStore([{ name: 'a.png', status: 'ready', image: true }]), {
+			pattern: 'x',
+			file: 'a.png'
+		})
+		expect(ready).toMatch(/is an image/i)
+		expect(ready).not.toMatch(/show_file/)
+	})
+
 	it('still reports indexing while a file is genuinely indexing', async () => {
 		const msg = await runSearch(fakeStore([{ name: 'a.txt', status: 'indexing' }]))
 		expect(msg).toMatch(/still being indexed/i)

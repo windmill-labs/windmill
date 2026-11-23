@@ -45,12 +45,13 @@ function notReadyMessage(
 	helpers: unknown
 ): string | undefined {
 	const entry = store.resolve(file)
-	// show_file exists only where an image can open: a session's preview panel.
-	if (entry?.image)
+	if (entry?.status === 'ready') {
+		if (!entry.image) return undefined
+		// show_file exists only where an image can open: a session's preview panel.
 		return (helpers as AttachedFilesHelper | undefined)?.openImage
 			? `"${file}" is an image, which has no text to read or search. Show it to the user with show_file.`
 			: `"${file}" is an image, which has no text to read or search.`
-	if (entry?.status === 'ready') return undefined
+	}
 	if (entry?.status === 'indexing')
 		return `File "${file}" is still being indexed. Try again shortly.`
 	if (entry?.status === 'locked')

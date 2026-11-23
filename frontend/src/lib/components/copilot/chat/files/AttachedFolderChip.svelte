@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { Folder, X, Loader2, AlertTriangle, Lock } from 'lucide-svelte'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
+	import { Button } from '$lib/components/common'
 	import { getFileIcon } from '$lib/components/icons/fileIcon'
 	import type { AttachedFile, AttachedFolder } from './attachedFiles.svelte'
 	import { isViewableImageName } from './imageFiles'
@@ -89,17 +90,20 @@
 							{@const Icon = icon.icon}
 							<li>
 								{#if onOpenImage && isOpenable(f)}
-									<button
-										class="w-full flex items-center gap-2 px-3 py-1 text-left text-xs text-primary hover:bg-surface-hover"
+									<Button
+										variant="subtle"
+										unifiedSize="sm"
+										wrapperClasses="w-full"
+										btnClasses="w-full !justify-start rounded-none font-normal"
 										title={`Open ${innerPath(f)} in the preview`}
-										onclick={() => {
+										onClick={() => {
 											onOpenImage(f)
 											popover?.close()
 										}}
 									>
 										<Icon size={14} class="shrink-0 {icon.className ?? ''}" />
 										<span class="truncate">{innerPath(f)}</span>
-									</button>
+									</Button>
 								{:else}
 									<div
 										class="flex items-center gap-2 px-3 py-1 text-xs text-secondary"
