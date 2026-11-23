@@ -374,6 +374,7 @@
 									value="failed"
 									label="Failed only{failedCount ? ` (${failedCount})` : ''}"
 									tooltip="Keep the results that succeeded and rerun the failed ones, each from the step where it failed"
+									showTooltipIcon
 									disabled={failedCount === 0}
 									{item}
 								/>
