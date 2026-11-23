@@ -671,10 +671,6 @@
 			})
 			.catch(() => {})
 
-		// "Others" lists every resource type — including instance-configured OAuth
-		// providers — so any of them can also be connected with the user's own
-		// credentials or manually, not only via the shared instance setup (same as
-		// the authorization-code behavior).
 		connectsManual = availableRts.map(
 			(x) =>
 				({
