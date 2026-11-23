@@ -89,9 +89,7 @@
 
 {#if rows.length > 0}
 	<div class="rounded-md border bg-surface-tertiary">
-		<div
-			class="flex items-center justify-between px-4 py-2 border-b text-xs font-semibold text-emphasis"
-		>
+		<div class="flex items-center justify-between px-4 py-2 text-xs font-semibold text-emphasis">
 			<span>Approvals</span>
 			<span class="font-normal text-secondary">
 				{approvedCount} of {rows.length} approved
@@ -99,7 +97,7 @@
 		</div>
 		{#each rows as row (row.module.id)}
 			<div
-				class="grid grid-cols-[16px_minmax(140px,1fr)_minmax(0,2fr)_auto] items-center gap-3 px-4 py-2 border-t first:border-t-0 text-xs"
+				class="grid grid-cols-[16px_minmax(140px,1fr)_minmax(0,2fr)_auto] items-center gap-3 px-4 py-2 border-t text-xs"
 			>
 				{#if row.waiting}
 					<span class="text-violet-600 dark:text-violet-400"><Hourglass size={14} /></span>
@@ -159,7 +157,7 @@
 		{/each}
 		{#if otherWaiting || (waitingRow && expanded)}
 			<!-- The step's own approval panel, unchanged: its description, form and buttons. -->
-			<div class="border-t px-4 py-3">
+			<div class="px-4 pt-1 pb-3">
 				<FlowExecutionStatus
 					{job}
 					{isOwner}
