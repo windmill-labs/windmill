@@ -611,6 +611,8 @@ export type SecretRequestResource = {
 	value: Record<string, unknown>
 	/** The fields the user types, each saved as a secret variable the resource references. */
 	secretFields: { field: string; label: string }[]
+	/** The user chose to paste a connection string, which the card splits in the browser. */
+	connectionString?: boolean
 }
 
 /** `path` is the resource's or the variable's, as in the request; `variables` holds the

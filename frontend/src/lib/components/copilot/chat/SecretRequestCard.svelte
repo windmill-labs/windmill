@@ -7,6 +7,7 @@
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import { safeHref } from '$lib/utils/safeHref'
 	import {
+		connectionStringParts,
 		resourcePageUrl,
 		secretFieldsOf,
 		secretVariablePaths,
@@ -50,9 +51,19 @@
 	const savePath = $derived(pickedPath || request.path)
 	const taken = $derived(pathError === TAKEN)
 	const variablePaths = $derived(secretVariablePaths(savePath, secretFields))
+	let connectionString = $state('')
+	const connection = $derived(
+		resource?.connectionString && connectionString.trim()
+			? connectionStringParts(connectionString)
+			: undefined
+	)
+	const connectionParts = $derived(connection && 'secret' in connection ? connection : undefined)
+
 	const canSave = $derived(
 		interactive &&
-			secretFields.every((f) => (secrets[f.field] ?? '').length > 0) &&
+			(resource?.connectionString
+				? !!connectionParts
+				: secretFields.every((f) => (secrets[f.field] ?? '').length > 0)) &&
 			!saving &&
 			(!pathError || taken)
 	)
@@ -86,10 +97,15 @@
 				// The user asked the AI to replace what is there, which the path picker may not show:
 				// it checks the resource path, not the variables beside it.
 				replace: taken || !!request.replace,
-				secrets: $state.snapshot(secrets),
-				fields: submittedFields()
+				...(connectionParts
+					? {
+							secrets: { [secretFields[0].field]: connectionParts.secret },
+							fields: { ...resource?.value, ...connectionParts.fields }
+						}
+					: { secrets: $state.snapshot(secrets), fields: submittedFields() })
 			})
 			secrets = {}
+			connectionString = ''
 		} catch (e) {
 			saveError = e instanceof Error ? e.message : String(e)
 		} finally {
@@ -193,23 +209,46 @@
 				{/if}
 			</div>
 
-			{#each secretFields as secretField (secretField.field)}
+			{#if resource?.connectionString}
 				<div class="flex flex-col gap-1">
-					{#if resource}
-						<span class="text-2xs font-medium text-secondary">{secretField.label}</span>
-					{/if}
+					<span class="text-2xs font-medium text-secondary">Connection string</span>
 					<Password
-						bind:password={secrets[secretField.field]}
-						placeholder="Paste the value here"
+						bind:password={connectionString}
+						placeholder="postgres://user:password@host:5432/dbname"
 						disabled={!interactive || saving}
 						autocomplete="off"
-						error={saveError !== undefined}
+						error={saveError !== undefined || (connection !== undefined && !connectionParts)}
 						onKeyDown={onSecretKeyDown}
 					/>
+					{#if connection && 'error' in connection}
+						<p class="text-2xs text-red-600 dark:text-red-400">{connection.error}</p>
+					{:else if connectionParts}
+						{@const f = connectionParts.fields}
+						<!-- Only what is not secret, so the user can check what they are connecting to. -->
+						<p class="font-mono text-2xs text-secondary">
+							{f.user} @ {f.host}:{f.port ?? 5432}/{f.dbname ?? ''} · sslmode {f.sslmode}
+						</p>
+					{/if}
 				</div>
-			{/each}
+			{:else}
+				{#each secretFields as secretField (secretField.field)}
+					<div class="flex flex-col gap-1">
+						{#if resource}
+							<span class="text-2xs font-medium text-secondary">{secretField.label}</span>
+						{/if}
+						<Password
+							bind:password={secrets[secretField.field]}
+							placeholder="Paste the value here"
+							disabled={!interactive || saving}
+							autocomplete="off"
+							error={saveError !== undefined}
+							onKeyDown={onSecretKeyDown}
+						/>
+					</div>
+				{/each}
+			{/if}
 
-			{#if resource}
+			{#if resource && !resource.connectionString}
 				{#each Object.entries(resource.value) as [key, fieldValue] (key)}
 					<div class="flex flex-col gap-1">
 						<span class="text-2xs font-medium text-secondary">{key}</span>

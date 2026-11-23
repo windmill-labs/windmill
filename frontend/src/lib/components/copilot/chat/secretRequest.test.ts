@@ -25,7 +25,7 @@ vi.mock('$lib/components/sessions/sessionMode.svelte', () => ({
 	withWorkspaceParam: (url: string) => url
 }))
 
-import { saveSecretRequest, secretRequestToolResult } from './secretRequest'
+import { connectionStringParts, saveSecretRequest, secretRequestToolResult } from './secretRequest'
 import type { SecretRequest } from './shared'
 
 const bare: SecretRequest = { workspace: 'w', path: 'u/a/key', label: 'API key' }
@@ -100,5 +100,29 @@ describe('saveSecretRequest', () => {
 				}
 			})
 		})
+	})
+})
+
+// The password goes to a secret variable; everything else must be readable on the card.
+describe('connectionStringParts', () => {
+	it('splits out the password and defaults sslmode as the resource editor does', () => {
+		expect(connectionStringParts(' postgres://app:p%40ss@db.example.com:6432/orders ')).toEqual({
+			secret: 'p@ss',
+			fields: {
+				user: 'app',
+				host: 'db.example.com',
+				port: 6432,
+				dbname: 'orders',
+				sslmode: 'require'
+			}
+		})
+	})
+
+	it('refuses a string it cannot store faithfully', () => {
+		expect(connectionStringParts('mysql://a:b@h/d')).toHaveProperty('error')
+		expect(connectionStringParts('postgres://app@h/d')).toHaveProperty('error')
+		expect(
+			connectionStringParts('postgres://a:b@h/d?target_session_attrs=read-write')
+		).toHaveProperty('error')
 	})
 })

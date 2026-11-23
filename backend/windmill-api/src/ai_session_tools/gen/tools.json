@@ -400,7 +400,7 @@
 	},
 	{
 		"name": "request_secret",
-		"description": "Ask the user for secrets (API key, token, password) through a secure input card. The values are saved as deployed secret variables and never reach you. With resource_type it connects a service: the card shows the resource you prepared and asks for all its secrets, and one confirmation saves them and creates the resource, deployed; you get back \"$res:<path>\". Without it, it asks for one secret and you get back \"$var:<path>\" to reference from a run argument or elsewhere. Use it whenever you need a secret; never ask the user to paste one in chat or create a placeholder variable for them to fill.",
+		"description": "Ask the user for secrets (API key, token, password) through a secure input card. The values are saved as deployed secret variables and never reach you. With resource_type it connects a service: the card shows the resource you prepared and asks for all its secrets, and one confirmation saves them and creates the resource, deployed; you get back \"$res:<path>\". For a postgresql resource, first ask the user in askUserQuestion whether they connect with a connection string or with the details, and pass connection_string: true for the string. Without resource_type, it asks for one secret and you get back \"$var:<path>\" to reference from a run argument or elsewhere. Use it whenever you need a secret; never ask the user to paste one in chat or create a placeholder variable for them to fill.",
 		"parameters": {
 			"type": "object",
 			"properties": {
@@ -462,6 +462,10 @@
 						],
 						"additionalProperties": false
 					}
+				},
+				"connection_string": {
+					"description": "With resource_type \"postgresql\", when the user chose to connect with a connection string: the card takes the string instead of the fields, and secret_fields is not needed.",
+					"type": "boolean"
 				}
 			},
 			"required": [

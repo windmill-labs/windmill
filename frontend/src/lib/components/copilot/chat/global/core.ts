@@ -124,7 +124,7 @@ import {
 	type ToolCallbacks,
 	type ToolDisplayAction
 } from '../shared'
-import { secretRequestToolResult, takenSecretPath } from '../secretRequest'
+import { CONNECTION_STRING_TYPES, secretRequestToolResult, takenSecretPath } from '../secretRequest'
 import { scriptLangToEditorLang } from '$lib/scripts'
 import { appFileEditorLang } from '../appFileEditorLang'
 import { isMentionContext, isUserContextPath, type ContextElement } from '../context'
@@ -415,11 +415,15 @@ const requestSecretSchema = z.object({
 	description: z
 		.string()
 		.optional()
-		.describe('One short sentence on what it is used for. Becomes the description of what is saved.'),
+		.describe(
+			'One short sentence on what it is used for. Becomes the description of what is saved.'
+		),
 	help_url: z
 		.string()
 		.optional()
-		.describe("The provider's page where the user can create or copy the secrets, when you know it."),
+		.describe(
+			"The provider's page where the user can create or copy the secrets, when you know it."
+		),
 	resource_type: z
 		.string()
 		.optional()
@@ -441,7 +445,13 @@ const requestSecretSchema = z.object({
 		)
 		.min(1)
 		.optional()
-		.describe('With resource_type: every secret field of the resource, all asked on the one card.')
+		.describe('With resource_type: every secret field of the resource, all asked on the one card.'),
+	connection_string: z
+		.boolean()
+		.optional()
+		.describe(
+			'With resource_type "postgresql", when the user chose to connect with a connection string: the card takes the string instead of the fields, and secret_fields is not needed.'
+		)
 })
 
 // Matches the per-mode cap enforced by the prompt-settings UI (AIPromptsModal) and
@@ -2331,10 +2341,14 @@ function getResourceInstructions(external: boolean): string {
 - A resource draft is a workspace item: \`{ type: 'resource', path, summary?, value, isDraft }\`. \`value\` is a CreateResource body: \`{ path, value, description?, resource_type, labels? }\` where the inner \`value\` is the resource type's data shape.
 - Reading a variable returns \`{ type: 'variable', path, summary?, isSecret, isDraft }\` — never its value, secret or not. \`isSecret\` tells you whether the value is encrypted.
 - \`write_variable\` takes \`{ path, value?, is_secret?, description?, is_oauth?, expires_at?, value_valid_until?, labels? }\`. Creating a variable needs \`value\` and \`is_secret\`; editing one needs only the fields you are changing. Omitting \`value\` keeps the stored value, which is the only way to edit a secret variable — you cannot read its value, so passing any \`value\` you did not get from the user destroys it.
-${external ? `- For secret fields in a resource value, create the variable with \`write_variable\` and \`is_secret: true\`, and deploy it before the resource (see "Secrets" in the reference below).` : `- Connecting a service (a resource with a secret field) happens in one \`request_secret\` card, not in an editor or a draft:
-  1. Anything you need from the user and cannot default (which account, a host), ask first, in one \`askUserQuestion\`. Default what has a sensible default rather than asking.
+${
+	external
+		? `- For secret fields in a resource value, create the variable with \`write_variable\` and \`is_secret: true\`, and deploy it before the resource (see "Secrets" in the reference below).`
+		: `- Connecting a service (a resource with a secret field) happens in one \`request_secret\` card, not in an editor or a draft:
+  1. Anything you need from the user and cannot default (which account, a host), ask first, in one \`askUserQuestion\`. Default what has a sensible default rather than asking. For a Postgres database, ask in it whether they connect with a connection string or with the details; for the string, the card takes it whole (\`connection_string: true\`), so do not ask for the host or the user.
   2. Call \`request_secret\` with \`resource_type\`, a resource path you checked is free (list the resources and variables near it first), the non-secret fields you prepared as \`resource_value\`, and every secret field in \`secret_fields\`. The user checks the card, types the secrets, and one confirmation saves them and creates the resource, deployed. Use the \`$res:\` path it returns, which is the one the user chose if it differs from yours; do not write, open or deploy that resource yourself.
-  3. Never ask for a secret in chat, and never create a secret variable with a placeholder or empty value for the user to fill in. A secret that goes into no resource (a run argument) is a \`request_secret\` without \`resource_type\`.`}
+  3. Never ask for a secret in chat, and never create a secret variable with a placeholder or empty value for the user to fill in. A secret that goes into no resource (a run argument) is a \`request_secret\` without \`resource_type\`.`
+}
 - Reference formats inside resource values: \`$var:g/all/name\` (global), \`$var:u/user/name\` (user), \`$var:f/folder/name\` (folder). Reference another resource with \`$res:path/to/resource\`. The same strings are also how a resource or variable is passed as a run argument (see the run-argument rule in the resource reference below); what they are never valid as is a variable's own value.
 - Use \`search_resource_types\` to discover valid \`resource_type\` names and their JSON Schemas. Match the resource value to that schema.
 - For an agent (an \`ai_agent\` resource), call \`get_instructions\` with \`subject: "agent"\` instead.
@@ -3545,19 +3559,25 @@ export const globalTools: SessionTool<{}>[] = [
 		def: createToolDef(
 			requestSecretSchema,
 			'request_secret',
-			'Ask the user for secrets (API key, token, password) through a secure input card. The values are saved as deployed secret variables and never reach you. With resource_type it connects a service: the card shows the resource you prepared and asks for all its secrets, and one confirmation saves them and creates the resource, deployed; you get back "$res:<path>". Without it, it asks for one secret and you get back "$var:<path>" to reference from a run argument or elsewhere. Use it whenever you need a secret; never ask the user to paste one in chat or create a placeholder variable for them to fill.'
+			'Ask the user for secrets (API key, token, password) through a secure input card. The values are saved as deployed secret variables and never reach you. With resource_type it connects a service: the card shows the resource you prepared and asks for all its secrets, and one confirmation saves them and creates the resource, deployed; you get back "$res:<path>". For a postgresql resource, first ask the user in askUserQuestion whether they connect with a connection string or with the details, and pass connection_string: true for the string. Without resource_type, it asks for one secret and you get back "$var:<path>" to reference from a run argument or elsewhere. Use it whenever you need a secret; never ask the user to paste one in chat or create a placeholder variable for them to fill.'
 		),
 		streamingLabel: 'Asking the user for a secret...',
 		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 			const parsed = requestSecretSchema.parse(args)
-			const secretFields = parsed.secret_fields ?? []
-			const invalid = parsed.resource_type
-				? secretFields.length === 0
-					? 'secret_fields is required with resource_type.'
-					: undefined
-				: secretFields.length > 0 || parsed.resource_value
-					? 'secret_fields and resource_value need resource_type.'
-					: undefined
+			const stringField = parsed.connection_string
+				? CONNECTION_STRING_TYPES[parsed.resource_type ?? '']
+				: undefined
+			const secretFields = stringField ? [stringField] : (parsed.secret_fields ?? [])
+			const invalid =
+				parsed.connection_string && !stringField
+					? `connection_string works with resource_type ${Object.keys(CONNECTION_STRING_TYPES).join(', ')} only.`
+					: parsed.resource_type
+						? secretFields.length === 0
+							? 'secret_fields is required with resource_type.'
+							: undefined
+						: secretFields.length > 0 || parsed.resource_value
+							? 'secret_fields and resource_value need resource_type.'
+							: undefined
 			if (invalid) {
 				toolCallbacks.setToolStatus(toolId, { content: invalid, error: invalid })
 				return JSON.stringify({ success: false, error: invalid })
@@ -3577,7 +3597,8 @@ export const globalTools: SessionTool<{}>[] = [
 									([k]) => !secretFields.some((f) => f.field === k)
 								)
 							),
-							secretFields
+							secretFields,
+							connectionString: stringField ? true : undefined
 						}
 					: undefined,
 				replace: parsed.replace

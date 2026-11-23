@@ -3,6 +3,39 @@ import { ResourceService, VariableService } from '$lib/gen'
 import { buildResourcesUrl, buildVariablesUrl } from './global/pageNavigation'
 import { withWorkspaceParam } from '$lib/components/sessions/sessionMode.svelte'
 import type { SecretRequest, SecretRequestOutcome, SecretSubmission } from './shared'
+import {
+	connectionParamRefusal,
+	DEFAULT_SSLMODE,
+	parsePostgresConnectionString
+} from '$lib/utils/postgresConnectionString'
+
+/** The resource types whose card can take a connection string, by the secret field it fills. */
+export const CONNECTION_STRING_TYPES: Record<string, { field: string; label: string }> = {
+	postgresql: { field: 'password', label: 'Password' }
+}
+
+/** Splits a pasted connection string into the secret and the fields the card shows, with the
+ * same parser as the resource editor, so both store the same resource for the same string. */
+export function connectionStringParts(
+	connectionString: string
+): { secret: string; fields: Record<string, unknown> } | { error: string } {
+	const trimmed = connectionString.trim()
+	const parts = parsePostgresConnectionString(trimmed)
+	if (!parts) return { error: 'This is not a postgres:// connection string.' }
+	const refusal = connectionParamRefusal(trimmed)
+	if (refusal) return { error: refusal }
+	// Saved as a secret variable, which cannot be empty.
+	if (!parts.password) return { error: 'It has no password: connect with the details instead.' }
+	const { password, ...rest } = parts
+	return {
+		secret: password,
+		fields: Object.fromEntries(
+			Object.entries({ ...rest, sslmode: rest.sslmode ?? DEFAULT_SSLMODE }).filter(
+				([, v]) => v !== undefined
+			)
+		)
+	}
+}
 
 /** The values the card asks for. A bare variable is one field, keyed `""`. */
 export function secretFieldsOf(request: SecretRequest): { field: string; label: string }[] {
