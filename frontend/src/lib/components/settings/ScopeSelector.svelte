@@ -1,11 +1,12 @@
 <script lang="ts">
 	import { type ScopeDomain, type ScopeDefinition, TokenService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
-	import { ChevronRight, Loader2, Plus, X } from 'lucide-svelte'
+	import { ChevronRight, Loader2, X } from 'lucide-svelte'
 	import Button from '../common/button/Button.svelte'
 	import Checkbox from '../common/checkbox/Checkbox.svelte'
-	import Popover from '../meltComponents/Popover.svelte'
 	import TextInput from '../text_input/TextInput.svelte'
+	import PathPicker from '../pathPicker/PathPicker.svelte'
+	import type { WorkspaceItemKind } from '../workspacePicker'
 	import { twMerge } from 'tailwind-merge'
 
 	import type { Snippet } from 'svelte'
@@ -14,7 +15,7 @@
 		selectedScopes?: string[]
 		disabled?: boolean
 		class?: string
-		/** Renders above the scope-list card, below the Selected Scopes summary. */
+		/** Renders above the scope card (header, selected chips and group list). */
 		topSlot?: Snippet
 		/** What an empty selection means, shown when no scope is selected. */
 		emptyLabel?: string
@@ -23,8 +24,6 @@
 	interface ScopeState {
 		isSelected: boolean
 		resourcePaths: string[]
-		currentInputValue: string
-		pathError?: string
 	}
 
 	interface DomainState {
@@ -54,9 +53,7 @@
 	function createScopeState(scope: ScopeDefinition): ScopeState {
 		return {
 			isSelected: false,
-			resourcePaths: [],
-			currentInputValue: '',
-			pathError: undefined
+			resourcePaths: []
 		}
 	}
 
@@ -261,19 +258,6 @@
 		)
 	}
 
-	function getSelectedScopesForDomain(domain: ScopeDomain): string[] {
-		const domainState = getDomainState(domain.name)
-		if (!domainState) return []
-
-		return domain.scopes
-			.filter((scope) => domainState.scopes[scope.value]?.isSelected)
-			.map((scope) => {
-				const scopeState = domainState.scopes[scope.value]
-				const resourcePaths = scopeState?.resourcePaths || []
-				return resourcePaths.length > 0 ? `${scope.value}:${resourcePaths.join(',')}` : scope.value
-			})
-	}
-
 	function removeSelectedScope(scopeToRemove: string) {
 		selectedScopes = selectedScopes.filter((scope) => scope !== scopeToRemove)
 
@@ -311,8 +295,6 @@
 			for (const scopeState of Object.values(domainState.scopes)) {
 				scopeState.isSelected = false
 				scopeState.resourcePaths = []
-				scopeState.currentInputValue = ''
-				scopeState.pathError = undefined
 			}
 		}
 	}
@@ -343,6 +325,26 @@
 			syncSelectedScopesWithState()
 		}
 	})
+
+	/** Item kinds whose paths a scope restricts, for the path picker. Scopes on other
+	 * resources (variables, schedules, triggers, …) are offered folders and typed paths. */
+	function pathPickerKinds(scopeValue: string): WorkspaceItemKind[] {
+		if (scopeValue === 'jobs:run:scripts') return ['script']
+		if (scopeValue === 'jobs:run:flows') return ['flow']
+		switch (scopeValue.split(':')[0]) {
+			case 'jobs':
+				return ['script', 'flow']
+			case 'scripts':
+				return ['script']
+			case 'flows':
+				return ['flow']
+			case 'apps':
+			case 'raw_apps':
+				return ['app']
+			default:
+				return []
+		}
+	}
 
 	function validateResourcePath(path: string): string | null {
 		if (!path.trim()) return 'Path cannot be empty'
@@ -379,40 +381,12 @@
 		return null
 	}
 
-	function addResourcePath(scopeValue: string, path: string) {
-		const scopeState = getScopeState(scopeValue)
-		if (!scopeState) return false
-
-		const error = validateResourcePath(path)
-		if (error) {
-			scopeState.pathError = error
-			return false
-		}
-
-		scopeState.pathError = undefined
-
-		if (scopeState.resourcePaths.includes(path.trim())) {
-			scopeState.pathError = 'Path already exists'
-			return false
-		}
-
-		const newPaths = [...scopeState.resourcePaths, path.trim()]
-		scopeState.resourcePaths = newPaths
-		scopeState.currentInputValue = ''
-
-		updateSelectedScopesForResourcePaths(scopeValue, newPaths)
-		return true
-	}
-
-	function removeResourcePath(scopeValue: string, pathToRemove: string) {
+	function setResourcePaths(scopeValue: string, paths: string[]) {
 		const scopeState = getScopeState(scopeValue)
 		if (!scopeState) return
-
-		const newPaths = scopeState.resourcePaths.filter((p) => p !== pathToRemove)
-		scopeState.resourcePaths = newPaths
-		scopeState.pathError = undefined
-
-		updateSelectedScopesForResourcePaths(scopeValue, newPaths, false)
+		scopeState.resourcePaths = paths
+		// No path left keeps the scope, unrestricted.
+		updateSelectedScopesForResourcePaths(scopeValue, paths, false)
 	}
 
 	function updateSelectedScopesForResourcePaths(
@@ -560,7 +534,10 @@
 					{@const domainState = getDomainState(domain.name)}
 					{@const isExpanded = query !== '' || domainState?.isExpanded || false}
 					{@const isDomainSelected = domainState?.hasFullAccess || false}
-					{@const selectedCount = getSelectedScopesForDomain(domain).length}
+					<!-- Counts a read scope implied by write, which its row shows as checked. -->
+					{@const selectedCount = domain.scopes.filter(
+						(s) => domainState?.scopes[s.value]?.isSelected || isScopeDisabled(s, domain)
+					).length}
 
 					<div>
 						<!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -597,116 +574,52 @@
 						</div>
 
 						{#if isExpanded}
-							<div class="flex flex-col pb-2 pl-[3.25rem] pr-3">
+							<!-- One grid for the group's rows, so path pickers share a left edge and take
+							     the width the labels leave. -->
+							<div
+								class="grid grid-cols-[auto_minmax(12rem,1fr)] items-center gap-x-4 gap-y-1 pb-2 pl-[3.25rem] pr-3"
+							>
 								{#each getVisibleScopes(domain) as scope (scope.value)}
-									{@const scopeState = domainState?.scopes[scope.value]}
-									{@const isSelected = scopeState?.isSelected || false}
-									{@const resourcePathArray = scopeState?.resourcePaths || []}
-									{@const currentInput = scopeState?.currentInputValue || ''}
-									{@const pathError = scopeState?.pathError}
+									{@const isSelected = domainState?.scopes[scope.value]?.isSelected || false}
 									{@const isImplied = !isSelected && isScopeDisabled(scope, domain)}
 									{@const isDisabled = disabled || isScopeDisabled(scope, domain)}
 
-									<div class="flex flex-col gap-1 py-1">
-										<div class="flex items-center gap-2 min-h-7">
-											<label
+									<div class="contents">
+										<label
+											class={twMerge(
+												'flex items-center gap-2 min-w-0 min-h-7',
+												isDisabled ? 'cursor-not-allowed' : 'cursor-pointer'
+											)}
+											title={isImplied ? 'Granted by the write scope, on the same paths' : undefined}
+										>
+											<!-- A read scope covered by the selected write scope shows as granted. -->
+											<Checkbox
+												checked={isSelected || isImplied}
+												disabled={isDisabled}
+												onChange={() => handleIndividualScopeChange(scope, !isSelected)}
+											/>
+											<span
 												class={twMerge(
-													'flex items-center gap-2 flex-1 min-w-0',
-													isDisabled ? 'cursor-not-allowed' : 'cursor-pointer'
+													'text-xs truncate',
+													isDisabled ? 'text-disabled' : 'text-primary'
 												)}
-												title={isImplied
-													? 'Granted by the write scope, on the same paths'
-													: undefined}
 											>
-												<!-- A read scope covered by the selected write scope shows as granted. -->
-												<Checkbox
-													checked={isSelected || isImplied}
-													disabled={isDisabled}
-													onChange={() => handleIndividualScopeChange(scope, !isSelected)}
-												/>
-												<span
-													class={twMerge(
-														'text-xs truncate',
-														isDisabled ? 'text-disabled' : 'text-primary'
-													)}
-												>
-													{scope.label}
-												</span>
-												<span class="font-mono text-2xs text-hint truncate">{scope.value}</span>
-											</label>
-											{#if scope.requires_resource_path && isSelected}
-												<Popover disabled={isDisabled} closeOnOtherPopoverOpen contentClasses="p-3">
-													{#snippet trigger()}
-														<Button
-															unifiedSize="xs"
-															disabled={isDisabled}
-															variant="subtle"
-															startIcon={{ icon: Plus }}
-														>
-															{resourcePathArray.length > 0 ? 'Add path' : 'Restrict paths'}
-														</Button>
-													{/snippet}
-													{#snippet content()}
-														<div class="w-80 flex flex-col gap-1">
-															<span class="text-xs font-semibold text-emphasis">Resource path</span>
-															<span class="text-xs text-secondary">
-																With no path, the scope reaches every resource. With paths, it
-																reaches exactly those.
-															</span>
-															<div class="flex gap-2">
-																<TextInput
-																	size="sm"
-																	class="flex-1"
-																	bind:value={
-																		() => currentInput,
-																		(v) => {
-																			if (scopeState) {
-																				scopeState.currentInputValue = `${v ?? ''}`
-																				scopeState.pathError = undefined
-																			}
-																		}
-																	}
-																	error={pathError}
-																	inputProps={{
-																		disabled,
-																		placeholder: 'f/folder/*, u/user/path',
-																		onkeydown: (e) => {
-																			if (e.key === 'Enter' && currentInput.trim()) {
-																				e.preventDefault()
-																				addResourcePath(scope.value, currentInput)
-																			}
-																		}
-																	}}
-																/>
-																<Button
-																	onclick={() => addResourcePath(scope.value, currentInput)}
-																	unifiedSize="sm"
-																	variant="default"
-																	disabled={!currentInput.trim()}
-																>
-																	Add
-																</Button>
-															</div>
-															{#if pathError}
-																<p class="text-2xs text-red-500">{pathError}</p>
-															{/if}
-														</div>
-													{/snippet}
-												</Popover>
-											{/if}
-										</div>
-
-										{#if scope.requires_resource_path && resourcePathArray.length > 0}
-											<div class="flex flex-wrap gap-1 pl-6">
-												{#each resourcePathArray as path}
-													{@render scopeChip(
-														path,
-														'Remove path',
-														() => removeResourcePath(scope.value, path),
-														isDisabled
-													)}
-												{/each}
-											</div>
+												{scope.label}
+											</span>
+											<span class="font-mono text-2xs text-hint truncate">{scope.value}</span>
+										</label>
+										{#if scope.requires_resource_path && isSelected}
+											<PathPicker
+												bind:value={
+													() => domainState?.scopes[scope.value]?.resourcePaths ?? [],
+													(paths) => setResourcePaths(scope.value, paths)
+												}
+												kinds={pathPickerKinds(scope.value)}
+												validate={validateResourcePath}
+												{disabled}
+											/>
+										{:else}
+											<div></div>
 										{/if}
 									</div>
 								{/each}
