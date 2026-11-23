@@ -11,12 +11,12 @@
 	import FlowPathViewer from './flows/content/FlowPathViewer.svelte'
 	import SchemaViewer from './SchemaViewer.svelte'
 	import { scriptPathToHref } from '$lib/scripts'
-	import { cleanExpr, copyToClipboard } from '$lib/utils'
+	import { cleanExpr } from '$lib/utils'
 	import { hubBaseUrlStore } from '$lib/stores'
 
 	import { twMerge } from 'tailwind-merge'
 	import FlowModuleScript from './flows/content/FlowModuleScript.svelte'
-	import { Copy, Expand, ExternalLink } from 'lucide-svelte'
+	import { Expand, ExternalLink } from 'lucide-svelte'
 	import HighlightTheme from './HighlightTheme.svelte'
 	import LanguageIcon from './common/languageIcons/LanguageIcon.svelte'
 	import FlowGraphViewerStepHeader from './FlowGraphViewerStepHeader.svelte'
@@ -287,27 +287,12 @@
 				{/each}
 			</div>
 		{:else if stepDetail.value.type == 'flow'}
-			<div class="text-sm mb-1 flex justify-between flex-row items-center">
+			<div class="pb-2">
 				{@render pathLink(
 					`/flows/get/${stepDetail.value.path}?workspace=${encodeURIComponent(ws ?? '')}`,
 					stepDetail,
 					stepDetail.value.path
 				)}
-				<Button
-					unifiedSize="sm"
-					startIcon={{ icon: Copy }}
-					variant="subtle"
-					on:click={() => {
-						if (typeof stepDetail !== 'string') {
-							const val = stepDetail?.value
-							if (val?.type == 'flow') {
-								copyToClipboard(val.path)
-							}
-						}
-					}}
-				>
-					Copy path
-				</Button>
 			</div>
 			<FlowPathViewer noSide path={stepDetail.value.path} />
 		{/if}
