@@ -4493,7 +4493,7 @@ mod tests {
             Some(1_073_741_824)
         );
 
-        // If the limit is 0, that means the job should not be run.
+        // An explicit limit of 0 is preserved (not treated as uncapped); downstream consumers currently treat 0 as no cap.
         std::fs::write(leaf.join("memory.max"), "0\n").unwrap();
         assert_eq!(cgroup_v2_memory_limit(&root, &leaf), Some(0));
 
