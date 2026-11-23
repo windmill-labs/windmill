@@ -1315,18 +1315,16 @@ async fn create_resource(
             .as_ref(),
     )
     .await?;
-    if let Some(value) = resource.value.as_deref() {
-        windmill_dep_map::ci_tests::check_ci_tests_rule(
-            &db,
-            &w_id,
-            &resource.path,
-            windmill_dep_map::ci_tests::DeployedContent::Resource(value),
-            &authed,
-            &authed.groups,
-            authed.is_admin,
-        )
-        .await?;
-    }
+    windmill_dep_map::ci_tests::check_ci_tests_rule(
+        &db,
+        &w_id,
+        &resource.path,
+        windmill_dep_map::ci_tests::DeployedContent::Resource(resource.value.as_deref()),
+        &authed,
+        &authed.groups,
+        authed.is_admin,
+    )
+    .await?;
 
     let mut tx = user_db.begin(&authed).await?;
 
@@ -2221,7 +2219,7 @@ async fn update_resource(
             &db,
             &w_id,
             ns.path.as_deref().unwrap_or(path),
-            windmill_dep_map::ci_tests::DeployedContent::Resource(value),
+            windmill_dep_map::ci_tests::DeployedContent::Resource(Some(value)),
             &authed,
             &authed.groups,
             authed.is_admin,
@@ -2672,20 +2670,21 @@ async fn set_resource_value(
         return Err(Error::PermissionDenied(msg));
     }
     authorize_azure_devops_reference(authed, db, user_db, w_id, value.as_ref()).await?;
-    if let Some(value) = value.as_ref() {
-        let raw = serde_json::value::to_raw_value(value)
-            .map_err(|e| Error::internal_err(e.to_string()))?;
-        windmill_dep_map::ci_tests::check_ci_tests_rule(
-            db,
-            w_id,
-            path,
-            windmill_dep_map::ci_tests::DeployedContent::Resource(&raw),
-            authed,
-            &authed.groups,
-            authed.is_admin,
-        )
-        .await?;
-    }
+    let raw = value
+        .as_ref()
+        .map(serde_json::value::to_raw_value)
+        .transpose()
+        .map_err(|e| Error::internal_err(e.to_string()))?;
+    windmill_dep_map::ci_tests::check_ci_tests_rule(
+        db,
+        w_id,
+        path,
+        windmill_dep_map::ci_tests::DeployedContent::Resource(raw.as_deref()),
+        authed,
+        &authed.groups,
+        authed.is_admin,
+    )
+    .await?;
 
     let mut tx = user_db.clone().begin(authed).await?;
 

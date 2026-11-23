@@ -1668,7 +1668,11 @@
 							ciBlockedItems={selectedDiffs
 								.filter((d) => {
 									const status = getCiTestStatus(d)
-									return status === 'fail' || status === 'running'
+									return (
+										status === 'fail' ||
+										status === 'running' ||
+										(ciTestResults[`${d.kind}:${d.path}`] ?? []).some((r) => !r.job_id)
+									)
 								})
 								.map((d) => d.path)}
 							onUpdateCanDeploy={(canDeploy) => {

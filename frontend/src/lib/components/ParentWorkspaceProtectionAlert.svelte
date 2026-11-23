@@ -21,7 +21,7 @@
 		/** How to name the target in the message, when its id is not what a reader would recognize
 		 * — a remote deploy target is addressed through a proxy path. */
 		displayName?: string
-		/** Selected items whose CI tests are failing or still running in the source workspace. */
+		/** Selected items whose CI tests are failing, running or not yet run in the source workspace. */
 		ciBlockedItems?: string[]
 		onUpdateCanDeploy?: (value: boolean) => void
 	} = $props()
@@ -115,7 +115,7 @@
 			<p>
 				The workspace {displayName ?? parentWorkspaceId} requires passing CI tests (<b
 					>{ciRulesets.map((r) => r.name).join(', ')}</b
-				>). These selected items have tests that are failing or still running:
+				>). These selected items have tests that are failing, still running or not yet run:
 				<b>{ciBlockedItems.join(', ')}</b>.
 			</p>
 			{#if canBypassCi}

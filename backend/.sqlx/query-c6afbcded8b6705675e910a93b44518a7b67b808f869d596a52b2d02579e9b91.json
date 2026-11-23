@@ -1,0 +1,37 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT j.created_at, jc.status::text AS status, (s.content IS NOT DISTINCT FROM t.content AND s.modules IS NOT DISTINCT FROM t.modules) AS \"same_test!\" FROM v2_job j LEFT JOIN v2_job_completed jc ON jc.id = j.id LEFT JOIN script s ON s.workspace_id = j.workspace_id AND s.hash = j.runnable_id LEFT JOIN LATERAL ( SELECT content, modules FROM script WHERE workspace_id = $4 AND path = $2 AND deleted = false AND archived = false ORDER BY created_at DESC LIMIT 1 ) t ON true WHERE j.workspace_id = $1 AND j.runnable_path = $2 AND j.trigger_kind = 'ci_test' AND j.trigger = $3 ORDER BY j.created_at DESC LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 1,
+        "name": "status",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "same_test!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      null,
+      null
+    ]
+  },
+  "hash": "c6afbcded8b6705675e910a93b44518a7b67b808f869d596a52b2d02579e9b91"
+}

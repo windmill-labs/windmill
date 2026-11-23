@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT value AS \"value: sqlx::types::Json<serde_json::Value>\", edited_at FROM resource WHERE workspace_id = $1 AND path = $2",
+  "query": "SELECT value AS \"value: sqlx::types::Json<serde_json::Value>\", resource_type, edited_at FROM resource WHERE workspace_id = $1 AND path = $2",
   "describe": {
     "columns": [
       {
@@ -10,6 +10,11 @@
       },
       {
         "ordinal": 1,
+        "name": "resource_type",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
         "name": "edited_at",
         "type_info": "Timestamptz"
       }
@@ -22,8 +27,9 @@
     },
     "nullable": [
       true,
+      false,
       true
     ]
   },
-  "hash": "4be62c01b78e3bbccdf905b96934faa950827a51990aea4b0a5a0cab46f4bbe5"
+  "hash": "35089c287fa018bc7f181fafa11054ee686cb7e3c7f4285ea1a28b427490bcb2"
 }

@@ -199,15 +199,19 @@ pub async fn trigger_all_ci_tests(
 
 /// What a deploy writes at its path, as `RequirePassingCiTests` compares it with a fork's.
 pub enum DeployedContent<'a> {
-    Script(&'a str),
+    Script {
+        content: &'a str,
+        modules: Option<serde_json::Value>,
+    },
     Flow(&'a serde_json::value::RawValue),
-    Resource(&'a serde_json::value::RawValue),
+    /// `None` when the write clears the value.
+    Resource(Option<&'a serde_json::value::RawValue>),
 }
 
 impl DeployedContent<'_> {
     fn kind(&self) -> &'static str {
         match self {
-            DeployedContent::Script(_) => "script",
+            DeployedContent::Script { .. } => "script",
             DeployedContent::Flow(_) => "flow",
             DeployedContent::Resource(_) => "resource",
         }
@@ -308,13 +312,19 @@ async fn ci_tests_failure(
     )
     .fetch_all(db)
     .await?;
-    let value = match content {
-        DeployedContent::Script(_) => None,
-        DeployedContent::Flow(v) | DeployedContent::Resource(v) => Some(
-            serde_json::from_str::<serde_json::Value>(v.get())
-                .map_err(|e| error::Error::BadRequest(format!("invalid {kind} value: {e}")))?,
-        ),
+    let raw = match content {
+        DeployedContent::Script { .. } => None,
+        DeployedContent::Flow(v) => Some(Some(*v)),
+        DeployedContent::Resource(v) => Some(*v),
     };
+    let value = raw
+        .map(|v| {
+            v.map_or(Ok(serde_json::Value::Null), |v| {
+                serde_json::from_str(v.get())
+            })
+            .map_err(|e| error::Error::BadRequest(format!("invalid {kind} value: {e}")))
+        })
+        .transpose()?;
     let mut failure = format!("No fork of {w_id} holds this version of {kind} {path}");
     for fork in forks {
         let Some(deployed_at) = fork_deployed_at(db, &fork, path, content, value.as_ref()).await?
@@ -339,8 +349,8 @@ async fn fork_deployed_at(
     value: Option<&serde_json::Value>,
 ) -> error::Result<Option<chrono::DateTime<chrono::Utc>>> {
     Ok(match (content, value) {
-        (DeployedContent::Script(c), _) => sqlx::query!(
-            "SELECT content, created_at FROM script \
+        (DeployedContent::Script { content: c, modules }, _) => sqlx::query!(
+            "SELECT content, modules, created_at FROM script \
              WHERE workspace_id = $1 AND path = $2 AND deleted = false AND archived = false \
              ORDER BY created_at DESC LIMIT 1",
             fork,
@@ -348,7 +358,7 @@ async fn fork_deployed_at(
         )
         .fetch_optional(db)
         .await?
-        .filter(|s| s.content == *c)
+        .filter(|s| s.content == *c && s.modules == *modules)
         .map(|s| s.created_at),
         (DeployedContent::Flow(_), Some(v)) => sqlx::query!(
             "SELECT f.value AS \"value: sqlx::types::Json<serde_json::Value>\", \
@@ -363,14 +373,18 @@ async fn fork_deployed_at(
         .filter(|f| same_flow(&f.value.0, v))
         .and_then(|f| f.deployed_at),
         (DeployedContent::Resource(_), Some(v)) => sqlx::query!(
-            "SELECT value AS \"value: sqlx::types::Json<serde_json::Value>\", edited_at \
+            "SELECT value AS \"value: sqlx::types::Json<serde_json::Value>\", resource_type, \
+                    edited_at \
              FROM resource WHERE workspace_id = $1 AND path = $2",
             fork,
             path
         )
         .fetch_optional(db)
         .await?
-        .filter(|r| same_resource(r.value.as_ref().map(|v| &v.0), v))
+        .filter(|r| {
+            let fork_value = r.value.as_ref().map_or(&serde_json::Value::Null, |v| &v.0);
+            same_resource(&r.resource_type, fork_value, v)
+        })
         .and_then(|r| r.edited_at),
         _ => None,
     })
@@ -391,12 +405,13 @@ async fn fork_tests_failure(
     for test in tests {
         let run = sqlx::query!(
             "SELECT j.created_at, jc.status::text AS status, \
-                    (s.content IS NOT DISTINCT FROM t.content) AS \"same_test!\" \
+                    (s.content IS NOT DISTINCT FROM t.content \
+                     AND s.modules IS NOT DISTINCT FROM t.modules) AS \"same_test!\" \
              FROM v2_job j \
              LEFT JOIN v2_job_completed jc ON jc.id = j.id \
              LEFT JOIN script s ON s.workspace_id = j.workspace_id AND s.hash = j.runnable_id \
              LEFT JOIN LATERAL ( \
-                 SELECT content FROM script \
+                 SELECT content, modules FROM script \
                  WHERE workspace_id = $4 AND path = $2 AND deleted = false AND archived = false \
                  ORDER BY created_at DESC LIMIT 1 \
              ) t ON true \
@@ -428,7 +443,8 @@ async fn fork_tests_failure(
 }
 
 /// A flow carries over to its parent without the hashes of its script steps, and its locks
-/// are recomputed per workspace: neither tells two versions of its logic apart.
+/// are recomputed per workspace: neither tells two versions of its logic apart. Step arguments
+/// are user data, compared as they are even where they look like a step.
 fn same_flow(a: &serde_json::Value, b: &serde_json::Value) -> bool {
     fn strip(v: &serde_json::Value) -> serde_json::Value {
         match v {
@@ -440,7 +456,14 @@ fn same_flow(a: &serde_json::Value, b: &serde_json::Value) -> bool {
                 serde_json::Value::Object(
                     m.iter()
                         .filter(|(k, _)| !(step && matches!(k.as_str(), "hash" | "lock")))
-                        .map(|(k, v)| (k.clone(), strip(v)))
+                        .map(|(k, v)| {
+                            let v = if k == "input_transforms" {
+                                v.clone()
+                            } else {
+                                strip(v)
+                            };
+                            (k.clone(), v)
+                        })
                         .collect(),
                 )
             }
@@ -452,15 +475,18 @@ fn same_flow(a: &serde_json::Value, b: &serde_json::Value) -> bool {
 }
 
 /// An agent carries over to its parent with the principal it runs as replaced.
-fn same_resource(a: Option<&serde_json::Value>, b: &serde_json::Value) -> bool {
-    fn strip(v: &serde_json::Value) -> serde_json::Value {
+fn same_resource(fork_type: &str, a: &serde_json::Value, b: &serde_json::Value) -> bool {
+    if fork_type != "ai_agent" {
+        return a == b;
+    }
+    let strip = |v: &serde_json::Value| {
         let mut v = v.clone();
         if let Some(m) = v.as_object_mut() {
             m.remove("on_behalf_of");
         }
         v
-    }
-    a.map(strip) == Some(strip(b))
+    };
+    strip(a) == strip(b)
 }
 
 #[cfg(test)]
@@ -480,19 +506,23 @@ mod tests {
         let mut changed_arg = merged.clone();
         changed_arg["modules"][0]["value"]["input_transforms"]["lock"]["value"] = json!(2);
         assert!(!same_flow(&fork, &changed_arg));
-        let mut changed_code = merged;
+        let mut changed_code = merged.clone();
         changed_code["modules"][0]["value"]["content"] = json!("y");
         assert!(!same_flow(&fork, &changed_code));
+        let (mut fork_arg, mut merged_arg) = (fork.clone(), merged);
+        fork_arg["modules"][0]["value"]["input_transforms"]["lock"]["value"] =
+            json!({"type": "script", "hash": "v1"});
+        merged_arg["modules"][0]["value"]["input_transforms"]["lock"]["value"] =
+            json!({"type": "script", "hash": "v2"});
+        assert!(!same_flow(&fork_arg, &merged_arg));
     }
 
     #[test]
     fn same_resource_ignores_agent_principal() {
         let fork = json!({"model": "m", "on_behalf_of": "u/a"});
-        assert!(same_resource(
-            Some(&fork),
-            &json!({"model": "m", "on_behalf_of": "u/b"})
-        ));
-        assert!(!same_resource(Some(&fork), &json!({"model": "n"})));
-        assert!(!same_resource(None, &json!({"model": "m"})));
+        let other_principal = json!({"model": "m", "on_behalf_of": "u/b"});
+        assert!(same_resource("ai_agent", &fork, &other_principal));
+        assert!(!same_resource("custom", &fork, &other_principal));
+        assert!(!same_resource("ai_agent", &fork, &json!({"model": "n"})));
     }
 }

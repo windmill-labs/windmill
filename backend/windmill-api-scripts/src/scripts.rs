@@ -1385,7 +1385,13 @@ async fn create_script_internal<'c>(
         &db,
         &w_id,
         &ns.path,
-        windmill_dep_map::ci_tests::DeployedContent::Script(&ns.content),
+        windmill_dep_map::ci_tests::DeployedContent::Script {
+            content: &ns.content,
+            modules: ns
+                .modules
+                .as_ref()
+                .and_then(|m| serde_json::to_value(m).ok()),
+        },
         &authed,
         &authed.groups,
         authed.is_admin,
