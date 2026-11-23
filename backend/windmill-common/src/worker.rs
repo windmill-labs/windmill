@@ -1997,7 +1997,7 @@ fn cgroup_v2_memory_limit(cgroup_root: &Path, cgroup_path: &Path) -> Option<i64>
         }
         if let Ok(contents) = fs::read_to_string(dir.join("memory.max")) {
             if let Ok(limit) = contents.trim().parse::<i64>() {
-                if limit > 0 {
+                if limit >= 0 {
                     min_limit = Some(min_limit.map_or(limit, |m| m.min(limit)));
                 }
             }
@@ -2024,7 +2024,7 @@ pub fn get_memory() -> Option<i64> {
 
     // if uncapped ("max" on cgroup v2) or super high (cgroup v1), fall back to host RAM
     match memory_limit {
-        Some(limit) if limit > 0 && limit <= 1024 * 1024 * 1024 * 1024 * 1024 => Some(limit),
+        Some(limit) if limit >= 0 && limit <= 1024 * 1024 * 1024 * 1024 * 1024 => Some(limit),
         _ => get_memory_from_meminfo(),
     }
 }
@@ -4492,6 +4492,10 @@ mod tests {
             cgroup_v2_memory_limit(&root, &root_with_slash),
             Some(1_073_741_824)
         );
+
+        // If the limit is 0, that means the job should not be run.
+        std::fs::write(leaf.join("memory.max"), "0\n").unwrap();
+        assert_eq!(cgroup_v2_memory_limit(&root, &leaf), Some(0));
 
         let _ = std::fs::remove_dir_all(&root);
     }
