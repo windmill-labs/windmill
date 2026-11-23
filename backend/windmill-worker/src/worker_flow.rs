@@ -4335,6 +4335,7 @@ async fn push_next_flow_job(
                                  .approver.clone()
                                  .unwrap_or_else(|| "unknown".to_string()),
                              approved_at: Some(r.created_at),
+                             approved: Some(r.approved),
                          })
                          .collect::<Vec<_>>()
                      ),

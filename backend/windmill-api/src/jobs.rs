@@ -5686,17 +5686,18 @@ async fn get_approval_info(
 
     // Get existing approvers
     let approvers: Vec<Approval> =
-        sqlx::query_as::<_, (i32, Option<String>, chrono::DateTime<chrono::Utc>)>(
-            "SELECT resume_id, approver, created_at FROM resume_job WHERE flow = $1",
+        sqlx::query_as::<_, (i32, Option<String>, chrono::DateTime<chrono::Utc>, bool)>(
+            "SELECT resume_id, approver, created_at, approved FROM resume_job WHERE flow = $1",
         )
         .bind(&job_id)
         .fetch_all(&db)
         .await?
         .into_iter()
-        .map(|(rid, approver, created_at)| Approval {
+        .map(|(rid, approver, created_at, approved)| Approval {
             resume_id: rid as u16,
             approver: approver.unwrap_or_else(|| "anonymous".to_string()),
             approved_at: Some(created_at),
+            approved: Some(approved),
         })
         .collect();
 
@@ -5788,6 +5789,9 @@ async fn list_waiting_approvals(
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
 ) -> error::Result<Json<WaitingApprovals>> {
+    // A token confined to some tags reads no job outside them, here as in every job read.
+    let scope_tags =
+        get_scope_tags(&authed).map(|v| v.into_iter().map(str::to_string).collect::<Vec<_>>());
     let rows = sqlx::query!(
         r#"
         SELECT j.id AS "id!",
@@ -5839,14 +5843,17 @@ async fn list_waiting_approvals(
           AND (
               s.flow_status->'modules'->((s.flow_status->>'step')::int)->>'type'
                   = 'WaitingForEvents'
-              OR s.workflow_as_code_status->'_approval' IS NOT NULL
+              -- `_approval` outlives its approval; the pending mode says what it waits on now.
+              OR s.workflow_as_code_status->'_checkpoint'->'pending_steps'->>'mode' = 'approval'
           )
+          AND ($4::text[] IS NULL OR j.tag = ANY($4))
         ORDER BY j.created_at DESC
         LIMIT $3
         "#,
         &w_id,
         &authed.username,
         WAITING_APPROVALS_SCAN,
+        scope_tags.as_deref(),
     )
     .fetch_all(&db)
     .await?;
@@ -6161,7 +6168,7 @@ async fn get_approval_step_detail(
             .map(|a| StepApproval {
                 resume_id: a.resume_id,
                 approver: a.approver.clone(),
-                approved: None,
+                approved: a.approved,
                 value: None,
                 created_at: a.approved_at,
             })
@@ -6757,6 +6764,7 @@ pub async fn get_suspended_job_flow(
             resume_id: x.resume_id as u16,
             approver: x.approver.unwrap_or_else(|| "anonymous".to_string()),
             approved_at: None,
+            approved: None,
         })
         .collect()
     } else {

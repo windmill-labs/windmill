@@ -131,6 +131,10 @@ pub struct Approval {
     /// Kept on the step because the resume rows that also record it are deleted with the run.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub approved_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// False for a rejection the flow continued past (`continue_on_disapprove_timeout`): the
+    /// step succeeds and lists who rejected it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub approved: Option<bool>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

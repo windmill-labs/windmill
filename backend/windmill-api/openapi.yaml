@@ -20327,6 +20327,11 @@ paths:
                           type: integer
                         approver:
                           type: string
+                        approved_at:
+                          type: string
+                          format: date-time
+                        approved:
+                          type: boolean
                   view_token:
                     type: string
                     description: >-
@@ -20581,6 +20586,11 @@ paths:
                           type: integer
                         approver:
                           type: string
+                        approved_at:
+                          type: string
+                          format: date-time
+                        approved:
+                          type: boolean
                       required:
                         - resume_id
                         - approver

@@ -1532,6 +1532,11 @@ components:
                 type: string
                 format: date-time
                 description: absent for approvals recorded before it was kept
+              approved:
+                type: boolean
+                description: >
+                  false for a rejection the flow continued past; absent for approvals recorded
+                  before it was kept
             required:
               - resume_id
               - approver

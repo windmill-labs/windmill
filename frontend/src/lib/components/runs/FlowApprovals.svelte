@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { resource } from 'runed'
-	import { ChevronDown, CircleCheck, Hourglass } from 'lucide-svelte'
+	import { ChevronDown, CircleCheck, CircleX, Hourglass } from 'lucide-svelte'
 	import { Badge, Button } from '$lib/components/common'
 	import { JobService, type FlowModule, type FlowStatusModule, type Job } from '$lib/gen'
 	import { displayDate, type StateStore } from '$lib/utils'
@@ -17,7 +17,13 @@
 
 	let { job, isOwner, suspendStatus, onSelectStep }: Props = $props()
 
-	type Row = { module: FlowModule; status: FlowStatusModule; waiting: boolean }
+	type Row = {
+		module: FlowModule
+		status: FlowStatusModule
+		waiting: boolean
+		/** A rejection the flow continued past (`continue_on_disapprove_timeout`). */
+		rejected: boolean
+	}
 
 	// The run's own approval steps, as far as it reached them: an approved one, and the one it waits
 	// on. A step inside a branch, loop or subflow belongs to that run; while it waits, the panel
@@ -30,9 +36,16 @@
 		return modules.flatMap((module, i): Row[] => {
 			const status = statuses[i]
 			if (!module.suspend || !status) return []
-			if (i === waitingIndex) return [{ module, status, waiting: true }]
+			if (i === waitingIndex) return [{ module, status, waiting: true, rejected: false }]
 			if (status.type === 'Success' && !status.skipped && (status.approvers?.length ?? 0) > 0)
-				return [{ module, status, waiting: false }]
+				return [
+					{
+						module,
+						status,
+						waiting: false,
+						rejected: status.approvers?.some((a) => a.approved === false) ?? false
+					}
+				]
 			return []
 		})
 	})
@@ -60,7 +73,7 @@
 		expandedFor === undefined ? canApprove : expandedFor === waitingRow?.module.id
 	)
 
-	let approvedCount = $derived(rows.filter((r) => !r.waiting).length)
+	let approvedCount = $derived(rows.filter((r) => !r.waiting && !r.rejected).length)
 
 	function canApproveLabel(): string {
 		const ac = detail.current?.approval_conditions
@@ -90,6 +103,8 @@
 			>
 				{#if row.waiting}
 					<span class="text-violet-600 dark:text-violet-400"><Hourglass size={14} /></span>
+				{:else if row.rejected}
+					<span class="text-red-600 dark:text-red-400"><CircleX size={14} /></span>
 				{:else}
 					<span class="text-green-600 dark:text-green-400"><CircleCheck size={14} /></span>
 				{/if}
@@ -134,6 +149,8 @@
 					>
 						<Badge color="violet" small>Waiting</Badge>
 					</Button>
+				{:else if row.rejected}
+					<Badge color="red" small>Rejected, continued</Badge>
 				{:else}
 					<Badge color="green" small>Approved</Badge>
 				{/if}
