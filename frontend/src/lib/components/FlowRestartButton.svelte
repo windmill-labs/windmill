@@ -16,7 +16,7 @@
 		selectedJobStepType: 'single' | 'forloop' | 'branchall' | 'parallel'
 		/**
 		 * For a parallel step: how many of its iterations (branches) failed in the
-		 * run. Rerunning only those is offered when it is non-zero.
+		 * run, when known. Rerunning only those is offered unless it is zero.
 		 */
 		parallelFailedCount?: number
 		/** What a parallel step reruns: its loop's iterations or its branches. */
@@ -118,7 +118,7 @@
 	let branchOrIterationN = $state(0)
 	let rerun: 'failed' | 'all' = $state('failed')
 	const failedOnly = $derived(
-		selectedJobStepType === 'parallel' && rerun === 'failed' && (parallelFailedCount ?? 0) > 0
+		selectedJobStepType === 'parallel' && rerun === 'failed' && parallelFailedCount !== 0
 	)
 
 	// Iteration inputs for nested-step restart inside one or more ForLoop ancestors.
@@ -143,7 +143,7 @@
 			})
 		}
 		iterationEdits = next
-		rerun = (parallelFailedCount ?? 0) > 0 ? 'failed' : 'all'
+		rerun = parallelFailedCount === 0 ? 'all' : 'failed'
 		// The button outlives the selection, so a previous step's iteration must not carry over.
 		branchOrIterationN =
 			selectedJobStepType === 'forloop' && presetIterationN !== undefined ? presetIterationN : 0
@@ -193,7 +193,8 @@
 					nested_path: nestedPath?.map((entry, i) => ({
 						step_id: entry.step_id,
 						branch_or_iteration_n: iterationEdits[`inner-${i}`] ?? entry.branch_or_iteration_n
-					}))
+					})),
+					failed_only: failedOnly || undefined
 				}
 			: {
 					step_id: stepId,
@@ -353,7 +354,7 @@
 				{:else if selectedJobStepType === 'parallel'}
 					<div>
 						<div class="pb-1 text-xs font-semibold text-emphasis">
-							Rerun {parallelUnit} of <code class="text-xs">{selectedJobStep}</code>
+							Rerun {parallelUnit} of <code class="text-xs">{displayStepId}</code>
 						</div>
 						<ToggleButtonGroup bind:selected={rerun}>
 							{#snippet children({ item })}
@@ -361,7 +362,7 @@
 									value="failed"
 									label="Failed only{parallelFailedCount ? ` (${parallelFailedCount})` : ''}"
 									tooltip="Keep the results that succeeded and rerun the failed ones, each in its original position"
-									disabled={!parallelFailedCount}
+									disabled={parallelFailedCount === 0}
 									{item}
 								/>
 								<ToggleButton value="all" label="All" {item} />

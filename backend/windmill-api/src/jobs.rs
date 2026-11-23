@@ -7962,9 +7962,13 @@ pub async fn restart_flow(
     }): Json<RestartFlowRequestBody>,
 ) -> error::Result<(StatusCode, String)> {
     check_license_key_valid().await?;
-    if failed_only && (!nested_path.is_empty() || branch_or_iteration_n.unwrap_or(0) != 0) {
+    // `failed_only` applies to the restart point: `step_id`, or the last `nested_path` entry.
+    let restart_point_n = nested_path
+        .last()
+        .map_or(branch_or_iteration_n, |s| s.branch_or_iteration_n);
+    if failed_only && restart_point_n.unwrap_or(0) != 0 {
         return Err(Error::BadRequest(
-            "failed_only reruns a whole parallel step; it cannot be combined with nested_path or branch_or_iteration_n".to_string(),
+            "failed_only reruns a whole parallel step; it cannot be combined with an iteration to restart at".to_string(),
         ));
     }
 
@@ -8006,7 +8010,8 @@ pub async fn restart_flow(
 
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
 
-    let (top_branch_chosen, nested_chain) = resolve_nested_restart(
+    let nested = !nested_path.is_empty();
+    let (top_branch_chosen, mut nested_chain) = resolve_nested_restart(
         &db,
         &w_id,
         job_id,
@@ -8016,6 +8021,14 @@ pub async fn restart_flow(
         flow_version.map(|v| (flow_path.as_str(), v)),
     )
     .await?;
+    let mut innermost = nested_chain.as_deref_mut();
+    while let Some(level) = innermost {
+        if level.nested.is_none() {
+            level.failed_only = failed_only;
+            break;
+        }
+        innermost = level.nested.as_deref_mut();
+    }
 
     let tx = PushIsolationLevel::Isolated(user_db, authed.clone().into());
 
@@ -8031,7 +8044,7 @@ pub async fn restart_flow(
             flow_version,
             branch_chosen: top_branch_chosen,
             nested: nested_chain,
-            failed_only,
+            failed_only: failed_only && !nested,
         },
         push_args,
         &authed.username,

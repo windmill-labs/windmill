@@ -6175,7 +6175,7 @@ fn nested_restart_payload(
         flow_version: nested.flow_version,
         branch_chosen: nested.branch_chosen,
         nested: nested.nested,
-        failed_only: false,
+        failed_only: nested.failed_only,
     })
 }
 
