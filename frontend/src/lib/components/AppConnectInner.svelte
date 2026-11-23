@@ -8,7 +8,6 @@
 		addResourceTypeDisplayName,
 		isCustomResourceTypeName,
 		resourceTypeDisplayName,
-		resourceTypeMatchRank,
 		resourceTypeSearchText,
 		setResourceTypeDisplayNames,
 		sortResourceTypesByMatch
@@ -1252,51 +1251,34 @@
 		]
 	})
 
-	// Browsing, the list leads with the providers the instance has an OAuth client for, then
-	// the native database types. Searching, that grouping would outrank the search itself
-	// (`ms_sql_server` sorting under `mysql` on "sql"), so the ranked order stands on its own.
+	// Browsing, the list leads with the workspace's custom types, then the providers the
+	// instance has an OAuth client for, then the native database types. Searching, that
+	// grouping would outrank the search itself (`ms_sql_server` sorting under `mysql` on "sql"),
+	// so the ranked order stands on its own.
 	const browseGroup = (key: string) =>
-		isSharedConnect(key) ? 0 : nativeLanguagesCategory.includes(key) ? 1 : 2
-	let manualOrderedKeys = $derived(
+		customResourceTypes.has(key)
+			? 0
+			: isSharedConnect(key)
+				? 1
+				: nativeLanguagesCategory.includes(key)
+					? 2
+					: 3
+	let navItems = $derived(
 		(searching
 			? (rankedConnectsManual ?? [])
 			: [...(rankedConnectsManual ?? [])].sort((a, b) => browseGroup(a.key) - browseGroup(b.key))
 		).map((x) => x.key)
 	)
 
-	let customKeys = $derived(manualOrderedKeys.filter((key) => customResourceTypes.has(key)))
-	let otherKeys = $derived(manualOrderedKeys.filter((key) => !customResourceTypes.has(key)))
-
-	// Every row in the order it is rendered, so arrow keys walk the sections as one list.
-	let navItems = $derived([...customKeys, ...otherKeys])
 	// The list starts undefined and renders skeletons; "nothing found" only means something
 	// once it has landed.
 	let listsLoaded = $derived(rankedConnectsManual !== undefined)
 	const rowDomId = (index: number) => `resource-type-row-${index}`
 
-	const otherRowOffset = $derived(customKeys.length)
-
-	// Sections are rendered in a fixed order, so the best match is not necessarily the first
-	// row: rank the rows against the query to find it.
-	function bestMatchIndex(): number {
-		let best = navItems.length > 0 ? 0 : -1
-		let bestRank = Infinity
-		navItems.forEach((key, index) => {
-			const rank = resourceTypeMatchRank(key, resourceTypeDescriptions[key], filter)
-			if (rank < bestRank) {
-				bestRank = rank
-				best = index
-			}
-		})
-		return best
-	}
-
 	const highlight = useListHighlight({
 		count: () => navItems.length,
 		rowId: rowDomId,
-		// Sections are rendered in a fixed order, so the best match is not necessarily the
-		// first row; Enter should still take the top hit.
-		restingIndex: () => (searching ? bestMatchIndex() : -1),
+		restingIndex: () => (searching && navItems.length > 0 ? 0 : -1),
 		onActivate: (index) => {
 			const key = navItems[index]
 			if (key) selectType(key)
@@ -1358,12 +1340,6 @@
 				</div>
 			</div>
 
-			{#snippet sectionHeading(title: string, count: number)}
-				<h2 class="mb-3 text-2xs font-normal uppercase text-secondary">
-					{title}{#if searching}<span class="ml-2 text-hint">{count}</span>{/if}
-				</h2>
-			{/snippet}
-
 			{#snippet resourceButton(key: string, index: number)}
 				{@const configured = isSharedConnect(key)}
 				{@const badges = connectBadges[key]}
@@ -1373,8 +1349,11 @@
 				{#snippet title()}
 					<span class="truncate leading-5">{resourceTypeDisplayName(key)}</span>
 					<span class="shrink-0 font-mono text-2xs font-normal text-hint">{key}</span>
+					{#if customResourceTypes.has(key)}
+						<Badge verySmall class="px-2 shrink-0">Custom</Badge>
+					{/if}
 					{#if badges?.signIn}
-						<Badge verySmall class="px-2 shrink-0">Log in with your account</Badge>
+						<Badge verySmall color="blue" class="px-2 shrink-0">Log in with your account</Badge>
 					{/if}
 				{/snippet}
 				{#snippet subtitle()}
@@ -1405,42 +1384,21 @@
 						</span>
 					</div>
 				{:else}
-					<!-- One gap between sections, owned by the column: a section that a search empties
-					     out then takes its spacing with it. -->
-					<div class="flex flex-col gap-10">
-						{#if customKeys.length > 0}
-							<section>
-								{@render sectionHeading('Custom resource types', customKeys.length)}
-								<div class="flex flex-col gap-0.5">
-									{#each customKeys as key, i}
-										{@render resourceButton(key, i)}
-									{/each}
-								</div>
-							</section>
-						{/if}
+					{#if !searching && connectsManual && connectsManual?.length < 10}
+						<div class="text-secondary text-xs p-2">
+							Resource types have not been synced with the hub
+						</div>
+					{/if}
 
-						{#if !searching || otherKeys.length > 0}
-							<section>
-								{@render sectionHeading('Resource types', otherKeys.length)}
-
-								{#if !searching && connectsManual && connectsManual?.length < 10}
-									<div class="text-secondary text-xs p-2">
-										Resource types have not been synced with the hub
-									</div>
-								{/if}
-
-								<div class="flex flex-col gap-0.5">
-									{#if rankedConnectsManual}
-										{#each otherKeys as key, i}
-											{@render resourceButton(key, otherRowOffset + i)}
-										{/each}
-									{:else}
-										{#each new Array(9) as _}
-											<Skeleton layout={[[2]]} />
-										{/each}
-									{/if}
-								</div>
-							</section>
+					<div class="flex flex-col gap-0.5">
+						{#if rankedConnectsManual}
+							{#each navItems as key, i}
+								{@render resourceButton(key, i)}
+							{/each}
+						{:else}
+							{#each new Array(9) as _}
+								<Skeleton layout={[[2]]} />
+							{/each}
 						{/if}
 					</div>
 				{/if}
