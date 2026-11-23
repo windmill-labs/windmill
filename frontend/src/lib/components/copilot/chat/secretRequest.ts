@@ -9,6 +9,39 @@ import {
 	parsePostgresConnectionString
 } from '$lib/utils/postgresConnectionString'
 
+const ACRONYMS = new Set([
+	'api',
+	'aws',
+	'db',
+	'http',
+	'https',
+	'iam',
+	'id',
+	'pem',
+	'sql',
+	'ssl',
+	'tls',
+	'url',
+	'uri'
+])
+
+/** A resource field's key as a sentence-case label, as the brand guidelines want form labels:
+ * `endPoint` reads "End point", `use_ssl` and `useSSL` read "Use SSL". */
+// Keys written as one word, which no casing rule splits.
+const WHOLE_KEYS: Record<string, string> = { dbname: 'Database name', sslmode: 'SSL mode' }
+
+export function fieldLabel(key: string): string {
+	if (WHOLE_KEYS[key]) return WHOLE_KEYS[key]
+	const words = key
+		.replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+		.replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
+		.split(/[\s_-]+/)
+		.filter(Boolean)
+		.map((w) => (ACRONYMS.has(w.toLowerCase()) ? w.toUpperCase() : w.toLowerCase()))
+	const label = words.join(' ')
+	return label.charAt(0).toUpperCase() + label.slice(1)
+}
+
 /** Splits a pasted connection string into the secret and the fields the card shows, with the
  * same parser as the resource editor, so both store the same resource for the same string. */
 export function connectionStringParts(

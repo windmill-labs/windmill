@@ -14,7 +14,8 @@
 	import { checkSavedResource } from '$lib/components/resourceConnectionTest'
 	import { applyDarkModeVariant } from '$lib/darkModeVariant'
 	import { AiService } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
+	import { userStore, workspaceStore } from '$lib/stores'
+	import { getUserExt } from '$lib/user'
 
 	// The page an MCP client's `request_secret` link opens: the chat's card on a page of its
 	// own, outside the app's navigation, drawn from the request the link's signed token carries.
@@ -29,6 +30,9 @@
 	const workspace = page.url.searchParams.get('workspace') ?? ''
 	const token = page.url.searchParams.get('token') ?? ''
 	workspaceStore.set(workspace)
+	// The card's path picker reads the user of the navigation workspace, which only the app's
+	// layout loads otherwise.
+	if (workspace) void getUserExt(workspace).then((user) => userStore.set(user))
 
 	type Loaded =
 		| { state: 'found'; request: SecretRequest }

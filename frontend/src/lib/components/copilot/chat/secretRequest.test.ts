@@ -25,7 +25,12 @@ vi.mock('$lib/components/sessions/sessionMode.svelte', () => ({
 	withWorkspaceParam: (url: string) => url
 }))
 
-import { connectionStringParts, saveSecretRequest, secretRequestToolResult } from './secretRequest'
+import {
+	connectionStringParts,
+	fieldLabel,
+	saveSecretRequest,
+	secretRequestToolResult
+} from './secretRequest'
 import type { SecretRequest } from './shared'
 
 const bare: SecretRequest = { workspace: 'w', path: 'u/a/key', label: 'API key' }
@@ -131,5 +136,13 @@ describe('connectionStringParts', () => {
 		expect(
 			connectionStringParts('postgres://a:b@h/d?target_session_attrs=read-write')
 		).toHaveProperty('error')
+	})
+})
+
+describe('fieldLabel', () => {
+	it('reads a resource key as a sentence-case label', () => {
+		expect(
+			['endPoint', 'useSSL', 'root_certificate_pem', 'dbname', 'apiKey'].map(fieldLabel)
+		).toEqual(['End point', 'Use SSL', 'Root certificate PEM', 'Database name', 'API key'])
 	})
 })

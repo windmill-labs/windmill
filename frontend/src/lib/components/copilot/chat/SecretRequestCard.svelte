@@ -5,6 +5,8 @@
 	import IconedResourceType from '$lib/components/IconedResourceType.svelte'
 	import Path from '$lib/components/Path.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
+	import { ResourceService } from '$lib/gen'
+	import { resource as asyncResource } from 'runed'
 	import { safeHref } from '$lib/utils/safeHref'
 	import Markdown from 'svelte-exmarkdown'
 	import { gfmPlugin } from 'svelte-exmarkdown/gfm'
@@ -13,6 +15,7 @@
 	import {
 		SecretCheckFailed,
 		connectionStringParts,
+		fieldLabel,
 		resourcePageUrl,
 		secretFieldsOf,
 		secretVariablePaths,
@@ -38,6 +41,25 @@
 	const helpPlugins = [gfmPlugin(), { renderer: { a: LinkRenderer } }]
 	const resource = $derived(request.resource)
 	const secretFields = $derived(secretFieldsOf(request))
+	// The resource type's own description of each field, as the resource editor shows it.
+	const fieldDescriptions = asyncResource(
+		() => ({ type: resource?.type, workspace: request.workspace }),
+		async ({ type, workspace }): Promise<Record<string, string>> => {
+			if (!type) return {}
+			try {
+				const rt = await ResourceService.getResourceType({ workspace, path: type })
+				const properties = (rt.schema as { properties?: Record<string, { description?: string }> })
+					?.properties
+				return Object.fromEntries(
+					Object.entries(properties ?? {}).flatMap(([k, p]) =>
+						p?.description ? [[k, p.description]] : []
+					)
+				)
+			} catch {
+				return {}
+			}
+		}
+	)
 
 	let secrets = $state<Record<string, string>>({})
 	// Only what the user changed; the rest stays as the AI prepared it.
@@ -231,7 +253,7 @@
 
 			{#if resource?.connectionString}
 				<div class="flex flex-col gap-1">
-					<span class="text-2xs font-medium text-secondary">Connection string</span>
+					<span class="text-xs font-semibold text-emphasis">Connection string</span>
 					<Password
 						bind:password={connectionString}
 						placeholder="postgres://user:password@host:5432/dbname"
@@ -254,7 +276,12 @@
 				{#each secretFields as secretField (secretField.field)}
 					<div class="flex flex-col gap-1">
 						{#if resource}
-							<span class="text-2xs font-medium text-secondary">{secretField.label}</span>
+							<span class="text-xs font-semibold text-emphasis">{secretField.label}</span>
+							{#if fieldDescriptions.current?.[secretField.field]}
+								<span class="text-xs text-secondary"
+									>{fieldDescriptions.current[secretField.field]}</span
+								>
+							{/if}
 						{/if}
 						<Password
 							bind:password={secrets[secretField.field]}
@@ -271,7 +298,10 @@
 			{#if resource && !resource.connectionString}
 				{#each Object.entries(resource.value) as [key, fieldValue] (key)}
 					<div class="flex flex-col gap-1">
-						<span class="text-2xs font-medium text-secondary">{key}</span>
+						<span class="text-xs font-semibold text-emphasis">{fieldLabel(key)}</span>
+						{#if fieldDescriptions.current?.[key]}
+							<span class="text-xs text-secondary">{fieldDescriptions.current[key]}</span>
+						{/if}
 						{#if isEditable(fieldValue)}
 							<TextInput
 								size="sm"
@@ -294,7 +324,7 @@
 			{/if}
 
 			<div class="flex flex-col gap-1">
-				<span class="text-2xs font-medium text-secondary">
+				<span class="text-xs font-semibold text-emphasis">
 					{resource ? 'Saved as the resource' : 'Saved as the secret variable'}
 				</span>
 				<Path
