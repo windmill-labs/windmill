@@ -41400,6 +41400,7 @@ components:
         - RestrictPublicRunSharing
         - RestrictGuestAppDeployment
         - RequireIsolatedForks
+        - RequirePassingCiTests
     RuleBypasserGroups:
       type: array
       description: Groups that can bypass this ruleset

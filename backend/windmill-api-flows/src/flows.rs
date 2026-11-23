@@ -690,6 +690,16 @@ async fn create_flow(
     }
 
     validate_flow(&nf, flows_level, &authed, &db, &user_db, &w_id).await?;
+    windmill_dep_map::ci_tests::check_ci_tests_rule(
+        &db,
+        &w_id,
+        &nf.path,
+        windmill_dep_map::ci_tests::DeployedContent::Flow(&nf.value),
+        &authed,
+        &authed.groups,
+        authed.is_admin,
+    )
+    .await?;
     if *CLOUD_HOSTED {
         let nb_flows =
             sqlx::query_scalar!("SELECT COUNT(*) FROM flow WHERE workspace_id = $1", &w_id)
@@ -1314,6 +1324,16 @@ async fn update_flow(
     }
 
     validate_flow(&nf, flows_level, &authed, &db, &user_db, &w_id).await?;
+    windmill_dep_map::ci_tests::check_ci_tests_rule(
+        &db,
+        &w_id,
+        &nf.path,
+        windmill_dep_map::ci_tests::DeployedContent::Flow(&nf.value),
+        &authed,
+        &authed.groups,
+        authed.is_admin,
+    )
+    .await?;
 
     let authed = maybe_refresh_folders(&flow_path, &w_id, authed, &db).await;
     // Before `tx` opens, for the reason given in `create_flow`.

@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT f.value AS \"value: sqlx::types::Json<serde_json::Value>\", (SELECT max(created_at) FROM flow_version WHERE workspace_id = $1 AND path = $2) AS deployed_at FROM flow f WHERE f.workspace_id = $1 AND f.path = $2 AND f.archived = false",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "value: sqlx::types::Json<serde_json::Value>",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 1,
+        "name": "deployed_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      null
+    ]
+  },
+  "hash": "38c0223226923ceef271f70cb55125bd99eb19407547b6a46015ef578122798f"
+}

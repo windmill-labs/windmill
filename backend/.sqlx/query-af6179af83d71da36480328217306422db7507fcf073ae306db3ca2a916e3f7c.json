@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT content, created_at FROM script WHERE workspace_id = $1 AND path = $2 AND deleted = false AND archived = false ORDER BY created_at DESC LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "content",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "af6179af83d71da36480328217306422db7507fcf073ae306db3ca2a916e3f7c"
+}

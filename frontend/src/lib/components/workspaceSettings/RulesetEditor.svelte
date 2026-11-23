@@ -48,6 +48,7 @@
 	let restrictPublicRunSharing = $state(hasRule('RestrictPublicRunSharing'))
 	let restrictGuestAppDeployment = $state(hasRule('RestrictGuestAppDeployment'))
 	let requireIsolatedForks = $state(hasRule('RequireIsolatedForks'))
+	let requirePassingCiTests = $state(hasRule('RequirePassingCiTests'))
 	let selectedGroups = $state<string[]>(
 		untrack(() => rule)?.bypass_groups?.map((g) => g.replace('g/', '')) ?? []
 	)
@@ -68,6 +69,7 @@
 	let initialRestrictPublicRunSharing = $state(hasRule('RestrictPublicRunSharing'))
 	let initialRestrictGuestAppDeployment = $state(hasRule('RestrictGuestAppDeployment'))
 	let initialRequireIsolatedForks = $state(hasRule('RequireIsolatedForks'))
+	let initialRequirePassingCiTests = $state(hasRule('RequirePassingCiTests'))
 	let initialSelectedGroups = $state<string[]>(
 		untrack(() => rule)?.bypass_groups
 			? untrack(() => rule)!.bypass_groups.map((g) => g.replace('g/', ''))
@@ -126,6 +128,7 @@
 					restrictPublicRunSharing ||
 					restrictGuestAppDeployment ||
 					requireIsolatedForks ||
+					requirePassingCiTests ||
 					selectedGroups.length > 0 ||
 					selectedUsers.length > 0 ||
 					forkRoleMapping.length > 0
@@ -137,6 +140,7 @@
 					restrictPublicRunSharing !== initialRestrictPublicRunSharing ||
 					restrictGuestAppDeployment !== initialRestrictGuestAppDeployment ||
 					requireIsolatedForks !== initialRequireIsolatedForks ||
+					requirePassingCiTests !== initialRequirePassingCiTests ||
 					JSON.stringify([...selectedGroups].sort()) !==
 						JSON.stringify([...initialSelectedGroups].sort()) ||
 					JSON.stringify([...selectedUsers].sort()) !==
@@ -193,7 +197,8 @@
 						...(restrictGuestAppDeployment
 							? ['RestrictGuestAppDeployment' as ProtectionRuleKind]
 							: []),
-						...(requireIsolatedForks ? ['RequireIsolatedForks' as ProtectionRuleKind] : [])
+						...(requireIsolatedForks ? ['RequireIsolatedForks' as ProtectionRuleKind] : []),
+						...(requirePassingCiTests ? ['RequirePassingCiTests' as ProtectionRuleKind] : [])
 					],
 					bypass_groups: selectedGroups,
 					bypass_users: selectedUsers,
@@ -234,7 +239,8 @@
 						...(restrictGuestAppDeployment
 							? ['RestrictGuestAppDeployment' as ProtectionRuleKind]
 							: []),
-						...(requireIsolatedForks ? ['RequireIsolatedForks' as ProtectionRuleKind] : [])
+						...(requireIsolatedForks ? ['RequireIsolatedForks' as ProtectionRuleKind] : []),
+						...(requirePassingCiTests ? ['RequirePassingCiTests' as ProtectionRuleKind] : [])
 					],
 					bypass_groups: selectedGroups,
 					bypass_users: selectedUsers,
@@ -253,6 +259,7 @@
 			initialRestrictPublicRunSharing = restrictPublicRunSharing
 			initialRestrictGuestAppDeployment = restrictGuestAppDeployment
 			initialRequireIsolatedForks = requireIsolatedForks
+			initialRequirePassingCiTests = requirePassingCiTests
 			initialSelectedGroups = clone(selectedGroups)
 			initialSelectedUsers = clone(selectedUsers)
 			initialForkRoleMapping = clone(forkRoleMapping)
@@ -354,6 +361,15 @@
 				/>
 				{@render description(
 					'Only workspace admins and members of wm_deployers can deploy to this workspace. Non-deployers can still fork, browse, and request a review.'
+				)}
+			</div>
+			<div class="flex flex-col gap-1">
+				<Toggle
+					bind:checked={requirePassingCiTests}
+					options={{ right: 'Require passing CI tests' }}
+				/>
+				{@render description(
+					"An item this workspace's CI tests cover deploys only once every one of them has passed on that exact version in a fork. Applies to wm_deployers too."
 				)}
 			</div>
 			<div class="flex flex-col gap-1">

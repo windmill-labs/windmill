@@ -1381,6 +1381,16 @@ async fn create_script_internal<'c>(
 )> {
     windmill_common::workspaces::check_role_can_code(&db, &w_id, &authed, "create scripts").await?;
     check_scopes(&authed, || format!("scripts:write:{}", ns.path))?;
+    windmill_dep_map::ci_tests::check_ci_tests_rule(
+        &db,
+        &w_id,
+        &ns.path,
+        windmill_dep_map::ci_tests::DeployedContent::Script(&ns.content),
+        &authed,
+        &authed.groups,
+        authed.is_admin,
+    )
+    .await?;
 
     // Normalize positive-only settings so a `<= 0` value (e.g. a CLI-pushed `0`) persists as
     // disabled rather than as a zero-slot concurrency cap or a 0-second timeout. Deserialization

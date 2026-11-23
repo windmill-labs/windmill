@@ -81,6 +81,7 @@ bitflags::bitflags! {
         const RESTRICT_PUBLIC_RUN_SHARING =         1 << 4;
         const RESTRICT_GUEST_APP_DEPLOYMENT =       1 << 5;
         const REQUIRE_ISOLATED_FORKS =              1 << 6;
+        const REQUIRE_PASSING_CI_TESTS =            1 << 7;
     }
 }
 
@@ -95,6 +96,7 @@ pub enum ProtectionRuleKind {
     RestrictPublicRunSharing,
     RestrictGuestAppDeployment,
     RequireIsolatedForks,
+    RequirePassingCiTests,
 }
 
 impl ProtectionRuleKind {
@@ -119,6 +121,7 @@ impl ProtectionRuleKind {
                 ProtectionRules::RESTRICT_GUEST_APP_DEPLOYMENT
             }
             ProtectionRuleKind::RequireIsolatedForks => ProtectionRules::REQUIRE_ISOLATED_FORKS,
+            ProtectionRuleKind::RequirePassingCiTests => ProtectionRules::REQUIRE_PASSING_CI_TESTS,
         }
     }
 
@@ -142,6 +145,9 @@ impl ProtectionRuleKind {
             }
             ProtectionRuleKind::RequireIsolatedForks => {
                 "Forks of this workspace must isolate its data: no shared object storage or ducklake, and every data table cloned"
+            }
+            ProtectionRuleKind::RequirePassingCiTests => {
+                "An item with CI tests can only be deployed here once those tests pass on it in a fork"
             }
         }
     }

@@ -14,16 +14,20 @@
 	let {
 		parentWorkspaceId,
 		displayName,
+		ciBlockedItems = [],
 		onUpdateCanDeploy = (value) => {}
 	}: {
 		parentWorkspaceId: string
 		/** How to name the target in the message, when its id is not what a reader would recognize
 		 * — a remote deploy target is addressed through a proxy path. */
 		displayName?: string
+		/** Selected items whose CI tests are failing or still running in the source workspace. */
+		ciBlockedItems?: string[]
 		onUpdateCanDeploy?: (value: boolean) => void
 	} = $props()
 
 	let overrideChecked = $state(false)
+	let ciOverrideChecked = $state(false)
 
 	// Fetch the parent's rules and the user's identity in the parent together. Both must come from the
 	// parent: bypass is judged with is_admin/groups in the PARENT (per-workspace), not the active/fork
@@ -50,19 +54,29 @@
 		canUserBypassRuleKindInRulesets(parentRulesets, 'DisableDirectDeployment', parentUserInfo)
 	)
 
+	let ciRulesets = $derived(
+		getActiveRulesetsForKindInRulesets(parentRulesets, 'RequirePassingCiTests')
+	)
+	let canBypassCi = $derived(
+		canUserBypassRuleKindInRulesets(parentRulesets, 'RequirePassingCiTests', parentUserInfo)
+	)
+	let ciBlocked = $derived(ciRulesets.length > 0 && ciBlockedItems.length > 0)
+
 	// Block deploy until the parent's rules/identity have loaded: while loading `parentRulesets` is
 	// empty, which would otherwise read as "no lock" and briefly enable deploy before the real
 	// lock/bypass check resolves.
 	let canDeploy = $derived(
 		!parentDataResource.loading &&
 			(!isRuleActiveInRulesets(parentRulesets, 'DisableDirectDeployment') ||
-				(canBypass && overrideChecked))
+				(canBypass && overrideChecked)) &&
+			(!ciBlocked || (canBypassCi && ciOverrideChecked))
 	)
 
 	// Reset override when parent workspace changes
 	$effect(() => {
 		parentWorkspaceId
 		overrideChecked = false
+		ciOverrideChecked = false
 	})
 
 	// Communicate deployment status to parent
@@ -90,6 +104,24 @@
 				<label class="flex items-center gap-2 cursor-pointer">
 					<input class="rounded max-w-4" type="checkbox" bind:checked={overrideChecked} />
 					<span class="text-xs">Bypass restriction and deploy anyway</span>
+				</label>
+			{/if}
+		</div>
+	</Alert>
+{/if}
+{#if ciBlocked}
+	<Alert type="warning" title="CI tests must pass before deploying" class="my-2">
+		<div class="flex flex-col gap-2">
+			<p>
+				The workspace {displayName ?? parentWorkspaceId} requires passing CI tests (<b
+					>{ciRulesets.map((r) => r.name).join(', ')}</b
+				>). These selected items have tests that are failing or still running:
+				<b>{ciBlockedItems.join(', ')}</b>.
+			</p>
+			{#if canBypassCi}
+				<label class="flex items-center gap-2 cursor-pointer">
+					<input class="rounded max-w-4" type="checkbox" bind:checked={ciOverrideChecked} />
+					<span class="text-xs">Bypass and deploy anyway (recorded in the audit log)</span>
 				</label>
 			{/if}
 		</div>

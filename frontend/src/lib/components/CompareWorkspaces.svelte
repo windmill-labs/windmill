@@ -1665,6 +1665,12 @@
 					{#if mergeIntoParent}
 						<ParentWorkspaceProtectionAlert
 							{parentWorkspaceId}
+							ciBlockedItems={selectedDiffs
+								.filter((d) => {
+									const status = getCiTestStatus(d)
+									return status === 'fail' || status === 'running'
+								})
+								.map((d) => d.path)}
 							onUpdateCanDeploy={(canDeploy) => {
 								canDeployToParent = canDeploy
 							}}
