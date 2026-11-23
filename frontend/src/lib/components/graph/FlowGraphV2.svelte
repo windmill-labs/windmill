@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { overlayHostActive } from '$lib/components/common/overlayHost.svelte'
 	import GraphZoomControls from './GraphZoomControls.svelte'
 	import FlowPanelPlacementPicker from '$lib/components/flows/common/FlowPanelPlacementPicker.svelte'
 	import { overlayStack } from '$lib/components/common/overlayHost.svelte'
@@ -25,7 +26,9 @@
 		SelectionMode
 	} from '@xyflow/svelte'
 	import {
+		expandedSubflowOf,
 		graphBuilder,
+		type ExpandedSubflow,
 		type InlineScript,
 		type InsertKind,
 		type NodeLayout,
@@ -42,10 +45,16 @@
 	import ResultNode from './renderers/nodes/ResultNode.svelte'
 	import BaseEdge from './renderers/edges/BaseEdge.svelte'
 	import EmptyEdge from './renderers/edges/EmptyEdge.svelte'
-	import { Expand, MousePointer, Hand } from 'lucide-svelte'
+	import { Expand, MousePointer, Hand, Move, Copy, Trash2, Group, X } from 'lucide-svelte'
 	import Toggle from '../Toggle.svelte'
 	import DataflowEdge from './renderers/edges/DataflowEdge.svelte'
-	import { encodeState, readFieldsRecursively, getModifierKey, isMac } from '$lib/utils'
+	import {
+		encodeState,
+		readFieldsRecursively,
+		getModifierKey,
+		isMac,
+		type Item
+	} from '$lib/utils'
 	import BranchOneStart from './renderers/nodes/BranchOneStart.svelte'
 	import NoBranchNode from './renderers/nodes/NoBranchNode.svelte'
 	import HiddenBaseEdge from './renderers/edges/HiddenBaseEdge.svelte'
@@ -77,6 +86,7 @@
 	import NoteTool from './NoteTool.svelte'
 	import SelectionBoundingBox from './SelectionBoundingBox.svelte'
 	import GroupOverlay from './GroupOverlay.svelte'
+	import SubflowOverlay from './SubflowOverlay.svelte'
 	import {
 		GroupDisplayState,
 		getGroupEditorContext,
@@ -161,11 +171,13 @@
 		workspace?: string
 		editMode?: boolean
 		allowSimplifiedPoll?: boolean
-		expandedSubflows?: Record<string, { modules: FlowModule[]; groups?: FlowGroup[] }>
+		expandedSubflows?: Record<string, ExpandedSubflow>
 		isOwner?: boolean
 		isRunning?: boolean
 		individualStepTests?: boolean
 		flowJob?: Job | undefined
+		/** The run the graph shows has finished, so a step without a state never ran. */
+		runDone?: boolean
 		showJobStatus?: boolean
 		suspendStatus?: Record<string, { job: Job; nb: number }>
 		noteMode?: boolean
@@ -283,6 +295,7 @@
 		onHideJobStatus = undefined,
 		individualStepTests = false,
 		flowJob = undefined,
+		runDone = false,
 		showJobStatus = false,
 		suspendStatus = {},
 		flowHasChanged = false,
@@ -337,7 +350,7 @@
 	let paneContextMenu: PaneContextMenu | undefined = $state(undefined)
 	let flowContainer: HTMLDivElement | undefined = $state(undefined)
 
-	// Hover tracking for group overlay
+	let hoveredNodeId: string | undefined = $state(undefined)
 
 	// Selection manager - create one if not provided
 	let selectionManager = untrack(() => selectionManagerProp) || new SelectionManager()
@@ -387,6 +400,7 @@
 	})
 	$effect(() => {
 		flowRunStatus.showsRun = flowModuleStates !== undefined
+		flowRunStatus.runDone = runDone
 	})
 	$effect(() => {
 		// Each step's state object is replaced rather than mutated, so reading the top level
@@ -443,6 +457,7 @@
 	type NodeDep = {
 		id: string
 		parentIds?: string[]
+		subflowHead?: boolean
 		data?: { assets?: AssetWithAltAccessType[]; module?: any }
 	}
 	type NodePos = { position: { x: number; y: number } }
@@ -577,7 +592,7 @@
 				)
 				return
 			}
-			expandedSubflows[id] = { modules: flow.value.modules, groups: flow.value.groups }
+			expandedSubflows[id] = expandedSubflowOf(flow)
 			expandedSubflows = expandedSubflows
 		},
 		minimizeSubflow: (id: string) => {
@@ -803,6 +818,7 @@
 		const graphNodeDeps = Object.values(graph.nodes).map((n) => ({
 			id: n.id,
 			parentIds: n.parentIds,
+			subflowHead: n.type === 'subflowBound' && n.data.subflowId === n.id,
 			data: { assets: (n.data as any).assets, module: (n.data as any).module }
 		}))
 		currentGraphNodeDeps = graphNodeDeps
@@ -826,8 +842,12 @@
 		let layoutedNodes = layoutNodes(graphNodeDeps, nodeExtraSpace)
 		let newNodes: (Node & NodeLayout)[] = layoutedNodes.map((n) => {
 			const merged = { ...n, ...graph.nodes[n.id] }
-			// Augment group head nodes with wrapper dimensions from compound layout
-			if (graph.nodes[n.id]?.type === 'groupHead' && lastGroupDimensions?.has(n.id)) {
+			// Augment group heads and subflow start bounds with wrapper dimensions from compound layout
+			const nodeType = graph.nodes[n.id]?.type
+			if (
+				(nodeType === 'groupHead' || nodeType === 'subflowBound') &&
+				lastGroupDimensions?.has(n.id)
+			) {
 				const dims = lastGroupDimensions.get(n.id)!
 				merged.data = { ...merged.data, wrapperWidth: dims.width, wrapperHeight: dims.height }
 			}
@@ -1129,8 +1149,10 @@
 	})
 
 	// Add global keyboard event listener for selection controls
+	const hostActive = overlayHostActive()
 	onMount(() => {
 		function globalKeyDownHandler(event: KeyboardEvent) {
+			if (!hostActive()) return
 			handleKeyDown(event)
 		}
 
@@ -1279,7 +1301,7 @@
 				// collapsed it and re-expanded onto another flow: only commit onto the very
 				// expansion this response was fetched for.
 				if (expandedSubflows[id] !== expansion) continue
-				expandedSubflows[id] = { modules: flow.value.modules, groups: flow.value.groups }
+				expandedSubflows[id] = expandedSubflowOf(flow)
 			} catch (err) {
 				sendUserToast(`Could not reload expanded subflow ${path}: ${err.body ?? err}`, true)
 			}
@@ -1297,6 +1319,58 @@
 		}
 	}
 
+	let visibleSelectedIds = $derived(
+		selectionManager.selectedIds.filter((id) => nodesWithOffset.some((n) => n.id === id))
+	)
+	let isMovingSelection = $derived(movingIds != null && movingIds.length > 0)
+
+	// One list for the selection's "..." dropdown and the pane's right-click menu.
+	let selectionMenuItems: Item[] = $derived(
+		!multiSelectEnabled || visibleSelectedIds.length < 2
+			? []
+			: isMovingSelection
+				? [
+						{
+							displayName: 'Cancel move',
+							icon: X,
+							type: 'delete',
+							action: () => onMoveMultiple?.(movingIds ?? [])
+						}
+					]
+				: resolvedModuleIds.length === 0
+					? []
+					: [
+							{
+								displayName: 'Move',
+								icon: Move,
+								action: () => onMoveMultiple?.(resolvedModuleIds),
+								disabled: !canMoveSelected
+							},
+							{
+								displayName: 'Duplicate',
+								icon: Copy,
+								action: () => onDuplicateMultiple?.(resolvedModuleIds)
+							},
+							{
+								displayName: `Delete (${resolvedModuleIds.length})`,
+								icon: Trash2,
+								type: 'delete',
+								shortcut: isMac() ? '⌫' : 'Del',
+								action: () => onDeleteMultiple?.(resolvedModuleIds)
+							},
+							...(groupEditorCtx?.groupEditor
+								? [
+										{
+											displayName: 'Create group',
+											icon: Group,
+											action: () => createGroupFromSelection(visibleSelectedIds),
+											disabled: !groupEditorCtx.canCreateGroup.val
+										}
+									]
+								: [])
+						]
+	)
+
 	const modifierKey = isMac() ? 'Meta' : 'Control'
 </script>
 
@@ -1311,7 +1385,7 @@
 {/if}
 <div
 	style={`height: ${height}px; max-height: ${maxHeight}px;`}
-	class="overflow-clip relative {outerDivClass}"
+	class="overflow-y-auto overflow-x-clip relative {outerDivClass}"
 	bind:clientWidth={debouncedWidth}
 	bind:this={flowContainer}
 >
@@ -1346,7 +1420,7 @@
 					bind:this={viewportSynchronizer}
 				/>
 			{/if}
-			<PaneContextMenu {editMode} bind:this={paneContextMenu} />
+			<PaneContextMenu {editMode} {selectionMenuItems} bind:this={paneContextMenu} />
 			<SvelteFlow
 				onpaneclick={() => {
 					document.dispatchEvent(new Event('focus'))
@@ -1391,6 +1465,8 @@
 				multiSelectionKey={'Shift'}
 				deleteKey={null}
 				nodesDraggable={false}
+				onnodepointerenter={({ node }) => (hoveredNodeId = node.id)}
+				onnodepointerleave={() => (hoveredNodeId = undefined)}
 				--background-color={false}
 			>
 				<div class="absolute inset-0 !bg-surface-secondary h-full" id="flow-graph-v2"></div>
@@ -1401,16 +1477,13 @@
 
 				{#if multiSelectEnabled}
 					<SelectionBoundingBox
-						selectedNodes={selectionManager.selectedIds.filter((id) =>
-							nodesWithOffset.some((n) => n.id === id)
-						)}
+						selectedNodes={visibleSelectedIds}
 						allNodes={nodesWithOffset as (Node & { type: string })[]}
-						onDeleteSelected={() => onDeleteMultiple?.(resolvedModuleIds)}
-						onDuplicateSelected={() => onDuplicateMultiple?.(resolvedModuleIds)}
+						menuItems={selectionMenuItems}
 						onMoveSelected={() => onMoveMultiple?.(resolvedModuleIds)}
 						onCancelMove={() => onMoveMultiple?.(movingIds ?? [])}
 						{canMoveSelected}
-						isMoving={movingIds != null && movingIds.length > 0}
+						isMoving={isMovingSelection}
 						{resolvedModuleIds}
 					/>
 				{/if}
@@ -1419,6 +1492,12 @@
 					allNodes={nodesWithOffset as (Node & { type: string })[]}
 					groups={allGroups}
 					groupDepths={currentGroupDepths}
+				/>
+
+				<SubflowOverlay
+					allNodes={nodesWithOffset as (Node & { type: string })[]}
+					{hoveredNodeId}
+					selectedIds={selectionManager.selectedIds}
 				/>
 
 				<!-- SelectionTool for handling selection changes and filtering -->

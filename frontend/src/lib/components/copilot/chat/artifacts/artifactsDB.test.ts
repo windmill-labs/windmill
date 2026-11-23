@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { IDBFactory } from 'fake-indexeddb'
+import { IDBFactory, IDBObjectStore as FakeObjectStore } from 'fake-indexeddb'
 import type { ArtifactVersion, PersistedArtifact } from './artifactsDB'
 
 // The user-scoping subscription is BROWSER-gated; the node test env reports false.
@@ -60,7 +60,7 @@ function version(v: number, artifactId = 'a1'): ArtifactVersion {
 
 // mutateArtifact takes a mutator, not a row: these tests only need "write exactly this".
 const put = (m: any, a: any, snapshots: any[]) =>
-	m.mutateArtifact(a.id, () => ({ artifact: a, snapshots }))
+	m.mutateArtifact(a.id, () => ({ edit: { artifact: a, snapshots } }))
 
 describe('artifactsDB', () => {
 	it('derives filename and mime type from the artifact kind', () => {
@@ -249,6 +249,28 @@ describe('artifactsDB', () => {
 		} finally {
 			vi.doUnmock('idb')
 		}
+	})
+
+	it('makes room when the browser is full and stores the write after all', async () => {
+		for (let v = 1; v <= 6; v++) {
+			await put(db, artifact({ id: 'a1', role: 'plan', approvedVersion: 1 }), [version(v)])
+		}
+		const native = FakeObjectStore.prototype.put
+		const refuseOnce = vi
+			.spyOn(FakeObjectStore.prototype, 'put')
+			.mockImplementationOnce(() => {
+				throw new DOMException('full', 'QuotaExceededError')
+			})
+			.mockImplementation(native)
+
+		const write = await put(db, artifact({ id: 'a1', role: 'plan', approvedVersion: 1 }), [
+			version(7)
+		])
+		refuseOnce.mockRestore()
+
+		expect(write.outcome).toBe('saved')
+		// Cut to the three newest before the retry, the approved version kept apart.
+		expect((await db.listArtifactVersions('a1')).map((v) => v.version)).toEqual([7, 6, 5, 1])
 	})
 
 	it('swallows a write failure when the DB handle exists but the op rejects', async () => {

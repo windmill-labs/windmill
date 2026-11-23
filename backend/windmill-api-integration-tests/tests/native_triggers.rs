@@ -68,6 +68,7 @@ fn test_authed() -> ApiAuthed {
         job_id: None,
         credential_expiry: None,
         mcp_client: None,
+        capabilities: Some(windmill_common::roles::RoleCapabilities::FULL),
     }
 }
 
@@ -484,6 +485,7 @@ async fn test_require_native_integration_use_needs_code_and_manage_triggers(
     operator.username = "operator".to_string();
     operator.is_admin = false;
     operator.is_operator = true;
+    operator.capabilities = None;
     assert!(
         require_native_integration_use(&db, "test-workspace", &operator)
             .await

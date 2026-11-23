@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { overlayHostActive } from '$lib/components/common/overlayHost.svelte'
+	const hostActive = overlayHostActive()
 	import { ContextIconMap, type ContextElement } from './context'
 	import { ArrowLeft, ChevronRight, FileCode, Code2, Table2 } from 'lucide-svelte'
 
@@ -95,6 +97,7 @@
 	}
 
 	function handleKeyDown(e: KeyboardEvent) {
+		if (!hostActive()) return
 		if (stringSearch.length > 0) {
 			// Navigation in search view (flat list)
 			if (e.key === 'ArrowDown') {

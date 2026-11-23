@@ -69,6 +69,40 @@ pub struct WebhookArgs {
     pub metadata: WebhookArgsMetadata,
 }
 
+/// `inline` `Content-Disposition` value naming `filename`, always pure ASCII.
+///
+/// Raw non-ASCII bytes in the header are stored as-is by the object store, which
+/// then fails to read the attribute back (`HeaderValue::to_str`), turning every
+/// download of the object into a 500. A name that is not printable ASCII is
+/// therefore sent as RFC 6266 `filename*=UTF-8''<percent-encoded>`, after a
+/// `filename="..."` fallback where each such character is replaced by `_`.
+#[cfg_attr(not(feature = "parquet"), allow(dead_code))]
+pub(crate) fn content_disposition_inline(filename: &str) -> String {
+    let mut fallback = String::with_capacity(filename.len());
+    let mut lossy = false;
+    for c in filename.chars() {
+        match c {
+            '"' | '\\' => {
+                fallback.push('\\');
+                fallback.push(c);
+            }
+            ' '..='~' => fallback.push(c),
+            _ => {
+                fallback.push('_');
+                lossy = true;
+            }
+        }
+    }
+    if lossy {
+        format!(
+            "inline; filename=\"{fallback}\"; filename*=UTF-8''{}",
+            urlencoding::encode(filename)
+        )
+    } else {
+        format!("inline; filename=\"{fallback}\"")
+    }
+}
+
 // capture
 //
 
@@ -173,7 +207,7 @@ impl RawWebhookArgs {
                             (
                                 Attribute::ContentDisposition,
                                 if let Some(filename) = filename {
-                                    format!("inline; filename=\"{}\"", filename)
+                                    content_disposition_inline(&filename)
                                 } else {
                                     "inline".to_string()
                                 },
@@ -957,5 +991,35 @@ mod tests {
         assert_eq!(get("many_files"), r#"[{"s3":"k2"},{"s3":"k3"}]"#);
         // A name used by both a text and a file part keeps both, in body order.
         assert_eq!(get("mixed"), r#"["a",{"s3":"k4"}]"#);
+    }
+
+    #[test]
+    fn test_content_disposition_inline() {
+        assert_eq!(
+            content_disposition_inline("report 2024.md"),
+            r#"inline; filename="report 2024.md""#
+        );
+        assert_eq!(
+            content_disposition_inline(r#"a"b\c.txt"#),
+            r#"inline; filename="a\"b\\c.txt""#
+        );
+        assert_eq!(
+            content_disposition_inline("这是测试.md"),
+            r#"inline; filename="____.md"; filename*=UTF-8''%E8%BF%99%E6%98%AF%E6%B5%8B%E8%AF%95.md"#
+        );
+        assert_eq!(
+            content_disposition_inline("a\r\nb\"'*.txt"),
+            r#"inline; filename="a__b\"'*.txt"; filename*=UTF-8''a%0D%0Ab%22%27%2A.txt"#
+        );
+        for name in ["这是测试.md", "Москва \"x\".pdf", "a\nb", ""] {
+            let v = content_disposition_inline(name);
+            assert!(
+                axum::http::HeaderValue::from_str(&v)
+                    .unwrap()
+                    .to_str()
+                    .is_ok(),
+                "{v}"
+            );
+        }
     }
 }

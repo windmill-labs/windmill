@@ -181,10 +181,12 @@ fn build_registry_request(
     Ok(req)
 }
 
-/// npm's abbreviated packument: same `dist-tags` and `versions` keys, same
-/// `versions[v].dist`, without the per-version prose that makes a full document run to
-/// tens of megabytes. Registries that do not implement it answer with the full document.
-const ABBREVIATED_PACKUMENT: &str = "application/vnd.npm.install-v1+json";
+/// npm's own Accept header: prefers the abbreviated packument (same `dist-tags`, `versions`
+/// and `versions[v].dist`, without the prose that makes a full one run to tens of MB) but
+/// accepts the full document. Artifactory answers the abbreviated type alone with 406 for
+/// scoped packages, so it must never be sent without the `application/json` fallback.
+const PACKUMENT_ACCEPT: &str =
+    "application/vnd.npm.install-v1+json; q=1.0, application/json; q=0.8, */*";
 
 /// An install resolves and then downloads every package, so without a cache each
 /// dependency of the app being edited costs several packument round trips.
@@ -350,17 +352,12 @@ async fn fetch_package_json_from(
     tracing::info!("Fetching package metadata from: {}", package_url);
 
     let response = build_registry_request(&package_url, auth, &registry_url)?
-        .header(header::ACCEPT, ABBREVIATED_PACKUMENT)
+        .header(header::ACCEPT, PACKUMENT_ACCEPT)
         .send()
         .await
         .map_err(|e| Error::InternalErr(format!("Failed to fetch package metadata: {}", e)))?;
 
-    if !response.status().is_success() {
-        return Err(Error::NotFound(format!(
-            "Package {} not found in private registry",
-            package
-        )));
-    }
+    check_upstream_status(response.status(), package)?;
 
     let body = response
         .bytes()
@@ -381,6 +378,24 @@ async fn fetch_package_json_from(
     );
 
     Ok(package_json)
+}
+
+/// Only a 404 means the package is missing: any other failure (a 406 on content
+/// negotiation, an auth error, a 5xx) is the registry's, and is reported as such.
+fn check_upstream_status(status: reqwest::StatusCode, what: &str) -> Result<()> {
+    if status.is_success() {
+        Ok(())
+    } else if status == reqwest::StatusCode::NOT_FOUND {
+        Err(Error::NotFound(format!(
+            "{what} not found in private registry"
+        )))
+    } else {
+        Err(Error::BadGateway(format!(
+            "registry answered {} for {}",
+            status.as_u16(),
+            what
+        )))
+    }
 }
 
 /// Open the tarball of a resolved package version on the private registry
@@ -404,12 +419,7 @@ async fn tarball_response(
         .await
         .map_err(|e| Error::InternalErr(format!("Failed to download tarball: {}", e)))?;
 
-    if !response.status().is_success() {
-        return Err(Error::NotFound(format!(
-            "Failed to download tarball for {}@{}",
-            package, version
-        )));
-    }
+    check_upstream_status(response.status(), &format!("{package}@{version}"))?;
 
     Ok(response)
 }
@@ -1266,5 +1276,100 @@ mod tests {
         );
 
         assert!(cache.get(&key).is_some());
+    }
+
+    /// A registry that, like Artifactory for scoped packages, answers 406 to a metadata
+    /// request whose Accept header lacks `application/json`.
+    async fn strict_registry() -> String {
+        use axum::http::{header, Request, StatusCode};
+        use axum::response::IntoResponse;
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let tarball_base = base.clone();
+        let app = axum::Router::new().fallback(move |req: Request<axum::body::Body>| {
+            let base = tarball_base.clone();
+            async move {
+                let path = req.uri().path().to_string();
+                if path.starts_with("/fail/") {
+                    return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+                }
+                if path.starts_with("/tarballs/") {
+                    return b"tarball".to_vec().into_response();
+                }
+                let accept = req
+                    .headers()
+                    .get(header::ACCEPT)
+                    .and_then(|v| v.to_str().ok())
+                    .unwrap_or("");
+                if !accept.contains("application/json") {
+                    return StatusCode::NOT_ACCEPTABLE.into_response();
+                }
+                match path.as_str() {
+                    "/@scope%2Fpkg" | "/plain" => axum::Json(serde_json::json!({
+                        "dist-tags": { "latest": "1.0.0" },
+                        "versions": { "1.0.0": { "dist": {
+                            "tarball": format!("{base}/tarballs{path}-1.0.0.tgz")
+                        } } }
+                    }))
+                    .into_response(),
+                    "/broken" => serde_json::json!({
+                        "versions": { "1.0.0": { "dist": {
+                            "tarball": format!("{base}/fail/broken-1.0.0.tgz")
+                        } } }
+                    })
+                    .to_string()
+                    .into_response(),
+                    "/fail500" => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+                    _ => StatusCode::NOT_FOUND.into_response(),
+                }
+            }
+        });
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        base
+    }
+
+    #[tokio::test]
+    async fn packages_resolve_through_a_registry_strict_on_accept() {
+        use super::{fetch_package_json_from, tarball_response};
+        use windmill_common::error::Error;
+
+        let registry = strict_registry().await;
+        for package in ["@scope/pkg", "plain"] {
+            let doc = fetch_package_json_from(&registry, &None, package)
+                .await
+                .unwrap_or_else(|e| panic!("{package}: {e}"));
+            assert_eq!(
+                resolve_version_spec(&doc, "latest").as_deref(),
+                Some("1.0.0")
+            );
+            let tarball = tarball_response(&doc, package, "1.0.0", &registry, &None)
+                .await
+                .unwrap();
+            assert_eq!(&tarball.bytes().await.unwrap()[..], b"tarball");
+        }
+
+        let err = fetch_package_json_from(&registry, &None, "fail500")
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(&err, Error::BadGateway(m) if m.contains("500")),
+            "{err}"
+        );
+        let err = fetch_package_json_from(&registry, &None, "missing")
+            .await
+            .unwrap_err();
+        assert!(matches!(err, Error::NotFound(_)), "{err}");
+
+        let doc = fetch_package_json_from(&registry, &None, "broken")
+            .await
+            .unwrap();
+        let err = tarball_response(&doc, "broken", "1.0.0", &registry, &None)
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(&err, Error::BadGateway(m) if m.contains("500")),
+            "{err}"
+        );
     }
 }

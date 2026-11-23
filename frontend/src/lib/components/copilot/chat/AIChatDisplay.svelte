@@ -80,8 +80,8 @@
 		readDroppedEntries
 	} from './files/fsAccess'
 	import { sendUserToast } from '$lib/toast'
+	import { overlayStack } from '$lib/components/common/overlayHost.svelte'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
-	import { copilotInfo } from '$lib/aiStore'
 	import ComposerSuggestions from './starter/ComposerSuggestions.svelte'
 	import type { DraftAttachments } from './messageDraft.svelte'
 	import type { ChatStarter } from './starter/starterPrompts.svelte'
@@ -96,7 +96,7 @@
 
 	// The free grant pays for the copilot's own model, so its banners belong only to a host
 	// that sends to that model. A flow chat's turn runs on the flow's provider.
-	const freeTier = $derived(chatHost.supportsModelSettings ? $copilotInfo.freeTier : undefined)
+	const freeTier = $derived(chatHost.supportsModelSettings ? chatHost.aiInfo?.freeTier : undefined)
 	// The user spent their one-time free Windmill AI grant: there is no model left to send
 	// to, so say so in the thread itself rather than only failing on send.
 	let freeTierExhausted = $derived(freeTier?.exhausted === true)
@@ -250,9 +250,21 @@
 	// Capture phase is required: Monaco and mounted-but-closed Modal2
 	// instances consume window Escapes before they bubble.
 	let panelEl: HTMLDivElement | undefined = $state()
+	// A drawer or modal opened from the chat, such as the deploy card's diff, takes the Escape that
+	// closes it: focus stays on the button that opened it, so it would otherwise cancel the pending
+	// deploy. The ones the chat sits in (the flow editor's Test flow drawer) leave it the Escape.
+	const overlays = overlayStack()
+	function overlaysHoldingChat(): number {
+		let n = 0
+		for (let el = panelEl?.parentElement; el; el = el.parentElement) {
+			if (el.matches('aside.drawer.open, [role="dialog"]')) n++
+		}
+		return n
+	}
 	$effect(() => {
 		function onWindowKeydownCapture(e: KeyboardEvent) {
 			if (e.key !== 'Escape' || !chatHost.loading) return
+			if (overlays.val.length > overlaysHoldingChat()) return
 			const active = document.activeElement
 			// Focus parked on the body answers for the panel on screen only: the flow chat keeps
 			// a panel per conversation mounted, several of which can be loading, and a hidden

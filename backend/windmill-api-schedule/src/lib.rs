@@ -17,9 +17,8 @@ use sql_builder::{prelude::Bind, SqlBuilder};
 use sqlx::{Postgres, Transaction};
 use std::str::FromStr;
 use windmill_api_auth::{
-    build_scope_path_predicate, check_scopes,
-    composed::{can_name_hub, check_new_hub_paths},
-    maybe_refresh_folders, require_super_admin, ApiAuthed,
+    build_scope_path_predicate, check_scopes, composed::check_new_hub_paths, maybe_refresh_folders,
+    require_super_admin, ApiAuthed,
 };
 use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
@@ -237,6 +236,15 @@ fn reject_reserved_schedule_path(path: &str) -> Result<()> {
     Ok(())
 }
 
+/// A retry the runs cannot parse would otherwise be saved and then fail every tick.
+fn validate_retry(retry: &Option<serde_json::Value>) -> Result<()> {
+    if let Some(retry) = retry {
+        serde_json::from_value::<windmill_common::flows::Retry>(retry.clone())
+            .map_err(|e| Error::BadRequest(format!("Invalid retry: {e}")))?;
+    }
+    Ok(())
+}
+
 /// Validate that a dynamic skip handler (script or flow) exists
 async fn validate_dynamic_skip<'c>(
     tx: &mut Transaction<'c, Postgres>,
@@ -372,16 +380,14 @@ async fn create_schedule(
         ns.on_success.as_deref(),
     ]);
     new_runnables.extend(target);
-    check_new_hub_paths(
-        &new_runnables,
-        &[],
-        can_name_hub(&new_runnables, &authed, &db, &w_id).await?,
-    )?;
+    check_new_hub_paths(&new_runnables, &[], &authed, &db, &w_id).await?;
 
     let mut tx: Transaction<'_, Postgres> = user_db.begin(&authed).await?;
 
     check_path_conflict(&mut tx, &w_id, &ns.path).await?;
     check_flow_conflict(&mut tx, &w_id, &ns.path, ns.is_flow, &ns.script_path).await?;
+
+    validate_retry(&ns.retry)?;
 
     // Validate dynamic_skip if provided
     if let Some(handler_path) = &ns.dynamic_skip {
@@ -619,9 +625,9 @@ async fn edit_schedule(
         es.on_recovery.as_deref(),
         es.on_success.as_deref(),
     ]);
-    let can_name_hub = can_name_hub(&new_handlers, &authed, &db, &w_id).await?;
-
     let mut tx = user_db.begin(&authed).await?;
+
+    validate_retry(&es.retry)?;
 
     // Validate dynamic_skip if provided
     if let Some(handler_path) = &es.dynamic_skip {
@@ -635,8 +641,11 @@ async fn edit_schedule(
             ["on_failure", "on_recovery", "on_success"]
                 .map(|f| before.as_ref().and_then(|b| b.get(f)?.as_str())),
         ),
-        can_name_hub,
-    )?;
+        &authed,
+        &db,
+        &w_id,
+    )
+    .await?;
 
     let schedule = sqlx::query_as!(
         Schedule,

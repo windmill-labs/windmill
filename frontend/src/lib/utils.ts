@@ -1703,7 +1703,11 @@ export type Item = {
 	 * Rows of a `DropdownSubmenuItem` only. */
 	keepOpen?: boolean
 	submenuItems?: Item[]
+	/** Classes for the chevron of a row that opens `submenuItems`, e.g. to color it like `extra`. */
+	chevronClass?: string
 	shortcut?: string
+	/** A short value shown at the right of the row, e.g. a setting's current value. */
+	detail?: string
 	// Renders a trailing check on the right of the label to mark the
 	// currently-selected item (for dropdowns used as a single-choice picker).
 	selected?: boolean

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { untrack } from 'svelte'
-	import { overlayPortalTarget } from '$lib/components/common/overlayHost.svelte'
+	import { overlayPortalTarget, overlayShown } from '$lib/components/common/overlayHost.svelte'
 	import { createBubbler } from 'svelte/legacy'
 
 	const bubble = createBubbler()
@@ -82,6 +82,7 @@
 
 	// Overlays belong to the enclosing pane when there is one — see overlayHost.
 	const hostPortal = overlayPortalTarget('body')
+	const shown = overlayShown()
 
 	// Use the passed createMenu function
 	const menu = untrack(() => createMenu)({
@@ -232,7 +233,7 @@
 	</button>
 
 	<!--svelte-ignore a11y_no_static_element_interactions-->
-	{#if open || renderContent}
+	{#if (open || renderContent) && shown()}
 		<div
 			use:melt={$menuElement}
 			data-menu

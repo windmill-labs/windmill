@@ -26,6 +26,8 @@
 
 import { AppService, FlowService, ResourceService, ScheduleService, ScriptService } from '$lib/gen'
 import {
+	extractAgentRefs,
+	rewriteAgentResourceRefs,
 	rewriteContent,
 	rewriteTriggerConfig,
 	referencesResourcePath,
@@ -42,7 +44,7 @@ import { updateRawAppPolicy } from '$lib/sharedUtils'
 import type { App } from '$lib/components/apps/types'
 import { apiErrorMessage as errorMessage } from '$lib/utils'
 
-export type ReferrerKind = 'script' | 'flow' | 'app' | 'trigger'
+export type ReferrerKind = 'script' | 'flow' | 'app' | 'trigger' | 'agent'
 
 export interface Referrer {
 	kind: ReferrerKind
@@ -190,6 +192,22 @@ function restoreRunnableRefs(rewritten: any, row: any): any {
 	return out
 }
 
+/**
+ * A saved agent (`ai_agent` resource) reads a resource as a `$res:` value or, for an MCP
+ * server, as a bare path: both are moved by `rewriteAgentResourceRefs`. The path left
+ * anywhere in the value after that is a mention no rewrite reaches.
+ */
+function agentReadsResource(value: unknown, path: string): boolean {
+	return extractAgentRefs(value).some((r) => r.kind === 'resource' && r.path === path)
+}
+function agentNamesPathUnreachably(value: unknown, path: string): boolean {
+	const moved = rewriteAgentResourceRefs(value, new Map([[path, '']]))
+	return namesPathUnreachably(moved, path)
+}
+
+/** What the resource listing caps at when no pagination is passed (`DEFAULT_PER_PAGE`). */
+const AGENT_LIST_LIMIT = 1000
+
 /** A reference this run will not move, recorded so the stub outlives it. */
 const OUTSIDE_PROJECT = 'reads this resource from outside the project'
 const UNSEEN_BY_CALLER = 'holds items this account is not shown'
@@ -200,7 +218,8 @@ const UNREACHABLE_REFERENCE = 'names the resource path outside a $res: reference
  * could not account for.
  *
  * The `listSearch*` endpoints return each item's content in one call per kind, so this is
- * three calls plus one per trigger kind rather than one per item.
+ * three calls plus one per trigger kind rather than one per item. Agents are the exception:
+ * their listing has no value, so each is read.
  */
 export async function planRetarget(
 	workspace: string,
@@ -287,6 +306,39 @@ export async function planRetarget(
 		referrers.push({ kind: 'app', path: a.path!, ...gapped })
 	}
 
+	// The listing carries no value, so each agent is read. One that cannot be listed or read
+	// may reference the stub unseen.
+	let agents: Array<{ path: string }> = []
+	try {
+		agents = await ResourceService.listResource({ workspace, resourceType: 'ai_agent' })
+		if (agents.length >= AGENT_LIST_LIMIT) {
+			gaps.push({ path: 'AI agents', reason: 'could not all be listed' })
+		}
+	} catch {
+		gaps.push({ path: 'AI agents', reason: 'could not be listed' })
+	}
+	for (const a of agents) {
+		let value: unknown
+		try {
+			value = await ResourceService.getResourceValue({ workspace, path: a.path })
+		} catch {
+			gaps.push({ path: a.path, reason: 'could not be read' })
+			continue
+		}
+		const reads = agentReadsResource(value, from)
+		const bare = agentNamesPathUnreachably(value, from)
+		if (!reads && !bare) continue
+		if (!inFolder(a.path, folder)) {
+			gaps.push({ path: a.path, reason: OUTSIDE_PROJECT })
+			continue
+		}
+		if (bare) {
+			gaps.push({ path: a.path, reason: UNREACHABLE_REFERENCE })
+			if (!reads) continue
+		}
+		referrers.push({ kind: 'agent', path: a.path, ...(bare ? { gapped: true as const } : {}) })
+	}
+
 	for (const kind of WORKSPACE_TRIGGER_KINDS) {
 		const def = TRIGGER_KINDS[kind]
 		// No `eeOnly` skip. That reads a client-side store, which is empty on an EE instance
@@ -363,6 +415,7 @@ export async function applyRetarget(args: {
 			if (r.kind === 'script') moved = await rewriteScript(workspace, r, map)
 			else if (r.kind === 'flow') moved = await rewriteFlow(workspace, r, map)
 			else if (r.kind === 'app') moved = await rewriteApp(workspace, r, map)
+			else if (r.kind === 'agent') moved = await rewriteAgent(workspace, r, map)
 			else moved = await rewriteTrigger(workspace, r, map)
 		} catch (e: any) {
 			return { rewritten, gaps, stubDeleted: false, error: errorMessage(e) }
@@ -471,6 +524,30 @@ async function rewriteFlow(
 		workspace,
 		path,
 		requestBody: { ...f, ...PRESERVE_DEPLOYED_IDENTITY, path, value }
+	})
+	return true
+}
+
+/**
+ * An agent's run identity is `value.on_behalf_of`, which the backend replaces with the
+ * writer's on every write unless told to keep it: the value goes back whole, with the flag.
+ */
+async function rewriteAgent(
+	workspace: string,
+	r: Referrer,
+	map: Map<string, string>
+): Promise<true | string> {
+	const path = r.path
+	const value = await ResourceService.getResourceValue({ workspace, path })
+	if (!r.gapped)
+		for (const from of map.keys())
+			if (agentNamesPathUnreachably(value, from)) return UNREACHABLE_REFERENCE
+	const next = rewriteAgentResourceRefs(value, map)
+	if (JSON.stringify(next) === JSON.stringify(value ?? null)) return true
+	await ResourceService.updateResource({
+		workspace,
+		path,
+		requestBody: { ...PRESERVE_DEPLOYED_IDENTITY, value: next }
 	})
 	return true
 }

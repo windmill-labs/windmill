@@ -1,4 +1,5 @@
 <script lang="ts">
+	import HostWindow from '$lib/components/common/HostWindow.svelte'
 	import {
 		ApiError,
 		type Job,
@@ -369,7 +370,7 @@
 	}
 </script>
 
-<svelte:window onkeydown={onKeyDown} />
+<HostWindow onkeydown={onKeyDown} />
 
 <div class="flex flex-col space-y-2 h-screen bg-surface py-2 w-full" id="flow-preview-content">
 	{#if render}

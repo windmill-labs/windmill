@@ -54,6 +54,11 @@ describe('readSessionSnapshot', () => {
 	})
 
 	it('reads a malformed snapshot as an empty one', () => {
-		expect(readSessionSnapshot('nope')).toEqual({ messages: [], artifacts: [] })
+		expect(readSessionSnapshot('nope')).toEqual({
+			messages: [],
+			artifacts: [],
+			edits: [],
+			editsWorkspace: undefined
+		})
 	})
 })

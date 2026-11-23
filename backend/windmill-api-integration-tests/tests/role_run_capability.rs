@@ -61,7 +61,14 @@ async fn test_withdrawn_run_refuses_runs(db: Pool<Postgres>) -> anyhow::Result<(
     set_overrides(r#"{"code": true}"#).await?;
     assert!(run("OPERATOR_TOKEN_1").await?.iter().all(|s| *s != 403));
 
-    set_overrides(r#"{"code": true, "run": false}"#).await?;
+    // Through the route: the operator's login, cached above with `run` granted, must not keep it.
+    let resp = reqwest::Client::new()
+        .post(format!("{api}/workspaces/role_overrides"))
+        .header("Authorization", "Bearer SECRET_TOKEN")
+        .json(&serde_json::json!({"operator": {"capabilities": {"code": true, "run": false}}}))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
     // 403, not 401, which the frontend reads as a dead session.
     assert_eq!(run("OPERATOR_TOKEN_1").await?, vec![403, 403, 403]);
     assert!(run("SECRET_TOKEN").await?.iter().all(|s| *s != 403));

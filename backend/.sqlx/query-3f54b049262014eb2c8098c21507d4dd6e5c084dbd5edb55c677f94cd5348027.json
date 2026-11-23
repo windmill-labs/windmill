@@ -1,0 +1,59 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT recorded_at, worker_count, occupancy_rate_15s, occupancy_rate_5m, occupancy_rate_30m, jobs_waiting, decision\n         FROM autoscaling_decision WHERE worker_group = $1 ORDER BY recorded_at DESC LIMIT $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "recorded_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 1,
+        "name": "worker_count",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 2,
+        "name": "occupancy_rate_15s",
+        "type_info": "Float4"
+      },
+      {
+        "ordinal": 3,
+        "name": "occupancy_rate_5m",
+        "type_info": "Float4"
+      },
+      {
+        "ordinal": 4,
+        "name": "occupancy_rate_30m",
+        "type_info": "Float4"
+      },
+      {
+        "ordinal": 5,
+        "name": "jobs_waiting",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 6,
+        "name": "decision",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "3f54b049262014eb2c8098c21507d4dd6e5c084dbd5edb55c677f94cd5348027"
+}

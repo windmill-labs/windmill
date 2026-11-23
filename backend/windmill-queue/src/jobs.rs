@@ -670,40 +670,63 @@ pub async fn push_periodic_bash_job<'c>(
     Ok(uuid)
 }
 
-pub async fn cancel_persistent_script_jobs<'c>(
+/// `admit` is called with the runs each batch found, before any of them is touched, and returns
+/// the ones to cancel; an error from it cancels none of that batch. The cancel itself runs on the
+/// root pool, so `admit` is where the caller's access to those runs must be checked.
+pub async fn cancel_persistent_script_jobs<F, Fut>(
     username: &str,
     reason: Option<String>,
     script_path: &str,
     w_id: &str,
     db: &Pool<Postgres>,
-) -> error::Result<Vec<Uuid>> {
+    mut admit: F,
+) -> error::Result<Vec<Uuid>>
+where
+    F: FnMut(Vec<Uuid>) -> Fut,
+    Fut: Future<Output = error::Result<Vec<Uuid>>>,
+{
     // There can be only one perpetual script run per 10 seconds window. We execute the cancel twice with 5s interval
     // to avoid the case of a job _about to be restarted_ when the first cancel is run.
-    let cancelled_job_ids_first_batch =
-        cancel_persistent_script_jobs_internal(username, reason.clone(), script_path, w_id, db)
-            .await?;
+    let cancelled_job_ids_first_batch = cancel_persistent_script_jobs_internal(
+        username,
+        reason.clone(),
+        script_path,
+        w_id,
+        db,
+        &mut admit,
+    )
+    .await?;
     sleep(std::time::Duration::from_secs(5)).await;
-    let cancelled_job_ids_second_batch =
-        cancel_persistent_script_jobs_internal(username, reason.clone(), script_path, w_id, db)
-            .await?;
+    let cancelled_job_ids_second_batch = cancel_persistent_script_jobs_internal(
+        username,
+        reason.clone(),
+        script_path,
+        w_id,
+        db,
+        &mut admit,
+    )
+    .await?;
     return Ok(cancelled_job_ids_first_batch
         .into_iter()
         .chain(cancelled_job_ids_second_batch)
         .collect_vec());
 }
 
-async fn cancel_persistent_script_jobs_internal<'c>(
+async fn cancel_persistent_script_jobs_internal<F, Fut>(
     username: &str,
     reason: Option<String>,
     script_path: &str,
     w_id: &str,
     db: &Pool<Postgres>,
-) -> error::Result<Vec<Uuid>> {
-    let mut tx = db.begin().await?;
-
-    // we could have retrieved the job IDs in the first query where we retrieve the hashes, but just in case a job was inserted in the queue right in-between the two above query, we re-do the fetch here
+    admit: &mut F,
+) -> error::Result<Vec<Uuid>>
+where
+    F: FnMut(Vec<Uuid>) -> Fut,
+    Fut: Future<Output = error::Result<Vec<Uuid>>>,
+{
     // Only the loops: a dependency job of this script shares its path, and a run of a version that
-    // does not restart itself ends on its own.
+    // does not restart itself ends on its own. A run that ends before the cancel below reaches it
+    // is skipped by `cancel_job`; its restart is caught by the next batch.
     let jobs_to_cancel = sqlx::query_scalar::<_, Uuid>(
         "SELECT j.id FROM v2_job_queue q JOIN v2_job j USING (id) \
          JOIN script s ON s.workspace_id = j.workspace_id AND s.hash = j.runnable_id \
@@ -712,10 +735,12 @@ async fn cancel_persistent_script_jobs_internal<'c>(
     )
     .bind(w_id)
     .bind(script_path)
-    .fetch_all(&mut *tx)
+    .fetch_all(db)
     .await?;
 
-    // Then we cancel all the jobs currently in the queue, one by one
+    let jobs_to_cancel = admit(jobs_to_cancel).await?;
+
+    let mut tx = db.begin().await?;
     for queued_job_id in jobs_to_cancel.clone() {
         let (new_tx, _) = cancel_job(
             username,
@@ -4967,10 +4992,10 @@ pub async fn pull(
                 };
 
                 if let Some(job) = job.as_ref() {
-                    if (job.is_flow() || job.is_dependency())
-                        && !(job.kind.is_preview()
-                            && PREVIEW_TAGS_OVERRIDE.load(std::sync::atomic::Ordering::Relaxed))
-                    {
+                    // An agent worker cannot drive a flow, so a flow preview on an agent's tag is
+                    // requeued too, preview tags override or not: the job keeps its tag in v2_job
+                    // for its steps.
+                    if job.is_flow() || job.is_dependency() {
                         let tag = match configured_dependency_job_tag(
                             &job.kind,
                             job.script_lang.as_ref(),
@@ -7399,6 +7424,8 @@ async fn push_inner<'c, 'd>(
                         chat_input_enabled: None,
                         memory_id: None,
                         no_inherited_flow_env: false,
+                        continued_on_error: vec![],
+                        test_subflows: None,
                     }
                 }
                 _ => {
@@ -7556,6 +7583,7 @@ async fn push_inner<'c, 'd>(
                     value: to_raw_value(&FlowModuleValue::Flow {
                         path: path.clone(),
                         input_transforms: main_input_transforms,
+                        tag_override: None,
                         pass_flow_input_directly: None,
                     }),
                     retry,
@@ -7802,6 +7830,8 @@ async fn push_inner<'c, 'd>(
                 chat_input_enabled: None,
                 memory_id: None,
                 no_inherited_flow_env: false,
+                continued_on_error: vec![],
+                test_subflows: None,
             };
             // The completed job's own scopes are gone with its `job_perms` row, so the restart
             // takes the flow's current setting (and the restarting caller's ceiling).
@@ -8840,6 +8870,7 @@ fn create_restarted_module(
                 flow_jobs: Some(new_flow_jobs),
                 flow_jobs_success: new_flow_jobs_success,
                 flow_jobs_duration: new_flow_jobs_timeline,
+                flow_jobs_labels: None,
                 branch_chosen: None,
                 branchall: Some(BranchAllStatus {
                     branch: branch_or_iteration_n - 1,
@@ -8878,6 +8909,10 @@ fn create_restarted_module(
             if let Some(new_flow_jobs_timeline) = new_flow_jobs_timeline.as_mut() {
                 new_flow_jobs_timeline.truncate(branch_or_iteration_n);
             }
+            let mut new_flow_jobs_labels = module.flow_jobs_labels();
+            if let Some(new_flow_jobs_labels) = new_flow_jobs_labels.as_mut() {
+                new_flow_jobs_labels.truncate(branch_or_iteration_n);
+            }
             Ok(FlowStatusModule::InProgress {
                 id: module.id(),
                 job: new_flow_jobs[new_flow_jobs.len() - 1],
@@ -8889,6 +8924,7 @@ fn create_restarted_module(
                 flow_jobs: Some(new_flow_jobs),
                 flow_jobs_success: new_flow_jobs_success,
                 flow_jobs_duration: new_flow_jobs_timeline,
+                flow_jobs_labels: new_flow_jobs_labels,
                 branch_chosen: None,
                 branchall: None,
                 parallel,
@@ -8993,6 +9029,7 @@ async fn create_failed_only_module(
         ),
         flow_jobs: Some(flow_jobs),
         flow_jobs_duration: Some(flow_jobs_duration),
+        flow_jobs_labels: module.flow_jobs_labels(),
         branch_chosen: None,
         branchall: (!is_loop).then(|| BranchAllStatus { branch: kept, len: n }),
         parallel: true,
@@ -9051,6 +9088,7 @@ fn reuse_completed_zombie_module(module: FlowStatusModule) -> FlowStatusModule {
             flow_jobs,
             flow_jobs_success,
             flow_jobs_duration,
+            flow_jobs_labels,
             branch_chosen,
             agent_actions,
             agent_actions_success,
@@ -9064,6 +9102,7 @@ fn reuse_completed_zombie_module(module: FlowStatusModule) -> FlowStatusModule {
                 .map(|v| v.into_iter().map(|_| Some(true)).collect()),
             flow_jobs,
             flow_jobs_duration,
+            flow_jobs_labels,
             branch_chosen,
             approvers: vec![],
             failed_retries: vec![],

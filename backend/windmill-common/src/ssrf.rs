@@ -216,7 +216,8 @@ fn allow_local_git_remotes() -> bool {
 }
 
 /// Who a git call is made for, which decides whether it may reach a host on a
-/// private network.
+/// private network, and whether the GitHub App installation serves it any
+/// app-backed repository or only one an admin approved.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GitRemoteCaller {
     /// A workspace admin's request, or Windmill's own work (polling, webhook and

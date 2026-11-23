@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import atexit
 import datetime as dt
+from email.utils import parsedate_to_datetime
 import functools
 from io import BufferedReader, BytesIO
 import logging
@@ -29,6 +30,27 @@ _client: "Windmill | None" = None
 logger = logging.getLogger("windmill_client")
 
 JobStatus = Literal["RUNNING", "WAITING", "COMPLETED"]
+
+_TRANSIENT_GET_STATUSES = (429, 502, 503, 504)
+_GET_RETRIES = 3
+# Total sleep one GET may spend retrying; a Retry-After beyond it ends the retries.
+_GET_RETRY_BUDGET_SECONDS = 15.0
+
+
+def _retry_after_seconds(retry_after: str, default: float) -> float:
+    """Seconds a Retry-After header (delay-seconds or an HTTP-date) asks to wait."""
+    retry_after = retry_after.strip()
+    if not retry_after:
+        return default
+    if retry_after.isdecimal():
+        return float(retry_after)
+    try:
+        when = parsedate_to_datetime(retry_after)
+    except (TypeError, ValueError):
+        return default
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=dt.timezone.utc)
+    return max((when - dt.datetime.now(dt.timezone.utc)).total_seconds(), 0.0)
 
 
 def _sign_s3_objects_body(s3_objects: list, expiry_secs: int | None) -> dict:
@@ -111,19 +133,49 @@ class Windmill:
             timeout=httpx.Timeout(900.0),
         )
 
-    def get(self, endpoint, raise_for_status=True, **kwargs) -> httpx.Response:
+    def get(
+        self,
+        endpoint,
+        raise_for_status=True,
+        *,
+        retry_transient: bool = True,
+        retry_budget: float | None = None,
+        **kwargs,
+    ) -> httpx.Response:
         """Make an HTTP GET request to the Windmill API.
 
         Args:
             endpoint: API endpoint path
             raise_for_status: Whether to raise an exception on HTTP errors
+            retry_transient: Retry on 429 and 502-504 with exponential backoff, honoring
+                Retry-After. Pass False for an endpoint with a side effect.
+            retry_budget: Most seconds to spend sleeping between retries (at most 15)
             **kwargs: Additional arguments passed to httpx.get
 
         Returns:
             HTTP response object
         """
         endpoint = endpoint.lstrip("/")
-        resp = self.client.get(f"/{endpoint}", **kwargs)
+        # A 502/504 can come from a proxy after the server handled the request, so only
+        # a GET without side effects may be repeated: one with them passes retry_transient=False.
+        budget = _GET_RETRY_BUDGET_SECONDS
+        if retry_budget is not None:
+            budget = min(budget, max(retry_budget, 0.0))
+        attempt = 0
+        while True:
+            resp = self.client.get(f"/{endpoint}", **kwargs)
+            if (
+                not retry_transient
+                or resp.status_code not in _TRANSIENT_GET_STATUSES
+                or attempt == _GET_RETRIES
+            ):
+                break
+            delay = _retry_after_seconds(resp.headers.get("Retry-After", ""), 2**attempt)
+            if delay > budget:
+                break
+            time.sleep(delay)
+            budget -= delay
+            attempt += 1
         if raise_for_status:
             try:
                 resp.raise_for_status()
@@ -273,6 +325,67 @@ class Windmill:
             raise Exception("path must be provided")
         return self.post(endpoint, json=args, params=params).text
 
+    def test_flow_async(
+        self,
+        path: str,
+        args: dict = None,
+        steps: dict = None,
+    ) -> str:
+        """Start the deployed flow at ``path`` with some steps overridden and return its job id.
+
+        See ``test_flow`` for ``steps``.
+        """
+        overrides = {}
+        uses_function = False
+        for step_id, o in (steps or {}).items():
+            if callable(o):
+                name = getattr(o, "__name__", None)
+                if not name or name == "<lambda>":
+                    raise Exception(
+                        f"step `{step_id}`: the replacing function must be a named, "
+                        "top-level function of this file"
+                    )
+                overrides[step_id] = {"function": name}
+                uses_function = True
+            else:
+                overrides[step_id] = {"return_value": o}
+        body = {"args": args or {}, "steps": overrides}
+        if uses_function:
+            caller_job_id = os.environ.get("WM_JOB_ID")
+            if not caller_job_id:
+                raise Exception(
+                    "replacing a step with a function only works from a script running in Windmill"
+                )
+            body["caller_job_id"] = caller_job_id
+        return self.post(
+            f"/w/{self.workspace}/jobs/run/flow_test/{path}", json=body
+        ).text
+
+    def test_flow(
+        self,
+        path: str,
+        args: dict = None,
+        steps: dict = None,
+        timeout: dt.timedelta | int | float | None = None,
+        verbose: bool = False,
+        assert_result_is_not_none: bool = False,
+    ) -> Any:
+        """Run the deployed flow at ``path`` with some steps overridden and return its result.
+
+        See the module-level ``test_flow``.
+        """
+        job_id = self.test_flow_async(path, args, steps)
+        return self.wait_job(
+            job_id,
+            timeout=timeout,
+            verbose=verbose,
+            assert_result_is_not_none=assert_result_is_not_none,
+        )
+
+    # Not pytest tests, despite the name.
+    test_flow.__test__ = False
+    test_flow_async.__test__ = False
+
     def run_script(
         self,
         path: str = None,
@@ -420,7 +533,9 @@ class Windmill:
 
         while True:
             result_res = self.get(
-                f"/w/{self.workspace}/jobs_u/completed/get_result_maybe/{job_id}", True
+                f"/w/{self.workspace}/jobs_u/completed/get_result_maybe/{job_id}",
+                True,
+                retry_budget=(timeout - (time.time() - start_time)) if timeout else None,
             ).json()
 
             started = result_res["started"]
@@ -1539,6 +1654,7 @@ class Windmill:
         self.get(
             f"/w/{workspace}/jobs/slack_approval/{os.environ.get('WM_JOB_ID', 'NO_JOB_ID')}",
             params=params,
+            retry_transient=False,
         )
 
     def username_to_email(self, username: str) -> str:
@@ -1720,6 +1836,81 @@ def run_flow_async(
         do_not_track_in_parent=do_not_track_in_parent,
         tag=tag,
     )
+
+
+@init_global_client
+def test_flow(
+    path: str,
+    args: Dict[str, Any] = None,
+    steps: Dict[str, Any] = None,
+    timeout: dt.timedelta | int | float | None = None,
+    verbose: bool = False,
+    assert_result_is_not_none: bool = False,
+) -> Any:
+    """Run the deployed flow at ``path`` with some steps overridden, wait for it and return its
+    result. Meant for test scripts.
+
+    Each entry of ``steps`` maps a step id to either:
+
+    - a value: the step is skipped and returns that value, or
+    - a top-level function of the calling script's own file: the step runs that function instead
+      of its own code, with the step's inputs as keyword arguments.
+
+    A step inside a subflow is named by the path of step ids to it, ``"sub:inner"`` for step
+    ``inner`` of the subflow that step ``sub`` calls. It applies to every call of that subflow
+    made by the tested flow and by the subflows it overrides; a subflow left as is still calls
+    the deployed one. Those subflows, and each one on the way to an override, run as you rather
+    than as their on-behalf-of identity. Result caching is off for the whole test run.
+
+    The flow's preprocessor does not run: ``args`` are what the flow receives after it. A subflow
+    never runs its own preprocessor, in a test or not. AI agent
+    tools cannot be overridden; override the agent step instead.
+
+    Example::
+
+        def fake_fetch(url: str):
+            return {"status": 200}
+
+        def main():
+            result = wmill.test_flow("f/flows/sync", {"user": "a"}, steps={
+                "fetch_users": fake_fetch,  # replaced logic
+                "send_email": "sent",       # mocked result
+            })
+
+    Args:
+        path: Flow path
+        args: Flow arguments
+        steps: Step id to mocked result, or to the function replacing the step
+        timeout: Maximum time to wait
+        verbose: Enable verbose logging
+        assert_result_is_not_none: Raise exception if result is None
+
+    Returns:
+        Flow result
+    """
+    return _client.test_flow(
+        path,
+        args=args,
+        steps=steps,
+        timeout=timeout,
+        verbose=verbose,
+        assert_result_is_not_none=assert_result_is_not_none,
+    )
+
+
+@init_global_client
+def test_flow_async(
+    path: str,
+    args: Dict[str, Any] = None,
+    steps: Dict[str, Any] = None,
+) -> str:
+    """Like ``test_flow``, but returns the job id without waiting for the flow."""
+    return _client.test_flow_async(path, args=args, steps=steps)
+
+
+# Not pytest tests, despite the name.
+test_flow.__test__ = False
+test_flow_async.__test__ = False
 
 
 @init_global_client

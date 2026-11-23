@@ -19,9 +19,29 @@ export class FlowRunStatus {
 	suspendStatus = $state.raw<SuspendStatus>({})
 	/** Whether the graph draws a run, as opposed to a flow definition with no run states. */
 	showsRun = $state(false)
+	/** The run has finished, so a step with no state never ran rather than not yet. */
+	runDone = $state(false)
 
 	getModuleState(id: string | undefined): GraphModuleState | undefined {
 		return id == undefined ? undefined : this.#moduleStates.get(id)
+	}
+
+	/** A step the finished run never reached. Undecided while the run goes on, since a step not
+	 * reached yet may still run. */
+	didNotRun(id: string): boolean {
+		if (!this.runDone) return false
+		const state = this.getModuleState(id)
+		return !state || state.type === 'WaitingForPriorSteps' || !!state.skipped
+	}
+
+	/** Steps inside the subflow step `id`, at any depth, that were retried in the shown attempt. */
+	retriedStepsInside(id: string): number {
+		const prefix = (id.startsWith('subflow:') ? id : 'subflow:' + id) + ':'
+		let count = 0
+		for (const [key, state] of this.#moduleStates) {
+			if (key.startsWith(prefix) && (state.retries ?? 0) > 0) count++
+		}
+		return count
 	}
 
 	setModuleStates(next: Record<string, GraphModuleState> | undefined) {

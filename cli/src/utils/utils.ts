@@ -371,6 +371,77 @@ export function apiErrorMessage(e: unknown): string | undefined {
   return statusText + ": " + bodyStr.replace(/\s*[@(]\w+\.rs:\d+[:\d]*\)?/g, "");
 }
 
+function fetchFailureCause(
+  e: unknown,
+): { code?: string; message?: string } | undefined {
+  if (!(e instanceof TypeError)) {
+    return undefined;
+  }
+  if (e.message === "fetch failed") {
+    const cause = (e as { cause?: unknown }).cause;
+    return cause && typeof cause === "object"
+      ? (cause as { code?: string; message?: string })
+      : {};
+  }
+  // Bun puts the code on the error itself. Node's own argument errors carry an `ERR_` code
+  // too, and are not network failures.
+  const code = (e as { code?: unknown }).code;
+  return typeof code === "string" && !code.startsWith("ERR_")
+    ? { code, message: e.message }
+    : undefined;
+}
+
+/**
+ * A readable message for a request that got no response from the server, which Node reports
+ * as a bare "fetch failed" with the actual reason in `cause`. Undefined for anything else.
+ */
+export function networkErrorMessage(e: unknown): string | undefined {
+  const cause = fetchFailureCause(e);
+  if (!cause) {
+    return undefined;
+  }
+  const detail = [cause.message, cause.code && `(${cause.code})`]
+    .filter(Boolean)
+    .join(" ");
+  if (cause.code === "UND_ERR_HEADERS_TIMEOUT") {
+    return (
+      `The Windmill server did not respond in time: ${detail}. ` +
+      `It may still be processing the request.`
+    );
+  }
+  if (cause.code !== undefined && NO_RESPONSE_CODES.has(cause.code)) {
+    return (
+      `The connection to the Windmill server closed before it responded: ${detail}. ` +
+      `It may still be processing the request.`
+    );
+  }
+  return `Could not reach the Windmill server: ${detail || "fetch failed"}`;
+}
+
+const NO_RESPONSE_CODES = new Set([
+  "UND_ERR_HEADERS_TIMEOUT",
+  "UND_ERR_BODY_TIMEOUT",
+  "UND_ERR_SOCKET",
+  "ECONNRESET",
+]);
+
+/**
+ * True when a request was sent but its outcome is unknown: the client timed out, the
+ * connection dropped mid-request, or a proxy in front of the server gave up (502/504).
+ * The server may still complete the request.
+ */
+export function isNoResponseError(e: unknown): boolean {
+  const cause = fetchFailureCause(e);
+  if (cause) {
+    return cause.code !== undefined && NO_RESPONSE_CODES.has(cause.code);
+  }
+  if (e && typeof e === "object" && "name" in e && e.name === "ApiError") {
+    const status = (e as { status?: number }).status;
+    return status === 502 || status === 504;
+  }
+  return false;
+}
+
 /**
  * Validate that required arguments are present when no -d data was provided.
  * Fetches the schema from the API and checks required fields.

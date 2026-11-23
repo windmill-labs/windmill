@@ -302,6 +302,28 @@ function getAllRelatedSubflowNodes(
 	return allNodes.filter((node) => relatedNodeIds.has(node.id))
 }
 
+type BoundNode = {
+	position: { x: number; y: number }
+	measured?: { width?: number; height?: number }
+}
+
+/**
+ * Box of a compound wrapper (group, expanded subflow): centered on its head node with the
+ * wrapper width compoundLayout allocated, from the middle of the head to the middle of the end.
+ */
+export function wrapperBounds(
+	head: BoundNode,
+	end: BoundNode,
+	wrapperWidth: number | undefined,
+	fallbackHeights: { head: number; end: number }
+): { x: number; y: number; width: number; height: number } {
+	const width = wrapperWidth ?? NODE.width
+	const headCenterX = head.position.x + (head.measured?.width ?? NODE.width) / 2
+	const topY = head.position.y + (head.measured?.height ?? fallbackHeights.head) / 2
+	const bottomY = end.position.y + (end.measured?.height ?? fallbackHeights.end) / 2
+	return { x: headCenterX - width / 2, y: topY, width, height: bottomY - topY }
+}
+
 /**
  * Generate a random unique ID for notes
  * @returns A random string ID

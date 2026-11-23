@@ -229,6 +229,7 @@ import {
 	resolveGlobalDraftStoragePathByKind,
 	type DraftPersistResult
 } from './userDraftAdapter'
+import { describeDeployEdits, takeDeployEdits } from './deployEdits'
 import {
 	applySessionToolEffects,
 	applyStatusEffects,
@@ -1840,7 +1841,9 @@ ${groupMembershipRule}- Listings and reads return only what this user can see: i
 		` You may draft a new agent or a change to one, after calling get_instructions with subject "agent". The user can review it on the agent's page, \`/agents/edit/<path>\`.`
 	)}${when(
 		buildsFlows,
-		' Its tools, like flow steps, may only reference deployed scripts and flows by path: the server refuses inline code and hub scripts.'
+		canWriteDraft
+			? ' Its tools, like flow steps, may only reference deployed scripts and flows, or hub scripts, by path: the server refuses inline code.'
+			: ' Its tools, like flow steps, may only reference deployed scripts and flows by path: the server refuses inline code and hub scripts.'
 	)}${when(
 		canRunFlowPreview,
 		' Test an agent, its draft included, with test_run_agent.'
@@ -2168,7 +2171,8 @@ ${getScriptPrompt(selected)}`
 async function getFlowInstructions(
 	workspace: string | undefined,
 	composeOnly: boolean,
-	external = false
+	external: boolean,
+	hub: boolean
 ): Promise<string> {
 	// An external client's catalog is rendered where no workspace is known, so it gets none.
 	const aiAgentProviders = external
@@ -2187,7 +2191,9 @@ async function getFlowInstructions(
 - Every module needs a stable unique \`id\` and a useful \`summary\` when the schema supports it.
 ${
 	composeOnly
-		? '- Compose only path modules (`script` / `flow`) that reference items already deployed in the workspace. Rawscript modules and hub scripts are refused for this user.'
+		? hub
+			? '- Compose only path modules (`script` / `flow`) that reference items already deployed in the workspace or hub scripts. Rawscript modules are refused for this user.'
+			: '- Compose only path modules (`script` / `flow`) that reference items already deployed in the workspace. Rawscript modules and hub scripts are refused for this user.'
 		: `- Prefer path/script/flow modules when composing existing workspace logic. Use rawscript modules only when new inline code is needed.
 - When writing rawscript module code, call \`get_instructions\` with \`subject: "script"\` and the rawscript language first.`
 }
@@ -2215,7 +2221,13 @@ ${
 }${aiAgentProviders ? `\n${aiAgentProviders}\n` : ''}
 # Windmill flow authoring reference
 
-${composeOnly ? 'This reference is written for every author. For this user, skip what it says about inline code (rawscript steps, inline AI agent tools) and hub scripts: the server refuses them. Compose only path steps that reference deployed scripts and flows.\n\n' : ''}${getFlowPrompt()}`
+${
+	composeOnly
+		? hub
+			? 'This reference is written for every author. For this user, skip what it says about inline code (rawscript steps, inline AI agent tools): the server refuses it. Compose only path steps that reference deployed scripts and flows or hub scripts.\n\n'
+			: 'This reference is written for every author. For this user, skip what it says about inline code (rawscript steps, inline AI agent tools) and hub scripts: the server refuses them. Compose only path steps that reference deployed scripts and flows.\n\n'
+		: ''
+}${getFlowPrompt()}`
 }
 
 type InstructionSubject = (typeof ALL_INSTRUCTION_SUBJECTS)[number]
@@ -2223,7 +2235,8 @@ type InstructionSubject = (typeof ALL_INSTRUCTION_SUBJECTS)[number]
 function getAppInstructions(
 	language: ScriptLang | undefined,
 	composeOnly: boolean,
-	external = false
+	external: boolean,
+	hub: boolean
 ): string {
 	// getRawAppPrompt swaps in the Python SDK for python3, so the pointer has to swap with
 	// it: telling the model to re-fetch a reference it is already holding wastes a turn, and
@@ -2253,7 +2266,9 @@ ${
 - Frontend file paths start with \`/\` (e.g. \`/index.tsx\`, \`/App.tsx\`, \`/styles.css\`). Use \`write_app_file\` / \`patch_app_file\` / \`delete_app_file\`.
 ${
 	composeOnly
-		? '- Every backend runnable is a path runnable (`script` / `flow`) referencing an item already deployed in the workspace, created with `write_app_runnable` and removed with `delete_app_runnable`. Inline and hub runnables are refused for this user.'
+		? hub
+			? '- Every backend runnable is a path runnable (`script` / `flow` / `hubscript`) referencing an item already deployed in the workspace or a hub script, created with `write_app_runnable` and removed with `delete_app_runnable`. Inline runnables are refused for this user.'
+			: '- Every backend runnable is a path runnable (`script` / `flow`) referencing an item already deployed in the workspace, created with `write_app_runnable` and removed with `delete_app_runnable`. Inline and hub runnables are refused for this user.'
 		: `- Backend inline runnables are addressed as \`backend/<key>/main.{ts|py}\` from the file tools, but you create or update them via \`write_app_runnable\` / \`delete_app_runnable\` (which take the runnable shape directly: \`{ name, type, inlineScript?, path?, staticInputs? }\`).`
 }
 - \`/wmill.d.ts\` (or \`wmill.ts\`) is generated automatically from the backend runnables — never write it directly.${
@@ -2269,7 +2284,13 @@ ${composeOnly ? '' : `${sdkLine}\n`}- Use \`deploy_workspace_item\` after explic
 
 # Windmill raw app authoring reference
 
-${composeOnly ? 'This reference is written for every author. For this user, skip what it says about inline runnables, hub scripts and the data setup: the server refuses inline and hub runnables. Every runnable is a path runnable referencing a deployed script or flow.\n\n' : ''}${getRawAppPrompt(language)}`
+${
+	composeOnly
+		? hub
+			? 'This reference is written for every author. For this user, skip what it says about inline runnables and the data setup: the server refuses inline runnables. Every runnable is a path runnable referencing a deployed script or flow, or a hub script.\n\n'
+			: 'This reference is written for every author. For this user, skip what it says about inline runnables, hub scripts and the data setup: the server refuses inline and hub runnables. Every runnable is a path runnable referencing a deployed script or flow.\n\n'
+		: ''
+}${getRawAppPrompt(language)}`
 }
 
 function getResourceInstructions(): string {
@@ -2296,7 +2317,8 @@ async function getAgentInstructions(
 	/** The user cannot write inline code: the server refuses a rawscript tool from them. */
 	composeOnly: boolean,
 	/** The session cannot run `test_run_agent`. */
-	untestable: boolean
+	untestable: boolean,
+	hub: boolean
 ): Promise<string> {
 	const aiAgentProviders = external
 		? ''
@@ -2313,7 +2335,9 @@ async function getAgentInstructions(
 - The user can review the agent on its page, ${external ? 'the url `write_resource` returns' : '`/agents/edit/<path>`'}. Deploy it with \`deploy_workspace_item\` (type "resource") once they ask, as for any other draft.
 ${
 	composeOnly
-		? '- This user cannot write inline code, so skip what the reference says about inline tools: every script tool points at a deployed script, found with the workspace search tools. When none does the job, say so and suggest asking a workspace admin for that script; never add a rawscript tool.'
+		? hub
+			? '- This user cannot write inline code, so skip what the reference says about inline tools: every script tool points at a deployed script, found with the workspace search tools, or at a hub script. When none does the job, draft the script, and point the tool at it once it is deployed; never add a rawscript tool.'
+			: '- This user cannot write inline code, so skip what the reference says about inline tools: every script tool points at a deployed script, found with the workspace search tools. When none does the job, say so and suggest asking a workspace admin for that script; never add a rawscript tool.'
 		: '- Before writing an inline tool, look for a deployed script that already does the job with the workspace search tools.'
 }
 ${aiAgentProviders ? `\n${aiAgentProviders}\n` : ''}
@@ -2348,19 +2372,21 @@ export function getInstructions(
 	composeOnly: boolean,
 	external = false,
 	/** The session cannot run a flow preview, which an agent's test run is. */
-	untestable = false
+	untestable = false,
+	/** The role has code, which the server requires to add a hub path. */
+	hub = true
 ): string | Promise<string> {
 	switch (subject) {
 		case 'script':
 			return getScriptInstructions(language)
 		case 'flow':
-			return getFlowInstructions(workspace, composeOnly, external)
+			return getFlowInstructions(workspace, composeOnly, external, hub)
 		case 'resource':
 			return getResourceInstructions()
 		case 'agent':
-			return getAgentInstructions(workspace, external, composeOnly, untestable)
+			return getAgentInstructions(workspace, external, composeOnly, untestable, hub)
 		case 'app':
-			return getAppInstructions(language, composeOnly, external)
+			return getAppInstructions(language, composeOnly, external, hub)
 		case 'datatable':
 			return getDatatableInstructions(language)
 		case 'pipeline':
@@ -3403,7 +3429,8 @@ export const globalTools: SessionTool<{}>[] = [
 				ctx.workspace,
 				composeOnly,
 				false,
-				!!access && !access.has('run_flow_preview')
+				!!access && !access.has('run_flow_preview'),
+				!access || access.has('write_draft')
 			)
 		}
 	},
@@ -7105,13 +7132,30 @@ async function deployDraft(
 	ctx: WriteDraftCtx
 ): Promise<string> {
 	const { workspace, toolId, toolCallbacks, sessionId } = ctx
-	const {
-		type,
-		path,
-		trigger_kind: triggerKind,
-		deployment_message: deploymentMessage,
-		force
-	} = args
+	const { type, path, trigger_kind: triggerKind, force } = args
+	const edits = takeDeployEdits(toolId)
+	const deploymentMessage =
+		edits?.deploymentMessage !== undefined
+			? edits.deploymentMessage || undefined
+			: args.deployment_message
+	const onBehalfOf = edits?.onBehalfOf
+	// A picked path creates the item there: one already taken would turn the create into an update
+	// of whatever lives at it, so it is refused rather than overwritten.
+	if (edits?.deployPath && edits.deployPath !== path) {
+		const taken =
+			type === 'script'
+				? await ScriptService.existsScriptByPath({ workspace, path: edits.deployPath })
+				: type === 'flow'
+					? await FlowService.existsFlowByPath({ workspace, path: edits.deployPath })
+					: type === 'app'
+						? await AppService.existsApp({ workspace, path: edits.deployPath })
+						: false
+		if (taken) {
+			throw new Error(
+				`Cannot deploy ${type} "${path}" at "${edits.deployPath}": something is already deployed there.`
+			)
+		}
+	}
 
 	if (type === 'trigger' && !triggerKind) {
 		throw new Error('trigger_kind is required when deploying a trigger.')
@@ -7176,13 +7220,20 @@ async function deployDraft(
 				: undefined
 			assertDraftBasedOnLatest('flow', path, draft.parentVersionId, existing?.version_id, force)
 		}
+		const isNewItem = !(type === 'script'
+			? await ScriptService.existsScriptByPath({ workspace, path })
+			: await FlowService.existsFlowByPath({ workspace, path }))
+		if (edits?.deployPath && isNewItem) deployedPath = edits.deployPath
 		const draftOnly =
 			type === 'flow'
 				? !(await FlowService.existsFlowByPath({ workspace, path: storagePath }))
 				: false
 		const result = await deployDraftToWorkspace(type, storagePath, workspace, {
 			draftOnly,
-			deploymentMessage
+			deploymentMessage,
+			onBehalfOf,
+			// A path change is a rename for an item already deployed, which the card never offers.
+			deployPath: edits?.deployPath && isNewItem ? edits.deployPath : undefined
 		})
 		if (!result.success) {
 			throw new Error(result.error ?? `Failed to deploy ${type} "${path}".`)
@@ -7290,6 +7341,10 @@ async function deployDraft(
 				if (!policy) {
 					throw new Error(`Draft app "${path}" has no policy to deploy.`)
 				}
+				if (onBehalfOf) {
+					policy.on_behalf_of = onBehalfOf.permissionedAs
+					policy.on_behalf_of_email = onBehalfOf.email
+				}
 
 				// An app deployed on its own while a path runnable still points at a draft
 				// is deployed and broken — the deploy has to say so, not just report success.
@@ -7363,8 +7418,14 @@ async function deployDraft(
 						throw e
 					}
 				}
+				if (edits?.deployPath && !(await AppService.existsApp({ workspace, path: targetPath }))) {
+					targetPath = edits.deployPath
+				}
 				deployedPath = targetPath
 				const isUpdate = await AppService.existsApp({ workspace, path: targetPath })
+				// The access the user picked on the card applies to a new app only: an update keeps the
+				// deployed one, which only the Share dialog changes.
+				if (!isUpdate && edits?.appAccess) policy.execution_mode = edits.appAccess
 				if (isUpdate) {
 					// Who can open the app and its custom URL are set from the Share dialog: the update
 					// states neither, and the server keeps the deployed ones.
@@ -7480,17 +7541,25 @@ async function deployDraft(
 		})
 	}
 
+	const userChanges = describeDeployEdits(edits, {
+		requestedMessage: args.deployment_message,
+		path,
+		deployedPath
+	})
+
 	toolCallbacks.setToolStatus(toolId, {
-		content: `Deployed ${noun} "${path}"`,
+		content: `Deployed ${noun} "${deployedPath}"`,
 		result: 'Deployed',
 		actions
 	})
 	return JSON.stringify(
 		{
 			success: true,
-			message: `Deployed draft ${type} "${path}" to the workspace. Draft removed.${
-				deployNote ? ` ${deployNote}` : ''
-			}`,
+			message: `Deployed draft ${type} "${path}" to the workspace${
+				deployedPath !== path ? ` at "${deployedPath}"` : ''
+			}. Draft removed.${
+				userChanges ? ` ${userChanges}` : ''
+			}${deployNote ? ` ${deployNote}` : ''}`,
 			type,
 			path,
 			triggerKind

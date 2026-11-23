@@ -33,6 +33,16 @@
 			/>
 		{/if}
 	{:else if module.value.type === 'flow'}
+		{#if customUi?.tagEdit != false}
+			<FlowModuleWorkerTagSelect
+				isPreprocessor={false}
+				placeholder={customUi?.tagSelectPlaceholder}
+				noLabel={customUi?.tagSelectNoLabel}
+				nullTag="subflow default"
+				tag={module.value.tag_override}
+				on:change={(e) => dispatch('tagChange', e.detail)}
+			/>
+		{/if}
 		<Button
 			unifiedSize="sm"
 			variant="subtle"

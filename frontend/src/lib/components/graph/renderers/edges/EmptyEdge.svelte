@@ -2,6 +2,9 @@
 	import { getBezierPath, BaseEdge, type Position } from '@xyflow/svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { getGraphContext } from '../../graphContext'
+	import { getFlowRunStatusContext } from '../../flowRunStatus.svelte'
+	import type { EdgeRunData } from './edgeRunClass'
+	import { edgeRunClass } from './edgeRunClass'
 
 	interface Props {
 		sourceX: number
@@ -11,7 +14,7 @@
 		targetY: number
 		targetPosition: Position
 		markerEnd?: string | undefined
-		data?: { class?: string }
+		data?: { class?: string } & EdgeRunData
 	}
 
 	let {
@@ -26,6 +29,9 @@
 	}: Props = $props()
 
 	const { useDataflow } = getGraphContext()
+	const flowRunStatus = getFlowRunStatusContext()
+
+	let runClass = $derived(edgeRunClass(flowRunStatus, data))
 
 	let [edgePath] = $derived(
 		getBezierPath({
@@ -43,6 +49,6 @@
 <BaseEdge
 	path={edgePath}
 	{markerEnd}
-	class={twMerge($useDataflow ? 'hidden' : '', 'pointer-events-none', data.class ?? '')}
+	class={twMerge($useDataflow ? 'hidden' : '', 'pointer-events-none', data.class ?? '', runClass)}
 	interactionWidth={0}
 />

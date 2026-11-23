@@ -48,7 +48,11 @@ pub const MIN_VERSION_SUPPORTS_LEASE_FREE_VOLUMES: VC = vc(1, 872, 0, "Lease-fre
 // worker that predates it rejects that status and fails the restart. Must name the release
 // this ships in.
 pub const MIN_VERSION_SUPPORTS_FAILED_ONLY_RESTART: VC =
-    vc(1, 880, 0, "Rerun only failed iterations");
+    vc(1, 883, 0, "Rerun only failed iterations");
+// A worker that predates `FlowStatus::test_subflows` ignores it and runs the deployed subflow,
+// so a step the test mocks would run for real. Must name the release this ships in.
+pub const MIN_VERSION_SUPPORTS_FLOW_TEST_SUBFLOWS: VC =
+    vc(1, 879, 0, "Overriding steps inside subflows in flow tests");
 pub const MIN_VERSION_SUPPORTS_NODE_DEBOUNCING: VC = vc(1, 658, 0, "Flow node debouncing");
 pub const MIN_VERSION_SUPPORTS_TOKEN_HASH: VC = vc(1, 659, 0, "Token hash storage");
 pub const MIN_VERSION_SUPPORTS_SYNC_JOBS_DEBOUNCING: VC = vc(1, 602, 0, "Sync jobs debouncing");
