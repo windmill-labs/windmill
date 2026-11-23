@@ -1,7 +1,7 @@
 <script lang="ts">
 	import HighlightCode from './HighlightCode.svelte'
 	import InputTransformsViewer from './InputTransformsViewer.svelte'
-	import IconedPath from './IconedPath.svelte'
+	import FlowModuleIcon from './flows/FlowModuleIcon.svelte'
 	import type { FlowModule } from '$lib/gen'
 	import { Badge, Button, Drawer, DrawerContent } from './common'
 	import { Link } from 'lucide-svelte'
@@ -16,7 +16,7 @@
 
 	import { twMerge } from 'tailwind-merge'
 	import FlowModuleScript from './flows/content/FlowModuleScript.svelte'
-	import { Copy, Expand } from 'lucide-svelte'
+	import { Copy, Expand, ExternalLink } from 'lucide-svelte'
 	import HighlightTheme from './HighlightTheme.svelte'
 	import LanguageIcon from './common/languageIcons/LanguageIcon.svelte'
 	import FlowGraphViewerStepHeader from './FlowGraphViewerStepHeader.svelte'
@@ -50,9 +50,16 @@
 
 <HighlightTheme />
 
-{#snippet pathLink(href: string, path: string)}
-	<a rel="noreferrer" target="_blank" {href} class="text-accent hover:underline min-w-0">
-		<IconedPath {path} textClass="text-accent" />
+{#snippet pathLink(href: string, module: FlowModule, path: string)}
+	<a
+		rel="noreferrer"
+		target="_blank"
+		{href}
+		class="inline-flex min-w-0 items-center gap-1.5 text-xs text-accent hover:underline"
+	>
+		<FlowModuleIcon {module} size={14} />
+		<span class="truncate">{path}</span>
+		<ExternalLink size={12} class="shrink-0" />
 	</a>
 {/snippet}
 
@@ -63,6 +70,7 @@
 				<div class="mb-4">
 					{@render pathLink(
 						scriptPathToHref(stepDetail.value.path, $hubBaseUrlStore),
+						stepDetail,
 						stepDetail.value.path
 					)}
 				</div>
@@ -131,6 +139,7 @@
 				<div class="pb-2">
 					{@render pathLink(
 						scriptPathToHref(stepDetail.value.path, $hubBaseUrlStore),
+						stepDetail,
 						stepDetail.value.path
 					)}
 				</div>
@@ -281,6 +290,7 @@
 			<div class="text-sm mb-1 flex justify-between flex-row items-center">
 				{@render pathLink(
 					`/flows/get/${stepDetail.value.path}?workspace=${encodeURIComponent(ws ?? '')}`,
+					stepDetail,
 					stepDetail.value.path
 				)}
 				<Button

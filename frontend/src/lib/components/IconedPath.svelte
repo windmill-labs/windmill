@@ -8,16 +8,9 @@
 		path: string
 		hash?: string | undefined
 		class?: string | undefined
-		/** Color of the path text; a link passes `text-accent`. */
-		textClass?: string
 	}
 
-	let {
-		path,
-		hash = undefined,
-		class: clazz = undefined,
-		textClass = 'text-primary'
-	}: Props = $props()
+	let { path, hash = undefined, class: clazz = undefined }: Props = $props()
 </script>
 
 <div class="flex space-x-2 items-center w-full shrink min-w-0 {clazz ?? ''}">
@@ -25,12 +18,12 @@
 		<div>
 			<IconedResourceType width="20px" height="20px" name={path.split('/')[2]} silent={true} />
 		</div>
-		<span class="truncate text-xs {textClass}">{path}</span>
+		<span class="truncate text-xs text-primary">{path}</span>
 	{:else}
 		<div class="center-center">
 			<Building size={16} />
 		</div>
-		<span class="truncate text-xs {textClass}">{path}</span>
+		<span class="truncate text-xs text-primary">{path}</span>
 		{#if hash}
 			<Badge>{truncateHash(hash)}</Badge>
 		{/if}
