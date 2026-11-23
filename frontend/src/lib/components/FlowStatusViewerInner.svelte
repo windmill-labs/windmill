@@ -39,6 +39,7 @@
 	import { deepEqual } from 'fast-equals'
 	import FlowTimeline from './FlowTimeline.svelte'
 	import { dfs } from './flows/dfs'
+	import { expandedSubflowStepOf } from './flows/expandedSubflowStep'
 	import { dfs as dfsPreviousResults } from '$lib/components/flows/previousResults'
 	import Alert from './common/alert/Alert.svelte'
 	import FlowGraphViewerStep from './FlowGraphViewerStep.svelte'
@@ -2204,9 +2205,9 @@
 												stepDetail = 'end'
 											} else {
 												const id = e.startsWith(AI_TOOL_CALL_PREFIX) ? e.split('-').pop() : e
-												const mod = dfs(job?.raw_flow?.modules ?? [], (m) => m).find(
-													(m) => m?.id === id
-												)
+												const mod =
+													expandedSubflowStepOf(e, expandedSubflows ?? {}) ??
+													dfs(job?.raw_flow?.modules ?? [], (m) => m).find((m) => m?.id === id)
 												stepDetail = mod
 												selectedNode = e
 												if (e.startsWith(AI_TOOL_CALL_PREFIX)) {

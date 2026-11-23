@@ -282,7 +282,12 @@
 		{:else if stepDetail.value.type == 'flow'}
 			<div class="text-sm mb-1 flex justify-between flex-row items-center">
 				<span class="text-xs font-normal text-secondary"
-					>Flow path: <span class="text-emphasis">{stepDetail.value.path}</span>
+					>Flow path: <a
+						class="text-accent hover:underline"
+						href={`/flows/get/${stepDetail.value.path}?workspace=${encodeURIComponent(ws ?? '')}`}
+						target="_blank"
+						rel="noreferrer">{stepDetail.value.path}</a
+					>
 				</span>
 				<Button
 					unifiedSize="sm"

@@ -60,3 +60,17 @@ export async function resolveExpandedSubflowStep(
 		module: findStepPath(modules, parsed.leaf)?.target
 	}
 }
+
+/**
+ * The step an inline-expanded subflow node (`subflow:a:b`) stands for, read from the modules
+ * of the expansion that holds it. `undefined` for any other node id.
+ */
+export function expandedSubflowStepOf(
+	nodeId: string,
+	expandedSubflows: Record<string, { modules: FlowModule[] }>
+): FlowModule | undefined {
+	const parsed = parseExpandedSubflowId(nodeId)
+	const parentId = expandedSubflowParentId(nodeId)
+	const modules = parentId == undefined ? undefined : expandedSubflows[parentId]?.modules
+	return parsed && modules ? findStepPath(modules, parsed.leaf)?.target : undefined
+}

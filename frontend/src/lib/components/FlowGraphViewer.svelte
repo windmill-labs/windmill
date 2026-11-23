@@ -15,8 +15,7 @@
 	import { linkedToolsScope } from './flows/linkedAgentToolsStore.svelte'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 	import type { ExpandedSubflow } from './graph/graphBuilder.svelte'
-	import { expandedSubflowParentId } from './flows/expandedSubflowStep'
-	import { findStepPath, parseExpandedSubflowId } from './restartFromStepPath'
+	import { expandedSubflowStepOf } from './flows/expandedSubflowStep'
 
 	const operatingWorkspace = useOperatingWorkspace()
 
@@ -64,15 +63,6 @@
 
 	let availableHeight = $state(0)
 	let expandedSubflows: Record<string, ExpandedSubflow> = $state({})
-
-	/** The step an inline-expanded subflow node (`subflow:a:b`) stands for, read from the
-	 * expansion that holds it. */
-	function expandedSubflowStep(nodeId: string): FlowModule | undefined {
-		const parsed = parseExpandedSubflowId(nodeId)
-		const parentId = expandedSubflowParentId(nodeId)
-		const modules = parentId == undefined ? undefined : expandedSubflows[parentId]?.modules
-		return parsed && modules ? findStepPath(modules, parsed.leaf)?.target : undefined
-	}
 
 	if (provideTriggerContext && !hasContext('TriggerContext')) {
 		const triggersCount = writable<TriggersCount | undefined>(undefined)
@@ -159,7 +149,7 @@
 					} else if (nodeId === 'preprocessor') {
 						stepDetail = flow?.value?.preprocessor_module
 					} else if (typeof nodeId === 'string' && nodeId.startsWith('subflow:')) {
-						stepDetail = expandedSubflowStep(nodeId)
+						stepDetail = expandedSubflowStepOf(nodeId, expandedSubflows)
 					} else {
 						stepDetail = dfs(flow?.value?.modules ?? [], (m) => m).find((m) => m?.id === nodeId)
 					}
