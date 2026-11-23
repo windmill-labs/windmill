@@ -5,29 +5,26 @@
 	import IconedResourceType from '$lib/components/IconedResourceType.svelte'
 	import Path from '$lib/components/Path.svelte'
 	import { safeHref } from '$lib/utils/safeHref'
-	import { resourcePageUrl, saveSecretVariable, variablePageUrl } from './secretRequest'
-	import type { SecretRequestDisplay, SecretRequestOutcome } from './shared'
+	import { resourcePageUrl, variablePageUrl } from './secretRequest'
+	import type { SecretRequestDisplay } from './shared'
 
 	interface Props {
 		request: SecretRequestDisplay
 		/** Inert copies (an answered request in history) render the form but cannot save. */
 		interactive?: boolean
-		onSaved?: (outcome: SecretRequestOutcome) => void
+		/** Saves the value; the chat settles the card once it lands. Rejects with the refusal. */
+		save?: (value: string, path: string, replace: boolean) => Promise<void>
 		onDismiss?: () => void
 	}
 
-	let {
-		request,
-		interactive = true,
-		onSaved,
-		onDismiss
-	}: Props = $props()
+	let { request, interactive = true, save, onDismiss }: Props = $props()
 
 	// The model writes this URL, so a prompt injection could make it `javascript:`.
 	const helpHref = $derived(safeHref(request.helpUrl, window.location.href))
 
 	let value = $state('')
-	let saving = $state(false)
+	let submitting = $state(false)
+	const saving = $derived(submitting || !!request.saving)
 	let saveError = $state<string | undefined>()
 
 	// A taken path is the only error that still lets the user save: saving then updates the
@@ -40,17 +37,16 @@
 	const canSave = $derived(interactive && value.length > 0 && !saving && (!pathError || taken))
 
 	async function submit() {
-		if (!canSave) return
-		saving = true
+		if (!canSave || !save) return
+		submitting = true
 		saveError = undefined
 		try {
-			const outcome = await saveSecretVariable(request, value, savePath, taken)
+			await save(value, savePath, taken)
 			value = ''
-			onSaved?.(outcome)
 		} catch (e) {
 			saveError = e instanceof Error ? e.message : String(e)
 		} finally {
-			saving = false
+			submitting = false
 		}
 	}
 </script>

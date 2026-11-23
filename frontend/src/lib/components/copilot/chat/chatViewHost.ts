@@ -3,7 +3,7 @@ import type { AIMode, AIAutonomyMode } from './AIChatManager.svelte'
 import type { AIWorkMode } from './workMode'
 import type { ReasoningProviderModel } from '../reasoningRegistry'
 import { getAiChatManager } from './aiChatManagerContext'
-import type { DisplayMessage, SecretRequestOutcome, Tool } from './shared'
+import type { DisplayMessage, Tool } from './shared'
 import type { ContextElement } from './context'
 import type { AttachedBlob } from './blobUtils'
 import type { AttachedImage } from './imageUtils'
@@ -125,8 +125,10 @@ export interface ChatViewHost {
 		files?: AttachedTextFile[]
 	) => void | Promise<void>
 	handleUserQuestionAnswer: (toolId: string, choices: string[]) => boolean
-	/** Only a host whose loop can call `request_secret` serves it; the card is inert elsewhere. */
-	handleSecretRequestResult?: (toolId: string, outcome: SecretRequestOutcome | undefined) => boolean
+	/** Only a host whose loop can call `request_secret` serves these; the card is inert
+	 * elsewhere. `saveSecret` rejects with the server's refusal, leaving the request open. */
+	saveSecret?: (toolId: string, value: string, path: string, replace: boolean) => Promise<void>
+	dismissSecret?: (toolId: string) => void
 	handleToolConfirmation: (toolId: string, confirmed: boolean) => void
 	handleScopeDecision: (toolId: string, decision: ScopeDecision) => void
 	/** A tool is waiting on a run form the user is filling in. Escape belongs to that form

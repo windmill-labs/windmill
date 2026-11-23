@@ -38,6 +38,7 @@ const mocks = vi.hoisted(() => ({
 	getJob: vi.fn(),
 	getJobUpdates: vi.fn(),
 	whoami: vi.fn(),
+	saveSecretVariable: vi.fn(),
 	workspace: 'test_workspace' as string | undefined,
 	// The workspace being browsed, which a session chat's own workspace need not be.
 	navWorkspace: undefined as string | undefined,
@@ -165,6 +166,11 @@ vi.mock('../lib', () => ({
 
 vi.mock('./api/apiTools', () => ({
 	loadApiTools: vi.fn()
+}))
+
+vi.mock('./secretRequest', async (importOriginal) => ({
+	...(await importOriginal<typeof import('./secretRequest')>()),
+	saveSecretVariable: mocks.saveSecretVariable
 }))
 
 // Mock only runChatLoop; keep the real truncateToToolPairedPrefix (pure) that
@@ -529,6 +535,32 @@ describe('AIChatManager run form', () => {
 		const settled = manager.displayMessages[0]
 		expect(settled.runForm?.canceled).toBe(true)
 		expect(settled.content).toBe('Run f/a/b — Canceled')
+	})
+})
+
+// Stop cannot withdraw a save already sent, so the card must end on what the save did.
+describe('AIChatManager secret request', () => {
+	it('ends the turn at stop, and settles the card on a save that lands after it', async () => {
+		const manager = new AIChatManager()
+		const request = { workspace: 'test_workspace', path: 'u/a/key', label: 'API key' }
+		manager.displayMessages = [
+			{ role: 'tool', tool_call_id: 'call_s', content: '', isLoading: true, secretRequest: request }
+		]
+		let land!: (outcome: { path: string; replaced: boolean }) => void
+		mocks.saveSecretVariable.mockReturnValueOnce(new Promise((resolve) => (land = resolve)))
+
+		const toolResult = manager.requestSecret('call_s', request)
+		const saved = manager.saveSecret('call_s', 'sk-1', 'u/a/key', false)
+		manager.cancel()
+		expect(await toolResult).toBeUndefined()
+
+		land({ path: 'u/a/key', replaced: false })
+		await saved
+		const card = manager.displayMessages[0]
+		expect(card.role === 'tool' && card.secretRequest).toMatchObject({
+			saved: { path: 'u/a/key' },
+			saving: false
+		})
 	})
 })
 

@@ -611,6 +611,8 @@ export type SecretRequestOutcome = { path: string; replaced: boolean }
 export type SecretRequestDisplay = SecretRequest & {
 	saved?: SecretRequestOutcome
 	canceled?: boolean
+	/** The turn stopped while its save was in flight; the save settles it when it lands. */
+	saving?: boolean
 }
 
 // The single place that understands the legacy answer shape: new code writes

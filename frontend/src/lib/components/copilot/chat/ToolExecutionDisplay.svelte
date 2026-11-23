@@ -205,12 +205,14 @@
 </script>
 
 {#if message.secretRequest && (!message.error || message.secretRequest.canceled)}
-	{@const handleResult = chatHost.handleSecretRequestResult}
+	{@const { saveSecret, dismissSecret } = chatHost}
 	<SecretRequestCard
 		request={message.secretRequest}
-		interactive={isActiveSecretRequest(message) && handleResult !== undefined}
-		onSaved={(outcome) => handleResult?.(message.tool_call_id, outcome)}
-		onDismiss={() => handleResult?.(message.tool_call_id, undefined)}
+		interactive={isActiveSecretRequest(message) && saveSecret !== undefined}
+		save={saveSecret
+			? (value, path, replace) => saveSecret(message.tool_call_id, value, path, replace)
+			: undefined}
+		onDismiss={() => dismissSecret?.(message.tool_call_id)}
 	/>
 {:else if activeUserQuestion}
 	<AskUserQuestionDisplay toolCallId={message.tool_call_id} userQuestion={activeUserQuestion} />

@@ -1,4 +1,5 @@
 import type { AttachedBlob } from './blobUtils'
+import { saveSecretVariable } from './secretRequest'
 import type { ChatViewHost } from './chatViewHost'
 import type { ScriptLang } from '$lib/gen/types.gen'
 import { JobService, type CompletedJob } from '$lib/gen'
@@ -986,9 +987,17 @@ export class AIChatManager implements ChatViewHost {
 		{ resolve: (value: boolean) => void; toolName?: string }
 	>()
 	private userQuestionCallbacks = new Map<string, (choices: string[] | undefined) => void>()
-	private secretRequestCallbacks = new Map<
+	// An open secret card. The manager runs its save, so it alone settles it: the card is a
+	// form, and Stop cannot withdraw a save already sent.
+	#secretRequests = new Map<
 		string,
-		(outcome: SecretRequestOutcome | undefined) => void
+		{
+			request: SecretRequest
+			resolve: (outcome: SecretRequestOutcome | undefined) => void
+			save?: Promise<void>
+			/** The turn stopped while the save was in flight. */
+			stopped?: boolean
+		}
 	>()
 	// Kept apart from confirmationCallbacks: YOLO answers those, and never answers these.
 	// Resolved undefined when the turn stops first.
@@ -2445,63 +2454,76 @@ export class AIChatManager implements ChatViewHost {
 
 	requestSecret = (
 		toolId: string,
-		_request: SecretRequest
+		request: SecretRequest
 	): Promise<SecretRequestOutcome | undefined> => {
-		// The tool checks the path before it asks, so a stop during that check has already
-		// drained the callbacks: a resolver installed now would park the turn for good.
-		if (this.abortController?.signal.aborted) return Promise.resolve(undefined)
 		return new Promise((resolve) => {
-			this.secretRequestCallbacks.set(toolId, resolve)
+			this.#secretRequests.set(toolId, { request, resolve })
+			// The tool checks the path before it asks, so a stop during that check has already
+			// settled every open request: this one would park the turn for good.
+			if (this.abortController?.signal.aborted) this.#settleSecretRequest(toolId, undefined)
 		})
 	}
 
-	/** The card has already saved the variable, or the user dismissed it: this settles the
-	 * card and hands the tool the path. Returns whether a parked call was waiting. */
-	handleSecretRequestResult = (
-		toolId: string,
-		outcome: SecretRequestOutcome | undefined
-	): boolean => {
-		const callback = this.secretRequestCallbacks.get(toolId)
-		if (!callback) return outcome ? this.secretSavedAfterStop(toolId, outcome) : false
-		this.displayMessages = this.displayMessages.map((message) =>
-			message.role === 'tool' && message.tool_call_id === toolId && message.secretRequest
-				? {
-						...message,
-						secretRequest: outcome
-							? { ...message.secretRequest, saved: outcome }
-							: { ...message.secretRequest, canceled: true }
-					}
-				: message
+	/** Saves the value the user typed on the card. Rejects with the server's refusal, which the
+	 * card shows; the request stays open for another try. */
+	saveSecret = (toolId: string, value: string, path: string, replace: boolean): Promise<void> => {
+		const entry = this.#secretRequests.get(toolId)
+		if (!entry) return Promise.reject(new Error('This request is no longer open.'))
+		if (entry.save) return entry.save
+		const save = saveSecretVariable(entry.request, value, path, replace).then(
+			(outcome) => this.#settleSecretRequest(toolId, outcome),
+			(e) => {
+				entry.save = undefined
+				if (entry.stopped) this.#settleSecretRequest(toolId, undefined)
+				throw e
+			}
 		)
-		callback(outcome)
-		this.secretRequestCallbacks.delete(toolId)
-		return true
+		entry.save = save
+		return save
 	}
 
-	/** Stop cannot abort a save already sent, so one can land after the turn told the model
-	 * the request was dismissed. The variable exists: the card says so, and the model learns
-	 * where it is on its next turn. */
-	private secretSavedAfterStop = (toolId: string, outcome: SecretRequestOutcome): boolean => {
-		const message = this.displayMessages.find(
-			(m): m is ToolDisplayMessage =>
-				m.role === 'tool' && m.tool_call_id === toolId && !!m.secretRequest
-		)
-		if (!message?.secretRequest) return false
-		const { label } = message.secretRequest
+	dismissSecret = (toolId: string): void => {
+		if (!this.#secretRequests.get(toolId)?.save) this.#settleSecretRequest(toolId, undefined)
+	}
+
+	/** The one writer of a settled secret card. In a live turn the tool then returns the outcome
+	 * to the model. After a stop the turn is gone, so a save that lands then is told on the
+	 * model's next turn, as a detached job's result is, and written to this chat's history. */
+	#settleSecretRequest(toolId: string, outcome: SecretRequestOutcome | undefined): void {
+		const entry = this.#secretRequests.get(toolId)
+		if (!entry) return
+		this.#secretRequests.delete(toolId)
+		const { label } = entry.request
 		this.displayMessages = this.displayMessages.map((m) =>
-			m === message
+			m.role === 'tool' && m.tool_call_id === toolId && m.secretRequest
 				? {
-						...message,
+						...m,
 						error: undefined,
-						content: `Saved ${label} to ${outcome.path}`,
-						secretRequest: { ...message.secretRequest!, canceled: false, saved: outcome }
+						isLoading: false,
+						content: outcome ? `Saved ${label} to ${outcome.path}` : `Asked for ${label} — dismissed`,
+						secretRequest: outcome
+							? { ...m.secretRequest, saving: false, saved: outcome }
+							: { ...m.secretRequest, saving: false, canceled: true }
 					}
 				: m
 		)
-		void this.queueModelNote(
-			`The user's ${label} was saved after the turn stopped, although the request was reported dismissed: it is the secret variable ${outcome.path}, referenced as "$var:${outcome.path}".`
+		if (!entry.stopped) {
+			entry.resolve(outcome)
+			return
+		}
+		if (outcome) {
+			void this.queueModelNote(
+				`The user's ${label} was saved after the turn stopped: it is the secret variable ${outcome.path}, referenced as "$var:${outcome.path}".`
+			)
+		}
+		void this.#persistBackgroundJobs()
+	}
+
+	/** Lets every in-flight secret save land, so its outcome is written to this chat. */
+	#secretSavesLanded(): Promise<unknown> {
+		return Promise.allSettled(
+			[...this.#secretRequests.values()].flatMap((entry) => (entry.save ? [entry.save] : []))
 		)
-		return true
 	}
 
 	requestRunArgs = (
@@ -5178,10 +5200,14 @@ export class AIChatManager implements ChatViewHost {
 			resolveQuestion(undefined)
 		}
 		this.userQuestionCallbacks.clear()
-		for (const resolveSecret of this.secretRequestCallbacks.values()) {
-			resolveSecret(undefined)
+		for (const [toolId, entry] of this.#secretRequests) {
+			// The turn ends now, but the save cannot be withdrawn: settledToolDisplay shows the card
+			// as saving, and the save settles it when it lands.
+			if (entry.save) {
+				entry.stopped = true
+				entry.resolve(undefined)
+			} else this.#settleSecretRequest(toolId, undefined)
 		}
-		this.secretRequestCallbacks.clear()
 		for (const [toolId, entry] of this.#runForms) {
 			entry.resolve?.(undefined)
 			// Stopping the turn is the form's other way out, and the draft dies with this loop:
@@ -5352,6 +5378,7 @@ export class AIChatManager implements ChatViewHost {
 
 	saveAndClear = async () => {
 		this.cancel('saveAndClear')
+		await this.#secretSavesLanded()
 		// Drop any message queued in this conversation so it can't auto-send into
 		// the fresh chat or linger as a card across the switch.
 		this.#clearQueue()
@@ -5809,7 +5836,9 @@ export class AIChatManager implements ChatViewHost {
 						: undefined,
 					secretRequest:
 						message.secretRequest && !message.secretRequest.saved
-							? { ...message.secretRequest, canceled: true }
+							? this.#secretRequests.get(message.tool_call_id)?.save
+								? { ...message.secretRequest, saving: true }
+								: { ...message.secretRequest, canceled: true }
 							: message.secretRequest,
 					runForm: message.runForm
 						? settledRunForm({ ...message.runForm, canceled: runState === 'idle' })

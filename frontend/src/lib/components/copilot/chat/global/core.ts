@@ -3564,14 +3564,8 @@ export const globalTools: SessionTool<{}>[] = [
 				secretRequest: request,
 				isLoading: true
 			})
+			// The chat settles the card itself, whether the turn is still running or not.
 			const outcome = await toolCallbacks.requestSecret(toolId, request)
-			toolCallbacks.setToolStatus(toolId, {
-				content: outcome
-					? `Saved ${parsed.label} to ${outcome.path}`
-					: `Asked for ${parsed.label} — dismissed`,
-				secretRequest: outcome ? { ...request, saved: outcome } : { ...request, canceled: true },
-				isLoading: false
-			})
 			return secretRequestToolResult(outcome, parsed.path)
 		}
 	},
