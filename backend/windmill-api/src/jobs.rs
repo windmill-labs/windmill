@@ -5801,10 +5801,12 @@ async fn list_waiting_approvals(
                s.flow_status->'approval_conditions' AS approval_conditions,
                NULLIF(am.m->>'summary', '') AS step_summary,
                COALESCE((am.m->'suspend'->>'required_events')::bigint, 1) AS "required_approvals!",
-               (SELECT count(*) FROM resume_job r WHERE r.job IN (j.id, step.job))
+               (SELECT count(*) FROM resume_job r
+                WHERE r.job IN (j.id, step.job) AND NOT consumed.ids ? r.id::text)
                    AS "approvals!",
                EXISTS(SELECT 1 FROM resume_job r
-                      WHERE r.job IN (j.id, step.job) AND r.approver = $2)
+                      WHERE r.job IN (j.id, step.job) AND NOT consumed.ids ? r.id::text
+                        AND r.approver = $2)
                    AS "approved_by_me!"
         FROM v2_job_queue q
         JOIN v2_job j ON j.id = q.id
@@ -5820,11 +5822,18 @@ async fn list_waiting_approvals(
                 -> 'modules' -> ((s.flow_status->>'step')::int - 1) AS m
         ) am ON true
         -- Approvals count per step, as the worker counts them: those sent to the approval
-        -- step's job, plus those sent to the flow itself.
+        -- step's job, plus those sent to the flow itself. A workflow as code sends every
+        -- approval to the flow and never deletes one, skipping those its earlier steps used.
         LEFT JOIN LATERAL (
             SELECT (s.flow_status->'modules'->((s.flow_status->>'step')::int - 1)->>'job')::uuid
                 AS job
         ) step ON true
+        LEFT JOIN LATERAL (
+            SELECT COALESCE(
+                s.workflow_as_code_status->'_checkpoint'->'consumed_resume_row_ids',
+                '[]'::jsonb
+            ) AS ids
+        ) consumed ON true
         WHERE q.workspace_id = $1
           AND q.suspend > 0
           AND (

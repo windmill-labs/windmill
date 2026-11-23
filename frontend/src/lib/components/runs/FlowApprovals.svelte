@@ -5,6 +5,7 @@
 	import { JobService, type FlowModule, type FlowStatusModule, type Job } from '$lib/gen'
 	import { displayDate, type StateStore } from '$lib/utils'
 	import FlowExecutionStatus from './FlowExecutionStatus.svelte'
+	import { pendingAgentApproval } from '../agentRequest'
 
 	interface Props {
 		job: Job
@@ -36,8 +37,12 @@
 		})
 	})
 	let waitingRow = $derived(rows.find((r) => r.waiting))
-	let nestedWaiting = $derived(
-		!waitingRow && !!suspendStatus.val && Object.keys(suspendStatus.val).length > 0
+	// Waits the rows don't hold, which the panel below shows: a step inside a branch, loop or
+	// subflow, or an agent asking for a tool approval.
+	let otherWaiting = $derived(
+		!waitingRow &&
+			((!!suspendStatus.val && Object.keys(suspendStatus.val).length > 0) ||
+				!!pendingAgentApproval(job))
 	)
 
 	const detail = resource(
@@ -69,17 +74,15 @@
 	}
 </script>
 
-{#if rows.length > 0 || nestedWaiting}
+{#if rows.length > 0}
 	<div class="rounded-md border bg-surface-tertiary">
 		<div
 			class="flex items-center justify-between px-4 py-2 border-b text-xs font-semibold text-emphasis"
 		>
 			<span>Approvals</span>
-			{#if rows.length > 0}
-				<span class="font-normal text-secondary">
-					{approvedCount} of {rows.length} approved
-				</span>
-			{/if}
+			<span class="font-normal text-secondary">
+				{approvedCount} of {rows.length} approved
+			</span>
 		</div>
 		{#each rows as row (row.module.id)}
 			<div
@@ -136,7 +139,7 @@
 				{/if}
 			</div>
 		{/each}
-		{#if nestedWaiting || (waitingRow && expanded)}
+		{#if otherWaiting || (waitingRow && expanded)}
 			<!-- The step's own approval panel, unchanged: its description, form and buttons. -->
 			<div class="border-t px-4 py-3">
 				<FlowExecutionStatus
