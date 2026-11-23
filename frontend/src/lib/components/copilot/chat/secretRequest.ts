@@ -9,11 +9,6 @@ import {
 	parsePostgresConnectionString
 } from '$lib/utils/postgresConnectionString'
 
-/** The resource types whose card can take a connection string, by the secret field it fills. */
-export const CONNECTION_STRING_TYPES: Record<string, { field: string; label: string }> = {
-	postgresql: { field: 'password', label: 'Password' }
-}
-
 /** Splits a pasted connection string into the secret and the fields the card shows, with the
  * same parser as the resource editor, so both store the same resource for the same string. */
 export function connectionStringParts(
@@ -133,21 +128,6 @@ export async function saveSecretRequest(
 	}
 	own.add(ownKey)
 	return { path, replaced, variables }
-}
-
-/** Whether anything `request_secret` would write is already there, for refusing a taken path
- * before the card shows. */
-export async function takenSecretPath(request: SecretRequest): Promise<string | undefined> {
-	const { workspace, path, resource } = request
-	if (resource && (await ResourceService.existsResource({ workspace, path }))) {
-		return `A resource already exists at ${path}`
-	}
-	for (const p of secretVariablePaths(path, secretFieldsOf(request))) {
-		if (await VariableService.existsVariable({ workspace, path: p })) {
-			return `A variable already exists at ${p}`
-		}
-	}
-	return undefined
 }
 
 // The workspace the secret was saved in, which a fork session does not navigate to.

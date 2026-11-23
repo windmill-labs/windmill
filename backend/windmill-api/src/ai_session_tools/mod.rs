@@ -69,6 +69,7 @@ mod instructions;
 mod items;
 mod misc;
 mod runs;
+mod secrets;
 mod settings;
 mod views;
 mod workspace;
@@ -118,8 +119,6 @@ const EDITOR_ONLY: &[&str] = &[
     // The side panel, the question card and the browser-held user instructions.
     "open_page",
     "askUserQuestion",
-    // The secret card: the user types the value into the browser, which saves it.
-    "request_secret",
     "update_user_instructions",
     // Files attached to the chat.
     "search_files",
@@ -219,7 +218,7 @@ macro_rules! groups {
         }
     };
 }
-groups!(guidance, workspace, items, misc, flows, apps, runs, deploy, data, settings);
+groups!(guidance, workspace, items, misc, flows, apps, runs, deploy, data, settings, secrets);
 
 /// A tool as a client lists it.
 #[cfg(feature = "mcp")]
