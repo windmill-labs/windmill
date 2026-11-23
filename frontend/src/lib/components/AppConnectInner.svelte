@@ -551,10 +551,10 @@
 		popularity = byPopularity(hub, local)
 	}
 
-	/** What each configured provider connects with in one click, for the list's badges. Only
-	 * `get_connect` knows whether client credentials are shared, so it is asked per provider,
-	 * off the list's critical path: the rows render first and gain their badges as they land. */
-	let connectBadges: Record<string, { signIn: boolean; oneClick: boolean }> = $state({})
+	/** Which configured providers offer a browser sign-in, for the list's badge. Only
+	 * `get_connect` knows whether the entry declares authorization_code, so it is asked per
+	 * provider, off the list's critical path: the rows render first and gain the badge later. */
+	let connectBadges: Record<string, { signIn: boolean }> = $state({})
 
 	// Fetched only once the list is on screen: a drawer opened on one type never shows it.
 	let badgesRequested = false
@@ -570,8 +570,7 @@
 			OauthService.getOauthConnect({ client: name })
 				.then((c) => {
 					connectBadges[name] = {
-						signIn: c.grant_types?.includes('authorization_code') ?? true,
-						oneClick: c.client_credentials_configured ?? false
+						signIn: c.grant_types?.includes('authorization_code') ?? true
 					}
 				})
 				.catch(() => {})
@@ -1380,9 +1379,6 @@
 					<span class="shrink-0 font-mono text-2xs font-normal text-hint">{key}</span>
 					{#if badges?.signIn}
 						<Badge verySmall class="px-2 shrink-0">Log in with your account</Badge>
-					{/if}
-					{#if badges?.oneClick}
-						<Badge verySmall class="px-2 shrink-0">One-click setup</Badge>
 					{/if}
 				{/snippet}
 				{#snippet subtitle()}
