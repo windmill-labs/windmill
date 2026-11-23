@@ -62,7 +62,7 @@
 			{label}
 		</div>
 		{#snippet text()}
-			{#if path == '' || path != label}<div>{label}</div>{/if}
+			{#if !pathHref || path != label}<div>{label}</div>{/if}
 			{#if pathHref}
 				<a
 					href={pathHref}

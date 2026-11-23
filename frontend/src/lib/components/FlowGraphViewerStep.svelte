@@ -10,7 +10,7 @@
 	import typescript from 'svelte-highlight/languages/typescript'
 	import FlowPathViewer from './flows/content/FlowPathViewer.svelte'
 	import SchemaViewer from './SchemaViewer.svelte'
-	import { scriptPathToHref } from '$lib/scripts'
+	import { flowPathToHref, scriptPathToHref } from '$lib/scripts'
 	import { cleanExpr } from '$lib/utils'
 	import { hubBaseUrlStore } from '$lib/stores'
 
@@ -49,6 +49,11 @@
 		subflowPathChain = undefined
 	}: Props = $props()
 	let ws = $derived(workspace ?? $operatingWorkspace)
+	function flowHref(path: string): string {
+		return path.startsWith('hub/')
+			? flowPathToHref(path)
+			: `/flows/get/${path}?workspace=${encodeURIComponent(ws ?? '')}`
+	}
 	let codeViewer: Drawer | undefined = $state()
 </script>
 
@@ -147,7 +152,7 @@
 					{/if}
 					<a
 						class="text-accent hover:underline"
-						href={`/flows/get/${path}?workspace=${encodeURIComponent(ws ?? '')}`}
+						href={flowHref(path)}
 						target="_blank"
 						rel="noreferrer">{path}</a
 					>
@@ -308,11 +313,7 @@
 			</div>
 		{:else if stepDetail.value.type == 'flow'}
 			<div class="pb-2">
-				{@render pathLink(
-					`/flows/get/${stepDetail.value.path}?workspace=${encodeURIComponent(ws ?? '')}`,
-					stepDetail,
-					stepDetail.value.path
-				)}
+				{@render pathLink(flowHref(stepDetail.value.path), stepDetail, stepDetail.value.path)}
 			</div>
 			<FlowPathViewer noSide path={stepDetail.value.path} />
 		{/if}

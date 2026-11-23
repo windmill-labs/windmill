@@ -317,9 +317,9 @@
 							? `Inline ${prettyLanguage(mod.value.language)}`
 							: 'To be defined')}
 					path={`path` in mod.value ? mod.value.path : ''}
-					pathHref={mod.value.type === 'script'
+					pathHref={mod.value.type === 'script' && mod.value.path
 						? scriptPathToHref(mod.value.path, $hubBaseUrlStore)
-						: mod.value.type === 'flow'
+						: mod.value.type === 'flow' && mod.value.path
 							? flowPathToHref(mod.value.path)
 							: undefined}
 					alwaysShowOutputPicker={!mod.id.startsWith('subflow:') && mod.id !== 'preprocessor'}

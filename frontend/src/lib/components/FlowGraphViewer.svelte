@@ -54,7 +54,7 @@
 		noGraph = false,
 		triggerNode = false,
 		stepDetail = $bindable(undefined),
-		subflowPathChain = $bindable(undefined),
+		subflowPathChain = $bindable(),
 		workspace = $operatingWorkspace,
 		minHeight = 400,
 		noBorder = false,
