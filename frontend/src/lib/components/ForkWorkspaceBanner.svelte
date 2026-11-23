@@ -221,11 +221,15 @@
 	     beside it would read as a second way in. The colours stay on the icons, the ones the
 	     compare page gives these kinds. A conflict is ahead and behind at once, so it has no arrow
 	     of its own; drafts are work not deployed anywhere yet, told apart by the pencil. -->
-	{@const label = error
-		? error
-		: countParts.length > 0
+	<!-- A failed comparison still shows the drafts count, so the name keeps it beside the error. -->
+	{@const label = [
+		error ? `Comparison failed: ${error}` : undefined,
+		countParts.length > 0
 			? `${countParts.join(', ')}: review changes`
-			: `Review this ${currentNoun} against ${parentWorkspaceId}`}
+			: `Review this ${currentNoun} against ${parentWorkspaceId}`
+	]
+		.filter(Boolean)
+		.join('. ')}
 	<!-- Named by aria-label too: compact, the button's own text is bare numbers. -->
 	<Button
 		variant="default"
