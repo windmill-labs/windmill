@@ -397,6 +397,12 @@ lazy_static::lazy_static! {
     pub static ref NSJAIL_DBT_RLIMIT_AS_MB: Option<String> =
         std::env::var("NSJAIL_DBT_RLIMIT_AS_MB").ok();
 
+    /// Override for the nsjail `rlimit_fsize` cap (largest single file a jailed
+    /// python3/ansible/dbt job may write). MiB, or `unlimited`/`none`/`inf`/`0` to
+    /// uncap. Unset keeps the historical 1000 MiB. See `render_nsjail_rlimit_fsize`.
+    pub static ref NSJAIL_RLIMIT_FSIZE_MB: Option<String> =
+        std::env::var("NSJAIL_RLIMIT_FSIZE_MB").ok();
+
     // pub static ref DISABLE_NSJAIL: bool = false;
     pub static ref DISABLE_NSJAIL: bool = std::env::var("DISABLE_NSJAIL")
         .ok()
