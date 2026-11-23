@@ -2782,6 +2782,9 @@ async fn list_datatable_tables(
     Ok(Json(results))
 }
 
+/// Covers the connection (itself capped at 20s) and the listing queries.
+const DATATABLE_LISTING_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(45);
+
 async fn list_one_datatable_tables(
     db: &DB,
     authed: &ApiAuthed,
@@ -2818,7 +2821,21 @@ async fn list_one_datatable_tables(
         entry.permissioned = usable.permissioned;
         entry.usable_roles = usable.roles;
         entry.default_role = usable.default_role;
-        let listing = get_datatable_tables(db, authed, w_id, &entry.datatable_name, role).await?;
+        // The listing queries have no deadline of their own: a database that accepts the
+        // connection but never answers (a saturated pooler, a lock) would leave the whole
+        // request, and every data table after this one, pending forever.
+        let listing = tokio::time::timeout(
+            DATATABLE_LISTING_TIMEOUT,
+            get_datatable_tables(db, authed, w_id, &entry.datatable_name, role),
+        )
+        .await
+        .map_err(|_| {
+            Error::internal_err(format!(
+                "Listing the tables of this data table timed out after {}s: its database \
+                 accepted the connection but did not answer",
+                DATATABLE_LISTING_TIMEOUT.as_secs()
+            ))
+        })??;
         entry.schemas = listing.schemas;
         entry.can_create_schema = listing.can_create_schema;
         entry.creatable_schemas = listing.creatable_schemas;
