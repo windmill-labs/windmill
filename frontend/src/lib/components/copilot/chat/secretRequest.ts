@@ -26,6 +26,8 @@ export function connectionStringParts(
 	if (refusal) return { error: refusal }
 	// Saved as a secret variable, which cannot be empty.
 	if (!parts.password) return { error: 'It has no password: connect with the details instead.' }
+	// Required by the postgresql resource type, and a URI may leave it out.
+	if (!parts.dbname) return { error: 'It has no database name: add /dbname after the host.' }
 	const { password, ...rest } = parts
 	return {
 		secret: password,
@@ -54,6 +56,9 @@ export function secretVariablePaths(path: string, fields: { field: string }[]): 
  * with `replace`, which the card sets once it shows the path as taken, so a save racing that
  * check never overwrites unannounced. `own` holds the variables an earlier try of this request
  * wrote, which a retry after a refused resource updates rather than calls taken. */
+/** The save landed but the saved resource does not connect. */
+export class SecretCheckFailed extends Error {}
+
 export async function saveSecretRequest(
 	request: SecretRequest,
 	submission: SecretSubmission,
@@ -69,7 +74,7 @@ export async function saveSecretRequest(
 	const replaced = resource
 		? await ResourceService.existsResource({ workspace, path })
 		: variableExists[0]
-	if (replaced && !replace) throw new Error('This path is already taken.')
+	if (replaced && !replace && !own.has(path)) throw new Error('This path is already taken.')
 	variables.forEach((p, i) => {
 		if (variableExists[i] && !replace && !own.has(p)) {
 			throw new Error(`A variable already exists at ${p}. Pick another path.`)
@@ -124,6 +129,7 @@ export async function saveSecretRequest(
 			})
 		}
 	}
+	own.add(path)
 	return { path, replaced, variables }
 }
 
@@ -151,6 +157,13 @@ export function resourcePageUrl(path: string, workspace: string): string {
 	return withWorkspaceParam(`${base}${buildResourcesUrl({ open: path })}`, workspace)
 }
 
+// The database's or provider's own words, which carry no secret, so the model can diagnose them.
+function checkText(outcome: SecretRequestOutcome): string {
+	if (!outcome.check) return ''
+	if (outcome.check.ok) return ' Its connection test passed.'
+	return ` Its connection test failed and the user kept it anyway: ${outcome.check.error.slice(0, 500)}. Tell the user the likely cause and how to fix it at their provider, without opening the resource: to fix it, call request_secret again on the same path with replace: true.`
+}
+
 /** What the model reads back. Never a value: only where it now lives. */
 export function secretRequestToolResult(
 	request: SecretRequest,
@@ -171,7 +184,7 @@ export function secretRequestToolResult(
 		return JSON.stringify({
 			success: true,
 			resource: `$res:${outcome.path}`,
-			message: `${outcome.replaced ? 'Updated' : 'Created'} resource ${outcome.path}, deployed, with its secrets in the secret variables ${outcome.variables.join(', ')}.${moved} Reference it as "$res:${outcome.path}". Do not write, open or deploy it: it is done.`
+			message: `${outcome.replaced ? 'Updated' : 'Created'} resource ${outcome.path}, deployed, with its secrets in the secret variables ${outcome.variables.join(', ')}.${moved}${checkText(outcome)} Reference it as "$res:${outcome.path}". Do not write, open or deploy it yourself.`
 		})
 	}
 	return JSON.stringify({

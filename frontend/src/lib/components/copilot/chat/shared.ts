@@ -598,6 +598,8 @@ export type SecretRequest = {
 	description?: string
 	/** Where the user can get the value (the provider's API keys page). */
 	helpUrl?: string
+	/** The steps to get it at the user's provider, written by the AI. */
+	helpText?: string
 	/** Set to connect a service: one confirmation saves the secrets and creates the resource. */
 	resource?: SecretRequestResource
 	/** The user asked to replace what is at `path`. Without it, `request_secret` refuses a
@@ -617,7 +619,13 @@ export type SecretRequestResource = {
 
 /** `path` is the resource's or the variable's, as in the request; `variables` holds the
  * secrets. */
-export type SecretRequestOutcome = { path: string; replaced: boolean; variables: string[] }
+export type SecretRequestOutcome = {
+	path: string
+	replaced: boolean
+	variables: string[]
+	/** The saved resource's connection check, for a type that has one. */
+	check?: { ok: true } | { ok: false; error: string }
+}
 
 /** What the user confirmed on the card. `secrets` is keyed by secret field (`""` for a bare
  * variable); `fields` is the resource's non-secret value as the user left it. */

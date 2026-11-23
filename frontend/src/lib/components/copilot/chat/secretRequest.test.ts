@@ -121,6 +121,7 @@ describe('connectionStringParts', () => {
 	it('refuses a string it cannot store faithfully', () => {
 		expect(connectionStringParts('mysql://a:b@h/d')).toHaveProperty('error')
 		expect(connectionStringParts('postgres://app@h/d')).toHaveProperty('error')
+		expect(connectionStringParts('postgres://a:b@h:5432/')).toHaveProperty('error')
 		expect(
 			connectionStringParts('postgres://a:b@h/d?target_session_attrs=read-write')
 		).toHaveProperty('error')

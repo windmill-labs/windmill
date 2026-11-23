@@ -1,5 +1,6 @@
 import type { AttachedBlob } from './blobUtils'
-import { saveSecretRequest } from './secretRequest'
+import { SecretCheckFailed, saveSecretRequest } from './secretRequest'
+import { checkSavedResource } from '$lib/components/resourceConnectionTest'
 import type { ChatViewHost } from './chatViewHost'
 import type { ScriptLang } from '$lib/gen/types.gen'
 import { JobService, type CompletedJob } from '$lib/gen'
@@ -996,8 +997,10 @@ export class AIChatManager implements ChatViewHost {
 			request: SecretRequest
 			resolve: (outcome: SecretRequestOutcome | undefined) => void
 			save?: Promise<void>
-			/** The variables a refused try already wrote, which a retry updates. */
+			/** What a refused or failed try already wrote, which a retry updates. */
 			own: Set<string>
+			/** Saved, but its connection check failed: the card stays open to retry or keep it. */
+			saved?: SecretRequestOutcome
 			/** The turn stopped while the save was in flight. */
 			stopped?: boolean
 		}
@@ -2473,29 +2476,42 @@ export class AIChatManager implements ChatViewHost {
 		const entry = this.#secretRequests.get(toolId)
 		if (!entry) return Promise.reject(new Error('This request is no longer open.'))
 		if (entry.save) return entry.save
-		const save = saveSecretRequest(entry.request, submission, entry.own).then(
-			(outcome) => this.#settleSecretRequest(toolId, outcome),
-			(e) => {
-				entry.save = undefined
-				if (entry.stopped) void this.#settleSecretRequest(toolId, undefined)
-				throw e
+		const { request } = entry
+		const save = (async () => {
+			const saved = await saveSecretRequest(request, submission, entry.own)
+			const check = request.resource
+				? await checkSavedResource({
+						workspace: request.workspace,
+						path: saved.path,
+						resourceType: request.resource.type,
+						value: submission.fields
+					})
+				: undefined
+			const outcome = check ? { ...saved, check } : saved
+			if (check && !check.ok && !entry.stopped) {
+				entry.saved = outcome
+				throw new SecretCheckFailed(check.error)
 			}
-		)
+			return this.#settleSecretRequest(toolId, outcome)
+		})().catch((e) => {
+			entry.save = undefined
+			if (entry.stopped) void this.#settleSecretRequest(toolId, entry.saved)
+			throw e
+		})
 		entry.save = save
 		return save
 	}
 
 	dismissSecret = (toolId: string): void => {
-		if (!this.#secretRequests.get(toolId)?.save) void this.#settleSecretRequest(toolId, undefined)
+		const entry = this.#secretRequests.get(toolId)
+		// After a failed check the resource exists: dismissing keeps it, as the card says.
+		if (entry && !entry.save) void this.#settleSecretRequest(toolId, entry.saved)
 	}
 
 	/** The one writer of a settled secret card. In a live turn the tool then returns the outcome
 	 * to the model. After a stop the turn is gone, so a save that lands then is told on the
 	 * model's next turn, as a detached job's result is, and written to this chat's history. */
-	#settleSecretRequest(
-		toolId: string,
-		outcome: SecretRequestOutcome | undefined
-	): Promise<void> {
+	#settleSecretRequest(toolId: string, outcome: SecretRequestOutcome | undefined): Promise<void> {
 		const entry = this.#secretRequests.get(toolId)
 		if (!entry) return Promise.resolve()
 		this.#secretRequests.delete(toolId)
@@ -2508,7 +2524,7 @@ export class AIChatManager implements ChatViewHost {
 						isLoading: false,
 						content: outcome
 							? entry.request.resource
-								? `Connected ${label} as ${outcome.path}`
+								? `Connected ${label} as ${outcome.path}${outcome.check ? (outcome.check.ok ? ' · test passed' : ' · test failed') : ''}`
 								: `Saved ${label} to ${outcome.path}`
 							: `Asked for ${label} — dismissed`,
 						secretRequest: outcome
@@ -2524,8 +2540,8 @@ export class AIChatManager implements ChatViewHost {
 		const note = outcome
 			? this.queueModelNote(
 					entry.request.resource
-					? `The user connected ${label} after the turn stopped: it is the deployed resource ${outcome.path}, referenced as "$res:${outcome.path}".`
-					: `The user's ${label} was saved after the turn stopped: it is the secret variable ${outcome.path}, referenced as "$var:${outcome.path}".`
+						? `The user connected ${label} after the turn stopped: it is the deployed resource ${outcome.path}, referenced as "$res:${outcome.path}".`
+						: `The user's ${label} was saved after the turn stopped: it is the secret variable ${outcome.path}, referenced as "$var:${outcome.path}".`
 				)
 			: Promise.resolve()
 		// The variable is saved whatever happens here, so a failed write must not reach the card.
@@ -5231,7 +5247,7 @@ export class AIChatManager implements ChatViewHost {
 			if (entry.save) {
 				entry.stopped = true
 				entry.resolve(undefined)
-			} else void this.#settleSecretRequest(toolId, undefined)
+			} else void this.#settleSecretRequest(toolId, entry.saved)
 		}
 		for (const [toolId, entry] of this.#runForms) {
 			entry.resolve?.(undefined)

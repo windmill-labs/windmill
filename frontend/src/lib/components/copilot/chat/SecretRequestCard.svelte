@@ -7,6 +7,7 @@
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import { safeHref } from '$lib/utils/safeHref'
 	import {
+		SecretCheckFailed,
 		connectionStringParts,
 		resourcePageUrl,
 		secretFieldsOf,
@@ -38,6 +39,8 @@
 	let submitting = $state(false)
 	const saving = $derived(submitting || !!request.saving)
 	let saveError = $state<string | undefined>()
+	// Saved, but the saved resource does not connect: the database's or provider's own words.
+	let checkError = $state<string | undefined>()
 
 	// A taken path is the only error that still lets the user save: saving then updates what
 	// is there.
@@ -91,6 +94,7 @@
 		if (!canSave || !save) return
 		submitting = true
 		saveError = undefined
+		checkError = undefined
 		try {
 			await save({
 				path: savePath,
@@ -108,7 +112,8 @@
 			secrets = {}
 			connectionString = ''
 		} catch (e) {
-			saveError = e instanceof Error ? e.message : String(e)
+			if (e instanceof SecretCheckFailed) checkError = e.message
+			else saveError = e instanceof Error ? e.message : String(e)
 		} finally {
 			submitting = false
 		}
@@ -143,6 +148,9 @@
 						>{variable}</a
 					>
 				{/each}
+				{#if request.saved.check}
+					· {request.saved.check.ok ? 'test passed' : 'test failed'}
+				{/if}
 			{:else}
 				{request.saved.replaced ? 'Replaced' : 'Saved'}
 				{request.label} in secret variable
@@ -197,6 +205,9 @@
 							The AI needs this to continue.
 						{/if}
 					</p>
+					{#if request.helpText}
+						<p class="mt-1 whitespace-pre-line text-2xs text-primary">{request.helpText}</p>
+					{/if}
 				</div>
 				{#if helpHref}
 					<a
@@ -314,6 +325,16 @@
 
 			{#if saveError}
 				<p class="text-2xs text-red-600 dark:text-red-400">Could not save: {saveError}</p>
+			{:else if checkError}
+				<div class="flex flex-col gap-0.5 text-2xs">
+					<p class="font-medium text-red-600 dark:text-red-400">
+						Saved, but the connection test failed:
+					</p>
+					<p class="break-words font-mono text-red-600 dark:text-red-400">{checkError}</p>
+					<p class="text-secondary">
+						Fix it and try again, or keep it as is. Ask the AI what the error means.
+					</p>
+				</div>
 			{/if}
 
 			<div class="flex justify-end gap-2">
@@ -323,7 +344,7 @@
 					disabled={!interactive || saving}
 					onClick={() => onDismiss?.()}
 				>
-					Dismiss
+					{checkError ? 'Keep anyway' : 'Dismiss'}
 				</Button>
 				<Button
 					variant="accent"
@@ -333,7 +354,9 @@
 					loading={saving}
 					startIcon={{ icon: Lock }}
 				>
-					{#if resource}
+					{#if checkError}
+						Try again
+					{:else if resource}
 						{taken ? 'Update resource' : 'Save and connect'}
 					{:else}
 						{taken ? 'Update secret' : 'Save secret'}

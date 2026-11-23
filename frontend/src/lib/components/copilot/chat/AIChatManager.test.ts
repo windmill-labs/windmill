@@ -39,6 +39,7 @@ const mocks = vi.hoisted(() => ({
 	getJobUpdates: vi.fn(),
 	whoami: vi.fn(),
 	saveSecretRequest: vi.fn(),
+	checkSavedResource: vi.fn(),
 	workspace: 'test_workspace' as string | undefined,
 	// The workspace being browsed, which a session chat's own workspace need not be.
 	navWorkspace: undefined as string | undefined,
@@ -171,6 +172,10 @@ vi.mock('./api/apiTools', () => ({
 vi.mock('./secretRequest', async (importOriginal) => ({
 	...(await importOriginal<typeof import('./secretRequest')>()),
 	saveSecretRequest: mocks.saveSecretRequest
+}))
+
+vi.mock('$lib/components/resourceConnectionTest', () => ({
+	checkSavedResource: mocks.checkSavedResource
 }))
 
 // Mock only runChatLoop; keep the real truncateToToolPairedPrefix (pure) that
@@ -574,6 +579,45 @@ describe('AIChatManager secret request', () => {
 		expect(card.role === 'tool' && card.secretRequest).toMatchObject({
 			saved: { path: 'u/a/key' },
 			saving: false
+		})
+	})
+})
+
+// The resource exists once saved, so a failed check must never read as dismissed.
+describe('AIChatManager secret connection check', () => {
+	it('keeps the card open on a failed check, and settles it as saved when the user keeps it', async () => {
+		const manager = new AIChatManager()
+		const request = {
+			workspace: 'test_workspace',
+			path: 'u/a/db',
+			label: 'Postgres',
+			resource: {
+				type: 'postgresql',
+				value: {},
+				secretFields: [{ field: 'password', label: 'Password' }]
+			}
+		}
+		manager.displayMessages = [
+			{ role: 'tool', tool_call_id: 'call_c', content: '', isLoading: true, secretRequest: request }
+		]
+		mocks.saveSecretRequest.mockResolvedValueOnce({
+			path: 'u/a/db',
+			replaced: false,
+			variables: ['u/a/db']
+		})
+		mocks.checkSavedResource.mockResolvedValueOnce({ ok: false, error: 'Network is unreachable' })
+
+		const toolResult = manager.requestSecret('call_c', request)
+		await expect(
+			manager.saveSecret('call_c', { path: 'u/a/db', replace: false, secrets: { password: 'x' } })
+		).rejects.toThrow('Network is unreachable')
+		const open = manager.displayMessages[0]
+		expect(open.role === 'tool' && open.secretRequest?.saved).toBeFalsy()
+
+		manager.dismissSecret('call_c')
+		expect(await toolResult).toMatchObject({
+			path: 'u/a/db',
+			check: { ok: false, error: 'Network is unreachable' }
 		})
 	})
 })

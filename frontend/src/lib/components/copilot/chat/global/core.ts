@@ -424,6 +424,12 @@ const requestSecretSchema = z.object({
 		.describe(
 			"The provider's page where the user can create or copy the secrets, when you know it."
 		),
+	help_text: z
+		.string()
+		.optional()
+		.describe(
+			"Two or three short steps to get the value at the user's provider, shown on the card. Include what Windmill needs that the provider's default does not give, e.g. for Supabase: the Session pooler connection string, since the direct host is IPv6-only."
+		),
 	resource_type: z
 		.string()
 		.optional()
@@ -3559,7 +3565,7 @@ export const globalTools: SessionTool<{}>[] = [
 		def: createToolDef(
 			requestSecretSchema,
 			'request_secret',
-			'Ask the user for secrets (API key, token, password) through a secure input card. The values are saved as deployed secret variables and never reach you. With resource_type it connects a service: the card shows the resource you prepared and asks for all its secrets, and one confirmation saves them and creates the resource, deployed; you get back "$res:<path>". For a postgresql resource, first ask the user in askUserQuestion whether they connect with a connection string or with the details, and pass connection_string: true for the string. Without resource_type, it asks for one secret and you get back "$var:<path>" to reference from a run argument or elsewhere. Use it whenever you need a secret; never ask the user to paste one in chat or create a placeholder variable for them to fill.'
+			'Ask the user for secrets (API key, token, password) through a secure input card. The values are saved as deployed secret variables and never reach you. With resource_type it connects a service: the card shows the resource you prepared and asks for all its secrets, and one confirmation saves them and creates the resource, deployed; you get back "$res:<path>". For a database, first ask the user in askUserQuestion where it is hosted (e.g. Supabase, Neon, RDS) and, for postgresql, whether they connect with a connection string or with the details (connection_string: true for the string); then pass help_text with the steps for that provider. The card tests the connection when the type has a test and tells you the result. Without resource_type, it asks for one secret and you get back "$var:<path>" to reference from a run argument or elsewhere. Use it whenever you need a secret; never ask the user to paste one in chat or create a placeholder variable for them to fill.'
 		),
 		streamingLabel: 'Asking the user for a secret...',
 		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
@@ -3588,6 +3594,7 @@ export const globalTools: SessionTool<{}>[] = [
 				label: parsed.label,
 				description: parsed.description,
 				helpUrl: parsed.help_url,
+				helpText: parsed.help_text,
 				resource: parsed.resource_type
 					? {
 							type: parsed.resource_type,
