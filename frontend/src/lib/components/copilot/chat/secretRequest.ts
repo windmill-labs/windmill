@@ -54,8 +54,8 @@ export function secretVariablePaths(path: string, fields: { field: string }[]): 
  * referencing them, all deployed rather than drafted: the AI references them right after, and
  * a draft is readable by neither a run nor another resource. What is at `path` is replaced only
  * with `replace`, which the card sets once it shows the path as taken, so a save racing that
- * check never overwrites unannounced. `own` holds the variables an earlier try of this request
- * wrote, which a retry after a refused resource updates rather than calls taken. */
+ * check never overwrites unannounced. `own` holds what an earlier try of this request wrote, as
+ * `variable:<path>` and `resource:<path>`, which a retry updates rather than calls taken. */
 /** The save landed but the saved resource does not connect. */
 export class SecretCheckFailed extends Error {}
 
@@ -74,9 +74,11 @@ export async function saveSecretRequest(
 	const replaced = resource
 		? await ResourceService.existsResource({ workspace, path })
 		: variableExists[0]
-	if (replaced && !replace && !own.has(path)) throw new Error('This path is already taken.')
+	// A resource and a variable can share a path, so what this request wrote is keyed by kind.
+	const ownKey = resource ? `resource:${path}` : `variable:${path}`
+	if (replaced && !replace && !own.has(ownKey)) throw new Error('This path is already taken.')
 	variables.forEach((p, i) => {
-		if (variableExists[i] && !replace && !own.has(p)) {
+		if (variableExists[i] && !replace && !own.has(`variable:${p}`)) {
 			throw new Error(`A variable already exists at ${p}. Pick another path.`)
 		}
 	})
@@ -102,7 +104,7 @@ export async function saveSecretRequest(
 				}
 			})
 		}
-		own.add(p)
+		own.add(`variable:${p}`)
 	}
 
 	if (resource) {
@@ -129,7 +131,7 @@ export async function saveSecretRequest(
 			})
 		}
 	}
-	own.add(path)
+	own.add(ownKey)
 	return { path, replaced, variables }
 }
 

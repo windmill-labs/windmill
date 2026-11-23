@@ -443,7 +443,7 @@
 					"additionalProperties": {}
 				},
 				"secret_fields": {
-					"description": "With resource_type: every secret field of the resource, all asked on the one card.",
+					"description": "With resource_type: every secret field of the resource (passwords, keys, tokens; not usernames or hosts), all asked on the one card.",
 					"minItems": 1,
 					"type": "array",
 					"items": {

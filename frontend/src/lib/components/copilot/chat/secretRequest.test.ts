@@ -88,6 +88,12 @@ describe('saveSecretRequest', () => {
 		services.existsVariable.mockResolvedValue(true)
 		const outcome = await saveSecretRequest(connect, submission, own)
 		expect(outcome.variables).toEqual(['u/a/acme_client_id', 'u/a/acme_client_secret'])
+
+		// A variable it wrote does not make a resource at that path its own.
+		services.existsResource.mockResolvedValue(true)
+		await expect(
+			saveSecretRequest(connect, { ...submission, path: 'u/a/acme_client_id' }, own)
+		).rejects.toThrow('already taken')
 		expect(services.updateVariable).toHaveBeenCalledTimes(2)
 		expect(services.createResource).toHaveBeenLastCalledWith({
 			workspace: 'w',

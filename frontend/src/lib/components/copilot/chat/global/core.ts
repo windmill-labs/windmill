@@ -451,7 +451,9 @@ const requestSecretSchema = z.object({
 		)
 		.min(1)
 		.optional()
-		.describe('With resource_type: every secret field of the resource, all asked on the one card.'),
+		.describe(
+			'With resource_type: every secret field of the resource (passwords, keys, tokens; not usernames or hosts), all asked on the one card.'
+		),
 	connection_string: z
 		.boolean()
 		.optional()
@@ -3594,7 +3596,8 @@ export const globalTools: SessionTool<{}>[] = [
 				label: parsed.label,
 				description: parsed.description,
 				helpUrl: parsed.help_url,
-				helpText: parsed.help_text,
+				// Models sometimes escape the newlines of a JSON string twice.
+				helpText: parsed.help_text?.replaceAll('\\n', '\n'),
 				resource: parsed.resource_type
 					? {
 							type: parsed.resource_type,

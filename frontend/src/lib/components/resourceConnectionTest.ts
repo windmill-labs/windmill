@@ -323,7 +323,12 @@ export async function checkSavedResource({
 		return await testResourceConnection({
 			workspace,
 			resourceType,
-			args: `$res:${path}`,
+			// A storage probe is built from the resource's fields, so it takes the stored value,
+			// whose `$var:` references are resolved where the probe runs.
+			args:
+				resourceType in objectStorageBody
+					? await ResourceService.getResourceValue({ workspace, path })
+					: `$res:${path}`,
 			timeoutMs: 20_000
 		})
 	}
