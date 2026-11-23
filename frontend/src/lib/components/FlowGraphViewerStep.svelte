@@ -50,19 +50,21 @@
 
 <HighlightTheme />
 
+{#snippet pathLink(href: string, path: string)}
+	<a rel="noreferrer" target="_blank" {href} class="text-accent hover:underline min-w-0">
+		<IconedPath {path} textClass="text-accent" />
+	</a>
+{/snippet}
+
 <Drawer bind:this={codeViewer} size="900px">
 	<DrawerContent title={'Expanded Code'} on:close={codeViewer?.closeDrawer}>
 		{#if stepDetail && typeof stepDetail != 'string'}
 			{#if stepDetail.value.type == 'script'}
 				<div class="mb-4">
-					<a
-						rel="noreferrer"
-						target="_blank"
-						href={scriptPathToHref(stepDetail?.value?.path ?? '', $hubBaseUrlStore)}
-						class=""
-					>
-						<IconedPath path={stepDetail?.value?.path ?? ''} />
-					</a>
+					{@render pathLink(
+						scriptPathToHref(stepDetail.value.path, $hubBaseUrlStore),
+						stepDetail.value.path
+					)}
 				</div>
 				<div class="text-xs mb-4 mt-2">
 					<h3 class="mb-1 text-xs font-semibold text-emphasis">Step inputs</h3>
@@ -127,14 +129,10 @@
 		<div class="">
 			{#if stepDetail.value.type == 'script'}
 				<div class="pb-2">
-					<a
-						rel="noreferrer"
-						target="_blank"
-						href={scriptPathToHref(stepDetail?.value?.path ?? '', $hubBaseUrlStore)}
-						class=""
-					>
-						<IconedPath path={stepDetail?.value?.path ?? ''} />
-					</a>
+					{@render pathLink(
+						scriptPathToHref(stepDetail.value.path, $hubBaseUrlStore),
+						stepDetail.value.path
+					)}
 				</div>
 			{/if}
 		</div>
@@ -281,14 +279,10 @@
 			</div>
 		{:else if stepDetail.value.type == 'flow'}
 			<div class="text-sm mb-1 flex justify-between flex-row items-center">
-				<span class="text-xs font-normal text-secondary"
-					>Flow path: <a
-						class="text-accent hover:underline"
-						href={`/flows/get/${stepDetail.value.path}?workspace=${encodeURIComponent(ws ?? '')}`}
-						target="_blank"
-						rel="noreferrer">{stepDetail.value.path}</a
-					>
-				</span>
+				{@render pathLink(
+					`/flows/get/${stepDetail.value.path}?workspace=${encodeURIComponent(ws ?? '')}`,
+					stepDetail.value.path
+				)}
 				<Button
 					unifiedSize="sm"
 					startIcon={{ icon: Copy }}
