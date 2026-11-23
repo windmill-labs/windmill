@@ -55,12 +55,15 @@
 	<!-- The count is the button, shaped like a fork's changes button: a count beside a button that
 	     goes to the same place reads as two ways in. Fades in: the count lands after the bar it
 	     joins has already painted. -->
+	{@const label = `${draftCount} draft${draftCount !== 1 ? 's' : ''} not deployed yet: review and deploy`}
+	<!-- Named by aria-label too: compact, the button's own text is a bare number. -->
 	<Button
 		btnClasses="wm-page-in tabular-nums"
 		variant="default"
 		unifiedSize="sm"
 		href={draftCompareHref}
-		title="{draftCount} draft{draftCount !== 1 ? 's' : ''} not deployed yet: review and deploy"
+		title={label}
+		aria-label={label}
 	>
 		<span class="flex items-center gap-1">
 			<Pencil class="w-3 h-3 text-accent" />

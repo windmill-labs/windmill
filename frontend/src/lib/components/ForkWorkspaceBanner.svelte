@@ -221,16 +221,19 @@
 	     beside it would read as a second way in. The colours stay on the icons, the ones the
 	     compare page gives these kinds. A conflict is ahead and behind at once, so it has no arrow
 	     of its own; drafts are work not deployed anywhere yet, told apart by the pencil. -->
+	{@const label = error
+		? error
+		: countParts.length > 0
+			? `${countParts.join(', ')}: review changes`
+			: `Review this ${currentNoun} against ${parentWorkspaceId}`}
+	<!-- Named by aria-label too: compact, the button's own text is bare numbers. -->
 	<Button
 		variant="default"
 		unifiedSize="sm"
 		href={changesHref}
 		btnClasses="tabular-nums"
-		title={error
-			? error
-			: countParts.length > 0
-				? `${countParts.join(', ')}: review changes`
-				: `Review this ${currentNoun} against ${parentWorkspaceId}`}
+		title={label}
+		aria-label={label}
 	>
 		<span class="flex items-center gap-2.5 wm-page-in">
 			{#if loading}
