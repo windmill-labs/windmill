@@ -4,6 +4,7 @@
 	import { getGraphContext } from './graphContext'
 	import { NoteColor, NOTE_COLORS } from './noteColors'
 	import type { GroupHeadN } from './graphBuilder.svelte'
+	import { wrapperBounds } from './util'
 
 	interface Props {
 		allNodes: (Node & { type: string })[]
@@ -30,16 +31,10 @@
 
 			if (headNode && endNode) {
 				const d = headNode.data as GroupHeadN['data']
-				const headCenterX = headNode.position.x + (headNode.measured?.width ?? 275) / 2
-				const wrapperWidth = d.wrapperWidth ?? 275
-				const headHeight = headNode.measured?.height ?? GROUP_HEADER_HEIGHT
-				const topY = headNode.position.y + headHeight / 2
-				map[groupKey(group)] = {
-					x: headCenterX - wrapperWidth / 2,
-					y: topY,
-					width: wrapperWidth,
-					height: endNode.position.y - topY
-				}
+				map[groupKey(group)] = wrapperBounds(headNode, endNode, d.wrapperWidth, {
+					head: GROUP_HEADER_HEIGHT,
+					end: 0
+				})
 			} else {
 				map[groupKey(group)] = null
 			}

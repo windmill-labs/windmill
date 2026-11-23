@@ -102,7 +102,9 @@
 	const scriptItems: Item[] = $derived.by(() => {
 		if (flowModuleValue?.type !== 'script') return []
 		const items: Item[] = []
-		if (!isHub && customUi?.scriptEdit != false && !composeOnlyFlows) {
+		// Editing deploys a new version of the workspace script, which the server allows to any
+		// role with code, whatever its flows level.
+		if (!isHub && customUi?.scriptEdit != false && $roleCaps.code) {
 			items.push({
 				displayName: "Edit the script's code",
 				icon: Pen,
@@ -146,6 +148,7 @@
 				})
 			}
 		}
+		// Forking adds inline code to the flow, which a compose role cannot author.
 		if (customUi?.scriptFork != false && !composeOnlyFlows) {
 			items.push({
 				displayName: 'Fork into an inline script',

@@ -16,6 +16,7 @@
 	import type { ModuleActionInfo } from '$lib/components/flows/flowDiff'
 	import { getGraphContext } from '$lib/components/graph/graphContext'
 	import { nextMock } from '../flowMock'
+	import { Bug } from 'lucide-svelte'
 
 	interface Props {
 		moduleId: string
@@ -38,6 +39,14 @@
 					selectedManually: boolean | undefined
 			  }
 			| undefined
+		/** The attempts of a retried step, picked like a loop's iterations. */
+		attempts?:
+			| {
+					flowJobs: string[]
+					selected: number
+					flowJobsSuccess: (boolean | undefined)[]
+			  }
+			| undefined
 		editMode?: boolean
 		/** Whether the step's mock applies to what the graph shows: in a run, whether it was used; on
 		 * a deployed flow, whether deployed runs use it. A pin shows only where it applies, which is
@@ -55,6 +64,8 @@
 		isOwner?: boolean
 		maximizeSubflow?: () => void
 		menuItems?: Item[]
+		/** The step is the flow's error handler, drawn in a run with the bug icon its header button uses. */
+		errorHandler?: boolean
 	}
 
 	let {
@@ -71,6 +82,7 @@
 		duration_ms = undefined,
 		retries = undefined,
 		flowJobs,
+		attempts = undefined,
 		editMode = false,
 		mockApplied = undefined,
 		onSelect,
@@ -80,7 +92,8 @@
 		flowJob,
 		isOwner = false,
 		maximizeSubflow,
-		menuItems = undefined
+		menuItems = undefined,
+		errorHandler = false
 	}: Props = $props()
 
 	const { selectionManager, moveManager } = getGraphContext()
@@ -166,7 +179,7 @@
 			<div
 				title={annotationTitle}
 				class={twMerge(
-					'absolute z-10 left-0 -top-5 center-center text-primary',
+					'absolute z-10 left-0 -top-4 center-center text-2xs font-normal text-secondary',
 					editMode ? '-top-4 text-gray-400 dark:text-gray-500 text-xs font-normal' : ''
 				)}
 			>
@@ -268,6 +281,15 @@
 			{:else}
 				<FlowModuleSchemaItem
 					{retries}
+					attempts={attempts && !insertable
+						? {
+								jobs: attempts.flowJobs,
+								success: attempts.flowJobsSuccess,
+								selected: attempts.selected,
+								moduleId,
+								onSelectedIteration
+							}
+						: undefined}
 					{editMode}
 					{moduleAction}
 					{menuItems}
@@ -310,7 +332,11 @@
 								: mod.value.type === 'script'
 									? 14
 									: 16}
-						<FlowModuleIcon module={mod} {size} />
+						{#if errorHandler}
+							<Bug size={16} class="text-red-400 dark:text-red-500" />
+						{:else}
+							<FlowModuleIcon module={mod} {size} />
+						{/if}
 					{/snippet}
 				</FlowModuleSchemaItem>
 			{/if}

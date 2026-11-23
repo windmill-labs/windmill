@@ -1,4 +1,5 @@
 <script lang="ts">
+	import HostWindow from '$lib/components/common/HostWindow.svelte'
 	import { Button } from '$lib/components/common'
 	import { InputService, type Input, type RunnableType } from '$lib/gen/index.js'
 	import { userStore } from '$lib/stores.js'
@@ -227,7 +228,7 @@
 	})
 </script>
 
-<svelte:window onkeydown={handleKeydown} />
+<HostWindow onkeydown={handleKeydown} />
 
 <div class="w-full flex flex-col gap-1 h-full overflow-y-auto pb-4">
 	{#if !noButton}

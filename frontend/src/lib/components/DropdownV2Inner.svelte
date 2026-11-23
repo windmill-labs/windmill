@@ -69,10 +69,13 @@
 			{/if}
 		</div>
 		{@render item.extra?.()}
-		{#if item.shortcut || item.selected || item.toggle !== undefined}
+		{#if item.detail || item.shortcut || item.selected || item.toggle !== undefined}
 			<!-- Single trailing group so `shortcut` and `selected` can coexist:
 			     two `ml-auto` siblings would collapse to one right-aligned item. -->
 			<div class="ml-auto flex shrink-0 items-center gap-2">
+				{#if item.detail}
+					<span class="pl-4 text-2xs text-secondary">{item.detail}</span>
+				{/if}
 				{#if item.shortcut}
 					<span class="pl-4 text-2xs text-secondary">{item.shortcut}</span>
 				{/if}

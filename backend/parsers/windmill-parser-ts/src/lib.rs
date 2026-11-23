@@ -14,6 +14,7 @@ use windmill_parser::{
     Typ,
 };
 
+use swc_common::comments::{Comment, CommentKind, Comments, SingleThreadedComments};
 use swc_common::{sync::Lrc, FileName, SourceMap, SourceMapper, Span, Spanned};
 use swc_ecma_ast::{
     ArrayLit, AssignPat, BigInt, BindingIdent, Bool, Decl, ExportDecl, Expr, ExprOrSpread, Ident,
@@ -324,13 +325,16 @@ pub fn parse_deno_signature(
 ) -> anyhow::Result<MainArgSignature> {
     let cm: Lrc<SourceMap> = Default::default();
     let fm = cm.new_source_file(FileName::Custom("main.ts".into()).into(), code.to_string());
+    let comments = SingleThreadedComments::default();
     let lexer = Lexer::new(
         // We want to parse ecmascript
         Syntax::Typescript(TsSyntax::default()),
         // EsVersion defaults to es5
         Default::default(),
         StringInput::from(&*fm),
-        None,
+        // Comments only feed the JSDoc descriptions of a schema. Callers that skip
+        // defaults run on every job and never build one, so they skip collecting them.
+        (!skip_dflt).then_some(&comments),
     );
 
     let mut parser = Parser::new_from(lexer);
@@ -341,6 +345,7 @@ pub fn parse_deno_signature(
     }
 
     let mut has_preprocessor = false;
+    let mut param_docs = HashMap::new();
     let mut entrypoint_params = None;
     let mut is_wac = false;
 
@@ -356,6 +361,7 @@ pub fn parse_deno_signature(
     let mut symbol_table: HashMap<String, TypeDecl> = HashMap::new();
 
     for item in ast {
+        let item_lo = item.span_lo();
         // Check for named exports (e.g., export { preprocessor } from "./other")
         if let ModuleItem::ModuleDecl(ModuleDecl::ExportNamed(named_export)) = &item {
             if !has_preprocessor {
@@ -419,6 +425,7 @@ pub fn parse_deno_signature(
                     }
                     if name == entrypoint_function {
                         entrypoint_params = Some(fn_decl.function.params.clone());
+                        param_docs = jsdoc_params(comments.get_leading(item_lo));
                     }
                 }
                 Decl::Var(var_decl) if entrypoint_params.is_none() => {
@@ -466,14 +473,17 @@ pub fn parse_deno_signature(
                     param
                         .into_iter()
                         .map(|param| {
-                            parse_param(
+                            let mut arg = parse_param(
                                 &symbol_table,
                                 &mut type_resolver,
                                 param,
                                 &cm,
                                 skip_dflt,
                                 &mut c,
-                            )
+                            )?;
+                            // Like Python's docstring `Args:`, the description travels as `otyp`.
+                            arg.otyp = arg.otyp.or_else(|| param_docs.remove(&arg.name));
+                            Ok(arg)
                         })
                         .collect::<anyhow::Result<Vec<Arg>>>()
                 })
@@ -485,6 +495,30 @@ pub fn parse_deno_signature(
         ..Default::default()
     };
     Ok(r)
+}
+
+/// `@param {type} name - text` lines of the entrypoint's JSDoc block, by parameter name.
+/// A description continues on the next lines until a blank line or another tag. One with
+/// both `[` and `|` is left out: as `otyp` it would read as a `T | T[]` union marker.
+fn jsdoc_params(comments: Option<Vec<Comment>>) -> HashMap<String, String> {
+    let jsdoc = comments.and_then(|c| {
+        c.into_iter()
+            .rfind(|c| c.kind == CommentKind::Block && c.text.starts_with('*'))
+    });
+    let (mut docs, mut last) = (HashMap::new(), None);
+    for line in jsdoc.iter().flat_map(|c| c.text.lines()) {
+        let line = line.trim().trim_start_matches('*').trim();
+        if let Some(cap) = JSDOC_PARAM.captures(line) {
+            docs.insert(cap[1].to_string(), cap[2].to_string());
+            last = Some(cap[1].to_string());
+        } else if line.is_empty() || line.starts_with('@') {
+            last = None;
+        } else if let Some(doc) = last.as_ref().and_then(|n| docs.get_mut(n)) {
+            *doc = format!("{doc} {line}").trim_start().to_string();
+        }
+    }
+    docs.retain(|_, d| !d.is_empty() && !(d.contains('[') && d.contains('|')));
+    docs
 }
 
 /// Extract params from `workflow(async (...) => { ... })` or `workflow(async function(...) { ... })`
@@ -751,6 +785,7 @@ fn binding_ident_to_arg(
 }
 
 lazy_static::lazy_static! {
+     static ref JSDOC_PARAM: Regex = Regex::new(r"^@param\s+(?:\{.*?\}\s*)?\[?([\w$]+)(?:=[^\]]*)?\]?(?:\s+|$)(?:-\s+)?(.*)").unwrap();
      static ref IMPORTS_VERSION: Regex = Regex::new(r"^((?:\@[^\/\@]+\/[^\/\@]+)|(?:[^\/\@]+))(?:\@(?:[^\/]+))?(.*)$").unwrap();
 
 }

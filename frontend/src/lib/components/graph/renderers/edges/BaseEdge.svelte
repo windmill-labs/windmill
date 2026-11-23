@@ -12,6 +12,7 @@
 	import { getGraphContext } from '../../graphContext'
 	import { getFlowRunStatusContext } from '../../flowRunStatus.svelte'
 	import { GROUP_TOP_PADDING } from '$lib/components/graph/compoundLayout'
+	import { edgeRunClass } from './edgeRunClass'
 
 	const { useDataflow, showAssets, moveManager } = getGraphContext()
 	const flowRunStatus = getFlowRunStatusContext()
@@ -42,6 +43,8 @@
 			disableMoveIds: string[]
 			isOwner: boolean
 			shouldOffsetInsertBtnDueToAssetNode?: boolean
+			steps?: string[]
+			bypassed?: true | 'replaced'
 		}
 	} = $props()
 
@@ -78,6 +81,7 @@
 	)
 
 	let flowJob: Job | undefined = $derived(flowRunStatus?.flowJob)
+	let runClass = $derived(edgeRunClass(flowRunStatus, data))
 	let suspendStatus: Record<string, { job: Job; nb: number }> | undefined = $derived(
 		flowRunStatus?.suspendStatus
 	)
@@ -267,7 +271,7 @@
 <BaseEdge
 	path={completeEdge}
 	{markerEnd}
-	class={$useDataflow || groupBoundary ? 'hidden' : isAdjacentToDragged ? 'opacity-30' : ''}
+	class={$useDataflow || groupBoundary ? 'hidden' : isAdjacentToDragged ? 'opacity-30' : runClass}
 	interactionWidth={0}
 	style={undefined}
 	label={undefined}

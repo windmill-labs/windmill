@@ -39,8 +39,8 @@ use windmill_common::client::AuthedClient;
 use windmill_common::db::Authed;
 use windmill_common::flow_conversations::{add_message_to_conversation_tx, MessageType};
 use windmill_common::flow_status::{
-    ApprovalConditions, ContinuedOnError, MAX_CONTINUED_ON_ERROR, FlowJobDuration, FlowJobsDuration, FlowStatusModuleWParent,
-    Iterator as FlowIterator, JobResult,
+    ApprovalConditions, ContinuedOnError, FlowJobDuration, FlowJobsDuration,
+    FlowStatusModuleWParent, Iterator as FlowIterator, JobResult, MAX_CONTINUED_ON_ERROR,
 };
 use windmill_common::flows::{add_virtual_items_if_necessary, Branch, FlowNodeId, StopAfterIf};
 use windmill_common::jobs::{
@@ -4999,6 +4999,37 @@ async fn push_next_flow_job(
         if let JobPayload::FlowNode { no_inherited_flow_env, .. } = &mut payload_tag.payload {
             *no_inherited_flow_env = no_flow_env;
         }
+        // In a flow test, a subflow with overridden steps runs as a preview of its overridden
+        // value, as the test's caller rather than as the subflow's on-behalf-of identity: the
+        // value can hold the test's own code. Only flows of the test run itself inherit the map,
+        // never a deployed subflow left as is, which may run as someone else.
+        let test_subflows = status
+            .test_subflows
+            .as_ref()
+            .filter(|_| !matches!(flow_job.kind, JobKind::Flow));
+        let mut child_inherits_test_subflows = false;
+        if let Some(subflows) = test_subflows {
+            match &payload_tag.payload {
+                JobPayload::Flow { path, .. } => {
+                    if let Some(v) = subflows.get(path) {
+                        let value: FlowValue = serde_json::from_value(v.clone()).map_err(|e| {
+                            Error::internal_err(format!("test subflow {path}: {e}"))
+                        })?;
+                        payload_tag.payload = JobPayload::RawFlow {
+                            value,
+                            path: Some(path.clone()),
+                            restarted_from: None,
+                        };
+                        payload_tag.on_behalf_of = None;
+                        child_inherits_test_subflows = true;
+                    }
+                }
+                JobPayload::RawFlow { .. } | JobPayload::FlowNode { .. } => {
+                    child_inherits_test_subflows = true;
+                }
+                _ => {}
+            }
+        }
         if i % 100 == 0 && i != 0 {
             tracing::info!(id = %flow_job.id, root_id = %job_root, "pushed (non-commited yet) first {i} subflows of {len}");
             // Ping on the pool, outside `tx`, so the zombie flow monitor sees it before the
@@ -5390,6 +5421,18 @@ async fn push_next_flow_job(
         )
         .warn_after_seconds(2)
         .await?;
+
+        if let Some(subflows) = test_subflows.filter(|_| child_inherits_test_subflows) {
+            sqlx::query!(
+                "UPDATE v2_job_status SET flow_status = jsonb_set(flow_status, '{test_subflows}', $2)
+                 WHERE id = $1",
+                uuid,
+                Json(subflows) as Json<&HashMap<String, serde_json::Value>>
+            )
+            .execute(&mut *inner_tx)
+            .warn_after_seconds(3)
+            .await?;
+        }
 
         if continue_on_same_worker || continue_with_runners {
             let _ = sqlx::query!(
@@ -6145,9 +6188,10 @@ async fn compute_next_flow_transform(
         FlowModuleValue::Identity => {
             trivial_next_job(JobPayload::Identity { mocked: false, skipped: false })
         }
-        FlowModuleValue::Flow { path, .. } => {
+        FlowModuleValue::Flow { path, tag_override, .. } => {
             let mut payload = flow_to_payload(
                 path,
+                tag_override,
                 delete_after_use,
                 delete_after_secs,
                 &flow_job.workspace_id,
@@ -7028,9 +7072,10 @@ async fn payload_from_simple_module(
     let delete_after_use = module.delete_after_use.unwrap_or(false);
     let delete_after_secs = module.delete_after_secs;
     Ok(match value {
-        FlowModuleValue::Flow { path, .. } => {
+        FlowModuleValue::Flow { path, tag_override, .. } => {
             flow_to_payload(
                 path,
+                tag_override,
                 delete_after_use,
                 delete_after_secs,
                 &flow_job.workspace_id,
@@ -7142,6 +7187,7 @@ fn restricts_any_step(module: &FlowModule) -> bool {
 
 async fn flow_to_payload(
     path: String,
+    tag_override: Option<String>,
     delete_after_use: bool,
     delete_after_secs: Option<i32>,
     w_id: &str,
@@ -7162,7 +7208,7 @@ async fn flow_to_payload(
     };
     Ok(JobPayloadWithTag {
         payload,
-        tag,
+        tag: tag_override.filter(|t| !t.trim().is_empty()).or(tag),
         delete_after_use,
         delete_after_secs,
         timeout: None,

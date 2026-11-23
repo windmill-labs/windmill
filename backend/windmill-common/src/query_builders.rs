@@ -608,7 +608,8 @@ pub fn build_parameters(columns: &[SimpleColumn], db_type: DbType) -> String {
                 DbType::Postgresql => format!("-- ${} {} ({})", i + 1, col.field, base_type),
                 DbType::Mysql => format!("-- :{} ({})", col.field, base_type),
                 DbType::MsSqlServer => {
-                    format!("-- @p{} {} ({})", i + 1, col.field, base_type)
+                    // The executor binds `@P1..`; under a case-sensitive collation `@p1` is undeclared.
+                    format!("-- @P{} {} ({})", i + 1, col.field, base_type)
                 }
                 DbType::Snowflake => format!("-- ? {} ({})", col.field, base_type),
                 DbType::Bigquery => format!("-- @{} ({})", col.field, base_type),
@@ -1031,7 +1032,7 @@ pub fn make_select_query_with_joins(
                     let escaped = escape_sql_literal(&col.field);
                     let quoted = qi(&col.field, db_type);
                     format!(
-                        "\n(CASE WHEN @p4 = '{}' AND @p5 = 0 THEN {} END) ASC,\n(CASE WHEN @p4 = '{}' AND @p5 = 1 THEN {} END) DESC",
+                        "\n(CASE WHEN @P4 = '{}' AND @P5 = 0 THEN {} END) ASC,\n(CASE WHEN @P4 = '{}' AND @P5 = 1 THEN {} END) DESC",
                         escaped, quoted, escaped, quoted
                     )
                 })
@@ -1054,11 +1055,11 @@ pub fn make_select_query_with_joins(
 
             let quicksearch = if !search_clause.is_empty() {
                 format!(
-                    " (@p3 = '' OR CONCAT({}) LIKE '%' + @p3 + '%')",
+                    " (@P3 = '' OR CONCAT({}) LIKE '%' + @P3 + '%')",
                     search_clause
                 )
             } else {
-                " (@p3 = '')".to_string()
+                " (@P3 = '')".to_string()
             };
 
             query.push_str(&format!(
@@ -1074,7 +1075,7 @@ pub fn make_select_query_with_joins(
                 quicksearch
             ));
             query.push_str(&format!(" ORDER BY {}", order_by));
-            query.push_str(" OFFSET @p2 ROWS FETCH NEXT @p1 ROWS ONLY");
+            query.push_str(" OFFSET @P2 ROWS FETCH NEXT @P1 ROWS ONLY");
             Ok(query)
         }
         DbType::Bigquery => {
@@ -1267,11 +1268,11 @@ pub fn make_count_query_with_joins(
         DbType::MsSqlServer => {
             if !filtered_columns.is_empty() {
                 quicksearch_condition.push_str(&format!(
-                    "(@p1 = '' OR CONCAT({}) LIKE '%' + @p1 + '%')",
+                    "(@P1 = '' OR CONCAT({}) LIKE '%' + @P1 + '%')",
                     filtered_columns.join(", ")
                 ));
             } else {
-                quicksearch_condition.push_str("(@p1 = '' OR 1 = 1)");
+                quicksearch_condition.push_str("(@P1 = '' OR 1 = 1)");
             }
             query.push_str(&format!("SELECT COUNT(*) as count FROM {}", source));
         }
@@ -1430,7 +1431,7 @@ pub fn make_delete_query(table: &str, columns: &[ColumnDef], db_type: DbType) ->
                 .enumerate()
                 .map(|(i, c)| {
                     let qf = qi(&c.field, db_type);
-                    let param = format!("@p{}", i + 1);
+                    let param = format!("@P{}", i + 1);
                     mssql_eq_condition(&qf, &param, &c.datatype)
                 })
                 .collect::<Vec<_>>()
@@ -1547,7 +1548,7 @@ fn format_insert_values(columns: &[ColumnDef], db_type: DbType, start_index: usi
         .map(|(i, c)| match db_type {
             DbType::Mysql => format!(":{}", c.field),
             DbType::Postgresql => pg_value(&format!("${}", start_index + i), &c.datatype),
-            DbType::MsSqlServer => format!("@p{}", start_index + i),
+            DbType::MsSqlServer => format!("@P{}", start_index + i),
             DbType::Snowflake => "?".to_string(),
             DbType::Bigquery => format!("@{}", c.field),
             DbType::Duckdb => format!("${}", c.field),
@@ -1756,13 +1757,13 @@ pub fn make_update_query(
                 .enumerate()
                 .map(|(i, c)| {
                     let qf = qi(&c.field, db_type);
-                    let param = format!("@p{}", i + 2);
+                    let param = format!("@P{}", i + 2);
                     mssql_eq_condition(&qf, &param, &c.datatype)
                 })
                 .collect::<Vec<_>>()
                 .join("\n    AND ");
             query.push_str(&format!(
-                "\nUPDATE {} SET {} = @p1 \nWHERE {}",
+                "\nUPDATE {} SET {} = @P1 \nWHERE {}",
                 qt, qcol, conditions
             ));
         }
@@ -3213,7 +3214,7 @@ mod tests {
             simple_col("name", "nvarchar(50)"),
         ];
         let result = build_parameters(&cols, DbType::MsSqlServer);
-        assert_eq!(result, "-- @p1 limit (int)\n-- @p2 name (nvarchar)");
+        assert_eq!(result, "-- @P1 limit (int)\n-- @P2 name (nvarchar)");
     }
 
     #[test]
@@ -3384,8 +3385,8 @@ mod tests {
             make_select_query("my_table", &cols, None, DbType::MsSqlServer, None, None).unwrap();
 
         assert!(result.contains("SELECT [id], [name] FROM [my_table]"));
-        assert!(result.contains("@p3 = '' OR CONCAT([id], [name]) LIKE '%' + @p3 + '%'"));
-        assert!(result.contains("OFFSET @p2 ROWS FETCH NEXT @p1 ROWS ONLY"));
+        assert!(result.contains("@P3 = '' OR CONCAT([id], [name]) LIKE '%' + @P3 + '%'"));
+        assert!(result.contains("OFFSET @P2 ROWS FETCH NEXT @P1 ROWS ONLY"));
     }
 
     #[test]
@@ -3395,7 +3396,7 @@ mod tests {
             make_select_query("my_table", &cols, None, DbType::MsSqlServer, None, None).unwrap();
 
         // text type should be excluded from ORDER BY
-        assert!(!result.contains("@p4 = 'body'"));
+        assert!(!result.contains("@P4 = 'body'"));
         // text type should be excluded from search clause
         assert!(!result.contains("CONCAT([id], [body])"));
         assert!(result.contains("CONCAT([id])"));
@@ -3592,7 +3593,7 @@ mod tests {
         let result = make_count_query(DbType::MsSqlServer, "my_table", None, &cols, None).unwrap();
 
         assert!(result.contains("SELECT COUNT(*) as count FROM [my_table]"));
-        assert!(result.contains("(@p1 = '' OR CONCAT([id], [name]) LIKE '%' + @p1 + '%')"));
+        assert!(result.contains("(@P1 = '' OR CONCAT([id], [name]) LIKE '%' + @P1 + '%')"));
     }
 
     // -----------------------------------------------------------------------
@@ -3761,10 +3762,10 @@ mod tests {
         let cols = vec![col("id", "int"), col("name", "nvarchar")];
         let result = make_delete_query("my_table", &cols, DbType::MsSqlServer);
 
-        assert!(result.contains("-- @p1 id (int)\n-- @p2 name (nvarchar)"));
+        assert!(result.contains("-- @P1 id (int)\n-- @P2 name (nvarchar)"));
         assert!(result.contains("DELETE FROM [my_table]"));
-        assert!(result.contains("(@p1 IS NULL AND [id] IS NULL OR [id] = @p1)"));
-        assert!(result.contains("(@p2 IS NULL AND [name] IS NULL OR [name] = @p2)"));
+        assert!(result.contains("(@P1 IS NULL AND [id] IS NULL OR [id] = @P1)"));
+        assert!(result.contains("(@P2 IS NULL AND [name] IS NULL OR [name] = @P2)"));
     }
 
     #[test]
@@ -3825,7 +3826,7 @@ mod tests {
         let cols = vec![col("id", "int"), col("name", "nvarchar")];
         let result = make_insert_query("my_table", &cols, DbType::MsSqlServer).unwrap();
 
-        assert!(result.contains("INSERT INTO [my_table] ([id], [name]) VALUES (@p1, @p2)"));
+        assert!(result.contains("INSERT INTO [my_table] ([id], [name]) VALUES (@P1, @P2)"));
     }
 
     #[test]
@@ -3984,8 +3985,8 @@ mod tests {
         let where_cols = vec![simple_col("id", "int")];
         let result = make_update_query("my_table", &update_col, &where_cols, DbType::MsSqlServer);
 
-        assert!(result.contains("UPDATE [my_table] SET [name] = @p1"));
-        assert!(result.contains("(@p2 IS NULL AND [id] IS NULL OR [id] = @p2)"));
+        assert!(result.contains("UPDATE [my_table] SET [name] = @P1"));
+        assert!(result.contains("(@P2 IS NULL AND [id] IS NULL OR [id] = @P2)"));
     }
 
     #[test]

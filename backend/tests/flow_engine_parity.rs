@@ -2640,6 +2640,7 @@ async fn test_flow_env_imported_flow_uses_own_env(db: Pool<Postgres>) -> anyhow:
             FlowModuleValue::Flow {
                 input_transforms: Default::default(),
                 path: imported_path.to_string(),
+                tag_override: None,
                 pass_flow_input_directly: None,
             },
         )],
@@ -2733,6 +2734,7 @@ async fn test_flow_env_imported_flow_inherits_when_unset(db: Pool<Postgres>) -> 
             FlowModuleValue::Flow {
                 input_transforms: Default::default(),
                 path: imported_path.to_string(),
+                tag_override: None,
                 pass_flow_input_directly: None,
             },
         )],
@@ -2852,6 +2854,7 @@ async fn test_flow_env_imported_flow_with_nested_branch(db: Pool<Postgres>) -> a
             FlowModuleValue::Flow {
                 input_transforms: Default::default(),
                 path: imported_path.to_string(),
+                tag_override: None,
                 pass_flow_input_directly: None,
             },
         )],

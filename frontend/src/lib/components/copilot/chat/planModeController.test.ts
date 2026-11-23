@@ -42,13 +42,16 @@ describe('PlanModeController', () => {
 		artifacts = {
 			// Mirrors the store: one row per session keyed by the session, created or revised in
 			// a single step, and an approval that moves nothing but the pointer.
-			savePlan: vi.fn(async (sessionId: string, revision: any, chatId?: string) => {
+			proposePlan: vi.fn(async (sessionId: string, revision: any, _chatId?: string) => {
 				const existing = docs.find((d) => d.sessionId === sessionId)
 				if (existing) {
-					if (revision.content !== existing.content) existing.version++
+					if (revision.name === existing.name && revision.content === existing.content) {
+						return { outcome: 'unchanged', artifact: existing }
+					}
+					existing.version++
 					existing.name = revision.name
 					existing.content = revision.content
-					return existing
+					return { outcome: 'saved', artifact: existing, version: existing.version }
 				}
 				const doc: Doc = {
 					id: `plan:${sessionId}`,
@@ -62,8 +65,9 @@ describe('PlanModeController', () => {
 					version: 1
 				}
 				docs = [...docs, doc]
-				return doc
+				return { outcome: 'saved', artifact: doc, version: 1 }
 			}),
+			stalePlanVersion: vi.fn(async () => undefined),
 			approve: vi.fn(async (id: string, version: number) => {
 				const doc = docs.find((d) => d.id === id)
 				if (!doc) return false
@@ -132,12 +136,28 @@ describe('PlanModeController', () => {
 
 		await propose('# Revised\n\nNew approach.')
 
-		expect(artifacts.savePlan).toHaveBeenCalledWith(
+		expect(artifacts.proposePlan).toHaveBeenCalledWith(
 			'session-1',
 			expect.not.objectContaining({ approvedVersion: expect.anything() }),
 			'chat-1'
 		)
 		expect(docs[0]).toMatchObject({ version: 2, approvedVersion: 1 })
+	})
+
+	it('refuses a proposal before any card when the plan moved past what this chat saw', async () => {
+		artifacts.stalePlanVersion.mockResolvedValueOnce(3)
+		const rejection = await controller.exitTool.validateBeforeConfirmation?.({
+			args: { summary: '# Stale\n\nRetry.' },
+			workspace: 'w',
+			helpers: {}
+		})
+
+		expect(rejection).toEqual({
+			label: PLAN_MODE_MESSAGES.stalePlanLabel,
+			result: PLAN_MODE_MESSAGES.stalePlan(3)
+		})
+		expect(artifacts.stalePlanVersion).toHaveBeenCalledWith('session-1', 'chat-1')
+		expect(artifacts.proposePlan).not.toHaveBeenCalled()
 	})
 
 	it('moves to Build only after proposal and approval pointer are durable', async () => {
@@ -155,8 +175,15 @@ describe('PlanModeController', () => {
 		expect(result).toBe(PLAN_MODE_MESSAGES.approvedWithDoc)
 	})
 
-	it('keeps plan mode active when persistence fails', async () => {
-		artifacts.savePlan.mockRejectedValueOnce(new Error('quota'))
+	it.each([
+		['the browser could not store it', { outcome: 'unstored' }, PLAN_MODE_MESSAGES.planNotStored],
+		[
+			'another tab revised the plan document',
+			{ outcome: 'stale', artifact: {}, latest: 3 },
+			PLAN_MODE_MESSAGES.stalePlan(3)
+		]
+	])('keeps plan mode active when %s', async (_why, outcome, message) => {
+		artifacts.proposePlan.mockResolvedValueOnce(outcome)
 		const toolCallbacks = await propose('# Fails\n\nRetry later.')
 		const result = await controller.exitTool.fn({
 			args: { summary: '# Fails\n\nRetry later.' },
@@ -168,14 +195,15 @@ describe('PlanModeController', () => {
 
 		expect(active).toBe(true)
 		expect(build).not.toHaveBeenCalled()
-		expect(result).toBe(PLAN_MODE_MESSAGES.persistenceFailed)
+		expect(artifacts.approve).not.toHaveBeenCalled()
+		expect(result).toBe(message)
 	})
 
 	it('leaves a card that outlived its failed save something to resolve it', async () => {
 		// The write settles while the card is still waiting to be confirmed. Reporting the
 		// failure onto it there would strip the confirmation the tool call is blocked on, and
 		// nothing else ever resolves that — the turn would hang with no control left to click.
-		artifacts.savePlan.mockRejectedValueOnce(new Error('quota'))
+		artifacts.proposePlan.mockRejectedValueOnce(new Error('Failed to fetch'))
 		// The card is the only thing that resolves the confirmation, and it offers the choice
 		// for exactly as long as its status asks for one — so the click can only land while it
 		// is still asking. That coupling is what makes clearing the card mid-wait fatal.
@@ -251,10 +279,10 @@ describe('PlanModeController', () => {
 
 	it('files a plan under the session that proposed it, not one swapped in mid-save', async () => {
 		let released: (() => void) | undefined
-		artifacts.savePlan.mockImplementationOnce(async (sessionId: string, revision: any) => {
+		artifacts.proposePlan.mockImplementationOnce(async (sessionId: string, revision: any) => {
 			await new Promise<void>((resolve) => (released = resolve))
 			docs = [{ id: `plan:${sessionId}`, sessionId, name: revision.name, version: 1 } as Doc]
-			return docs[0]
+			return { outcome: 'saved', artifact: docs[0], version: 1 }
 		})
 		const toolCallbacks = callbacks()
 		controller.exitTool.onConfirmationRequested?.({

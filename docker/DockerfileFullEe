@@ -1,11 +1,15 @@
 ARG BASE_IMAGE=ghcr.io/windmill-labs/windmill-ee:dev
 
+# Oracle publishes this image for amd64 only; pinning the platform keeps the
+# arm64 build from failing to resolve it (arm64 downloads the zip below).
+FROM --platform=linux/amd64 ghcr.io/oracle/oraclelinux9-instantclient:23 AS oracle-instantclient-amd64
+
 FROM alpine:3.14 AS oracledb-client
 
 ARG TARGETPLATFORM
 
 # Oracle DB Client for amd64
-COPY --from=ghcr.io/oracle/oraclelinux9-instantclient:23 /usr/lib/oracle/23/client64/lib /opt/oracle/23/amd64/lib
+COPY --from=oracle-instantclient-amd64 /usr/lib/oracle/23/client64/lib /opt/oracle/23/amd64/lib
 
 # Oracle DB Client for arm64
 RUN mkdir -p /opt/oracle/23/arm64 \

@@ -1,16 +1,29 @@
 <script lang="ts">
 	import MapItem from '$lib/components/flows/map/MapItem.svelte'
-	import { GitBranchPlus, Move, Copy, Trash2, StickyNote, PictureInPicture2 } from 'lucide-svelte'
+	import {
+		GitBranchPlus,
+		Move,
+		Copy,
+		Trash2,
+		StickyNote,
+		PictureInPicture2,
+		Bug,
+		RefreshCw
+	} from 'lucide-svelte'
+	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import NodeWrapper from './NodeWrapper.svelte'
 	import AiDecisionNodeBranch from './AiDecisionNodeBranch.svelte'
 	import type { ModuleN } from '../../graphBuilder.svelte'
 	import { jobToGraphModuleState } from '$lib/components/modulesTest.svelte'
 	import { getNoteEditorContext } from '../../noteEditor.svelte'
 	import { isMac, type Item } from '$lib/utils'
-	import { getContext } from 'svelte'
+	import { getContext, untrack } from 'svelte'
 	import { getGraphContext } from '../../graphContext'
 	import { getFlowRunStatusContext } from '../../flowRunStatus.svelte'
 	import { waitingRequest } from '$lib/components/agentRequest'
+	import { Button } from '$lib/components/common'
+	import { workspaceStore } from '$lib/stores'
+	import { countErrorHandlersUnder, firstIterationWithHandler } from '../../nestedErrorHandlers'
 
 	interface Props {
 		data: ModuleN['data']
@@ -98,6 +111,113 @@
 				}
 			: (undefined as any)
 	)
+
+	let subflowPath = $derived(
+		data.module?.value?.type == 'flow' && 'path' in data.module.value
+			? (data.module.value['path'] as string | undefined)
+			: undefined
+	)
+
+	function expandSubflow() {
+		if (subflowPath) data.eventHandlers.expandSubflow(data.id, subflowPath)
+	}
+
+	// The walk below only re-runs when the step's jobs change: `state` is a new object on
+	// every status update. A step still running has no count yet, as its jobs are still changing.
+	let handlerCountKey = $derived(
+		!data.editMode && (state?.type === 'Success' || state?.type === 'Failure')
+			? [state.job_id, state.selectedForloopIndex, ...(state.flow_jobs ?? [])].join(',')
+			: undefined
+	)
+
+	/** Something that happened inside a step the graph does not draw, and how to reveal it. */
+	type InsideMark = { count: number; label: string; title: string; reveal: () => void }
+
+	/**
+	 * Error handlers that ran inside this step but that the graph does not draw: anywhere in a
+	 * collapsed subflow, or in a loop's other iterations while the one shown draws none. The
+	 * selected iteration's own handlers are drawn, and nested steps report theirs.
+	 */
+	let hiddenErrorHandlers = $derived.by((): Promise<InsideMark | undefined> | undefined => {
+		const workspace = $workspaceStore
+		if (!handlerCountKey || !workspace) return undefined
+		const s = untrack(() => state)
+		if (!s) return undefined
+		const valueType = data.module?.value?.type
+		if (valueType === 'flow' && s.job_id && subflowPath) {
+			return countErrorHandlersUnder(workspace, s.job_id).then(
+				(count) =>
+					count > 0
+						? {
+								count,
+								label: `${count} error handler${count > 1 ? 's' : ''} ran`,
+								title: 'Expand the subflow',
+								reveal: expandSubflow
+							}
+						: undefined,
+				() => undefined
+			)
+		}
+		const iterations = s.flow_jobs
+		const isLoop = valueType === 'forloopflow' || valueType === 'whileloopflow'
+		if (isLoop && data.mayRunErrorHandler && iterations?.length) {
+			const index = s.selectedForloopIndex ?? 0
+			const shown = index >= 0 ? index : iterations.length - 1
+			const success = s.flow_jobs_success
+			return countErrorHandlersUnder(workspace, iterations[shown])
+				.then(async (count) =>
+					// The iteration on screen already draws a handler: pointing at the others would
+					// keep the reader clicking through iterations.
+					count > 0 ? undefined : await firstIterationWithHandler(workspace, iterations, success)
+				)
+				.then(
+					(first) =>
+						first === undefined
+							? undefined
+							: {
+									count: 1,
+									label: `Error handler ran in iteration ${first + 1}`,
+									title: 'Show that iteration',
+									reveal: () =>
+										data.eventHandlers.selectedIteration({
+											id: iterations[first],
+											index: first,
+											manuallySet: true,
+											moduleId: data.id
+										})
+								},
+					() => undefined
+				)
+		}
+		return undefined
+	})
+
+	let attempts = $derived.by(() => {
+		const jobs = state?.attempt_jobs
+		if (!jobs?.length) return undefined
+		const shown = state?.selectedAttempt ? jobs.indexOf(state.selectedAttempt) : -1
+		return {
+			flowJobs: jobs,
+			flowJobsSuccess: state?.attempt_jobs_success ?? [],
+			selected: shown >= 0 ? shown : jobs.length - 1
+		}
+	})
+
+	// An expanded subflow is drawn as its steps instead of this node, each with its own bar.
+	let retriedInside = $derived.by((): InsideMark | undefined => {
+		const count =
+			flowRunStatus?.showsRun && !data.editMode && data.module?.value?.type === 'flow'
+				? flowRunStatus.retriedStepsInside(data.id)
+				: 0
+		return count > 0
+			? {
+					count,
+					label: `${count} step${count === 1 ? '' : 's'} retried inside`,
+					title: 'Expand to see the retried steps',
+					reveal: expandSubflow
+				}
+			: undefined
+	})
 
 	let type = $derived.by(() => {
 		let typ = state?.type
@@ -200,6 +320,7 @@
 			duration_ms={state?.duration_ms}
 			retries={state?.retries}
 			{flowJobs}
+			{attempts}
 			on:delete={(e) => {
 				data.eventHandlers.delete(e.detail, '')
 			}}
@@ -225,18 +346,17 @@
 			onEditInput={data.eventHandlers.editInput}
 			flowJob={flowRunStatus?.flowJob}
 			isOwner={data.isOwner}
+			errorHandler={data.isErrorHandler}
 			maximizeSubflow={data.module?.value?.type == 'flow' && 'path' in data.module.value
-				? () => {
-						const path =
-							data.module?.value && 'path' in data.module.value
-								? (data.module.value['path'] as string)
-								: undefined
-						if (path) {
-							data.eventHandlers.expandSubflow(data.id, path)
-						}
-					}
+				? expandSubflow
 				: undefined}
 		/>
+
+		{#await hiddenErrorHandlers}
+			{@render insideBar(retriedInside, undefined)}
+		{:then handlers}
+			{@render insideBar(retriedInside, handlers)}
+		{/await}
 
 		{#if (data.module?.value?.type === 'branchall' || data.module?.value?.type === 'branchone') && data.insertable}
 			<div class="absolute -bottom-10 left-1/2 transform -translate-x-1/2 z-10 flex gap-1">
@@ -256,3 +376,72 @@
 		{/if}
 	{/snippet}
 </NodeWrapper>
+
+<!-- Left of the settings bar, which is this step's own policy: this is what happened inside. -->
+{#snippet insideBar(retried: InsideMark | undefined, handlers: InsideMark | undefined)}
+	{#if retried || handlers}
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
+		<div
+			class="nodrag nopan absolute -left-1 top-[calc(100%+3px)] z-10"
+			onpointerdown={(e) => e.stopPropagation()}
+		>
+			{#if retried && handlers}
+				<!-- Both at once: their counts side by side, each way in from the menu. -->
+				<DropdownV2
+					placement="bottom-start"
+					usePointerDownOutside
+					fixedHeight={false}
+					items={[
+						{
+							displayName: retried.label,
+							icon: RefreshCw,
+							iconColor: '#f97316',
+							action: retried.reveal
+						},
+						{
+							displayName: handlers.label,
+							icon: Bug,
+							iconColor: '#f87171',
+							action: handlers.reveal
+						}
+					]}
+				>
+					{#snippet buttonReplacement()}
+						<Button
+							nonCaptureEvent
+							variant="subtle"
+							unifiedSize="2xs"
+							btnClasses="gap-2 text-2xs text-secondary"
+							title="{retried.label}, {handlers.label}"
+						>
+							<span class="flex items-center gap-0.5">
+								<RefreshCw size={12} class="text-orange-500" />{retried.count}
+							</span>
+							<span class="flex items-center gap-0.5">
+								<Bug size={12} class="text-red-400 dark:text-red-500" />{handlers.count}
+							</span>
+						</Button>
+					{/snippet}
+				</DropdownV2>
+			{:else}
+				{@const mark = (retried ?? handlers)!}
+				<Button
+					variant="subtle"
+					unifiedSize="2xs"
+					startIcon={{
+						icon: retried ? RefreshCw : Bug,
+						classes: retried ? 'text-orange-500' : 'text-red-400 dark:text-red-500'
+					}}
+					btnClasses="text-2xs text-secondary gap-1"
+					title={mark.title}
+					onClick={(e) => {
+						e?.stopPropagation()
+						mark.reveal()
+					}}
+				>
+					{mark.label}
+				</Button>
+			{/if}
+		</div>
+	{/if}
+{/snippet}

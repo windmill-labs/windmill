@@ -43,7 +43,7 @@ describe('describeStepSettings', () => {
 			'retries'
 		]
 		expect(s?.configured).toBe(true)
-		expect(s?.summary.text).toBe('0 attempts, constant')
+		expect(s?.summary.text).toBe('0 retries, constant')
 	})
 
 	it('reads concurrency and cache from the referenced script for workspace-script steps', () => {

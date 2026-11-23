@@ -7,12 +7,22 @@ import { useEditRights } from '$lib/operatorWriteRights'
 import { buildsAnything } from '$lib/editRights'
 import {
 	canWorkDirectly,
+	forgetReadOnlyVerdicts,
 	isReadOnlySessionWorkspace,
 	settledReadOnlyVerdict
 } from '$lib/components/copilot/chat/global/sessionAccess'
 import { AIWorkMode } from '$lib/components/copilot/chat/workMode'
 import type { WorkspaceItem } from '$lib/components/workspacePicker'
 import { previewPageAllowed, type PreviewPage } from './previewRouter'
+
+let verdictEpoch = $state(0)
+
+/** Every `useSessionReadOnly` reads the rules again: the sessions view stays mounted while the
+ * user is on other pages, where the rules can change. */
+export function rereadReadOnlyVerdicts(): void {
+	forgetReadOnlyVerdicts()
+	verdictEpoch++
+}
 
 /** Whether a session in `workspace` is read-only because the workspace is protected: the verdict
  * `resolveSessionAccess` gives the chat, so the UI and the toolset agree. `direct`: the session
@@ -22,11 +32,13 @@ export function useSessionReadOnly(
 	direct: () => boolean = () => false
 ) {
 	const verdict = resource(
-		() => [workspace(), direct()] as const,
-		async ([ws, isDirect]) => {
+		[workspace, direct, () => verdictEpoch],
+		async ([ws, isDirect], _prev, { signal }) => {
 			if (!ws) return undefined
 			const readOnly =
 				(await isReadOnlySessionWorkspace(ws)) && !(isDirect && (await canWorkDirectly(ws)))
+			// A superseded read answers for older rules: runed would still land it over the newer one.
+			if (signal.aborted) throw new DOMException('superseded', 'AbortError')
 			// Only a successful read settles a verdict; a failed one is read-only to fail closed.
 			return {
 				workspace: ws,

@@ -18,6 +18,7 @@
 		workspaceSubtreeRows
 	} from '$lib/utils/workspaceHierarchy'
 	import { useForkableWorkspaces } from '$lib/utils/useForkableWorkspaces.svelte'
+	import { overlayHostActive } from '$lib/components/common/overlayHost.svelte'
 	import { isNewTabClick } from '$lib/navigation'
 	import { canCreateFork } from '$lib/utils/editInFork'
 	import { canFork, capabilitiesIn } from '$lib/roleCapabilities'
@@ -242,6 +243,9 @@
 	$effect(() => {
 		if (!dropdownOpen) keyArrowPos = undefined
 	})
+	// A picker left open in a pane that went off screen would take the next page's arrows, and
+	// its Enter would pick a workspace there.
+	const hostActive = overlayHostActive()
 
 	function activateRow(row: NavRow) {
 		if (row.kind === 'create') {
@@ -371,7 +375,7 @@
 
 <svelte:window
 	onkeydown={(e) => {
-		if (!dropdownOpen) return
+		if (!dropdownOpen || !hostActive()) return
 		if (creatingFork) return
 		if (navRows.length === 0) return
 		if (e.key === 'ArrowDown') {

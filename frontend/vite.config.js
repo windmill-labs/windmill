@@ -582,10 +582,13 @@ const config = {
 				// replay sanitization) whose contracts can only be asserted against a
 				// real document.
 				extends: './vite.config.js',
+				// Svelte's client build, so a test can mount a component.
+				resolve: { conditions: ['browser'] },
 				test: {
 					name: 'dom',
 					environment: 'jsdom',
-					include: ['src/**/*.dom.{test,spec}.{js,ts}']
+					include: ['src/**/*.dom.{test,spec}.{js,ts}'],
+					setupFiles: ['src/lib/dom-test-setup.ts']
 				}
 			}
 		]

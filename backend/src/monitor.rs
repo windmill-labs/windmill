@@ -2151,6 +2151,20 @@ pub async fn delete_expired_items(db: &DB) -> () {
         tracing::error!("Error deleting autoscaling event on CE: {:?}", e);
     }
 
+    // A recording lasts at most a day (`AUTOSCALING_RECORDING_SECS`), so its decisions are
+    // still there for a day after it ends.
+    if let Err(e) = sqlx::query!(
+        "WITH decisions AS (
+            DELETE FROM autoscaling_decision WHERE recorded_at <= now() - interval '48 hours'
+        )
+        DELETE FROM autoscaling_recording WHERE until <= now()"
+    )
+    .execute(db)
+    .await
+    {
+        tracing::error!("Error deleting autoscaling decisions: {:?}", e);
+    }
+
     // native_retry_attempt has no FK to v2_job (kept off the hot bulk delete).
     // Retention sweeps markers alongside the jobs it deletes, but direct job
     // deletions (workspace/job/schedule clearing) leave markers orphaned — reap
@@ -3065,6 +3079,10 @@ pub async fn reload_npm_config_registry_setting(conn: &Connection) {
     .await;
 }
 
+pub async fn reload_npmrc_setting(conn: &Connection) {
+    reload_option_setting_with_tracing(conn, NPMRC_SETTING, "NPMRC", NPMRC.clone()).await;
+}
+
 pub async fn reload_bunfig_install_scopes_setting(conn: &Connection) {
     reload_option_setting_with_tracing(
         conn,
@@ -3170,6 +3188,16 @@ pub fn apply_no_default_maven_setting(value: Option<serde_json::Value>) {
     if let Some(serde_json::Value::Bool(t)) = value {
         NO_DEFAULT_MAVEN.store(t, Ordering::Relaxed)
     }
+}
+
+pub async fn reload_cargo_registries_setting(conn: &Connection) {
+    reload_option_setting_with_tracing(
+        conn,
+        windmill_common::global_settings::CARGO_REGISTRIES_SETTING,
+        "CARGO_REGISTRIES",
+        CARGO_REGISTRIES.clone(),
+    )
+    .await;
 }
 
 pub async fn reload_ruby_repos_setting(conn: &Connection) {
@@ -4723,6 +4751,25 @@ pub async fn monitor_db(
         }
     };
 
+    // run every 120 iterations (~20min at the default LISTEN_NEW_EVENTS_INTERVAL_SEC). Spawned:
+    // a first pass over a long history would outlast the join's deadline.
+    let raw_app_versions_retention_f = async {
+        if server_mode && iteration.is_some() && iteration.as_ref().unwrap().should_run(120) {
+            if let Some(db) = conn.as_sql() {
+                let db = db.clone();
+                tokio::spawn(async move {
+                    match windmill_api::prune_raw_app_versions(&db).await {
+                        Ok(0) => {}
+                        Ok(pruned) => {
+                            tracing::info!("pruned {pruned} raw app versions past the retention")
+                        }
+                        Err(e) => tracing::error!("Error pruning raw app versions: {e:#}"),
+                    }
+                });
+            }
+        }
+    };
+
     // run every 2 iterations (~20s at the default LISTEN_NEW_EVENTS_INTERVAL_SEC).
     // Enterprise feature: the active `// freshness` backstop lives in
     // windmill-queue's `freshness_watchdog` (`private`); OSS gets a no-op stub.
@@ -4752,6 +4799,7 @@ pub async fn monitor_db(
         zombie_jobs_f,
         stale_jobs_f,
         trim_resource_versions_f,
+        raw_app_versions_retention_f,
         vacuum_queue_f,
         expose_queue_metrics_f,
         verify_license_key_f,
@@ -5346,7 +5394,7 @@ async fn poll_git_auto_pull_inner(db: &Pool<Postgres>) -> error::Result<()> {
                 Ok(Some((git_ref, sha))) => {
                     // Shared reconcile (also used by the webhook receiver):
                     // checks should_pull, enqueues, and records status/failure.
-                    if let Err(e) = windmill_git_sync::reconcile_and_enqueue_pull(
+                    match windmill_git_sync::reconcile_and_enqueue_pull(
                         db,
                         &row.workspace_id,
                         repo,
@@ -5356,11 +5404,48 @@ async fn poll_git_auto_pull_inner(db: &Pool<Postgres>) -> error::Result<()> {
                     )
                     .await
                     {
-                        tracing::warn!(
-                            "git auto-pull: reconcile failed for {}/{}: {e:#}",
-                            row.workspace_id,
-                            repo.git_repo_resource_path
-                        );
+                        // The webhook should have brought this head already: it stopped
+                        // reaching us, so poll every minute again until it delivers. Not for
+                        // a ref's first sync, which no delivery could have brought, nor after
+                        // a failed pull: its rollback re-offers a head the webhook did deliver,
+                        // and demoting would retry the failing pull every minute.
+                        Ok(Some(_))
+                            if auto_pull.webhook_verified()
+                                && auto_pull.last_synced_sha.contains_key(&git_ref)
+                                && auto_pull
+                                    .last_pull_status
+                                    .as_ref()
+                                    .map_or(true, |s| s.success) =>
+                        {
+                            tracing::warn!(
+                                "git auto-pull: {}/{} moved without a webhook delivery, polling every minute until one arrives",
+                                row.workspace_id,
+                                repo.git_repo_resource_path
+                            );
+                            if let Err(e) =
+                                windmill_common::workspaces::set_auto_pull_webhook_verified_id(
+                                    db,
+                                    &row.workspace_id,
+                                    &repo.git_repo_resource_path,
+                                    None,
+                                )
+                                .await
+                            {
+                                tracing::warn!(
+                                    "git auto-pull: could not record the missed delivery for {}/{}: {e:#}",
+                                    row.workspace_id,
+                                    repo.git_repo_resource_path
+                                );
+                            }
+                        }
+                        Ok(_) => {}
+                        Err(e) => {
+                            tracing::warn!(
+                                "git auto-pull: reconcile failed for {}/{}: {e:#}",
+                                row.workspace_id,
+                                repo.git_repo_resource_path
+                            );
+                        }
                     }
 
                     // Parent-managed fork sync: list the fork branches' heads in

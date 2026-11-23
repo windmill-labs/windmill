@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { overlayHostActive } from '$lib/components/common/overlayHost.svelte'
+	const hostActive = overlayHostActive()
 	import type { Job } from '$lib/gen'
 	import RunRow from './RunRow.svelte'
 	import VirtualList from '@tutorlatin/svelte-tiny-virtual-list'
@@ -71,7 +73,7 @@
 	let hasClickFocus = $state(false)
 	const keysPressed = useKeyPressed(['Shift', 'Control', 'Meta', 'A', 'ArrowDown', 'ArrowUp'], {
 		onKeyDown(key, e) {
-			if (!hasClickFocus) return
+			if (!hasClickFocus || !hostActive()) return
 			if (key === 'A' && (keysPressed.Control || keysPressed.Meta)) {
 				if (batchRerunOptionsIsOpen) return
 				e.preventDefault()

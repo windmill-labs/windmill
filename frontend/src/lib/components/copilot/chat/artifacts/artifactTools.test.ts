@@ -71,6 +71,11 @@ beforeEach(async () => {
 	ctx = await fresh('s1')
 })
 
+function saved(result: import('./artifactWriter').WriteResult) {
+	if (result.outcome !== 'saved') throw new Error(`not saved: ${result.outcome}`)
+	return result.artifact
+}
+
 describe('artifact tools', () => {
 	it('create_artifact persists (session-scoped, chat provenance) and opens the preview', async () => {
 		const res = JSON.parse(await ctx.call('create_artifact', { name: 'Plan', content: '# hi' }))
@@ -109,10 +114,9 @@ describe('artifact tools', () => {
 			await ctx.call('create_artifact', { name: 'Ship it', content: '# Ship it', role: 'plan' })
 		)
 		expect(plan.id).toBe(ctx.dbMod.planArtifactId('s1'))
-		expect(await ctx.dbMod.getArtifact(plan.id)).toMatchObject({
-			role: 'plan',
-			approvedVersion: undefined
-		})
+		const stored = await ctx.dbMod.getArtifact(plan.id)
+		expect(stored?.role).toBe('plan')
+		expect(stored?.approvedVersion).toBeUndefined()
 
 		// The slot is taken, and the refusal has to name what holds it — the model's next
 		// move is to rewrite that document, which it cannot do without the id.
@@ -129,12 +133,14 @@ describe('artifact tools', () => {
 		// A plan is written when it is proposed, so one they refused stays on disk, and an
 		// approved one keeps collecting versions afterwards. Without the pointer the model
 		// reads whatever the document currently says as the plan they signed off.
-		const plan = await ctx.store.create('s1', {
-			name: 'Drafted',
-			content: '# Drafted',
-			role: 'plan',
-			chatId: 'c1'
-		})
+		const plan = saved(
+			await ctx.store.create('s1', {
+				name: 'Drafted',
+				content: '# Drafted',
+				role: 'plan',
+				chatId: 'c1'
+			})
+		)
 		const drafted = JSON.parse(await ctx.call('list_artifacts', {})).find(
 			(x: any) => x.id === plan.id
 		)
@@ -142,8 +148,8 @@ describe('artifact tools', () => {
 		// Absent, not null: nothing here was ever approved.
 		expect(drafted).not.toHaveProperty('approvedVersion')
 
-		await ctx.store.update(plan.id, { approvedVersion: 1 })
-		await ctx.store.update(plan.id, { content: '# Drafted, proposed anew' })
+		await ctx.store.approve(plan.id, 1)
+		await ctx.store.edit(plan.id, { content: '# Drafted, proposed anew' }, { chatId: 'c1' })
 		const list = JSON.parse(await ctx.call('list_artifacts', {}))
 
 		// Approved at v1, current text is v2: a proposal the user has not decided on.
@@ -160,14 +166,13 @@ describe('artifact tools', () => {
 		expect(read).toMatchObject({ id: a.id, name: 'A', kind: 'md', content: 'body' })
 	})
 
-	it('list_artifacts still returns a create whose persist was swallowed', async () => {
-		await ctx.store.setSession('s1') // load the session so create reflects in the in-memory list
+	it('says an artifact the browser could not store was not created, and lists nothing', async () => {
+		await ctx.store.setSession('s1')
+		vi.spyOn(ctx.dbMod, 'mutateArtifact').mockResolvedValueOnce({ outcome: 'rejected' })
 		const created = JSON.parse(await ctx.call('create_artifact', { name: 'Ghost', content: 'x' }))
-		await ctx.dbMod.deleteArtifact(created.id) // mimic a quota-swallowed persist: gone from the DB
-		expect(await ctx.dbMod.getArtifact(created.id)).toBeUndefined()
-		// read and list both stay consistent via the in-memory fallback.
-		const list = JSON.parse(await ctx.call('list_artifacts', {}))
-		expect(list.map((x: any) => x.id)).toContain(created.id)
+		expect(created.success).toBe(false)
+		expect(created.error).toMatch(/storage is full/)
+		expect(JSON.parse(await ctx.call('list_artifacts', {}))).toEqual([])
 	})
 
 	it('update_artifact overwrites content and persists', async () => {
@@ -184,7 +189,9 @@ describe('artifact tools', () => {
 	})
 
 	it('refuses in plan mode only what would write the plan, by either of its marks', async () => {
-		const plan = await ctx.store.savePlan('s1', { name: 'Plan', content: 'v1', note: 'n' }, 'c1')
+		const plan = saved(
+			await ctx.store.proposePlan('s1', { name: 'Plan', content: 'v1', note: 'n' }, 'c1')
+		)
 		const doc = JSON.parse(await ctx.call('create_artifact', { name: 'Doc', content: 'x' }))
 		// A row claiming the role without the derived id: no writer here mints one, and the
 		// refusal must not depend on that staying true.
@@ -210,7 +217,9 @@ describe('artifact tools', () => {
 	})
 
 	it('refuses a plan write the posture only turned down mid-flight', async () => {
-		const plan = await ctx.store.savePlan('s1', { name: 'Plan', content: 'v1', note: 'n' }, 'c1')
+		const plan = saved(
+			await ctx.store.proposePlan('s1', { name: 'Plan', content: 'v1', note: 'n' }, 'c1')
+		)
 
 		const updated = JSON.parse(
 			await ctx.call(
@@ -275,6 +284,21 @@ describe('artifact tools', () => {
 		// Omitting the version, and naming the current one, both read the live content.
 		expect(JSON.parse(await ctx.call('read_artifact', { id: a.id })).content).toBe('v2')
 		expect(JSON.parse(await ctx.call('read_artifact', { id: a.id, version: 2 })).content).toBe('v2')
+	})
+
+	it('refuses an edit made after reading an older version until the latest is read', async () => {
+		const a = JSON.parse(await ctx.call('create_artifact', { name: 'A', content: 'v1' }))
+		const edit = (content: string) =>
+			ctx.call('update_artifact', { id: a.id, content, change_note: 'Edited' })
+		await edit('v2')
+		await ctx.call('read_artifact', { id: a.id, version: 1 })
+
+		const stale = JSON.parse(await edit('v1, edited'))
+		expect(stale.success).toBe(false)
+		expect(stale.error).toContain('now at version 2')
+
+		await ctx.call('read_artifact', { id: a.id })
+		expect(JSON.parse(await edit('v3')).success).toBe(true)
 	})
 
 	it('stores an overlong change note truncated rather than failing the update', async () => {

@@ -1,8 +1,9 @@
 <script lang="ts">
 	import { goto } from '$app/navigation'
 	import { workspaceStore } from '$lib/stores'
-	import { CircleCheck, CircleSlash, CircleX, Loader2, Wrench } from 'lucide-svelte'
+	import { CircleCheck, CircleSlash, CircleX, EyeOff, Loader2, Wrench } from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
+	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import { useRoleCapabilities } from '$lib/operatorWriteRights'
 	import {
 		askAI,
@@ -26,12 +27,15 @@
 		onSelect?: (item: RecentRunItem) => void
 		/** Resolves the item's failed runs; without it the row offers no resolve action. */
 		onResolve?: (item: RecentRunItem) => Promise<void>
+		/** Hides the item from the recent runs; without it the row has no menu. */
+		onHide?: (item: RecentRunItem) => void
 	}
 
-	let { item, now, prefix, strip = true, onSelect, onResolve }: Props = $props()
+	let { item, now, prefix, strip = true, onSelect, onResolve, onHide }: Props = $props()
 
 	const roleCaps = useRoleCapabilities()
 	let resolving = $state(false)
+	let menuOpen = $state(false)
 
 	const STRIP_SLOTS = 10
 	// The strip reads oldest to newest; the item's runs arrive newest first.
@@ -223,4 +227,26 @@
 			</a>
 		{/if}
 	</span>
+
+	{#if onHide}
+		<!-- Kept in the layout while hidden, so revealing it on hover does not move the row. -->
+		<span
+			class="-mr-1.5 shrink-0 {menuOpen
+				? ''
+				: 'invisible group-hover:visible group-focus-within:visible'}"
+		>
+			<DropdownV2
+				bind:open={menuOpen}
+				size="xs"
+				fixedHeight={false}
+				items={[
+					{
+						displayName: 'Hide item from Recently run',
+						icon: EyeOff,
+						action: () => onHide(item)
+					}
+				]}
+			/>
+		</span>
+	{/if}
 </div>

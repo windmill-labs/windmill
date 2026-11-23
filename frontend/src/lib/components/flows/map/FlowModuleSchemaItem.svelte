@@ -18,6 +18,12 @@
 	import { getDependeeAndDependentComponents } from '../flowExplorer'
 	import { replaceId } from '../flowStore.svelte'
 	import FlowModuleSchemaItemViewer from './FlowModuleSchemaItemViewer.svelte'
+	import StepSettingsBar, { type RetryAttempts } from './StepSettingsBar.svelte'
+	import {
+		emitUiIntent,
+		moduleIntentComponentId
+	} from '$lib/components/copilot/chat/flow/uiIntents'
+	import { findModuleInFlow } from '../flowTree'
 	import type { PropPickerContext } from '$lib/components/prop_picker'
 	import OutputPicker from '$lib/components/flows/propPicker/OutputPicker.svelte'
 	import OutputPickerInner from '$lib/components/flows/propPicker/OutputPickerInner.svelte'
@@ -58,6 +64,8 @@
 		path?: string
 		nodeState?: FlowNodeState
 		retries?: number | undefined
+		/** In a run, the attempts the retry badge picks from. */
+		attempts?: RetryAttempts | undefined
 		warningMessage?: string | undefined
 		editMode?: boolean
 		alwaysShowOutputPicker?: boolean
@@ -65,7 +73,11 @@
 		icon?: import('svelte').Snippet
 		onTestUpTo?: ((id: string) => void) | undefined
 		inputTransform?: Record<string, any> | undefined
-		onUpdateMock?: (mock: { enabled: boolean; return_value?: unknown; preview_only?: boolean }) => void
+		onUpdateMock?: (mock: {
+			enabled: boolean
+			return_value?: unknown
+			preview_only?: boolean
+		}) => void
 		onEditInput?: (moduleId: string, key: string) => void
 		flowJob?: Job | undefined
 		isOwner?: boolean
@@ -86,6 +98,7 @@
 		path = '',
 		nodeState,
 		retries = undefined,
+		attempts = undefined,
 		warningMessage = undefined,
 		editMode = false,
 		alwaysShowOutputPicker = false,
@@ -135,10 +148,11 @@
 	let mod = $derived(
 		id && flowStore?.val?.value ? dfsPreviousResults(id, flowStore.val, false)[0] : undefined
 	)
-	// A script step is tested as a script preview, which operators are refused: running the
-	// deployed runnable is left to "Test flow".
+	// Script and inline steps are tested as a script preview, which the server allows only to a
+	// role with code and run, whatever its flows level.
 	let builderCannotTestStep = $derived(
-		$roleCaps.flows === 'compose' && mod?.value.type === 'script'
+		(mod?.value.type === 'script' || mod?.value.type === 'rawscript') &&
+			!($roleCaps.code && $roleCaps.run)
 	)
 	let moduleTest: ModuleTest | undefined = $state(undefined)
 	let testIsLoading = $state(false)
@@ -147,6 +161,9 @@
 	let outputPicker: OutputPicker | undefined = $state(undefined)
 	let testJob: any | undefined = $state(undefined)
 	let outputPickerBarOpen = $state(false)
+	// Holds the In/Out bar open while the settings menu is, so the bar it sits above doesn't
+	// jump back up, menu and all, when the pointer leaves the step for the menu.
+	let settingsMenuOpen = $state(false)
 	let dropdownOpen = $state(false)
 
 	let flowStateStore = $derived(flowEditorContext?.flowStateStore)
@@ -280,31 +297,38 @@
 			style={`width: 275px; height: 34px;`}
 		></div>
 		<div
-			class="absolute text-sm right-2 flex flex-row gap-1 z-10 transition-all duration-100"
-			style={`bottom: ${outputPickerBarOpen ? '-38px' : '-12px'}`}
+			class="absolute text-sm {editMode
+				? 'right-2'
+				: 'right-0'} flex flex-row items-start gap-1 z-10 transition-all duration-100"
+			style={editMode
+				? `bottom: ${outputPickerBarOpen ? '-44px' : '-12px'}`
+				: `top: calc(100% + ${outputPickerBarOpen ? '25px' : '3px'})`}
 		>
-			{#each settings as s (s.key)}
-				{@const Icon = s.icon}
-				<Popover notClickable>
-					<div
-						transition:fade|local={{ duration: 200 }}
-						class="center-center rounded border bg-surface border-gray-400 text-secondary px-1 py-0.5"
-					>
-						{#if s.key === 'retries' && retries}<span class="text-red-400 mr-2">{retries}</span
-							>{/if}
-						<Icon size={12} />
-					</div>
-					{#snippet text()}
-						{s.tooltip}
-						<span class={s.summary.mono ? 'font-mono' : ''}>· {s.summary.text}</span>
-					{/snippet}
-				</Popover>
-			{/each}
+			{#if settings.length > 0}
+				<StepSettingsBar
+					{settings}
+					{retries}
+					{attempts}
+					onOpenChange={(o) => (settingsMenuOpen = o)}
+					onOpenSetting={editMode && id
+						? (key) => {
+								flowGraphContext?.selectionManager?.selectId(id, { openPanel: true })
+								// Kept by the store until the step's panel mounts and reads it.
+								const mod = flowStore?.val ? findModuleInFlow(flowStore.val.value, id) : null
+								emitUiIntent({
+									kind: 'open_module_tab',
+									componentId: moduleIntentComponentId(mod?.value.type, id),
+									tab: key
+								})
+							}
+						: undefined}
+				/>
+			{/if}
 			{#if mock?.enabled}
 				<Popover notClickable>
 					<button
 						transition:fade|local={{ duration: 200 }}
-						class="center-center bg-surface rounded border border-gray-400 text-secondary px-1 py-0.5"
+						class="center-center h-5 px-1 rounded-md border bg-surface text-secondary"
 						onclick={() => {
 							outputPicker?.toggleOpen()
 						}}
@@ -338,7 +362,7 @@
 				<OutputPicker
 					bind:this={outputPicker}
 					{selected}
-					{hover}
+					hover={hover || settingsMenuOpen}
 					{isConnectingCandidate}
 					{historyOpen}
 					{inputTransform}

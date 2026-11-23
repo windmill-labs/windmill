@@ -945,7 +945,7 @@ async fn get_raw_app_data(
     let mut body: Option<Body> = None;
     #[cfg(all(feature = "enterprise", feature = "parquet"))]
     if let Some(os) = object_store {
-        let path = format!("/app_bundles/{}/{}.{}", w_id, id, file_type);
+        let path = app_bundle_object_path(&w_id, id, file_type);
         match os
             .get(&windmill_object_store::object_store_reexports::Path::from(
                 path,
@@ -2277,6 +2277,11 @@ async fn get_latest_version_secret_id(
     Ok(hx)
 }
 
+#[cfg(all(feature = "enterprise", feature = "parquet"))]
+pub(crate) fn app_bundle_object_path(w_id: &str, version: i64, file_type: &str) -> String {
+    format!("/app_bundles/{w_id}/{version}.{file_type}")
+}
+
 async fn store_raw_app_file<'a>(
     w_id: &str,
     id: &i64,
@@ -2288,7 +2293,7 @@ async fn store_raw_app_file<'a>(
     {
         let object_store = windmill_object_store::get_object_store().await;
 
-        let path: String = format!("/app_bundles/{}/{}.{}", w_id, id, file_type);
+        let path = app_bundle_object_path(w_id, *id, file_type);
 
         if let Some(os) = object_store {
             if let Err(e) = os
