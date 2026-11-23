@@ -542,6 +542,13 @@ describe('image routes', () => {
 			{ kind: 'message', hash: '36976501-1qvb' },
 			{ kind: 'result', workspace: 'admins', jobId: '01a2', format: 'png' },
 			{ kind: 'result', workspace: 'admins', jobId: '01a2', format: 'jpeg', nodeId: 'a' },
+			{
+				kind: 'result',
+				workspace: 'admins',
+				jobId: '01a2',
+				format: 'png',
+				path: ['render_all', 1]
+			},
 			{ kind: 'url', url: '/api/w/admins/job_helpers/load_image_preview?file_key=out/x.png' }
 		] as const
 		for (const source of sources) {

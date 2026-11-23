@@ -39,10 +39,17 @@ function storeFrom(helpers: unknown): AttachedFilesStore | undefined {
  * or undefined when it's `ready`. Shared by read_file and search_files so both report the
  * same accurate status instead of search_files claiming a non-ready file isn't attached.
  */
-function notReadyMessage(store: AttachedFilesStore, file: string): string | undefined {
+function notReadyMessage(
+	store: AttachedFilesStore,
+	file: string,
+	helpers: unknown
+): string | undefined {
 	const entry = store.resolve(file)
+	// show_file exists only where an image can open: a session's preview panel.
 	if (entry?.image)
-		return `"${file}" is an image, which has no text to read or search. Show it to the user with show_file.`
+		return (helpers as AttachedFilesHelper | undefined)?.openImage
+			? `"${file}" is an image, which has no text to read or search. Show it to the user with show_file.`
+			: `"${file}" is an image, which has no text to read or search.`
 	if (entry?.status === 'ready') return undefined
 	if (entry?.status === 'indexing')
 		return `File "${file}" is still being indexed. Try again shortly.`
@@ -115,7 +122,7 @@ export const searchFilesTool: SessionTool<{}> = {
 		// Validate a specifically requested file against the full store first, so a non-ready
 		// target reports its real status (indexing/locked/…) instead of "not attached".
 		if (parsed.file) {
-			const notReady = notReadyMessage(store, parsed.file)
+			const notReady = notReadyMessage(store, parsed.file, helpers)
 			if (notReady) return notReady
 		}
 		// Restrict to the resolved row itself, not a name filter: display names may
@@ -182,7 +189,7 @@ export const readFileTool: SessionTool<{}> = {
 			return 'No files are attached to this conversation.'
 		}
 		const parsed = readFileSchema.parse(args)
-		const notReady = notReadyMessage(store, parsed.file)
+		const notReady = notReadyMessage(store, parsed.file, helpers)
 		if (notReady) return notReady
 		const entry = store.resolve(parsed.file)!
 		toolCallbacks.setToolStatus(toolId, { content: `Reading "${entry.name}"...` })
@@ -223,13 +230,16 @@ export const showFileTool: SessionTool<{}> = {
 		const parsed = showFileSchema.parse(args)
 		const entry = store.resolve(parsed.file)
 		if (!entry || entry.messageScoped || entry.isFolderRoot) {
-			return notReadyMessage(store, parsed.file) ?? `No attached file matching "${parsed.file}".`
+			return (
+				notReadyMessage(store, parsed.file, helpers) ??
+				`No attached file matching "${parsed.file}".`
+			)
 		}
 		if (!isViewableImageName(entry.sourceName ?? entry.name)) {
 			return `"${entry.name}" is not an image. Read it with read_file instead.`
 		}
 		if (entry.status !== 'ready') {
-			return notReadyMessage(store, parsed.file) ?? `"${entry.name}" is not available.`
+			return notReadyMessage(store, parsed.file, helpers) ?? `"${entry.name}" is not available.`
 		}
 		openImage({ kind: 'file', name: entry.name }, entry.name.split('/').pop() || entry.name)
 		return `Showing "${entry.name}" in the preview panel.`

@@ -30,7 +30,10 @@
 	const PIXELATED_FROM = 2
 
 	let natural = $state<{ w: number; h: number } | undefined>(undefined)
-	let failed = $state(false)
+	// The source that failed, not a flag: a new `src` (the file fixed and re-read) must mount
+	// the image again, and only the image's own load event could clear a flag.
+	let failedSrc = $state<string>()
+	const failed = $derived(failedSrc === src)
 	let viewportW = $state(0)
 	let viewportH = $state(0)
 	// `undefined` is "fit": the scale follows the panel's size. A number is a zoom the
@@ -65,7 +68,6 @@
 	function onLoad(e: Event) {
 		const img = e.currentTarget as HTMLImageElement
 		natural = { w: img.naturalWidth || 1, h: img.naturalHeight || 1 }
-		failed = false
 	}
 
 	function clampOffset(x: number, y: number, s: number): { x: number; y: number } {
@@ -279,7 +281,7 @@
 				alt={name}
 				draggable="false"
 				onload={onLoad}
-				onerror={() => (failed = true)}
+				onerror={() => (failedSrc = src)}
 				class={twMerge(
 					'absolute max-w-none pointer-events-none',
 					!natural && 'invisible',

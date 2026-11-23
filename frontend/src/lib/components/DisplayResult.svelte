@@ -8,7 +8,7 @@
 	import { copyToClipboard, parseS3Object, roughSizeOfObject } from '$lib/utils'
 	import ExpandableImage from '$lib/components/common/image/ExpandableImage.svelte'
 	import { getImageOpener } from '$lib/components/common/image/imageOpener'
-	import type { ImageResultFormat } from '$lib/components/sessions/previewRouter'
+	import type { ImageResultFormat, ResultPath } from '$lib/components/sessions/previewRouter'
 	import {
 		downloadBlob,
 		downloadViaClient,
@@ -134,6 +134,9 @@
 		 * run from the next, or a second one continues the first one's fold.
 		 */
 		runKey?: string | undefined
+		/** Where `result` sits inside the job's result, for a nested render; null when it
+		 * cannot be addressed from the job (an agent's structured output). */
+		resultPath?: ResultPath | null
 		workspaceId?: string | undefined
 		hideAsJson?: boolean
 		noControls?: boolean
@@ -160,6 +163,7 @@
 		disableExpand = false,
 		jobId = undefined,
 		runKey = undefined,
+		resultPath = [],
 		workspaceId = undefined,
 		hideAsJson = false,
 		noControls = false,
@@ -543,15 +547,24 @@
 	 * known: the tab refetches it from there, and a result shown without one (a replay, a
 	 * value an app computed) keeps expanding in place. */
 	function openResultImage(format: ImageResultFormat): (() => void) | undefined {
-		if (!imageOpener || !jobId || !workspaceId) return undefined
+		if (!imageOpener || !jobId || !workspaceId || !resultPath) return undefined
 		const opener = imageOpener
 		const job = jobId
 		const workspace = workspaceId
 		const node = nodeId
+		const path = resultPath
+		const at = path.length ? ` #${path.filter((k) => typeof k === 'number').join('.')}` : ''
 		return () =>
 			opener(
-				{ kind: 'result', workspace, jobId: job, format, ...(node ? { nodeId: node } : {}) },
-				node ? `${node} result` : `Result ${job.slice(-8)}`
+				{
+					kind: 'result',
+					workspace,
+					jobId: job,
+					format,
+					...(node ? { nodeId: node } : {}),
+					...(path.length ? { path } : {})
+				},
+				(node ? `${node} result` : `Result ${job.slice(-8)}`) + at
 			)
 	}
 
@@ -880,10 +893,11 @@
 			</div>
 		{/if}
 		<div class="flex flex-col w-full gap-10">
-			{#each result['render_all'] as res}
+			{#each result['render_all'] as res, i}
 				<DisplayResult
 					{noControls}
 					result={res}
+					resultPath={resultPath ? [...resultPath, 'render_all', i] : null}
 					{markupTrust}
 					{filename}
 					{disableExpand}
@@ -1387,6 +1401,7 @@
 									noControls
 									hideAsJson
 									result={output}
+									resultPath={null}
 									{markupTrust}
 									{filename}
 									{disableExpand}

@@ -38,10 +38,10 @@
 		for (const m of manager.displayMessages) {
 			if (m.role === 'user') {
 				for (const image of m.images ?? []) {
-					if (imageContentKey(image.dataUrl) === source.hash) return image
+					if (imageContentKey(image.dataUrl, image) === source.hash) return image
 				}
 			} else if (m.role === 'tool' && m.imageUrl?.startsWith('data:')) {
-				if (imageContentKey(m.imageUrl) === source.hash)
+				if (imageContentKey(m.imageUrl, m) === source.hash)
 					return { dataUrl: m.imageUrl, name: undefined }
 			}
 		}
@@ -69,17 +69,17 @@
 		() => (source.kind === 'result' ? source : undefined),
 		async (s) => {
 			if (!s) return undefined
-			const result = (
-				s.nodeId
-					? await JobService.resultById({
-							workspace: s.workspace,
-							flowJobId: s.jobId,
-							nodeId: s.nodeId
-						})
-					: await JobService.getCompletedJobResult({ workspace: s.workspace, id: s.jobId })
-			) as Record<string, unknown> | undefined
+			const full: unknown = s.nodeId
+				? await JobService.resultById({
+						workspace: s.workspace,
+						flowJobId: s.jobId,
+						nodeId: s.nodeId
+					})
+				: await JobService.getCompletedJobResult({ workspace: s.workspace, id: s.jobId })
+			let result = full
+			for (const key of s.path ?? []) result = (result as Record<string | number, unknown>)?.[key]
 			// DisplayResult takes either the base64 string or `{ content }`.
-			const value = result?.[s.format]
+			const value = (result as Record<string, unknown> | undefined)?.[s.format]
 			const b64 =
 				typeof value === 'string'
 					? value

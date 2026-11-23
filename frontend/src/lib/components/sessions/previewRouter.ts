@@ -115,10 +115,20 @@ export type PreviewTarget =
 export type ImageSource =
 	| { kind: 'file'; name: string }
 	| { kind: 'message'; hash: string }
-	| { kind: 'result'; workspace: string; jobId: string; nodeId?: string; format: ImageResultFormat }
+	| {
+			kind: 'result'
+			workspace: string
+			jobId: string
+			nodeId?: string
+			format: ImageResultFormat
+			/** Where the image sits inside the result, when it is not the result itself
+			 * (a `render_all` child). */
+			path?: ResultPath
+	  }
 	| { kind: 'url'; url: string }
 
 export type ImageResultFormat = 'png' | 'jpeg' | 'gif'
+export type ResultPath = (string | number)[]
 const IMAGE_RESULT_FORMATS: readonly string[] = ['png', 'jpeg', 'gif']
 
 /**
@@ -654,18 +664,34 @@ function imageSourceOf(kind: string, parts: string[]): ImageSource | undefined {
 	if (kind === 'file' && parts.length === 1) return { kind: 'file', name: parts[0] }
 	if (kind === 'msg' && parts.length === 1) return { kind: 'message', hash: parts[0] }
 	if (kind === 'url' && parts.length === 1) return { kind: 'url', url: parts[0] }
-	if (kind === 'result' && (parts.length === 3 || parts.length === 4)) {
-		const [workspace, jobId, format, nodeId] = parts
+	if (kind === 'result' && parts.length >= 3 && parts.length <= 5) {
+		const [workspace, jobId, format, nodeId, pathJson] = parts
 		if (!IMAGE_RESULT_FORMATS.includes(format)) return undefined
+		const path = pathJson ? parseResultPath(pathJson) : undefined
+		if (pathJson && !path) return undefined
 		return {
 			kind: 'result',
 			workspace,
 			jobId,
 			format: format as ImageResultFormat,
-			...(nodeId ? { nodeId } : {})
+			...(nodeId ? { nodeId } : {}),
+			...(path ? { path } : {})
 		}
 	}
 	return undefined
+}
+
+function parseResultPath(json: string): ResultPath | undefined {
+	try {
+		const path: unknown = JSON.parse(json)
+		return Array.isArray(path) &&
+			path.length > 0 &&
+			path.every((k) => typeof k === 'string' || typeof k === 'number')
+			? path
+			: undefined
+	} catch {
+		return undefined
+	}
 }
 
 // Every segment is encoded on its own, so a `/` inside a file name or URL stays one segment.
@@ -682,7 +708,9 @@ export function imageUrl(source: ImageSource, label: string): string {
 							source.workspace,
 							source.jobId,
 							source.format,
-							...(source.nodeId ? [source.nodeId] : [])
+							// The node segment is kept, empty, when a path follows it.
+							...(source.nodeId || source.path?.length ? [source.nodeId ?? ''] : []),
+							...(source.path?.length ? [JSON.stringify(source.path)] : [])
 						]
 	const [kind, ...rest] = segments
 	return `image:${kind}/${rest.map(encodeURIComponent).join('/')}${label ? `#${encodeURIComponent(label)}` : ''}`

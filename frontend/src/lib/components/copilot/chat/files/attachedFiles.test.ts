@@ -93,6 +93,20 @@ describe('AttachedFilesStore', () => {
 		expect(store.get('proj/app.ts')?.folder).toBe('proj')
 	})
 
+	it('links a folder image as a ready image row, kept out of the text files', async () => {
+		const png = new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0, 0, 0])], 'logo.png', {
+			type: 'image/png'
+		})
+		enumerateDirMock.mockResolvedValue([
+			{ file: file('app.ts', 'x\n'), path: 'proj/app.ts' },
+			{ file: png, path: 'proj/logo.png' }
+		])
+		await store.addFolder(dir)
+		await settle(store)
+		expect(store.get('proj/logo.png')).toMatchObject({ status: 'ready', image: true })
+		expect(store.readyFiles().map((f) => f.name)).toEqual(['proj/app.ts'])
+	})
+
 	it('refreshFolders detects rename, add, edit, and delete', async () => {
 		enumerateDirMock.mockResolvedValue([
 			{ file: file('app.ts', 'x\n', 1), path: 'proj/app.ts' },

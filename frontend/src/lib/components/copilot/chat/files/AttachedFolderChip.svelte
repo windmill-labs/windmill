@@ -84,7 +84,7 @@
 							: ''}
 					</div>
 					<ul class="max-h-72 overflow-y-auto py-1" aria-label={`Files in ${folder.name}`}>
-						{#each sorted.slice(0, MAX_LISTED) as f (f.relPath ?? f.name)}
+						{#each sorted.slice(0, MAX_LISTED) as f (f.name)}
 							{@const icon = getFileIcon(f.name)}
 							{@const Icon = icon.icon}
 							<li>

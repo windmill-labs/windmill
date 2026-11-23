@@ -49,19 +49,18 @@ export function asImageBlob(file: Blob, name: string): Blob {
  * FNV-1a over the data URL, plus its length. A tab persists this key and finds the
  * image again by recomputing it over the transcript's images.
  */
-export function imageContentKey(dataUrl: string): string {
-	// An image tab re-resolves on every transcript change; the hash of a string is cached
-	// by the engine, so a Map hit costs nothing next to walking a megabyte data URL.
-	const cached = keyCache.get(dataUrl)
-	if (cached) return cached
+export function imageContentKey(dataUrl: string, owner?: object): string {
+	// An image tab re-resolves on every transcript change, so it passes the message or
+	// image object as `owner`: the hash is then computed once per image and released with it.
+	if (!owner) return fnv1a(dataUrl)
+	const hit = keyByOwner.get(owner)
+	if (hit?.dataUrl === dataUrl) return hit.key
 	const key = fnv1a(dataUrl)
-	if (keyCache.size >= KEY_CACHE_MAX) keyCache.delete(keyCache.keys().next().value!)
-	keyCache.set(dataUrl, key)
+	keyByOwner.set(owner, { dataUrl, key })
 	return key
 }
 
-const KEY_CACHE_MAX = 64
-const keyCache = new Map<string, string>()
+const keyByOwner = new WeakMap<object, { dataUrl: string; key: string }>()
 
 function fnv1a(dataUrl: string): string {
 	let h = 0x811c9dc5
