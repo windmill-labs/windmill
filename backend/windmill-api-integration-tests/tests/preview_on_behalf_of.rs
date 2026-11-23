@@ -106,6 +106,7 @@ async fn test_preview_on_behalf_of(db: Pool<Postgres>) -> anyhow::Result<()> {
             scopes: None,
             token_prefix: None,
             mcp_client: None,
+            capabilities: Some(windmill_common::roles::RoleCapabilities::FULL),
         },
         "test-workspace",
         3600,

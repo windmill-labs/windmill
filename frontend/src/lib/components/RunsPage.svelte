@@ -405,9 +405,7 @@
 						: undefined,
 			// isFlowStep: jobKindsCat != 'all' ? false : undefined,
 			hasNullParent:
-				filters.val.path != undefined ||
-				filters.val.path != undefined ||
-				filters.val.job_kinds != 'all'
+				filters.val.path != undefined || filters.val.folder || filters.val.job_kinds != 'all'
 					? true
 					: undefined,
 			label: filters.val.label || undefined,
@@ -562,7 +560,7 @@
 				body: JSON.stringify(body)
 			}
 		)
-		await new Promise(async (resolve) => {
+		{
 			const reader = response?.body?.pipeThrough(new TextDecoderStream()).getReader()
 			let reRanUuids: string[] = []
 			if (reader) {
@@ -610,8 +608,7 @@
 					}
 				}
 			}
-			resolve(undefined)
-		})
+		}
 
 		selectedIds = []
 		// Opened from the table's "Run again", the options are done; left open, the next selection

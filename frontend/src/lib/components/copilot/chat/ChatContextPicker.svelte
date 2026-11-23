@@ -19,6 +19,8 @@ On a workspace-leaf pick, emits a reference-only `WorkspaceScriptElement` /
 Content is materialized at message-prep time by `AIChatManager` — see PR #9216.
 -->
 <script lang="ts">
+	import { overlayHostActive } from '$lib/components/common/overlayHost.svelte'
+	const hostActive = overlayHostActive()
 	import { Database, Diff, FileText, Folder, Layers } from 'lucide-svelte'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 	import FlowModuleIcon from '$lib/components/flows/FlowModuleIcon.svelte'
@@ -41,6 +43,7 @@ Content is materialized at message-prep time by `AIChatManager` — see PR #9216
 		ContextIconMap,
 		withFolderContextLeaves,
 		type ContextElement,
+		type WorkspaceAgentElement,
 		type WorkspaceAppElement,
 		type WorkspaceFlowElement,
 		type WorkspaceScriptElement
@@ -100,12 +103,12 @@ Content is materialized at message-prep time by `AIChatManager` — see PR #9216
 	}
 
 	// Workspace state shared with WorkspaceItemDrillPicker via the loader.
-	// Flows and scripts everywhere; raw apps only in GLOBAL chat, where the
-	// raw-app tool surface lets the model act on the reference. Visual apps stay
+	// Flows and scripts everywhere; raw apps and agents only in GLOBAL chat, where
+	// its tools let the model act on the reference. Visual apps stay
 	// excluded — they're frontends, not code units (filtered out below, where the
 	// 'app' kind is narrowed to raw apps before tree-building).
 	const WORKSPACE_KINDS = $derived<WorkspaceItemKind[]>(
-		aiChatManager.mode === AIMode.GLOBAL ? ['flow', 'script', 'app'] : ['flow', 'script']
+		aiChatManager.mode === AIMode.GLOBAL ? ['flow', 'script', 'app', 'agent'] : ['flow', 'script']
 	)
 	const loader = useWorkspaceItemsLoader(
 		() => $operatingWorkspace,
@@ -328,6 +331,15 @@ Content is materialized at message-prep time by `AIChatManager` — see PR #9216
 					deletable: true
 				}
 				onSelectWorkspaceItem(element)
+			} else if (d.kind === 'agent') {
+				const element: WorkspaceAgentElement & { deletable: boolean } = {
+					type: 'workspace_agent',
+					path: d.path,
+					title: d.path,
+					summary: d.summary,
+					deletable: true
+				}
+				onSelectWorkspaceItem(element)
 			}
 		} else if (d.type === 'workspace_folder') {
 			// A folder is a workspace reference like an item, never in availableContext.
@@ -366,7 +378,7 @@ Content is materialized at message-prep time by `AIChatManager` — see PR #9216
 	// claimed the event (defensive — melt-ui doesn't currently
 	// preventDefault on Esc, but a future host might).
 	function onDocumentKeydown(e: KeyboardEvent) {
-		if (e.key === 'Escape' && !e.defaultPrevented) {
+		if (hostActive() && e.key === 'Escape' && !e.defaultPrevented) {
 			setShowing?.(false)
 		}
 	}

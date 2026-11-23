@@ -786,6 +786,16 @@
 		)}
 		{placeholder}
 		onKeyDown={(e) => {
+			// A shortcut aimed elsewhere (Ctrl/Cmd+K for global search) must not open the dropdown: it
+			// is portaled above every modal, so it would cover the overlay the shortcut opens. AltGr
+			// reports Ctrl+Alt, so a character typed with it still opens; so do chords that edit the text.
+			if (['Control', 'Meta', 'Alt', 'Shift'].includes(e.key)) return
+			if (
+				(e.ctrlKey || e.metaKey) &&
+				!e.altKey &&
+				!['v', 'x', 'z', 'y', 'backspace', 'delete'].includes(e.key.toLowerCase())
+			)
+				return
 			// In free-text mode the searchbar coexists with a list that owns Arrow/Enter, so opening
 			// the dropdown on a bare navigation key would steal them from an empty box. Typing, click,
 			// or an already-open dropdown still open/keep it. Other searchbars keep opening on any key.

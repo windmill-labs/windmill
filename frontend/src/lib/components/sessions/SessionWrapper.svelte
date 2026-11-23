@@ -27,14 +27,19 @@
 	import { AIChatManager } from '$lib/components/copilot/chat/AIChatManager.svelte'
 	import { userWorkspaces, workspaceStore } from '$lib/stores'
 	import { workspaceIsFork } from '$lib/utils/workspaceHierarchy'
-	import { WorkspaceService } from '$lib/gen'
+	import { DraftService, WorkspaceService, type DraftItemRef } from '$lib/gen'
+	import WorkspaceFamilyPicker from './WorkspaceFamilyPicker.svelte'
+	import SessionMoveModal from './SessionMoveModal.svelte'
+	import { flushPendingSaves, moveSessionToFork, type MoveTarget } from './moveSessionToFork'
+	import { maskHasDraftRow } from './modifiedItemsMask'
+	import { localRunEnded, localRunStarted } from './sessionSync.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { truncate } from '$lib/utils'
 	import Toggle from '$lib/components/Toggle.svelte'
-	import { copilotInfo, copilotWorkspace } from '$lib/aiStore'
 	import { loadCopilot } from '$lib/components/copilot/loadCopilot'
-	import { Archive, ArchiveRestore, EllipsisVertical, Pencil, Trash2 } from 'lucide-svelte'
+	import { Archive, ArchiveRestore, EllipsisVertical, GitFork, Pencil, Trash2 } from 'lucide-svelte'
 	import SessionChangesBar from './SessionChangesBar.svelte'
+	import { sessionHandEdits } from './sessionHandEdits.svelte'
 	import SessionShareButton from './SessionShareButton.svelte'
 	import {
 		deleteSessionsForWorkspace,
@@ -58,26 +63,36 @@
 		type SessionPreviewTab
 	} from './sessionState.svelte'
 	import { leaveForHome } from './sessionSwitch.svelte'
+	import { workspaceRootId } from './sessionScope.svelte'
+	import { fixupUrlAfterWorkspaceSwitch } from '$lib/components/sidebar/workspaceSwitchUrl'
 	import { getOrCreateRuntime, removeSession } from './sessionRuntime.svelte'
 	import { splitterPointerCapture } from '$lib/utils/splitterPointerCapture'
+	import { overlayStack, setOverlayHost } from '$lib/components/common/overlayHost.svelte'
 	import { AIWorkMode } from '$lib/components/copilot/chat/workMode'
 	import { resolvePreviewTab } from './previewRouter'
 	import { whereIs } from './sessionPreviewTabs.svelte'
 
 	let {
 		sessionId,
-		headerInPage = false,
+		onScreen = false,
 		covered = false,
 		previewTabName
 	}: {
 		sessionId: string
-		/** True for the session the page is showing: its header rides the page header bar. */
-		headerInPage?: boolean
+		/** True for the session the sessions page is showing, with its route open: its header
+		 *  rides the page header bar, and only it may send, take focus or load the copilot
+		 *  config. The page stays mounted, hidden, while the user is on other pages. */
+		onScreen?: boolean
 		/** True while the page holds this wrapper inert under an overlay, where nothing takes focus. */
 		covered?: boolean
 		/** The name the preview's tab strip shows for a tab, without its side marker. */
 		previewTabName: (tab: SessionPreviewTab) => string
 	} = $props()
+
+	// The overlays stay on the viewport and its stack. While this column is off screen they are
+	// not drawn and their window keys go quiet: a dialog left open would otherwise cover the
+	// page the user went to, and its Enter would confirm it there.
+	setOverlayHost({ el: () => undefined, drawers: overlayStack(), active: () => onScreen })
 
 	// Parent keys by sessionId; this wrapper only mounts when the session exists.
 	// Captured at script-init so we can synchronously bind context.
@@ -129,7 +144,7 @@
 	// an intent this wrapper will not claim — stale, or armed on a session the
 	// page is only keeping warm in the background — still gets a composer, whose
 	// mount-time empty draft would otherwise erase the prompt from the record.
-	const armedAtInit = sessionState.currentSessionId === sessionId && peekSessionAutoSend(sessionId)
+	const armedAtInit = untrack(() => onScreen) && peekSessionAutoSend(sessionId)
 
 	// The composer's text before AIChat mounts, typed into the placeholder, and then the real
 	// composer's initial draft.
@@ -163,7 +178,7 @@
 	// and the prompt to never be sent. Claimed only for the session the user
 	// landed on; a background wrapper would fire the turn off-screen.
 	$effect(() => {
-		if (sessionState.currentSessionId !== sessionId) return
+		if (!onScreen) return
 		if (!session?.autoSendDraftAt || !runtime) return
 		untrack(() => {
 			const prompt = getSessionDraftPrompt(sessionId)
@@ -186,11 +201,12 @@
 	// on, not the navigation workspace — a session deliberately leaves
 	// $workspaceStore on the nav workspace, so keying off it would pick the model
 	// and provider from the wrong workspace's AI config for a fork-scoped session.
-	// Only the active session may write this: copilotInfo/copilotSessionModel are
+	// Only the session on screen may write this: copilotInfo/copilotSessionModel are
 	// global, and warm background wrappers (each in their own workspace) would
-	// otherwise race to clobber the active chat's model config.
+	// otherwise race to clobber the active chat's model config. Off the route the
+	// layout loads the navigation workspace's, so coming back loads this one again.
 	$effect(() => {
-		if (sessionState.currentSessionId !== sessionId) return
+		if (!onScreen) return
 		const ws = actingWorkspaceId ?? $workspaceStore
 		if (ws) {
 			loadCopilot(ws)
@@ -292,19 +308,20 @@
 	}
 
 	// Focus the chat input whenever this session is the active one.
-	// The textarea is disabled until copilotInfo loads (otherwise focus is
+	// The textarea is disabled until the session's AI config loads (otherwise focus is
 	// a silent no-op), so we wait for that too. Triggers on initial mount,
 	// warm-session switch via the picker, and the moment copilot finishes
 	// loading.
 	let aiChat: AIChat | undefined = $state(undefined)
 	$effect(() => {
-		if (sessionState.currentSessionId !== sessionId) {
-			// The user left for another session: coming back is an activation, which focuses.
+		if (!onScreen) {
+			// The user left for another session or page: coming back is an activation, which
+			// focuses.
 			handoff = undefined
 			return
 		}
 		if (!aiChat) return
-		if (!$copilotInfo.enabled) return
+		if (!runtime?.manager.aiInfo?.enabled) return
 		const chat = aiChat
 		const selection = handoff
 		handoff = undefined
@@ -313,15 +330,15 @@
 	})
 
 	// The real composer is disabled until the copilot config of the workspace it acts on is in,
-	// so the active session keeps the placeholder, which takes typing, until then. Latched: a
+	// so the active session keeps the placeholder, which takes typing, until then (or until that
+	// load fails, which would otherwise hide the transcript for good). Latched: a
 	// later config reload must not swap a mounted chat, and its transcript, back out.
 	let chatShown = false
 	const showChat = $derived.by(() => {
 		chatShown ||=
 			!!aiChatComponent.current &&
 			!placeholderComposing &&
-			(sessionState.currentSessionId !== sessionId ||
-				$copilotWorkspace === (actingWorkspaceId ?? $workspaceStore))
+			(!onScreen || !!runtime?.manager.aiInfo || !!runtime?.manager.aiInfoFailed)
 		return chatShown
 	})
 
@@ -349,6 +366,249 @@
 	}) {
 		if (!session) return
 		await moveSessionToNewFork(session.id, fork)
+	}
+
+	// Moving mid-turn would let a tool still running write its draft into the workspace
+	// being left, after the move copied or removed the others.
+	const canMoveToFork = $derived(
+		!!runtime &&
+			!isUnavailable &&
+			!session?.archived &&
+			!runtime.manager.loading &&
+			!runtime.manager.sendInFlight &&
+			!runtime.manager.sendPending &&
+			!runtime.manager.runHeldElsewhere
+	)
+
+	type MoveRequest = {
+		open: boolean
+		parent: string
+		parentName: string
+		target: MoveTarget
+		targetName: string
+		items: (DraftItemRef & { label: string })[]
+		conflicts: DraftItemRef[]
+		error?: string
+		// Asked because the user is switching the app to the target: it switches either way.
+		switching?: { landOnHome: boolean }
+	}
+	let movePickerOpen = $state(false)
+	let moveRequest = $state<MoveRequest | undefined>(undefined)
+	let moveRemoveFromParent = $state(false)
+	let moving = $state(false)
+
+	// Every chat of the session counts, not only the one on screen: a user who opened a new
+	// chat inside the session still expects the earlier edits to come along. So do the
+	// items the user edited by hand in its tabs, as in the Changes bar.
+	function sessionMask(): Set<string> {
+		const m = runtime?.manager
+		if (!m) return new Set()
+		return new Set([
+			...m.historyManager.getAllSavedChats().flatMap((c) => c.modifiedItems ?? []),
+			...(m.modifiedItems ?? []),
+			...sessionHandEdits(sessionId)
+		])
+	}
+
+	// The list comes from the server, so an edit still debounced would be left out of it.
+	async function listMoveItems(
+		parent: string,
+		target: MoveTarget
+	): Promise<Pick<MoveRequest, 'items' | 'conflicts'> | string> {
+		const unsaved = await flushPendingSaves(parent)
+		if (unsaved) return unsaved
+		const mask = sessionMask()
+		try {
+			// Only the user's own rows move; a legacy workspace-level draft is nobody's.
+			const items = (await DraftService.listDrafts({ workspace: parent }))
+				.filter((r) => r.mine && !r.legacy_draft && maskHasDraftRow(mask, r))
+				.map((r) => ({ kind: r.kind, path: r.path, label: r.draft_path ?? r.path }))
+			let conflicts: DraftItemRef[] = []
+			if (target.kind === 'existing' && !target.replace && items.length > 0) {
+				const inFork = new Set(
+					(await DraftService.listDrafts({ workspace: target.id }))
+						.filter((r) => r.mine && !r.legacy_draft)
+						.map((r) => `${r.kind}:${r.path}`)
+				)
+				conflicts = items
+					.filter((i) => inFork.has(`${i.kind}:${i.path}`))
+					.map(({ kind, path }) => ({ kind, path }))
+			}
+			return { items, conflicts }
+		} catch (e: any) {
+			return `Could not list the session's drafts: ${e?.body ?? e?.message ?? e}`
+		}
+	}
+
+	function itemKeys(items: DraftItemRef[]): string {
+		return items
+			.map((i) => `${i.kind}:${i.path}`)
+			.sort()
+			.join('\n')
+	}
+
+	// A running turn cannot be moved, so the pick stays a plain switch.
+	function offerMoveOnSwitch(id: string, landOnHome: boolean): boolean {
+		const from = actingWorkspaceId
+		if (!session?.workspace_id || !from || id === from || !canMoveToFork || moving) return false
+		if (id === $workspaceStore) return false
+		if (workspaceRootId(id, $userWorkspaces) !== workspaceRootId(from, $userWorkspaces)) {
+			return false
+		}
+		void startMove({ kind: 'existing', id }, { landOnHome })
+		return true
+	}
+
+	function switchAppTo(id: string, landOnHome: boolean) {
+		syncWorkspaceTo(id)
+		void fixupUrlAfterWorkspaceSwitch(id, { landOnHome })
+	}
+
+	function switchWithoutMoving() {
+		const req = moveRequest
+		moveRequest = undefined
+		if (req?.switching && req.target.kind === 'existing') {
+			switchAppTo(req.target.id, req.switching.landOnHome)
+		}
+	}
+
+	async function startMove(target: MoveTarget, switching?: { landOnHome: boolean }) {
+		const parent = actingWorkspaceId
+		if (!session || !parent || !canMoveToFork || moving) return
+		if (target.kind === 'existing' && target.id === parent) return
+		const listed = await listMoveItems(parent, target)
+		if (typeof listed === 'string') {
+			sendUserToast(listed, true)
+			if (switching && target.kind === 'existing') switchAppTo(target.id, switching.landOnHome)
+			return
+		}
+		moveRemoveFromParent = false
+		moveRequest = {
+			open: !!switching || listed.items.length > 0,
+			switching,
+			parent,
+			parentName: $userWorkspaces.find((w) => w.id === parent)?.name ?? parent,
+			target,
+			targetName:
+				target.kind === 'new'
+					? target.fork.name
+					: ($userWorkspaces.find((w) => w.id === target.id)?.name ?? target.id),
+			...listed
+		}
+		if (!moveRequest?.open) await confirmMove()
+	}
+
+	async function confirmMove() {
+		const req = moveRequest
+		if (!session || !req || moving) return
+		// Another tab moved the session while this dialog was open.
+		if (actingWorkspaceId !== req.parent) {
+			moveRequest = undefined
+			sendUserToast(
+				'This session moved to another workspace meanwhile. Pick the workspace again.',
+				true
+			)
+			return
+		}
+		// A turn started while the dialog was open (a job's auto-resume) owns the cross-tab hold
+		// below; the move would release it while that turn still runs.
+		if (!canMoveToFork) {
+			moveRequest = { ...req, open: true, error: 'A chat turn is running. Retry once it ends.' }
+			return
+		}
+		moving = true
+		if (runtime) runtime.manager.moveStarted = true
+		const releaseAutoResume = runtime?.manager.holdAutoResume()
+		// Bracketed like a turn, so another tab on this session cannot send while its drafts
+		// move, then re-reads the session (its new workspace, the model note) once it ends.
+		const chatId = runtime?.manager.historyManager.getCurrentChatId()
+		if (chatId) localRunStarted(session.id, chatId)
+		try {
+			// Closing the draft editors drops what they have not handed to their save yet, so they
+			// are drained while still mounted, then closed with no await in between.
+			const unsaved = await flushPendingSaves(req.parent)
+			if (unsaved) {
+				moveRequest = { ...req, open: true, error: unsaved }
+				return
+			}
+			if (runtime) runtime.manager.moving = true
+			// A turn that ran while the dialog was open (a job's auto-resume, another tab) may have
+			// added drafts the list does not show, and the conflicts listed may have been discarded
+			// since. Now that no turn can start, both are re-read.
+			const listed = await listMoveItems(req.parent, req.target)
+			if (typeof listed === 'string') {
+				moveRequest = { ...req, open: true, error: listed }
+				return
+			}
+			const changed = itemKeys(listed.items) !== itemKeys(req.items)
+			if (changed || listed.conflicts.length > 0) {
+				moveRequest = {
+					...req,
+					...listed,
+					open: true,
+					error: changed
+						? "This session's drafts changed. Check the list and confirm again."
+						: undefined
+				}
+				return
+			}
+			let relisted: Awaited<ReturnType<typeof listMoveItems>> | undefined
+			const res = await moveSessionToFork(session.id, req.parent, req.target, {
+				items: req.items.map(({ kind, path }) => ({ kind, path })),
+				removeFromParent: moveRemoveFromParent,
+				isBusy: () => !canMoveToFork,
+				itemsChanged: async () => {
+					relisted = await listMoveItems(req.parent, req.target)
+					return typeof relisted === 'string' || itemKeys(relisted.items) !== itemKeys(req.items)
+				}
+			})
+			if (!res.ok) {
+				if (res.changed && relisted !== undefined) {
+					moveRequest = {
+						...req,
+						...(typeof relisted === 'string' ? {} : relisted),
+						target: res.retry ?? req.target,
+						open: true,
+						error: typeof relisted === 'string' ? relisted : res.error
+					}
+				} else if (!req.open) {
+					sendUserToast(res.error, true)
+					moveRequest = undefined
+				} else {
+					moveRequest = {
+						...req,
+						target: res.retry ?? req.target,
+						error: res.error,
+						conflicts: res.conflicts ?? []
+					}
+				}
+				return
+			}
+			runtime?.resetPipelineEditors()
+			moveRequest = undefined
+			await runtime?.manager
+				.queueModelNote(
+					`This session moved from workspace "${req.parent}" to workspace "${res.forkId}": every further tool call acts on "${res.forkId}". ` +
+						(res.copied > 0
+							? `${res.copied} draft(s) of this session were copied there` +
+								(res.removed > 0 ? ` and removed from "${req.parent}". ` : '. ')
+							: '') +
+						`Jobs from earlier turns ran in "${req.parent}".`
+				)
+				.catch((e) => console.error('Failed to persist the move note', e))
+			runtime?.manager.rebuildGlobalSystemMessage()
+			sendUserToast(`Session moved to ${req.targetName}`)
+			if (req.switching) switchAppTo(res.forkId, req.switching.landOnHome)
+		} finally {
+			moving = false
+			if (runtime) {
+				runtime.manager.moving = false
+				runtime.manager.moveStarted = false
+			}
+			releaseAutoResume?.()
+			if (chatId)
+				localRunEnded(session.id, runtime?.manager.historyManager.getCurrentChatId() ?? chatId)
+		}
 	}
 
 	// Chrome shared by the banners stacked above the composer, so restyling one
@@ -404,6 +664,7 @@
 			{/if}
 			<SessionChangesBar
 				{session}
+				{onScreen}
 				onMove={(workspaceId) => moveAndActivate(workspaceId)}
 				onCreateForkAndMove={(fork) => createForkAndMove(fork)}
 				onArchive={() => archiveAndReset()}
@@ -438,6 +699,15 @@
 					displayName: 'Rename',
 					icon: Pencil,
 					action: () => summaryInput?.edit()
+				},
+				{
+					displayName: 'Move to another workspace…',
+					icon: GitFork,
+					// Unsent, the session's workspace is `pending_workspace_id`, which
+					// `createSession` rewrites when it reuses the blank session.
+					hide: !session.workspace_id || isUnavailable || session.archived,
+					disabled: !canMoveToFork || moving,
+					action: () => (movePickerOpen = true)
 				},
 				...(session.archived
 					? // No Unarchive when the workspace is gone — it can't persist
@@ -475,6 +745,23 @@
 				</span>
 			{/snippet}
 		</DropdownV2>
+		{#if actingWorkspaceId}
+			<!-- Opened from the menu item above; the empty trigger only anchors it. Picking a fork
+			     moves the session there (see startMove). -->
+			<WorkspaceFamilyPicker
+				bind:open={movePickerOpen}
+				selectedId={actingWorkspaceId}
+				moveFrom={actingWorkspaceId}
+				onPick={(id) => startMove({ kind: 'existing', id })}
+				onCreateFork={(fork) => startMove({ kind: 'new', fork })}
+				createForkCaption="Created now, and the session moves into it."
+				confirmForkLabel="Move here"
+			>
+				{#snippet trigger()}
+					<span class="block w-0 h-5"></span>
+				{/snippet}
+			</WorkspaceFamilyPicker>
+		{/if}
 
 		<SessionShareButton
 			sessionId={session.id}
@@ -484,7 +771,7 @@
 		/>
 	{/snippet}
 
-	{#if headerInPage}
+	{#if onScreen}
 		<!-- The chat's own header row is the page header on this route: the session's name is its
 		     breadcrumb, and the menu is its action. The workspace it acts on is named by the
 		     breadcrumb's own workspace part, the way every other route names it — a session in a
@@ -496,6 +783,7 @@
 				noNavPicker: true
 			}}
 			{actingWorkspaceId}
+			onPickWorkspace={offerMoveOnSwitch}
 		/>
 	{/if}
 
@@ -512,17 +800,20 @@
 							hideHeader
 							hideModeSelector
 							wideLayout
+							stickyUserMessage
 							initialInstructions={draftText}
 							onDraftChange={(text) => setSessionDraftPrompt(sessionId, text)}
 							initialAttachments={armedAtInit ? undefined : getSessionDraftAttachments(sessionId)}
 							onAttachmentsChange={(a) => setSessionDraftAttachments(sessionId, a)}
 							placeholder={previewedItemPlaceholder ?? composerPlaceholder}
-							forceDisabled={isUnavailable || !!session.archived}
+							forceDisabled={isUnavailable || !!session.archived || moving}
 							forceDisabledMessage={isUnavailable
 								? 'This session is linked to a workspace that no longer exists. Move it or discard it from the banner above to keep working.'
 								: session.archived
 									? 'This session is archived. Unarchive it from the banner above to keep working.'
-									: ''}
+									: moving
+										? `Moving this session to ${moveRequest?.targetName ?? 'the fork'}…`
+										: ''}
 							emptyHint={sessionEmptyHint}
 							{inputPreface}
 							workModeLock={workModeLock.current}
@@ -544,7 +835,7 @@
 										? 'Ask followup'
 										: (previewedItemPlaceholder ?? composerPlaceholder)}
 									disabled={isUnavailable || !!session.archived}
-									autofocus={sessionState.currentSessionId === sessionId && !covered}
+									autofocus={onScreen && !covered}
 									onSelectionChange={(selection) => (handoff = selection ?? null)}
 									onCompositionChange={(composing) => (placeholderComposing = composing)}
 								/>
@@ -588,6 +879,25 @@
 			{/if}
 		</div>
 	</ConfirmationModal>
+
+	{#if moveRequest}
+		<SessionMoveModal
+			open={moveRequest.open}
+			parentName={moveRequest.parentName}
+			targetName={moveRequest.targetName}
+			newFork={moveRequest.target.kind === 'new'
+				? moveRequest.target.fork.parent_workspace_id === moveRequest.parent
+				: !!moveRequest.target.replace}
+			items={moveRequest.items}
+			conflicts={moveRequest.conflicts}
+			error={moveRequest.error}
+			loading={moving}
+			bind:removeFromParent={moveRemoveFromParent}
+			onSwitchOnly={moveRequest.switching ? switchWithoutMoving : undefined}
+			onConfirmed={() => void confirmMove()}
+			onCanceled={() => (moveRequest = undefined)}
+		/>
+	{/if}
 
 	<ConfirmationModal
 		open={archiveConfirmOpen}

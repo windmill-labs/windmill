@@ -99,7 +99,8 @@
 			</Badge>
 		{:else if id?.startsWith('subflow:')}
 			<Badge color="blue" wrapperClass="max-w-full" baseClass="!px-1" title={id}>
-				<span class="max-w-full text-2xs truncate">{id.substring('subflow:'.length)}</span></Badge
+				<!-- The step's own id: its subflow path is in the title, and would crowd out the summary. -->
+				<span class="block max-w-12 text-2xs truncate">{id.split(':').at(-1)}</span></Badge
 			>
 		{/if}
 	</div>

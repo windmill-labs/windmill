@@ -72,6 +72,9 @@ lazy_static::lazy_static! {
 const CSHARP_OBJECT_STORE_PREFIX: &str =
     const_format::concatcp!(crate::global_cache::TARGET, "_csharpbin/");
 
+#[cfg(feature = "csharp")]
+const CSHARP_WRAPPER_VERSION: &str = "wrapper-v2";
+
 /// Cache key of a C# build. The run path and the deploy-time prebuild must derive it the
 /// same way or the prebuilt binary is never found and gets rebuilt on first run.
 #[cfg(feature = "csharp")]
@@ -83,11 +86,14 @@ async fn csharp_cache_key(
 ) -> String {
     // The SDK project globs every `.cs` under the job dir, so companion modules are
     // compiled into the binary this key names and have to be part of it.
+    // The generated wrapper is compiled into the binary too: bump the version when it
+    // changes, or binaries built with the previous wrapper keep running.
     let base = format!(
-        "{}{}{}",
+        "{}{}{}{}",
         code,
         requirements_o.unwrap_or(""),
-        DOTNET_TARGET_FRAMEWORK.as_str()
+        DOTNET_TARGET_FRAMEWORK.as_str(),
+        CSHARP_WRAPPER_VERSION
     );
     let mut hash = crate::worker::artifact_cache_name(base, modules);
     hash.push_str(&crate::workspace_registry_cache_suffix(w_id).await);
@@ -266,28 +272,74 @@ fn gen_cs_proj(
     write_file(job_dir, "Script.cs", code.as_str())?;
 
     let sig_meta = windmill_parser_csharp::parse_csharp_sig_meta(code.as_str())?;
-    let sig = sig_meta.main_sig;
-    let spread = &sig
-        .args
-        .clone()
-        .into_iter()
-        .map(|x| format!("parsedArgs.{}", &x.name))
-        .join(", ");
-    let args_class_body = &sig
-        .args
-        .into_iter()
+    let args = &sig_meta.main_sig.args;
+    let class_name = sig_meta.class_name.unwrap_or("Script".to_string());
+    let otyp = |x: &windmill_parser::Arg| {
+        x.otyp
+            .clone()
+            .ok_or(anyhow!("Type not found for argument {}", x.name))
+    };
+    let args_class_body = &args
+        .iter()
         .map(|x| {
+            // The schema keys a verbatim identifier (`@class`) with its `@`, which is not
+            // part of the C# name the serializer would match on.
+            let json_name = if x.name.starts_with('@') {
+                format!(
+                    "[System.Text.Json.Serialization.JsonPropertyName(\"{}\")] ",
+                    x.name
+                )
+            } else {
+                String::new()
+            };
             Ok(format!(
-                "        public {} {} {{ get; set; }}",
-                x.otyp
-                    .ok_or(anyhow!("Type not found for argument {}", x.name))?,
-                &x.name,
+                "        {json_name}public {} {} {{ get; set; }}",
+                otyp(x)?,
+                &x.name
             ))
         })
         .collect::<Result<Vec<String>, anyhow::Error>>()?
         .join("\n");
 
-    let class_name = sig_meta.class_name.unwrap_or("Script".to_string());
+    // An argument left out of args.json must take the default declared on Main, not
+    // default(T). It is read back from the compiled method because the default
+    // expression may name a constant the wrapper cannot see. The parser does not list
+    // every parameter (`params T[] x` is not one), so Main is matched on the names it
+    // does list and each default is looked up by name, never by position.
+    let mut resolve_defaults = String::new();
+    if args.iter().any(|x| x.has_default) {
+        let names = args
+            .iter()
+            .map(|x| format!("\"{}\"", x.name.trim_start_matches('@')))
+            .join(", ");
+        resolve_defaults.push_str(&format!(
+            r#"
+                using JsonDocument __argsDoc = JsonDocument.Parse(__argsJson);
+                var __mainParams = typeof({class_name})
+                    .GetMethods(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)
+                    .First(m => m.Name == "Main" && new string[] {{ {names} }}.All(n => m.GetParameters().Any(p => p.Name == n)))
+                    .GetParameters();"#
+        ));
+        for (i, x) in args.iter().enumerate().filter(|(_, x)| x.has_default) {
+            resolve_defaults.push_str(&format!(
+                "\n                {t} __arg{i} = __argsDoc.RootElement.TryGetProperty(\"{n}\", out _) ? parsedArgs.{n} : DeclaredDefault<{t}>(__mainParams.First(p => p.Name == \"{c}\"));",
+                t = otyp(x)?,
+                n = x.name,
+                c = x.name.trim_start_matches('@'),
+            ));
+        }
+    }
+    let spread = &args
+        .iter()
+        .enumerate()
+        .map(|(i, x)| {
+            if x.has_default {
+                format!("__arg{i}")
+            } else {
+                format!("parsedArgs.{}", &x.name)
+            }
+        })
+        .join(", ");
 
     let script_call = match (sig_meta.is_async, sig_meta.returns_void) {
         (true, true) => format!(
@@ -327,6 +379,7 @@ fn gen_cs_proj(
         &format!(
             r#"using System;
 using System.IO;
+using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
 
@@ -338,13 +391,15 @@ namespace WindmillScriptCSharpInternal {{
 
     class Wrapper
     {{
+        static T DeclaredDefault<T>(System.Reflection.ParameterInfo p) => p.DefaultValue is T v ? v : default;
+
         static void Main(string[] args)
         {{
-            using FileStream fs = File.OpenRead("args.json");
-            Args parsedArgs = JsonSerializer.Deserialize<Args>(fs);
+            string __argsJson = File.ReadAllText("args.json");
+            Args parsedArgs = JsonSerializer.Deserialize<Args>(__argsJson);
 
             try
-            {{
+            {{{resolve_defaults}
                 {script_call}
             }}
             catch (Exception ex)

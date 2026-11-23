@@ -1,3 +1,5 @@
+import { VERSION } from "../../core/constants.ts";
+
 /**
  * Configuration option descriptor — each entry IS a JSON Schema property
  * with extra metadata for template rendering and reference table display.
@@ -10,7 +12,8 @@
  * Adding a new option:
  *   1. Add an entry to CONFIG_REFERENCE with JSON Schema type fields + description
  *   2. Add template rendering hints (section, commented, templateValue, etc.)
- *   3. `wmill init` (YAML template), `wmill config` (table), and wmill.schema.json all update automatically
+ *   3. `wmill init` (YAML template) and `wmill config` (table) update automatically
+ *   4. Regenerate wmill.schema.json: `bun generate-schema.ts`
  */
 export interface ConfigOption {
   // --- JSON Schema fields (kept when generating schema) ---
@@ -259,10 +262,16 @@ function yamlKey(s: string): string {
   return `"${s.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
 }
 
+// Absolute and pinned to this CLI's release tag: nothing copies the schema next
+// to the user's wmill.yaml (nor into the npm package), and the tag's schema lists
+// exactly the options this CLI version accepts.
+export const WMILL_SCHEMA_URL =
+  `https://raw.githubusercontent.com/windmill-labs/windmill/v${VERSION}/cli/wmill.schema.json`;
+
 export function generateCommentedTemplate(branchName?: string, binding?: BranchBinding, bindings?: WorkspaceBinding[]): string {
   const branch = yamlKey(branchName ?? "main");
   const lines: string[] = [
-    "# yaml-language-server: $schema=wmill.schema.json",
+    `# yaml-language-server: $schema=${WMILL_SCHEMA_URL}`,
     "# wmill.yaml — Windmill CLI configuration",
     '# Full reference: run "wmill config"',
     "",

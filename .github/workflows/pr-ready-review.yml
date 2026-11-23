@@ -96,7 +96,7 @@ jobs:
 
       - name: Checkout repository
         if: steps.marker.outputs.skip != 'true'
-        uses: actions/checkout@v5
+        uses: actions/checkout@v5.1.0
         with:
           fetch-depth: 1
 
@@ -115,7 +115,7 @@ jobs:
 
       - name: Checkout EE repository
         if: steps.ee.outputs.available == 'true'
-        uses: actions/checkout@v5
+        uses: actions/checkout@v5.1.0
         with:
           repository: windmill-labs/windmill-ee-private
           path: ./windmill-ee-private
@@ -198,7 +198,7 @@ jobs:
 
       - name: Automatic PR Review
         if: steps.marker.outputs.skip != 'true'
-        uses: anthropics/claude-code-action@v1
+        uses: anthropics/claude-code-action@v1.0.271
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           track_progress: true

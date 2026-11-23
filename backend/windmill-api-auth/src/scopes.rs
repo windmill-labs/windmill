@@ -105,6 +105,26 @@ pub fn check_route_access(
         ));
     }
 
+    // A CI test batch names flows and resources as well as scripts, and its handler checks
+    // each item against its own `<kind>:write` scope: the route needs write on one of them.
+    if route_suffix.as_deref() == Some("scripts/trigger_ci_tests_batch")
+        && token_scopes.iter().any(|s| {
+            ScopeDefinition::from_scope_string(s).is_ok_and(|scope| {
+                [
+                    ScopeDomain::Scripts,
+                    ScopeDomain::Flows,
+                    ScopeDomain::Resources,
+                ]
+                .into_iter()
+                .any(|d| {
+                    scope_grants_access(&scope, d, ScopeAction::Write, None, None).unwrap_or(false)
+                })
+            })
+        })
+    {
+        return Ok(());
+    }
+
     // tracing::error!("Checking route access {:?} {:?} {:?} {:?}", required_action, required_domain, required_kind, route_suffix);
     let mut is_scoped_token = false;
     // Check if any token scope grants the required access
@@ -257,6 +277,7 @@ fn determine_kind_from_route(route_path: &str) -> Option<String> {
         // still classified by their kind.
         if route_path.starts_with("jobs/run/preview")
             || route_path.starts_with("jobs/run_wait_result/preview")
+            || route_path.starts_with("jobs/run/flow_test/")
         {
             return None;
         }
@@ -327,7 +348,7 @@ fn extract_domain_from_route(
 /// exports) and credential minting (`job_view_token`) are deliberately absent — those are
 /// `jobs:read`. Keep by-id read routes here in sync as they are added, or a run token
 /// loses the ability to follow its own run through them.
-const RUN_WHITELISTED_GET_PATHS: [&'static str; 32] = [
+const RUN_WHITELISTED_GET_PATHS: [&'static str; 33] = [
     "jobs_u/get_flow/",
     "jobs_u/get_root_job_id/",
     "jobs_u/get/",
@@ -355,6 +376,7 @@ const RUN_WHITELISTED_GET_PATHS: [&'static str; 32] = [
     "jobs/flow/user_states/",
     "jobs/job_signature/",
     "jobs/wac_approval_urls/",
+    "jobs/flow/approval_step_detail/",
     "jobs/completed/get/",
     "jobs/completed/get_result/",
     "jobs/completed/get_result_maybe/",
@@ -437,8 +459,9 @@ pub fn has_raw_app_sdk_sentinel(scopes: Option<&[String]>) -> bool {
 /// so reaching one would make a captured SDK token a full account takeover.
 fn is_request_supplied_code_route(suffix: &str) -> bool {
     // Prefixes, so the `_async` variants are covered too.
-    const CODE_ROUTES: [&str; 10] = [
+    const CODE_ROUTES: [&str; 11] = [
         "jobs/run/preview",
+        "jobs/run/flow_test",
         "jobs/run_inline/preview",
         "jobs/run_wait_result/preview",
         "jobs/run/preview_bundle",
@@ -552,7 +575,7 @@ fn resource_metadata_route_allowed(suffix: &str) -> bool {
 /// a direct `require_job_within_read_scope`. `jobs/result_by_id/` is absent because it
 /// resolves a node up through the enclosing flows, past the job the check admitted.
 /// A route added here without that check serves a path-scoped token every job.
-const READ_PATH_SCOPED_BY_ID_PATHS: [&'static str; 25] = [
+const READ_PATH_SCOPED_BY_ID_PATHS: [&'static str; 26] = [
     "jobs_u/get/",
     "jobs_u/get_logs/",
     "jobs_u/get_completed_logs_tail/",
@@ -571,6 +594,7 @@ const READ_PATH_SCOPED_BY_ID_PATHS: [&'static str; 25] = [
     "jobs_u/get_log_file/",
     "jobs_u/get_flow/",
     "jobs_u/flow/approval_info/",
+    "jobs/flow/approval_step_detail/",
     "jobs/run_progress/",
     "jobs/flow/user_states/",
     "jobs/completed/get/",
@@ -1256,6 +1280,26 @@ mod tests {
     }
 
     #[test]
+    fn ci_test_batch_route_takes_any_tested_kind_write_scope() {
+        let route = "/api/w/test/scripts/trigger_ci_tests_batch";
+        for scope in ["flows:write:f/a/b", "resources:write", "scripts:write"] {
+            assert!(
+                check_route_access(&[scope.to_string()], route, "POST").is_ok(),
+                "{scope}"
+            );
+        }
+        for scope in ["flows:read", "jobs:run", "apps:write"] {
+            assert!(
+                check_route_access(&[scope.to_string()], route, "POST").is_err(),
+                "{scope}"
+            );
+        }
+        // The exemption is this route's alone.
+        let flows = vec!["flows:write".to_string()];
+        assert!(check_route_access(&flows, "/api/w/test/scripts/create", "POST").is_err());
+    }
+
+    #[test]
     fn data_metrics_is_its_own_domain_not_a_scripts_alias() {
         // `data_metrics` must be a distinct domain: a token scoped to it must reach
         // only the data_metrics route, never the broader /scripts routes (some of
@@ -1780,6 +1824,9 @@ mod tests {
             assert!(check_route_access(&["jobs:run:dependencies".into()], path, "POST").is_err());
         }
 
+        // Replaces flow steps with code named by job id, as a preview does.
+        assert!(is_request_supplied_code_route("jobs/run/flow_test/f/x/y"));
+
         // Preview/bundle runs have no deployed path and their handlers require the
         // broad `jobs:run` scope, so the derived scope must not carry a kind.
         for path in [
@@ -1788,6 +1835,7 @@ mod tests {
             "/api/w/ws/jobs/run/preview_flow",
             "/api/w/ws/jobs/run_wait_result/preview",
             "/api/w/ws/jobs/run_wait_result/preview_flow",
+            "/api/w/ws/jobs/run/flow_test/f/x/y",
         ] {
             assert_eq!(
                 scope_for_route("POST", path).as_deref(),

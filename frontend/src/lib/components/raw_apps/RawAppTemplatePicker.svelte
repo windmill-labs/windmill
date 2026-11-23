@@ -45,7 +45,11 @@
 	import RawAppDataTableList from './RawAppDataTableList.svelte'
 	import RawAppDataTableDrawer from './RawAppDataTableDrawer.svelte'
 	import FileEditorIcon from './FileEditorIcon.svelte'
-	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import {
+		useOperatingUser,
+		useOperatingWorkspace,
+		useOperatingWorkspaceHref
+	} from '$lib/components/operatingWorkspace.svelte'
 	import { useRoleCapabilities } from '$lib/operatorWriteRights'
 
 	export type RawAppTemplatePickerResult = {
@@ -86,6 +90,8 @@
 	let dataTableDrawer: RawAppDataTableDrawer | undefined = $state()
 
 	const operatingWorkspace = useOperatingWorkspace()
+	const operatingUser = useOperatingUser()
+	const operatingHref = useOperatingWorkspaceHref()
 	const roleCaps = useRoleCapabilities()
 	const composeOnlyApps = $derived($roleCaps.apps === 'compose')
 	let opWs = $derived($operatingWorkspace)
@@ -461,10 +467,10 @@
 						You can still create an app, but for data storage you won't be able to use data tables
 						which are <b>highly recommended</b>.
 						<br />
-						{#if $userStore?.is_admin}
+						{#if operatingUser.current?.is_admin}
 							Configure datatables in
 							<a
-								href="/workspace_settings?tab=windmill_data_tables"
+								href={operatingHref('/workspace_settings?tab=windmill_data_tables')}
 								target="_blank"
 								class="inline-flex items-center gap-1"
 								>workspace settings <ExternalLinkIcon size={16} />
@@ -624,10 +630,10 @@
 				<Alert type="info" title="AI is not configured.">
 					You can still create an app manually but using AI is highly recommended.
 					<br />
-					{#if $userStore?.is_admin}
+					{#if operatingUser.current?.is_admin}
 						Configure AI in
 						<a
-							href="/workspace_settings?tab=ai"
+							href={operatingHref('/workspace_settings?tab=ai')}
 							target="_blank"
 							class="inline-flex items-center gap-1 font-semibold"
 							>workspace settings <ExternalLinkIcon size={16} />

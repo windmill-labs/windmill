@@ -820,6 +820,43 @@ pub fn sleep_queue() -> u64 {
     }
 }
 
+/// Pings the jobs the worker handed to its dedicated subprocesses every `NUM_SECS_PING`, until
+/// the worker drops `state`. Runs apart from the main loop, which can spend longer than the
+/// zombie timeout on a job it runs itself.
+fn spawn_dedicated_in_flight_pinger(
+    db: DB,
+    worker_name: String,
+    state: &Arc<crate::common::DedicatedWorkerState>,
+) {
+    let state = Arc::downgrade(state);
+    tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(Duration::from_secs(NUM_SECS_PING)).await;
+            let Some(state) = state.upgrade() else {
+                return;
+            };
+            let sent = state.in_flight();
+            if sent.is_empty() {
+                continue;
+            }
+            match sqlx::query_scalar::<_, Uuid>(
+                "UPDATE v2_job_runtime r SET ping = now()
+                FROM v2_job_queue q
+                WHERE r.id = ANY($1) AND q.id = r.id AND q.running AND q.worker = $2
+                RETURNING r.id",
+            )
+            .bind(&sent[..])
+            .bind(&worker_name)
+            .fetch_all(&db)
+            .await
+            {
+                Ok(still_running) => state.prune_in_flight(&sent, &still_running),
+                Err(e) => tracing::warn!("failed to ping the jobs of the dedicated workers: {e:#}"),
+            }
+        }
+    });
+}
+
 pub type WorkspaceRegistryMap =
     std::collections::HashMap<String, std::collections::HashMap<String, serde_json::Value>>;
 
@@ -3462,6 +3499,17 @@ pub async fn run_worker(
             WORKER_CONFIG.load()
         );
     }
+    if WORKER_CONFIG.load().fairness_reserve {
+        tracing::info!(
+            worker = %worker_name, hostname = %hostname,
+            "fairness reserve worker: pulls only while a workspace is overloaded, and only other workspaces' jobs"
+        );
+        if !windmill_common::worker::WORKSPACE_FAIRNESS_ENABLED
+            .load(std::sync::atomic::Ordering::Relaxed)
+        {
+            tracing::warn!("fairness reserve worker stays idle: workspace fairness is off");
+        }
+    }
 
     // Dedicated workers wait for the init script before installing their dependencies, so it has to
     // be queued before they are spawned.
@@ -3513,6 +3561,13 @@ pub async fn run_worker(
         HashMap<String, Sender<DedicatedWorkerJob>>,
         Vec<JoinHandle<()>>,
     ) = (HashMap::new(), vec![]);
+
+    let dedicated_state = (!dedicated_workers.is_empty())
+        .then(|| crate::common::DedicatedWorkerState::for_worker(&worker_name));
+    if let (Some(state), Some(db)) = (dedicated_state.as_ref(), conn.as_sql()) {
+        spawn_dedicated_in_flight_pinger(db.clone(), worker_name.clone(), state);
+    }
+    occupancy_metrics.dedicated = dedicated_state.clone();
 
     #[cfg(feature = "prometheus")]
     let _worker_dedicated_channel_queue_send_duration = {
@@ -3833,6 +3888,12 @@ pub async fn run_worker(
                 // Checked after the same-worker channel: a flow this worker already runs
                 // still needs it for its remaining same-worker steps.
                 Ok(None)
+            } else if dedicated_workers.values().any(|tx| tx.capacity() == 0) {
+                // Handing a job to a full channel would park this loop until a slot frees, a job
+                // duration away: the worker would stop pinging, read as gone to the autoscaler, and
+                // hold the job out of the queue counts it scales on. Leave it queued instead.
+                tokio::time::sleep(Duration::from_millis(sleep_queue())).await;
+                continue;
             } else {
                 match &conn {
                     Connection::Sql(db) => {
@@ -3997,6 +4058,7 @@ pub async fn run_worker(
                 otel_set_worker_busy(&worker_name, 1);
 
                 occupancy_metrics.running_job_started_at = Some(Instant::now());
+                let _busy = dedicated_state.as_ref().map(|s| s.start_busy(None));
 
                 last_executed_job = None;
                 jobs_executed += 1;
@@ -4027,29 +4089,49 @@ pub async fn run_worker(
                     let restricted = job.job_token_scopes.is_some();
 
                     if !dedicated_workers.is_empty() && !fails_before_running && !restricted {
-                        let dedicated_worker_tx = job.runnable_path.as_ref().and_then(|path| {
-                            // For flow steps inside branches/loops, runnable_path includes
-                            // nesting segments (e.g. f/flow/branchone-0/a) but the dedicated
-                            // worker map is keyed by flow_root/step_id (e.g. f/flow/a).
-                            // When nesting segments are present, use flow_root + flow_step_id
-                            // to construct the correct key.
-                            let key =
-                                if let Some(flow_root) = crate::common::extract_flow_root(path) {
+                        let dedicated_worker_tx = job
+                            .runnable_path
+                            .as_ref()
+                            .and_then(|path| {
+                                // For flow steps inside branches/loops, runnable_path includes
+                                // nesting segments (e.g. f/flow/branchone-0/a) but the dedicated
+                                // worker map is keyed by flow_root/step_id (e.g. f/flow/a).
+                                // When nesting segments are present, use flow_root + flow_step_id
+                                // to construct the correct key.
+                                let key = if let Some(flow_root) =
+                                    crate::common::extract_flow_root(path)
+                                {
                                     let step_id = job.flow_step_id.as_deref().unwrap_or("");
                                     format!("{}:{}/{}", job.workspace_id, flow_root, step_id)
                                 } else {
                                     format!("{}:{}", job.workspace_id, path)
                                 };
-                            dedicated_workers.get(&key)
-                        });
+                                dedicated_workers.get(&key)
+                            })
+                            .or_else(|| {
+                                dedicated_workers.get(&crate::common::flow_script_step_runner_key(
+                                    &job.tag,
+                                    job.flow_step_id.as_deref()?,
+                                    job.runnable_id?,
+                                ))
+                            });
                         if let Some(dedicated_worker_tx) = dedicated_worker_tx {
+                            let job_id = job.id;
                             let dedicated_job = DedicatedWorkerJob {
                                 job: Arc::new(job.job()),
                                 flow_runners: None,
                                 done_tx: None,
                             };
+                            // Before the send: the subprocess can finish the job and take it
+                            // back before the send returns.
+                            if let Some(state) = dedicated_state.as_ref() {
+                                state.hand_over(job_id);
+                            }
                             if let Err(e) = dedicated_worker_tx.send(dedicated_job).await {
                                 tracing::info!("failed to send jobs to dedicated workers. Likely dedicated worker has been shut down. This is normal: {e:?}");
+                                if let Some(state) = dedicated_state.as_ref() {
+                                    state.take_back(&job_id);
+                                }
                             }
 
                             #[cfg(feature = "benchmark")]
@@ -5020,6 +5102,17 @@ pub async fn handle_queued_job(
     let _masks = RunningJobMasks::register(job.id, &client.token);
 
     if job.canceled_by.is_some() {
+        // An AI agent cancelled while parked ends here, never reaching the handler that marks its
+        // background calls still running as failed.
+        if job.kind == JobKind::AIAgent {
+            if let (Some(parent_job), Some(db)) = (job.parent_job.as_ref(), conn.as_sql()) {
+                if let Err(e) =
+                    crate::ai::utils::fail_unfinished_action_successes(&db, parent_job).await
+                {
+                    tracing::error!("Failed to close the background calls of {}: {e}", job.id);
+                }
+            }
+        }
         return Err(Error::JsonErr(canceled_job_to_result(&job)));
     }
     if let Some(e) = &job.pre_run_error {
@@ -5219,7 +5312,7 @@ pub async fn handle_queued_job(
             Ok(JobOutcome::Completed)
         } else {
             return Err(Error::internal_err(
-                "Could not handle flow job with agent worker".to_string(),
+                "Agent workers do not run flow jobs: the server hands a flow on an agent's tag to a regular worker serving the flow tag".to_string(),
             ));
         }
     } else {
@@ -6972,7 +7065,10 @@ mount {{
     if !volume_mounts.is_empty() {
         let vol_summary: Vec<String> = volume_mounts
             .iter()
-            .map(|v| format!("'{}' -> {}", v.name, v.target))
+            .map(|v| {
+                let mode = if v.read_only { " (read-only)" } else { "" };
+                format!("'{}' -> {}{mode}", v.name, v.target)
+            })
             .collect();
         append_logs(
             &job.id,

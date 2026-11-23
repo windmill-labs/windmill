@@ -37,6 +37,7 @@
 	import { useReducedMotion } from '$lib/svelte5Utils.svelte'
 	import { ClipboardCopy, Download, Maximize2, Minus, Plus, RotateCcw } from 'lucide-svelte'
 	import type { PanZoom } from 'panzoom'
+	import { mermaidConfig } from './mermaidConfig'
 
 	let { code, forceLight = false }: { code: string; forceLight?: boolean } = $props()
 
@@ -79,20 +80,7 @@
 		settled = false
 		try {
 			const mermaid = (await import('mermaid')).default
-			mermaid.initialize({
-				startOnLoad: false,
-				theme: dark ? 'dark' : 'default',
-				securityLevel: 'strict',
-				// Mermaid writes this stack into a <style> block inside the SVG, so the app's font
-				// never reaches a diagram: the bundled vector emoji font has to be named here or
-				// emoji fall back to the platform bitmap one, which ignores the zoom transform
-				// (app.css). Inter sits last before it because the emoji font also covers digits,
-				// # and *; on a box without the MS core fonts those would otherwise render as its
-				// keycap glyphs. Keeping Inter behind them leaves diagram typography unchanged.
-				fontFamily: '"trebuchet ms", verdana, arial, Inter, "Noto Color Emoji", sans-serif',
-				// Throw on parse errors instead of injecting an orphan error diagram into the DOM.
-				suppressErrorRendering: true
-			})
+			mermaid.initialize(mermaidConfig(dark))
 			// mermaid.render needs a fresh element id per attempt to avoid id collisions.
 			let id = newDiagramId()
 			let result = await mermaid.render(id, source)

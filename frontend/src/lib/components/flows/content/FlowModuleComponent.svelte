@@ -1,4 +1,5 @@
 <script lang="ts">
+	import HostWindow from '$lib/components/common/HostWindow.svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
 	import Tab from '$lib/components/common/tabs/Tab.svelte'
@@ -26,6 +27,9 @@
 	import { getFailureStepPropPicker, getStepPropPicker } from '../previousResults'
 	import { deepEqual } from 'fast-equals'
 	import Section from '$lib/components/Section.svelte'
+	import SecondsInput from '$lib/components/common/seconds/SecondsInput.svelte'
+	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 
 	import Button from '$lib/components/common/button/Button.svelte'
 	import FlowPathViewer from './FlowPathViewer.svelte'
@@ -72,14 +76,13 @@
 		signDebugRequest,
 		getDebugErrorMessage
 	} from '$lib/components/debug'
-	import { Bug, Hand, Terminal } from 'lucide-svelte'
+	import { Bug, Hand, Hourglass, Terminal } from 'lucide-svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import { sendUserToast } from '$lib/utils'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
 	const operatingWorkspace = useOperatingWorkspace()
 	const roleCaps = useRoleCapabilities()
-	const composeOnlyFlows = $derived($roleCaps.flows === 'compose')
 
 	const {
 		selectionManager,
@@ -137,6 +140,10 @@
 		toolDescription?: string | undefined
 		/** The tool's `requires_approval` setting; only an agent tool has one. */
 		toolRequiresApproval?: boolean
+		/** The tool's `background` setting; only an agent tool has one. */
+		toolBackground?: boolean
+		/** The tool's `background_after_secs` setting; only an agent tool has one. */
+		toolBackgroundAfterSecs?: number
 		siblingToolNames?: string[]
 	}
 
@@ -158,8 +165,20 @@
 		flowModuleSchemaMap = undefined,
 		toolDescription = $bindable(undefined),
 		toolRequiresApproval = $bindable(),
+		toolBackground = $bindable(),
+		toolBackgroundAfterSecs = $bindable(),
 		siblingToolNames = undefined
 	}: Props = $props()
+
+	const DEFAULT_BACKGROUND_AFTER_SECS = 30
+	type BackgroundMode = 'never' | 'after' | 'always'
+	let backgroundMode: BackgroundMode = $derived(
+		toolBackground ? 'always' : toolBackgroundAfterSecs != undefined ? 'after' : 'never'
+	)
+	function setBackgroundMode(mode: BackgroundMode) {
+		toolBackground = mode === 'always'
+		toolBackgroundAfterSecs = mode === 'after' ? DEFAULT_BACKGROUND_AFTER_SECS : undefined
+	}
 
 	setAiDecisionStep({
 		get id() {
@@ -213,7 +232,6 @@
 			Boolean(flowStore.val.value?.chat_input_enabled) &&
 			flowModule.value.type === 'aiagent'
 	)
-	let visibleSelected = $derived(selected === 'chat' && !canShowChatTab ? 'inputs' : selected)
 	let runSettings: FlowRunSettings | undefined = $state()
 	let agentLinked = $derived(flowModule.value.type === 'aiagent' && Boolean(flowModule.value.agent))
 	// A tool row drills in by selecting that tool's graph node, and the graph draws tool nodes only
@@ -241,20 +259,34 @@
 		() => (flowModule.value.type === 'script' ? flowModule.value.hash : undefined),
 		() => opWs
 	)
-	// Hub scripts, hash-pinned steps, and embeddings that disable script editing
-	// can't have their settings edited from here. The drawer must also be mounted:
-	// local-dev editors (Dev.svelte / flows/dev) provide the context store but never
-	// render the drawer, so editing there would be a no-op — keep values read-only.
+	// Not for hub scripts, hash-pinned steps, embeddings that disable script editing, or roles
+	// without code (why: FlowCardHeader's edit item). The drawer must also be mounted: local-dev
+	// editors (Dev.svelte / flows/dev) provide the context store but never render the drawer.
 	let canEditWorkspaceScriptSettings = $derived(
 		flowModule.value.type === 'script' &&
 			!flowModule.value.path?.startsWith('hub/') &&
 			flowModule.value.hash == undefined &&
 			customUi?.scriptEdit != false &&
-			!composeOnlyFlows &&
+			$roleCaps.code &&
 			$workspaceScriptSettingsDrawer != undefined
 	)
 	// Same rule as the graph node's Run button (FlowModuleSchemaItem).
-	let builderCannotTestStep = $derived(composeOnlyFlows && flowModule.value.type === 'script')
+	let builderCannotTestStep = $derived(
+		(flowModule.value.type === 'script' || flowModule.value.type === 'rawscript') &&
+			!($roleCaps.code && $roleCaps.run)
+	)
+	// Several paths ask for a tab that may be hidden (the editor's Ctrl+Enter, the forced test
+	// tab of an input edit or an agent tool); fall back to inputs here rather than guarding each
+	// of them. A preprocessor has no inputs tab, so it says why instead.
+	let visibleSelected = $derived(
+		selected === 'test' && builderCannotTestStep
+			? preprocessorModule
+				? 'cannot_test'
+				: 'inputs'
+			: selected === 'chat' && !canShowChatTab
+				? 'inputs'
+				: selected
+	)
 	let workspaceScriptNoEditReason = $derived(
 		flowModule.value.type !== 'script' || canEditWorkspaceScriptSettings
 			? undefined
@@ -262,7 +294,9 @@
 				? 'Hub scripts cannot be edited from here.'
 				: flowModule.value.hash != undefined
 					? 'Steps pinned to a specific version cannot be edited from here.'
-					: 'Editing script settings is not available in this editor.'
+					: !$roleCaps.code
+						? 'Your role cannot edit scripts.'
+						: 'Editing script settings is not available in this editor.'
 	)
 	// Non-positive concurrent_limit / cache_ttl are treated as unset by the runtime (legacy rows).
 	let referencedConcurrentLimit = $derived(
@@ -415,7 +449,10 @@
 		if (model == undefined) return
 		diffMode = true
 
-		diffEditor?.showWithModelAndOriginal((savedModule?.value as RawScript).content ?? '', model)
+		diffEditor?.showWithModelAndOriginal(
+			(savedModule?.value as RawScript | undefined)?.content ?? '',
+			model
+		)
 		editor?.hide()
 	}
 
@@ -447,7 +484,7 @@
 		flowStore.val && flowModule ? checkIfParentLoop(flowStore.val, flowModule.id) : undefined
 	)
 	$effect(() => {
-		if (selected === 'test') {
+		if (visibleSelected === 'test') {
 			leftPanelSize = 50
 		} else {
 			leftPanelSize = 100
@@ -850,7 +887,7 @@
 	})
 </script>
 
-<svelte:window onkeydown={onKeyDown} />
+<HostWindow onkeydown={onKeyDown} />
 
 {#if flowModule.value}
 	<div class="h-full bg-surface" bind:clientWidth={width}>
@@ -879,7 +916,7 @@
 					module={flowModule}
 					on:tagChange={(e) => {
 						console.log('tagChange', e.detail)
-						if (flowModule.value.type == 'script') {
+						if (flowModule.value.type == 'script' || flowModule.value.type == 'flow') {
 							flowModule.value.tag_override = e.detail
 						} else if (
 							flowModule.value.type == 'rawscript' ||
@@ -944,7 +981,7 @@
 										{#if assets?.length}
 											<AssetsDropdownButton {assets} />
 										{/if}
-										{#if isDebuggableScript && customUi?.editorBar?.debug != false}
+										{#if isDebuggableScript && customUi?.editorBar?.debug != false && !builderCannotTestStep}
 											<Button
 												variant={debugMode ? 'accent' : 'default'}
 												size="xs"
@@ -1157,12 +1194,22 @@
 										{#if isAgentTool}
 											<Tab value="tool_settings" label="Tool settings">
 												{#snippet extra()}
-													{#if toolRequiresApproval}
+													{#if toolRequiresApproval || backgroundMode !== 'never'}
 														<div class="flex flex-row items-center gap-1 text-secondary">
-															<Popover notClickable>
-																<Hand size={12} />
-																{#snippet text()}Require approval · On{/snippet}
-															</Popover>
+															{#if toolRequiresApproval}
+																<Popover notClickable>
+																	<Hand size={12} />
+																	{#snippet text()}Require approval · On{/snippet}
+																</Popover>
+															{/if}
+															{#if backgroundMode !== 'never'}
+																<Popover notClickable>
+																	<Hourglass size={12} />
+																	{#snippet text()}Run in background · {backgroundMode === 'always'
+																			? 'Always'
+																			: `After ${toolBackgroundAfterSecs}s`}{/snippet}
+																</Popover>
+															{/if}
 														</div>
 													{/if}
 												{/snippet}
@@ -1361,7 +1408,7 @@
 												{/if}
 											</PropPickerWrapper>
 										</div>
-									{:else if visibleSelected === 'test' && !builderCannotTestStep}
+									{:else if visibleSelected === 'test'}
 										{#if debugMode && isDebuggableScript}
 											<div transition:slide={{ duration: 200 }}>
 												<DebugToolbar
@@ -1415,7 +1462,7 @@
 											</Section>
 										</div>
 									{:else if visibleSelected === 'tool_settings' && isAgentTool}
-										<div class="flex-1 overflow-auto p-4">
+										<div class="flex flex-1 flex-col gap-6 overflow-auto p-4">
 											<Section label="Approval">
 												<Toggle
 													size="xs"
@@ -1430,6 +1477,48 @@
 															'Each call waits for someone to approve or reject it from the run page or the chat, without holding a worker. Other calls in the same turn run right away. A rejected call is reported to the agent as not run. An agent used as a tool of another agent cannot wait, so it leaves such tools out.'
 													}}
 												/>
+											</Section>
+											<Section
+												label="Run in background"
+												tooltip="A call in the background answers the agent with its job id, and the agent keeps working. The result reaches it in a later message. If it finishes its answer first, it waits for the result without holding a worker."
+											>
+												<div class="flex flex-col gap-2">
+													<ToggleButtonGroup
+														disabled={noEditor}
+														selected={backgroundMode}
+														onSelected={setBackgroundMode}
+													>
+														{#snippet children({ item })}
+															<ToggleButton
+																value="never"
+																label="Never"
+																tooltip="The agent waits for the result."
+																{item}
+															/>
+															<ToggleButton
+																value="after"
+																label="After a delay"
+																tooltip="The agent waits for the result up to a delay, then the call continues in the background."
+																{item}
+															/>
+															<ToggleButton
+																value="always"
+																label="Always"
+																tooltip="The agent is answered as soon as the job starts."
+																{item}
+															/>
+														{/snippet}
+													</ToggleButtonGroup>
+													{#if backgroundMode === 'after'}
+														<SecondsInput
+															disabled={noEditor}
+															bind:seconds={
+																() => toolBackgroundAfterSecs ?? DEFAULT_BACKGROUND_AFTER_SECS,
+																(v) => (toolBackgroundAfterSecs = Math.max(1, v ?? 1))
+															}
+														/>
+													{/if}
+												</div>
 											</Section>
 										</div>
 									{:else if visibleSelected === 'advanced'}
@@ -1451,10 +1540,14 @@
 											{workspaceScriptNoEditReason}
 											onEditWorkspaceScript={openWorkspaceScriptSettings}
 										/>
+									{:else if visibleSelected === 'cannot_test'}
+										<div class="h-full flex items-center justify-center text-sm text-tertiary">
+											Your role cannot test this step.
+										</div>
 									{/if}
 								</div>
 							</Pane>
-							{#if selected === 'test'}
+							{#if visibleSelected === 'test'}
 								<Pane minSize={20} class="relative">
 									{#if stepHistoryLoader?.stepStates[flowModule.id]?.initial && !flowModule.mock?.enabled}
 										<!-- svelte-ignore a11y_no_static_element_interactions -->

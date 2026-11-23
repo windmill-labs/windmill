@@ -107,6 +107,43 @@ pub async fn eval_timeout(
     }
 }
 
+/// [`eval_timeout`] for an expression that only reads `flow_input`, `flow_env` and `results`,
+/// bounded by `timeout` in total: no retry, and QuickJS is interrupted at the limit.
+pub async fn eval_within(
+    timeout: std::time::Duration,
+    expr: &str,
+    flow_input: mappable_rc::Marc<HashMap<String, Box<RawValue>>>,
+    flow_env: Option<&HashMap<String, Box<RawValue>>>,
+    authed_client: &AuthedClient,
+    by_id: &IdContext,
+) -> anyhow::Result<Box<RawValue>> {
+    let expr = expr.trim();
+    if let Some(value) =
+        windmill_jseval::try_exact_property_access(expr, Some(&flow_input), flow_env)
+    {
+        return Ok(value);
+    }
+    let eval = async {
+        if let Some(result) = windmill_jseval::handle_full_regex(expr, authed_client, by_id).await {
+            return result;
+        }
+        windmill_jseval::eval_timeout_quickjs_within(
+            timeout,
+            expr.to_string(),
+            HashMap::new(),
+            Some(flow_input),
+            flow_env,
+            Some(authed_client),
+            Some(by_id),
+            None,
+        )
+        .await
+    };
+    tokio::time::timeout(timeout, eval)
+        .await
+        .map_err(|_| anyhow::anyhow!("`{expr}` took longer than {}ms", timeout.as_millis()))?
+}
+
 /// Adds `step_id`, `job_id` and `flow_path` to a native script's thrown error, as the
 /// subprocess wrappers do from the same env vars.
 pub fn with_step_context(
@@ -117,19 +154,38 @@ pub fn with_step_context(
     let Error::ExecutionRawError(raw) = &e else {
         return e;
     };
-    let Ok(serde_json::Value::Object(mut err)) = serde_json::from_str(raw.get()) else {
-        return e;
+    let var = |k: &str| reserved_variables.get(k).map(String::as_str);
+    match add_step_context(
+        raw,
+        var("WM_FLOW_STEP_ID"),
+        var("WM_JOB_ID"),
+        var("WM_FLOW_PATH"),
+    ) {
+        Some(raw) => Error::ExecutionRawError(raw),
+        None => e,
+    }
+}
+
+/// Returns `err` with the non-empty context fields set, or `None` if it is not a JSON object.
+pub fn add_step_context(
+    err: &RawValue,
+    step_id: Option<&str>,
+    job_id: Option<&str>,
+    flow_path: Option<&str>,
+) -> Option<Box<RawValue>> {
+    let Ok(serde_json::Value::Object(mut err)) = serde_json::from_str(err.get()) else {
+        return None;
     };
-    for (key, var) in [
-        ("step_id", "WM_FLOW_STEP_ID"),
-        ("job_id", "WM_JOB_ID"),
-        ("flow_path", "WM_FLOW_PATH"),
+    for (key, v) in [
+        ("step_id", step_id),
+        ("job_id", job_id),
+        ("flow_path", flow_path),
     ] {
-        if let Some(v) = reserved_variables.get(var).filter(|v| !v.is_empty()) {
-            err.insert(key.to_string(), serde_json::Value::String(v.clone()));
+        if let Some(v) = v.filter(|v| !v.is_empty()) {
+            err.insert(key.to_string(), serde_json::Value::String(v.to_string()));
         }
     }
-    Error::ExecutionRawError(windmill_common::worker::to_raw_value(&err))
+    Some(windmill_common::worker::to_raw_value(&err))
 }
 
 #[cfg(feature = "deno_core")]

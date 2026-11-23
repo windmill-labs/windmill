@@ -212,13 +212,18 @@
 	// shared stack would let its overlays arbitrate Escape for the tab the user is looking at.
 	let overlayHostEl: HTMLDivElement | undefined = $state()
 	let hostDrawers = $state({ val: [] as string[] })
+	// The panel is resized rather than unmounted, so the active tab of a panel that
+	// is off screen is as invisible as a background tab.
+	const onScreen = $derived(active && !collapsed)
 	setOverlayHost({
 		el: () => overlayHostEl,
 		drawers: hostDrawers,
-		// The panel is resized rather than unmounted, so the active tab of a panel that
-		// is off screen is as invisible as a background tab.
-		active: () => active && !collapsed
+		active: () => onScreen
 	})
+	// A hidden tab must not hold focus: keys typed into it would edit an editor the user
+	// cannot see. `inert` only covers focus; window and document listeners in the tab
+	// still fire and ask `overlayHostActive()`.
+	const inert = $derived(permissions.moveStarted || !onScreen)
 
 	let flashing = $state(false)
 	let flashTimer: ReturnType<typeof setTimeout> | undefined
@@ -320,6 +325,7 @@
 		bind:this={overlayHostEl}
 		class="absolute inset-0 flex flex-col min-h-0 bg-surface {visibility}"
 		aria-hidden={!active}
+		{inert}
 	>
 		<!-- Only the side the tab shows is mounted. A hidden editor would be a second editor on
 		     the item's one cell that tab dedupe, reading URLs, cannot see; a hidden side's drawers
@@ -384,6 +390,10 @@
 					{/await}
 				{/if}
 			</div>
+		{:else if permissions.moving && slot.kind !== 'viewer'}
+			<div class="flex-1 flex items-center justify-center p-8 text-center text-sm text-secondary">
+				The editor reopens once the session has moved.
+			</div>
 		{:else if itemKind !== 'pipeline'}
 			<div class="absolute inset-0 flex flex-col min-h-0 bg-surface">
 				{#await import('./ItemViewerView.svelte')}
@@ -419,6 +429,7 @@
 		bind:this={overlayHostEl}
 		class="absolute inset-0 flex flex-col min-h-0 bg-surface {visibility}"
 		aria-hidden={!active}
+		{inert}
 	>
 		<!-- Waits for the host element, as the run form does: the editors' own drawers and
 		     modals portal when they mount, and resolve their host only then. -->
@@ -435,6 +446,7 @@
 		bind:this={overlayHostEl}
 		class="absolute inset-0 flex flex-col min-h-0 bg-surface {visibility}"
 		aria-hidden={!active}
+		{inert}
 	>
 		{#if overlayHostEl}
 			{#await import('./PageListView.svelte')}
@@ -456,6 +468,7 @@
 		bind:this={overlayHostEl}
 		class="absolute inset-0 flex flex-col min-h-0 bg-surface {visibility}"
 		aria-hidden={!active}
+		{inert}
 	>
 		{#if overlayHostEl}
 			{#await import('./RunViewerView.svelte')}
@@ -479,6 +492,7 @@
 		bind:this={overlayHostEl}
 		class="absolute inset-0 flex flex-col min-h-0 bg-surface {visibility}"
 		aria-hidden={!active}
+		{inert}
 	>
 		{#if artifact && runtime}
 			<ArtifactViewer
@@ -496,6 +510,7 @@
 		bind:this={overlayHostEl}
 		class="absolute inset-0 flex flex-col min-h-0 bg-surface {visibility}"
 		aria-hidden={!active}
+		{inert}
 	>
 		<!-- Waits for the host element itself: Drawer portals when it mounts, and the portal
 		     action reads its target once, so a form mounted in the same pass as this div would

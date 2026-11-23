@@ -824,7 +824,7 @@ pub async fn delete_global_setting(db: &DB, key: &str) -> error::Result<()> {
     Ok(())
 }
 /// Returns true when `key` is one of the workspace-fairness settings whose
-/// writes must be gated to cloud only.
+/// writes require an Enterprise license.
 fn is_workspace_fairness_setting(key: &str) -> bool {
     matches!(
         key,
@@ -1007,6 +1007,20 @@ async fn run_setting_pre_write_hook(
     value: &serde_json::Value,
 ) -> error::Result<()> {
     match key {
+        #[cfg(feature = "oauth2")]
+        windmill_common::global_settings::OAUTH_SETTING => {
+            let previous = windmill_common::global_settings::load_value_from_global_settings(
+                db,
+                windmill_common::global_settings::OAUTH_SETTING,
+            )
+            .await?;
+            windmill_oauth::validate_oauths_setting(
+                value,
+                previous.as_ref(),
+                include_str!("../../oauth_connect.json"),
+            )
+            .map_err(|e| error::Error::BadRequest(format!("OAuth settings: {e}")))?;
+        }
         windmill_common::global_settings::DEV_WORKSPACE_TAG_SUFFIX_SETTING => match value {
             serde_json::Value::Null => {}
             serde_json::Value::String(s) if s.trim().is_empty() => {}
@@ -1296,6 +1310,10 @@ async fn run_setting_pre_write_hook(
                     error::Error::BadRequest(format!("{MAX_TOKEN_EXPIRATION_DAYS_SETTING}: {e}"))
                 })?;
         }
+        windmill_common::global_settings::RAW_APP_VERSIONS_TO_KEEP_SETTING => {
+            windmill_common::global_settings::parse_raw_app_versions_to_keep(Some(value))
+                .map_err(|e| error::Error::BadRequest(format!("{key}: {e}")))?;
+        }
         INSTANCE_BANNER_SETTING => {
             match value {
                 // Clearing (delete row) is handled by the caller; allow it through.
@@ -1505,6 +1523,9 @@ pub async fn get_global_setting(
         // would be refused, and they are usually not a superadmin. Not a secret: pointing
         // any MCP client at the instance discovers the same answer.
         && key != MCP_DISABLE_TOKEN_QUERY_PARAM_SETTING
+        // A devops editing a worker group reads it to know whether a fairness reserve would
+        // ever pull a job.
+        && key != WORKSPACE_FAIRNESS_ENABLED_SETTING
     {
         require_super_admin(&db, &authed).await?;
     }
@@ -1576,7 +1597,7 @@ pub async fn send_stats(Extension(db): Extension<DB>, authed: ApiAuthed) -> Resu
         &HTTP_CLIENT,
         &db,
         windmill_common::stats_oss::SendStatsReason::Manual,
-        false,
+        windmill_common::stats_oss::get_disable_stats_setting(&db).await,
     )
     .await?;
 
@@ -1617,7 +1638,7 @@ pub async fn get_stats(
     let stats = windmill_common::stats_oss::get_stats_payload(
         &db,
         &windmill_common::stats_oss::SendStatsReason::Manual,
-        false,
+        windmill_common::stats_oss::get_disable_stats_setting(&db).await,
     )
     .await?;
     let json =

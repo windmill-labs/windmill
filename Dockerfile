@@ -1,7 +1,7 @@
 ARG DEBIAN_IMAGE=debian:trixie-slim
 ARG RUST_IMAGE=rust:1.97-slim-trixie
 # NOTE: If changing, also change go version in workspace dependencies template at WorkspaceDependenciesEditor.svelte
-ARG GO_VERSION=1.27.3
+ARG GO_VERSION=1.27.4
 
 # crane is built from source rather than downloaded: its release binaries are built with whatever
 # Go was current at release time, so their stdlib lags behind the Go the image installs.
@@ -180,7 +180,7 @@ ENV PATH /usr/local/bin:/root/.local/bin:/tmp/.local/bin:$PATH
 # The build cache keeps the apt layer while the base image digest and this line are unchanged, so
 # Debian security updates are not picked up by later builds. Bump to force a fresh apt-get upgrade;
 # bump it in docker/DockerfileSlim and docker/DockerfileSlimEe too.
-ARG APT_REFRESH=1
+ARG APT_REFRESH=2
 RUN echo "apt refresh ${APT_REFRESH}" \
     && apt-get update \
     && apt-get upgrade -y \
@@ -276,7 +276,7 @@ ENV PATH="${PATH}:/usr/local/go/bin"
 ENV GO_PATH=/usr/local/go/bin/go
 
 # Install UV
-RUN curl --proto '=https' --tlsv1.2 -LsSf https://github.com/astral-sh/uv/releases/download/0.13.6/uv-installer.sh | sh && mv /root/.local/bin/uv /usr/local/bin/uv
+RUN curl --proto '=https' --tlsv1.2 -LsSf https://github.com/astral-sh/uv/releases/download/0.13.8/uv-installer.sh | sh && mv /root/.local/bin/uv /usr/local/bin/uv
 
 # Preinstall python runtimes to temp build location (will copy with world-writable perms later)
 # --compile-bytecode precompiles the stdlib to .pyc so jobs don't recompile it on every run
@@ -335,7 +335,7 @@ COPY --from=builder /windmill/target/release/windmill ${APP}/windmill
 # DuckDB jobs run in this binary, which the worker looks for next to its own.
 COPY --from=windmill_duckdb_ffi_internal_builder /windmill-duckdb-ffi-internal/target/release/windmill_duckdb_runner ${APP}/windmill_duckdb_runner
 
-COPY --from=oven/bun:1.4.4 /usr/local/bin/bun /usr/bin/bun
+COPY --from=oven/bun:1.4.5 /usr/local/bin/bun /usr/bin/bun
 
 # Install windmill CLI
 RUN bun install -g windmill-cli \

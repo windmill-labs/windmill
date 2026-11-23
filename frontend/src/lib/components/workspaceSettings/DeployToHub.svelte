@@ -9,7 +9,9 @@
 	import { displayDate } from '$lib/utils'
 	import {
 		useDeployToHubSession,
+		asLayoutItem,
 		canRecord,
+		canRecordConversation,
 		canRecordSession,
 		sanitizeSlug,
 		isValidSlug,
@@ -21,6 +23,7 @@
 	import MigrationSqlEditor from './MigrationSqlEditor.svelte'
 	import PipelineRecordingReplay from '$lib/components/recording/PipelineRecordingReplay.svelte'
 	import RawAppRecordSession from './RawAppRecordSession.svelte'
+	import AgentRecordSession from './AgentRecordSession.svelte'
 	import AssetGraphCanvas from '$lib/components/assets/AssetGraph/AssetGraphCanvas.svelte'
 	import {
 		ArrowLeft,
@@ -35,6 +38,7 @@
 		FolderTree,
 		Image as ImageIcon,
 		Info,
+		Bot,
 		LayoutDashboard,
 		Loader2,
 		Play,
@@ -157,6 +161,7 @@
 	let recordDrawer = $state<Drawer | undefined>()
 	let appRecordDrawer = $state<Drawer | undefined>()
 	let appRecordTarget = $state<DeployItem | undefined>(undefined)
+	let agentRecordDrawer = $state<Drawer | undefined>()
 	let pipelinePreviewDrawer = $state<Drawer | undefined>()
 	// Inline pipeline graph above the item list, collapsed by default so the
 	// selection list stays the first thing in view.
@@ -191,6 +196,10 @@
 		appRecordDrawer?.openDrawer()
 	}
 
+	function openAgentRecord(it: DeployItem) {
+		deployHub.session?.openAgentRecord(it)
+		agentRecordDrawer?.openDrawer()
+	}
 	function openRecord(it: DeployItem) {
 		recordDrawer?.openDrawer()
 		void deployHub.session?.openRecord(it)
@@ -324,7 +333,8 @@
 		{@const s = deployHub.session}
 		<div>
 			<WorkspaceDeployLayout
-				items={s.items}
+				items={s.items.map(asLayoutItem)}
+				isAgent={(i) => i.agent === true}
 				nested
 				folderDetail={subProjectNote}
 				selectablePredicate={(i) => !s.isBlocked(i.path)}
@@ -896,6 +906,31 @@
 							</Button>
 						{/if}
 					{/if}
+					{#if s.phase === 'draft' && canRecordConversation(it)}
+						{#if it.rec === 'recorded'}
+							<Badge color="green" size="xs">
+								<Check size={10} class="mr-0.5" />Recorded
+							</Badge>
+							<Button
+								unifiedSize="xs"
+								variant="subtle"
+								startIcon={{ icon: RotateCcw }}
+								onclick={() => openAgentRecord(it)}
+							>
+								Re-record
+							</Button>
+						{:else}
+							<Badge color="yellow" size="xs">No recording</Badge>
+							<Button
+								unifiedSize="xs"
+								variant="subtle"
+								startIcon={{ icon: Play }}
+								onclick={() => openAgentRecord(it)}
+							>
+								Record conversation
+							</Button>
+						{/if}
+					{/if}
 				{/snippet}
 
 				{#snippet footer()}
@@ -907,7 +942,7 @@
 						{:else if s.phase === 'draft'}
 							<span class="text-[11px] text-hint">
 								{#if s.allRecorded}
-									All scripts and flows have a recording — best chance of approval and featuring.
+									Every item has a recording — best chance of approval and featuring.
 								{:else}
 									{s.recordableItems.filter((i) => i.rec === 'recorded').length} of {s
 										.recordableItems.length}
@@ -1077,6 +1112,41 @@
 			</DrawerContent>
 		</Drawer>
 
+		<Drawer bind:this={agentRecordDrawer} size="700px" on:close={s.closeAgentRecord}>
+			<DrawerContent
+				title={s.agentTarget
+					? `Record conversation — ${s.agentTarget.path}`
+					: 'Record conversation'}
+				on:close={() => agentRecordDrawer?.closeDrawer()}
+			>
+				<div class="flex h-full flex-col gap-2">
+					<span class="text-xs text-secondary">
+						Chat with the agent the way a visitor would. Each message runs it for real, in a
+						conversation of its own; the exchange and the tools it calls are replayed on the Hub
+						page.
+					</span>
+					{#if s.agentTarget}
+						{#key s.agentTarget.key}
+							<div class="min-h-0 flex-1">
+								<AgentRecordSession
+									path={s.agentTarget.path}
+									sent={s.agentRuns.length}
+									saving={s.agentSaving}
+									forgets={s.agentForgets}
+									onrun={s.runAgentTurn}
+									onsave={s.hubItemIds[s.agentTarget.key]
+										? async () => {
+												if (await s.saveAgentRecording()) agentRecordDrawer?.closeDrawer()
+											}
+										: undefined}
+								/>
+							</div>
+						{/key}
+					{/if}
+				</div>
+			</DrawerContent>
+		</Drawer>
+
 		<!-- Full screen on purpose: the demo is recorded at the size it will replay,
 		     and a recording driven in a narrow drawer replays as a narrow app. -->
 		<Drawer bind:this={appRecordDrawer} size="100vw">
@@ -1188,6 +1258,8 @@
 														<Code2 size={14} class="shrink-0 text-hint" />
 													{:else if u.kind === 'flow'}
 														<BarsStaggered size={14} class="shrink-0 text-hint" />
+													{:else if u.kind === 'agent'}
+														<Bot size={14} class="shrink-0 text-hint" />
 													{:else}
 														<LayoutDashboard size={14} class="shrink-0 text-hint" />
 													{/if}

@@ -216,7 +216,7 @@
 			"type": "object",
 			"properties": {
 				"subject": {
-					"description": "What to get authoring instructions for: a workspace item type (script, flow, resource, app), \"agent\" for a saved AI agent (an `ai_agent` resource, as the Agents page lists it), \"pipeline\" for building a data pipeline (a DAG of annotated scripts wired by storage assets — NOT a flow), or \"datatable\" for how data tables work (schema changes and migrations, roles and permissions) plus the wmill.datatable() SQL SDK used inside runnables, or \"workspace_settings\" for the keys and rules of the workspace settings (admins only). Schedules, triggers, and variables don't need instructions — their tool schemas describe everything.",
+					"description": "What to get authoring instructions for: a workspace item type (script, flow, resource, app), \"agent\" for a saved AI agent (an `ai_agent` resource, as the Agents page lists it), \"pipeline\" for building a data pipeline (a DAG of annotated scripts wired by storage assets — NOT a flow), or \"datatable\" for how data tables work (schema changes and migrations, roles and permissions) plus the wmill.datatable() SQL SDK used inside runnables, \"workspace_settings\" for the keys and rules of the workspace settings (admins only), \"display\" for the tables and charts a return value renders as, or \"code_mode\" for doing a task the user asks for against the systems the workspace connects to by running code, then saving it to reuse. Schedules, triggers, and variables don't need instructions — their tool schemas describe everything.",
 					"type": "string",
 					"enum": [
 						"script",
@@ -226,7 +226,9 @@
 						"agent",
 						"datatable",
 						"pipeline",
-						"workspace_settings"
+						"workspace_settings",
+						"display",
+						"code_mode"
 					]
 				},
 				"language": {
@@ -463,7 +465,7 @@
 					}
 				},
 				"query": {
-					"description": "Optional case-insensitive path or summary search string.",
+					"description": "Optional search words matched against path and summary. Scripts and flows are searched across the whole workspace, every word in any order; other types are filtered by the whole string.",
 					"type": "string"
 				},
 				"path_prefix": {
@@ -1048,6 +1050,51 @@
 			},
 			"required": [
 				"path"
+			],
+			"additionalProperties": false
+		},
+		"read_only": false
+	},
+	{
+		"name": "test_run_code",
+		"description": "Run code as a preview job in the workspace, without writing a draft first. To keep code that worked, write it as a script with write_script. It runs with exactly the `args` you send. When the user asked for this run, show it to them with show_run, if you have it.",
+		"parameters": {
+			"type": "object",
+			"properties": {
+				"code": {
+					"description": "The whole script: a `main` function whose parameters are its inputs, in the language given.",
+					"type": "string"
+				},
+				"language": {
+					"description": "A Windmill script language such as bun, python3 or deno. Defaults to bun.",
+					"type": "string"
+				},
+				"args": {
+					"description": "Arguments to pass to the runnable. Omit or pass null when no arguments are needed. An argument typed as a resource (format \"resource-<type>\" in the input schema) takes the bare string \"$res:<path>\" as its whole value — never an object wrapper like {\"$res\": \"<path>\"}, and never a plain path, both of which reach the runnable unresolved. Same for a variable, with \"$var:<path>\". The prefixed string can also sit in a nested field, e.g. {\"gh_auth\": {\"token\": \"$var:g/all/gh_token\"}}. When the input schema carries a top-level \"prompt_for_ai\", it is the author's own instructions for choosing these arguments: follow it.",
+					"anyOf": [
+						{
+							"type": "object",
+							"propertyNames": {
+								"type": "string"
+							},
+							"additionalProperties": {}
+						},
+						{
+							"type": "null"
+						}
+					]
+				},
+				"background": {
+					"description": "Run in the background without waiting. Set true for jobs you expect to be long (deploys, backfills, big queries): the result gives its job id, to follow with get_run. Leave unset for normal runs, which wait briefly and only background automatically if slow.",
+					"type": "boolean"
+				},
+				"wait_seconds": {
+					"description": "How many seconds to wait for the job in-turn before it keeps running in the background. Defaults to 15. Raise it (capped at 120) for a job you expect to finish in, say, 30–60s and want the result in this same turn. Ignored when background is true. Do not use this to poll — larger values just hold the turn longer.",
+					"type": "number"
+				}
+			},
+			"required": [
+				"code"
 			],
 			"additionalProperties": false
 		},

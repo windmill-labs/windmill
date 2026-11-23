@@ -1315,6 +1315,10 @@ async fn join_workspace<'c>(
 async fn leave_instance(Extension(db): Extension<DB>, authed: ApiAuthed) -> Result<String> {
     forbid_job_token_account_destruction(&authed)?;
     let mut tx = db.begin().await?;
+    revoke_mcp_oauth_grants(&mut *tx, &authed.email, None).await?;
+    sqlx::query!("DELETE FROM token WHERE email = $1", &authed.email)
+        .execute(&mut *tx)
+        .await?;
     sqlx::query!("DELETE FROM password WHERE email = $1", &authed.email)
         .execute(&mut *tx)
         .await?;
@@ -2063,6 +2067,17 @@ async fn change_user_email(
     .execute(&mut *tx)
     .await?;
 
+    sqlx::query("DELETE FROM recent_run_hidden_item WHERE email = $1")
+        .bind(&new_email)
+        .execute(&mut *tx)
+        .await?;
+
+    sqlx::query("UPDATE recent_run_hidden_item SET email = $1 WHERE email = $2")
+        .bind(&new_email)
+        .bind(&old_email)
+        .execute(&mut *tx)
+        .await?;
+
     // ---- credentials ---- (a password reset link was mailed to the old address)
     sqlx::query!("DELETE FROM magic_link WHERE email = $1", &old_email)
         .execute(&mut *tx)
@@ -2636,6 +2651,12 @@ pub async fn delete_workspace_user_internal(
     )
     .execute(&mut **tx)
     .await?;
+
+    sqlx::query("DELETE FROM recent_run_hidden_item WHERE email = $1 AND workspace_id = $2")
+        .bind(email_to_delete)
+        .bind(w_id)
+        .execute(&mut **tx)
+        .await?;
 
     sqlx::query!(
         "DELETE FROM input WHERE created_by = $1 AND workspace_id = $2",

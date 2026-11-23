@@ -18,18 +18,22 @@
 
 	interface Props {
 		artifact: PersistedArtifact
-		store: SessionArtifactsStore
+		/** Absent for a `sharedCopy`, which has no history to read. */
+		store?: SessionArtifactsStore
 		/** Version being viewed, or undefined for the current one. Owned by the caller — it
 		 * outlives this component, so the viewer must not keep a copy of its own. */
 		pinned?: number
 		onPin: (version: number | undefined) => void
+		/** A copy read from someone else's shared session. A share keeps only the latest text,
+		 * so there is no history to pick from, and sharing it again is the author's call. */
+		sharedCopy?: boolean
 	}
 
-	let { artifact, store, pinned, onPin }: Props = $props()
+	let { artifact, store, pinned, onPin, sharedCopy = false }: Props = $props()
 
 	const latest = $derived(currentVersion(artifact))
 	// Nothing to pick between until a second version exists.
-	const hasHistory = $derived(latest > 1)
+	const hasHistory = $derived(!sharedCopy && !!store && latest > 1)
 
 	let pinnedContent = $state<ArtifactVersion | undefined>(undefined)
 	// A pin that arrives with the tab has nothing honest to show until its snapshot lands: the
@@ -58,6 +62,7 @@
 			return
 		}
 		const id = artifact.id
+		if (!store) return
 		void store.getVersion(id, version).then(
 			(snapshot) => {
 				if (pinned !== version || artifact.id !== id) return
@@ -132,7 +137,7 @@
 					{badge.label}
 				</span>
 			{/if}
-			{#if hasHistory}
+			{#if hasHistory && store}
 				<!-- The body is blank while restoring, so the chip names the version being fetched:
 				     the latest is the one version certainly not on screen. -->
 				<ArtifactVersionPicker
@@ -146,14 +151,16 @@
 		<div class="flex items-center gap-2 shrink-0">
 			<!-- Both export and share `shown`, which is still the current document while a pin is
 			     restoring, so both wait for it. -->
-			<ArtifactShareButton
-				artifactId={artifact.id}
-				name={shown.name}
-				kind={artifact.kind}
-				content={shown.content}
-				version={shownVersion ?? latest}
-				disabled={restoringPin}
-			/>
+			{#if !sharedCopy}
+				<ArtifactShareButton
+					artifactId={artifact.id}
+					name={shown.name}
+					kind={artifact.kind}
+					content={shown.content}
+					version={shownVersion ?? latest}
+					disabled={restoringPin}
+				/>
+			{/if}
 			<ArtifactExportButton
 				name={shown.name}
 				kind={artifact.kind}
@@ -226,13 +233,19 @@
 		>
 			<ClipboardList size={12} class="shrink-0" />
 			<span class="truncate">
-				This revision is not approved · the plan you approved is v{view.backToPlan}
+				{#if sharedCopy}
+					This revision is not approved · the approved plan is v{view.backToPlan}
+				{:else}
+					This revision is not approved · the plan you approved is v{view.backToPlan}
+				{/if}
 			</span>
-			<div class="ml-auto shrink-0">
-				<Button unifiedSize="xs" variant="default" onClick={() => selectVersion(view.backToPlan)}>
-					View the plan
-				</Button>
-			</div>
+			{#if !sharedCopy}
+				<div class="ml-auto shrink-0">
+					<Button unifiedSize="xs" variant="default" onClick={() => selectVersion(view.backToPlan)}>
+						View the plan
+					</Button>
+				</div>
+			{/if}
 		</div>
 	{/if}
 

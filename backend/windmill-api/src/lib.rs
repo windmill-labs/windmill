@@ -76,6 +76,8 @@ mod ai_sessions;
 pub use ai_sessions::sweep_expired_ai_session_backups;
 mod ai_shared_artifacts;
 mod ai_shared_sessions;
+mod app_versions_retention;
+pub use app_versions_retention::prune_raw_app_versions;
 mod apps;
 mod apps_raw_bundle;
 pub use apps::invalidate_app_policy_cache;
@@ -124,6 +126,7 @@ mod storage_list_oss;
 mod workspace_dependencies;
 
 mod agent_runs;
+mod flow_test;
 mod ai_evals;
 mod approvals;
 #[cfg(all(feature = "enterprise", feature = "private"))]
@@ -399,6 +402,7 @@ async fn inject_agent_authed(
                 job_id: None,
                 credential_expiry: None,
                 mcp_client: None,
+                capabilities: None,
             },
             job_id: None,
         });
@@ -489,7 +493,7 @@ pub async fn run_server(
         .expose_headers([http::header::WWW_AUTHENTICATE])
         .allow_origin(Any);
 
-    let sp_extension = Arc::new(saml_oss::build_sp_extension().await?);
+    let sp_extension = Arc::new(saml_oss::build_sp_extension(&db).await?);
 
     if server_mode {
         #[cfg(feature = "embedding")]

@@ -46,6 +46,24 @@ pub struct FlowStatus {
     /// the worker then walks the ancestors as usual.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub no_inherited_flow_env: bool,
+    /// On a root flow: the steps, at any depth, that failed and that the flow went past
+    /// because of `continue_on_error`. Capped at `MAX_CONTINUED_ON_ERROR` entries.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub continued_on_error: Vec<ContinuedOnError>,
+    /// In a flow test run: deployed subflow path -> the flow value with the test's overrides
+    /// applied, run as a preview in place of the deployed subflow. Only the flow test route
+    /// writes it, and the worker passes it on only to flows that are part of the same test run:
+    /// a deployed subflow left as is, which may run as someone else, never gets it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub test_subflows: Option<HashMap<String, serde_json::Value>>,
+}
+
+pub const MAX_CONTINUED_ON_ERROR: i32 = 100;
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ContinuedOnError {
+    pub id: String,
+    pub job: Uuid,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
@@ -190,6 +208,7 @@ struct UntaggedFlowStatusModule {
     flow_jobs: Option<Vec<Uuid>>,
     flow_jobs_success: Option<Vec<Option<bool>>>,
     flow_jobs_duration: Option<FlowJobsDuration>,
+    flow_jobs_labels: Option<Vec<Option<String>>>,
     branch_chosen: Option<BranchChosen>,
     branchall: Option<BranchAllStatus>,
     parallel: Option<bool>,
@@ -198,7 +217,7 @@ struct UntaggedFlowStatusModule {
     failed_retries: Option<Vec<Uuid>>,
     skipped: Option<bool>,
     agent_actions: Option<Vec<AgentAction>>,
-    agent_actions_success: Option<Vec<bool>>,
+    agent_actions_success: Option<Vec<Option<bool>>>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -274,6 +293,8 @@ pub enum FlowStatusModule {
         #[serde(skip_serializing_if = "Option::is_none")]
         flow_jobs_duration: Option<FlowJobsDuration>,
         #[serde(skip_serializing_if = "Option::is_none")]
+        flow_jobs_labels: Option<Vec<Option<String>>>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         branch_chosen: Option<BranchChosen>,
         #[serde(skip_serializing_if = "Option::is_none")]
         branchall: Option<BranchAllStatus>,
@@ -284,7 +305,7 @@ pub enum FlowStatusModule {
         #[serde(skip_serializing_if = "Option::is_none")]
         agent_actions: Option<Vec<AgentAction>>,
         #[serde(skip_serializing_if = "Option::is_none")]
-        agent_actions_success: Option<Vec<bool>>,
+        agent_actions_success: Option<Vec<Option<bool>>>,
     },
     Success {
         id: String,
@@ -296,6 +317,8 @@ pub enum FlowStatusModule {
         #[serde(skip_serializing_if = "Option::is_none")]
         flow_jobs_duration: Option<FlowJobsDuration>,
         #[serde(skip_serializing_if = "Option::is_none")]
+        flow_jobs_labels: Option<Vec<Option<String>>>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         branch_chosen: Option<BranchChosen>,
         #[serde(default)]
         #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -306,7 +329,7 @@ pub enum FlowStatusModule {
         #[serde(skip_serializing_if = "Option::is_none")]
         agent_actions: Option<Vec<AgentAction>>,
         #[serde(skip_serializing_if = "Option::is_none")]
-        agent_actions_success: Option<Vec<bool>>,
+        agent_actions_success: Option<Vec<Option<bool>>>,
     },
     Failure {
         id: String,
@@ -318,13 +341,15 @@ pub enum FlowStatusModule {
         #[serde(skip_serializing_if = "Option::is_none")]
         flow_jobs_duration: Option<FlowJobsDuration>,
         #[serde(skip_serializing_if = "Option::is_none")]
+        flow_jobs_labels: Option<Vec<Option<String>>>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         branch_chosen: Option<BranchChosen>,
         #[serde(skip_serializing_if = "Vec::is_empty")]
         failed_retries: Vec<Uuid>,
         #[serde(skip_serializing_if = "Option::is_none")]
         agent_actions: Option<Vec<AgentAction>>,
         #[serde(skip_serializing_if = "Option::is_none")]
-        agent_actions_success: Option<Vec<bool>>,
+        agent_actions_success: Option<Vec<Option<bool>>>,
     },
 }
 
@@ -372,6 +397,7 @@ impl<'de> Deserialize<'de> for FlowStatusModule {
                 flow_jobs: untagged.flow_jobs,
                 flow_jobs_success: untagged.flow_jobs_success,
                 flow_jobs_duration: untagged.flow_jobs_duration,
+                flow_jobs_labels: untagged.flow_jobs_labels,
                 branch_chosen: untagged.branch_chosen,
                 branchall: untagged.branchall,
                 parallel: untagged.parallel.unwrap_or(false),
@@ -390,6 +416,7 @@ impl<'de> Deserialize<'de> for FlowStatusModule {
                 flow_jobs: untagged.flow_jobs,
                 flow_jobs_success: untagged.flow_jobs_success,
                 flow_jobs_duration: untagged.flow_jobs_duration,
+                flow_jobs_labels: untagged.flow_jobs_labels,
                 branch_chosen: untagged.branch_chosen,
                 approvers: untagged.approvers.unwrap_or_default(),
                 failed_retries: untagged.failed_retries.unwrap_or_default(),
@@ -407,6 +434,7 @@ impl<'de> Deserialize<'de> for FlowStatusModule {
                 flow_jobs: untagged.flow_jobs,
                 flow_jobs_success: untagged.flow_jobs_success,
                 flow_jobs_duration: untagged.flow_jobs_duration,
+                flow_jobs_labels: untagged.flow_jobs_labels,
                 branch_chosen: untagged.branch_chosen,
                 failed_retries: untagged.failed_retries.unwrap_or_default(),
                 agent_actions: untagged.agent_actions,
@@ -487,6 +515,15 @@ impl FlowStatusModule {
         }
     }
 
+    pub fn flow_jobs_labels(&self) -> Option<Vec<Option<String>>> {
+        match self {
+            FlowStatusModule::InProgress { flow_jobs_labels, .. } => flow_jobs_labels.clone(),
+            FlowStatusModule::Success { flow_jobs_labels, .. } => flow_jobs_labels.clone(),
+            FlowStatusModule::Failure { flow_jobs_labels, .. } => flow_jobs_labels.clone(),
+            _ => None,
+        }
+    }
+
     pub fn flow_jobs_duration(&self) -> Option<FlowJobsDuration> {
         match self {
             FlowStatusModule::InProgress { flow_jobs_duration, .. } => flow_jobs_duration.clone(),
@@ -556,7 +593,7 @@ impl FlowStatusModule {
         }
     }
 
-    pub fn agent_actions_success(&self) -> Option<Vec<bool>> {
+    pub fn agent_actions_success(&self) -> Option<Vec<Option<bool>>> {
         match self {
             FlowStatusModule::InProgress { agent_actions_success, .. } => {
                 agent_actions_success.clone()
@@ -614,6 +651,8 @@ impl FlowStatus {
             chat_input_enabled: f.chat_input_enabled,
             memory_id: None,
             no_inherited_flow_env: false,
+            continued_on_error: vec![],
+            test_subflows: None,
         }
     }
 

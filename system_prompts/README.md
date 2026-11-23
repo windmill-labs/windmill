@@ -52,6 +52,7 @@ a CLI-only workflow file (`flow-cli.md`, `script-cli.md`, `raw-app-cli.md`).
 | pipeline | `getPipelinePrompt()` | `write-pipeline` | `pipeline-base.md` |
 | data tables | `getDatatablePrompt()` | `datatables` | `datatable.md` |
 | workspace settings | `getWorkspaceSettingsPrompt()` | `workspace-settings` | `workspace-settings.md` |
+| rich results | `getDisplayPrompt()` | `rich-results` | `display-results.md`, `display-catalog.gen.md` (written by `npm run gen:display-catalog` in `frontend/` from the zod catalog) |
 | triggers, schedules, preview, CLI commands | — | same names | CLI only |
 
 The app chat embeds `RAW_APP_BASE` directly (`chat/app/core.ts`).

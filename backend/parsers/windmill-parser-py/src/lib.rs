@@ -168,7 +168,10 @@ fn filter_relevant_statements(code: &str) -> String {
     while let Some(line) = lines.next() {
         let trimmed = line.trim_start();
 
-        if trimmed.starts_with("class ") || trimmed.starts_with("def ") {
+        if trimmed.starts_with("class ")
+            || trimmed.starts_with("def ")
+            || trimmed.starts_with("async def ")
+        {
             result.push(line);
             let base_indent = line.len() - trimmed.len();
 
@@ -203,7 +206,9 @@ fn extract_code_metadata(code: &str, main_name: &str) -> CodeMetadata {
 
     let filtered_code = filter_relevant_statements(code);
 
-    let ast = match parse_module(&filtered_code) {
+    // The line-based prefilter cuts a block at a column-0 line inside a multiline
+    // string (e.g. SQL in a triple-quoted literal), so fall back to the full source.
+    let ast = match parse_module(&filtered_code).or_else(|_| parse_module(code)) {
         Ok(parsed) => parsed.into_suite(),
         Err(_) => return CodeMetadata { enums, descriptions },
     };
@@ -243,14 +248,12 @@ fn extract_code_metadata(code: &str, main_name: &str) -> CodeMetadata {
                     }
                 }
             }
-            Stmt::FunctionDef(StmtFunctionDef {
-                name: func_name, body, is_async: false, ..
-            }) if has_docstring => {
-                if func_name.as_str() == main_name {
-                    if let Some(Stmt::Expr(expr_stmt)) = body.first() {
-                        if let Expr::StringLiteral(docstring) = expr_stmt.value.as_ref() {
-                            descriptions = parse_docstring_args(docstring.value.to_str());
-                        }
+            Stmt::FunctionDef(StmtFunctionDef { name: func_name, body, .. })
+                if has_docstring && func_name.as_str() == main_name =>
+            {
+                if let Some(Stmt::Expr(expr_stmt)) = body.first() {
+                    if let Expr::StringLiteral(docstring) = expr_stmt.value.as_ref() {
+                        descriptions = parse_docstring_args(docstring.value.to_str());
                     }
                 }
             }
@@ -1424,6 +1427,35 @@ def main(p: Point, name: str = "world"):
                 "{code}"
             );
         }
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_python_sig_async_main_docstring_args() -> anyhow::Result<()> {
+        let code = r#"
+from enum import Enum
+
+class Color(str, Enum):
+    RED = 'red'
+    GREEN = 'green'
+
+async def main(color: Color = Color.RED):
+    """
+    Args:
+        color: Color to use
+    """
+    query = """
+SELECT 1
+"""
+    return query
+"#;
+        let result = parse_python_signature(code, None, false)?;
+        assert_eq!(result.args[0].otyp, Some("Color to use".to_string()));
+        assert_eq!(
+            result.args[0].typ,
+            Typ::Str(Some(vec!["red".to_string(), "green".to_string()]))
+        );
+        assert_eq!(result.args[0].default, Some(json!("red")));
         Ok(())
     }
 }

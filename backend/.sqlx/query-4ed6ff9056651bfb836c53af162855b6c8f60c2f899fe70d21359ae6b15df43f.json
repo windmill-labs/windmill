@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO ai_agent_checkpoint (job_id, workspace_id, checkpoint, waiting_on)\n         VALUES ($1, $2, $3, $4)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Varchar",
+        "Jsonb",
+        "UuidArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "4ed6ff9056651bfb836c53af162855b6c8f60c2f899fe70d21359ae6b15df43f"
+}

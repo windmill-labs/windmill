@@ -3,7 +3,7 @@
 // import aiStore back, and such a cycle crashes the app once the bundler splits it across
 // chunks (docs/frontend-import-cycles.md; the build fails on the chunk cycle, not on this).
 import { writable, get } from 'svelte/store'
-import { SvelteMap } from 'svelte/reactivity'
+import { SvelteMap, SvelteSet } from 'svelte/reactivity'
 import {
 	type AIProviderModel,
 	type AIProvider,
@@ -83,9 +83,11 @@ export const copilotInfo = writable<CopilotInfo>({
 })
 
 // Each workspace's AI config, read by AI sessions, which send with their own workspace's config
-// rather than the tab's. Only `loadWorkspaceCopilotInfo` fills it: a save invalidates instead.
+// rather than the tab's. Filled by `loadWorkspaceCopilotInfo`, and by a save with what it returned.
 const workspaceCopilotInfos = new SvelteMap<string, CopilotInfo>()
 const workspaceLoads = new Map<string, Promise<CopilotInfo>>()
+// Workspaces whose last load failed, so what waits on their config can stop waiting.
+const failedWorkspaceCopilotInfos = new SvelteSet<string>()
 // Bumped by invalidation: a load started before it refetches instead of keeping its answer.
 let allWorkspacesVersion = 0
 const workspaceVersions = new Map<string, number>()
@@ -234,6 +236,10 @@ export function getWorkspaceCopilotInfo(workspace: string): CopilotInfo | undefi
 	return info
 }
 
+export function workspaceCopilotInfoFailed(workspace: string): boolean {
+	return failedWorkspaceCopilotInfos.has(workspace)
+}
+
 /** `workspace`'s AI config for a request made on its behalf, without touching the tab's.
  * Fetched once and kept until invalidated. `fresh` refetches a config that may have changed
  * elsewhere: unlike after a save, the one held stays readable until the new one lands, so what
@@ -251,11 +257,28 @@ export function loadWorkspaceCopilotInfo(workspace: string, fresh = false): Prom
 				if (version !== versionOf(workspace)) return loadWorkspaceCopilotInfo(workspace)
 				const info = buildCopilotInfo(config, get(aiUserDisabled))
 				workspaceCopilotInfos.set(workspace, info)
+				failedWorkspaceCopilotInfos.delete(workspace)
 				return info
+			})
+			.catch((e) => {
+				failedWorkspaceCopilotInfos.add(workspace)
+				throw e
 			})
 		workspaceLoads.set(workspace, load)
 	}
 	return load
+}
+
+/** After a save of `workspace`'s AI config, with the effective config the save returned: what
+ * shows it keeps a config throughout, where invalidating would blank it until the refetch. A load
+ * started before the save still refetches. Also updates the tab's copy, but only when the tab is
+ * on `workspace`: it belongs to the workspace on screen, which a session's may not be. */
+export function applySavedWorkspaceCopilotInfo(workspace: string, aiConfig: AIConfig) {
+	const info = buildCopilotInfo(aiConfig, get(aiUserDisabled))
+	workspaceVersions.set(workspace, (workspaceVersions.get(workspace) ?? 0) + 1)
+	workspaceCopilotInfos.set(workspace, info)
+	failedWorkspaceCopilotInfos.delete(workspace)
+	if (get(copilotWorkspace) === workspace) applyCopilotInfo(info)
 }
 
 /** After a save of `workspace`'s AI config, or with none of a config every workspace inherits

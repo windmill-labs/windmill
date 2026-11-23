@@ -431,10 +431,11 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 		return scan
 	}
 
-	function fetchJobs(q: JobsQuery): CancelablePromise<Job[]> {
+	function fetchJobs(q: JobsQuery, onError?: () => void): CancelablePromise<Job[]> {
 		if (_args.skip) return CancelablePromiseUtils.pure<Job[]>([])
 		return CancelablePromiseUtils.catchErr(listJobs(q), (e) => {
 			if (e instanceof CancelError) return CancelablePromiseUtils.err(e)
+			onError?.()
 			sendUserToast(`Could not load jobs: ${e.body ?? e.message}`, true)
 			console.error(e)
 			return CancelablePromiseUtils.pure<Job[]>([])
@@ -817,11 +818,38 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 						// unbounded scan of completed jobs, possibly the one that just timed out. Not for
 						// queue-only views: fetchJobs turns this into the queue's created_at bound, hiding
 						// older jobs that suspend or come due. The margin absorbs browser/database skew.
-						newJobs = await fetchJobs({
-							completedBefore: maxTs,
-							completedAfter: minTs ?? completedTs ?? (isQueueOnly ? null : listLoadedAt),
-							createdAfterQueue: queueTs
-						})
+						let failed = false
+						// Taken before the request: the list can be reloaded while it is in flight,
+						// and only rows that were queued when it was sent can be judged by its answer.
+						// A created_after bound on the queue half could leave out older listed rows.
+						const queuedAtRequest =
+							!_args.skip && !isQueueOnly && maxTs == null && queueTs == null
+								? new Set(jobs.filter((x) => x.type == 'QueuedJob').map((x) => x.id))
+								: new Set<string>()
+						newJobs = await fetchJobs(
+							{
+								completedBefore: maxTs,
+								completedAfter: minTs ?? completedTs ?? (isQueueOnly ? null : listLoadedAt),
+								createdAfterQueue: queueTs
+							},
+							() => (failed = true)
+						)
+						// One statement returns every matching queued job (uncapped below MAX_PER_PAGE;
+						// a maxTs makes it completed-only), so a queued row in neither half left the
+						// queue unseen, e.g. completed as skipped while skipped jobs are hidden.
+						// Otherwise it would stay as "Waiting executor" until a reload.
+						if (!failed && queuedAtRequest.size > 0 && jobs) {
+							const returned = new Set(newJobs.map((x) => x.id))
+							const queuedReturned = newJobs.filter((x) => x.type == 'QueuedJob').length
+							const gone = new Set([...queuedAtRequest].filter((id) => !returned.has(id)))
+							if (gone.size > 0 && queuedReturned < MAX_PER_PAGE) {
+								const keep = (x: Job) => !(x.type == 'QueuedJob' && gone.has(x.id))
+								jobs = jobs.filter(keep)
+								if (extendedJobs) {
+									extendedJobs.jobs = extendedJobs.jobs.filter(keep)
+								}
+							}
+						}
 					} else {
 						// Obscured jobs have no ids, so we have to do the full request
 						extendedJobs = await fetchExtendedJobs(concurrencyKey, maxTs, minTs ?? completedTs)

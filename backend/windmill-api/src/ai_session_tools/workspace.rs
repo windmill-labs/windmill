@@ -1440,14 +1440,21 @@ async fn list_workspace_items(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
     let prefixes: Vec<Option<String>> = if scope_roots.is_empty() {
         vec![prefix.filter(|p| !p.is_empty()).map(str::to_string)]
     } else {
-        scope_roots.iter().map(|root| Some(format!("{root}/"))).collect()
+        scope_roots
+            .iter()
+            .map(|root| Some(format!("{root}/")))
+            .collect()
     };
     let per_page = limit.min(MAX_LIST_LIMIT);
     let page_number = page.unwrap_or(1).max(1);
+    let search = opt_str_arg(args, "query")
+        .map(|q| q.trim().to_lowercase())
+        .filter(|q| !q.is_empty());
     // Several folders read as one listing, folder after folder, so `limit` stays one cap per
     // type (per trigger kind for triggers): page N is rows (N-1)*limit..N*limit of each
-    // concatenation, which takes every folder's first N*limit rows.
-    let window = (prefixes.len() > 1)
+    // concatenation, which takes every folder's first N*limit rows. A search pages the same
+    // way, since the runnables search it goes through pages by cursor, not by page number.
+    let window = (prefixes.len() > 1 || search.is_some())
         .then(|| (page_number - 1) * per_page..page_number * per_page);
 
     let mut query = format!("per_page={per_page}");
@@ -1474,6 +1481,10 @@ async fn list_workspace_items(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
         }
     }
 
+    // Scripts and flows are searched by the server, across the whole workspace rather than
+    // one fetched page, each word matched in any order; it has already chosen them, so the
+    // substring filter below leaves them be.
+    let mut searched = std::collections::HashSet::new();
     let mut by_key = Map::new();
     // Each type's index into its concatenation across folders, per trigger kind for triggers.
     let mut index_by_kind: HashMap<String, u64> = HashMap::new();
@@ -1496,6 +1507,40 @@ async fn list_workspace_items(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
                 };
                 if let Some(prefix) = prefix {
                     query.push_str(&format!("&path_start={}", enc(prefix)));
+                }
+                let server_search = search
+                    .as_deref()
+                    .filter(|_| matches!(*item_type, "script" | "flow"));
+                if let Some(text) = server_search {
+                    let wanted = window.as_ref().map_or(per_page, |w| w.end);
+                    let rows =
+                        search_runnables(ctx, item_type, text, prefix.as_deref(), wanted).await?;
+                    for row in rows {
+                        let index = index_by_kind.entry(format!("{item_type}:")).or_default();
+                        *index += 1;
+                        if window.as_ref().is_some_and(|w| !w.contains(&(*index - 1))) {
+                            continue;
+                        }
+                        let stored = row.get("path").and_then(Value::as_str).unwrap_or_default();
+                        let mut item = deployed_item(item_type, None, &row);
+                        // A draft-only row is stored under a generated path: show it the
+                        // way `list_drafts` does, so the draft overlay keys it the same.
+                        let (path, _) = ctx.display_path(item_type, stored);
+                        if let Value::Object(map) = &mut item {
+                            map.insert("path".into(), json!(path));
+                            put(
+                                map,
+                                "draftPath",
+                                row.get("draft_path")
+                                    .filter(|p| p.as_str() != Some(path))
+                                    .cloned(),
+                            );
+                        }
+                        let key = item_key(item_type, path, None);
+                        searched.insert(key.clone());
+                        by_key.insert(key, item);
+                    }
+                    continue;
                 }
                 let route = ctx.ws(&format!(
                     "{}/list?{query}{extra}",
@@ -1562,21 +1607,21 @@ async fn list_workspace_items(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
         }
     }
 
-    let query = opt_str_arg(args, "query")
-        .map(|q| q.trim().to_lowercase())
-        .filter(|q| !q.is_empty());
     let results: Vec<Value> = by_key
         .into_iter()
-        .map(|(_, item)| item)
-        .chain(access_rows)
-        .filter(|item| {
-            let Some(query) = &query else { return true };
+        .map(|(key, item)| (searched.contains(&key), item))
+        .chain(access_rows.into_iter().map(|item| (false, item)))
+        .filter(|(searched, item)| {
+            let Some(query) = search.as_ref().filter(|_| !searched) else {
+                return true;
+            };
             ["path", "summary"].iter().any(|key| {
                 item.get(*key)
                     .and_then(Value::as_str)
                     .is_some_and(|text| text.to_lowercase().contains(query))
             })
         })
+        .map(|(_, item)| item)
         .collect();
     let listed = pretty(&Value::Array(results));
     if scope_roots.is_empty() {
@@ -1587,6 +1632,41 @@ async fn list_workspace_items(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
         "Items under {}, where this session works. Pass path_prefix \"\" for the whole workspace.\n{listed}",
         folders.join(", ")
     ))
+}
+
+/// The first `wanted` scripts or flows matching `text`, every word in any order, through the
+/// runnables search: it pages by cursor and caps a page, so this follows the cursor until it
+/// has `wanted` rows or the matches run out.
+async fn search_runnables(
+    ctx: &Ctx<'_>,
+    item_type: &str,
+    text: &str,
+    prefix: Option<&str>,
+    wanted: u64,
+) -> Result<Vec<Value>, String> {
+    const MAX_RUNNABLES_PAGE: u64 = 1000;
+    let mut rows = Vec::new();
+    let mut cursor: Option<String> = None;
+    while (rows.len() as u64) < wanted {
+        let mut route = format!(
+            "runnables/list?kinds={item_type}&search={}&search_any_order=true&include_draft_only=true&per_page={}",
+            enc(text),
+            (wanted - rows.len() as u64).min(MAX_RUNNABLES_PAGE)
+        );
+        if let Some(prefix) = prefix {
+            route.push_str(&format!("&path_start={}", enc(prefix)));
+        }
+        if let Some(cursor) = &cursor {
+            route.push_str(&format!("&cursor={}", enc(cursor)));
+        }
+        let page = ctx.get(&ctx.ws(&route)).await?;
+        rows.extend(array(page.get("items")).iter().cloned());
+        match page["next_cursor"].as_str() {
+            Some(next) => cursor = Some(next.to_string()),
+            None => break,
+        }
+    }
+    Ok(rows)
 }
 
 /// The card of one workspace item: what `read_workspace_item` returns, under a one-line

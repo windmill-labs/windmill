@@ -37,6 +37,7 @@
 </script>
 
 <script lang="ts">
+	import HostWindow from '$lib/components/common/HostWindow.svelte'
 	import { createEventDispatcher, getContext, untrack } from 'svelte'
 	import type { FlowEditorContext } from '../types'
 	import { FlowService, ScriptService } from '$lib/gen'
@@ -163,7 +164,7 @@
 	f={(x) => (emptyString(x.summary) ? x.path : x.summary + ' (' + x.path + ')')}
 />
 
-<svelte:window onkeydown={onKeyDown} />
+<HostWindow onkeydown={onKeyDown} />
 {#if filteredItems}
 	{#if filteredItems.length == 0}
 		<div class="text-2xs text-primary font-light text-center py-2 px-3 items-center">

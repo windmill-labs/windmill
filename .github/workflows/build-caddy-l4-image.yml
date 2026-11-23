@@ -26,8 +26,8 @@ jobs:
   build_ee:
     runs-on: ubicloud
     steps:
-      - uses: actions/checkout@v4
-      - uses: depot/setup-action@v1
+      - uses: actions/checkout@v4.4.0
+      - uses: depot/setup-action@v1.7.2
 
       # docker-compose.yml pins an exact tag, and the Caddyfile it must agree
       # with lives in the same checkout. Fail the build rather than publish a
@@ -59,7 +59,7 @@ jobs:
 
       - name: Docker meta
         id: meta-ee-public
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v5.10.0
         with:
           images: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
@@ -83,14 +83,14 @@ jobs:
           docker/test-caddy-compat.sh caddy-l4:ci
 
       - name: Login to registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@v3.7.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push publicly
-        uses: depot/build-push-action@v1
+        uses: depot/build-push-action@v1.19.0
         with:
           context: ./docker
           file: ./docker/DockerfileCaddyL4

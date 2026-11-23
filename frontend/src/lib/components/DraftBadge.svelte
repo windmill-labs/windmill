@@ -19,6 +19,7 @@
 	 */
 	import Popover from './meltComponents/Popover.svelte'
 	import Tooltip from './meltComponents/Tooltip.svelte'
+	import { userColorClass, userInitials } from './userInitials'
 	import { Badge } from './common'
 	import Button from './common/button/Button.svelte'
 	import type DiffDrawer from './DiffDrawer.svelte'
@@ -57,6 +58,9 @@
 		 * slightly smaller — for tight spots like the diff-tree sidebar. The hover
 		 * popover is unchanged. */
 		iconOnly?: boolean
+		/** The `resource` draft is an AI agent's, which has an editor of its own and is authored
+		 *  under the flow right rather than the resource one. */
+		agent?: boolean
 	}
 
 	let {
@@ -69,7 +73,8 @@
 		path = undefined,
 		onMigrated = undefined,
 		allowFork = true,
-		iconOnly = false
+		iconOnly = false,
+		agent = false
 	}: Props = $props()
 
 	// Authed user lands first; everyone else keeps the backend's ordering.
@@ -82,35 +87,16 @@
 		return [self, ...rest]
 	})
 
-	/** Two-letter initials; `john.doe` → `JD`, `alice` → `AL`, no username → `?`. */
 	function initials(u: DraftUser): string {
-		const name = u.username
-		if (!name) return '?'
-		const parts = name.split(/[._\-\s]+/).filter(Boolean)
-		if (parts.length >= 2) {
-			return (parts[0][0] + parts[1][0]).toUpperCase()
-		}
-		return name.slice(0, 2).toUpperCase()
+		return userInitials(u.username)
 	}
 
 	function fullLabel(u: DraftUser): string {
 		return u.username ?? 'Legacy workspace draft'
 	}
 
-	// Deterministic color per username, same circle across rows.
-	const PALETTE = [
-		'bg-blue-500',
-		'bg-emerald-500',
-		'bg-amber-500',
-		'bg-rose-500',
-		'bg-violet-500',
-		'bg-cyan-500'
-	]
 	function colorFor(u: DraftUser): string {
-		const name = u.username ?? ''
-		let hash = 0
-		for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) >>> 0
-		return PALETTE[hash % PALETTE.length]
+		return userColorClass(u.username)
 	}
 
 	// First 3 circles when ≤3 users; first 2 + "+N" overflow when 4+. Sliced from
@@ -133,11 +119,22 @@
 	const actionsEnabled = $derived(!!workspace && !!itemKind && !!path && draft_users.length > 0)
 	// The editors these open are the full ones, which a role without code cannot use.
 	const canOpenEditor = $derived(
-		!!itemKind && $roleCapabilities.code && roleCanAuthor(itemKind, $roleCapabilities)
+		agent
+			? roleCanAuthor('agent', $roleCapabilities)
+			: !!itemKind && $roleCapabilities.code && roleCanAuthor(itemKind, $roleCapabilities)
+	)
+	const editHref = $derived(
+		!itemKind || !path ? undefined : agent ? `/agents/edit/${path}` : editRouteFor(itemKind, path)
 	)
 
 	const kindLabel = $derived(
-		itemKind === 'flow' ? 'flow' : itemKind === 'app' || itemKind === 'raw_app' ? 'app' : 'script'
+		agent
+			? 'agent'
+			: itemKind === 'flow'
+				? 'flow'
+				: itemKind === 'app' || itemKind === 'raw_app'
+					? 'app'
+					: 'script'
 	)
 
 	// "Only you can see this {kind}" — true when the authed user owns the
@@ -392,12 +389,12 @@
 								</span>
 								{#if actionsEnabled && isSelf}
 									<!-- Own draft: jump straight into the editor. -->
-									{#if canOpenEditor && itemKind && path}
+									{#if canOpenEditor && editHref}
 										<Button
 											variant="subtle"
 											size="xs3"
 											startIcon={{ icon: Pencil }}
-											href={editRouteFor(itemKind, path)}
+											href={editHref}
 										>
 											Edit
 										</Button>

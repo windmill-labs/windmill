@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE git_sync_pr_check_head SET started = true\n         WHERE workspace_id = $1 AND repo_resource_path = $2 AND pr_number = $3 AND head_sha = $4",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0e56511ecce592809473db715d265ba6ddcb764760bda384a52e156e28e1de3c"
+}

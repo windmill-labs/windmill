@@ -73,6 +73,9 @@
 		 *  families rather than within one — a session's, where the fork is the session's own and
 		 *  not something the picker should offer to change. */
 		collapseFamilies?: boolean
+		/** Offered each pick before the switch; true means the host took it and nothing switches.
+		 *  A host that goes on to switch lands on home when `landOnHome` is set, as this picker would. */
+		interceptSwitch?: (id: string, landOnHome: boolean) => boolean
 	}
 
 	let {
@@ -80,10 +83,14 @@
 		strictWorkspaceSelect = false,
 		keepPageOnSwitch = false,
 		collapseFamilies = false,
+		interceptSwitch,
 		closeMenu
 	}: Props = $props()
 
 	async function toggleSwitchWorkspace(id: string) {
+		if (interceptSwitch?.(id, landsOnHome(id))) {
+			return
+		}
 		if ($workspaceStore === id) {
 			return
 		}
@@ -121,6 +128,18 @@
 			sameFamily: workspaceRootId(id, all) === workspaceRootId($workspaceStore ?? undefined, all),
 			landOnHome: landsOnHome(id)
 		})
+	}
+
+	// In the capture phase: the row's portaled link reaches SvelteKit's router, which navigates
+	// and so switches workspace, before the row's own click handler runs.
+	function offerPickToHost(e: MouseEvent, workspace: { id: string; disabled?: boolean }) {
+		if (workspace.disabled || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return
+		if (!(e.target as Element).closest('[role="menuitem"]')) return
+		if (interceptSwitch?.(workspace.id, landsOnHome(workspace.id))) {
+			e.preventDefault()
+			e.stopPropagation()
+			closeMenu?.()
+		}
 	}
 
 	function onWorkspaceItemClick(e: MouseEvent, workspace: { id: string; disabled?: boolean }) {
@@ -502,6 +521,7 @@
 				<div
 					data-workspace-id={workspace.id}
 					data-nav-id={showSearch && !workspace.disabled ? workspace.id : undefined}
+					onclickcapture={(e) => offerPickToHost(e, workspace)}
 					class={twMerge(
 						'group flex items-center min-w-0 w-full',
 						workspace.disabled

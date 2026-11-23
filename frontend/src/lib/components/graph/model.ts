@@ -53,6 +53,8 @@ export type GraphModuleState = {
 	selectedForloopIndex?: number
 	selectedForLoopSetManually?: boolean
 	flow_jobs_success?: (boolean | undefined)[]
+	/** A for-loop's per-iteration labels, positionally aligned with `flow_jobs`. */
+	flow_jobs_labels?: (string | null)[]
 	flow_jobs_duration?: {
 		started_at?: (string | undefined)[]
 		duration_ms?: (number | undefined)[]
@@ -60,14 +62,21 @@ export type GraphModuleState = {
 	flow_jobs?: string[]
 	iteration_total?: number
 	retries?: number
+	/** Job ids of the failed attempts, `retries` of them. */
+	failed_retries?: string[]
+	/** Every attempt of a retried step, the failed ones then the last one, and how each ended. */
+	attempt_jobs?: string[]
+	attempt_jobs_success?: (boolean | undefined)[]
+	/** The attempt picked on the graph; unset follows the last one. */
+	selectedAttempt?: string
 	duration_ms?: number
 	started_at?: number
 	suspend_count?: number
 	isListJob?: boolean
 	skipped?: boolean
 	agent_actions?: FlowStatusModule['agent_actions']
-	/** Positionally aligned with `agent_actions`: every push of an action appends one entry, so a
-	 * missing entry means that action has not finished yet. */
+	/** Positionally aligned with `agent_actions`: every action gets one entry, so a missing or
+	 * `null` entry (a background tool call still running) means it has not finished yet. */
 	agent_actions_success?: FlowStatusModule['agent_actions_success']
 	script_hash?: string
 	workflow_as_code_status?: WorkflowStatus

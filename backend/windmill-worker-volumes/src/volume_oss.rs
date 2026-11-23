@@ -25,15 +25,16 @@ pub async fn download_volume(
 }
 
 #[cfg(not(feature = "private"))]
-pub fn volume_nsjail_mount(_local_dir: &Path, _target: &str) -> String {
+pub fn volume_nsjail_mount(_local_dir: &Path, _target: &str, _read_only: bool) -> String {
     String::new()
 }
 
 #[cfg(not(feature = "private"))]
-pub async fn sync_volume_back(
+pub async fn sync_volume_back<F: std::future::Future<Output = error::Result<()>>>(
     _client: Arc<dyn ObjectStore>,
     _state: &VolumeState,
     _workspace_id: &str,
+    _open_write_window: F,
 ) -> error::Result<SyncStats> {
     Err(error::Error::internal_err(
         "Volumes are not available in this build".to_string(),

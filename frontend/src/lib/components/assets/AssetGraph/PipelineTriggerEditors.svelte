@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { sendUserToast } from '$lib/utils'
-	import { workspaceStore } from '$lib/stores'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import type { NativeTriggerKind, PipelineTriggerDraftKind } from './types'
 	import type { Schedule } from '$lib/gen'
@@ -132,8 +131,9 @@
 						} as Schedule,
 						onSave
 					)
-				if (saved || !$workspaceStore) return open({})
-				return loadDefaultScheduleAdvanced($workspaceStore)
+				const workspace = triggerWorkspace ?? $operatingWorkspace
+				if (saved || !workspace) return open({})
+				return loadDefaultScheduleAdvanced(workspace)
 					.then((a) => open(scheduleAdvancedCfg(a)))
 					.catch(() => open({}))
 			}

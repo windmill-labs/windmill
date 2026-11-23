@@ -17,20 +17,42 @@
 	}
 
 	let { job, large = false }: Props = $props()
+
+	let continuedOnError = $derived(job?.flow_status?.continued_on_error ?? [])
 </script>
 
+{#snippet continuedOnErrorBadge()}
+	{#if continuedOnError.length > 0}
+		<Badge
+			{large}
+			color="orange"
+			title="Failed steps skipped by continue on error: {continuedOnError
+				.map((f) => f.id)
+				.join(', ')}"
+		>
+			{continuedOnError.length}{continuedOnError.length >= 100 ? '+' : ''} failed step{continuedOnError.length >
+			1
+				? 's'
+				: ''} continued
+		</Badge>
+	{/if}
+{/snippet}
+
 {#if job && 'success' in job && job.success}
-	<Badge {large} color="green">
-		Successfully ran in {msToReadableTime(job.duration_ms)}
-		{job.is_skipped ? '(Skipped)' : ''}
-		{#if job.self_wait_time_ms || job.aggregate_wait_time_ms}
-			<WaitTimeWarning
-				self_wait_time_ms={job.self_wait_time_ms}
-				aggregate_wait_time_ms={job.aggregate_wait_time_ms}
-				variant="alert"
-			/>
-		{/if}
-	</Badge>
+	<div class="flex flex-row flex-wrap gap-1 items-center">
+		<Badge {large} color="green">
+			Successfully ran in {msToReadableTime(job.duration_ms)}
+			{job.is_skipped ? '(Skipped)' : ''}
+			{#if job.self_wait_time_ms || job.aggregate_wait_time_ms}
+				<WaitTimeWarning
+					self_wait_time_ms={job.self_wait_time_ms}
+					aggregate_wait_time_ms={job.aggregate_wait_time_ms}
+					variant="alert"
+				/>
+			{/if}
+		</Badge>
+		{@render continuedOnErrorBadge()}
+	</div>
 {:else if job && 'success' in job && job.resolved}
 	<Badge {large} color="orange" title={job.resolution_note}>
 		<!-- `resolved_by` is absent both for an automatic resolution and for a manual one
@@ -69,13 +91,14 @@
 		</Badge>
 	</div>
 {:else if job && 'running' in job && job.running}
-	<div>
+	<div class="flex flex-row flex-wrap gap-1 items-center">
 		<Badge {large} color="yellow">
 			Running
 			{#if job.flow_status}
 				({(job.flow_status?.step ?? 0) + 1} of {job.raw_flow?.modules?.length ?? '?'})
 			{/if}
 		</Badge>
+		{@render continuedOnErrorBadge()}
 	</div>
 {:else if job && 'running' in job && 'scheduled_for' in job && job.scheduled_for && forLater(job.scheduled_for)}
 	<div>

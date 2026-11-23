@@ -760,6 +760,127 @@ async fn test_resource_cache_handles_job_context(db: Pool<Postgres>) -> anyhow::
     Ok(())
 }
 
+/// The installation serves a non-admin only the URL an admin last saved on an
+/// app-backed resource, so a write by anyone else must never set it, and a new
+/// resource where an approved one used to be must not inherit it.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_github_app_repo_approval_follows_admin_writes(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let base = format!(
+        "http://localhost:{}/api/w/test-workspace/resources",
+        server.addr.port()
+    );
+    let (path, renamed) = ("u/test-user-2/repo", "u/test-user-2/repo2");
+    let (approved, other) = (
+        "https://github.com/o/r.git",
+        "https://github.com/o/other.git",
+    );
+    let value = |url: &str| json!({"value": {"url": url, "is_github_app": true}});
+    let create = |url: &str| {
+        let mut body = value(url);
+        body["path"] = json!(path);
+        body["resource_type"] = json!("git_repository");
+        body
+    };
+    let post = |token: &'static str, url: String, body: serde_json::Value| async move {
+        let resp = client()
+            .post(url)
+            .bearer_auth(token)
+            .json(&body)
+            .send()
+            .await
+            .unwrap();
+        assert!(resp.status().is_success(), "{}", resp.text().await.unwrap());
+    };
+    let approved_url = |path: &'static str| {
+        let db = db.clone();
+        async move {
+            sqlx::query_scalar::<_, String>(
+                "SELECT url FROM github_app_repo_approval
+                 WHERE workspace_id = 'test-workspace' AND path = $1",
+            )
+            .bind(path)
+            .fetch_optional(&db)
+            .await
+            .unwrap()
+        }
+    };
+
+    post("SECRET_TOKEN_2", format!("{base}/create"), create(approved)).await;
+    assert_eq!(
+        approved_url(path).await,
+        None,
+        "a non-admin's write approves nothing"
+    );
+
+    // Only a save of the value approves: an admin renaming or describing a
+    // resource has not looked at its URL.
+    post(
+        "SECRET_TOKEN",
+        format!("{base}/update/{path}"),
+        json!({"description": "ok"}),
+    )
+    .await;
+    assert_eq!(approved_url(path).await, None);
+    let mut save = value(approved);
+    save["description"] = json!("ok");
+    post("SECRET_TOKEN", format!("{base}/update/{path}"), save).await;
+    assert_eq!(approved_url(path).await.as_deref(), Some(approved));
+
+    post(
+        "SECRET_TOKEN_2",
+        format!("{base}/update_value/{path}"),
+        value(other),
+    )
+    .await;
+    assert_eq!(approved_url(path).await.as_deref(), Some(approved));
+
+    post(
+        "SECRET_TOKEN",
+        format!("{base}/update_value/{path}"),
+        value(other),
+    )
+    .await;
+    assert_eq!(approved_url(path).await.as_deref(), Some(other));
+
+    post(
+        "SECRET_TOKEN_2",
+        format!("{base}/update/{path}"),
+        json!({"path": renamed}),
+    )
+    .await;
+    assert_eq!(approved_url(renamed).await.as_deref(), Some(other));
+    post("SECRET_TOKEN_2", format!("{base}/create"), create(other)).await;
+    assert_eq!(
+        approved_url(path).await,
+        None,
+        "nothing is inherited from the old path"
+    );
+
+    // An admin save that names no app-backed repository revokes the old one, so a
+    // non-admin cannot put the earlier URL back and be served it.
+    post(
+        "SECRET_TOKEN",
+        format!("{base}/update_value/{renamed}"),
+        json!({"value": {"url": other, "is_github_app": false}}),
+    )
+    .await;
+    assert_eq!(approved_url(renamed).await, None);
+
+    // A `$var:` resolves to whatever its owner sets, so it is never approved.
+    post(
+        "SECRET_TOKEN",
+        format!("{base}/update_value/{path}"),
+        value("$var:u/test-user-2/repo_url"),
+    )
+    .await;
+    assert_eq!(approved_url(path).await, None);
+    Ok(())
+}
+
 /// Without an embeddings index the resource type search reads the table, so it has to apply the
 /// same scope as the index: the workspace's own types and the global ones in `admins`, never
 /// another workspace's.

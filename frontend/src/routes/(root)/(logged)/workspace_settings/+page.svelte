@@ -29,7 +29,10 @@
 	import ForkMemberSettings from '$lib/components/settings/ForkMemberSettings.svelte'
 	import SettingsPageHeader from '$lib/components/settings/SettingsPageHeader.svelte'
 	import MemberWorkspaceSettings from '$lib/components/settings/MemberWorkspaceSettings.svelte'
-	import { WORKSPACE_SHOW_SLACK_CMD, WORKSPACE_SHOW_WEBHOOK_CLI_SYNC } from '$lib/consts'
+	import {
+		WORKSPACE_SETTINGS_SECTION_GROUPS,
+		workspaceSettingsSectionId
+	} from '$lib/components/workspaceSettings/workspaceSettingsSections'
 	import {
 		OauthService,
 		SlackAgentsService,
@@ -58,9 +61,13 @@
 	import { sendUserToast } from '$lib/toast'
 	import { clone, emptyString, encodeState, hasUnsavedChanges } from '$lib/utils'
 	import { downloadViaClient, shouldDownloadViaClient } from '$lib/utils/downloadFile'
-	import { ExternalLink, Slack, Target } from 'lucide-svelte'
+	import { ArrowLeft, ExternalLink, Slack, Target } from 'lucide-svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
-	import { pageHeader } from '$lib/components/pageHeaderRegistry.svelte'
+	import {
+		pageHeader,
+		type PageHeaderSection,
+		type PageHeaderSubpage
+	} from '$lib/components/pageHeaderRegistry.svelte'
 	import SidebarNavigation from '$lib/components/common/sidebar/SidebarNavigation.svelte'
 
 	import PremiumInfo from '$lib/components/settings/PremiumInfo.svelte'
@@ -594,19 +601,12 @@
 			| 'dependencies'
 			| 'rulesets'
 			| 'shared_ui'
-		// Both 'slack' and 'teams' URLs map to 'slack' tab
-		if (selectedTab === 'teams') {
-			return 'slack'
-		}
-		// Both 'success_handler' and 'error_handler' URLs map to 'error_handler' tab
-		if (selectedTab === 'success_handler') {
-			return 'error_handler'
-		}
-		// The Deployment UI tab was folded into Dev workspace; keep its links working.
-		if (selectedTab === 'deploy_to') {
-			return 'dev_workspace'
-		}
-		return selectedTab || 'users'
+		return selectedTab
+			? (workspaceSettingsSectionId(selectedTab) as Exclude<
+					typeof selectedTab,
+					'teams' | 'success_handler' | 'deploy_to'
+				>)
+			: 'users'
 	})
 
 	let slack_tabs: 'slack_commands' | 'teams_commands' = $derived(
@@ -919,7 +919,7 @@
 		if (settings.deploy_ui != undefined && settings.deploy_ui != null) {
 			deployUiSettings = {
 				include_path:
-					(settings.deploy_ui.include_path?.length ?? 0 > 0)
+					(settings.deploy_ui.include_path?.length ?? 0) > 0
 						? (settings.deploy_ui.include_path ?? [])
 						: [],
 				include_type: {
@@ -1547,192 +1547,11 @@
 		}
 	}
 
-	// Navigation groups for sidebar
-	const adminNavigationGroups = $derived([
-		{
-			items: [
-				{
-					id: 'general',
-					label: 'General',
-					aiId: 'workspace-settings-general',
-					aiDescription: 'General workspace settings'
-				},
-				{
-					id: 'users',
-					label: 'Users',
-					aiId: 'workspace-settings-users',
-					aiDescription: 'Users workspace settings'
-				},
-				{
-					id: 'ai',
-					label: 'Windmill AI',
-					aiId: 'workspace-settings-ai',
-					aiDescription: 'Windmill AI workspace settings'
-				},
-				{
-					id: 'premium',
-					label: 'Premium plans',
-					aiId: 'workspace-settings-premium',
-					aiDescription: 'Premium plans workspace settings',
-					showIf: isCloudHosted()
-				}
-			]
-		},
-		{
-			title: 'Git & deployment',
-			items: [
-				{
-					id: 'git_sync',
-					label: 'Git sync',
-					aiId: 'workspace-settings-git-sync',
-					aiDescription: 'Git sync workspace settings',
-					isEE: true
-				},
-				{
-					id: 'dev_workspace',
-					label: 'Dev workspace',
-					aiId: 'workspace-settings-dev-workspace',
-					aiDescription:
-						'Pair this workspace with a dev workspace (same code, different environment), and choose which items its deploy UI may promote'
-				},
-				{
-					id: 'rulesets',
-					label: 'Rulesets',
-					aiId: 'workspace-settings-rulesets',
-					aiDescription: 'Protection Rulesets workspace settings',
-					isEE: true
-				}
-			]
-		},
-		{
-			title: 'Integrations',
-			items: [
-				{
-					id: 'slack',
-					label: 'Slack / Teams',
-					aiId: 'workspace-settings-slack',
-					aiDescription: 'Slack / Teams workspace settings',
-					showIf: WORKSPACE_SHOW_SLACK_CMD
-				},
-				{
-					id: 'webhook',
-					label: 'Webhook',
-					aiId: 'workspace-settings-webhook',
-					aiDescription: 'Webhook workspace settings',
-					showIf: WORKSPACE_SHOW_WEBHOOK_CLI_SYNC && !isCloudHosted()
-				},
-				{
-					id: 'native_triggers',
-					label: 'Integration triggers',
-					aiId: 'workspace-settings-integrations',
-					aiDescription: 'Workspace integrations for integration triggers'
-				}
-			]
-		},
-		{
-			title: 'Hooks',
-			items: [
-				{
-					id: 'error_handler',
-					label: 'Error / success handler',
-					aiId: 'workspace-settings-error-handler',
-					aiDescription: 'Error and success handler workspace settings',
-					isEE: true
-				},
-				{
-					id: 'variable_expiration',
-					label: 'Variable expiration',
-					aiId: 'workspace-settings-variable-expiration',
-					aiDescription:
-						'Runnable executed when a variable value is about to expire, so the value can be rotated'
-				},
-				{
-					id: 'critical_alerts',
-					label: 'Critical alerts',
-					aiId: 'workspace-settings-critical-alerts',
-					aiDescription: 'Critical alerts workspace settings',
-					isEE: true
-				}
-			]
-		},
-		{
-			title: 'Data & storage',
-			items: [
-				{
-					id: 'windmill_data_tables',
-					label: 'Data tables',
-					aiId: 'workspace-settings-windmill-data-tables',
-					aiDescription: 'Data tables workspace settings'
-				},
-				{
-					id: 'windmill_lfs',
-					label: 'Object storage (S3)',
-					aiId: 'workspace-settings-windmill-lfs',
-					aiDescription: 'Object Storage (S3) workspace settings'
-				},
-				{
-					id: 'volume_storage',
-					label: 'Volumes',
-					aiId: 'workspace-settings-volume-storage',
-					aiDescription: 'Volume storage workspace settings'
-				},
-				{
-					id: 'ducklake',
-					label: 'Ducklake',
-					aiId: 'workspace-settings-ducklake',
-					aiDescription: 'Ducklake workspace settings'
-				},
-				{
-					id: 'dbt',
-					label: 'dbt',
-					aiId: 'workspace-settings-dbt',
-					aiDescription: 'dbt warehouses workspace settings'
-				}
-			]
-		},
-		{
-			title: 'Advanced',
-			items: [
-				{
-					id: 'default_app',
-					label: 'Apps',
-					aiId: 'workspace-settings-apps',
-					aiDescription: 'Apps workspace settings',
-					isEE: true
-				},
-				{
-					id: 'shared_ui',
-					label: 'Shared UI folder',
-					aiId: 'workspace-settings-shared-ui',
-					aiDescription: 'Shared frontend folder usable by raw apps'
-				},
-				{
-					id: 'dependencies',
-					label: 'Dependencies',
-					aiId: 'workspace-settings-dependencies',
-					aiDescription: 'Workspace dependencies settings'
-				},
-				{
-					id: 'encryption',
-					label: 'Encryption',
-					aiId: 'workspace-settings-encryption',
-					aiDescription: 'Encryption workspace settings'
-				},
-				{
-					id: 'trashbin',
-					label: 'Trashbin',
-					aiId: 'workspace-settings-trashbin',
-					aiDescription: 'Trashbin for recently deleted items'
-				}
-			]
-		}
-	])
-
 	// A fork's creator manages its members through the same screen, but nothing else about the
 	// workspace is theirs to change, so they get the Members entry alone.
 	const navigationGroups = $derived(
 		canAdmin
-			? adminNavigationGroups
+			? WORKSPACE_SETTINGS_SECTION_GROUPS
 			: [
 					{
 						items: [
@@ -1764,6 +1583,70 @@
 		params.set('tab', id)
 		return `?${params.toString()}`
 	}
+	function sectionListHref(): string {
+		const params = new URLSearchParams($page.url.searchParams)
+		params.delete('tab')
+		const query = params.toString()
+		return query ? `?${query}` : WORKSPACE_SETTINGS_PATH
+	}
+
+	// Below 768px (Tailwind `md`) the sidebar would leave a phone or a session preview a sliver for
+	// the settings, so the list and the section become two pages. Measured on the page's own box
+	// rather than the viewport: the app's sidebar takes its share of a viewport first.
+	let layoutWidth = $state(window.innerWidth)
+	type SectionEntry = { id: string; label: string; showIf?: boolean; disabled?: boolean }
+	const sectionGroups = $derived(
+		navigationGroups.map((g) => ({
+			title: g.title as string | undefined,
+			items: (g.items as SectionEntry[]).filter((i) => i.showIf !== false)
+		}))
+	)
+	const visibleSections = $derived(sectionGroups.flatMap((g) => g.items))
+	const pagedLayout = $derived(layoutWidth < 768 && !showYaml && visibleSections.length > 1)
+	// The URL says which page is on screen, so the browser's back button returns to the list and
+	// a link to a section opens on it. Wide, a missing `tab` still means the default section.
+	const sectionOpen = $derived($page.url.searchParams.has('tab'))
+	// The list and the section slide between each other the way `PagedContent` pages do: the
+	// page arriving travels a quarter of the box and fades in, the page leaving vanishes at once
+	// so it never ghosts over the one arriving. `side` is where a hidden page waits.
+	function slidingPage(shown: boolean, side: -1 | 1): string {
+		const offset = shown ? '' : side < 0 ? '-translate-x-1/4' : 'translate-x-1/4'
+		return `absolute inset-0 motion-reduce:!transition-none ${offset} ${shown ? '' : 'opacity-0 pointer-events-none'}`
+	}
+	function slideTransition(shown: boolean): string {
+		return `transform 130ms ease-out, opacity ${shown ? '90ms' : '0s'} ease-out`
+	}
+	// None for a single section (a fork owner's Members): Workspace settings is admin-only, so the
+	// picker has no branch to list it under.
+	const subpages: PageHeaderSubpage[] | undefined = $derived(
+		visibleSections.length < 2
+			? undefined
+			: sectionGroups.flatMap((group) =>
+					group.items.map((i) => ({
+						label: i.label,
+						href: WORKSPACE_SETTINGS_PATH + tabHref(i.id),
+						group: group.title,
+						current: i.id === tab,
+						disabled: i.disabled
+					}))
+				)
+	)
+	const headerSection: PageHeaderSection | undefined = $derived(
+		showYaml
+			? { parent: 'Workspace settings', label: 'YAML' }
+			: pagedLayout
+				? sectionOpen && tabLabel
+					? {
+							parent: 'Workspace settings',
+							parentHref: sectionListHref(),
+							label: tabLabel,
+							subpages
+						}
+					: undefined
+				: tabLabel
+					? { parent: 'Workspace settings', label: tabLabel, subpages }
+					: undefined
+	)
 </script>
 
 <CenteredPage wrapperClasses="pb-0 h-full" handleOverflow={false} class="flex flex-col h-full">
@@ -1774,37 +1657,77 @@
 		     two controls that sat beside the title are the page's actions. The panes below scroll
 		     inside themselves, so the bar keeps its edge at rest rather than only under a scroll. -->
 		<PageHeaderContent
-			section={showYaml
-				? { parent: 'Workspace settings', label: 'YAML' }
-				: tabLabel
-					? { parent: 'Workspace settings', label: tabLabel }
-					: undefined}
+			section={headerSection}
 			actions={settingsActions}
 			{sessionSource}
 			actionFolds={1}
 			separator="always"
 		/>
 
-		<div class="flex grow min-h-0 pb-4">
-			<!-- Sidebar Navigation -->
-			<!-- The top padding belongs inside both scrollers, not above them: it is the gap under the
-			     separator at rest, and it has to travel with the content so what scrolls passes under
-			     the line rather than stopping short of it. -->
-			{#if !showYaml}
-				<div class="w-60 shrink-0 h-full overflow-auto pt-6 pb-4 pr-4 -ml-2">
-					<SidebarNavigation
-						groups={navigationGroups}
-						selectedId={tab}
-						onNavigate={(id) => goto(tabHref(id))}
-						itemHref={tabHref}
-					/>
+		<div class="flex grow min-h-0 pb-4" bind:clientWidth={layoutWidth}>
+			<!-- One tree for both layouts, which differ only in classes: a section moved to another
+			     parent would be rebuilt, losing the unsaved edits it keeps in its own state.
+			     Narrow, the negative margin undoes CenteredPage's side padding, which each page puts
+			     back inside its scroller: the box clips, so a scroller inside the padding would have
+			     its scrollbar cut and a gap beside it. -->
+			<div
+				class="flex flex-1 min-w-0 h-full {pagedLayout
+					? 'relative overflow-hidden -mx-4 sm:-mx-6 md:-mx-8'
+					: ''}"
+			>
+				{#if !showYaml}
+					<!-- The top padding belongs inside both scrollers, not above them: it is the gap
+					     under the separator at rest, and it has to travel with the content so what
+					     scrolls passes under the line rather than stopping short of it. Narrow, 8px
+					     short of the page gutter: the entries carry their own. -->
+					<div
+						class={pagedLayout
+							? `${slidingPage(!sectionOpen, -1)} overflow-auto pt-4 pb-4 px-2 sm:px-4 md:px-6`
+							: 'w-60 shrink-0 h-full overflow-auto pt-6 pb-4 pr-4 -ml-2'}
+						style:transition={pagedLayout ? slideTransition(!sectionOpen) : undefined}
+						inert={pagedLayout && sectionOpen}
+					>
+						<!-- Capped narrow so a row's hover band stays the size of a menu entry. -->
+						<SidebarNavigation
+							class={pagedLayout ? 'max-w-sm' : ''}
+							groups={navigationGroups}
+							selectedId={pagedLayout && !sectionOpen ? '' : tab}
+							onNavigate={(id) => goto(tabHref(id))}
+							itemHref={tabHref}
+							drillIn={pagedLayout}
+						/>
+					</div>
+				{/if}
+				<div
+					class={pagedLayout ? `${slidingPage(sectionOpen, 1)} flex` : 'flex flex-1 min-w-0 h-full'}
+					style:transition={pagedLayout ? slideTransition(sectionOpen) : undefined}
+					inert={pagedLayout && !sectionOpen}
+				>
+					{@render sectionPane()}
 				</div>
-			{/if}
+			</div>
+		</div>
 
-			<!-- Main Content -->
-			<div class="flex-1 min-w-0 h-full">
-				<div class="h-full overflow-auto">
-					<div class="h-fit px-6 pt-6" style="scrollbar-gutter: stable both-edges;">
+		{#snippet sectionPane()}
+			<div class="flex-1 min-w-0 h-full flex flex-col">
+				{#if pagedLayout}
+					<div class="flex pt-3 px-4 sm:px-6 md:px-8">
+						<Button
+							variant="subtle"
+							unifiedSize="xs"
+							startIcon={{ icon: ArrowLeft }}
+							btnClasses="text-secondary"
+							href={sectionListHref()}
+						>
+							All settings
+						</Button>
+					</div>
+				{/if}
+				<div class="grow min-h-0 overflow-auto">
+					<div
+						class="h-fit {pagedLayout ? 'px-4 sm:px-6 md:px-8 pt-3' : 'px-6 pt-6'}"
+						style="scrollbar-gutter: stable both-edges;"
+					>
 						{#if !loadedSettings}
 							<Skeleton layout={[1, [40]]} />
 						{:else if showYaml}
@@ -2216,7 +2139,7 @@
 									documentation for more information.
 								</p>
 							{/if}
-							<div class="flex gap-2">
+							<div class="flex flex-wrap gap-x-2">
 								<Button
 									destructive
 									disabled={$workspaceStore === 'admins' || $workspaceStore === 'starter'}
@@ -2936,7 +2859,7 @@ export async function main(
 					</div>
 				</div>
 			</div>
-		</div>
+		{/snippet}
 	{:else}
 		<PageHeaderContent separator="always" />
 		<MemberWorkspaceSettings />

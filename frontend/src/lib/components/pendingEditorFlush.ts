@@ -1,14 +1,25 @@
-// Every mounted `SimpleEditor`, so a caller can materialise what the user typed without
+// Every mounted code editor (`SimpleEditor`, `Editor`), so a caller can materialise what the user typed without
 // knowing which editors a page contains — a drawer nests them through SchemaForm and
 // ArgInput, so enumerating them from the container does not scale. Plain module rather
 // than the editor component: importing that pulls Monaco's side-effect imports into every
 // graph that reaches this, and the components around it defer Monaco deliberately.
-const liveEditors = new Set<{ flushPendingChanges: () => void }>()
+type PendingEditor = {
+	flushPendingChanges: () => void
+	/** For an editor that cannot be flushed and reports its edits late: resolves once it has. */
+	settle?: () => Promise<void>
+}
+const liveEditors = new Set<PendingEditor>()
 
 /** Register a mounted editor; the returned function deregisters it. */
-export function registerPendingEditor(editor: { flushPendingChanges: () => void }): () => void {
+export function registerPendingEditor(editor: PendingEditor): () => void {
 	liveEditors.add(editor)
 	return () => liveEditors.delete(editor)
+}
+
+/** Wait for the editors that report their edits late. Run before `flushAllPendingEditorChanges`
+ * when what is on screen must reach a save. */
+export async function settlePendingEditors(): Promise<void> {
+	await Promise.all([...liveEditors].map((editor) => editor.settle?.()))
 }
 
 /** Drain every mounted editor's debounced buffer. For code that must act on what is on

@@ -27,7 +27,9 @@ pub const DEVELOPER_ROLE: &str = "developer";
 pub const OPERATOR_ROLE: &str = "operator";
 
 /// How much of a kind of runnable a role may author.
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default, PartialOrd, Ord)]
+#[derive(
+    Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash, Default, PartialOrd, Ord,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum AuthorLevel {
     #[default]
@@ -41,7 +43,7 @@ pub enum AuthorLevel {
 
 /// Pages a role sees. Not enforced: hiding a page never stopped an API call, and the enforced
 /// rights are the other fields of [`RoleCapabilities`].
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct RoleVisibility {
     pub runs: bool,
     pub schedules: bool,
@@ -82,11 +84,13 @@ impl RoleVisibility {
     };
 }
 
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct RoleCapabilities {
     /// Author scripts and run code of one's own on a worker: script previews, dependency jobs,
     /// dynamic selects, resolving a job's code, data table migrations. `Full` flows or apps
-    /// require it, since both carry inline code. Previews also need `run`.
+    /// require it, since both carry inline code. Previews also need `run`. Also required to name
+    /// a Hub script or flow at run time (preset handlers excepted), see
+    /// [`crate::jobs::check_can_name_runnable`].
     pub code: bool,
     pub flows: AuthorLevel,
     pub apps: AuthorLevel,
@@ -757,7 +761,10 @@ async fn member_role(db: &DB, workspace_id: &str, username: &str) -> Result<Opti
 /// restricted, holds everything; a restricted caller holds its role's capabilities, or none if it
 /// has no membership (a guest, a removed member's job). `workspace_id` MUST be the route's.
 ///
-/// Call it before opening an RLS transaction; see [`workspace_roles`].
+/// Queries nothing for a caller whose capabilities authentication filled in
+/// ([`Authable::capabilities`]): a request's, unless reading its role failed then. Any other
+/// caller has its role read from the pool, so for one call it before opening an RLS transaction;
+/// see [`workspace_roles`].
 pub async fn caller_capabilities<A: Authable + ?Sized>(
     db: &DB,
     workspace_id: &str,
@@ -765,6 +772,9 @@ pub async fn caller_capabilities<A: Authable + ?Sized>(
 ) -> Result<RoleCapabilities> {
     if authed.is_admin() || !authed.is_operator() {
         return Ok(RoleCapabilities::FULL);
+    }
+    if let Some(caps) = authed.capabilities() {
+        return Ok(caps);
     }
     match member_role(db, workspace_id, authed.username()).await? {
         Some(role) => role_capabilities_by_name(db, workspace_id, &role).await,

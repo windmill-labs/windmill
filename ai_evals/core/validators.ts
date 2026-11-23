@@ -1,5 +1,6 @@
 import path from "node:path";
 import ts from "typescript";
+import { parseFence } from "../../frontend/src/lib/components/display/displayCatalog";
 import type {
   AppValidationSpec,
   AssistantValidationSpec,
@@ -207,7 +208,36 @@ export function validateAssistantExpectations(input: {
     );
   }
 
+  if (expect.displayBlocks) {
+    checks.push(...validateDisplayBlocks(text, expect.displayBlocks));
+  }
+
   return checks;
+}
+
+const DISPLAY_BLOCK = /```wm-display[^\n]*\n([\s\S]*?)```/g;
+
+/** The ```wm-display blocks in `text`, checked with the parser the chat renders them with. */
+export function validateDisplayBlocks(
+  text: string,
+  mode: "required" | "forbidden"
+): BenchmarkCheck[] {
+  const blocks = [...text.matchAll(DISPLAY_BLOCK)].map((m) => m[1]);
+  if (mode === "forbidden") {
+    return [check("reply holds no wm-display block", blocks.length === 0, truncateForDetails(text))];
+  }
+  const failures = blocks
+    .map((source, i) => ({ i, parsed: parseFence(source) }))
+    .filter(({ parsed }) => !parsed.ok)
+    .map(({ i, parsed }) => `block ${i + 1}: ${parsed.ok ? "" : parsed.error}`);
+  return [
+    check("reply holds a wm-display block", blocks.length > 0, truncateForDetails(text)),
+    check(
+      "every wm-display block validates against the display catalog",
+      blocks.length > 0 && failures.length === 0,
+      failures.join("\n") || undefined
+    ),
+  ];
 }
 
 export function validateToolExpectations(input: {

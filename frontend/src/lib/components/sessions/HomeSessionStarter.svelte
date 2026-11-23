@@ -6,7 +6,6 @@
 	import { goto } from '$lib/navigation'
 	import { getOrCreateRuntime } from './sessionRuntime.svelte'
 	import { workspaceStore } from '$lib/stores'
-	import { copilotWorkspace } from '$lib/aiStore'
 	import {
 		getSessionDraftAttachments,
 		getSessionDraftPrompt,
@@ -46,6 +45,10 @@
 	setContext<AIChatManager>('aiChatManager', runtime.manager)
 
 	const session = $derived(sessionState.sessions.find((s) => s.id === sessionId))
+	let aiInfoSeen = false
+	const aiInfoLoaded = $derived(
+		(aiInfoSeen ||= !!runtime.manager.aiInfo || runtime.manager.aiInfoFailed)
+	)
 	// The draft acts on the workspace the page header names: holdHomeDraft keeps it there, so
 	// the lock's way out to a dev workspace switches the page.
 	const workModeLock = useWorkModeLock(() => session, true)
@@ -108,11 +111,11 @@
 	})
 </script>
 
-<!-- Until a config has loaded the chat reads "AI not configured" and would flash its disabled
-     state. Any loaded config will do, so a fork switch does not hide it while the fork's loads.
+<!-- Waits for the session's own config, without which the chat cannot say whether AI is on.
+     Latched, so a workspace switch or a save's reload does not unmount it while the next loads.
      The item count decides whether the composer rests collapsed, so it waits for that too
      rather than open and fold up a moment later. -->
-{#if session && $copilotWorkspace !== undefined && starterPrompts.empty !== undefined}
+{#if session && aiInfoLoaded && starterPrompts.empty !== undefined}
 	<div bind:this={chatWrapper}>
 		<AIChat
 			bind:this={() => aiChat, bindChat}

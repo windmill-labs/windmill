@@ -1,7 +1,11 @@
 <script lang="ts">
 	import { classNames } from '$lib/utils'
 	import ConditionalPortal from '$lib/components/common/drawer/ConditionalPortal.svelte'
-	import { getOverlayHost, overlayHostActive } from '$lib/components/common/overlayHost.svelte'
+	import {
+		getOverlayHost,
+		overlayHostActive,
+		overlayShown
+	} from '$lib/components/common/overlayHost.svelte'
 	import { createEventDispatcher, type Snippet } from 'svelte'
 	import { fade } from 'svelte/transition'
 	import Button from '../button/Button.svelte'
@@ -31,6 +35,9 @@
 		alwaysPortal?: boolean
 		/** For a notice with nothing to decide: the confirm button is the only one. */
 		hideCancel?: boolean
+		/** A third way out, drawn between Cancel and the confirm button. */
+		extraAction?: Snippet
+		cancelVariant?: 'default' | 'subtle'
 		children?: Snippet
 		onConfirmed?: () => void | Promise<void>
 		onCanceled?: () => void
@@ -50,6 +57,8 @@
 		zIndexClass = 'z-[9999]',
 		alwaysPortal = false,
 		hideCancel = false,
+		extraAction,
+		cancelVariant = 'default',
 		children,
 		onConfirmed,
 		onCanceled
@@ -65,8 +74,11 @@
 	const posClass = $derived(hostEl ? 'absolute' : 'fixed')
 
 	const hostActive = overlayHostActive()
+	const shown = overlayShown()
 
 	const dispatch = createEventDispatcher()
+
+	let extraActionEl = $state<HTMLElement>()
 
 	function onKeyDown(event: KeyboardEvent) {
 		// Hidden hosts stay mounted and still receive window keys — see overlayHost.
@@ -93,6 +105,9 @@
 					// A popover needs Enter both to open from its trigger and to choose from its
 					// content, so leave it alone whether or not it is open.
 					if (popover) return
+					// Focused, the extra action's button takes Enter itself: confirming here would do
+					// the opposite of what it says.
+					if (extraActionEl?.contains(event.target as Node)) return
 					event.stopPropagation()
 					event.preventDefault()
 					if (loading || confirmDisabled) break
@@ -119,7 +134,6 @@
 	const theme = {
 		danger: {
 			Icon: AlertTriangle,
-			color: 'red',
 			classes: {
 				icon: 'text-red-500 dark:text-red-400',
 				iconWrapper: 'bg-red-100 dark:bg-red-800/50'
@@ -128,7 +142,6 @@
 
 		reload: {
 			Icon: RefreshCcw,
-			color: 'dark',
 			classes: {
 				icon: 'text-blue-700 dark:text-blue-300',
 				iconWrapper: 'bg-blue-100 dark:bg-blue-800/50'
@@ -139,7 +152,6 @@
 		// an import. The confirm button stays a plain accent (see `destructive` below).
 		info: {
 			Icon: Info,
-			color: 'blue',
 			classes: {
 				icon: 'text-blue-700 dark:text-blue-300',
 				iconWrapper: 'bg-blue-100 dark:bg-blue-800/50'
@@ -156,7 +168,7 @@
 	target={hostEl}
 	class={hostEl ? 'contents' : undefined}
 >
-	{#if open}
+	{#if open && shown()}
 		<div
 			transition:fadeFast|local
 			class={twMerge(posClass, 'top-0 bottom-0 left-0 right-0', zIndexClass)}
@@ -220,8 +232,7 @@
 							<Button
 								disabled={loading || confirmDisabled}
 								on:click={() => (dispatch('confirmed'), onConfirmed?.())}
-								color={theme[type].color}
-								size="sm"
+								unifiedSize="sm"
 								shortCut={{ Icon: CornerDownLeft, hide: !keyListen, withoutModifier: true }}
 								variant="accent"
 								destructive={type === 'danger'}
@@ -231,12 +242,15 @@
 								{/if}
 								<span class="min-w-20">{confirmationText} </span>
 							</Button>
+							{#if extraAction}
+								<div bind:this={extraActionEl}>{@render extraAction()}</div>
+							{/if}
 							{#if !hideCancel}
 								<Button
 									disabled={loading}
 									on:click={() => (dispatch('canceled'), onCanceled?.())}
-									variant="default"
-									size="sm"
+									variant={cancelVariant}
+									unifiedSize="sm"
 									shortCut={{ key: 'Esc', hide: !keyListen, withoutModifier: true }}
 								>
 									Cancel

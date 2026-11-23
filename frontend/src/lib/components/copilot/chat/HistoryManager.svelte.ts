@@ -14,6 +14,7 @@ import type { ChatCompletionMessageParam } from 'openai/resources/index.mjs'
 import type { PersistedContextUsage } from './tokenUsage'
 import { IMAGE_OMITTED_PLACEHOLDER, type AttachedImage } from './imageUtils'
 import { randomUUID } from '$lib/utils/uuid'
+import { isQuotaError, makeRoom } from './artifacts/artifactsDB'
 
 // Base IndexedDB name; userScopedDb namespaces the effective DB by the logged-in
 // user's email so chat messages are never physically shared across users on a
@@ -51,6 +52,9 @@ interface ChatSchema extends IDBSchema {
 			// in-flight job's tray row and completion survive a reload. Absent on
 			// chats predating this feature. Persisted out-of-band like modifiedItems.
 			backgroundJobs?: ChatJob[]
+			// Notes queued for the model's next turn (see AIChatManager.queueModelNote),
+			// so one queued before a reload still reaches it. Written by setModelNotes.
+			modelNotes?: string[]
 		}
 		indexes: { 'by-session': string }
 	}
@@ -328,6 +332,7 @@ export default class HistoryManager {
 			contextUsage?: PersistedContextUsage
 			modifiedItems?: string[]
 			backgroundJobs?: ChatJob[]
+			modelNotes?: string[]
 		}
 	> = $state({})
 
@@ -370,7 +375,13 @@ export default class HistoryManager {
 			if (!name || scopedKey(DB_NAME) !== name) return
 			const db = await this.dbh.whenReady()
 			if (!db || db.name !== name) return
-			return op(db)
+			// Every op is puts and deletes, so running one again after making room is safe.
+			try {
+				return await op(db)
+			} catch (err) {
+				if (!isQuotaError(err) || !(await makeRoom())) throw err
+				return op(db)
+			}
 		}
 		const run = this.dbWriteQueue.then(exec, exec)
 		this.dbWriteQueue = run.catch(() => {})
@@ -454,6 +465,19 @@ export default class HistoryManager {
 		await this.enqueueDbWrite(async (db) => {
 			await db.put('chats', updated)
 			markSessionDirty(sessionId, chatId, emailOfScopedKey(DB_NAME, db.name))
+		})
+	}
+
+	async setModelNotes(chatId: string, notes: string[]) {
+		const existing = this.savedChats[chatId]
+		if (!existing) return
+		const updated = { ...$state.snapshot(existing), modelNotes: notes }
+		this.savedChats = { ...this.savedChats, [chatId]: updated }
+		await this.enqueueDbWrite(async (db) => {
+			await db.put('chats', updated)
+			if (updated.sessionId) {
+				markSessionDirty(updated.sessionId, chatId, emailOfScopedKey(DB_NAME, db.name))
+			}
 		})
 	}
 
@@ -704,7 +728,11 @@ export default class HistoryManager {
 						? {
 								backgroundJobs: $state.snapshot(this.savedChats[this.currentChatId].backgroundJobs)
 							}
-						: {})
+						: {}),
+				// Only setModelNotes changes this field, so every save keeps what it last wrote.
+				...(this.savedChats[this.currentChatId]?.modelNotes !== undefined
+					? { modelNotes: $state.snapshot(this.savedChats[this.currentChatId].modelNotes) }
+					: {})
 			}
 			// The mirror mirrors what the DB holds (refs — the snapshot is
 			// dehydrated below before either sees it): a reopened chat hydrates

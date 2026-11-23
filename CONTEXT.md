@@ -98,3 +98,17 @@ _Avoid_: permission level, access level, rank
 Reserved for the path prefix that says where an item lives — `u/alice` or `f/team`. A folder's
 `owners` column in the database is its admin members; call those admins, never owners, in the UI.
 _Avoid_: using "owner" for a folder admin
+
+### AI session artifacts
+
+**Version**:
+One state of an artifact's name and text, numbered from 1. A change of the text or of the name
+is a new version; a write that changes neither is not.
+_Avoid_: revision; a snapshot is the stored copy of one version, not the version
+
+**Made on**:
+The version a change was made on: the one the chat last read or wrote. A change is stored only
+when made on the latest version; otherwise it is refused as **stale**, and its editor redoes it
+on the latest.
+_Avoid_: base version, parent
+

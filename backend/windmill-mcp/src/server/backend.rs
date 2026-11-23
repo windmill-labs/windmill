@@ -17,6 +17,17 @@ use crate::server::endpoints::EndpointTool;
 /// Result type for backend operations using rmcp's ErrorData directly
 pub type BackendResult<T> = Result<T, ErrorData>;
 
+/// How a script or flow run by a tool ended.
+pub enum RunOutcome {
+    Success(Value),
+    /// The job ran and failed. `result` is the job's result, its error object included.
+    Failed {
+        job_id: String,
+        run_url: String,
+        result: Value,
+    },
+}
+
 /// What a v2 token may do: read, read and run deployed scripts, flows and agents
 /// (`mcp:read_run`), or everything its owner can.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -107,6 +118,10 @@ pub trait McpBackend: Send + Sync + Clone + 'static {
         _refusal: Option<&str>,
     ) {
     }
+
+    /// Whether the caller's role may start runs in the workspace: the same check
+    /// `run_script` and `run_flow` refuse on, so the listing offers no tool that always fails.
+    async fn can_run(&self, auth: &Self::Auth, workspace_id: &str) -> BackendResult<bool>;
 
     // ─────────────────────────────────────────────────────────────────
     // Listing Operations
@@ -202,7 +217,7 @@ pub trait McpBackend: Send + Sync + Clone + 'static {
         path: &str,
         args: Value,
         request: &McpRequest<'_>,
-    ) -> BackendResult<Value>;
+    ) -> BackendResult<RunOutcome>;
 
     /// Run a flow and wait for result
     async fn run_flow(
@@ -212,7 +227,7 @@ pub trait McpBackend: Send + Sync + Clone + 'static {
         path: &str,
         args: Value,
         request: &McpRequest<'_>,
-    ) -> BackendResult<Value>;
+    ) -> BackendResult<RunOutcome>;
 
     /// Call an endpoint tool (generated API endpoint)
     async fn call_endpoint(

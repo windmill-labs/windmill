@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { getLocalDraftHint } from '$lib/localDraftHints.svelte'
 	import { page } from '$app/state'
+	import oauthConnectRegistry from '$oauth_connect_registry'
 	import { isNewTabClick } from '$lib/navigation'
 	import AppConnect from '$lib/components/AppConnectDrawer.svelte'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
@@ -112,6 +113,9 @@
 	let themeResources: ResourceW[] | undefined = $state()
 	let resources: ResourceW[] | undefined = $state()
 	let resourceTypes: ResourceType[] | undefined = $state()
+	// undefined while the counts are unknown (not loaded, or the request failed), so a type is
+	// never shown as having 0 resources it was not counted for
+	let resourceCounts: Record<string, number> | undefined = $state(undefined)
 	let tab = $state<'workspace' | 'types' | 'states' | 'cache' | 'theme'>('workspace')
 	let currentResources = $derived(
 		tab == 'cache'
@@ -326,7 +330,27 @@
 		cache: latestRequest(),
 		states: latestRequest(),
 		theme: latestRequest(),
-		types: latestRequest()
+		types: latestRequest(),
+		counts: latestRequest()
+	}
+
+	// Not part of loadResources, which every filter change re-runs: the counts are of the whole
+	// workspace and only move when the workspace changes or a resource is created or deleted.
+	function loadResourceCounts(): void {
+		const isLatestCount = loads.counts.start()
+		ResourceService.listResourceCountsByType({ workspace: $operatingWorkspace! })
+			.then(
+				(counts) => Object.fromEntries(counts.map((c) => [c.resource_type, c.count])),
+				() => undefined
+			)
+			.then((counts) => {
+				if (isLatestCount()) resourceCounts = counts
+			})
+	}
+
+	async function loadResourcesAndCounts(): Promise<void> {
+		loadResourceCounts()
+		await loadResources()
 	}
 
 	async function loadResources(): Promise<void> {
@@ -383,7 +407,9 @@
 			apiParams.value = currentFilters.value
 		}
 		if (currentFilters.owner) {
-			apiParams.pathStart = currentFilters.owner
+			// pathStart is a LIKE prefix: without the slash f/ops would also match f/ops_eu, and an
+			// unescaped _ (Postgres' default LIKE escape is \) would match any character.
+			apiParams.pathStart = currentFilters.owner.replace(/[\\%_]/g, '\\$&') + '/'
 		}
 		if (currentFilters._default_) {
 			apiParams.broadFilter = currentFilters._default_
@@ -564,6 +590,7 @@
 
 	async function reload() {
 		loading.types = true
+		loadResourceCounts()
 		if (tab == 'cache') {
 			loading.cache = true
 			await loadCache()
@@ -713,6 +740,8 @@
 				// The effect above loads the open tab only; no list may keep the previous
 				// workspace's rows behind another tab. The others reload when reopened, so they are
 				// emptied, and a load still in flight for them is superseded so it cannot refill them.
+				resourceCounts = undefined
+				loadResourceCounts()
 				if (tab !== 'workspace') loadResources()
 				if (tab !== 'cache') {
 					loads.cache.start()
@@ -1252,7 +1281,7 @@
 							</Head>
 							<tbody class="divide-y bg-surface">
 								{#if filteredItems}
-									{#each filteredItems as { path, description, resource_type, extra_perms, workspace_id, is_oauth, is_linked, account, refresh_error, is_expired, scopes, client, is_workspace_integration, marked, is_refreshed, labels, inherited_labels, ws_specific, draft_only, is_draft }}
+									{#each filteredItems as { path, description, resource_type, extra_perms, workspace_id, is_oauth, is_linked, account, refresh_error, is_expired, grant_type, scopes, client, is_workspace_integration, marked, is_refreshed, labels, inherited_labels, ws_specific, draft_only, is_draft }}
 										{@const hasDraft =
 											getLocalDraftHint($operatingWorkspace, 'resource', path) ?? is_draft}
 										{@const canWrite =
@@ -1369,6 +1398,7 @@
 																		<div>
 																			Latest exchange of the refresh token did not succeed. Error: {refresh_error}
 																		</div>
+																		{@render oauthIdentity(resource_type, grant_type)}
 																		{@render oauthScopes(resource_type, scopes)}
 																	{/snippet}
 																</Popover>
@@ -1385,6 +1415,7 @@
 																			this variable is fetched or you can request is to be refreshed
 																			in the dropdown on the right.
 																		</div>
+																		{@render oauthIdentity(resource_type, grant_type)}
 																		{@render oauthScopes(resource_type, scopes)}
 																	{/snippet}
 																</Popover>
@@ -1399,6 +1430,7 @@
 																			The resource was connected through OAuth and the token is not
 																			expired.
 																		</div>
+																		{@render oauthIdentity(resource_type, grant_type)}
 																		{@render oauthScopes(resource_type, scopes)}
 																	{/snippet}
 																</Popover>
@@ -1556,6 +1588,7 @@
 								<Row>
 									<Cell head first>Name</Cell>
 									<Cell head>Description</Cell>
+									<Cell head>Resources</Cell>
 									<Cell head last actions>Actions</Cell>
 								</Row>
 							</Head>
@@ -1594,6 +1627,7 @@
 													</span>
 												</div>
 											</Cell>
+											<Cell>{resourceCounts ? (resourceCounts[name] ?? 0) : '-'}</Cell>
 											<Cell last actions>
 												{#if !canWrite}
 													<!-- Badge is inline-flex, so it needs a right-aligning wrapper to sit
@@ -1660,14 +1694,14 @@
 	</CenteredPage>
 {/if}
 
-<SupabaseConnect bind:this={supabaseConnect} on:refresh={loadResources} />
-<AppConnect bind:this={appConnect} on:refresh={loadResources} />
+<SupabaseConnect bind:this={supabaseConnect} on:refresh={loadResourcesAndCounts} />
+<AppConnect bind:this={appConnect} on:refresh={loadResourcesAndCounts} />
 
 <ResourceEditorDrawer
 	bind:this={resourceEditor}
 	workspace={$operatingWorkspace}
-	on:refresh={loadResources}
-	onRestored={loadResources}
+	on:refresh={loadResourcesAndCounts}
+	onRestored={loadResourcesAndCounts}
 />
 
 <ShareModal
@@ -1698,6 +1732,16 @@
 		/>
 	{/await}
 {/if}
+
+<!-- Slack's bot and user tokens both come from the sign-in flow, so its grant does not
+     say whose identity the token carries. -->
+{#snippet oauthIdentity(resourceType: string, grantType: string | undefined)}
+	{#if grantType === 'client_credentials'}
+		<div class="mt-2">Connected as an app, with client credentials.</div>
+	{:else if !(oauthConnectRegistry as Record<string, any>)[resourceType]?.user_scopes}
+		<div class="mt-2">Connected as the user who connected it, with authorization code.</div>
+	{/if}
+{/snippet}
 
 {#snippet oauthScopes(resourceType: string, scopes: string[] | undefined)}
 	{#if resourceType === 'nextcloud'}
