@@ -688,6 +688,9 @@
 	// only a few seconds, so a step still waiting once that time has passed is read again, at
 	// most every 5s. The parent flow does not change meanwhile, hence the timer below.
 	const waitingStepChecks = new Map<string, number>()
+	// A step's concurrency key is written as it is queued: one without can never be held, so
+	// only a change of the parent flow can change what it waits for.
+	const unlimitedSteps = new Set<string>()
 	function waitingStepDue(mod: FlowStatusModule): boolean {
 		const last = waitingStepChecks.get(mod.job ?? '')
 		if (last != undefined && Date.now() - last < 5000) return false
@@ -703,6 +706,7 @@
 			ConcurrencyGroupsService.getConcurrencyKeyStatus({ id: mod.job ?? '' }).catch(() => undefined)
 		])
 			.then(([job, held]) => {
+				if (held === null) unlimitedSteps.add(mod.job ?? '')
 				const scheduledFor: string | undefined = job?.['scheduled_for']
 				// A held job is admitted only as a worker pulls it, so it is held until it runs.
 				const waiting_reason: GraphModuleState['waiting_reason'] = held?.deferred_from
@@ -734,7 +738,11 @@
 		if (job?.type !== 'QueuedJob' || isReplay) return
 		const id = setInterval(() => {
 			innerModules?.forEach((mod) => {
-				if (mod.type === 'WaitingForExecutor' && waitingStepDue(mod)) {
+				if (
+					mod.type === 'WaitingForExecutor' &&
+					!unlimitedSteps.has(mod.job ?? '') &&
+					waitingStepDue(mod)
+				) {
 					loadWaitingStep(mod, mod.id === retryingStepId)
 				}
 			})
