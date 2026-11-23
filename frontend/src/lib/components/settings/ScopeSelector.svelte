@@ -3,8 +3,9 @@
 	import { sendUserToast } from '$lib/toast'
 	import { ChevronRight, Loader2, Plus, X } from 'lucide-svelte'
 	import Button from '../common/button/Button.svelte'
+	import Checkbox from '../common/checkbox/Checkbox.svelte'
 	import Popover from '../meltComponents/Popover.svelte'
-	import Tooltip from '../Tooltip.svelte'
+	import TextInput from '../text_input/TextInput.svelte'
 	import { twMerge } from 'tailwind-merge'
 
 	import type { Snippet } from 'svelte'
@@ -84,10 +85,6 @@
 		const domainState = getDomainState(domain.name)
 		if (!domainState) return false
 
-		if (domainState.hasFullAccess && scope.value.endsWith(':read')) {
-			return true
-		}
-
 		if (scope.value.endsWith(':read')) {
 			const writeScope = scope.value.replace(':read', ':write')
 			const writeScopeState = domainState.scopes[writeScope]
@@ -127,24 +124,7 @@
 		for (const domain of scopeDomains) {
 			const domainState = createDomainState(domain)
 
-			const writeScopeValue = getWriteScopeForDomain(domain)
-			const hasWriteSelected =
-				writeScopeValue &&
-				selectedScopes.some(
-					(scope) => scope === writeScopeValue || scope.startsWith(writeScopeValue + ':')
-				)
-
-			const runScopes = domain.scopes.filter((scope) => scope.value.includes(':run:'))
-
-			const hasRunScopesSelected =
-				runScopes.length === 0 ||
-				runScopes.every((runScope) =>
-					selectedScopes.some(
-						(scope) => scope === runScope.value || scope.startsWith(runScope.value + ':')
-					)
-				)
-
-			domainState.hasFullAccess = Boolean(hasWriteSelected && hasRunScopesSelected)
+			domainState.hasFullAccess = isFullAccessSelected(domain)
 
 			// Initialize individual scope states
 			for (const scope of domain.scopes) {
@@ -169,12 +149,31 @@
 		componentState = { domains: newDomains }
 	}
 
-	function getWriteScopeForDomain(domain: ScopeDomain): string | null {
+	// What the domain checkbox grants: the write scope (which implies read) and the run scopes.
+	// A read-only domain (docs, data metrics, trigger history) has no write scope, so its checkbox
+	// grants every scope it lists.
+	function getFullAccessScopes(domain: ScopeDomain): string[] {
 		const writeScope = domain.scopes.find((scope) => scope.value.endsWith(':write'))
-		return writeScope?.value || null
+		if (!writeScope) {
+			return domain.scopes.map((scope) => scope.value)
+		}
+		const runScopes = domain.scopes.filter((scope) => scope.value.includes(':run:'))
+		return [writeScope.value, ...runScopes.map((scope) => scope.value)]
+	}
+
+	function isFullAccessSelected(domain: ScopeDomain): boolean {
+		const fullAccessScopes = getFullAccessScopes(domain)
+		return (
+			fullAccessScopes.length > 0 &&
+			fullAccessScopes.every((value) =>
+				selectedScopes.some((scope) => scope === value || scope.startsWith(value + ':'))
+			)
+		)
 	}
 
 	function toggleDomainExpansion(domainName: string) {
+		// A search forces matching groups open; toggling then would flip hidden state.
+		if (query !== '') return
 		const domainState = getDomainState(domainName)
 		if (domainState) {
 			domainState.isExpanded = !domainState.isExpanded
@@ -182,9 +181,6 @@
 	}
 
 	function handleDomainCheckboxChange(domain: ScopeDomain, checked: boolean) {
-		const writeScopeValue = getWriteScopeForDomain(domain)
-		if (!writeScopeValue) return
-
 		const domainState = getDomainState(domain.name)
 		if (!domainState) return
 
@@ -202,11 +198,7 @@
 			// A path-restricted scope already counts as selected for this checkbox (see
 			// initializeDomainStates), so ticking it has to carry those paths over: re-adding the bare
 			// scope would silently widen the grant from those paths to the whole domain.
-			const runScopeValues = domain.scopes
-				.filter((scope) => scope.value.includes(':run:'))
-				.map((scope) => scope.value)
-
-			for (const scopeValue of [writeScopeValue, ...runScopeValues]) {
+			for (const scopeValue of getFullAccessScopes(domain)) {
 				const scopeState = domainState.scopes[scopeValue]
 				const paths = scopeState?.resourcePaths ?? []
 				selectedScopes = [
@@ -264,17 +256,9 @@
 		const domainState = getDomainState(domain.name)
 		if (!domainState) return
 
-		const writeScope = getWriteScopeForDomain(domain)
-		const hasWriteSelected = writeScope && domainState.scopes[writeScope]?.isSelected
-
-		const runScopes = domain.scopes.filter((scope) => scope.value.includes(':run:'))
-
-		const hasRunScopesSelected =
-			runScopes.length === 0 ||
-			runScopes.every((runScope) => domainState.scopes[runScope.value]?.isSelected)
-
-		const isDomainFullySelected = hasWriteSelected && hasRunScopesSelected
-		domainState.hasFullAccess = Boolean(isDomainFullySelected)
+		domainState.hasFullAccess = getFullAccessScopes(domain).every(
+			(value) => domainState.scopes[value]?.isSelected
+		)
 	}
 
 	function getSelectedScopesForDomain(domain: ScopeDomain): string[] {
@@ -334,6 +318,25 @@
 	}
 
 	const hasAdministratorScope = $derived(selectedScopes.includes('*'))
+
+	let search = $state('')
+	const query = $derived(search.trim().toLowerCase())
+
+	function matchesQuery(text: string | null | undefined): boolean {
+		return !!text && text.toLowerCase().includes(query)
+	}
+
+	// A domain matching by name or description shows all its scopes; otherwise only the matching ones.
+	function getVisibleScopes(domain: ScopeDomain): ScopeDefinition[] {
+		if (query === '' || matchesQuery(domain.name) || matchesQuery(domain.description)) {
+			return domain.scopes
+		}
+		return domain.scopes.filter((scope) => matchesQuery(scope.label) || matchesQuery(scope.value))
+	}
+
+	const visibleDomains = $derived(
+		(scopeDomains ?? []).filter((domain) => getVisibleScopes(domain).length > 0)
+	)
 
 	$effect(() => {
 		if (scopeDomains && componentState.domains) {
@@ -444,24 +447,7 @@
 			const domainState = getDomainState(domain.name)
 			if (!domainState) continue
 
-			const writeScopeValue = getWriteScopeForDomain(domain)
-			const hasWriteSelected =
-				writeScopeValue &&
-				selectedScopes.some(
-					(scope) => scope === writeScopeValue || scope.startsWith(writeScopeValue + ':')
-				)
-
-			const runScopes = domain.scopes.filter((scope) => scope.value.includes(':run:'))
-
-			const hasRunScopesSelected =
-				runScopes.length === 0 ||
-				runScopes.every((runScope) =>
-					selectedScopes.some(
-						(scope) => scope === runScope.value || scope.startsWith(runScope.value + ':')
-					)
-				)
-
-			domainState.hasFullAccess = Boolean(hasWriteSelected && hasRunScopesSelected)
+			domainState.hasFullAccess = isFullAccessSelected(domain)
 
 			for (const scope of domain.scopes) {
 				const scopeState = domainState.scopes[scope.value]
@@ -488,259 +474,236 @@
 </script>
 
 <!-- The label can be a long comma-joined path list. It must never widen its container, which would
-     push the per-scope path buttons out of the panel, so it either truncates or wraps. Wrap it
-     wherever the reader is auditing the grant: an ellipsis there hides the paths being granted. -->
+     push the per-scope path buttons out of the panel, so it wraps: an ellipsis would hide the
+     paths being granted. -->
 {#snippet scopeChip(
 	label: string,
 	removeTitle: string,
 	onRemove: (e: MouseEvent) => void,
-	opts?: { removeDisabled?: boolean; wrapLabel?: boolean }
+	removeDisabled: boolean
 )}
 	<span
-		class="inline-flex items-center gap-1 min-w-0 max-w-full px-1.5 py-0.5 text-xs font-medium bg-blue-100 text-blue-800 rounded font-mono"
+		class="inline-flex items-center gap-1 min-w-0 max-w-full pl-1.5 pr-1 py-0.5 rounded bg-surface-secondary border border-border-light font-mono text-2xs text-emphasis"
 	>
-		<span
-			class={opts?.wrapLabel ? 'break-all' : 'truncate'}
-			title={opts?.wrapLabel ? undefined : label}>{label}</span
-		>
+		<span class="break-all">{label}</span>
 		<button
 			type="button"
 			onclick={onRemove}
-			class="text-blue-600 hover:text-blue-800 flex-shrink-0"
+			class="flex-shrink-0 rounded text-secondary hover:text-emphasis hover:bg-surface-hover disabled:opacity-50"
 			title={removeTitle}
-			disabled={opts?.removeDisabled ?? disabled}
+			aria-label={removeTitle}
+			disabled={removeDisabled}
 		>
-			<X size={10} />
+			<X size={12} />
 		</button>
 	</span>
 {/snippet}
 
-<div class="w-full {className} p-2">
+<div class="w-full flex flex-col gap-2 {className}">
 	{#if loading}
-		<div class="flex items-center justify-center py-12">
-			<Loader2 size={32} class="animate-spin text-primary" />
+		<div class="flex items-center gap-2 py-2 text-xs text-secondary">
+			<Loader2 size={16} class="animate-spin" />
+			Loading scopes
 		</div>
 	{:else if error}
-		<div class="p-4 bg-surface-tertiary border border-red-200 rounded-lg">
-			<p class="text-xs text-red-600 mb-3">{error}</p>
-			<Button onclick={fetchScopeDomains} variant="accent" size="sm">Try again</Button>
+		<div class="flex items-center gap-2">
+			<p class="text-xs text-red-500">{error}</p>
+			<Button onclick={fetchScopeDomains} variant="default" unifiedSize="sm">Try again</Button>
 		</div>
 	{:else if scopeDomains}
-		<div class="mb-6 p-4 bg-surface-tertiary border rounded-md">
-			<div class="flex items-center justify-between mb-3">
-				<h4 class="text-xs font-semibold text-emphasis">
-					Selected Scopes ({selectedScopes.length})
-				</h4>
-				<Button onclick={clearAllScopes} {disabled} size="xs" variant="subtle">Clear All</Button>
-			</div>
-
-			{#if selectedScopes.length === 0}
-				<p class="text-xs text-secondary">{emptyLabel}</p>
-			{:else if hasAdministratorScope}
-				<p class="text-xs text-secondary"
-					>Administrator scope grants full access to all resources.</p
-				>
-			{:else}
-				<div class="flex flex-wrap gap-2 max-h-32 overflow-y-auto">
-					{#each selectedScopes.slice(0, 10) as scope}
-						{@render scopeChip(scope, 'Remove scope', () => removeSelectedScope(scope), {
-							wrapLabel: true
-						})}
-					{/each}
-					{#if selectedScopes.length > 10}
-						<span
-							class="inline-flex items-center px-2.5 py-0.5 text-xs font-medium bg-surface text-secondary rounded"
-						>
-							+{selectedScopes.length - 10} more
-						</span>
-					{/if}
-				</div>
-			{/if}
-		</div>
-
 		{#if topSlot}
-			<div class="mb-3">
-				{@render topSlot()}
-			</div>
+			{@render topSlot()}
 		{/if}
 
-		<div class="max-h-96 overflow-y-auto border rounded-md">
-			{#each scopeDomains as domain}
-				{@const domainState = getDomainState(domain.name)}
-				{@const isExpanded = domainState?.isExpanded || false}
-				{@const isDomainSelected = domainState?.hasFullAccess || false}
-				{@const selectedScopes = getSelectedScopesForDomain(domain)}
+		<div class="rounded-md border border-border-light bg-surface-tertiary overflow-hidden">
+			<div class="flex items-center justify-between gap-2 h-9 px-3 border-b border-border-light">
+				<span class="text-xs font-semibold text-emphasis whitespace-nowrap">
+					Scopes
+					<span class="font-normal text-secondary">· {selectedScopes.length} selected</span>
+				</span>
+				<!-- Search stays rightmost so Clear appearing does not move it. -->
+				<div class="flex items-center gap-2 min-w-0">
+					{#if selectedScopes.length > 0}
+						<Button onclick={clearAllScopes} {disabled} unifiedSize="sm" variant="default">
+							Clear selected scopes
+						</Button>
+					{/if}
+					<TextInput
+						bind:value={search}
+						size="sm"
+						class="w-56 max-w-full"
+						inputProps={{ placeholder: 'Search scopes', 'aria-label': 'Search scopes' }}
+					/>
+				</div>
+			</div>
 
-				<div class="overflow-hidden">
-					<!-- svelte-ignore a11y_click_events_have_key_events -->
-					<!-- svelte-ignore a11y_no_static_element_interactions -->
-					<div
-						class="p-4 cursor-pointer hover:bg-surface-hover transition-colors"
-						onclick={() => toggleDomainExpansion(domain.name)}
-					>
-						<div class="flex items-center gap-2">
-							<div class="flex-shrink-0">
-								<ChevronRight
-									size={16}
-									class="text-secondary transition-transform duration-200 {isExpanded
-										? 'rotate-90'
-										: ''}"
-								/>
-							</div>
+			<!-- The empty text and one row of chips share a min height, so the first selection
+			     does not push down the list being clicked. -->
+			<div class="px-3 py-2 border-b border-border-light bg-surface-secondary">
+				{#if selectedScopes.length === 0 || hasAdministratorScope}
+					<p class="flex items-center min-h-6 text-2xs text-secondary">
+						{selectedScopes.length === 0
+							? emptyLabel
+							: 'Administrator scope grants full access to all resources.'}
+					</p>
+				{:else}
+					<div class="flex flex-wrap items-center gap-1 min-h-6 max-h-24 overflow-y-auto">
+						{#each selectedScopes as scope}
+							{@render scopeChip(scope, 'Remove scope', () => removeSelectedScope(scope), disabled)}
+						{/each}
+					</div>
+				{/if}
+			</div>
 
-							<div class="flex-shrink-0">
-								<input
-									type="checkbox"
-									id={`domain-${domain.name}`}
-									checked={isDomainSelected}
-									{disabled}
-									onchange={(e) => handleDomainCheckboxChange(domain, e.currentTarget.checked)}
-									onclick={(e) => e.stopPropagation()}
-									class="!w-4 !h-4 cursor-pointer"
-								/>
-							</div>
+			<div class="max-h-96 overflow-y-auto divide-y divide-border-light">
+				{#each visibleDomains as domain (domain.name)}
+					{@const domainState = getDomainState(domain.name)}
+					{@const isExpanded = query !== '' || domainState?.isExpanded || false}
+					{@const isDomainSelected = domainState?.hasFullAccess || false}
+					{@const selectedCount = getSelectedScopesForDomain(domain).length}
 
-							<div class="flex-1 min-w-0 flex flex-col gap-1">
-								<!-- No height cap here: truncation holds every chip to one row and a domain has a
-								     handful of scopes, so this row cannot run away. Capping it would nest a scroller
-								     inside the domain list, which then swallows wheel events crossing this row. -->
-								<div class="flex items-center gap-x-2 gap-y-1 flex-wrap">
-									<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-									<label
-										for={`domain-${domain.name}`}
-										class="text-xs font-medium text-emphasis cursor-pointer"
-										onclick={(e) => e.stopPropagation()}
-									>
-										{domain.name}
-									</label>
-									{#each selectedScopes as scope}
-										{@render scopeChip(scope, 'Remove scope', (e) => {
-											e.stopPropagation()
-											removeSelectedScope(scope)
-										})}
-									{/each}
-								</div>
+					<div>
+						<!-- svelte-ignore a11y_click_events_have_key_events -->
+						<!-- svelte-ignore a11y_no_static_element_interactions -->
+						<div
+							class="flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-surface-hover transition-colors"
+							onclick={() => toggleDomainExpansion(domain.name)}
+						>
+							<ChevronRight
+								size={16}
+								class="flex-shrink-0 text-secondary transition-transform duration-200 {isExpanded
+									? 'rotate-90'
+									: ''}"
+							/>
+							<Checkbox
+								checked={isDomainSelected}
+								indeterminate={!isDomainSelected && selectedCount > 0}
+								{disabled}
+								title={`Grant every ${domain.name} scope`}
+								onChange={() => handleDomainCheckboxChange(domain, !isDomainSelected)}
+								onClick={(e) => e.stopPropagation()}
+							/>
+							<div class="flex-1 min-w-0">
+								<div class="text-xs font-semibold text-emphasis">{domain.name}</div>
 								{#if domain.description}
-									<p class="text-2xs text-secondary">{domain.description}</p>
+									<div class="text-2xs text-secondary">{domain.description}</div>
 								{/if}
 							</div>
+							{#if selectedCount > 0}
+								<span class="flex-shrink-0 text-2xs text-secondary">
+									{selectedCount} of {domain.scopes.length}
+								</span>
+							{/if}
 						</div>
-					</div>
 
-					{#if isExpanded}
-						<div class="p-2 pl-12">
-							<div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-								{#each domain.scopes as scope}
+						{#if isExpanded}
+							<div class="flex flex-col pb-2 pl-[3.25rem] pr-3">
+								{#each getVisibleScopes(domain) as scope (scope.value)}
 									{@const scopeState = domainState?.scopes[scope.value]}
 									{@const isSelected = scopeState?.isSelected || false}
 									{@const resourcePathArray = scopeState?.resourcePaths || []}
 									{@const currentInput = scopeState?.currentInputValue || ''}
 									{@const pathError = scopeState?.pathError}
+									{@const isImplied = !isSelected && isScopeDisabled(scope, domain)}
 									{@const isDisabled = disabled || isScopeDisabled(scope, domain)}
 
-									<div
-										class="p-2 border rounded-lg w-full {isDisabled
-											? 'bg-surface-disabled opacity-60'
-											: 'bg-surface-tertiary'}"
-									>
-										<div class="flex justify-between items-center min-h-7">
+									<div class="flex flex-col gap-1 py-1">
+										<div class="flex items-center gap-2 min-h-7">
 											<label
 												class={twMerge(
 													'flex items-center gap-2 flex-1 min-w-0',
 													isDisabled ? 'cursor-not-allowed' : 'cursor-pointer'
 												)}
+												title={isImplied
+													? 'Granted by the write scope, on the same paths'
+													: undefined}
 											>
-												<input
-													type="checkbox"
-													checked={isSelected}
+												<!-- A read scope covered by the selected write scope shows as granted. -->
+												<Checkbox
+													checked={isSelected || isImplied}
 													disabled={isDisabled}
-													onchange={(e) =>
-														handleIndividualScopeChange(scope, e.currentTarget.checked)}
-													class="!w-4 !h-4 flex-shrink-0"
+													onChange={() => handleIndividualScopeChange(scope, !isSelected)}
 												/>
-
 												<span
 													class={twMerge(
-														'font-normal text-xs truncate cursor-pointer',
+														'text-xs truncate',
 														isDisabled ? 'text-disabled' : 'text-primary'
 													)}
 												>
 													{scope.label}
 												</span>
+												<span class="font-mono text-2xs text-hint truncate">{scope.value}</span>
 											</label>
-											<div class="flex-shrink-0">
-												{#if scope.requires_resource_path}
-													<Popover
-														disabled={isDisabled}
-														closeOnOtherPopoverOpen
-														contentClasses="p-3"
-													>
-														{#snippet trigger()}
-															<Button
-																unifiedSize="sm"
-																disabled={isDisabled}
-																variant="default"
-																startIcon={resourcePathArray.length > 0
-																	? { icon: Plus }
-																	: undefined}
-															>
-																{resourcePathArray.length > 0 ? 'Add path' : 'Restrict paths'}
-																<Tooltip light>
-																	Restrict this scope to specific resource paths. With no paths
-																	listed it reaches everything; with paths listed it reaches exactly
-																	those.
-																</Tooltip>
-															</Button>
-														{/snippet}
-														{#snippet content()}
-															<div class="w-80">
-																<div class="flex gap-2">
-																	<input
-																		type="text"
-																		value={currentInput}
-																		{disabled}
-																		oninput={(e) => {
+											{#if scope.requires_resource_path && isSelected}
+												<Popover disabled={isDisabled} closeOnOtherPopoverOpen contentClasses="p-3">
+													{#snippet trigger()}
+														<Button
+															unifiedSize="xs"
+															disabled={isDisabled}
+															variant="subtle"
+															startIcon={{ icon: Plus }}
+														>
+															{resourcePathArray.length > 0 ? 'Add path' : 'Restrict paths'}
+														</Button>
+													{/snippet}
+													{#snippet content()}
+														<div class="w-80 flex flex-col gap-1">
+															<span class="text-xs font-semibold text-emphasis">Resource path</span>
+															<span class="text-xs text-secondary">
+																With no path, the scope reaches every resource. With paths, it
+																reaches exactly those.
+															</span>
+															<div class="flex gap-2">
+																<TextInput
+																	size="sm"
+																	class="flex-1"
+																	bind:value={
+																		() => currentInput,
+																		(v) => {
 																			if (scopeState) {
-																				scopeState.currentInputValue = e.currentTarget.value
+																				scopeState.currentInputValue = `${v ?? ''}`
 																				scopeState.pathError = undefined
 																			}
-																		}}
-																		placeholder="e.g. f/folder/*, u/user/path"
-																		onkeydown={(e) => {
+																		}
+																	}
+																	error={pathError}
+																	inputProps={{
+																		disabled,
+																		placeholder: 'f/folder/*, u/user/path',
+																		onkeydown: (e) => {
 																			if (e.key === 'Enter' && currentInput.trim()) {
 																				e.preventDefault()
 																				addResourcePath(scope.value, currentInput)
 																			}
-																		}}
-																	/>
-																	<Button
-																		onclick={() => {
-																			addResourcePath(scope.value, currentInput)
-																		}}
-																		unifiedSize="sm"
-																		disabled={!currentInput.trim()}
-																	>
-																		Add
-																	</Button>
-																</div>
-																{#if pathError}
-																	<p class="text-2xs text-red-600 mt-1">{pathError}</p>
-																{/if}
+																		}
+																	}}
+																/>
+																<Button
+																	onclick={() => addResourcePath(scope.value, currentInput)}
+																	unifiedSize="sm"
+																	variant="default"
+																	disabled={!currentInput.trim()}
+																>
+																	Add
+																</Button>
 															</div>
-														{/snippet}
-													</Popover>
-												{/if}
-											</div>
+															{#if pathError}
+																<p class="text-2xs text-red-500">{pathError}</p>
+															{/if}
+														</div>
+													{/snippet}
+												</Popover>
+											{/if}
 										</div>
 
 										{#if scope.requires_resource_path && resourcePathArray.length > 0}
-											<div class="flex flex-wrap gap-1 mt-2">
+											<div class="flex flex-wrap gap-1 pl-6">
 												{#each resourcePathArray as path}
 													{@render scopeChip(
 														path,
 														'Remove path',
 														() => removeResourcePath(scope.value, path),
-														{ removeDisabled: isDisabled }
+														isDisabled
 													)}
 												{/each}
 											</div>
@@ -748,10 +711,12 @@
 									</div>
 								{/each}
 							</div>
-						</div>
-					{/if}
-				</div>
-			{/each}
+						{/if}
+					</div>
+				{:else}
+					<p class="px-3 py-4 text-xs text-secondary">No scope matches "{search.trim()}".</p>
+				{/each}
+			</div>
 		</div>
 	{/if}
 </div>
