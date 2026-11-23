@@ -9030,6 +9030,36 @@ async fn create_failed_only_module(
             "Step {restart_step_id} has no failed iterations to rerun"
         )));
     }
+    // A loop reruns its failed iterations on the items they ran on, read from each iteration's
+    // `iter` argument rather than re-evaluating the iterator, so every kept result stays
+    // paired with its item.
+    let itered = if is_loop {
+        let rows = sqlx::query!(
+            "SELECT id, args->'iter'->'value' AS \"value: sqlx::types::Json<Box<RawValue>>\"
+             FROM v2_job WHERE workspace_id = $1 AND id = ANY($2)",
+            workspace_id,
+            &original_jobs,
+        )
+        .fetch_all(db)
+        .await?;
+        let items = original_jobs
+            .iter()
+            .map(|job| {
+                rows.iter()
+                    .find(|r| r.id == *job)
+                    .and_then(|r| r.value.as_ref())
+                    .map(|v| v.0.clone())
+            })
+            .collect::<Option<Vec<_>>>()
+            .ok_or_else(|| {
+                Error::BadRequest(format!(
+                    "The items step {restart_step_id} iterated over in the original run are no longer stored, rerun all its iterations instead"
+                ))
+            })?;
+        Some(items)
+    } else {
+        None
+    };
     let mut flow_jobs_duration = module
         .flow_jobs_duration()
         .filter(|d| d.started_at.len() == n && d.duration_ms.len() == n)
@@ -9043,7 +9073,7 @@ async fn create_failed_only_module(
     Ok(FlowStatusModule::InProgress {
         id: module.id(),
         job: Uuid::nil(),
-        iterator: is_loop.then(|| FlowIterator { index: kept, itered: None, itered_len: Some(n) }),
+        iterator: is_loop.then(|| FlowIterator { index: kept, itered, itered_len: Some(n) }),
         flow_jobs_success: Some(
             flow_jobs
                 .iter()

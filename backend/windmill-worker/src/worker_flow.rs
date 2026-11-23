@@ -6059,6 +6059,8 @@ struct FailedOnlySlots {
     flow_jobs: Vec<Uuid>,
     flow_jobs_success: Option<Vec<Option<bool>>>,
     flow_jobs_duration: Option<FlowJobsDuration>,
+    /// For a loop, the item each slot ran on in the restarted run.
+    itered: Option<Vec<Box<RawValue>>>,
 }
 
 impl FailedOnlySlots {
@@ -6071,11 +6073,13 @@ impl FailedOnlySlots {
                 flow_jobs: Some(flow_jobs),
                 flow_jobs_success,
                 flow_jobs_duration,
+                iterator,
                 ..
             } if flow_jobs.iter().any(Uuid::is_nil) => Some(Self {
                 flow_jobs: flow_jobs.clone(),
                 flow_jobs_success: flow_jobs_success.clone(),
                 flow_jobs_duration: flow_jobs_duration.clone(),
+                itered: iterator.as_ref().and_then(|i| i.itered.clone()),
             }),
             _ => None,
         }
@@ -6473,33 +6477,41 @@ async fn compute_next_flow_transform(
             //         }
             //         _ => None,
             //     }
-            let next_loop_status = next_forloop_status(
-                status_module,
-                by_id,
-                flow_job,
-                previous_id,
-                status,
-                &iterator,
-                arc_last_job_result,
-                resumes,
-                resume,
-                approvers,
-                arc_flow_job_args,
-                flow_env,
-                client,
-                &parallel,
-                db,
-            )
-            .await?;
+            // A failed-only restart reruns on the restarted run's items, never re-evaluating
+            // the iterator, so each kept result stays paired with its item.
+            let next_loop_status = if let Some(slots) = &failed_only {
+                let itered = slots.itered.clone().ok_or_else(|| {
+                    Error::ExecutionErr(format!(
+                        "The items for-loop {} iterated over in the restarted run are missing",
+                        module.id
+                    ))
+                })?;
+                ForLoopStatus::ParallelIteration { itered_len: itered.len(), itered }
+            } else {
+                next_forloop_status(
+                    status_module,
+                    by_id,
+                    flow_job,
+                    previous_id,
+                    status,
+                    &iterator,
+                    arc_last_job_result,
+                    resumes,
+                    resume,
+                    approvers,
+                    arc_flow_job_args,
+                    flow_env,
+                    client,
+                    &parallel,
+                    db,
+                )
+                .await?
+            };
 
             match next_loop_status {
-                ForLoopStatus::EmptyIterator => match &failed_only {
-                    Some(slots) => Err(Error::ExecutionErr(format!(
-                        "The for-loop now iterates over no items but the restarted run iterated over {}, its failed iterations cannot be matched",
-                        slots.flow_jobs.len()
-                    ))),
-                    None => Ok(NextFlowTransform::EmptyInnerFlows { branch_chosen: None }),
-                },
+                ForLoopStatus::EmptyIterator => {
+                    Ok(NextFlowTransform::EmptyInnerFlows { branch_chosen: None })
+                }
                 ForLoopStatus::NextIteration(mut ns) => {
                     ns.iteration_label = iteration_label;
                     let start_runners = ns.index == 0 && squash.unwrap_or(false);
@@ -6530,14 +6542,6 @@ async fn compute_next_flow_transform(
                     //     ContinuePayload::ForloopJobs { n: itered.len(), payload: payload }
                     // } else {
 
-                    if let Some(slots) = &failed_only {
-                        if slots.flow_jobs.len() != itered_len {
-                            return Err(Error::ExecutionErr(format!(
-                                "The for-loop now iterates over {itered_len} items but the restarted run iterated over {}, its failed iterations cannot be matched",
-                                slots.flow_jobs.len()
-                            )));
-                        }
-                    }
                     let payloads = (0..itered_len)
                         .filter(|&i| failed_only.as_ref().is_none_or(|s| s.reruns(i)))
                         .filter_map(|i| {

@@ -24,15 +24,15 @@ async fn first_module(db: &Pool<Postgres>, flow_job_id: uuid::Uuid) -> FlowStatu
     status.modules[0].clone()
 }
 
-/// A parallel loop over 'x', 'y', 'z' that fails on 'y' and 'z' when run with tag "first".
-/// With parallelism 1, the second rerun is queued suspended and must be released by the first
-/// one completing.
-fn flow(wrap_in_branchone: bool) -> FlowValue {
+/// A parallel loop over `items` that fails on all but 'x' when run with tag "first". With
+/// parallelism 1, the second rerun is queued suspended and must be released by the first one
+/// completing.
+fn flow(wrap_in_branchone: bool, items: &str) -> FlowValue {
     let parallel_loop = json!({
         "id": "loop",
         "value": {
             "type": "forloopflow",
-            "iterator": { "type": "javascript", "expr": "['x', 'y', 'z']" },
+            "iterator": { "type": "javascript", "expr": items },
             "skip_failures": true,
             "parallel": true,
             "parallelism": { "type": "static", "value": 1 },
@@ -97,7 +97,7 @@ async fn test_restart_parallel_loop_failed_only(db: Pool<Postgres>) -> anyhow::R
     let server = ApiServer::start(db.clone()).await?;
     let port = server.addr.port();
 
-    let first_run = run(&db, port, flow(false), "first", None).await;
+    let first_run = run(&db, port, flow(false, "['x', 'y', 'z']"), "first", None).await;
     let original = first_module(&db, first_run.id).await.flow_jobs().unwrap();
 
     let restart = RestartedFrom {
@@ -106,7 +106,9 @@ async fn test_restart_parallel_loop_failed_only(db: Pool<Postgres>) -> anyhow::R
         failed_only: true,
         ..Default::default()
     };
-    let restarted = run(&db, port, flow(false), "second", Some(restart)).await;
+    // The reruns use the restarted run's items, not the edited iterator's.
+    let edited = flow(false, "['z', 'y', 'x']");
+    let restarted = run(&db, port, edited, "second", Some(restart)).await;
     let rerun = first_module(&db, restarted.id).await.flow_jobs().unwrap();
     assert_only_failed_reran(restarted.json_result().unwrap(), &original, &rerun);
     Ok(())
@@ -119,7 +121,7 @@ async fn test_restart_nested_parallel_loop_failed_only(db: Pool<Postgres>) -> an
     let server = ApiServer::start(db.clone()).await?;
     let port = server.addr.port();
 
-    let first_run = run(&db, port, flow(true), "first", None).await;
+    let first_run = run(&db, port, flow(true, "['x', 'y', 'z']"), "first", None).await;
     let first_branch = first_module(&db, first_run.id).await.job().unwrap();
     let original = first_module(&db, first_branch).await.flow_jobs().unwrap();
 
@@ -135,7 +137,14 @@ async fn test_restart_nested_parallel_loop_failed_only(db: Pool<Postgres>) -> an
         })),
         ..Default::default()
     };
-    let restarted = run(&db, port, flow(true), "second", Some(restart)).await;
+    let restarted = run(
+        &db,
+        port,
+        flow(true, "['x', 'y', 'z']"),
+        "second",
+        Some(restart),
+    )
+    .await;
     let branch = first_module(&db, restarted.id).await.job().unwrap();
     let rerun = first_module(&db, branch).await.flow_jobs().unwrap();
     assert_only_failed_reran(restarted.json_result().unwrap(), &original, &rerun);
