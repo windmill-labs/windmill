@@ -1427,6 +1427,25 @@ async fn create_script_internal<'c>(
     // user draft at this path instead of wiping it as part of the deploy.
     let skip_draft_deletion = ns.skip_draft_deletion.unwrap_or(false);
     let authed = maybe_refresh_folders(&ns.path, &w_id, authed, &db).await;
+    windmill_dep_map::ci_tests::check_ci_tests_rule(
+        &db,
+        &w_id,
+        &ns.path,
+        None,
+        windmill_dep_map::ci_tests::DeployedContent::Script {
+            content: &ns.content,
+            modules: ns
+                .modules
+                .as_ref()
+                .and_then(|m| serde_json::to_value(m).ok()),
+            codebase: ns.codebase.as_deref(),
+            parent_hash: ns.parent_hash.as_ref().map(|h| h.0),
+        },
+        &authed,
+        &authed.groups,
+        authed.is_admin,
+    )
+    .await?;
 
     // Everything read from `db` happens before `tx` opens: `user_db` wraps the same pool, so a
     // deploy taking a second connection while holding `tx` lets N concurrent deploys hold the
@@ -1849,27 +1868,6 @@ async fn create_script_internal<'c>(
             r
         }
     }?;
-    windmill_dep_map::ci_tests::check_ci_tests_rule(
-        &db,
-        &w_id,
-        &ns.path,
-        parent_hashes_and_perms
-            .as_ref()
-            .map(|p| p.p_path.as_str())
-            .filter(|p| *p != ns.path),
-        windmill_dep_map::ci_tests::DeployedContent::Script {
-            content: &ns.content,
-            modules: ns
-                .modules
-                .as_ref()
-                .and_then(|m| serde_json::to_value(m).ok()),
-            codebase: ns.codebase.as_deref(),
-        },
-        &authed,
-        &authed.groups,
-        authed.is_admin,
-    )
-    .await?;
     let p_hashes = parent_hashes_and_perms.as_ref().map(|v| &v.p_hashes[..]);
     let extra_perms = parent_hashes_and_perms
         .as_ref()

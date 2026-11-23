@@ -203,6 +203,8 @@ pub enum DeployedContent<'a> {
         content: &'a str,
         modules: Option<serde_json::Value>,
         codebase: Option<&'a str>,
+        /// The version it supersedes, whose path is the one a rename leaves.
+        parent_hash: Option<i64>,
     },
     Flow(&'a serde_json::value::RawValue),
     /// `None` when the write clears the value.
@@ -245,6 +247,19 @@ pub async fn check_ci_tests_rule(
     {
         return Ok(());
     }
+    let parent_path = match content {
+        DeployedContent::Script { parent_hash: Some(h), .. } if renamed_from.is_none() => {
+            sqlx::query_scalar!(
+                "SELECT path FROM script WHERE workspace_id = $1 AND hash = $2",
+                w_id,
+                h
+            )
+            .fetch_optional(db)
+            .await?
+        }
+        _ => None,
+    };
+    let renamed_from = renamed_from.or(parent_path.as_deref().filter(|p| *p != path));
     let Some(failure) = ci_tests_failure(db, w_id, path, renamed_from, &content).await? else {
         return Ok(());
     };
@@ -356,7 +371,7 @@ async fn fork_deployed_at(
     value: Option<&serde_json::Value>,
 ) -> error::Result<Option<chrono::DateTime<chrono::Utc>>> {
     Ok(match (content, value) {
-        (DeployedContent::Script { content: c, modules, codebase }, _) => sqlx::query!(
+        (DeployedContent::Script { content: c, modules, codebase, .. }, _) => sqlx::query!(
             "SELECT content, modules, codebase, created_at FROM script \
              WHERE workspace_id = $1 AND path = $2 AND deleted = false AND archived = false \
              ORDER BY created_at DESC LIMIT 1",
@@ -451,37 +466,62 @@ async fn fork_tests_failure(
 }
 
 /// A flow carries over to its parent without the hashes its script steps pin, and the locks
-/// of its steps are recomputed per workspace: neither tells two versions of its logic apart.
-/// Only the fork's pins are dropped: a deploy pinning a step to a revision of its own runs code
-/// no fork has tested. A step is an object with an `id` and a `value`, so arguments that merely
-/// look like one are compared as they are.
+/// of its steps are recomputed per workspace: neither tells two versions of its logic apart. A
+/// deploy may keep the fork's pin of a step or drop it, but a pin of its own runs code no fork
+/// has tested. A step is an object with an `id` and a `value`, so arguments that merely look like
+/// one are compared as they are.
 fn same_flow(fork: &serde_json::Value, deployed: &serde_json::Value) -> bool {
-    fn strip(v: &serde_json::Value, keys: &[&str]) -> serde_json::Value {
+    use serde_json::Value;
+    fn step_value(
+        m: &serde_json::Map<String, Value>,
+    ) -> Option<(&str, &serde_json::Map<String, Value>)> {
+        let id = m.get("id")?.as_str()?;
+        let step = m.get("value")?.as_object()?;
+        matches!(step.get("type")?.as_str()?, "rawscript" | "script" | "flow").then_some((id, step))
+    }
+    fn pins<'a>(v: &'a Value, out: &mut std::collections::HashMap<&'a str, &'a Value>) {
         match v {
-            serde_json::Value::Object(m) => {
-                let mut m: serde_json::Map<_, _> =
-                    m.iter().map(|(k, v)| (k.clone(), strip(v, keys))).collect();
-                if m.contains_key("id") {
-                    if let Some(serde_json::Value::Object(step)) = m.get_mut("value") {
-                        if matches!(
-                            step.get("type").and_then(|t| t.as_str()),
-                            Some("rawscript" | "script" | "flow")
-                        ) {
-                            keys.iter().for_each(|k| {
-                                step.remove(*k);
-                            });
-                        }
+            Value::Object(m) => {
+                if let Some((id, step)) = step_value(m) {
+                    if let Some(h) = step.get("hash") {
+                        out.insert(id, h);
                     }
                 }
-                serde_json::Value::Object(m)
+                m.values().for_each(|v| pins(v, out));
             }
-            serde_json::Value::Array(a) => {
-                serde_json::Value::Array(a.iter().map(|v| strip(v, keys)).collect())
+            Value::Array(a) => a.iter().for_each(|v| pins(v, out)),
+            _ => {}
+        }
+    }
+    fn strip(v: &Value, fork_pins: Option<&std::collections::HashMap<&str, &Value>>) -> Value {
+        match v {
+            Value::Object(m) => {
+                let drop_hash =
+                    step_value(m).map(|(id, step)| match (fork_pins, step.get("hash")) {
+                        (None, _) | (_, None) => true,
+                        (Some(p), Some(h)) => p.get(id) == Some(&h),
+                    });
+                let mut out: serde_json::Map<_, _> = m
+                    .iter()
+                    .map(|(k, v)| (k.clone(), strip(v, fork_pins)))
+                    .collect();
+                if let (Some(drop_hash), Some(Value::Object(step))) =
+                    (drop_hash, out.get_mut("value"))
+                {
+                    step.remove("lock");
+                    if drop_hash {
+                        step.remove("hash");
+                    }
+                }
+                Value::Object(out)
             }
+            Value::Array(a) => Value::Array(a.iter().map(|v| strip(v, fork_pins)).collect()),
             v => v.clone(),
         }
     }
-    strip(fork, &["hash", "lock"]) == strip(deployed, &["lock"])
+    let mut fork_pins = std::collections::HashMap::new();
+    pins(fork, &mut fork_pins);
+    strip(fork, None) == strip(deployed, Some(&fork_pins))
 }
 
 /// An agent carries over to its parent with the principal it runs as replaced.
@@ -522,6 +562,9 @@ mod tests {
         let mut pinned = merged.clone();
         pinned["modules"][1]["value"]["hash"] = json!("h2");
         assert!(!same_flow(&fork, &pinned));
+        let mut kept_pin = merged.clone();
+        kept_pin["modules"][1]["value"]["hash"] = json!("h1");
+        assert!(same_flow(&fork, &kept_pin));
         let (mut fork_arg, mut merged_arg) = (fork.clone(), merged);
         fork_arg["modules"][0]["value"]["input_transforms"]["lock"]["value"] =
             json!({"type": "script", "hash": "v1"});
