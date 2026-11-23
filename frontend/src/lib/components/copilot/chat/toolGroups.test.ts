@@ -263,6 +263,16 @@ describe('groupToolRuns', () => {
 		expect(header(messages)).toBe('Tested f/a/script · 2 runs · 1 change')
 	})
 
+	it("folds the flow editor's test runs, whose `path` is the flow's own input", () => {
+		const messages = [
+			tool('test_run_flow', { path: '/tmp/a' }),
+			tool('set_flow_json', {}),
+			tool('test_run_flow', { path: '/tmp/b' })
+		]
+		expect(shape(messages)).toEqual([{ test: [0, 1, 2] }])
+		expect(header(messages)).toBe('Tested the flow · 2 runs · 1 change')
+	})
+
 	it('names what a group did', () => {
 		const flow = { path: 'f/a/flow' }
 		expect(
