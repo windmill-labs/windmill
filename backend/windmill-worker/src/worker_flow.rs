@@ -6080,7 +6080,8 @@ struct IterationResume {
     job: Uuid,
     /// The flow node the original job ran, when it ran one.
     node: Option<i64>,
-    step_id: String,
+    /// The original job's steps up to and including the one it resumes at.
+    steps: Vec<String>,
 }
 
 impl FailedOnlySlots {
@@ -6172,19 +6173,20 @@ impl FailedOnlySlots {
             let Some(row) = rows.iter().find(|r| r.id == job) else {
                 continue;
             };
-            // A restart needs every step before its restart point to have succeeded.
-            let first_unfinished = row.flow_status.as_ref().and_then(|s| {
-                s.0.modules
+            // A restart needs every step before its restart point to have succeeded. Only a
+            // step that ran and failed is resumed at: one left waiting behind an approval that
+            // was never given, or cut off by a cancel, starts its iteration over.
+            let steps = row.flow_status.as_ref().and_then(|s| {
+                let modules = &s.0.modules;
+                let i = modules
                     .iter()
-                    .position(|m| !matches!(m, FlowStatusModule::Success { .. }))
-                    .filter(|&i| i > 0)
-                    .map(|i| s.0.modules[i].id())
+                    .position(|m| !matches!(m, FlowStatusModule::Success { .. }))?;
+                (i > 0 && matches!(modules[i], FlowStatusModule::Failure { .. }))
+                    .then(|| modules[..=i].iter().map(|m| m.id()).collect::<Vec<_>>())
             });
-            if let Some(step_id) = first_unfinished {
-                self.resumes.insert(
-                    slot,
-                    IterationResume { job, node: row.runnable_id, step_id },
-                );
+            if let Some(steps) = steps {
+                self.resumes
+                    .insert(slot, IterationResume { job, node: row.runnable_id, steps });
             }
         }
         Ok(())
@@ -6192,16 +6194,21 @@ impl FailedOnlySlots {
 
     /// The payload for `slot`: its fresh iteration, or a restart of its original job from the
     /// failed step when the iteration's definition can still run it. A deployed iteration runs
-    /// a content-addressed flow node, so an unchanged node means an unchanged definition.
+    /// a content-addressed flow node, so an unchanged node means an unchanged definition. An
+    /// inline one is resumed only if its steps up to the failed one are unchanged in order,
+    /// since a restart reuses the earlier steps' results by position.
     fn resume_payload(&self, slot: usize, payload: JobPayload) -> JobPayload {
         let Some(resume) = self.resumes.get(&slot) else {
+            return payload;
+        };
+        let Some(step_id) = resume.steps.last().cloned() else {
             return payload;
         };
         match payload {
             JobPayload::FlowNode { id, .. } if Some(id.0) == resume.node => {
                 JobPayload::RestartedFlow {
                     completed_job_id: resume.job,
-                    step_id: resume.step_id.clone(),
+                    step_id,
                     branch_or_iteration_n: None,
                     flow_version: None,
                     branch_chosen: None,
@@ -6210,14 +6217,19 @@ impl FailedOnlySlots {
                 }
             }
             JobPayload::RawFlow { value, path, restarted_from: None }
-                if value.modules.iter().any(|m| m.id == resume.step_id) =>
+                if value.modules.len() >= resume.steps.len()
+                    && value
+                        .modules
+                        .iter()
+                        .zip(&resume.steps)
+                        .all(|(m, id)| &m.id == id) =>
             {
                 JobPayload::RawFlow {
                     value,
                     path,
                     restarted_from: Some(RestartedFrom {
                         flow_job_id: resume.job,
-                        step_id: resume.step_id.clone(),
+                        step_id,
                         ..Default::default()
                     }),
                 }
