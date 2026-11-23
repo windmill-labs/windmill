@@ -2460,7 +2460,7 @@ export class AIChatManager implements ChatViewHost {
 			this.#secretRequests.set(toolId, { request, resolve })
 			// The tool checks the path before it asks, so a stop during that check has already
 			// settled every open request: this one would park the turn for good.
-			if (this.abortController?.signal.aborted) this.#settleSecretRequest(toolId, undefined)
+			if (this.abortController?.signal.aborted) void this.#settleSecretRequest(toolId, undefined)
 		})
 	}
 
@@ -2474,7 +2474,7 @@ export class AIChatManager implements ChatViewHost {
 			(outcome) => this.#settleSecretRequest(toolId, outcome),
 			(e) => {
 				entry.save = undefined
-				if (entry.stopped) this.#settleSecretRequest(toolId, undefined)
+				if (entry.stopped) void this.#settleSecretRequest(toolId, undefined)
 				throw e
 			}
 		)
@@ -2483,15 +2483,18 @@ export class AIChatManager implements ChatViewHost {
 	}
 
 	dismissSecret = (toolId: string): void => {
-		if (!this.#secretRequests.get(toolId)?.save) this.#settleSecretRequest(toolId, undefined)
+		if (!this.#secretRequests.get(toolId)?.save) void this.#settleSecretRequest(toolId, undefined)
 	}
 
 	/** The one writer of a settled secret card. In a live turn the tool then returns the outcome
 	 * to the model. After a stop the turn is gone, so a save that lands then is told on the
 	 * model's next turn, as a detached job's result is, and written to this chat's history. */
-	#settleSecretRequest(toolId: string, outcome: SecretRequestOutcome | undefined): void {
+	#settleSecretRequest(
+		toolId: string,
+		outcome: SecretRequestOutcome | undefined
+	): Promise<void> {
 		const entry = this.#secretRequests.get(toolId)
-		if (!entry) return
+		if (!entry) return Promise.resolve()
 		this.#secretRequests.delete(toolId)
 		const { label } = entry.request
 		this.displayMessages = this.displayMessages.map((m) =>
@@ -2511,21 +2514,31 @@ export class AIChatManager implements ChatViewHost {
 		)
 		if (!entry.stopped) {
 			entry.resolve(outcome)
-			return
+			return Promise.resolve()
 		}
-		if (outcome) {
-			void this.queueModelNote(
-				`The user's ${label} was saved after the turn stopped: it is the secret variable ${outcome.path}, referenced as "$var:${outcome.path}".`
-			)
-		}
-		void this.#persistBackgroundJobs()
+		const note = outcome
+			? this.queueModelNote(
+					`The user's ${label} was saved after the turn stopped: it is the secret variable ${outcome.path}, referenced as "$var:${outcome.path}".`
+				)
+			: Promise.resolve()
+		// The variable is saved whatever happens here, so a failed write must not reach the card.
+		const written = note
+			.then(() => this.#persistBackgroundJobs())
+			.catch((e) => console.error('Failed to persist a secret saved after stop', e))
+		this.#lateSecretWrites.add(written)
+		void written.finally(() => this.#lateSecretWrites.delete(written))
+		return written
 	}
 
-	/** Lets every in-flight secret save land, so its outcome is written to this chat. */
+	// Written into the conversation on screen, so a chat switch waits for them.
+	#lateSecretWrites = new Set<Promise<void>>()
+
+	/** Lets every in-flight secret save land and be written to this chat. */
 	#secretSavesLanded(): Promise<unknown> {
-		return Promise.allSettled(
-			[...this.#secretRequests.values()].flatMap((entry) => (entry.save ? [entry.save] : []))
-		)
+		return Promise.allSettled([
+			...[...this.#secretRequests.values()].flatMap((entry) => (entry.save ? [entry.save] : [])),
+			...this.#lateSecretWrites
+		])
 	}
 
 	requestRunArgs = (
@@ -5208,7 +5221,7 @@ export class AIChatManager implements ChatViewHost {
 			if (entry.save) {
 				entry.stopped = true
 				entry.resolve(undefined)
-			} else this.#settleSecretRequest(toolId, undefined)
+			} else void this.#settleSecretRequest(toolId, undefined)
 		}
 		for (const [toolId, entry] of this.#runForms) {
 			entry.resolve?.(undefined)
@@ -5420,6 +5433,8 @@ export class AIChatManager implements ChatViewHost {
 		if (this.loading || this.sendInFlight) return
 		// A save settles its card in whatever conversation is on screen when it lands.
 		await this.#secretSavesLanded()
+		// The composer stays open meanwhile, so a turn may have started.
+		if (this.loading || this.sendInFlight) return
 		const chat = await this.historyManager.loadPastChat(id)
 		if (chat) {
 			// Drop any message queued in the current conversation so it doesn't
