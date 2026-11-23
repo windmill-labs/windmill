@@ -83,7 +83,9 @@
 		try {
 			await save({
 				path: savePath,
-				replace: taken,
+				// The user asked the AI to replace what is there, which the path picker may not show:
+				// it checks the resource path, not the variables beside it.
+				replace: taken || !!request.replace,
 				secrets: $state.snapshot(secrets),
 				fields: submittedFields()
 			})

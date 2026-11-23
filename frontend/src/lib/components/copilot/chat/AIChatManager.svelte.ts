@@ -3945,6 +3945,8 @@ export class AIChatManager implements ChatViewHost {
 	 * Counted, not boolean: a send recursively flushes queued messages, and the
 	 * inner one finishing doesn't mean the outer is done. */
 	#sendsInFlight = $state(0)
+	/** Every send ever started, for telling whether one began during an await. */
+	#sendsStarted = 0
 	get sendInFlight(): boolean {
 		return this.#sendsInFlight > 0
 	}
@@ -4153,6 +4155,7 @@ export class AIChatManager implements ChatViewHost {
 			return false
 		}
 		this.#sendsInFlight++
+		this.#sendsStarted++
 		try {
 			return await this.sendRequestImpl(options)
 		} finally {
@@ -5400,7 +5403,11 @@ export class AIChatManager implements ChatViewHost {
 
 	saveAndClear = async () => {
 		this.cancel('saveAndClear')
+		const sends = this.#sendsStarted
 		await this.#secretSavesLanded()
+		// The composer stays open meanwhile, so a turn may have started: it keeps its chat.
+		// Not `sendInFlight`, which `/clear` itself is.
+		if (this.#sendsStarted !== sends) return
 		// Drop any message queued in this conversation so it can't auto-send into
 		// the fresh chat or linger as a card across the switch.
 		this.#clearQueue()

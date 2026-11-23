@@ -76,7 +76,8 @@ export async function saveSecretRequest(
 			await ResourceService.updateResource({
 				workspace,
 				path,
-				requestBody: { value, description: request.description }
+				// A path the user picked may hold another type; it becomes the one they confirmed.
+				requestBody: { value, resource_type: resource.type, description: request.description }
 			})
 		} else {
 			await ResourceService.createResource({
