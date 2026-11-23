@@ -896,7 +896,7 @@
 
 <ConfirmationModal
 	open={Boolean(reconnectConfirm)}
-	title="Reconnect shared resource"
+	title="Reconnect resource"
 	confirmationText="Reconnect"
 	type="reload"
 	on:canceled={() => {
@@ -908,8 +908,9 @@
 	}}
 >
 	<span>
-		<span class="font-semibold break-all">{reconnectConfirm?.path}</span> is shared. Once reconnected,
-		every script, flow and trigger using it acts as the account you sign in with.
+		Once reconnected, every script, flow and trigger using
+		<span class="font-semibold break-all">{reconnectConfirm?.path}</span> acts as the account you sign
+		in with.
 	</span>
 </ConfirmationModal>
 
