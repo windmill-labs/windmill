@@ -5,8 +5,11 @@
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import type { ChatCompletionMessageParam } from 'openai/resources/index.mjs'
-	import { copilotInfo } from '$lib/aiStore'
 	import type { Schema } from '$lib/common'
+	import { getAiChatManager } from './chat/aiChatManagerContext'
+
+	const aiChat = getAiChatManager()
+	const aiInfo = $derived(aiChat.aiInfo)
 
 	interface Props {
 		args: Record<string, any>
@@ -94,7 +97,11 @@
 				}
 			]
 
-			let response = await getNonStreamingMetadataCompletion(messages, abortController)
+			let response = await getNonStreamingMetadataCompletion(
+				messages,
+				abortController,
+				aiChat.loadedSessionAiTarget
+			)
 
 			// Strip markdown fences if present
 			response = response.trim()
@@ -118,7 +125,7 @@
 	})
 </script>
 
-{#if !$copilotInfo.workspaceDisabled}
+{#if aiInfo && !aiInfo.workspaceDisabled}
 	<Popover floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}>
 		{#snippet trigger()}
 			<Button
@@ -137,7 +144,7 @@
 		{/snippet}
 		{#snippet content({ close })}
 			<div class="border rounded-lg shadow-lg p-4 bg-surface">
-				{#if $copilotInfo.enabled}
+				{#if aiInfo?.enabled}
 					<div class="flex flex-col w-80 gap-2">
 						<textarea
 							bind:this={instructionsField}
