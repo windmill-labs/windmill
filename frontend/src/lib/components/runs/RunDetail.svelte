@@ -75,7 +75,7 @@
 	import { pageHeader } from '$lib/components/pageHeaderRegistry.svelte'
 	import JobDetailHeader from '$lib/components/runs/JobDetailHeader.svelte'
 	import ScriptRetryChain from '$lib/components/runs/ScriptRetryChain.svelte'
-	import FlowExecutionStatus from '$lib/components/runs/FlowExecutionStatus.svelte'
+	import FlowApprovals from '$lib/components/runs/FlowApprovals.svelte'
 	import JobArgs from '$lib/components/JobArgs.svelte'
 	import FlowProgressBar from '$lib/components/flows/FlowProgressBar.svelte'
 	import JobProgressBar from '$lib/components/jobs/JobProgressBar.svelte'
@@ -202,6 +202,8 @@
 
 	let viewTab: 'logs' | 'code' | 'stats' | 'assets' | 'traces' = $state('logs')
 	let selectedJobStep: string | undefined = $state(undefined)
+	let graphEl: HTMLElement | undefined = $state(undefined)
+	let flowStatusViewer: FlowStatusViewer | undefined = $state(undefined)
 
 	// Mirror of the graph's per-module display state (selected iteration of each
 	// ForLoop, etc.). Drives both the iteration pre-fill and the iteration-count
@@ -1461,12 +1463,15 @@
 						{/if}
 					{/snippet}
 				</FlowProgressBar>
-				{#if suspendStatus}
-					<FlowExecutionStatus
+				{#if suspendStatus && job}
+					<FlowApprovals
 						{job}
 						{isOwner}
 						{suspendStatus}
-						innerModules={job?.flow_status?.modules}
+						onSelectStep={(stepId) => {
+							flowStatusViewer?.selectStep(stepId)
+							graphEl?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+						}}
 					/>
 				{/if}
 			</div>
@@ -1645,9 +1650,10 @@
 		{:else if !job?.['deleted']}
 			<div class="mt-10"></div>
 
-			<div class="w-full mt-10">
+			<div class="w-full mt-10" bind:this={graphEl}>
 				{#if job?.id}
 					<FlowStatusViewer
+						bind:this={flowStatusViewer}
 						jobId={job?.id ?? ''}
 						onJobsLoaded={({ job: newJob }) => {
 							job = newJob

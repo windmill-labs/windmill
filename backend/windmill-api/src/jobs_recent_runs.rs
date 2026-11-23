@@ -159,7 +159,7 @@ pub(crate) async fn list_recent_runs(
              ORDER BY c.completed_at DESC
              LIMIT $4)
             UNION ALL
-            (SELECT q.id, NULL, q.started_at, NULL, NULL
+            (SELECT q.id, CASE WHEN q.suspend > 0 THEN 'suspended' END, q.started_at, NULL, NULL
              FROM v2_job_queue q
              JOIN v2_job j ON j.id = q.id
              WHERE q.workspace_id = $1 AND q.running AND {LISTED_ROOT_RUN}
@@ -176,6 +176,7 @@ pub(crate) async fn list_recent_runs(
                         'script') = 'flow' THEN 'flow'
                  ELSE 'script' END AS kind,
             CASE WHEN r.status IS NULL THEN 'running'
+                 WHEN r.status = 'suspended' THEN 'suspended'
                  WHEN r.status IN ('success', 'skipped') THEN 'success'
                  WHEN r.status = 'canceled' THEN 'canceled'
                  WHEN EXISTS (SELECT 1 FROM job_resolution jr WHERE jr.job_id = r.id) THEN 'resolved'

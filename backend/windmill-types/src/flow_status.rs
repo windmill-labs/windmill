@@ -128,6 +128,9 @@ pub enum BranchChosen {
 pub struct Approval {
     pub resume_id: u16,
     pub approver: String,
+    /// Kept on the step because the resume rows that also record it are deleted with the run.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub approved_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

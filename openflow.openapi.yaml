@@ -1528,6 +1528,10 @@ components:
                 type: integer
               approver:
                 type: string
+              approved_at:
+                type: string
+                format: date-time
+                description: absent for approvals recorded before it was kept
             required:
               - resume_id
               - approver

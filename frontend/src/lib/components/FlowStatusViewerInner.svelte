@@ -347,6 +347,42 @@
 
 	let selectionManager = new SelectionManager()
 
+	function onGraphSelect(e: string | FlowModule) {
+		if (rightColumnSelect != 'node_definition' && rightColumnSelect != 'tracing') {
+			rightColumnSelect = 'node_status'
+		}
+		if (typeof e == 'string') {
+			if (e == 'Input') {
+				selectedNode = 'start'
+				stepDetail = undefined
+			} else if (e == 'Result') {
+				selectedNode = 'end'
+				stepDetail = 'end'
+			} else {
+				const id = e.startsWith(AI_TOOL_CALL_PREFIX) ? e.split('-').pop() : e
+				const mod = dfs(job?.raw_flow?.modules ?? [], (m) => m).find((m) => m?.id === id)
+				stepDetail = mod
+				selectedNode = e
+				if (e.startsWith(AI_TOOL_CALL_PREFIX)) {
+					const [_prefix, agentModuleId, j, _toolModuleId] = e.split('-')
+					const parentLoopsPrefix = getParentLoopsPrefix(agentModuleId)
+					const jIdx = Number(j)
+					const storeKey = parentLoopsPrefix + agentModuleId + '-' + jIdx
+					toolCallStore?.addToolCallToLoad(storeKey)
+				}
+			}
+		} else {
+			stepDetail = e
+			selectedNode = e.id
+		}
+	}
+
+	/** Selects a step from outside the graph, as a click on its node does. */
+	export function selectStep(id: string) {
+		selectionManager.selectId(id)
+		onGraphSelect(id)
+	}
+
 	function onFlowModuleId() {
 		let modId = flowJobIds?.moduleId
 		if (modId) {
@@ -2191,37 +2227,7 @@
 									flowModuleStates={localModuleStates}
 									runDone={job?.type === 'CompletedJob'}
 									bind:expandedSubflows
-									onSelect={(e) => {
-										if (rightColumnSelect != 'node_definition' && rightColumnSelect != 'tracing') {
-											rightColumnSelect = 'node_status'
-										}
-										if (typeof e == 'string') {
-											if (e == 'Input') {
-												selectedNode = 'start'
-												stepDetail = undefined
-											} else if (e == 'Result') {
-												selectedNode = 'end'
-												stepDetail = 'end'
-											} else {
-												const id = e.startsWith(AI_TOOL_CALL_PREFIX) ? e.split('-').pop() : e
-												const mod = dfs(job?.raw_flow?.modules ?? [], (m) => m).find(
-													(m) => m?.id === id
-												)
-												stepDetail = mod
-												selectedNode = e
-												if (e.startsWith(AI_TOOL_CALL_PREFIX)) {
-													const [_prefix, agentModuleId, j, _toolModuleId] = e.split('-')
-													const parentLoopsPrefix = getParentLoopsPrefix(agentModuleId)
-													const jIdx = Number(j)
-													const storeKey = parentLoopsPrefix + agentModuleId + '-' + jIdx
-													toolCallStore?.addToolCallToLoad(storeKey)
-												}
-											}
-										} else {
-											stepDetail = e
-											selectedNode = e.id
-										}
-									}}
+									onSelect={onGraphSelect}
 									{onSelectedIteration}
 									earlyStop={job.raw_flow?.skip_expr !== undefined}
 									cache={job.raw_flow?.cache_ttl !== undefined}

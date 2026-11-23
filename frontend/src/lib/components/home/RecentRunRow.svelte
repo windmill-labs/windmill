@@ -1,7 +1,15 @@
 <script lang="ts">
 	import { goto } from '$app/navigation'
 	import { workspaceStore } from '$lib/stores'
-	import { CircleCheck, CircleSlash, CircleX, EyeOff, Loader2, Wrench } from 'lucide-svelte'
+	import {
+		CircleCheck,
+		CircleSlash,
+		CircleX,
+		EyeOff,
+		Hourglass,
+		Loader2,
+		Wrench
+	} from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import { useRoleCapabilities } from '$lib/operatorWriteRights'
@@ -55,14 +63,18 @@
 		failure: 'Failed',
 		resolved: 'Failed, resolved',
 		canceled: 'Canceled',
-		running: 'Running'
+		running: 'Running',
+		suspended: 'Awaiting approval'
 	}
+	// Waiting for a person is neither progress nor trouble: grey, not running's yellow. Whose
+	// approval it waits for is the approvals status's to say.
 	const barClass = {
 		success: 'bg-green-500 dark:bg-green-600',
 		failure: 'bg-red-500 dark:bg-red-600',
 		resolved: 'bg-orange-300 dark:bg-orange-700',
 		canceled: 'bg-gray-400 dark:bg-gray-500',
-		running: 'bg-yellow-500'
+		running: 'bg-yellow-500',
+		suspended: 'bg-gray-300 dark:bg-gray-600'
 	}
 
 	function runTooltip(run: RecentRun) {
@@ -103,6 +115,8 @@
 	<span class="flex w-3.5 shrink-0 justify-center">
 		{#if item.status === 'running'}
 			<Loader2 size={14} class="animate-spin text-yellow-500" />
+		{:else if item.status === 'suspended'}
+			<span class="text-hint" title="Awaiting approval"><Hourglass size={14} /></span>
 		{:else if failing}
 			<CircleX size={14} class="text-red-500" />
 		{:else if item.status === 'resolved'}

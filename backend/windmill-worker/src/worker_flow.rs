@@ -3595,6 +3595,7 @@ pub struct ResumeRow {
     pub approver: Option<String>,
     pub approved: bool,
     pub resume_id: i32,
+    pub created_at: chrono::DateTime<chrono::Utc>,
 }
 
 impl ResumeRow {
@@ -4171,7 +4172,7 @@ async fn push_next_flow_job(
             // Query for both step-level resumes (job = step_id) and flow-level resumes (job = flow_id)
             // Flow-level resumes allow pre-approvals that can be consumed by any suspend step
             let resumes = sqlx::query_as::<_, ResumeRow>(
-                 "SELECT value, approver, resume_id, approved FROM resume_job WHERE job = $1 OR job = $2 ORDER BY created_at ASC",
+                 "SELECT value, approver, resume_id, approved, created_at FROM resume_job WHERE job = $1 OR job = $2 ORDER BY created_at ASC",
              )
              .bind(last)
              .bind(flow_job.id)
@@ -4332,7 +4333,8 @@ async fn push_next_flow_job(
                              resume_id: r.resume_id as u16,
                              approver: r
                                  .approver.clone()
-                                 .unwrap_or_else(|| "unknown".to_string())
+                                 .unwrap_or_else(|| "unknown".to_string()),
+                             approved_at: Some(r.created_at),
                          })
                          .collect::<Vec<_>>()
                      ),
@@ -7474,6 +7476,7 @@ mod tests {
             approver: Some("ann".to_string()),
             approved: false,
             resume_id: 0,
+            created_at: chrono::Utc::now(),
         };
         assert_eq!(
             denial(json!({"reason": " too risky "})).disapproval_error(),

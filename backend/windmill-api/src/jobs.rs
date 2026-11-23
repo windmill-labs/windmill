@@ -409,6 +409,7 @@ pub fn workspaced_service() -> Router {
             "/flow/approval_step_detail/{job_id}/{step_id}",
             get(get_approval_step_detail),
         )
+        .route("/approvals/waiting", get(list_waiting_approvals))
         .route(
             "/job_view_token/{id}",
             get(get_job_view_token).layer(cors.clone()),
@@ -5684,18 +5685,20 @@ async fn get_approval_info(
     }
 
     // Get existing approvers
-    let approvers: Vec<Approval> = sqlx::query_as::<_, (i32, Option<String>)>(
-        "SELECT resume_id, approver FROM resume_job WHERE flow = $1",
-    )
-    .bind(&job_id)
-    .fetch_all(&db)
-    .await?
-    .into_iter()
-    .map(|(rid, approver)| Approval {
-        resume_id: rid as u16,
-        approver: approver.unwrap_or_else(|| "anonymous".to_string()),
-    })
-    .collect();
+    let approvers: Vec<Approval> =
+        sqlx::query_as::<_, (i32, Option<String>, chrono::DateTime<chrono::Utc>)>(
+            "SELECT resume_id, approver, created_at FROM resume_job WHERE flow = $1",
+        )
+        .bind(&job_id)
+        .fetch_all(&db)
+        .await?
+        .into_iter()
+        .map(|(rid, approver, created_at)| Approval {
+            resume_id: rid as u16,
+            approver: approver.unwrap_or_else(|| "anonymous".to_string()),
+            approved_at: Some(created_at),
+        })
+        .collect();
 
     // Possession of view rights over this approval is sufficient to mint a
     // share-read-link token for the flow: it only grants read (no resume), and only to
@@ -5745,10 +5748,160 @@ enum ApprovalStepStatus {
 }
 
 #[derive(Serialize)]
+struct WaitingApproval {
+    /// The suspended flow: the root run, or the branch, loop or subflow run holding the step.
+    job_id: Uuid,
+    root_job_id: Uuid,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    flow_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    flow_summary: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    step_summary: Option<String>,
+    started_by: String,
+    created_at: chrono::DateTime<chrono::Utc>,
+    approvals: i64,
+    required_approvals: i64,
+    /// Whether the caller can open the run itself; an approver who cannot is sent to the
+    /// approval page instead, which shows them this one run.
+    can_read: bool,
+}
+
+#[derive(Serialize)]
+struct WaitingApprovals {
+    approvals: Vec<WaitingApproval>,
+    /// Every listed run, of which `approvals` holds the most recent.
+    total: usize,
+}
+
+// ponytail: scans the most recent suspended runs only; a workspace past this many waiting
+// approvals needs the approver check in SQL rather than in `can_approve_step`.
+const WAITING_APPROVALS_SCAN: i64 = 1000;
+const WAITING_APPROVALS_RETURNED: usize = 100;
+
+/// The runs waiting on an approval step the caller can approve, by the same check the resume
+/// boundary runs. A step anyone holding its link can approve is listed only to those who can
+/// read its run, or every member would learn the names of flows they have no access to.
+async fn list_waiting_approvals(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Path(w_id): Path<String>,
+) -> error::Result<Json<WaitingApprovals>> {
+    let rows = sqlx::query!(
+        r#"
+        SELECT j.id AS "id!",
+               COALESCE(j.root_job, j.parent_job, j.id) AS "root_job_id!",
+               j.runnable_path,
+               j.permissioned_as_email AS "email!",
+               j.created_by AS "created_by!",
+               j.created_at AS "created_at!",
+               COALESCE(rj.runnable_path, j.runnable_path) AS flow_path,
+               NULLIF(f.summary, '') AS flow_summary,
+               s.flow_status->'approval_conditions' AS approval_conditions,
+               NULLIF(am.m->>'summary', '') AS step_summary,
+               COALESCE((am.m->'suspend'->>'required_events')::bigint, 1) AS "required_approvals!",
+               (SELECT count(*) FROM resume_job r WHERE r.job IN (j.id, step.job))
+                   AS "approvals!",
+               EXISTS(SELECT 1 FROM resume_job r
+                      WHERE r.job IN (j.id, step.job) AND r.approver = $2)
+                   AS "approved_by_me!"
+        FROM v2_job_queue q
+        JOIN v2_job j ON j.id = q.id
+        JOIN v2_job_status s ON s.id = q.id
+        LEFT JOIN v2_job rj ON rj.id = COALESCE(j.root_job, j.parent_job)
+        LEFT JOIN flow f
+            ON f.workspace_id = j.workspace_id
+           AND f.path = COALESCE(rj.runnable_path, j.runnable_path)
+        LEFT JOIN flow_version fv ON j.kind = 'flow' AND fv.id = j.runnable_id
+        LEFT JOIN flow_node fn ON j.kind = 'flownode' AND fn.id = j.runnable_id
+        LEFT JOIN LATERAL (
+            SELECT COALESCE(j.raw_flow, fv.value, fn.flow)
+                -> 'modules' -> ((s.flow_status->>'step')::int - 1) AS m
+        ) am ON true
+        -- Approvals count per step, as the worker counts them: those sent to the approval
+        -- step's job, plus those sent to the flow itself.
+        LEFT JOIN LATERAL (
+            SELECT (s.flow_status->'modules'->((s.flow_status->>'step')::int - 1)->>'job')::uuid
+                AS job
+        ) step ON true
+        WHERE q.workspace_id = $1
+          AND q.suspend > 0
+          AND (
+              s.flow_status->'modules'->((s.flow_status->>'step')::int)->>'type'
+                  = 'WaitingForEvents'
+              OR s.workflow_as_code_status->'_approval' IS NOT NULL
+          )
+        ORDER BY j.created_at DESC
+        LIMIT $3
+        "#,
+        &w_id,
+        &authed.username,
+        WAITING_APPROVALS_SCAN,
+    )
+    .fetch_all(&db)
+    .await?;
+
+    let candidates: Vec<_> = rows
+        .into_iter()
+        .filter(|r| !r.approved_by_me)
+        .filter_map(|r| {
+            let ac = r
+                .approval_conditions
+                .as_ref()
+                .and_then(|v| serde_json::from_value::<ApprovalConditions>(v.clone()).ok());
+            let opt_authed = Some(authed.clone());
+            can_approve_step(&opt_authed, &ac, r.runnable_path.as_deref(), &r.email).then(|| {
+                let auth_required = ac.as_ref().is_some_and(|ac| ac.user_auth_required);
+                (r, auth_required)
+            })
+        })
+        .collect();
+
+    let root_ids: Vec<Uuid> = candidates.iter().map(|(r, _)| r.root_job_id).collect();
+    let readable: std::collections::HashSet<Uuid> = if root_ids.is_empty() {
+        Default::default()
+    } else {
+        let mut tx = user_db.begin(&authed).await?;
+        let ids = sqlx::query_scalar!("SELECT id FROM v2_job WHERE id = ANY($1)", &root_ids)
+            .fetch_all(&mut *tx)
+            .await?;
+        tx.commit().await?;
+        ids.into_iter().collect()
+    };
+
+    let listed: Vec<WaitingApproval> = candidates
+        .into_iter()
+        .filter_map(|(r, auth_required)| {
+            let can_read = readable.contains(&r.root_job_id);
+            (auth_required || can_read).then(|| WaitingApproval {
+                job_id: r.id,
+                root_job_id: r.root_job_id,
+                flow_path: r.flow_path,
+                flow_summary: r.flow_summary,
+                step_summary: r.step_summary,
+                started_by: r.created_by,
+                created_at: r.created_at,
+                approvals: r.approvals,
+                required_approvals: r.required_approvals,
+                can_read,
+            })
+        })
+        .collect();
+    let total = listed.len();
+    let approvals = listed
+        .into_iter()
+        .take(WAITING_APPROVALS_RETURNED)
+        .collect();
+    Ok(Json(WaitingApprovals { approvals, total }))
+}
+
+#[derive(Serialize)]
 struct StepApproval {
     resume_id: u16,
     approver: String,
-    /// Known only while the run is live: a finished run keeps approver names alone.
+    /// Known only while the run is live, as is `value`: a finished run keeps approver names and
+    /// times alone.
     #[serde(skip_serializing_if = "Option::is_none")]
     approved: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -6001,7 +6154,7 @@ async fn get_approval_step_detail(
                 approver: a.approver.clone(),
                 approved: None,
                 value: None,
-                created_at: None,
+                created_at: a.approved_at,
             })
             .collect()
     } else {
@@ -6594,6 +6747,7 @@ pub async fn get_suspended_job_flow(
         .map(|x| Approval {
             resume_id: x.resume_id as u16,
             approver: x.approver.unwrap_or_else(|| "anonymous".to_string()),
+            approved_at: None,
         })
         .collect()
     } else {
