@@ -306,8 +306,9 @@ export function canCheckResource(resourceType: string, value?: Record<string, an
 	return canTestConnection(resourceType) || !!aiResourceProvider(resourceType, value)
 }
 
-/** Checks a resource already saved at `path`, through its path, so its secrets are read where
- * they are stored and never sent from the browser. */
+/** Checks a resource already saved at `path`. A database test runs as a job on `$res:<path>`,
+ * so the worker reads its secrets; a storage test is built from the stored value, whose secrets
+ * the browser resolves and sends to the server's storage test, as the resource editor does. */
 export async function checkSavedResource({
 	workspace,
 	path,

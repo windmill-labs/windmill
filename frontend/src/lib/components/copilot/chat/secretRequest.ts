@@ -50,15 +50,15 @@ export function secretVariablePaths(path: string, fields: { field: string }[]): 
 	return fields.length === 1 ? [path] : fields.map((f) => `${path}_${f.field}`)
 }
 
+/** The save landed but the saved resource does not connect. */
+export class SecretCheckFailed extends Error {}
+
 /** Saves the secrets as secret variables and, for a resource request, creates the resource
  * referencing them, all deployed rather than drafted: the AI references them right after, and
  * a draft is readable by neither a run nor another resource. What is at `path` is replaced only
  * with `replace`, which the card sets once it shows the path as taken, so a save racing that
  * check never overwrites unannounced. `own` holds what an earlier try of this request wrote, as
  * `variable:<path>` and `resource:<path>`, which a retry updates rather than calls taken. */
-/** The save landed but the saved resource does not connect. */
-export class SecretCheckFailed extends Error {}
-
 export async function saveSecretRequest(
 	request: SecretRequest,
 	submission: SecretSubmission,
