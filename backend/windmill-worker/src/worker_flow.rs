@@ -3926,6 +3926,22 @@ async fn push_next_flow_job(
         };
     }
 
+    // A failed-only restart's step re-enters as a first entry, its kept slots held here only:
+    // an error before its reruns are queued then fails the step like any other, rather than
+    // reading as a parallel iteration completing.
+    let failed_only = FailedOnlySlots::from_status(&status_module);
+    if failed_only.is_some() {
+        status_module = FlowStatusModule::WaitingForPriorSteps { id: status_module.id() };
+        sqlx::query!(
+            "UPDATE v2_job_status SET flow_status = JSONB_SET(flow_status, ARRAY['modules', $1::TEXT], $2) WHERE id = $3",
+            status.step.to_string(),
+            json!(status_module),
+            flow_job.id,
+        )
+        .execute(db)
+        .await?;
+    }
+
     let fj: mappable_rc::Marc<MiniPulledJob> = flow_job.clone().into();
     let arc_flow_job_args: Marc<HashMap<String, Box<RawValue>>> =
         Marc::map(fj, |x: &MiniPulledJob| {
@@ -4753,6 +4769,7 @@ async fn push_next_flow_job(
         approvers.clone(),
         is_skipped,
         applied_mock.is_some(),
+        failed_only,
     )
     .warn_after_seconds(3)
     .await?;
@@ -5893,8 +5910,8 @@ struct FailedOnlySlots {
 }
 
 impl FailedOnlySlots {
-    /// Only a restart writes nil slots, and the push replaces them, so a parallel step
-    /// re-entered for any other reason is never mistaken for one.
+    /// Only a restart writes nil slots, and the worker resets the step as soon as it reads
+    /// them, so a parallel step entered for any other reason is never mistaken for one.
     fn from_status(status_module: &FlowStatusModule) -> Option<Self> {
         match status_module {
             FlowStatusModule::InProgress {
@@ -6078,6 +6095,7 @@ async fn compute_next_flow_transform(
     approvers: Arc<Box<RawValue>>,
     is_skipped: bool,
     mocked: bool,
+    failed_only: Option<FailedOnlySlots>,
 ) -> error::Result<NextFlowTransform> {
     if mocked {
         return Ok(NextFlowTransform::Continue(
@@ -6273,6 +6291,12 @@ async fn compute_next_flow_transform(
         FlowModuleValue::ForloopFlow {
             modules, modules_node, iterator, parallel, squash, ..
         } => {
+            if failed_only.is_some() && !parallel {
+                return Err(Error::ExecutionErr(format!(
+                    "The for-loop {} is no longer parallel, its failed iterations cannot be rerun on their own",
+                    module.id
+                )));
+            }
             // if it's a simple single step flow, we will collapse it as an optimization and need to pass flow_input as an arg
             let is_simple = !matches!(flow_job.kind, JobKind::FlowPreview)
                 && !parallel
@@ -6288,21 +6312,8 @@ async fn compute_next_flow_transform(
             //         }
             //         _ => None,
             //     }
-            let failed_only = if parallel {
-                FailedOnlySlots::from_status(status_module)
-            } else {
-                None
-            };
-            // A failed-only restart re-evaluates the iterator as a first entry does.
-            let first_entry;
-            let loop_status_module = if failed_only.is_some() {
-                first_entry = FlowStatusModule::WaitingForPriorSteps { id: status_module.id() };
-                &first_entry
-            } else {
-                status_module
-            };
             let next_loop_status = next_forloop_status(
-                loop_status_module,
+                status_module,
                 by_id,
                 flow_job,
                 previous_id,
@@ -6321,9 +6332,13 @@ async fn compute_next_flow_transform(
             .await?;
 
             match next_loop_status {
-                ForLoopStatus::EmptyIterator => {
-                    Ok(NextFlowTransform::EmptyInnerFlows { branch_chosen: None })
-                }
+                ForLoopStatus::EmptyIterator => match &failed_only {
+                    Some(slots) => Err(Error::ExecutionErr(format!(
+                        "The for-loop now iterates over no items but the restarted run iterated over {}, its failed iterations cannot be matched",
+                        slots.flow_jobs.len()
+                    ))),
+                    None => Ok(NextFlowTransform::EmptyInnerFlows { branch_chosen: None }),
+                },
                 ForLoopStatus::NextIteration(ns) => {
                     let start_runners = ns.index == 0 && squash.unwrap_or(false);
                     next_loop_iteration(
@@ -6531,32 +6546,31 @@ async fn compute_next_flow_transform(
             ))
         }
         FlowModuleValue::BranchAll { branches, parallel, .. } => {
-            let failed_only = if parallel {
-                FailedOnlySlots::from_status(status_module)
-            } else {
-                None
-            };
-            let first_entry = matches!(
-                status_module,
-                FlowStatusModule::WaitingForPriorSteps { .. }
-                    | FlowStatusModule::WaitingForEvents { .. }
-                    | FlowStatusModule::WaitingForExecutor { .. }
-            );
+            if failed_only.is_some() && !parallel {
+                return Err(Error::ExecutionErr(format!(
+                    "The branch-all {} is no longer parallel, its failed branches cannot be rerun on their own",
+                    module.id
+                )));
+            }
+            if let Some(slots) = failed_only
+                .as_ref()
+                .filter(|s| s.flow_jobs.len() != branches.len())
+            {
+                return Err(Error::ExecutionErr(format!(
+                    "The branch-all now has {} branches but the restarted run had {}, its failed branches cannot be matched",
+                    branches.len(),
+                    slots.flow_jobs.len()
+                )));
+            }
             let (branch_status, flow_jobs, flow_jobs_success, flow_jobs_duration) =
                 match status_module {
-                    _ if first_entry || failed_only.is_some() => {
+                    FlowStatusModule::WaitingForPriorSteps { .. }
+                    | FlowStatusModule::WaitingForEvents { .. }
+                    | FlowStatusModule::WaitingForExecutor { .. } => {
                         if branches.is_empty() {
                             return Ok(NextFlowTransform::EmptyInnerFlows { branch_chosen: None });
                         } else if parallel {
                             let len = branches.len();
-                            if failed_only
-                                .as_ref()
-                                .is_some_and(|s| s.flow_jobs.len() != len)
-                            {
-                                return Err(Error::ExecutionErr(format!(
-                                    "The branch-all now has {len} branches but the restarted run had a different number, its failed branches cannot be matched"
-                                )));
-                            }
                             let payloads: Vec<JobPayloadWithTag> = branches
                                 .into_iter()
                                 .enumerate()

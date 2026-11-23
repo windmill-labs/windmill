@@ -1153,6 +1153,7 @@ mod job_payload {
                     "iterator": { "type": "javascript", "expr": "['x', 'y', 'z']" },
                     "skip_failures": true,
                     "parallel": true,
+                    "parallelism": { "type": "static", "value": 1 },
                     "modules": [{
                         "id": "inner",
                         "value": {
@@ -1162,7 +1163,7 @@ mod job_payload {
                                 "iter_val": { "type": "javascript", "expr": "flow_input.iter.value" },
                                 "tag": { "type": "javascript", "expr": "flow_input.tag" }
                             },
-                            "content": "export function main(iter_val: string, tag: string) { if (tag === 'first' && iter_val === 'y') throw new Error('boom'); return `${tag}:${iter_val}` }"
+                            "content": "export function main(iter_val: string, tag: string) { if (tag === 'first' && iter_val !== 'x') throw new Error('boom'); return `${tag}:${iter_val}` }"
                         }
                     }]
                 }
@@ -1202,10 +1203,10 @@ mod job_payload {
         .arg("tag", json!("second"))
         .run_until_complete(&db, false, port)
         .await;
-        // Only the failed iteration reran, and its result kept its position.
+        // Only the failed iterations reran, one at a time, each in its own position.
         assert_eq!(
             restarted.json_result().unwrap(),
-            json!(["first:x", "second:y", "first:z"])
+            json!(["first:x", "second:y", "second:z"])
         );
         let mut rerun = vec![];
         for i in 0..3 {
@@ -1213,7 +1214,7 @@ mod job_payload {
         }
         assert_eq!(rerun[0], original[0]);
         assert_ne!(rerun[1], original[1]);
-        assert_eq!(rerun[2], original[2]);
+        assert_ne!(rerun[2], original[2]);
         Ok(())
     }
 

@@ -145,11 +145,12 @@ export function useNestedRestartState(opts: {
 	})
 
 	// For a top-level parallel container: how many of its iterations (branches)
-	// failed in this run, which decides whether "only failed" can be offered.
+	// did not succeed in this run (failed, canceled or never finished), which
+	// decides whether "only failed" can be offered.
 	const parallelFailedCount = $derived.by((): number | undefined => {
 		if ((selectedJobStepType as string) !== 'parallel') return undefined
 		const status = opts.job()?.flow_status?.modules?.find((m) => m.id === restartStepId)
-		return status?.flow_jobs_success?.filter((s) => s === false).length
+		return status?.flow_jobs_success?.filter((s) => s !== true).length
 	})
 
 	// Iteration counts indexed by the graph module-state key (i.e. the prefixed

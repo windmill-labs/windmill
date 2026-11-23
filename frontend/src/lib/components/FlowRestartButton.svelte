@@ -144,9 +144,9 @@
 		}
 		iterationEdits = next
 		rerun = (parallelFailedCount ?? 0) > 0 ? 'failed' : 'all'
-		if (selectedJobStepType === 'forloop' && presetIterationN !== undefined) {
-			branchOrIterationN = presetIterationN
-		}
+		// The button outlives the selection, so a previous step's iteration must not carry over.
+		branchOrIterationN =
+			selectedJobStepType === 'forloop' && presetIterationN !== undefined ? presetIterationN : 0
 	}
 	const iterationFields = $derived.by((): IterField[] => {
 		if (!isNested) return []
