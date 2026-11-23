@@ -24,9 +24,9 @@ async fn first_module(db: &Pool<Postgres>, flow_job_id: uuid::Uuid) -> FlowStatu
     status.modules[0].clone()
 }
 
-/// A parallel loop over `items` that fails on all but 'x' when run with tag "first". With
-/// parallelism 1, the second rerun is queued suspended and must be released by the first one
-/// completing.
+/// A parallel loop over `items` whose second step fails on all but 'x' when run with tag
+/// "first". With parallelism 1, the second rerun is queued suspended and must be released by
+/// the first one completing.
 fn flow(wrap_in_branchone: bool, items: &str) -> FlowValue {
     let parallel_loop = json!({
         "id": "loop",
@@ -37,6 +37,14 @@ fn flow(wrap_in_branchone: bool, items: &str) -> FlowValue {
             "parallel": true,
             "parallelism": { "type": "static", "value": 1 },
             "modules": [{
+                "id": "prep",
+                "value": {
+                    "type": "rawscript",
+                    "language": "bun",
+                    "input_transforms": {},
+                    "content": "export function main() { return 1 }"
+                }
+            }, {
                 "id": "inner",
                 "value": {
                     "type": "rawscript",
@@ -80,15 +88,23 @@ async fn run(
         .await
 }
 
-fn assert_only_failed_reran(
+/// Only the failed iterations reran, each in its slot and from its failed step: their `prep`
+/// step keeps its original job.
+async fn assert_only_failed_reran(
+    db: &Pool<Postgres>,
     result: serde_json::Value,
     original: &[uuid::Uuid],
     rerun: &[uuid::Uuid],
 ) {
     assert_eq!(result, json!(["first:x", "second:y", "second:z"]));
     assert_eq!(rerun[0], original[0]);
-    assert_ne!(rerun[1], original[1]);
-    assert_ne!(rerun[2], original[2]);
+    for slot in 1..3 {
+        assert_ne!(rerun[slot], original[slot]);
+        assert_eq!(
+            first_module(db, rerun[slot]).await.job(),
+            first_module(db, original[slot]).await.job()
+        );
+    }
 }
 
 #[sqlx::test(fixtures("base", "hello"))]
@@ -110,7 +126,7 @@ async fn test_restart_parallel_loop_failed_only(db: Pool<Postgres>) -> anyhow::R
     let edited = flow(false, "['z', 'y', 'x']");
     let restarted = run(&db, port, edited, "second", Some(restart)).await;
     let rerun = first_module(&db, restarted.id).await.flow_jobs().unwrap();
-    assert_only_failed_reran(restarted.json_result().unwrap(), &original, &rerun);
+    assert_only_failed_reran(&db, restarted.json_result().unwrap(), &original, &rerun).await;
     Ok(())
 }
 
@@ -147,6 +163,6 @@ async fn test_restart_nested_parallel_loop_failed_only(db: Pool<Postgres>) -> an
     .await;
     let branch = first_module(&db, restarted.id).await.job().unwrap();
     let rerun = first_module(&db, branch).await.flow_jobs().unwrap();
-    assert_only_failed_reran(restarted.json_result().unwrap(), &original, &rerun);
+    assert_only_failed_reran(&db, restarted.json_result().unwrap(), &original, &rerun).await;
     Ok(())
 }

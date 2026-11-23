@@ -40,7 +40,8 @@ use windmill_common::db::Authed;
 use windmill_common::flow_conversations::{add_message_to_conversation_tx, MessageType};
 use windmill_common::flow_status::{
     ApprovalConditions, ContinuedOnError, FlowJobDuration, FlowJobsDuration,
-    FlowStatusModuleWParent, Iterator as FlowIterator, JobResult, MAX_CONTINUED_ON_ERROR,
+    FlowStatusModuleWParent, Iterator as FlowIterator, JobResult, RestartedFrom,
+    MAX_CONTINUED_ON_ERROR,
 };
 use windmill_common::flows::{add_virtual_items_if_necessary, Branch, FlowNodeId, StopAfterIf};
 use windmill_common::jobs::{
@@ -1183,12 +1184,16 @@ pub async fn update_flow_status_after_job_completion_internal(
                     tx.commit().await?;
 
                     if parallelism.is_some() {
+                        // Only a child that has not started yet: one at its first step, or a
+                        // failed-only restart's iteration still at the step it resumes from.
                         sqlx::query!(
                             "UPDATE v2_job_queue q SET suspend = 0
                              FROM v2_job j, v2_job_status f
                              WHERE q.workspace_id = $1 AND q.suspend = $3 AND j.parent_job = $2
                                  AND f.id = j.id AND q.id = j.id
-                                 AND (f.flow_status->'step')::int = 0",
+                                 AND ((f.flow_status->'step')::int = 0
+                                     OR f.flow_status->'modules'->((f.flow_status->'step')::int)->>'id'
+                                         = f.flow_status->'restarted_from'->>'step_id')",
                             w_id,
                             flow,
                             nindex
@@ -3979,8 +3984,11 @@ async fn push_next_flow_job(
     // A failed-only restart's step re-enters as a first entry, its kept slots held here only:
     // an error before its reruns are queued then fails the step like any other, rather than
     // reading as a parallel iteration completing.
-    let failed_only = FailedOnlySlots::from_status(&status_module);
-    if failed_only.is_some() {
+    let mut failed_only = FailedOnlySlots::from_status(&status_module);
+    if let Some(slots) = failed_only.as_mut() {
+        slots
+            .load_resumes(db, &flow_job.workspace_id, &status, &status_module.id())
+            .await?;
         status_module = FlowStatusModule::WaitingForPriorSteps { id: status_module.id() };
         sqlx::query!(
             "UPDATE v2_job_status SET flow_status = JSONB_SET(flow_status, ARRAY['modules', $1::TEXT], $2) WHERE id = $3",
@@ -6061,6 +6069,18 @@ struct FailedOnlySlots {
     flow_jobs_duration: Option<FlowJobsDuration>,
     /// For a loop, the item each slot ran on in the restarted run.
     itered: Option<Vec<Box<RawValue>>>,
+    /// Per slot to rerun, where its original job can resume rather than start over.
+    resumes: HashMap<usize, IterationResume>,
+}
+
+/// A failed iteration (branch) resumed at its first step that did not succeed, keeping the
+/// results of the steps before it.
+#[derive(Debug)]
+struct IterationResume {
+    job: Uuid,
+    /// The flow node the original job ran, when it ran one.
+    node: Option<i64>,
+    step_id: String,
 }
 
 impl FailedOnlySlots {
@@ -6080,6 +6100,7 @@ impl FailedOnlySlots {
                 flow_jobs_success: flow_jobs_success.clone(),
                 flow_jobs_duration: flow_jobs_duration.clone(),
                 itered: iterator.as_ref().and_then(|i| i.itered.clone()),
+                resumes: HashMap::new(),
             }),
             _ => None,
         }
@@ -6097,6 +6118,112 @@ impl FailedOnlySlots {
 
     fn kept(&self) -> usize {
         self.flow_jobs.iter().filter(|j| !j.is_nil()).count()
+    }
+
+    /// Reads, from the restarted run, each rerun slot's original job and its first step that
+    /// did not succeed. A slot that failed before its first step finished starts over.
+    async fn load_resumes(
+        &mut self,
+        db: &DB,
+        w_id: &str,
+        status: &FlowStatus,
+        step_id: &str,
+    ) -> error::Result<()> {
+        let Some(original_run) = status
+            .restarted_from
+            .as_ref()
+            .filter(|r| r.step_id == step_id)
+            .map(|r| r.flow_job_id)
+        else {
+            return Ok(());
+        };
+        let original_status = sqlx::query_scalar!(
+            "SELECT flow_status AS \"flow_status: Json<FlowStatus>\"
+             FROM v2_job_completed WHERE id = $1 AND workspace_id = $2",
+            original_run,
+            w_id,
+        )
+        .fetch_optional(db)
+        .await?
+        .flatten();
+        let Some(original_jobs) = original_status.and_then(|s| {
+            s.0.modules
+                .iter()
+                .find(|m| m.id() == step_id)
+                .and_then(|m| m.flow_jobs())
+        }) else {
+            return Ok(());
+        };
+        let reruns: Vec<(usize, Uuid)> = self
+            .rerun_slots()
+            .into_iter()
+            .filter_map(|slot| original_jobs.get(slot).map(|job| (slot, *job)))
+            .collect();
+        let rows = sqlx::query!(
+            "SELECT c.id, j.runnable_id, c.flow_status AS \"flow_status: Json<FlowStatus>\"
+             FROM v2_job_completed c JOIN v2_job j USING (id)
+             WHERE c.id = ANY($1) AND c.workspace_id = $2",
+            &reruns.iter().map(|(_, job)| *job).collect::<Vec<_>>(),
+            w_id,
+        )
+        .fetch_all(db)
+        .await?;
+        for (slot, job) in reruns {
+            let Some(row) = rows.iter().find(|r| r.id == job) else {
+                continue;
+            };
+            // A restart needs every step before its restart point to have succeeded.
+            let first_unfinished = row.flow_status.as_ref().and_then(|s| {
+                s.0.modules
+                    .iter()
+                    .position(|m| !matches!(m, FlowStatusModule::Success { .. }))
+                    .filter(|&i| i > 0)
+                    .map(|i| s.0.modules[i].id())
+            });
+            if let Some(step_id) = first_unfinished {
+                self.resumes.insert(
+                    slot,
+                    IterationResume { job, node: row.runnable_id, step_id },
+                );
+            }
+        }
+        Ok(())
+    }
+
+    /// The payload for `slot`: its fresh iteration, or a restart of its original job from the
+    /// failed step when the iteration's definition can still run it. A deployed iteration runs
+    /// a content-addressed flow node, so an unchanged node means an unchanged definition.
+    fn resume_payload(&self, slot: usize, payload: JobPayload) -> JobPayload {
+        let Some(resume) = self.resumes.get(&slot) else {
+            return payload;
+        };
+        match payload {
+            JobPayload::FlowNode { id, .. } if Some(id.0) == resume.node => {
+                JobPayload::RestartedFlow {
+                    completed_job_id: resume.job,
+                    step_id: resume.step_id.clone(),
+                    branch_or_iteration_n: None,
+                    flow_version: None,
+                    branch_chosen: None,
+                    nested: None,
+                    failed_only: false,
+                }
+            }
+            JobPayload::RawFlow { value, path, restarted_from: None }
+                if value.modules.iter().any(|m| m.id == resume.step_id) =>
+            {
+                JobPayload::RawFlow {
+                    value,
+                    path,
+                    restarted_from: Some(RestartedFrom {
+                        flow_job_id: resume.job,
+                        step_id: resume.step_id.clone(),
+                        ..Default::default()
+                    }),
+                }
+            }
+            payload => payload,
+        }
     }
 }
 
@@ -6557,6 +6684,10 @@ async fn compute_next_flow_transform(
                             ) else {
                                 return None;
                             };
+                            let payload = match &failed_only {
+                                Some(slots) => slots.resume_payload(i, payload),
+                                None => payload,
+                            };
                             Some(JobPayloadWithTag {
                                 payload,
                                 tag: None,
@@ -6754,6 +6885,10 @@ async fn compute_next_flow_transform(
                                         false,
                                     ) else {
                                         return None;
+                                    };
+                                    let payload = match &failed_only {
+                                        Some(slots) => slots.resume_payload(i, payload),
+                                        None => payload,
                                     };
                                     Some(JobPayloadWithTag {
                                         payload,
