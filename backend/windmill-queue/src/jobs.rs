@@ -54,7 +54,7 @@ use windmill_common::runnable_settings::{
 };
 use windmill_common::triggers::TriggerMetadata;
 use windmill_common::utils::{calculate_hash, configure_client, now_from_db, strip_json_nul};
-use windmill_common::variables::omit_untrusted_interpolation;
+use windmill_common::variables::{omit_untrusted_interpolation, omit_untrusted_text};
 use windmill_common::worker::Connection;
 
 use windmill_common::otel_oss::{
@@ -238,7 +238,7 @@ pub async fn cancel_single_job<'c>(
             let reason: String = reason
                 .clone()
                 .unwrap_or_else(|| "unexplicited reasons".to_string());
-            let e = serde_json::json!({"message": format!("Job canceled: {reason} by {username}"), "name": "Canceled", "reason": reason, "canceler": username});
+            let e = canceled_result(Some(&reason), Some(&username));
 
             append_logs(
                 &job_running.id,
@@ -8821,7 +8821,9 @@ async fn check_workspace_queue_cap<'c>(
 /// outside a `MiniPulledJob` — a row read after the pull, say — go through this rather
 /// than rebuilding the shape.
 pub fn canceled_result(reason: Option<&str>, canceler: Option<&str>) -> serde_json::Value {
-    let reason = reason.unwrap_or("no reason given");
+    // The reason is the canceler's free text, and the steps after a canceled step receive this
+    // error as an argument, which the worker interpolates.
+    let reason = omit_untrusted_text(reason.unwrap_or("no reason given"));
     let canceler = canceler.unwrap_or("unknown");
     serde_json::json!({"message": format!("Job canceled: {reason} by {canceler}"), "name": "Canceled", "reason": reason, "canceler": canceler})
 }
@@ -9457,6 +9459,20 @@ pub async fn get_same_worker_job(
             same_worker_job.job_id, e
         ))
     })
+}
+
+#[cfg(test)]
+mod canceled_result_tests {
+    #[test]
+    fn reason_is_kept_as_plain_text() {
+        for reason in ["$var:u/a/s", "$WM_TOKEN", "see $res:u/a/r"] {
+            let e = super::canceled_result(Some(reason), Some("anonymous")).to_string();
+            assert!(
+                !windmill_common::variables::untrusted_arg_interpolates(&e),
+                "{reason}: {e}"
+            );
+        }
+    }
 }
 
 #[cfg(test)]

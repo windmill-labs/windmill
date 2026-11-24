@@ -96,8 +96,8 @@ pub(crate) async fn run_agent_as(
     };
     if let Some(obo) = on_behalf_of.as_ref() {
         // The worker would interpolate such an input with the job's token, which is the
-        // identity's.
-        if args.values().any(|v| untrusted_arg_interpolates(v.get())) {
+        // identity's. Checked as a whole so an argument name serde_json unwraps is refused too.
+        if untrusted_arg_interpolates(&serde_json::to_string(args)?) {
             return Err(Error::BadRequest(format!(
                 "Agent {path} runs on behalf of {}, so its inputs cannot reference variables or resources",
                 obo.permissioned_as

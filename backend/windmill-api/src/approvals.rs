@@ -170,7 +170,7 @@ pub async fn handle_resume_action(
                 secret.to_string(),
             )),
             Query(approver),
-            QueryOrBody(Some(form_data)),
+            QueryOrBody(Some(windmill_common::utils::PlainValue(form_data))),
         )
         .await
     } else {
@@ -185,7 +185,7 @@ pub async fn handle_resume_action(
                 secret.to_string(),
             )),
             Query(approver),
-            QueryOrBody(Some(form_data)),
+            QueryOrBody(Some(windmill_common::utils::PlainValue(form_data))),
         )
         .await
     };
