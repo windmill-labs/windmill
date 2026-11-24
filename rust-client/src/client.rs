@@ -872,6 +872,9 @@ impl Windmill {
                 &self.workspace,
                 job_id,
                 Some(true),
+                // This job is blocked on `job_id`: a child that can never start (every worker of
+                // its tag held by such a waiting job) fails the wait instead of hanging.
+                Some(true),
             )
             .await?;
 

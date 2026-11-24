@@ -18,6 +18,8 @@ use hyper::Uri;
 use mime_guess::mime;
 #[cfg(feature = "static_frontend")]
 use rust_embed::RustEmbed;
+#[cfg(feature = "static_frontend")]
+use windmill_common::worker::CLOUD_HOSTED;
 
 // Content Security Policy configuration
 #[cfg(feature = "static_frontend")]
@@ -71,6 +73,22 @@ fn query_has_flag(query: Option<&str>, flag: &str) -> bool {
     query.is_some_and(|q| q.split('&').any(|kv| kv.split('=').next() == Some(flag)))
 }
 
+/// Paths served with `X-Robots-Tag: noindex, nofollow`. The app is client-rendered,
+/// so a meta tag only exists after a render pass; the header is seen on the first
+/// fetch.
+///
+/// Login and its siblings carry a different `rd` on every page that links to them,
+/// so a crawler meets thousands of URLs for one form. On cloud, public apps
+/// (`/public/` and custom paths `/a/`) are published by anyone with a paid
+/// workspace; spam apps get linked from outside and indexed under our domain. A
+/// self-hoster may want a public app indexed, so that rule is cloud-only.
+#[cfg(feature = "static_frontend")]
+fn needs_noindex(original_path: &str, cloud_hosted: bool) -> bool {
+    original_path.starts_with("/user/")
+        || (cloud_hosted
+            && (original_path.starts_with("/public/") || original_path.starts_with("/a/")))
+}
+
 fn serve_path(path: &str, original_path: &str, query: Option<&str>) -> Response<Body> {
     if path.starts_with("api/") {
         return Response::builder().status(404).body(Body::empty()).unwrap();
@@ -92,11 +110,7 @@ fn serve_path(path: &str, original_path: &str, query: Option<&str>) -> Response<
                     .header("Cross-Origin-Resource-Policy", "cross-origin");
             }
 
-            // Login and its siblings carry a different `rd` on every page that links
-            // to them, so a crawler meets thousands of URLs for one form. The app is
-            // client-rendered, so a meta tag only exists after a render pass; the
-            // header is seen on the first fetch.
-            if original_path.starts_with("/user/") {
+            if needs_noindex(original_path, *CLOUD_HOSTED) {
                 res = res.header("X-Robots-Tag", "noindex, nofollow");
             }
 
@@ -210,5 +224,31 @@ mod tests {
             Some("wm_coep")
         ));
         assert!(!needs_cross_origin_isolation("/", None));
+    }
+
+    #[test]
+    fn test_needs_noindex() {
+        // login and its siblings are noindex on every instance
+        for cloud in [false, true] {
+            assert!(needs_noindex("/user/login", cloud));
+            assert!(needs_noindex("/user/logout", cloud));
+        }
+
+        // public apps and custom paths are noindex on cloud only
+        assert!(needs_noindex("/public/ws/secret", true));
+        assert!(needs_noindex("/a/my/path", true));
+        assert!(!needs_noindex("/public/ws/secret", false));
+        assert!(!needs_noindex("/a/my/path", false));
+
+        // other pages are never noindex
+        for cloud in [false, true] {
+            assert!(!needs_noindex("/scripts/get/u/foo/bar", cloud));
+            assert!(!needs_noindex("/apps/get/u/foo/bar", cloud));
+            assert!(!needs_noindex("/", cloud));
+            // `/api/` must not be caught by the `/a/` prefix
+            assert!(!needs_noindex("/api/version", cloud));
+            // nor `/users...` by `/user/`
+            assert!(!needs_noindex("/users", cloud));
+        }
     }
 }

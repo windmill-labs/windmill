@@ -154,6 +154,7 @@ const DESTRUCTIVE: &[&str] = &[
     "test_run_agent",
     "test_run_step",
     "test_run_app_runnable",
+    "test_run_code",
     "cancel_job",
     "exec_datatable_sql",
     "create_datatable_migration",
@@ -180,6 +181,7 @@ const OPEN_WORLD: &[&str] = &[
     "test_run_agent",
     "test_run_step",
     "test_run_app_runnable",
+    "test_run_code",
     "get_db_schema",
 ];
 

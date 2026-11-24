@@ -19,6 +19,7 @@
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import DraftBadge from '$lib/components/DraftBadge.svelte'
 	import InheritedLabels from '$lib/components/InheritedLabels.svelte'
+	import LabelBadge from '$lib/components/common/badge/LabelBadge.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { enterpriseLicense } from '$lib/stores'
@@ -34,6 +35,7 @@
 		Play,
 		Plus,
 		SearchX,
+		Tag,
 		Trash,
 		TriangleAlert,
 		UserPlus
@@ -420,7 +422,7 @@
 		)}
 		style={depth > 0 ? `padding-left: ${(depth + 1) * 16}px;` : ''}
 	>
-		<div class="w-full flex gap-4 items-center">
+		<div class="w-full flex flex-wrap xl:flex-nowrap gap-x-3 md:gap-x-4 gap-y-2 items-center">
 			<RowIcon kind={is_flow ? 'flow' : 'script'} />
 
 			<a
@@ -430,7 +432,7 @@
 					handledHash = `#${path}`
 					editSchedule(path, is_flow)
 				}}
-				class="min-w-0 grow hover:underline decoration-gray-400"
+				class="min-w-0 md:min-w-[8rem] basis-0 xl:basis-auto grow hover:underline decoration-gray-400"
 			>
 				<div class="text-emphasis flex-wrap text-left text-xs font-semibold mb-1 truncate">
 					{summary || script_path}{hasDraft ? '*' : ''}
@@ -439,59 +441,62 @@
 					schedule: {path}
 				</div>
 			</a>
-			{#if labels?.length}
-				{#each labels as label}
-					<Badge
-						color="blue"
-						small
-						class="px-1"
-						title="Label: {label}"
-						clickable
-						onclick={() => {
-							const arr = (filters.val.label ?? '').split(',').filter(Boolean)
-							const idx = arr.indexOf(label)
-							if (idx >= 0) arr.splice(idx, 1)
-							else arr.push(label)
-							const newFilters = { ...filters.val }
-							if (arr.length) newFilters.label = arr.join(',')
-							else delete newFilters.label
-							filters.val = newFilters
-						}}>{label}</Badge
-					>
-				{/each}
-			{/if}
-			<InheritedLabels labels={inherited_labels} />
+			<!-- Below xl this group wraps onto its own line under the name, so the name keeps its width. -->
+			<div
+				class="order-last basis-full pl-7 md:pl-8 xl:order-none xl:basis-auto xl:pl-0 flex flex-wrap gap-2 items-center min-w-0"
+			>
+				{#if labels?.length}
+					{#each labels as label (label)}
+						<LabelBadge
+							icon={Tag}
+							title="Label: {label}"
+							selected={(filters.val.label ?? '').split(',').includes(label)}
+							onclick={() => {
+								const arr = (filters.val.label ?? '').split(',').filter(Boolean)
+								const idx = arr.indexOf(label)
+								if (idx >= 0) arr.splice(idx, 1)
+								else arr.push(label)
+								const newFilters = { ...filters.val }
+								if (arr.length) newFilters.label = arr.join(',')
+								else delete newFilters.label
+								filters.val = newFilters
+							}}>{label}</LabelBadge
+						>
+					{/each}
+				{/if}
+				<InheritedLabels labels={inherited_labels} color="subtle" />
 
-			{#if paused_until && new Date(paused_until) > new Date()}
-				<div class="pb-1">
+				{#if paused_until && new Date(paused_until) > new Date()}
 					<Badge color="yellow">Paused until {new Date(paused_until).toLocaleString()}</Badge>
+				{/if}
+
+				<div class="gap-2 items-center flex shrink-0">
+					<Tooltip placement="bottom">
+						<Badge color="blue" class="font-mono">{schedule}</Badge>
+						{#snippet text()}
+							<ScheduleUpcomingEvents
+								workspace={$operatingWorkspace!}
+								{path}
+								{schedule}
+								{timezone}
+								draftOnly={draft_only}
+							/>
+						{/snippet}
+					</Tooltip>
+					<Badge color="gray">{timezone}</Badge>
 				</div>
-			{/if}
 
-			<div class="gap-2 items-center hidden md:flex">
-				<Tooltip placement="bottom">
-					<Badge large color="blue">{schedule}</Badge>
-					{#snippet text()}
-						<ScheduleUpcomingEvents
-							workspace={$operatingWorkspace!}
-							{path}
-							{schedule}
-							{timezone}
-							draftOnly={draft_only}
-						/>
-					{/snippet}
-				</Tooltip>
-				<Badge small color="gray">{timezone}</Badge>
+				<div class="flex flex-row gap-1 items-center">
+					<SharedBadge
+						canWrite={canWrite(path, extra_perms!, operatingUser.current)}
+						extraPerms={extra_perms}
+					/>
+				</div>
 			</div>
 
-			<div class="hidden lg:flex flex-row gap-1 items-center">
-				<SharedBadge
-					canWrite={canWrite(path, extra_perms!, operatingUser.current)}
-					extraPerms={extra_perms}
-				/>
-			</div>
-
-			<div class="w-10">
+			<!-- Below md an empty status column is dropped, so a draft-only row's badge and toggle
+			     still fit beside the name. -->
+			<div class="w-4 md:w-10 shrink-0 max-md:[&:not(:has(*))]:hidden">
 				{#if error}
 					<Popover notClickable>
 						<span class="flex h-4 w-4">
@@ -531,7 +536,7 @@
 				{/if}
 			</div>
 
-			<div class="flex items-center justify-end gap-2 shrink-0 min-w-[8rem]">
+			<div class="flex items-center justify-end gap-2 shrink-0 xl:min-w-[8rem]">
 				<DraftBadge {draft_only} is_draft={hasDraft} />
 				{#key toggleResetVersions[path] ?? 0}
 					<Toggle
@@ -561,13 +566,15 @@
 					/>
 				{/key}
 			</div>
-			<div class="flex gap-2 items-center justify-end">
+			<div class="flex gap-2 items-center justify-end shrink-0">
+				<!-- Below md these two live only in the dropdown, which has both. -->
 				<Button
 					href={`/runs/?schedule_path=${path}&job_trigger_kind=schedule&show_future_jobs=true`}
 					disabled={draft_only}
 					unifiedSize="md"
 					startIcon={{ icon: List }}
 					variant="subtle"
+					wrapperClasses="max-md:hidden"
 				>
 					Runs
 				</Button>
@@ -576,6 +583,7 @@
 					unifiedSize="md"
 					startIcon={{ icon: canEdit ? Pen : Eye }}
 					variant="subtle"
+					wrapperClasses="max-md:hidden"
 				>
 					{canEdit ? 'Edit' : 'View'}
 				</Button>
@@ -635,6 +643,7 @@
 						{
 							displayName: 'View runs',
 							icon: List,
+							disabled: draft_only,
 							href: `/runs/?schedule_path=${path}&job_trigger_kind=schedule&show_future_jobs=true`
 						},
 						{
@@ -660,7 +669,7 @@
 				/>
 			</div>
 		</div>
-		<div class="w-full flex justify-between items-baseline">
+		<div class="w-full flex flex-wrap justify-between items-baseline gap-x-4 gap-y-1">
 			{#if loadingSchedulesWithJobStats}
 				<div class="flex gap-1 ml-0.5 text-xs text-secondary items-center">
 					<Loader2 size={14} class="animate-spin" />
@@ -690,7 +699,7 @@
 				</div>
 			{/if}
 			<div
-				class="flex flex-wrap text-xs text-secondary gap-1 items-center justify-end truncate pr-2"
+				class="ml-auto flex flex-wrap text-xs text-secondary gap-1 items-center justify-end min-w-0 pr-2"
 				>{#if edited_by}<div class="truncate">edited by {edited_by}</div>{/if}<div class="truncate"
 					>{edited_by ? 'at ' : ''}{displayDate(edited_at)}</div
 				></div
@@ -732,7 +741,7 @@
 			</Button>
 		</PageHeader>
 		<div class="w-full h-full flex flex-col">
-			<div class="flex flex-row items-center justify-end gap-4 pb-4">
+			<div class="flex flex-row flex-wrap items-center justify-end gap-x-4 gap-y-2 pb-4">
 				<TreeViewControls {tree} forceExpanded={treeForceExpanded} class="mr-auto" />
 				<ToggleButtonGroup bind:selected={filterEnabledDisabled} class="w-fit">
 					{#snippet children({ item })}
@@ -744,7 +753,7 @@
 				<FilterSearchbar
 					schema={schedulesFilterSchema}
 					bind:value={filters.val}
-					class="grow max-w-[26rem]"
+					class="grow basis-full md:basis-auto md:max-w-[26rem]"
 					{presets}
 				/>
 			</div>

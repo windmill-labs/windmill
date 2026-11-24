@@ -7,7 +7,8 @@ on:
 
 jobs:
   publish_pypi:
-    runs-on: ubicloud-standard-8
+    # openapi-python-client peaks near 32 GB on the dereferenced spec
+    runs-on: ubicloud-standard-16
     if: startsWith(github.ref, 'refs/tags/v')
     container:
       image: ghcr.io/windmill-labs/python-client-builder

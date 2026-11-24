@@ -60,7 +60,8 @@
 		}))
 		const w = work
 		if (!w) return postures
-		const lockedOut = (m: AIWorkMode) => !!w.lock && m !== AIWorkMode.USE
+		const lockedOut = (m: AIWorkMode) => !!w.lock && !w.lock.onPick && m !== AIWorkMode.USE
+		const onPick = w.lock?.onPick
 		const workItems: Item[] = workModeOptions
 			.filter((o) => o.mode !== AIWorkMode.PLAN || w.planAvailable || w.lock)
 			.map((o, i) => {
@@ -76,7 +77,7 @@
 					selected: workOption?.mode === o.mode,
 					disabled: locked,
 					tooltip: locked ? w.lock?.reason : undefined,
-					action: () => w.onChange(o.mode)
+					action: () => (onPick && o.mode !== AIWorkMode.USE ? onPick(o.mode) : w.onChange(o.mode))
 				}
 			})
 		const escape = w.lock?.escape

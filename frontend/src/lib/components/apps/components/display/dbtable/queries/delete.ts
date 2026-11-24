@@ -41,7 +41,7 @@ export function makeDeleteQuery(table: string, columns: ColumnDef[], dbType: DbT
 		}
 		case 'ms_sql_server': {
 			const conditions = columns
-				.map((c, i) => `(@p${i + 1} IS NULL AND ${c.field} IS NULL OR ${c.field} = @p${i + 1})`)
+				.map((c, i) => `(@P${i + 1} IS NULL AND ${c.field} IS NULL OR ${c.field} = @P${i + 1})`)
 				.join('\n    AND ')
 			query += `\nDELETE FROM ${table} \nWHERE ${conditions}`
 			return query

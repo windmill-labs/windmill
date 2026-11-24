@@ -1,4 +1,5 @@
 <script lang="ts">
+	import HostWindow from '$lib/components/common/HostWindow.svelte'
 	import { MultiplayerConnection } from '$lib/multiplayerConnection'
 	import { paneMinPercent } from '$lib/utils/splitpaneSizing'
 	import { processSecretArgs } from './secretArgUtils'
@@ -1870,7 +1871,7 @@
 	bind:job={testJob}
 />
 
-<svelte:window onkeydown={onKeyDown} />
+<HostWindow onkeydown={onKeyDown} />
 
 <!-- Standalone triggerable registration for the script editor -->
 <div

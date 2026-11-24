@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM autoscaling_recording WHERE worker_group = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "7154435ce9913ddf408033251e9b5f582b058750ec7cf2fee30dfa30f554d732"
+}

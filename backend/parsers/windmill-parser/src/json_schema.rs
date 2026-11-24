@@ -8,7 +8,12 @@ use crate::{MainArgSignature, ObjectProperty, Typ};
 /// `previous` is the schema of the version being superseded: as in the editor, it is
 /// updated in place, so what the user set on it (argument order, descriptions, ...)
 /// survives wherever the code still agrees with it.
-pub fn main_arg_schema(sig: &MainArgSignature, previous: Option<&Value>) -> Value {
+/// `otyp_is_doc`: the parser passes an argument's description as `otyp` (Python, TypeScript).
+pub fn main_arg_schema(
+    sig: &MainArgSignature,
+    previous: Option<&Value>,
+    otyp_is_doc: bool,
+) -> Value {
     let mut schema = match previous {
         Some(Value::Object(p)) => p.clone(),
         _ => json!({
@@ -35,13 +40,22 @@ pub fn main_arg_schema(sig: &MainArgSignature, previous: Option<&Value>) -> Valu
         }
         apply_typ(&arg.typ, &mut prop);
         // `T | T[]` marks an argument debouncing accumulates into.
-        if let Some(otyp) = arg
-            .otyp
-            .as_deref()
-            .filter(|o| o.contains('[') && o.contains('|'))
-        {
-            prop.insert("originalType".into(), json!(otyp));
-        }
+        match arg.otyp.as_deref() {
+            Some(o) if o.contains('[') && o.contains('|') => {
+                prop.insert("originalType".into(), json!(o))
+            }
+            Some(o)
+                if otyp_is_doc
+                    && !o.is_empty()
+                    && prop
+                        .get("description")
+                        .and_then(Value::as_str)
+                        .is_none_or(str::is_empty) =>
+            {
+                prop.insert("description".into(), json!(o))
+            }
+            _ => None,
+        };
         match &arg.default {
             Some(d) => prop.insert("default".into(), d.clone()),
             None => prop.remove("default"),
@@ -66,7 +80,9 @@ pub fn main_arg_schema(sig: &MainArgSignature, previous: Option<&Value>) -> Valu
     Value::Object(schema)
 }
 
-/// Keys a user sets on a property in the schema editor, kept whatever the code says.
+/// Keys a user sets on a property in the schema editor, kept whatever the code says. A
+/// description documented in code (docstring `Args:`, JSDoc `@param`) only fills one that
+/// is empty, never replaces it.
 const USER_FIELDS: &[&str] = &[
     "description",
     "pattern",
@@ -381,7 +397,7 @@ mod tests {
                 "gone": {"type": "string"},
             },
         });
-        let schema = main_arg_schema(&sig, Some(&previous));
+        let schema = main_arg_schema(&sig, Some(&previous), false);
         assert_eq!(schema["order"], json!(["db", "n"]));
         assert_eq!(schema["required"], json!(["n", "db", "any"]));
         assert_eq!(
@@ -398,5 +414,52 @@ mod tests {
         assert_eq!(schema["properties"]["opts"]["type"], "object");
         // Untyped in the code and new: any JSON value, as the editor stores it.
         assert_eq!(schema["properties"]["any"]["type"], "");
+    }
+
+    #[test]
+    fn otyp_is_a_union_marker_or_a_description() {
+        let name = Arg { otyp: Some("Who to greet".into()), ..arg("name", Typ::Str(None), None) };
+        let tags =
+            Arg { otyp: Some("string | string[]".into()), ..arg("tags", Typ::Unknown, None) };
+        let sig = MainArgSignature { args: vec![name, tags], ..Default::default() };
+        let schema = main_arg_schema(&sig, None, true);
+        assert_eq!(schema["properties"]["name"]["description"], "Who to greet");
+        assert_eq!(
+            schema["properties"]["tags"]["originalType"],
+            "string | string[]"
+        );
+        let schema = main_arg_schema(&sig, None, false);
+        assert_eq!(schema["properties"]["name"]["description"], "");
+    }
+
+    // A description from code only fills an empty one: a typed one is kept, even when
+    // the code documents the argument differently or with no text.
+    #[test]
+    fn a_doc_fills_an_empty_description_and_keeps_a_typed_one() {
+        let doc =
+            |name: &str, d: &str| Arg { otyp: Some(d.into()), ..arg(name, Typ::Str(None), None) };
+        let sig = MainArgSignature {
+            args: vec![
+                doc("typed", "from code"),
+                doc("blank", "from code"),
+                doc("empty_doc", ""),
+            ],
+            ..Default::default()
+        };
+        let previous = json!({
+            "type": "object",
+            "properties": {
+                "typed": {"type": "string", "description": "typed"},
+                "blank": {"type": "string", "description": ""},
+                "empty_doc": {"type": "string", "description": "typed too"},
+            },
+        });
+        let schema = main_arg_schema(&sig, Some(&previous), true);
+        assert_eq!(schema["properties"]["typed"]["description"], "typed");
+        assert_eq!(schema["properties"]["blank"]["description"], "from code");
+        assert_eq!(
+            schema["properties"]["empty_doc"]["description"],
+            "typed too"
+        );
     }
 }

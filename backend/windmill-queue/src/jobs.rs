@@ -670,40 +670,63 @@ pub async fn push_periodic_bash_job<'c>(
     Ok(uuid)
 }
 
-pub async fn cancel_persistent_script_jobs<'c>(
+/// `admit` is called with the runs each batch found, before any of them is touched, and returns
+/// the ones to cancel; an error from it cancels none of that batch. The cancel itself runs on the
+/// root pool, so `admit` is where the caller's access to those runs must be checked.
+pub async fn cancel_persistent_script_jobs<F, Fut>(
     username: &str,
     reason: Option<String>,
     script_path: &str,
     w_id: &str,
     db: &Pool<Postgres>,
-) -> error::Result<Vec<Uuid>> {
+    mut admit: F,
+) -> error::Result<Vec<Uuid>>
+where
+    F: FnMut(Vec<Uuid>) -> Fut,
+    Fut: Future<Output = error::Result<Vec<Uuid>>>,
+{
     // There can be only one perpetual script run per 10 seconds window. We execute the cancel twice with 5s interval
     // to avoid the case of a job _about to be restarted_ when the first cancel is run.
-    let cancelled_job_ids_first_batch =
-        cancel_persistent_script_jobs_internal(username, reason.clone(), script_path, w_id, db)
-            .await?;
+    let cancelled_job_ids_first_batch = cancel_persistent_script_jobs_internal(
+        username,
+        reason.clone(),
+        script_path,
+        w_id,
+        db,
+        &mut admit,
+    )
+    .await?;
     sleep(std::time::Duration::from_secs(5)).await;
-    let cancelled_job_ids_second_batch =
-        cancel_persistent_script_jobs_internal(username, reason.clone(), script_path, w_id, db)
-            .await?;
+    let cancelled_job_ids_second_batch = cancel_persistent_script_jobs_internal(
+        username,
+        reason.clone(),
+        script_path,
+        w_id,
+        db,
+        &mut admit,
+    )
+    .await?;
     return Ok(cancelled_job_ids_first_batch
         .into_iter()
         .chain(cancelled_job_ids_second_batch)
         .collect_vec());
 }
 
-async fn cancel_persistent_script_jobs_internal<'c>(
+async fn cancel_persistent_script_jobs_internal<F, Fut>(
     username: &str,
     reason: Option<String>,
     script_path: &str,
     w_id: &str,
     db: &Pool<Postgres>,
-) -> error::Result<Vec<Uuid>> {
-    let mut tx = db.begin().await?;
-
-    // we could have retrieved the job IDs in the first query where we retrieve the hashes, but just in case a job was inserted in the queue right in-between the two above query, we re-do the fetch here
+    admit: &mut F,
+) -> error::Result<Vec<Uuid>>
+where
+    F: FnMut(Vec<Uuid>) -> Fut,
+    Fut: Future<Output = error::Result<Vec<Uuid>>>,
+{
     // Only the loops: a dependency job of this script shares its path, and a run of a version that
-    // does not restart itself ends on its own.
+    // does not restart itself ends on its own. A run that ends before the cancel below reaches it
+    // is skipped by `cancel_job`; its restart is caught by the next batch.
     let jobs_to_cancel = sqlx::query_scalar::<_, Uuid>(
         "SELECT j.id FROM v2_job_queue q JOIN v2_job j USING (id) \
          JOIN script s ON s.workspace_id = j.workspace_id AND s.hash = j.runnable_id \
@@ -712,10 +735,12 @@ async fn cancel_persistent_script_jobs_internal<'c>(
     )
     .bind(w_id)
     .bind(script_path)
-    .fetch_all(&mut *tx)
+    .fetch_all(db)
     .await?;
 
-    // Then we cancel all the jobs currently in the queue, one by one
+    let jobs_to_cancel = admit(jobs_to_cancel).await?;
+
+    let mut tx = db.begin().await?;
     for queued_job_id in jobs_to_cancel.clone() {
         let (new_tx, _) = cancel_job(
             username,
@@ -1401,8 +1426,8 @@ lazy_static::lazy_static! {
     static ref RESTART_UNLESS_CANCELLED_CACHE: Cache<(i64, String), (bool, Option<i32>, Option<Vec<String>>)> = Cache::new(10000);
 
     // Cache for workspace error handler settings with 60s TTL
-    // Key: workspace_id, Value: (error_handler, error_handler_extra_args, error_handler_muted_on_cancel, error_handler_muted_on_user_path, report_to_instance_alerts, expiry_timestamp)
-    static ref WORKSPACE_ERROR_HANDLER_CACHE: Cache<String, (Option<String>, Option<Json<Box<RawValue>>>, bool, bool, bool, i64)> = Cache::new(1000);
+    // Key: workspace_id, Value: (settings, expiry_timestamp)
+    static ref WORKSPACE_ERROR_HANDLER_CACHE: Cache<String, (WorkspaceErrorHandler, i64)> = Cache::new(1000);
 
     // Best-effort per-worker throttle for the instance-channel fallback: a flapping runnable
     // would otherwise turn every failure into outbound Slack/SMTP traffic on channels shared by
@@ -2964,24 +2989,26 @@ pub async fn report_error_to_workspace_handler_or_critical_side_channel(
     }
 }
 
+#[derive(Clone)]
+struct WorkspaceErrorHandler {
+    path: Option<String>,
+    extra_args: Option<Json<Box<RawValue>>>,
+    muted_on_cancel: bool,
+    muted_on_user_path: bool,
+    muted_on_ui_runs: bool,
+    report_to_instance_alerts: bool,
+}
+
 async fn fetch_error_handler_from_db(
     db: &Pool<Postgres>,
     w_id: &str,
-) -> Result<
-    (
-        Option<String>,
-        Option<Json<Box<RawValue>>>,
-        bool,
-        bool,
-        bool,
-    ),
-    Error,
-> {
+) -> Result<WorkspaceErrorHandler, Error> {
     sqlx::query_as::<
         _,
         (
             Option<String>,
             Option<Json<Box<RawValue>>>,
+            Option<bool>,
             Option<bool>,
             Option<bool>,
             bool,
@@ -2993,6 +3020,7 @@ async fn fetch_error_handler_from_db(
             (error_handler->'extra_args')::text::json,
             (error_handler->>'muted_on_cancel')::boolean,
             (error_handler->>'muted_on_user_path')::boolean,
+            (error_handler->>'muted_on_ui_runs')::boolean,
             ws.error_handler_fallback_to_instance_alerts AND w.parent_workspace_id IS NULL
         FROM workspace_settings ws
         JOIN workspace w ON w.id = ws.workspace_id
@@ -3004,14 +3032,20 @@ async fn fetch_error_handler_from_db(
     .await
     .context("fetching error handler info from workspace_settings")?
     .map(
-        |(path, extra_args, muted_on_cancel, muted_on_user_path, report_to_instance_alerts)| {
-            (
-                path,
-                extra_args,
-                muted_on_cancel.unwrap_or(false),
-                muted_on_user_path.unwrap_or(false),
-                report_to_instance_alerts,
-            )
+        |(
+            path,
+            extra_args,
+            muted_on_cancel,
+            muted_on_user_path,
+            muted_on_ui_runs,
+            report_to_instance_alerts,
+        )| WorkspaceErrorHandler {
+            path,
+            extra_args,
+            muted_on_cancel: muted_on_cancel.unwrap_or(false),
+            muted_on_user_path: muted_on_user_path.unwrap_or(false),
+            muted_on_ui_runs: muted_on_ui_runs.unwrap_or(false),
+            report_to_instance_alerts,
         },
     )
     .ok_or_else(|| Error::internal_err(format!("no workspace settings for id {w_id}")))
@@ -3026,39 +3060,25 @@ pub async fn send_error_to_workspace_handler<'a, 'c, T: Serialize + Send + Sync>
     let w_id = &queued_job.workspace_id;
 
     let now = chrono::Utc::now().timestamp();
-    let (
-        error_handler,
-        error_handler_extra_args,
-        error_handler_muted_on_cancel,
-        error_handler_muted_on_user_path,
-        report_to_instance_alerts,
-    ) = if let Some(cached) = WORKSPACE_ERROR_HANDLER_CACHE.get(w_id) {
-        if cached.5 > now {
-            (
-                cached.0.clone(),
-                cached.1.clone(),
-                cached.2,
-                cached.3,
-                cached.4,
-            )
-        } else {
-            let row = fetch_error_handler_from_db(db, w_id).await?;
-            let expiry = now + WORKSPACE_HANDLER_CACHE_TTL_SECONDS;
+    let handler = match WORKSPACE_ERROR_HANDLER_CACHE.get(w_id) {
+        Some((handler, expiry)) if expiry > now => handler,
+        _ => {
+            let handler = fetch_error_handler_from_db(db, w_id).await?;
             WORKSPACE_ERROR_HANDLER_CACHE.insert(
                 w_id.clone(),
-                (row.0.clone(), row.1.clone(), row.2, row.3, row.4, expiry),
+                (handler.clone(), now + WORKSPACE_HANDLER_CACHE_TTL_SECONDS),
             );
-            row
+            handler
         }
-    } else {
-        let row = fetch_error_handler_from_db(db, w_id).await?;
-        let expiry = now + WORKSPACE_HANDLER_CACHE_TTL_SECONDS;
-        WORKSPACE_ERROR_HANDLER_CACHE.insert(
-            w_id.clone(),
-            (row.0.clone(), row.1.clone(), row.2, row.3, row.4, expiry),
-        );
-        row
     };
+    let WorkspaceErrorHandler {
+        path: error_handler,
+        extra_args: error_handler_extra_args,
+        muted_on_cancel,
+        muted_on_user_path,
+        muted_on_ui_runs,
+        report_to_instance_alerts,
+    } = handler;
 
     // Nothing to do for the vast majority of workspaces, and returning here keeps the
     // per-runnable mute lookup below off the path of every failed job.
@@ -3066,17 +3086,26 @@ pub async fn send_error_to_workspace_handler<'a, 'c, T: Serialize + Send + Sync>
         return Ok(());
     }
 
-    if is_canceled && error_handler_muted_on_cancel {
+    if is_canceled && muted_on_cancel {
         return Ok(());
     }
 
     // Skip error handler for scripts/flows starting with u/
-    if error_handler_muted_on_user_path {
+    if muted_on_user_path {
         if let Some(ref path) = queued_job.runnable_path {
             if path.starts_with("u/") {
                 return Ok(());
             }
         }
+    }
+
+    if muted_on_ui_runs
+        && queued_job
+            .trigger_kind
+            .as_ref()
+            .is_some_and(|k| k.is(JobTriggerKind::Ui))
+    {
+        return Ok(());
     }
 
     let ws_error_handler_muted: Option<bool> = match queued_job.kind {
@@ -4967,10 +4996,10 @@ pub async fn pull(
                 };
 
                 if let Some(job) = job.as_ref() {
-                    if (job.is_flow() || job.is_dependency())
-                        && !(job.kind.is_preview()
-                            && PREVIEW_TAGS_OVERRIDE.load(std::sync::atomic::Ordering::Relaxed))
-                    {
+                    // An agent worker cannot drive a flow, so a flow preview on an agent's tag is
+                    // requeued too, preview tags override or not: the job keeps its tag in v2_job
+                    // for its steps.
+                    if job.is_flow() || job.is_dependency() {
                         let tag = match configured_dependency_job_tag(
                             &job.kind,
                             job.script_lang.as_ref(),
@@ -5822,10 +5851,9 @@ pub fn tag_reads_flow_expr(tag: &str) -> bool {
     tag.contains("$flow_expr[")
 }
 
-/// Renders the value at the dotted `path` below `root` as a dynamic tag component, shared by
-/// `$args[...]` and `$flow_expr[...]`: its JSON text with surrounding quotes trimmed, and empty
-/// once a segment is missing. Only object keys are followed, never array indexes.
-pub fn render_tag_path(root: Option<&RawValue>, path: &str) -> String {
+/// The JSON text of the value at the dotted `path` below `root`, empty once a segment is missing.
+/// Only object keys are followed, never array indexes.
+fn json_at_path(root: Option<&RawValue>, path: &str) -> String {
     let mut value = root.map(|x| x.get()).unwrap_or_default().to_string();
     for part in path.split('.').filter(|p| !p.is_empty()) {
         match serde_json::from_str::<serde_json::Value>(&value) {
@@ -5836,10 +5864,35 @@ pub fn render_tag_path(root: Option<&RawValue>, path: &str) -> String {
             }
         }
     }
+    value
+}
+
+/// Renders the value at the dotted `path` below `root` as a dynamic tag component, shared by
+/// `$args[...]` and `$flow_expr[...]`: its JSON text with surrounding quotes trimmed, and empty
+/// once a segment is missing or holds `null`. An optional input left unset is `null`, and must
+/// fall back like a missing one rather than name a queue `null` that no worker serves.
+pub fn render_tag_path(root: Option<&RawValue>, path: &str) -> String {
+    let value = json_at_path(root, path);
+    if value.trim() == "null" {
+        return String::new();
+    }
     value.trim_matches('"').to_string()
 }
 
+/// Fills in the `$workspace` and `$args[...]` of a concurrency or debounce key. A `null` argument
+/// renders as `null`, which the keys of already queued jobs were built with.
 pub fn interpolate_args(x: String, args: &PushArgs, workspace_id: &str) -> String {
+    interpolate_args_with(x, args, workspace_id, |root, path| {
+        json_at_path(root, path).trim_matches('"').to_string()
+    })
+}
+
+fn interpolate_args_with(
+    x: String,
+    args: &PushArgs,
+    workspace_id: &str,
+    render: impl Fn(Option<&RawValue>, &str) -> String,
+) -> String {
     // Save this value to avoid parsing twice
     let workspaced = x.as_str().replace("$workspace", workspace_id).to_string();
     if RE_ARG_TAG.is_match(&workspaced) {
@@ -5856,7 +5909,7 @@ pub fn interpolate_args(x: String, args: &PushArgs, workspace_id: &str) -> Strin
                         .or(args.extra.as_ref().and_then(|x| x.get(root)))
                 })
                 .flatten();
-            let arg_value = render_tag_path(root_value.map(|x| &**x), rest);
+            let arg_value = render(root_value.map(|x| &**x), rest);
             interpolated =
                 interpolated.replace(format!("$args[{}]", arg_name).as_str(), &arg_value);
         }
@@ -5888,7 +5941,13 @@ pub async fn resolve_push_tag(
     } else {
         workspace_id.to_string()
     };
-    Some(interpolate_args(tag.to_string(), args, &tag_ws))
+    Some(interpolate_args_with(
+        tag.to_string(),
+        args,
+        &tag_ws,
+        render_tag_path,
+    ))
+    .filter(|t| !t.is_empty())
 }
 
 /// The tag a dependency job is routed to when the instance's `dependency_job_tag` setting is
@@ -7367,6 +7426,8 @@ async fn push_inner<'c, 'd>(
                         chat_input_enabled: None,
                         memory_id: None,
                         no_inherited_flow_env: false,
+                        continued_on_error: vec![],
+                        test_subflows: None,
                     }
                 }
                 _ => {
@@ -7524,6 +7585,7 @@ async fn push_inner<'c, 'd>(
                     value: to_raw_value(&FlowModuleValue::Flow {
                         path: path.clone(),
                         input_transforms: main_input_transforms,
+                        tag_override: None,
                         pass_flow_input_directly: None,
                     }),
                     retry,
@@ -7767,6 +7829,8 @@ async fn push_inner<'c, 'd>(
                 chat_input_enabled: None,
                 memory_id: None,
                 no_inherited_flow_env: false,
+                continued_on_error: vec![],
+                test_subflows: None,
             };
             // The completed job's own scopes are gone with its `job_perms` row, so the restart
             // takes the flow's current setting (and the restarting caller's ceiling).
@@ -8805,6 +8869,7 @@ fn create_restarted_module(
                 flow_jobs: Some(new_flow_jobs),
                 flow_jobs_success: new_flow_jobs_success,
                 flow_jobs_duration: new_flow_jobs_timeline,
+                flow_jobs_labels: None,
                 branch_chosen: None,
                 branchall: Some(BranchAllStatus {
                     branch: branch_or_iteration_n - 1,
@@ -8843,6 +8908,10 @@ fn create_restarted_module(
             if let Some(new_flow_jobs_timeline) = new_flow_jobs_timeline.as_mut() {
                 new_flow_jobs_timeline.truncate(branch_or_iteration_n);
             }
+            let mut new_flow_jobs_labels = module.flow_jobs_labels();
+            if let Some(new_flow_jobs_labels) = new_flow_jobs_labels.as_mut() {
+                new_flow_jobs_labels.truncate(branch_or_iteration_n);
+            }
             Ok(FlowStatusModule::InProgress {
                 id: module.id(),
                 job: new_flow_jobs[new_flow_jobs.len() - 1],
@@ -8854,6 +8923,7 @@ fn create_restarted_module(
                 flow_jobs: Some(new_flow_jobs),
                 flow_jobs_success: new_flow_jobs_success,
                 flow_jobs_duration: new_flow_jobs_timeline,
+                flow_jobs_labels: new_flow_jobs_labels,
                 branch_chosen: None,
                 branchall: None,
                 parallel,
@@ -8918,6 +8988,7 @@ fn reuse_completed_zombie_module(module: FlowStatusModule) -> FlowStatusModule {
             flow_jobs,
             flow_jobs_success,
             flow_jobs_duration,
+            flow_jobs_labels,
             branch_chosen,
             agent_actions,
             agent_actions_success,
@@ -8931,6 +9002,7 @@ fn reuse_completed_zombie_module(module: FlowStatusModule) -> FlowStatusModule {
                 .map(|v| v.into_iter().map(|_| Some(true)).collect()),
             flow_jobs,
             flow_jobs_duration,
+            flow_jobs_labels,
             branch_chosen,
             approvers: vec![],
             failed_retries: vec![],
@@ -9571,13 +9643,16 @@ mod render_tag_path_tests {
         )
     }
 
-    // Existing `$args[...]` tags route on exactly these renderings.
+    // Existing `$args[...]` tags route on exactly these renderings, except that `null` now falls
+    // back like a missing value.
     #[test]
     fn renders_like_args_tags() {
         assert_eq!(render(r#""eu""#, ""), "eu");
         assert_eq!(render(r#"{"a": {"b": "eu"}}"#, "a.b"), "eu");
         assert_eq!(render(r#"{"n": 4}"#, "n"), "4");
-        assert_eq!(render("null", ""), "null");
+        assert_eq!(render("null", ""), "");
+        assert_eq!(render(r#"{"a": null}"#, "a"), "");
+        assert_eq!(render(r#""null""#, ""), "null");
         assert_eq!(render(r#"{"a": 1}"#, "b.c"), "");
         assert_eq!(render(r#"{"a": ["eu"]}"#, "a.0"), "");
         assert_eq!(render_tag_path(None, "a"), "");
@@ -9597,6 +9672,14 @@ mod render_tag_path_tests {
         assert_eq!(
             interpolate_args("$args[_MODULES]private".to_string(), &push_args, "ws"),
             "private"
+        );
+
+        // Concurrency and debounce keys keep rendering `null`, as queued jobs' keys were built.
+        let args = HashMap::from([("r".to_string(), raw("null"))]);
+        let push_args = PushArgs { args: &args, extra: None };
+        assert_eq!(
+            interpolate_args("k-$args[r]".to_string(), &push_args, "ws"),
+            "k-null"
         );
     }
 

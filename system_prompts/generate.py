@@ -1714,6 +1714,12 @@ TOPICS: dict[str, dict] = {
         'chat_helper': 'getWorkspaceSettingsPrompt',
         'parts': ['workspace-settings.md'],
     },
+    'code_mode': {
+        'skill': 'code-mode',
+        'description': 'MUST use when the user asks for something done against the systems the workspace connects to (an API lookup, moving data, checking a status) rather than for building a script, flow or app.',
+        'chat_helper': 'getCodeModePrompt',
+        'parts': ['code-mode.md'],
+    },
     'display': {
         'skill': 'rich-results',
         'description': 'MUST use when a script or flow should return a table, chart, markdown, image, file or map instead of plain JSON.',
@@ -1748,6 +1754,7 @@ CHAT_CONSTANTS = {
     'flow-chat-special-modules.md': 'FLOW_CHAT_SPECIAL_MODULES',
     'display-results.md': 'DISPLAY_RESULTS_BASE',
     'display-catalog.gen.md': 'DISPLAY_CATALOG',
+    'code-mode.md': 'CODE_MODE_BASE',
 }
 
 
@@ -2691,6 +2698,11 @@ export function getDisplayPrompt(): string {
   __RETURN_display__
 }
 
+// Helper for answering a task with code run as a preview, then saved and reused
+export function getCodeModePrompt(): string {
+  __RETURN_code_mode__
+}
+
 // Helper for data table schema changes, migrations and permissions (chat consumers)
 export function getDatatablePrompt(): string {
   __RETURN_datatable__
@@ -2764,6 +2776,7 @@ export declare function getAgentPrompt(): string;
 export declare function getRawAppPrompt(language?: string): string;
 export declare function getPipelinePrompt(): string;
 export declare function getDisplayPrompt(): string;
+export declare function getCodeModePrompt(): string;
 export declare function getDatatablePrompt(): string;
 export declare function getWorkspaceSettingsPrompt(): string;
 export declare function getDatatableSdkReference(language?: string): string;

@@ -74,9 +74,10 @@ pub struct ClientWithScopes {
     /// persist it on client-credentials accounts.
     pub token_url: String,
     /// Whether the instance entry carries shared credentials (non-empty id +
-    /// secret). Providers without them are bring-your-own only — the connect
-    /// dialog lists them under "Others", not "Instance-configured".
+    /// secret). Providers without them are bring-your-own only.
     pub has_shared_credentials: bool,
+    /// [`OAuthClient::shares_client_credentials`] resolved.
+    pub shares_client_credentials: bool,
     /// [`OAuthClient::pkce`] resolved; only the login flow reads it.
     pub pkce: bool,
 }

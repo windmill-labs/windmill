@@ -19,7 +19,7 @@ import {
 import { PLAN_MODE_MESSAGES } from './planModeMessages'
 import { normalizeChangeNote } from './artifacts/artifactLimits'
 import { currentVersion } from './artifacts/artifactsDB'
-import { type SessionArtifactsStore } from './artifacts/artifactsState.svelte'
+import type { SessionArtifactsStore } from './artifacts/artifactsState.svelte'
 
 /** What plan mode needs from the chat it runs in: it reads the work mode and the autonomy
  * state and asks for the two changes it can cause, rather than owning any of it. */
@@ -127,10 +127,25 @@ export class PlanModeController {
 		// rather than in `fn`, because `onConfirmationRequested` writes the document too — and
 		// under YOLO nothing asks: the tool would confer the user's approval on a plan no card
 		// ever showed them.
-		validateBeforeConfirmation: ({ args }) =>
-			this.#host.active
-				? exitPlanModeRejection(args)
-				: { label: PLAN_MODE_MESSAGES.endedLabel, result: PLAN_MODE_MESSAGES.ended },
+		validateBeforeConfirmation: async ({ args }) => {
+			if (!this.#host.active) {
+				return { label: PLAN_MODE_MESSAGES.endedLabel, result: PLAN_MODE_MESSAGES.ended }
+			}
+			const rejection = exitPlanModeRejection(args)
+			if (rejection) return rejection
+			// Before the card: once it is up, a refused save reaches the model only after the user
+			// answers it. A plan changed while the card is up is still refused by the save.
+			const { isSessionChat, sessionId, chatId } = this.#host
+			if (!isSessionChat || !sessionId) return undefined
+			const latest = await this.#host.artifacts
+				.stalePlanVersion(sessionId, chatId)
+				.catch(() => undefined)
+			if (latest === undefined) return undefined
+			return {
+				label: PLAN_MODE_MESSAGES.stalePlanLabel,
+				result: PLAN_MODE_MESSAGES.stalePlan(latest)
+			}
+		},
 		confirmationMessage: (args) => planSummaryOf(args) ?? PLAN_MODE_MESSAGES.exitPrompt,
 		cancellationMessage: PLAN_MODE_MESSAGES.exitDeclined,
 		showDetails: true,
@@ -207,7 +222,7 @@ export class PlanModeController {
 			// No approval field: the write bumps the version and leaves `approvedVersion` where
 			// it was, which is what makes the new text read as an undecided proposal. The note
 			// keeps the picker a sequence of decisions rather than a stack of dates.
-			const plan = await host.artifacts.savePlan(
+			const result = await host.artifacts.proposePlan(
 				sessionId,
 				{
 					name: derivePlanTitle(summary),
@@ -216,6 +231,10 @@ export class PlanModeController {
 				},
 				chatId
 			)
+			if (result.outcome === 'stale') return { error: PLAN_MODE_MESSAGES.stalePlan(result.latest) }
+			if (result.outcome === 'unstored') return { error: PLAN_MODE_MESSAGES.planNotStored }
+			if (result.outcome !== 'saved' && result.outcome !== 'unchanged') return unsaved
+			const plan = result.artifact
 			const version = currentVersion(plan)
 			// The write stands either way; only what the user would *see* is held back, so a
 			// session swapped in mid-save gets neither another session's plan nor a dead card.

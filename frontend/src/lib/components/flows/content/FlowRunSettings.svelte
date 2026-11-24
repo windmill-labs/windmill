@@ -92,7 +92,14 @@
 	/** Scroll one setting into view. `key` is a StepSettingKey, so the AI tool's openTab
 	 *  intent must name settings with those keys. */
 	export function openSetting(key: string) {
-		rootEl?.querySelector(`[data-setting="${key}"]`)?.scrollIntoView({ block: 'nearest' })
+		const el = rootEl?.querySelector(`[data-setting="${key}"]`)
+		if (!rootEl || !el) return
+		el.scrollIntoView({ block: 'nearest' })
+		// On a panel that just mounted, the rows above are still sliding open and push the
+		// setting back out of view: follow them until they settle.
+		const follow = new ResizeObserver(() => el.scrollIntoView({ block: 'nearest' }))
+		for (const row of Array.from(rootEl.children)) follow.observe(row)
+		setTimeout(() => follow.disconnect(), 600)
 	}
 
 	// Exact id: only the flow's error handler is 'failure'; a step the user named

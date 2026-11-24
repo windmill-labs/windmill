@@ -51,6 +51,8 @@
 	import Label from './Label.svelte'
 	import TextInput from './text_input/TextInput.svelte'
 
+	type BucketType = ObjectStoreConfig['type']
+
 	interface Props {
 		bucket_config?: ObjectStoreConfig | undefined
 		/** Whether this is the instance object store. Everything that reaches out to a store
@@ -73,6 +75,40 @@
 	)
 
 	let loading = $state(false)
+
+	// Each storage type's config, so switching tabs (e.g. S3 -> Azure -> S3) restores
+	// what was entered or loaded: resetting it to an empty config would wipe a saved
+	// bucket, and saving would then persist the empty value.
+	let bucketConfigByType = $state<Partial<Record<BucketType, ObjectStoreConfig>>>({})
+
+	function defaultBucketConfig(type: BucketType): ObjectStoreConfig {
+		switch (type) {
+			case 'S3':
+				return {
+					type: 'S3',
+					bucket: '',
+					region: '',
+					access_key: '',
+					secret_key: '',
+					endpoint: '',
+					allow_http: true
+				}
+			case 'Azure':
+				return {
+					type: 'Azure',
+					accountName: '',
+					containerName: '',
+					useSSL: false,
+					tenantId: '',
+					clientId: '',
+					accessKey: ''
+				}
+			case 'AwsOidc':
+				return { type: 'AwsOidc', bucket: '', region: '', roleArn: '' }
+			case 'Gcs':
+				return { type: 'Gcs', bucket: '', serviceAccountKey: {} }
+		}
+	}
 
 	async function testConnection() {
 		loading = true
@@ -278,19 +314,8 @@
 		options={{ right: bucket_config ? '' : 'set object store' }}
 		checked={Boolean(bucket_config)}
 		on:change={(e) => {
-			if (e.detail) {
-				bucket_config = {
-					type: 'S3',
-					bucket: '',
-					region: '',
-					access_key: '',
-					secret_key: '',
-					endpoint: '',
-					allow_http: true
-				}
-			} else {
-				bucket_config = undefined
-			}
+			bucketConfigByType = {}
+			bucket_config = e.detail ? defaultBucketConfig('S3') : undefined
 		}}
 	/>
 </div>
@@ -470,40 +495,12 @@
 		<Tabs
 			selected={bucket_config?.type ?? 'S3'}
 			on:selected={(e) => {
-				if (e.detail === 'S3' && bucket_config?.type !== 'S3') {
-					bucket_config = {
-						type: 'S3',
-						bucket: '',
-						region: '',
-						access_key: '',
-						secret_key: '',
-						endpoint: '',
-						allow_http: true
-					}
-				} else if (e.detail === 'Azure' && bucket_config?.type !== 'Azure') {
-					bucket_config = {
-						type: 'Azure',
-						accountName: '',
-						containerName: '',
-						useSSL: false,
-						tenantId: '',
-						clientId: '',
-						accessKey: ''
-					}
-				} else if (e.detail === 'Gcs' && bucket_config?.type !== 'Gcs') {
-					bucket_config = {
-						type: 'Gcs',
-						bucket: '',
-						serviceAccountKey: {}
-					}
-				} else if (e.detail === 'AwsOidc' && bucket_config?.type !== 'AwsOidc') {
-					bucket_config = {
-						type: 'AwsOidc',
-						bucket: '',
-						region: '',
-						roleArn: ''
-					}
+				const target = e.detail as BucketType
+				if (!bucket_config || bucket_config.type === target) {
+					return
 				}
+				bucketConfigByType[bucket_config.type] = bucket_config
+				bucket_config = bucketConfigByType[target] ?? defaultBucketConfig(target)
 			}}
 		>
 			<Tab value="S3" label="S3" />

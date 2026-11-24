@@ -28,6 +28,8 @@ import {
 	classifyPath,
 	collectExportVarPaths,
 	extractAppRefs,
+	extractAgentRefs,
+	withoutAgentWorkspaceKeys,
 	extractFlowRefs,
 	extractRawAppRefs,
 	extractScriptRefs,
@@ -68,7 +70,7 @@ export function refContainmentViolation(refs: Ref[], folder: string): string | u
 }
 
 // `$var:`/`$jsonvar:` references (in flow static inputs, flow_env, app runnable
-// inputs, trigger config) are resolved at runtime under the imported runnable's
+// inputs, trigger config, an agent's value) are resolved at runtime under the imported runnable's
 // permissions and are never hub-hosted. Retargeting relocates a project's own refs
 // into the target folder; anything still outside it points at another namespace, so
 // reject those. Takes the parsed value so inline code carrying a literal is ignored.
@@ -137,6 +139,22 @@ function importResourceStub(workspace: string, r: ExportItem): Promise<unknown> 
 			resource_type: r.resource_type,
 			value: {},
 			description: 'Imported stub — fill in the value.'
+		}
+	})
+}
+
+// An agent is the one resource a project ships whole: its prompt, model and tools are the
+// product, and it holds no credential, only `$res:` references to stubs created above.
+// Never overwrites: a path collision is reported as a failed item, like a stub's.
+function importAgent(workspace: string, a: ExportItem): Promise<unknown> {
+	return ResourceService.createResource({
+		workspace,
+		updateIfExists: false,
+		requestBody: {
+			path: a.path,
+			resource_type: 'ai_agent',
+			value: withoutAgentWorkspaceKeys(a.value),
+			description: a.description ?? a.summary ?? ''
 		}
 	})
 }
@@ -272,12 +290,7 @@ export async function applyOneMigration(
  * called `f/cal/sync`. Flattening them to `trigger` would let whichever exists answer for
  * the other.
  */
-export type ImportedKind =
-	| 'script'
-	| 'flow'
-	| 'app'
-	| 'resource'
-	| `trigger:${string}`
+export type ImportedKind = 'script' | 'flow' | 'app' | 'resource' | `trigger:${string}`
 
 /**
  * The key `alreadyPresent` is built and read with. Kind and path together, because the kinds
@@ -407,6 +420,12 @@ export async function installProject(args: {
 		if (halted()) return
 		if (present('resource', r.path)) continue
 		await checked(r.path, () => importResourceStub(workspace, r))
+	}
+	// After the stubs: an agent's provider and its tools' inputs point at them.
+	for (const a of proj.agents ?? []) {
+		if (halted()) return
+		if (present('resource', a.path)) continue
+		await checkedItem(a.path, extractAgentRefs(a.value), a.value, () => importAgent(workspace, a))
 	}
 	// Placeholders for the project's internal `$var:`/`$jsonvar:` refs (retargeted
 	// into this folder). External refs are rejected per-item, so only stub in-folder

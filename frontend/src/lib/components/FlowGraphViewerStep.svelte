@@ -1,7 +1,7 @@
 <script lang="ts">
 	import HighlightCode from './HighlightCode.svelte'
 	import InputTransformsViewer from './InputTransformsViewer.svelte'
-	import IconedPath from './IconedPath.svelte'
+	import FlowModuleIcon from './flows/FlowModuleIcon.svelte'
 	import type { FlowModule } from '$lib/gen'
 	import { Badge, Button, Drawer, DrawerContent } from './common'
 	import { Link } from 'lucide-svelte'
@@ -10,13 +10,13 @@
 	import typescript from 'svelte-highlight/languages/typescript'
 	import FlowPathViewer from './flows/content/FlowPathViewer.svelte'
 	import SchemaViewer from './SchemaViewer.svelte'
-	import { scriptPathToHref } from '$lib/scripts'
-	import { cleanExpr, copyToClipboard } from '$lib/utils'
+	import { flowPathToHref, scriptPathToHref } from '$lib/scripts'
+	import { cleanExpr } from '$lib/utils'
 	import { hubBaseUrlStore } from '$lib/stores'
 
 	import { twMerge } from 'tailwind-merge'
 	import FlowModuleScript from './flows/content/FlowModuleScript.svelte'
-	import { Copy, Expand } from 'lucide-svelte'
+	import { ChevronRight, Expand, ExternalLink } from 'lucide-svelte'
 	import HighlightTheme from './HighlightTheme.svelte'
 	import LanguageIcon from './common/languageIcons/LanguageIcon.svelte'
 	import FlowGraphViewerStepHeader from './FlowGraphViewerStepHeader.svelte'
@@ -34,6 +34,9 @@
 		workspace?: string
 		/** Given, the step header starts with a back control that calls it. */
 		onBack?: () => void
+		/** For a step inside an inline-expanded subflow: path of each subflow crossed, outermost
+		 * first. */
+		subflowPathChain?: string[]
 	}
 
 	let {
@@ -42,27 +45,43 @@
 		jobScriptHash = undefined,
 		hideDefaultInputs = false,
 		workspace = undefined,
-		onBack = undefined
+		onBack = undefined,
+		subflowPathChain = undefined
 	}: Props = $props()
 	let ws = $derived(workspace ?? $operatingWorkspace)
+	function flowHref(path: string): string {
+		return path.startsWith('hub/')
+			? flowPathToHref(path)
+			: `/flows/get/${path}?workspace=${encodeURIComponent(ws ?? '')}`
+	}
 	let codeViewer: Drawer | undefined = $state()
 </script>
 
 <HighlightTheme />
+
+{#snippet pathLink(href: string, module: FlowModule, path: string)}
+	<a
+		rel="noreferrer"
+		target="_blank"
+		{href}
+		class="inline-flex min-w-0 items-center gap-1.5 text-xs text-accent hover:underline"
+	>
+		<FlowModuleIcon {module} size={14} />
+		<span class="truncate">{path}</span>
+		<ExternalLink size={12} class="shrink-0" />
+	</a>
+{/snippet}
 
 <Drawer bind:this={codeViewer} size="900px">
 	<DrawerContent title={'Expanded Code'} on:close={codeViewer?.closeDrawer}>
 		{#if stepDetail && typeof stepDetail != 'string'}
 			{#if stepDetail.value.type == 'script'}
 				<div class="mb-4">
-					<a
-						rel="noreferrer"
-						target="_blank"
-						href={scriptPathToHref(stepDetail?.value?.path ?? '', $hubBaseUrlStore)}
-						class=""
-					>
-						<IconedPath path={stepDetail?.value?.path ?? ''} />
-					</a>
+					{@render pathLink(
+						scriptPathToHref(stepDetail.value.path, $hubBaseUrlStore),
+						stepDetail,
+						stepDetail.value.path
+					)}
 				</div>
 				<div class="text-xs mb-4 mt-2">
 					<h3 class="mb-1 text-xs font-semibold text-emphasis">Step inputs</h3>
@@ -124,17 +143,30 @@
 		<!-- A direct child of the scrolling root: a sticky row can only hold within its parent's
 		     box, so wrapped with the path link below it would scroll away with that wrapper. -->
 		<FlowGraphViewerStepHeader {stepDetail} {onBack} />
+		{#if subflowPathChain?.length}
+			<div class="flex flex-wrap items-center gap-1 pb-2 text-xs text-secondary">
+				<span>In</span>
+				{#each subflowPathChain as path, i (i)}
+					{#if i > 0}
+						<ChevronRight size={12} class="shrink-0" />
+					{/if}
+					<a
+						class="text-accent hover:underline"
+						href={flowHref(path)}
+						target="_blank"
+						rel="noreferrer">{path}</a
+					>
+				{/each}
+			</div>
+		{/if}
 		<div class="">
 			{#if stepDetail.value.type == 'script'}
 				<div class="pb-2">
-					<a
-						rel="noreferrer"
-						target="_blank"
-						href={scriptPathToHref(stepDetail?.value?.path ?? '', $hubBaseUrlStore)}
-						class=""
-					>
-						<IconedPath path={stepDetail?.value?.path ?? ''} />
-					</a>
+					{@render pathLink(
+						scriptPathToHref(stepDetail.value.path, $hubBaseUrlStore),
+						stepDetail,
+						stepDetail.value.path
+					)}
 				</div>
 			{/if}
 		</div>
@@ -280,25 +312,8 @@
 				{/each}
 			</div>
 		{:else if stepDetail.value.type == 'flow'}
-			<div class="text-sm mb-1 flex justify-between flex-row items-center">
-				<span class="text-xs font-normal text-secondary"
-					>Flow path: <span class="text-emphasis">{stepDetail.value.path}</span>
-				</span>
-				<Button
-					unifiedSize="sm"
-					startIcon={{ icon: Copy }}
-					variant="subtle"
-					on:click={() => {
-						if (typeof stepDetail !== 'string') {
-							const val = stepDetail?.value
-							if (val?.type == 'flow') {
-								copyToClipboard(val.path)
-							}
-						}
-					}}
-				>
-					Copy path
-				</Button>
+			<div class="pb-2">
+				{@render pathLink(flowHref(stepDetail.value.path), stepDetail, stepDetail.value.path)}
 			</div>
 			<FlowPathViewer noSide path={stepDetail.value.path} />
 		{/if}

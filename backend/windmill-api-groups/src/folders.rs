@@ -694,6 +694,7 @@ struct FolderUsage {
     pub flows: i64,
     pub apps: i64,
     pub resources: i64,
+    pub agents: i64,
     pub variables: i64,
 }
 async fn get_folder_usage(
@@ -749,8 +750,19 @@ async fn get_folder_usage(
     .await?
     .unwrap_or(0);
 
+    // A saved AI agent is an `ai_agent` resource, but it is listed and used as an item of
+    // its own, so it is counted apart rather than among the credentials.
+    let agents = sqlx::query_scalar!(
+        "SELECT count(path) FROM resource WHERE path LIKE 'f/' || $1 || '%' AND resource_type = 'ai_agent' AND workspace_id = $2",
+        name,
+        w_id
+    )
+    .fetch_one(&mut *tx)
+    .await?
+    .unwrap_or(0);
+
     let resources = sqlx::query_scalar!(
-        "SELECT count(path) FROM resource WHERE path LIKE 'f/' || $1 || '%'  AND workspace_id = $2",
+        "SELECT count(path) FROM resource WHERE path LIKE 'f/' || $1 || '%' AND resource_type IS DISTINCT FROM 'ai_agent' AND workspace_id = $2",
         name,
         w_id
     )
@@ -774,6 +786,7 @@ async fn get_folder_usage(
         schedules,
         apps: apps + raw_apps,
         resources,
+        agents,
         variables,
     }))
 }

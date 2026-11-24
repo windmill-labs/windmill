@@ -363,7 +363,7 @@ function createCallTool(servers: McpServer[], mode: 'read' | 'write'): SessionTo
 		),
 		showDetails: true,
 		...(isRead
-			? { planModeSafe: true }
+			? { planModeSafe: true, lookup: true }
 			: {
 					// Changes the external system, never the workspace, like a deployed run does.
 					readOnlySafe: true,
@@ -437,6 +437,7 @@ export function createMcpTools(servers: McpServer[]): SessionTool<{}>[] {
 				'Search the tools exposed by the MCP servers connected to this workspace (listed in the system prompt). Returns server + tool names to pass to call_mcp_read_tool or call_mcp_write_tool, each with the input schema its arguments must follow.'
 			),
 			planModeSafe: true,
+			lookup: true,
 			fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 				const parsed = searchMcpToolsSchema.parse(args)
 				toolCallbacks.setToolStatus(toolId, { content: 'Searching MCP tools...' })

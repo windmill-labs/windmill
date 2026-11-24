@@ -39,14 +39,16 @@
 		Pen,
 		Plus,
 		Route,
+		Tag,
 		Trash,
 		Unplug,
 		UserPlus
 	} from 'lucide-svelte'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
-	import { Alert, Badge, Button, EmptyState, Skeleton } from '$lib/components/common'
+	import { Alert, Button, EmptyState, Skeleton } from '$lib/components/common'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import RowIcon from '$lib/components/common/table/RowIcon.svelte'
+	import LabelBadge from '$lib/components/common/badge/LabelBadge.svelte'
 	import TreeViewRoot from '$lib/components/home/TreeViewRoot.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import TreeViewControls from '$lib/components/home/TreeViewControls.svelte'
@@ -434,16 +436,13 @@
 		return !path.startsWith('u/') || path.startsWith('u/' + operatingUser.current?.username + '/')
 	}
 
-	const preFilteredItems = $derived(
-		triggers.filter(
-			(x) =>
-				(ownerFilter == undefined ||
-					(selectedFilterKind === 'trigger' ? x.path : x.script_path).startsWith(
-						ownerFilter + '/'
-					)) &&
-				filterItemsPathsBaseOnUserFilters(x)
-		)
-	)
+	function ownerPath(item: TriggerRow) {
+		return selectedFilterKind === 'trigger' ? item.path : item.script_path
+	}
+
+	// The owner filter applies last: the chips are how you switch owners, so the rows they are
+	// built from must not be narrowed to the selected one.
+	const preFilteredItems = $derived(triggers.filter((x) => filterItemsPathsBaseOnUserFilters(x)))
 
 	let lastWorkspace = untrack(() => $operatingWorkspace)
 	$effect.pre(() => {
@@ -457,14 +456,18 @@
 		Array.from(
 			new Set(
 				(filteredItems ?? [])
-					.map((x) => (selectedFilterKind === 'trigger' ? x.path : x.script_path))
+					.map(ownerPath)
 					.filter(Boolean)
 					.map((p) => p.split('/').slice(0, 2).join('/'))
 			)
 		).sort()
 	)
 
-	const items = $derived(filter !== '' ? filteredItems : preFilteredItems)
+	const items = $derived(
+		(filter !== '' ? filteredItems : preFilteredItems)?.filter(
+			(x) => ownerFilter == undefined || ownerPath(x).startsWith(ownerFilter + '/')
+		)
+	)
 
 	// A push delivery has no connection to report and no consumer to suspend: it is an endpoint.
 	function isLive(row: TriggerRow): boolean {
@@ -509,6 +512,35 @@
 		)
 	}
 
+	// What a row's title shows besides its summary, so the search finds a trigger by it too.
+	function address(row: TriggerRow): string {
+		switch (triggerKind) {
+			case 'http':
+				return httpRoute(row)
+			case 'websocket': {
+				const url = row.url ?? ''
+				const label = websocketUrl(url)
+				return label === url ? url : `${label} ${url}`
+			}
+			case 'kafka':
+				return `${row.kafka_resource_path} - ${row.topics?.join(', ')}`
+			case 'nats':
+				return `${row.nats_resource_path} - ${row.subjects?.join(', ')}`
+			case 'email':
+				return emailAddress(row)
+			default:
+				return ''
+		}
+	}
+
+	function httpRoute(row: TriggerRow) {
+		return `${row.http_method?.toUpperCase()} /${
+			isCloudHosted() || row.workspaced_route || globalHttpWorkspacedRoute
+				? row.workspace_id + '/' + row.route_path
+				: row.route_path
+		}`
+	}
+
 	function websocketUrl(url: string) {
 		return url.startsWith('$script:')
 			? 'URL: ' + url.replace('$script:', 'result of script ')
@@ -536,10 +568,7 @@
 			{#if row.summary}
 				{row.summary}
 			{:else}
-				{row.http_method!.toUpperCase()}
-				/{isCloudHosted() || row.workspaced_route || globalHttpWorkspacedRoute
-					? row.workspace_id + '/' + row.route_path
-					: row.route_path}
+				{httpRoute(row)}
 			{/if}
 		{:else if triggerKind === 'websocket'}
 			{websocketUrl(row.url!)}
@@ -586,7 +615,9 @@
 		{@const pinging = ping && ping.getTime() > new Date().getTime() - 15 * 1000}
 		{@const effectiveMode = row.draft_only ? 'disabled' : row.mode}
 		{@const enabled = effectiveMode === 'enabled' || effectiveMode === 'suspended'}
-		<div class="w-10">
+		<!-- Below md an empty status column is dropped, so a draft-only row's badge and toggle
+		     still fit beside the title. -->
+		<div class="w-4 md:w-10 shrink-0 max-md:[&:not(:has(*))]:hidden">
 			{#if (enabled && (!pinging || row.error)) || (!enabled && row.error) || (enabled && !row.server_id)}
 				<Popover notClickable>
 					<span class="flex h-4 w-4">
@@ -703,7 +734,7 @@
 		)}
 		style={depth > 0 ? `padding-left: ${(depth + 1) * 16}px;` : ''}
 	>
-		<div class="w-full flex gap-5 items-center">
+		<div class="w-full flex flex-wrap xl:flex-nowrap gap-x-3 md:gap-x-5 gap-y-2 items-center">
 			<RowIcon kind={is_flow ? 'flow' : 'script'} />
 
 			<a
@@ -713,19 +744,24 @@
 					if (hosted) e.preventDefault()
 					openEdit(path, is_flow)
 				}}
-				class="min-w-0 grow hover:underline decoration-gray-400"
+				class="min-w-0 md:min-w-[8rem] basis-0 xl:basis-auto grow hover:underline decoration-gray-400"
 			>
 				{@render rowTitle(row, hasDraft)}
 			</a>
 
-			<div class="hidden lg:flex flex-row gap-1 items-center">
+			<!-- Below xl this group wraps onto its own line under the title, so the title keeps its
+			     width. Hidden when it holds no badge, so such a row gains no blank line: `empty:` misses
+			     it because Svelte leaves comment and text nodes behind. -->
+			<div
+				class="order-last basis-full pl-7 md:pl-9 xl:order-none xl:basis-auto xl:pl-0 flex flex-wrap gap-1 items-center min-w-0 [&:not(:has(*))]:hidden"
+			>
 				<SharedBadge
 					canWrite={canWrite(path, extra_perms!, operatingUser.current)}
 					extraPerms={extra_perms}
 				/>
 				{#if triggerKind !== 'http' && triggerKind !== 'azure' && labels?.length}
-					{#each labels as label}
-						<Badge color="blue" small class="px-1" title="Label: {label}">{label}</Badge>
+					{#each labels as label (label)}
+						<LabelBadge icon={Tag} title="Label: {label}">{label}</LabelBadge>
 					{/each}
 				{/if}
 			</div>
@@ -734,7 +770,7 @@
 				{@render statusDot(row)}
 			{/if}
 
-			<div class="flex items-center justify-end gap-2 shrink-0 min-w-[8rem]">
+			<div class="flex items-center justify-end gap-2 shrink-0 xl:min-w-[8rem]">
 				<DraftBadge {draft_only} is_draft={hasDraft} />
 				{#if live}
 					<TriggerModeToggle
@@ -765,13 +801,15 @@
 				{/if}
 			</div>
 
-			<div class="flex gap-2 items-center justify-end">
+			<div class="flex gap-2 items-center justify-end shrink-0">
+				<!-- Below md these two live only in the dropdown, which has both. -->
 				{#if copy}
 					<Button
 						on:click={() => copyToClipboard(copy.value)}
 						variant="subtle"
 						unifiedSize="md"
 						startIcon={{ icon: ClipboardCopy }}
+						wrapperClasses="max-md:hidden"
 					>
 						{copy.label}
 					</Button>
@@ -781,6 +819,7 @@
 					unifiedSize="md"
 					startIcon={canEdit ? { icon: Pen } : { icon: Eye }}
 					variant="subtle"
+					wrapperClasses="max-md:hidden"
 				>
 					{canEdit ? 'Edit' : 'View'}
 				</Button>
@@ -791,6 +830,15 @@
 							icon: Eye,
 							...(hosted ? { action: () => hosted.openLink(href) } : { href })
 						},
+						...(copy
+							? [
+									{
+										displayName: copy.label,
+										icon: ClipboardCopy,
+										action: () => copyToClipboard(copy.value)
+									}
+								]
+							: []),
 						...(canEdit && !draft_only && mode !== 'suspended'
 							? [
 									{
@@ -876,7 +924,7 @@
 	{filter}
 	items={preFilteredItems}
 	bind:filteredItems
-	f={(x) => (x.summary ?? '') + ' ' + x.path + ' (' + x.script_path + ')'}
+	f={(x) => (x.summary ?? '') + ' ' + address(x) + ' ' + x.path + ' (' + x.script_path + ')'}
 />
 
 {#if operatorBlocked}
@@ -891,7 +939,7 @@
 			tooltip={config.tooltip}
 			documentationLink={config.documentationLink}
 		>
-			<div class="flex flex-row gap-2">
+			<div class="flex flex-row flex-wrap gap-2">
 				{#if triggerKind === 'http'}
 					<Button
 						unifiedSize="md"
@@ -941,9 +989,9 @@
 					bind:value={filter}
 					class="search-item"
 				/>
-				<div class="flex flex-row items-center gap-2 mt-2">
+				<div class="flex flex-row flex-wrap items-center gap-2 mt-2">
 					<div class="text-xs font-semibold text-emphasis shrink-0"> Filter by path of </div>
-					<ToggleButtonGroup bind:selected={selectedFilterKind}>
+					<ToggleButtonGroup bind:selected={selectedFilterKind} noWFull>
 						{#snippet children({ item })}
 							<ToggleButton value="trigger" label={config.filterLabel} icon={Icon} {item} />
 							<ToggleButton value="script_flow" label="Script/Flow" icon={Code} {item} />
@@ -952,7 +1000,7 @@
 				</div>
 				<ListFilters syncQuery bind:selectedFilter={ownerFilter} filters={owners} />
 
-				<div class="flex flex-row items-center justify-end gap-4">
+				<div class="flex flex-row flex-wrap items-center justify-end gap-x-4 gap-y-2 mt-2">
 					<TreeViewControls {tree} forceExpanded={treeForceExpanded} class="mr-auto" />
 					{#if operatingUser.current?.is_super_admin && operatingUser.current.username.includes('@')}
 						<Toggle size="xs" bind:checked={filterUserFolders} options={{ right: 'Only f/*' }} />

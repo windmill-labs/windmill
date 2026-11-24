@@ -1,4 +1,5 @@
 <script lang="ts">
+	import HostWindow from '$lib/components/common/HostWindow.svelte'
 	import { Alert, Drawer, DrawerContent, Button, ButtonType } from '$lib/components/common'
 	import { CornerDownLeft, Plus } from 'lucide-svelte'
 	import InsertRow from './dbtable/InsertRow.svelte'
@@ -49,7 +50,7 @@
 	}
 </script>
 
-<svelte:window
+<HostWindow
 	onkeydown={(e) => {
 		if (drawerOpen && (e.ctrlKey || e.metaKey) && e.key === 'Enter') {
 			onConfirm()

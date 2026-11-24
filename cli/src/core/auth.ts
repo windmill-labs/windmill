@@ -122,19 +122,27 @@ export async function requireLogin(
       return process.exit(1);
     }
 
-    log.infoStderr(
-      "! Could not reach API given existing credentials. Attempting to reauth..."
-    );
+    const isUnauthorized = error && typeof error === "object" &&
+      "name" in error && (error as { name: unknown }).name === "ApiError" &&
+      (error as { status?: number }).status === 401;
+    log.infoStderr(colors.yellow(
+      isUnauthorized
+        ? `! The token of workspace profile '${workspace.name}' has expired or was revoked. Sign in again to continue.`
+        : "! Could not reach API given existing credentials. Attempting to reauth..."
+    ));
     const newToken = await loginInteractive(workspace.remote);
     if (!newToken) {
-      throw new Error("Unauthorized: Could not authenticate with the provided credentials");
+      throw new Error(
+        `Unauthorized: Could not authenticate with the provided credentials. Run 'wmill workspace login ${workspace.name}' in a terminal to sign in again.`
+      );
     }
 
-    // Update workspace token
+    // Removed silently first: `addWorkspace` logs the update to stdout, which would land in the
+    // output of the command being run (e.g. `wmill variable get … > file`).
     const { removeWorkspace, addWorkspace } = await import("../commands/workspace/workspace.ts");
-    removeWorkspace(workspace.name, false, opts);
+    await removeWorkspace(workspace.name, true, opts);
     workspace.token = newToken;
-    addWorkspace(workspace, opts);
+    await addWorkspace(workspace, opts);
 
     setClient(
       newToken,

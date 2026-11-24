@@ -10,8 +10,8 @@
 use windmill_ai::{
     ai_providers::AIProvider,
     credentials::ProviderCredentials,
-    model_context::is_openai_reasoning_model,
     one_shot::{complete_text, OneShotRequest},
+    providers::is_openai_reasoning_model,
     query_builder::QueryBuilder,
     types::{ContentPart, OpenAIContent, OpenAIMessage, TokenUsage},
 };
@@ -766,6 +766,10 @@ mod tests {
         );
         assert_eq!(
             lowest_reasoning_effort(&AIProvider::OpenRouter, "openai/o3-mini"),
+            Some("low")
+        );
+        assert_eq!(
+            lowest_reasoning_effort(&AIProvider::OpenAI, "gpt-6.1-sol"),
             Some("low")
         );
         // Sending an effort to a model that takes none is a rejected request, and so is

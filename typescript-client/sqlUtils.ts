@@ -256,8 +256,12 @@ function buildSqlStatement(
 //                            silently became NULL in the database. The
 //                            executor accepts these literals via
 //                            `Value::String → FLOAT8` (`f64::from_str`).
+//   - array                → each element serialized as above. `TYPE[]`
+//                            slots parse string elements the same way; a
+//                            JSON-typed array stores them as strings.
 //   - everything else      → passed through unchanged.
 function serializeArgValue(v: any): any {
+  if (Array.isArray(v)) return v.map(serializeArgValue);
   if (typeof v === "bigint") return v.toString();
   if (v instanceof Date) return v.toISOString();
   if (typeof v === "number" && !Number.isFinite(v)) {

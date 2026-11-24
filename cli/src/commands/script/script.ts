@@ -74,7 +74,11 @@ import { createTarBlob, type TarEntry } from "../../utils/tar.ts";
 import { withEsbuild } from "../../utils/esbuild_loader.ts";
 
 import { execSync } from "node:child_process";
-import { NewScript, Script, ScriptModule } from "../../../gen/types.gen.ts";
+import {
+  ListableScript,
+  NewScript,
+  ScriptModule,
+} from "../../../gen/types.gen.ts";
 import {
   isRawAppBackendPath as isRawAppBackendPathInternal,
   isAppInlineScriptPath as isAppInlineScriptPathInternal,
@@ -1383,7 +1387,7 @@ async function list(
 
   let page = 0;
   const perPage = 10;
-  const total: Script[] = [];
+  const total: ListableScript[] = [];
   while (true) {
     const res = await wmill.listScripts({
       workspace: workspace.workspaceId,
@@ -1404,10 +1408,10 @@ async function list(
     console.log(JSON.stringify(total));
   } else {
     new Table()
-      .header(["path", "summary", "language", "created by"])
+      .header(["path", "summary", "language", "created at"])
       .padding(2)
       .border(true)
-      .body(total.map((x) => [x.path, x.summary, x.language, x.created_by]))
+      .body(total.map((x) => [x.path, x.summary, x.language, x.created_at]))
       .render();
   }
 }

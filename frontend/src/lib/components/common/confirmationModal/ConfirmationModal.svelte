@@ -1,7 +1,11 @@
 <script lang="ts">
 	import { classNames } from '$lib/utils'
 	import ConditionalPortal from '$lib/components/common/drawer/ConditionalPortal.svelte'
-	import { getOverlayHost, overlayHostActive } from '$lib/components/common/overlayHost.svelte'
+	import {
+		getOverlayHost,
+		overlayHostActive,
+		overlayShown
+	} from '$lib/components/common/overlayHost.svelte'
 	import { createEventDispatcher, type Snippet } from 'svelte'
 	import { fade } from 'svelte/transition'
 	import Button from '../button/Button.svelte'
@@ -70,6 +74,7 @@
 	const posClass = $derived(hostEl ? 'absolute' : 'fixed')
 
 	const hostActive = overlayHostActive()
+	const shown = overlayShown()
 
 	const dispatch = createEventDispatcher()
 
@@ -163,7 +168,7 @@
 	target={hostEl}
 	class={hostEl ? 'contents' : undefined}
 >
-	{#if open}
+	{#if open && shown()}
 		<div
 			transition:fadeFast|local
 			class={twMerge(posClass, 'top-0 bottom-0 left-0 right-0', zIndexClass)}
