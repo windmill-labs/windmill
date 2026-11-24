@@ -44,6 +44,15 @@ jobs:
           --health-cmd "mysqladmin ping -h localhost" --health-interval 10s
           --health-timeout 5s --health-retries 5
     steps:
+      # Linking one full-graph binary per tests/*.rs file fills the runner disk
+      # ("No space left on device" in cargo test (build)). Drop preinstalled
+      # toolchains no test uses before anything is installed or restored.
+      - name: Free disk space
+        run: |
+          df -h /
+          sudo rm -rf /usr/local/lib/android /opt/ghc /usr/local/.ghcup /usr/share/swift \
+            /usr/local/share/boost /opt/hostedtoolcache/CodeQL || true
+          df -h /
       - uses: actions/checkout@v4.4.0
       - uses: actions/setup-dotnet@v4.3.1
         with:
