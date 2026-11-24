@@ -27,7 +27,7 @@
 	const FIT_MARGIN_X = 48
 	const FIT_MARGIN_Y = 128
 
-	let natural: { w: number; h: number } | undefined = $state(undefined)
+	let natural = $state<{ w: number; h: number } | undefined>(undefined)
 	let stageW = $state(0)
 	let stageH = $state(0)
 	let stage: HTMLDivElement | undefined = $state(undefined)
@@ -301,7 +301,7 @@
 								style="width: {natural?.w ?? 0}px; height: {natural?.h ??
 									0}px; transform: translate(-50%, -50%) translate({pan.x}px, {pan.y}px) scale({scale});"
 								onload={(e) => {
-									const el = e.currentTarget
+									const el = e.currentTarget as HTMLImageElement
 									// An SVG without width/height has no intrinsic size.
 									natural = { w: el.naturalWidth || 1024, h: el.naturalHeight || 768 }
 								}}
