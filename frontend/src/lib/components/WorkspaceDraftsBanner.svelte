@@ -55,14 +55,10 @@
 {#snippet draftsAction()}
 	<!-- The same badge a fork shows for its drafts. Fades in: the count lands after the bar it joins
 	     has already painted. -->
+	{@const label = `Review and deploy ${draftCount} draft${draftCount !== 1 ? 's' : ''}`}
 	<span class="flex items-center wm-page-in">
-		<Badge
-			color="blue"
-			small
-			clickable
-			href={draftCompareHref}
-			title="Review and deploy {draftCount} draft{draftCount !== 1 ? 's' : ''}"
-		>
+		<!-- Named in full: in compact widths its text is a bare number. -->
+		<Badge color="blue" small clickable href={draftCompareHref} title={label} aria-label={label}>
 			<Pencil class="w-3 h-3 inline" />
 			{draftCount}{phone || !homeCountLabels() ? '' : ` draft${draftCount !== 1 ? 's' : ''}`}
 		</Badge>
