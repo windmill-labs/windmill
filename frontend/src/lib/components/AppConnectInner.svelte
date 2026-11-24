@@ -47,7 +47,8 @@
 		byPopularity,
 		hubResourceTypePicks,
 		localResourceTypeCounts,
-		recordHubResourceTypePick
+		recordHubResourceTypePick,
+		type PopularityCounts
 	} from './pickerPopularity'
 	import Label from './Label.svelte'
 	import ResourcePathHint from './ResourcePathHint.svelte'
@@ -138,6 +139,7 @@
 			supports_client_credentials: boolean
 			supports_authorization_code: boolean
 			has_shared_credentials: boolean
+			shares_client_credentials: boolean
 		}
 	> = $state({})
 
@@ -540,18 +542,27 @@
 	/**
 	 * Orders the browse list: the types this workspace already has resources of lead, ranked
 	 * among themselves by the hub's pick counts, then everything else on the same counts.
-	 * `byPopularity` carries the full rule. Both signals are fetched, so the rows render
-	 * alphabetically and re-sort when this lands.
+	 * `byPopularity` carries the full rule. The list waits on it, so it renders once and in
+	 * order rather than re-sorting under the pointer; the hub is the slow signal, so it gets
+	 * `HUB_PICKS_WAIT_MS` and is left out past that, never holding the list.
 	 */
 	let popularity: (a: string, b: string) => number = $state(alphabetical)
+	let popularityReady = $state(false)
+	const HUB_PICKS_WAIT_MS = 1500
 
 	async function loadPopularity() {
-		if (!effectiveWorkspace) return
-		const [hub, local] = await Promise.all([
-			hubResourceTypePicks(effectiveWorkspace),
-			localResourceTypeCounts(effectiveWorkspace)
-		])
-		popularity = byPopularity(hub, local)
+		if (effectiveWorkspace) {
+			const none: PopularityCounts = {}
+			const [hub, local] = await Promise.all([
+				Promise.race([
+					hubResourceTypePicks(effectiveWorkspace).catch(() => none),
+					new Promise<PopularityCounts>((r) => setTimeout(() => r(none), HUB_PICKS_WAIT_MS))
+				]),
+				localResourceTypeCounts(effectiveWorkspace).catch(() => none)
+			])
+			popularity = byPopularity(hub, local)
+		}
+		popularityReady = true
 	}
 
 	async function loadConnects() {
@@ -1249,7 +1260,7 @@
 
 	// The list starts undefined and renders skeletons; "nothing found" only means something
 	// once it has landed.
-	let listsLoaded = $derived(rankedConnectsManual !== undefined)
+	let listsLoaded = $derived(rankedConnectsManual !== undefined && popularityReady)
 	const rowDomId = (index: number) => `resource-type-row-${index}`
 
 	const highlight = useListHighlight({
@@ -1331,6 +1342,9 @@
 					{#if configured && connectsInfo[key].supports_authorization_code}
 						<Badge verySmall color="blue" class="px-2 shrink-0">Log in with your account</Badge>
 					{/if}
+					{#if configured && connectsInfo[key].shares_client_credentials}
+						<Badge verySmall color="blue" class="px-2 shrink-0">Set up by your admin</Badge>
+					{/if}
 				{/snippet}
 				{#snippet subtitle()}
 					{plainDescription(resourceTypeDescriptions[key])}
@@ -1367,7 +1381,7 @@
 					{/if}
 
 					<div class="flex flex-col gap-0.5">
-						{#if rankedConnectsManual}
+						{#if listsLoaded}
 							{#each navItems as key, i}
 								{@render resourceButton(key, i)}
 							{/each}

@@ -117,6 +117,7 @@ struct OAuthConnectListItem {
     supports_client_credentials: bool,
     supports_authorization_code: bool,
     has_shared_credentials: bool,
+    shares_client_credentials: bool,
 }
 
 #[cfg(not(feature = "private"))]
