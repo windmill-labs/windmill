@@ -51,9 +51,7 @@ export type WaitingApprovalsState = ReturnType<typeof useWaitingApprovals>
 /** The run itself for someone who can read it, where its approval waits in the run's page;
  * otherwise the approval page, which shows an approver that one run. */
 export function approvalHref(a: WaitingApproval, workspace: string | undefined) {
-	return a.can_read
-		? `/run/${a.root_job_id}?workspace=${workspace ?? ''}`
-		: `/approve/${workspace ?? ''}/${a.job_id}`
+	return `/approve/${workspace ?? ''}/${a.job_id}`
 }
 
 export function approvalTitle(a: WaitingApproval) {

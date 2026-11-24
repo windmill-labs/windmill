@@ -5750,9 +5750,9 @@ enum ApprovalStepStatus {
 
 #[derive(Serialize)]
 struct WaitingApproval {
-    /// The suspended flow: the root run, or the branch, loop or subflow run holding the step.
+    /// The suspended flow, the one its approval page takes: the root run, or the branch, loop or
+    /// subflow run holding the step.
     job_id: Uuid,
-    root_job_id: Uuid,
     #[serde(skip_serializing_if = "Option::is_none")]
     flow_path: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -5763,9 +5763,6 @@ struct WaitingApproval {
     created_at: chrono::DateTime<chrono::Utc>,
     approvals: i64,
     required_approvals: i64,
-    /// Whether the caller can open the run itself; an approver who cannot is sent to the
-    /// approval page instead, which shows them this one run.
-    can_read: bool,
 }
 
 #[derive(Serialize)]
@@ -5781,8 +5778,9 @@ const WAITING_APPROVALS_SCAN: i64 = 1000;
 const WAITING_APPROVALS_RETURNED: usize = 100;
 
 /// The runs waiting on an approval step set to show on Home that the caller can approve, by the
-/// same check the resume boundary runs. A step anyone holding its link can approve is listed only to those who can
-/// read its run, or every member would learn the names of flows they have no access to.
+/// same check the resume boundary runs. A step anyone holding its link can approve is listed
+/// only to those who can read its run, or every member would learn the names of flows they
+/// have no access to.
 async fn list_waiting_approvals(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -5864,7 +5862,11 @@ async fn list_waiting_approvals(
         })
         .collect();
 
-    let root_ids: Vec<Uuid> = candidates.iter().map(|(r, _)| r.root_job_id).collect();
+    let root_ids: Vec<Uuid> = candidates
+        .iter()
+        .filter(|(_, auth_required)| !auth_required)
+        .map(|(r, _)| r.root_job_id)
+        .collect();
     let readable: std::collections::HashSet<Uuid> = if root_ids.is_empty() {
         Default::default()
     } else {
@@ -5879,10 +5881,8 @@ async fn list_waiting_approvals(
     let listed: Vec<WaitingApproval> = candidates
         .into_iter()
         .filter_map(|(r, auth_required)| {
-            let can_read = readable.contains(&r.root_job_id);
-            (auth_required || can_read).then(|| WaitingApproval {
+            (auth_required || readable.contains(&r.root_job_id)).then(|| WaitingApproval {
                 job_id: r.id,
-                root_job_id: r.root_job_id,
                 flow_path: r.flow_path,
                 flow_summary: r.flow_summary,
                 step_summary: r.step_summary,
@@ -5890,7 +5890,6 @@ async fn list_waiting_approvals(
                 created_at: r.created_at,
                 approvals: r.approvals,
                 required_approvals: r.required_approvals,
-                can_read,
             })
         })
         .collect();

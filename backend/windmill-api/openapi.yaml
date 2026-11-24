@@ -13326,22 +13326,17 @@ paths:
                       type: object
                       required:
                         - job_id
-                        - root_job_id
                         - started_by
                         - created_at
                         - approvals
                         - required_approvals
-                        - can_read
                       properties:
                         job_id:
                           type: string
                           format: uuid
                           description: >
-                            the suspended flow run: the root run, or the branch, loop or
-                            subflow run holding the approval step
-                        root_job_id:
-                          type: string
-                          format: uuid
+                            the suspended flow run, the one its approval page takes: the root
+                            run, or the branch, loop or subflow run holding the approval step
                         flow_path:
                           type: string
                         flow_summary:
@@ -13358,11 +13353,6 @@ paths:
                           description: approvals received so far
                         required_approvals:
                           type: integer
-                        can_read:
-                          type: boolean
-                          description: >
-                            whether the caller can open the run itself; otherwise the approval
-                            page shows them this one run
                   total:
                     type: integer
                     description: how many runs are listed in all
