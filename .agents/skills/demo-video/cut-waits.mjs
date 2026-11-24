@@ -187,7 +187,9 @@ const noteFiles = [...notes.values()]
 // Half a frame below each bound, so a frame exactly on a bound is kept once, by the later segment.
 const half = 0.5 / fps
 const keep = kept.map(([a, b]) => `gte(t,${(a - half).toFixed(4)})*lt(t,${(b - half).toFixed(4)})`).join('+')
-const filters = [`[0:v]fps=${fps},select='${keep}',setpts=N/(${fps}*TB)[v0]`]
+// The second fps= restores the frame rate FFmpeg 7's setpts clears; without it the overlays
+// below fall back to 25 fps.
+const filters = [`[0:v]fps=${fps},select='${keep}',setpts=N/(${fps}*TB),fps=${fps}[v0]`]
 rows.forEach((c, k) => {
 	const next = rows[k + 1]?.outAt ?? outDuration
 	const e = Math.min(c.outAt + 1.4, next)
