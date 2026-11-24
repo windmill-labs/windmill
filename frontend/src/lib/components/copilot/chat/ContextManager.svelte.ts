@@ -4,9 +4,14 @@ import { SQLSchemaLanguages, type DBSchemas } from '$lib/stores'
 import { diffLines } from 'diff'
 import {
 	createAppDomSelectorElement,
+	isCodeSelection,
 	isMentionContext,
+	isPickContext,
+	isSameCodeRange,
+	isSameContextElement,
+	type CodeSelection,
 	type ContextElement,
-	type FlowModuleElement
+	type PickContext
 } from './context'
 import type { FlowModule } from '$lib/gen'
 
@@ -77,13 +82,13 @@ export default class ContextManager {
 		this.availableContext = []
 		if (!workspace || (this.workspace !== undefined && this.workspace !== workspace)) {
 			this.workspace = workspace
-			this.selectedContext = []
+			// Code selections are of the session's own items, not of the workspace browsed.
+			this.selectedContext = currentlySelectedContext.filter(isCodeSelection)
 			return
 		}
 		this.workspace = workspace
 		this.selectedContext = currentlySelectedContext.filter(
-			(context) =>
-				isMentionContext(context)
+			(context) => isMentionContext(context) || isCodeSelection(context)
 		)
 	}
 
@@ -285,7 +290,6 @@ export default class ContextManager {
 			newSelectedContext = newSelectedContext
 				.filter(
 					(c) =>
-						(c.type === 'code_piece' && scriptOptions.getCode().includes(c.content)) ||
 						c.type === 'code' ||
 						// Workspace references are user-picked via @-mention and not in
 						// availableContext; preserve so badges survive editor refreshes.
@@ -336,6 +340,24 @@ export default class ContextManager {
 		this.selectedContext = this.selectedContext.filter((c) => !isMentionContext(c))
 	}
 
+	consumePickContext() {
+		this.selectedContext = this.selectedContext.filter((c) => !isPickContext(c))
+	}
+
+	/** Put picks back with their message, beside those already selected or in place of them.
+	 * Selected code always stays: it names its own lines, so it retargets no other message. */
+	restorePickContext(picks: PickContext[], keepExisting: boolean) {
+		const rest = this.selectedContext.filter((c) => !isPickContext(c))
+		const existing = this.selectedContext.filter(
+			(c) => isCodeSelection(c) || (keepExisting && isPickContext(c))
+		)
+		this.selectedContext = [
+			...rest,
+			...picks,
+			...existing.filter((c) => !picks.some((p) => isSameContextElement(p, c)))
+		]
+	}
+
 	getAvailableContext() {
 		return this.availableContext
 	}
@@ -344,52 +366,12 @@ export default class ContextManager {
 		this.scriptOptions = scriptOptions
 	}
 
-	addSelectedLinesToContext(lines: string, startLine: number, endLine: number, moduleId?: string) {
-		const title = moduleId ? `${moduleId} L${startLine}-L${endLine}` : `L${startLine}-L${endLine}`
-		if (
-			!this.scriptOptions ||
-			this.selectedContext.find(
-				(c) =>
-					(c.type === 'code_piece' && c.title === title) ||
-					(c.type === 'flow_module_code_piece' && c.id === moduleId && c.title === title)
-			)
-		) {
-			return
-		}
-		if (moduleId) {
-			const module = [...this.availableContext, ...this.selectedContext].find(
-				(c) => c.type === 'flow_module' && c.id === moduleId
-			) as FlowModuleElement
-			if (!module) {
-				console.error('Module not found', moduleId)
-				return
-			}
-			this.selectedContext = [
-				...this.selectedContext,
-				{
-					type: 'flow_module_code_piece',
-					id: moduleId,
-					title: title,
-					startLine,
-					endLine,
-					content: lines,
-					lang: this.scriptOptions.lang,
-					value: module.value
-				}
-			]
-		} else {
-			this.selectedContext = [
-				...this.selectedContext,
-				{
-					type: 'code_piece',
-					title: title,
-					startLine,
-					endLine,
-					content: lines,
-					lang: this.scriptOptions.lang
-				}
-			]
-		}
+	/** Attach selected code. Lines already attached are replaced, as their code may have changed. */
+	addCodeSelection(selection: CodeSelection) {
+		this.selectedContext = [
+			...this.selectedContext.filter((c) => !isCodeSelection(c) || !isSameCodeRange(c, selection)),
+			selection
+		]
 	}
 
 	/**
@@ -481,7 +463,6 @@ export default class ContextManager {
 	}
 
 	updateContextOnRequest(options: { removeDiff?: boolean; addBackCode?: boolean }) {
-		this.selectedContext = this.selectedContext.filter((c) => c.type !== 'code_piece')
 		if (options.removeDiff) {
 			this.selectedContext = this.selectedContext.filter((c) => c.type !== 'diff')
 		}

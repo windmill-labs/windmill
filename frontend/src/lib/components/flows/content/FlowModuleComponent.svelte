@@ -1,4 +1,5 @@
 <script lang="ts">
+	import type { CodeSource } from '$lib/components/copilot/chat/context'
 	import HostWindow from '$lib/components/common/HostWindow.svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
@@ -169,6 +170,15 @@
 		toolBackgroundAfterSecs = $bindable(),
 		siblingToolNames = undefined
 	}: Props = $props()
+
+	// Withheld where the toolbar's own AI button is.
+	const codeSource = $derived.by((): CodeSource | undefined => {
+		if (customUi?.editorBar?.aiGen == false) return undefined
+		const agent = agentEditorHost?.()
+		return agent !== undefined
+			? { kind: 'agent', path: agent, part: flowModule.id }
+			: { kind: 'flow', path: $pathStore, part: flowModule.id }
+	})
 
 	const DEFAULT_BACKGROUND_AFTER_SECS = 30
 	type BackgroundMode = 'never' | 'after' | 'always'
@@ -1055,7 +1065,7 @@
 															{}
 														)}
 														key={`flow-inline-${opWs}-${$pathStore}-${flowModule.id}`}
-														moduleId={flowModule.id}
+														{codeSource}
 														preparedAssetsSqlQueries={preparedSqlQueries.current}
 														customTag={flowModule.value.tag}
 													/>
@@ -1116,7 +1126,7 @@
 													{}
 												)}
 												key={`flow-inline-${opWs}-${$pathStore}-${flowModule.id}`}
-												moduleId={flowModule.id}
+												{codeSource}
 												preparedAssetsSqlQueries={preparedSqlQueries.current}
 												customTag={flowModule.value.tag}
 											/>
