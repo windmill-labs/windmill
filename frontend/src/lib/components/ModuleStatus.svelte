@@ -46,7 +46,7 @@
 		Waiting for prior steps to complete
 	</span>
 {:else if type == 'WaitingForExecutor' && waiting_reason === 'sleep'}
-	<span class="italic text-xs text-sky-700 dark:text-sky-300">
+	<span class="italic text-xs text-blue-800 dark:text-blue-200">
 		<Moon class="inline" size={14} />
 		Sleeping until {displayDate(scheduled_for, true)} · {msToCompactDuration(sleepLeft, 0)} left
 	</span>

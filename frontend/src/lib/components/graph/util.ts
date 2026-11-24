@@ -127,19 +127,19 @@ export function getNodeColorClasses(state: FlowNodeState, selected: boolean): Fl
 		},
 		InProgress: orangeStyle,
 		WaitingForExecutor: orangeStyle,
-		// Sky rather than the blue of a skipped step, which is also not running.
+		// The blue of a job scheduled for later.
 		_Sleeping: {
 			selected: {
-				bg: 'bg-sky-200 dark:bg-sky-700',
-				outline: 'outline-sky-500' + outlined,
-				text: 'text-sky-800 dark:text-sky-100',
-				badge: 'bg-sky-100 text-sky-700'
+				bg: 'bg-blue-100 dark:bg-blue-700/60',
+				outline: 'outline-blue-500' + outlined,
+				text: 'text-blue-800 dark:text-blue-100',
+				badge: 'bg-blue-50 text-blue-800'
 			},
 			notSelected: {
-				bg: 'bg-sky-100 dark:bg-sky-800',
+				bg: 'bg-blue-50 dark:bg-blue-700/40',
 				outline: '',
-				text: 'text-sky-700 dark:text-sky-200',
-				badge: 'bg-sky-200 text-sky-700'
+				text: 'text-blue-800 dark:text-blue-100',
+				badge: 'bg-blue-100 text-blue-800'
 			}
 		},
 		WaitingForEvents: {

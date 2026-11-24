@@ -194,7 +194,10 @@
 		return segments
 	}
 	const segmentStyle = {
-		sleep: { colorClass: 'bg-sky-400/80', label: 'Sleep' },
+		sleep: {
+			colorClass: 'bg-blue-200 dark:bg-blue-700/60 !text-blue-800 dark:!text-blue-100',
+			label: 'Sleep'
+		},
 		held: { colorClass: 'bg-orange-400/90', label: 'Held by concurrency limit' },
 		wait: { colorClass: undefined, label: 'Wait' }
 	}
@@ -233,7 +236,7 @@
 				</div>
 				{#if hasSleep}
 					<div class="flex gap-1.5 items-center">
-						<div class="h-2.5 w-2.5 rounded-sm bg-sky-400/80"></div>
+						<div class="h-2.5 w-2.5 rounded-sm bg-blue-200 dark:bg-blue-700/60"></div>
 						<span>Sleep</span>
 					</div>
 				{/if}

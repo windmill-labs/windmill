@@ -395,7 +395,7 @@
 					unifiedSize="2xs"
 					startIcon={{
 						icon: waitingInside.reason === 'sleep' ? Moon : Gauge,
-						classes: waitingInside.reason === 'sleep' ? 'text-sky-500' : 'text-orange-500'
+						classes: waitingInside.reason === 'sleep' ? 'text-blue-500' : 'text-orange-500'
 					}}
 					btnClasses="text-2xs text-secondary gap-1"
 					title="Expand to see the waiting steps"
