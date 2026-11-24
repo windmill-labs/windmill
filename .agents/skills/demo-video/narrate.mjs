@@ -140,7 +140,7 @@ if (opt.plan) process.exit(0)
 
 // 3. Caption band images.
 const band = opt['no-band'] ? 0 : Number(opt['caption-height'] ?? 96)
-if (band % 2 || vs.height % 2) die('video height and --caption-height must both be even for H.264')
+if (band % 2 || vs.height % 2 || vs.width % 2) die('video width, height and --caption-height must all be even for H.264')
 const top = opt['caption-at'] === 'top'
 if (band) {
 	const browser = await launchBrowser()

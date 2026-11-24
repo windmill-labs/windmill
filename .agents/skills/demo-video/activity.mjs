@@ -6,7 +6,8 @@
 //
 // Same sampling and regions.json as cut-waits.mjs (10 samples per second, `min`, `unlessLike`).
 // Each region gets one line of runs of consecutive changes, `12.3-14.1(952)`: first and last
-// changing sample, and the most pixels changed in one sample. --raw prints every sample instead.
+// changing sample, and the most pixels changed in one sample. --raw prints every sample in which
+// anything changed, marked * when it counts (above `min`) and ~ when `unlessLike` suppressed it.
 import { readFileSync } from 'node:fs'
 import { die, need, sampleRegions, SAMPLES } from './lib.mjs'
 
@@ -24,7 +25,9 @@ const samples = await sampleRegions(input, regions, {
 for (const [k, r] of regions.entries()) {
 	const hits = samples.filter((s) => !s.suppressed[k] && s.changed[k] > r.min)
 	if (raw) {
-		console.log(`${r.name}: ${hits.map((s) => `${s.t.toFixed(1)}(${s.changed[k]})`).join(' ')}`)
+		const all = samples.filter((s) => s.changed[k] > 0)
+		const mark = (s) => (s.suppressed[k] ? '~' : s.changed[k] > r.min ? '*' : '')
+		console.log(`${r.name}: ${all.map((s) => `${s.t.toFixed(1)}(${s.changed[k]})${mark(s)}`).join(' ')}`)
 		continue
 	}
 	const runs = []

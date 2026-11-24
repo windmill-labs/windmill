@@ -9,8 +9,9 @@ One scenario file in, one mp4 out. Do not snapshot or screenshot the page while 
 scenario: write selectors from the code you just changed, run once, and fix only the step the
 script reports as failed.
 
-Every script lives in `.agents/skills/demo-video/` and is run from the repo root. Scratch files
-(scenarios, tapes, recordings) go in the session scratchpad, never in the repo.
+Every script lives in `.agents/skills/demo-video/`; the commands below are written from the repo
+root. Scratch files (scenarios, tapes, recordings) go in the session scratchpad, never in the
+repo: `record.mjs` writes only the mp4 you name, beside the scenario by default.
 
 For a terminal session (vhs, optionally beside a browser), for cutting the waits out of any
 silent recording, and for adding a voice-over to a cut, follow
@@ -57,9 +58,11 @@ export default {
 - `say`: narration, spoken and shown as the caption. It starts before the step's action, and
   the step stays on screen until it is spoken. Keep each to one short sentence.
 - `do`: gets `{ page, click, hover, wait }`. `click`/`hover` draw a ring on the target first, so
-  prefer them over `page.click`. Strings are Playwright selectors; locators work too. Assert the
-  outcome inside the step (`await expect`-style waits on the text that proves it worked), so a
-  broken feature fails the run instead of recording a wrong screen.
+  prefer them over `page.click`. Strings are Playwright selectors (the first match is used);
+  a locator is used as given, so a locator matching two elements fails the step. Assert the
+  outcome inside the step by waiting on what proves it worked, e.g.
+  `await page.getByText('Hello, Ada!').waitFor({ timeout: 30000 })`, so a broken feature fails
+  the run instead of recording a wrong screen. There is no `expect` in a scenario.
 - Captions sit in a band of their own below the page (`captionAt: 'top'` puts it above), so
   they never cover the UI. The mp4 is the viewport plus that band: 1280x816 by default.
 - Optional: `hold` (extra ms after a step), `viewport` (default 1280x720), `voice` (macOS

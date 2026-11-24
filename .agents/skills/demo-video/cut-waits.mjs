@@ -25,11 +25,13 @@
 //   [{ "name": "status", "x": 0, "y": 670, "w": 820, "h": 35, "min": 30,
 //      "unlessLike": { "x": 40, "y": 675, "w": 72, "h": 22, "at": 40 } }]
 //
+// Writes <out>.regions.json, the regions with each unlessLike.at moved onto the output's timeline,
+// for activity.mjs and narrate.mjs on the cut file.
 // Writes <out>.cuts-<n>.png: for every cut, the last frame kept before it beside the first
 // frame kept after it. Read them before trusting the cut: the two frames of a row must show the
 // same content, apart from what ticks.
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, readFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { die, launchBrowser, need, probe, sampleRegions } from './lib.mjs'
@@ -57,6 +59,7 @@ const head = opt.head ?? 0.7
 const tail = opt.tail ?? 0.3
 const endHold = opt['end-hold'] ?? 5
 const labelY = opt['label-y'] ?? 12
+if (minGap < head + tail) die(`--min-gap must be at least --head + --tail (${head + tail} s)`)
 const regions = JSON.parse(readFileSync(regionsFile, 'utf8'))
 const { fps, duration, hasAudio } = probe(input)
 
@@ -110,6 +113,28 @@ for (const c of cuts)
 			(c.end ? '' : `  "${c.label}"`)
 	)
 console.log(`duration ${duration.toFixed(1)} s -> ${outDuration.toFixed(1)} s`)
+
+// The regions for the cut file: an `unlessLike.at` is a time of the file it samples, so it moves
+// with the cut. A time inside a cut moves to the cut's position in the output.
+const toOutput = (t) => {
+	let base = 0
+	for (const [a, b] of kept) {
+		if (t < a) return base
+		if (t <= b) return base + t - a
+		base += b - a
+	}
+	return outDuration
+}
+const outRegions = output.replace(/\.mp4$/, '') + '.regions.json'
+writeFileSync(
+	outRegions,
+	JSON.stringify(
+		regions.map((r) => (r.unlessLike ? { ...r, unlessLike: { ...r.unlessLike, at: +toOutput(r.unlessLike.at).toFixed(2) } } : r)),
+		null,
+		1
+	)
+)
+console.log(`regions of the output: ${outRegions}`)
 
 // 3. Check sheets: the frames on both sides of every cut.
 const work = mkdtempSync(join(tmpdir(), 'cut-waits-'))

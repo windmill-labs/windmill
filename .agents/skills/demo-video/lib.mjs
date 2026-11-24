@@ -2,7 +2,7 @@
 // take: `import { launchBrowser, waitForOutput } from '<repo>/.agents/skills/demo-video/lib.mjs'`.
 import { createRequire } from 'node:module'
 import { execFileSync, spawn } from 'node:child_process'
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
+import { readdirSync, readFileSync, realpathSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -160,27 +160,44 @@ export async function sampleRegions(input, regions, { from = 0, to } = {}) {
 	return samples
 }
 
-// Waits until a file under `dirs` that was written after `since` contains `pattern`, and returns
-// the match. Directories that do not exist yet are looked for again on every poll, so a log
-// folder the agent creates during the take (Codex's per-day folder) is found once it appears.
-// Logs are JSON: end the pattern before `"` and `\`. `&` is turned back into `&` first.
-export async function waitForOutput(pattern, { dirs = [CODEX_SESSIONS], since = Date.now(), timeout = 300_000, every = 1000 } = {}) {
-	const deadline = Date.now() + timeout
+// Waits until the agent session started in `cwd` writes `pattern` to its log, and returns the
+// match. Only that folder's sessions count: other agents on the machine (a review running in
+// the same worktree, the recording agent itself) write logs at the same time.
+// - agent 'codex': files under ~/.codex/sessions whose session_meta names `cwd`. The per-day
+//   folder may not exist when the wait starts; it is looked for again on every poll.
+// - agent 'claude': files under ~/.claude/projects/<cwd with every other character as ->.
+// - dirs: any other folders, searched without a cwd check.
+// Only files written after `since` are read. Logs are JSON: end the pattern before `"` and `\`;
+// JSON-escaped ampersands (backslash u0026) are turned back into `&` before matching.
+export async function waitForOutput(
+	pattern,
+	{ agent, cwd = process.cwd(), dirs, since = Date.now(), timeout = 300_000, every = 1000 } = {}
+) {
+	const real = realpathSync(cwd)
+	const roots =
+		dirs ?? (agent === 'claude' ? [join(CLAUDE_PROJECTS, real.replace(/[^a-zA-Z0-9-]/g, '-'))] : [CODEX_SESSIONS])
+	const mark = agent === 'codex' || (!agent && !dirs) ? `"cwd":${JSON.stringify(real)}` : null
 	const walk = (dir, out) => {
-		if (!existsSync(dir)) return out
-		for (const e of readdirSync(dir, { withFileTypes: true })) {
-			const p = join(dir, e.name)
-			if (e.isDirectory()) walk(p, out)
-			else if (e.isFile()) out.push(p)
+		try {
+			for (const e of readdirSync(dir, { withFileTypes: true })) {
+				const p = join(dir, e.name)
+				if (e.isDirectory()) walk(p, out)
+				else if (e.isFile()) out.push(p)
+			}
+		} catch {
+			// not created yet, or removed during the poll
 		}
 		return out
 	}
+	const deadline = Date.now() + timeout
 	while (Date.now() < deadline) {
-		for (const dir of dirs)
-			for (const file of walk(dir, [])) {
+		for (const root of roots)
+			for (const file of walk(root, [])) {
 				try {
 					if (statSync(file).mtimeMs < since) continue
-					const m = readFileSync(file, 'utf8').replace(/\\u0026/g, '&').match(pattern)
+					const text = readFileSync(file, 'utf8')
+					if (mark && !text.includes(mark)) continue
+					const m = text.replace(/\\u0026/g, '&').match(pattern)
 					if (m) return m
 				} catch {
 					// written or removed while being read: look again on the next poll
@@ -188,5 +205,6 @@ export async function waitForOutput(pattern, { dirs = [CODEX_SESSIONS], since = 
 			}
 		await new Promise((r) => setTimeout(r, every))
 	}
-	throw new Error(`no match for ${pattern} in ${dirs.join(', ')} after ${Math.round(timeout / 1000)} s`)
+	throw new Error(`no match for ${pattern} in ${roots.join(', ')} after ${Math.round(timeout / 1000)} s`)
 }
+

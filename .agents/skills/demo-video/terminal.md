@@ -1,8 +1,12 @@
 # Terminal recordings
 
 A CLI or TUI session recorded with vhs, optionally beside a browser that reacts to it, then its
-waits cut and a voice-over added. Scratch files go in the session scratchpad, never in a repo.
-Commands run from the repo root. What each tool needs is in `SKILL.md` next to this file.
+waits cut and a voice-over added. What each tool needs is in `SKILL.md` next to this file.
+
+The take runs from a folder of the session scratchpad: the tape, the browser script, `vhs` and
+the agent all start there, so the files they write (mp4, webm, markers, screenshots) never land
+in a repo. The skill's scripts are called by their path,
+`node <repo>/.agents/skills/demo-video/<script>.mjs`, from wherever you are.
 
 Order of work: plant the test data (it must match the story, see `SKILL.md`), record, compose,
 measure with `activity.mjs`, cut, measure the cut, narrate.
@@ -38,6 +42,17 @@ Sleep 3s
   `Set WaitTimeout`. The typed command is on the screen too, so wait on text it does not
   contain (`echo "build $(echo finished)"`, then wait on `/build finished/`). A timed-out wait
   ends the run with only `recording failed` and no mp4.
+- Once a plain shell's output scrolls, vhs 0.12's `Wait+Screen` no longer sees the bottom rows:
+  `wmill script run` printed its result below the first screenful and a wait on it timed out
+  while the text was on screen. Make the terminal tall enough that the take never scrolls
+  (`Set Height`), or `clear` off camera before the command. Codex renders in the normal
+  buffer and scrolls too: for a long agent turn, a generous `Sleep` is safer than a wait, and
+  the cut removes the idle time. To see what a failing wait missed, replace it with `Sleep` +
+  `Screenshot f.png`.
+- A CLI that may open with a dialog (Codex's trust prompt, its "Background server has
+  incompatible feature set" prompt after another Codex run changed its settings) is started in
+  the `Hide` block and the dialog answered there (`Type "1"` picks "Run without daemon this
+  time"), so the take opens on the ready prompt.
 - Wait on text that stays (a question, the final answer), not on a spinner or a status that
   flips back. `Sleep` only for what the tape cannot see, such as another process acting; the
   cut step removes idle time afterwards, so err long.
@@ -62,7 +77,6 @@ start of a take; place every cut, alignment and narration line from the picture,
 ```
 codex -a never -s read-only \
   -c check_for_update_on_startup=false \
-  -c 'projects."<absolute recording folder>".trust_level="trusted"' \
   -c 'mcp_servers.<name>.url="https://<host>/<mcp path>"' \
   -c 'mcp_servers.<name>.bearer_token_env_var="MY_TOKEN"' \
   -c 'mcp_servers.<name>.default_tools_approval_mode="approve"'
@@ -70,8 +84,11 @@ codex -a never -s read-only \
 
 - `-a never` never asks; without `default_tools_approval_mode="approve"` every MCP tool call is
   refused instead of run.
-- The `projects."…".trust_level` entry skips the folder trust prompt. The path must be the
-  real one: on macOS the scratchpad's `/tmp/…` is `/private/tmp/…` (`pwd -P` prints it).
+- The folder trust prompt cannot be skipped from `-c` (a `projects."<folder>".trust_level`
+  override still shows it, in Codex 0.159). Accept it once for the take folder in a throwaway
+  tape: `Type "codex"`, `Enter`, `Wait+Screen@30s /Trust and continue/`, `Enter`, `Sleep 5s`,
+  `Ctrl+C`, `Ctrl+C`. The answer is saved in `~/.codex/config.toml` under the folder's real
+  path (on macOS, `/private/tmp/…` for the scratchpad).
 - `check_for_update_on_startup=false` keeps the update banner out of the shot.
 - The token stays in an env var exported in the `Hide` block. Windmill's own MCP server is
   `<frontend URL>/api/mcp`, with a token that has the `mcp:all` scope.
@@ -90,7 +107,7 @@ claude --strict-mcp-config --mcp-config <scratch>/mcp.json --allowedTools mcp__<
   asks, which a demo usually wants to show.
 - The folder trust prompt is saved per folder: accept it once in a throwaway tape
   (`Type "claude"`, `Enter`, `Wait+Screen@30s /trust/`, `Enter`, `Sleep 5s`, `Ctrl+C`, `Ctrl+C`).
-- Claude Code writes each session to `~/.claude/projects/<folder path with / as ->/*.jsonl`.
+- Claude Code writes each session to `~/.claude/projects/<folder path, each non-alphanumeric character as ->/*.jsonl`.
 - Its layout differs from Codex's: measure its regions from crops (below) rather than reusing
   the Codex example.
 
@@ -100,9 +117,10 @@ A Playwright script that records its own video and waits for the agent's output:
 
 ```js
 import { writeFileSync, existsSync } from 'node:fs'
-import { launchBrowser, waitForOutput, CODEX_SESSIONS } from '<repo>/.agents/skills/demo-video/lib.mjs'
+import { launchBrowser, waitForOutput } from '<repo>/.agents/skills/demo-video/lib.mjs'
 
 const since = Date.now()
+writeFileSync('browser.pid', String(process.pid))
 writeFileSync('browser-start.txt', String(since))
 const browser = await launchBrowser()
 const ctx = await browser.newContext({
@@ -112,7 +130,7 @@ const ctx = await browser.newContext({
 const page = await ctx.newPage()
 await page.request.post(`${BASE}/api/auth/login`, { data: { email: 'admin@windmill.dev', password: 'changeme' } })
 await page.goto(`${BASE}/some/page`)
-const [link] = await waitForOutput(/https:\/\/[^\s"\\]+\/the-page\?[^\s"\\]+/, { dirs: [CODEX_SESSIONS], since })
+const [link] = await waitForOutput(/https:\/\/[^\s"\\]+\/the-page\?[^\s"\\]+/, { agent: 'codex', since })
 await page.goto(link)
 try {
   await page.getByText(/the success message/).waitFor({ timeout: 40000 })
@@ -125,15 +143,24 @@ await ctx.close()
 await browser.close()
 ```
 
-- `waitForOutput(pattern, { dirs, since, timeout })` searches every file under `dirs` written
-  after `since`, again each second, and returns the match. It finds a log folder created during
-  the take (Codex's per-day folder), so never build a dated path yourself. Logs are JSON: end
-  the pattern before `"` and `\`. Use `CLAUDE_PROJECTS` for Claude Code.
+- `waitForOutput(pattern, { agent, cwd, since, timeout })` polls the logs of the `agent`
+  (`'codex'` or `'claude'`) sessions started in `cwd` (default: the script's own folder, which
+  is where vhs starts the agent) and written after `since`, and returns the match. Other agents
+  on the machine write logs during the take too, a review in the same worktree or the recording
+  agent itself, and only this folder's sessions count. It finds a log folder created during the
+  take (Codex's per-day folder), so never build a dated path yourself. Logs are JSON: end the
+  pattern before `"` and `\`. Take `since` when the script starts, before the agent can answer.
+- The log holds the prompt and every tool result too, and the first match wins. Make the
+  pattern match only the reply: tool results carry look-alike URLs (Windmill's deploy tool
+  returns the page under the instance's base URL, not the host the prompt asked for), and the
+  prompt must not contain the full link. Pin the host the prompt names and the path it leaves
+  for the agent to fill in.
 - Log in with `page.request.post(...)` before the first navigation.
 - Run both, then a marker: `node browser.mjs & vhs term.tape; touch done.txt`. The script closes
   its context once `done.txt` exists, which finishes the webm.
-- Before every take, kill the drivers left by earlier ones (`pkill -f browser.mjs`): a stray one
-  matches the new session's output and acts on it first.
+- Before every take, stop the driver left by the previous one: `kill $(cat browser.pid)`. A
+  stray one matches the new session's output and acts on it first. Never `pkill -f browser.mjs`,
+  which also kills the takes of other worktrees.
 - End the browser script on the state the page settles in (the success message), not a
   transient one, and keep the try/catch so a failed take says why.
 
@@ -180,7 +207,7 @@ at font size 15, left of a 900-wide browser:
 ## See when the screen changes
 
 ```bash
-node .agents/skills/demo-video/activity.mjs side.mp4 regions.json [from] [to]
+node <repo>/.agents/skills/demo-video/activity.mjs side.mp4 regions.json [from] [to]
 ```
 
 prints, per region, the runs of change in seconds of that file: `48.0-48.5(4744)` is a change
@@ -192,8 +219,8 @@ and, on the cut file, where each narration line goes.
 ## Cut the waits
 
 ```bash
-node .agents/skills/demo-video/cut-waits.mjs side.mp4 out.mp4 regions.json --plan  # cuts + check sheets
-node .agents/skills/demo-video/cut-waits.mjs side.mp4 out.mp4 regions.json         # render
+node <repo>/.agents/skills/demo-video/cut-waits.mjs side.mp4 out.mp4 regions.json --plan  # cuts + check sheets
+node <repo>/.agents/skills/demo-video/cut-waits.mjs side.mp4 out.mp4 regions.json         # render
 ```
 
 - Read every `<out>.cuts-N.png` row before rendering: the two frames of a row must show the
@@ -215,13 +242,15 @@ node .agents/skills/demo-video/cut-waits.mjs side.mp4 out.mp4 regions.json      
 ## Add a voice-over
 
 ```bash
-node .agents/skills/demo-video/narrate.mjs out.mp4 lines.json narrated.mp4 --plan --regions=regions.json
-node .agents/skills/demo-video/narrate.mjs out.mp4 lines.json narrated.mp4
+node <repo>/.agents/skills/demo-video/narrate.mjs out.mp4 lines.json narrated.mp4 --plan --regions=out.regions.json
+node <repo>/.agents/skills/demo-video/narrate.mjs out.mp4 lines.json narrated.mp4
 ```
 
 lines.json: `[{ "at": 0.3, "text": "One sentence." }, ...]`, `at` in seconds of the cut video.
-Take each `at` from `activity.mjs out.mp4 regions.json`: 0.3 s before the change the line
-describes. The cut keeps the input's size, so the same `regions.json` applies.
+Take each `at` from `activity.mjs out.mp4 out.regions.json`: 0.3 s before the change the line
+describes. `out.regions.json` is written by `cut-waits.mjs`: the same regions, with each
+`unlessLike.at` moved onto the cut's timeline. If that `at` fell inside a cut, it now points at
+the first frame after it: check that frame still shows the look to ignore, or pick a new `at`.
 
 - Each line is spoken by macOS `say` (`--voice`, default Samantha, ~3 words per second;
   `--voice=none` for captions only). When a line still runs at the next line's `at`, the video

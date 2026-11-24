@@ -16,7 +16,7 @@ const work = mkdtempSync(join(tmpdir(), 'demo-video-'))
 const viewport = sc.viewport ?? { width: 1280, height: 720 }
 const voice = sc.voice === false ? 'none' : (sc.voice ?? 'Samantha')
 const BAND = sc.captionHeight ?? 96
-if ((viewport.height + BAND) % 2) die('viewport height + captionHeight must be even for H.264')
+if (viewport.width % 2 || (viewport.height + BAND) % 2) die('viewport width and height + captionHeight must be even for H.264')
 need('ffmpeg', 'ffprobe', ...(voice === 'none' ? [] : ['say']))
 
 // 1. Narration clips, before the browser starts, so recording time is not spent on TTS.
@@ -72,6 +72,7 @@ try {
 		},
 		hover: async (t) => {
 			const l = loc(t)
+			await l.scrollIntoViewIfNeeded()
 			await ring(l)
 			await l.hover()
 		},
