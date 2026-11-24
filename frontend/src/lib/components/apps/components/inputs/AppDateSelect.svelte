@@ -69,8 +69,9 @@
 	function handleDefault(defaultValue: string | undefined) {
 		value = defaultValue
 
-		if (value) {
-			const date = parseISO(value)
+		const date = value ? parseISO(value) : undefined
+		// A default that is not a date yet (one being typed in a linked input) leaves the selects as they are.
+		if (date && !isNaN(date.getTime())) {
 			const locale = getLocale(resolvedConfig.locale)
 			selectedDay = String(date.getDate())
 			selectedMonth = formatDateFns(date, 'MMMM', { locale })
@@ -198,7 +199,7 @@
 	}
 	$effect.pre(() => {
 		resolvedConfig.defaultValue
-		untrack(() => !value && handleDefault(resolvedConfig.defaultValue))
+		untrack(() => handleDefault(resolvedConfig.defaultValue))
 	})
 	let monthItems = $derived(computeMonthItems(resolvedConfig?.locale))
 	$effect.pre(() => {
