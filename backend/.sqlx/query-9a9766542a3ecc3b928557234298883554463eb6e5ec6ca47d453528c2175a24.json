@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE v2_job_queue\n        SET extras = jsonb_set(COALESCE(extras, '{}'::jsonb), '{waiting_on}',\n            jsonb_build_object('child', $2::uuid, 'at', now()))\n        WHERE id = $1 AND running\n            AND (extras->'waiting_on'->>'child' IS DISTINCT FROM $2::uuid::text\n                OR (extras->'waiting_on'->>'at')::timestamptz < now() - interval '5 seconds')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "9a9766542a3ecc3b928557234298883554463eb6e5ec6ca47d453528c2175a24"
+}

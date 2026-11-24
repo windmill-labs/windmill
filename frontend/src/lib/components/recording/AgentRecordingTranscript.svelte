@@ -11,7 +11,7 @@ Shared by the recorder and the Hub page so the two cannot show different things.
 	import { setChatViewHost } from '$lib/components/copilot/chat/chatViewHost'
 	import { readOnlyChatViewHost } from '$lib/components/copilot/chat/readOnlyChatViewHost.svelte'
 	import { chatItemKey, groupToolRuns } from '$lib/components/copilot/chat/toolGroups'
-	import { chatLookupTools } from '$lib/components/copilot/chat/lookupTools'
+	import { chatGroupingTools } from '$lib/components/copilot/chat/groupingTools'
 	import type { DisplayMessage } from '$lib/components/copilot/chat/shared'
 	import { agentRecordingMessages } from './agentRecording'
 	import type { AgentTurn } from './types'
@@ -53,7 +53,7 @@ Shared by the recorder and the Hub page so the two cannot show different things.
 		untrack(() => shown.splice(0, shown.length, ...next))
 	})
 
-	const chatItems = $derived(groupToolRuns(shown, chatLookupTools()))
+	const chatItems = $derived(groupToolRuns(shown, chatGroupingTools()))
 	const waiting = $derived(
 		pending !== undefined ||
 			(playing && count !== undefined && count < all.length && all[count]?.role !== 'user')

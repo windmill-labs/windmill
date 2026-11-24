@@ -1,7 +1,7 @@
 import type { AIProviderModel } from '$lib/gen'
 import type { ContextElement } from './context'
 import type { Tool } from './shared'
-import { lookupToolNames, type LookupTools } from './toolGroups'
+import { groupingToolsOf, type GroupingTools } from './toolGroups'
 import { assembleGlobalTools } from './global/globalAssembly'
 import { flowTools } from './flow/core'
 import { getAppTools } from './app/core'
@@ -34,8 +34,8 @@ export function everyChatTool(): Tool<any>[] {
 	]
 }
 
-let lookups: LookupTools | undefined
-export function chatLookupTools(): LookupTools {
-	lookups ??= lookupToolNames(everyChatTool())
-	return lookups
+let grouping: GroupingTools | undefined
+export function chatGroupingTools(): GroupingTools {
+	grouping ??= groupingToolsOf(everyChatTool())
+	return grouping
 }

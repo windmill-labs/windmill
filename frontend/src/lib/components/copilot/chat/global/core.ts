@@ -3835,6 +3835,7 @@ export const globalTools: SessionTool<{}>[] = [
 	{
 		requires: RUN_PREVIEW,
 		def: testRunScriptToolDef,
+		testRun: 'script',
 		fn: async (ctx) => {
 			const parsed = testRunScriptSchema.parse(ctx.args)
 			return testRunScriptByPath(parsed, ctx)
@@ -3853,6 +3854,7 @@ export const globalTools: SessionTool<{}>[] = [
 	{
 		requires: RUN_PREVIEW,
 		def: testRunCodeToolDef,
+		testRun: 'code',
 		fn: async (ctx) => {
 			const parsed = testRunCodeSchema.parse(ctx.args)
 			return testRunCode(parsed, ctx)
@@ -3888,6 +3890,7 @@ export const globalTools: SessionTool<{}>[] = [
 	{
 		requires: RUN_FLOW_PREVIEW,
 		def: testRunFlowToolDef,
+		testRun: 'flow',
 		fn: async (ctx) => {
 			const parsed = testRunFlowSchema.parse(ctx.args)
 			return testRunFlowByPath(parsed, ctx)
@@ -3918,6 +3921,7 @@ export const globalTools: SessionTool<{}>[] = [
 	{
 		requires: RUN_FLOW_PREVIEW,
 		def: testRunAgentToolDef,
+		testRun: 'agent',
 		fn: async (ctx) => {
 			const parsed = testRunAgentSchema.parse(ctx.args)
 			return testRunAgentByPath(parsed, ctx)
@@ -3948,6 +3952,7 @@ export const globalTools: SessionTool<{}>[] = [
 	{
 		requires: RUN_PREVIEW,
 		def: testRunStepToolDef,
+		testRun: 'flow',
 		fn: async (ctx) => {
 			const parsed = testRunStepSchema.parse(ctx.args)
 			return testRunFlowStepByPath(parsed, ctx)
@@ -4494,6 +4499,7 @@ export const globalTools: SessionTool<{}>[] = [
 		// operators too once `force_viewer_static_fields` marks the call a preview.
 		requires: RUN_PREVIEW,
 		def: testRunAppRunnableToolDef,
+		testRun: 'app',
 		fn: async (ctx) => {
 			const parsed = testRunAppRunnableSchema.parse(ctx.args)
 			return testRunAppRunnable(parsed, ctx)

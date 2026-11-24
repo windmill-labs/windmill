@@ -97,7 +97,7 @@ export async function browserLogin(
 
     // Start the server
     server.listen(port, () => {
-      console.log(`Listening on port ${port}`);
+      log.infoStderr(`Listening on port ${port}`);
     });
   });
 }

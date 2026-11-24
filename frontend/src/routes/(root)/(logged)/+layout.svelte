@@ -351,10 +351,12 @@
 	const sessionsShown = $derived(sidebarSessionsShown())
 
 	// The workspace AI config gates far more than chat (code completion, metadata generation,
-	// the "open in AI session" buttons). On the sessions route SessionWrapper loads the session's
-	// acting workspace instead, and both writing the global store would race.
+	// the "open in AI session" buttons), so the tab's copy follows the page's workspace everywhere,
+	// the sessions page included.
 	$effect(() => {
-		if ($workspaceStore && !onSessionsPage) loadCopilot($workspaceStore)
+		// Refreshed on entering or leaving the sessions page: a session may be in another workspace.
+		void onSessionsPage
+		if ($workspaceStore) loadCopilot($workspaceStore)
 	})
 
 	if (page.status == 404) {

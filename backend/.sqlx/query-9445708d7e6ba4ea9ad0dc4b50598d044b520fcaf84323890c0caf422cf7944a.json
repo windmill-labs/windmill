@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT resource AS \"resource!\" FROM (\n            SELECT DISTINCT ON (resource) resource, alert_type\n            FROM alerts\n            WHERE resource LIKE 'tag_deadlock:%' AND created_at > now() - interval '7 days'\n            ORDER BY resource, created_at DESC, id DESC\n        ) latest WHERE alert_type = 'critical_error'",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "resource!",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "9445708d7e6ba4ea9ad0dc4b50598d044b520fcaf84323890c0caf422cf7944a"
+}

@@ -4461,6 +4461,17 @@ pub async fn monitor_db(
         }
     };
 
+    let tag_deadlock_alerts_f = async {
+        if server_mode && !initial_load {
+            if let Some(db) = conn.as_sql() {
+                if let Err(e) = windmill_common::tag_deadlock::recover_tag_deadlock_alerts(db).await
+                {
+                    tracing::error!("Failed to check tag deadlock alerts for recovery: {e:#}");
+                }
+            }
+        }
+    };
+
     let worker_groups_alerts_f = async {
         #[cfg(feature = "enterprise")]
         if server_mode && !initial_load {
@@ -4806,6 +4817,7 @@ pub async fn monitor_db(
         enforce_offline_caps_f,
         worker_groups_alerts_f,
         jobs_waiting_alerts_f,
+        tag_deadlock_alerts_f,
         low_disk_alerts_f,
         apply_autoscaling_f,
         update_min_worker_version_f,

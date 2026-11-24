@@ -36,7 +36,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import { truncate } from '$lib/utils'
 	import Toggle from '$lib/components/Toggle.svelte'
-	import { loadCopilot } from '$lib/components/copilot/loadCopilot'
+	import { loadWorkspaceCopilotInfo } from '$lib/aiStore'
 	import { Archive, ArchiveRestore, EllipsisVertical, GitFork, Pencil, Trash2 } from 'lucide-svelte'
 	import SessionChangesBar from './SessionChangesBar.svelte'
 	import { sessionHandEdits } from './sessionHandEdits.svelte'
@@ -80,8 +80,8 @@
 	}: {
 		sessionId: string
 		/** True for the session the sessions page is showing, with its route open: its header
-		 *  rides the page header bar, and only it may send, take focus or load the copilot
-		 *  config. The page stays mounted, hidden, while the user is on other pages. */
+		 *  rides the page header bar, and only it may send, take focus or refetch its
+		 *  AI config. The page stays mounted, hidden, while the user is on other pages. */
 		onScreen?: boolean
 		/** True while the page holds this wrapper inert under an overlay, where nothing takes focus. */
 		covered?: boolean
@@ -187,8 +187,8 @@
 			// fresh, so this cannot re-enter on the next dependency change.
 			if (!takeSessionAutoSend(sessionId) || !prompt) return
 			// sendOrQueue, not sendRequest: a reused session may already be mid-turn.
-			// The runtime's beforeSend awaits loadCopilot for the committed
-			// workspace, so this cannot race the model config on a cold session.
+			// Each request awaits the config of the committed workspace, so this
+			// cannot race the model config on a cold session.
 			runtime.manager.sendOrQueue(prompt, domElement ? [domElement] : undefined)
 		})
 	})
@@ -197,20 +197,15 @@
 	// session running in a fork reads as that fork rather than as the navigation workspace.
 	const actingWorkspaceId = $derived(session ? getEffectiveWorkspaceId(session) : undefined)
 
-	// Load copilot config (models, providers) for the workspace the session acts
-	// on, not the navigation workspace — a session deliberately leaves
-	// $workspaceStore on the nav workspace, so keying off it would pick the model
-	// and provider from the wrong workspace's AI config for a fork-scoped session.
-	// Only the session on screen may write this: copilotInfo/copilotSessionModel are
-	// global, and warm background wrappers (each in their own workspace) would
-	// otherwise race to clobber the active chat's model config. Off the route the
-	// layout loads the navigation workspace's, so coming back loads this one again.
+	// Refetch the AI config of the session's workspace, not of the tab's, each time it comes on
+	// screen: it may have changed elsewhere, or have failed to load.
 	$effect(() => {
 		if (!onScreen) return
 		const ws = actingWorkspaceId ?? $workspaceStore
-		if (ws) {
-			loadCopilot(ws)
-		}
+		if (!ws) return
+		loadWorkspaceCopilotInfo(ws, true).catch((e) =>
+			console.error(`Failed to load the AI config of workspace ${ws}`, e)
+		)
 	})
 
 	let summaryInput: EditableInput | undefined = $state(undefined)
