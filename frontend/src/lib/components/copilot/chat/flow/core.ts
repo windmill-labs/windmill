@@ -410,6 +410,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 	},
 	{
 		def: testRunFlowToolDef,
+		testRun: 'flow',
 		fn: async function ({ args, workspace, helpers, toolCallbacks, toolId }) {
 			const { flow } = helpers.getFlowAndSelectedId()
 
@@ -454,6 +455,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 	{
 		// set strict to false to avoid issues with open ai models
 		def: testRunStepToolDef,
+		testRun: 'flow',
 		fn: async ({ args, workspace, helpers, toolCallbacks, toolId }) => {
 			const { flow } = helpers.getFlowAndSelectedId()
 

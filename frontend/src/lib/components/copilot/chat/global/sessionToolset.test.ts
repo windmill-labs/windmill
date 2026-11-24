@@ -26,7 +26,7 @@ import { appendPlanModeInstructions } from '../planMode'
 import { PlanModeController } from '../planModeController.svelte'
 import { pipelineTools } from '../pipeline/core'
 import type { Tool } from '../shared'
-import { everyChatTool } from '../lookupTools'
+import { everyChatTool } from '../groupingTools'
 import { assembleGlobalSystemMessage, assembleGlobalTools } from './globalAssembly'
 import { filterSessionTools, sessionToolAllowed } from './sessionToolset'
 import { capabilitiesForRole, fullSessionAccess } from './sessionAccess'
@@ -415,5 +415,18 @@ describe('lookup tools', () => {
 		const lookup = new Map<string, Set<boolean>>()
 		for (const t of tools) lookup.set(name(t), (lookup.get(name(t)) ?? new Set()).add(!!t.lookup))
 		expect([...lookup].filter(([, values]) => values.size > 1).map(([n]) => n)).toEqual([])
+	})
+})
+
+describe('test-run tools', () => {
+	// The transcript looks a name up across modes, so a name runs the same kind of item in every
+	// mode that offers it, or is a test run in none.
+	it('agree on every name across modes', () => {
+		const kinds = new Map<string, Set<string | undefined>>()
+		for (const t of everyChatTool()) {
+			const name = t.def.function.name
+			kinds.set(name, (kinds.get(name) ?? new Set()).add(t.testRun))
+		}
+		expect([...kinds].filter(([, values]) => values.size > 1).map(([n]) => n)).toEqual([])
 	})
 })

@@ -14,7 +14,7 @@
 	import { setUntrustedImages } from '$lib/components/copilot/chat/untrustedImages'
 	import { readOnlyChatViewHost } from '$lib/components/copilot/chat/readOnlyChatViewHost.svelte'
 	import { chatItemKey, groupToolRuns } from '$lib/components/copilot/chat/toolGroups'
-	import { chatLookupTools } from '$lib/components/copilot/chat/lookupTools'
+	import { chatGroupingTools } from '$lib/components/copilot/chat/groupingTools'
 	import type { DisplayMessage } from '$lib/components/copilot/chat/shared'
 	import type { SessionSnapshot } from './sessionSharing'
 	import { untrack } from 'svelte'
@@ -100,7 +100,7 @@
 	const openTabs = $derived(openIds.flatMap((id) => artifacts.find((a) => a.id === id) ?? []))
 
 	const messages = $derived(snapshot.messages)
-	const chatItems = $derived(groupToolRuns(messages, chatLookupTools()))
+	const chatItems = $derived(groupToolRuns(messages, chatGroupingTools()))
 
 	// An answer's copy row shows once per turn, on its last answer, as in the live chat.
 	const showsAnswerActions = $derived.by(() => {
