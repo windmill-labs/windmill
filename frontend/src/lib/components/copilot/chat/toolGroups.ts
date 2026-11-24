@@ -8,8 +8,8 @@ import {
 import { DRAFT_CONFLICT_RESULT, DRAFT_SAVE_FAILED_RESULT } from './draftWriteResults'
 import { webSearchResultOf } from './webSearchResult'
 
-// A tool missing from these lists, whose definition sets neither `lookup` nor `testRun`,
-// renders as its own row, so a new write never gets hidden by default.
+// A tool missing from these lists, whose definition sets none of `lookup`, `testRun` and
+// `draftWrite`, renders as its own row, so a new write never gets hidden by default.
 
 type EditedItemKind = 'flow' | 'app'
 
@@ -56,35 +56,42 @@ const PATHLESS_FLOW_MODE_TOOLS = new Set([
 const SCRIPT_EDIT_TOOLS = new Set(['write_script', 'edit_script', 'edit_code'])
 
 /** What the definitions in the chat showing the transcript declare, by tool name: the tools
- * that set `lookup`, and those that set `testRun` with the kind of item they run. A name that
- * chat does not define (a flow's own agent tools) is neither. */
+ * that set `lookup`, those that set `testRun` with the kind of item they run, and those that
+ * set `draftWrite` with the noun they count as. A name that chat does not define (a flow's own
+ * agent tools) is none of these. */
 export type GroupingTools = {
 	lookups: ReadonlySet<string>
 	testRuns: ReadonlyMap<string, TestedItemKind>
+	draftWrites: ReadonlyMap<string, string>
 }
 
 export function groupingToolsOf(tools: Iterable<Tool<any>>): GroupingTools {
 	const lookups = new Set<string>()
 	const testRuns = new Map<string, TestedItemKind>()
+	const draftWrites = new Map<string, string>()
 	for (const tool of tools) {
 		const name = tool.def.function.name
 		if (tool.lookup) lookups.add(name)
 		if (tool.testRun) testRuns.set(name, tool.testRun)
+		if (tool.draftWrite) draftWrites.set(name, tool.draftWrite)
 	}
-	return { lookups, testRuns }
+	return { lookups, testRuns, draftWrites }
 }
 
 export type ToolGroup = {
 	kind: 'group'
-	/** 'edit': edits of one flow or app. 'explore': consecutive lookups of anything.
+	/** 'edit': edits of one flow or app. 'draft': draft writes of schedules, triggers,
+	 * resources and variables. 'explore': consecutive lookups of anything.
 	 * 'waiting': calls queued behind the one running or awaiting the user. 'test': test runs
 	 * of one item and its edits between them; it always ends on a run, whose card stays shown.
 	 */
-	groupKind: 'edit' | 'explore' | 'waiting' | 'test'
+	groupKind: 'edit' | 'draft' | 'explore' | 'waiting' | 'test'
 	/** First call's id, so the group keeps its identity (and expand state) as it grows. */
 	key: string
 	/** Edit and test groups: the item's path, or '' for the item open in the editor. */
 	target: string
+	/** Draft groups: the noun each draft write tool's calls are counted as. */
+	draftNouns?: ReadonlyMap<string, string>
 	entries: { message: DisplayMessage; index: number }[]
 	/** Test groups: the kind of item run, and how many of the entries are its runs. */
 	tested?: { kind: TestedItemKind; runs: number }
@@ -189,6 +196,24 @@ function itemMembership(message: DisplayMessage): Membership | undefined {
 // would leave its own group and the header would read as settled.
 function sameItem(a: Membership | undefined, b: Membership): boolean {
 	return a !== undefined && a.kind === b.kind && (a.path === undefined || a.path === b.path)
+}
+
+// An agent is drafted through write_resource but gets its own way in (a preview chip, or an
+// Open agent action), and a group shows only one chip: it stays a row. Read from the
+// arguments, not the chip, which lands only once the save does. `resource_type` streams after
+// the value, so until it has arrived the call may be an agent and joins no group.
+function isNonAgentResourceWrite(call: ToolDisplayMessage): boolean {
+	const type =
+		typeof call.parameters === 'string'
+			? /"resource_type"\s*:\s*"([^"]*)"/.exec(call.parameters)?.[1]
+			: call.parameters?.resource_type
+	return typeof type === 'string' && type !== 'ai_agent'
+}
+
+function isDraftWrite(message: DisplayMessage, tools: GroupingTools): boolean {
+	const call = groupableCall(message)
+	if (call === undefined || !tools.draftWrites.has(call.toolName!)) return false
+	return call.toolName !== 'write_resource' || isNonAgentResourceWrite(call)
 }
 
 function isReadCall(message: DisplayMessage, tools: GroupingTools): boolean {
@@ -383,9 +408,14 @@ function kindGroupAt(
 ): ToolGroup | undefined {
 	const explores = (m: DisplayMessage, j: number) =>
 		isReadCall(m, tools) && !editGroupAt(messages, j)
+	const drafts = (m: DisplayMessage) => isDraftWrite(m, tools)
+	const draftGroup = drafts(messages[start])
+		? toolGroup(messages, start, runEnd(messages, start, drafts), 'draft', '')
+		: undefined
 	return (
 		testGroupAt(messages, start, tools) ??
 		editGroupAt(messages, start) ??
+		(draftGroup && { ...draftGroup, draftNouns: tools.draftWrites }) ??
 		(isReadCall(messages[start], tools)
 			? toolGroup(messages, start, runEnd(messages, start, explores), 'explore', '')
 			: undefined)
@@ -418,6 +448,7 @@ function sameChatItem(a: ChatItem, b: ChatItem): boolean {
 		a.groupKind === b.groupKind &&
 		a.key === b.key &&
 		a.target === b.target &&
+		a.draftNouns === b.draftNouns &&
 		a.tested?.kind === b.tested?.kind &&
 		a.tested?.runs === b.tested?.runs &&
 		a.entries.length === b.entries.length &&
@@ -564,6 +595,20 @@ export function groupHeader(
 		return {
 			prefix: { queued: 'Edit', running: 'Editing', settled: 'Edited' }[state],
 			label: `${group.target || 'the flow'} · ${plural(edits, 'change')}`,
+			more: []
+		}
+	}
+	if (group.groupKind === 'draft') {
+		const drafted = new Map<string, number>()
+		for (const call of calls) {
+			if (callFailed(call)) continue
+			const kind = group.draftNouns?.get(call.toolName!) ?? 'draft'
+			drafted.set(kind, (drafted.get(kind) ?? 0) + 1)
+		}
+		const kinds = [...drafted].map(([kind, n]) => plural(n, kind))
+		return {
+			prefix: { queued: 'Draft', running: 'Drafting', settled: 'Drafted' }[state],
+			label: kinds.length ? kinds.join(', ') : plural(0, 'draft'),
 			more: []
 		}
 	}

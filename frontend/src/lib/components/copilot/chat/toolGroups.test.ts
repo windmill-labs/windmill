@@ -9,7 +9,8 @@ import {
 	type ToolGroup
 } from './toolGroups'
 
-// What the chat's tool definitions mark `lookup` and `testRun`, for the calls these cases make.
+// What the chat's tool definitions mark `lookup`, `testRun` and `draftWrite`, for the calls these
+// cases make.
 const TOOLS: GroupingTools = {
 	lookups: new Set([
 		'read_workspace_item',
@@ -33,6 +34,12 @@ const TOOLS: GroupingTools = {
 		['test_run_flow', 'flow'],
 		['test_run_app_runnable', 'app'],
 		['test_run_agent', 'agent']
+	]),
+	draftWrites: new Map([
+		['write_schedule', 'schedule'],
+		['write_trigger', 'trigger'],
+		['write_resource', 'resource'],
+		['write_variable', 'variable']
 	])
 }
 
@@ -258,6 +265,27 @@ describe('groupToolRuns', () => {
 				tool('patch_flow_json', flow)
 			])
 		).toEqual([{ explore: [0, 1] }, { edit: [2, 3] }])
+	})
+
+	it('folds draft writes of any item kind, leaving out one awaiting approval and an agent', () => {
+		const run = [
+			tool('write_schedule', { path: 'f/a/daily' }),
+			assistant('', { reasoning: 'next' }),
+			tool('write_schedule', { path: 'f/a/hourly' }),
+			tool('write_trigger', { kind: 'http', config: { path: 'f/a/hook' } }),
+			tool('write_variable', { path: 'f/a/token' }, { error: 'invalid value' }),
+			tool('write_resource', { path: 'f/a/pg', resource_type: 'postgresql' }),
+			// Its `resource_type` has not streamed in yet: it may still turn out to be an agent.
+			tool(
+				'write_resource',
+				{},
+				{ parameters: '{"path":"f/a/bot","value":{"model"', isStreamingArguments: true }
+			),
+			tool('write_resource', { path: 'f/a/db' }, { needsConfirmation: true, isLoading: true }),
+			tool('write_resource', { path: 'f/a/bot', resource_type: 'ai_agent' })
+		]
+		expect(shape(run)).toEqual([{ draft: [0, 1, 2, 3, 4, 5] }, 6, 7, 8])
+		expect(header(run)).toBe('Drafted 2 schedules, 1 trigger, 1 resource')
 	})
 
 	it('folds consecutive lookups of any tool, split by a write or a row with its own card', () => {

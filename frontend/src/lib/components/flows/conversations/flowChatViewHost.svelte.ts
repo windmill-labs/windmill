@@ -946,8 +946,8 @@ export class FlowChatViewHost implements ChatViewHost, DraftSender<ComposerAttac
 	attachmentAccept = 'image/*,application/pdf,.pdf'
 	tools = []
 	// The agent's tools are the flow author's, named as they chose: a name that matches a
-	// copilot lookup or test run says nothing about what the tool does.
-	groupingTools: GroupingTools = { lookups: new Set(), testRuns: new Map() }
+	// copilot lookup, test run or draft write says nothing about what the tool does.
+	groupingTools: GroupingTools = { lookups: new Set(), testRuns: new Map(), draftWrites: new Map() }
 	// The enum's value, written out so this module never imports the copilot manager at
 	// runtime: its unit test would otherwise load the manager and the editor it pulls in.
 	autonomyMode = 'default' as AIAutonomyMode.DEFAULT

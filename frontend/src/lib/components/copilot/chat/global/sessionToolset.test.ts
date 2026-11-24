@@ -430,3 +430,17 @@ describe('test-run tools', () => {
 		expect([...kinds].filter(([, values]) => values.size > 1).map(([n]) => n)).toEqual([])
 	})
 })
+
+describe('draft write tools', () => {
+	// Script, flow and app writes have a diff card or an edit group. Every other item kind's
+	// writes need its own draft capability and show only the item's path, so a new one must say
+	// how its rows fold.
+	it('include every write needing a per-kind draft capability', () => {
+		const ownCard = new Set(['write_draft', 'write_flow_draft', 'write_app_draft'])
+		const perKind = (t: (typeof globalTools)[number]) =>
+			t.requires?.some((c) => /^write_\w+_draft$/.test(c) && !ownCard.has(c))
+		expect(
+			globalTools.filter((t) => perKind(t) && !t.draftWrite).map((t) => t.def.function.name)
+		).toEqual([])
+	})
+})

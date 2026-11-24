@@ -1497,6 +1497,10 @@ export interface Tool<T> {
 	 * lookups. Requires `planModeSafe`, which also admits writes (plan documents, artifacts)
 	 * and a test run; absence keeps the row on its own. */
 	lookup?: boolean
+	/** The noun a draft write of an item with no diff card of its own is counted as, e.g.
+	 * `schedule`: consecutive ones fold into one group, `Drafted 2 schedules, 1 trigger`. A write
+	 * with a diff card leaves it unset, as the diff is what the user reads. */
+	draftWrite?: string
 	/** Test-runs an item of this kind (a step test runs its flow), so the transcript may fold
 	 * consecutive runs of one item, and the edits between them, into one row. A run of the
 	 * deployed version never sets it; absence keeps the row on its own. */

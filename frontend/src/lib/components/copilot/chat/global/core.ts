@@ -3832,6 +3832,7 @@ export const globalTools: SessionTool<{}>[] = [
 	},
 	{
 		requires: WRITE_SCHEDULE_DRAFT,
+		draftWrite: 'schedule',
 		def: createToolDef(
 			writeScheduleToolSchema,
 			'write_schedule',
@@ -3858,6 +3859,7 @@ export const globalTools: SessionTool<{}>[] = [
 	},
 	{
 		requires: WRITE_TRIGGER_DRAFT,
+		draftWrite: 'trigger',
 		def: createToolDef(
 			writeTriggerSchema,
 			'write_trigger',
@@ -4348,6 +4350,7 @@ export const globalTools: SessionTool<{}>[] = [
 	},
 	{
 		requires: WRITE_RESOURCE_DRAFT,
+		draftWrite: 'resource',
 		def: createToolDef(
 			writeResourceSchema,
 			'write_resource',
@@ -4364,6 +4367,7 @@ export const globalTools: SessionTool<{}>[] = [
 	},
 	{
 		requires: WRITE_VARIABLE_DRAFT,
+		draftWrite: 'variable',
 		def: createToolDef(
 			writeVariableSchema,
 			'write_variable',
