@@ -66,15 +66,15 @@
 		running: 'Running',
 		suspended: 'Awaiting approval'
 	}
-	// Waiting for a person is neither progress nor trouble: grey, not running's yellow. Whose
-	// approval it waits for is the approvals status's to say.
+	// Waiting for a person is neither progress nor trouble: violet, as a suspended job is
+	// everywhere else, not running's yellow.
 	const barClass = {
 		success: 'bg-green-500 dark:bg-green-600',
 		failure: 'bg-red-500 dark:bg-red-600',
 		resolved: 'bg-orange-300 dark:bg-orange-700',
 		canceled: 'bg-gray-400 dark:bg-gray-500',
 		running: 'bg-yellow-500',
-		suspended: 'bg-gray-300 dark:bg-gray-600'
+		suspended: 'bg-violet-400 dark:bg-violet-500'
 	}
 
 	function runTooltip(run: RecentRun) {
@@ -116,7 +116,9 @@
 		{#if item.status === 'running'}
 			<Loader2 size={14} class="animate-spin text-yellow-500" />
 		{:else if item.status === 'suspended'}
-			<span class="text-hint" title="Awaiting approval"><Hourglass size={14} /></span>
+			<span class="text-violet-600 dark:text-violet-400" title="Awaiting approval"
+				><Hourglass size={14} /></span
+			>
 		{:else if failing}
 			<CircleX size={14} class="text-red-500" />
 		{:else if item.status === 'resolved'}
@@ -227,7 +229,14 @@
 	{/if}
 
 	<span class="relative w-[46px] shrink-0 text-right text-[11px] text-hint">
-		<span class="group-hover:invisible group-focus-within:invisible">
+		<span
+			class="group-hover:invisible group-focus-within:invisible {latest?.status === 'suspended'
+				? 'text-violet-600 dark:text-violet-400'
+				: ''}"
+			title={latest?.status === 'suspended'
+				? `Awaiting approval for ${shortAge(latest, now)}`
+				: undefined}
+		>
 			{latest ? shortAge(latest, now) : ''}
 		</span>
 		{#if latest}

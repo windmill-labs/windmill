@@ -175,10 +175,10 @@ export function windowLabel(hours: number) {
 	return hours > 24 && hours % 24 === 0 ? `last ${hours / 24}d` : `last ${hours}h`
 }
 
-/** `now`, `3m`, `2h`, `4d`; `running` while the newest run has not finished. */
+/** `now`, `3m`, `2h`, `4d`; `running` while the newest run has not finished. A run waiting on an
+ *  approval shows how long it has been waiting, counted from its start. */
 export function shortAge(run: RecentRun, now: number) {
 	if (run.status === 'running') return 'running'
-	if (run.status === 'suspended') return 'waiting'
 	const s = Math.max(0, (now - new Date(run.ran_at).getTime()) / 1000)
 	if (s < 60) return 'now'
 	if (s < 3600) return `${Math.floor(s / 60)}m`
