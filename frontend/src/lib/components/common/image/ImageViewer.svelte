@@ -14,10 +14,10 @@
 		/** Caption in the header; defaults to `alt`. Also names the downloaded file when it
 		 *  ends in an extension (an S3 key, an attachment's file name). */
 		title?: string
-		isOpen?: boolean
+		isOpen: boolean
 	}
 
-	let { src, alt = '', title, isOpen = $bindable(false) }: Props = $props()
+	let { src, alt = '', title, isOpen = $bindable() }: Props = $props()
 
 	const caption = $derived(title || alt || 'Image')
 
@@ -167,11 +167,20 @@
 		}
 	}
 
+	/** A plain click beside the image dismisses; one that ends a pan does not. */
+	let dismissOnClick = false
+
 	function onPointerUp() {
-		// A plain click beside the image dismisses; one that ends a pan does not.
-		if (drag && !drag.moved && !drag.onImage) close()
+		dismissOnClick = !!drag && !drag.moved && !drag.onImage
 		drag = undefined
 		panning = false
+	}
+
+	function onStageClick() {
+		// Closed on `click`, not `pointerup`: outside-click guards elsewhere (the chat composer)
+		// listen for this click and must still see the viewer open when it arrives.
+		if (dismissOnClick) close()
+		dismissOnClick = false
 	}
 
 	function onKeyDown(e: KeyboardEvent) {
@@ -241,9 +250,11 @@
 			canvas.width = imgEl!.naturalWidth
 			canvas.height = imgEl!.naturalHeight
 			canvas.getContext('2d')!.drawImage(imgEl!, 0, 0)
-			const blob = await new Promise<Blob>((resolve, reject) =>
+			const blob = new Promise<Blob>((resolve, reject) =>
 				canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('encoding failed'))), 'image/png')
 			)
+			// Handed over as a promise so `write` runs within the click: Safari refuses it once
+			// the user gesture has expired, which an awaited encode would let happen.
 			await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })])
 			sendUserToast('Image copied to clipboard')
 		} catch (e) {
@@ -284,6 +295,7 @@
 							onpointerdown={onPointerDown}
 							onpointermove={onPointerMove}
 							onpointerup={onPointerUp}
+							onclick={onStageClick}
 							onpointercancel={() => {
 								drag = undefined
 								panning = false
