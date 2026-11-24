@@ -1,4 +1,5 @@
 import type { AttachedBlob } from './blobUtils'
+import { SecretCheckFailed, checkSubmission, checkText, saveSecretRequest } from './secretRequest'
 import type { ChatViewHost } from './chatViewHost'
 import type { ScriptLang } from '$lib/gen/types.gen'
 import { JobService, type CompletedJob } from '$lib/gen'
@@ -25,6 +26,9 @@ import {
 	type ToolCallbacks,
 	type ToolDisplayMessage,
 	type UserQuestionDisplay,
+	type SecretRequest,
+	type SecretSubmission,
+	type SecretRequestOutcome,
 	type RunFormAnswer,
 	type RunFormDisplay,
 	type RunFormDraft,
@@ -1000,6 +1004,22 @@ export class AIChatManager implements ChatViewHost {
 		{ resolve: (value: boolean) => void; toolName?: string }
 	>()
 	private userQuestionCallbacks = new Map<string, (choices: string[] | undefined) => void>()
+	// An open secret card. The manager runs its save, so it alone settles it: the card is a
+	// form, and Stop cannot withdraw a save already sent.
+	#secretRequests = new Map<
+		string,
+		{
+			request: SecretRequest
+			resolve: (outcome: SecretRequestOutcome | undefined) => void
+			save?: Promise<void>
+			/** What a refused or failed try already wrote, which a retry updates. */
+			own: Set<string>
+			/** Saved, but its connection check failed: the card stays open to retry or keep it. */
+			saved?: SecretRequestOutcome
+			/** The turn stopped while the save was in flight. */
+			stopped?: boolean
+		}
+	>()
 	// Kept apart from confirmationCallbacks: YOLO answers those, and never answers these.
 	// Resolved undefined when the turn stops first.
 	private scopeCallbacks = new Map<string, (decision: ScopeDecision | undefined) => void>()
@@ -2484,6 +2504,113 @@ export class AIChatManager implements ChatViewHost {
 		return true
 	}
 
+	requestSecret = (
+		toolId: string,
+		request: SecretRequest
+	): Promise<SecretRequestOutcome | undefined> => {
+		return new Promise((resolve) => {
+			this.#secretRequests.set(toolId, { request, resolve, own: new Set() })
+			// The tool checks the path before it asks, so a stop during that check has already
+			// settled every open request: this one would park the turn for good.
+			if (this.abortController?.signal.aborted) void this.#settleSecretRequest(toolId, undefined)
+		})
+	}
+
+	/** Saves the value the user typed on the card. Rejects with the server's refusal, which the
+	 * card shows; the request stays open for another try. */
+	saveSecret = (toolId: string, submission: SecretSubmission): Promise<void> => {
+		const entry = this.#secretRequests.get(toolId)
+		if (!entry) return Promise.reject(new Error('This request is no longer open.'))
+		if (entry.save) return entry.save
+		const { request } = entry
+		const save = (async () => {
+			const saved = await saveSecretRequest(request, submission, entry.own)
+			const check = await checkSubmission(request, submission)
+			const outcome = check ? { ...saved, check } : saved
+			if (check && !check.ok && !entry.stopped) {
+				entry.saved = outcome
+				throw new SecretCheckFailed(check.error)
+			}
+			return this.#settleSecretRequest(toolId, outcome)
+		})().catch((e) => {
+			entry.save = undefined
+			if (entry.stopped) void this.#settleSecretRequest(toolId, entry.saved)
+			throw e
+		})
+		entry.save = save
+		return save
+	}
+
+	dismissSecret = (toolId: string): void => {
+		const entry = this.#secretRequests.get(toolId)
+		// After a failed check the resource exists: dismissing keeps it, as the card says.
+		if (entry && !entry.save) void this.#settleSecretRequest(toolId, entry.saved)
+	}
+
+	/** The one writer of a settled secret card. In a live turn the tool then returns the outcome
+	 * to the model. After a stop the turn is gone, so a save that lands then is told on the
+	 * model's next turn, as a detached job's result is, and written to this chat's history. */
+	#settleSecretRequest(toolId: string, outcome: SecretRequestOutcome | undefined): Promise<void> {
+		const entry = this.#secretRequests.get(toolId)
+		if (!entry) return Promise.resolve()
+		this.#secretRequests.delete(toolId)
+		const { label } = entry.request
+		this.displayMessages = this.displayMessages.map((m) =>
+			m.role === 'tool' && m.tool_call_id === toolId && m.secretRequest
+				? {
+						...m,
+						error: undefined,
+						isLoading: false,
+						content: outcome
+							? entry.request.resource
+								? `Saved ${label} as a draft of ${outcome.path}${outcome.check ? (outcome.check.ok ? ' · test passed' : ' · test failed') : ''}`
+								: `Saved ${label} as a draft of ${outcome.path}`
+							: `Asked for ${label} — dismissed`,
+						secretRequest: outcome
+							? { ...m.secretRequest, saving: false, saved: outcome }
+							: { ...m.secretRequest, saving: false, canceled: true }
+					}
+				: m
+		)
+		// The drafts the card saved are this session's changes, deployed from its panel, whether
+		// they landed during the turn or after it stopped.
+		if (outcome) {
+			for (const variable of outcome.variables) this.recordModifiedItem('variable', variable)
+			if (entry.request.resource) this.recordModifiedItem('resource', outcome.path)
+		}
+		if (!entry.stopped) {
+			entry.resolve(outcome)
+			return Promise.resolve()
+		}
+		const note = outcome
+			? this.queueModelNote(
+					entry.request.resource
+						? `The user saved ${label} after the turn stopped: it is a draft of the resource ${outcome.path}, referenced as "$res:${outcome.path}", with its secrets in drafts of ${outcome.variables.join(', ')}.${checkText(outcome)} Nothing is deployed, so no run can read it until it is.`
+						: `The user's ${label} was saved after the turn stopped: it is a draft of the secret variable ${outcome.path}, referenced as "$var:${outcome.path}". Nothing is deployed, so no run can read it until it is.`
+				)
+			: Promise.resolve()
+		// The variable is saved whatever happens here, so a failed write must not reach the card.
+		const written = note
+			.then(async () => {
+				await Promise.all([this.#persistBackgroundJobs(), this.#persistModifiedItems()])
+			})
+			.catch((e) => console.error('Failed to persist a secret saved after stop', e))
+		this.#lateSecretWrites.add(written)
+		void written.finally(() => this.#lateSecretWrites.delete(written))
+		return written
+	}
+
+	// Written into the conversation on screen, so a chat switch waits for them.
+	#lateSecretWrites = new Set<Promise<void>>()
+
+	/** Lets every in-flight secret save land and be written to this chat. */
+	#secretSavesLanded(): Promise<unknown> {
+		return Promise.allSettled([
+			...[...this.#secretRequests.values()].flatMap((entry) => (entry.save ? [entry.save] : [])),
+			...this.#lateSecretWrites
+		])
+	}
+
 	requestRunArgs = (
 		toolId: string,
 		form: RunFormDisplay,
@@ -3883,6 +4010,8 @@ export class AIChatManager implements ChatViewHost {
 	 * Counted, not boolean: a send recursively flushes queued messages, and the
 	 * inner one finishing doesn't mean the outer is done. */
 	#sendsInFlight = $state(0)
+	/** Every send ever started, for telling whether one began during an await. */
+	#sendsStarted = 0
 	get sendInFlight(): boolean {
 		return this.#sendsInFlight > 0
 	}
@@ -4095,6 +4224,7 @@ export class AIChatManager implements ChatViewHost {
 			return false
 		}
 		this.#sendsInFlight++
+		this.#sendsStarted++
 		try {
 			return await this.sendRequestImpl(options)
 		} finally {
@@ -4860,6 +4990,7 @@ export class AIChatManager implements ChatViewHost {
 					onToolBlockedByPlanMode: this.planMode.noteBlockedTool,
 					isToolWithdrawn: this.isToolWithdrawn,
 					requestUserQuestion: this.requestUserQuestion,
+					requestSecret: this.requestSecret,
 					requestRunArgs: this.requestRunArgs,
 					markRunFormStarted: this.markRunFormStarted,
 					markRunFormEnded: this.markRunFormEnded,
@@ -5167,6 +5298,14 @@ export class AIChatManager implements ChatViewHost {
 			resolveQuestion(undefined)
 		}
 		this.userQuestionCallbacks.clear()
+		for (const [toolId, entry] of this.#secretRequests) {
+			// The turn ends now, but the save cannot be withdrawn: settledToolDisplay shows the card
+			// as saving, and the save settles it when it lands.
+			if (entry.save) {
+				entry.stopped = true
+				entry.resolve(undefined)
+			} else void this.#settleSecretRequest(toolId, entry.saved)
+		}
 		for (const [toolId, entry] of this.#runForms) {
 			entry.resolve?.(undefined)
 			// Stopping the turn is the form's other way out, and the draft dies with this loop:
@@ -5337,6 +5476,11 @@ export class AIChatManager implements ChatViewHost {
 
 	saveAndClear = async () => {
 		this.cancel('saveAndClear')
+		const sends = this.#sendsStarted
+		await this.#secretSavesLanded()
+		// The composer stays open meanwhile, so a turn may have started: it keeps its chat.
+		// Not `sendInFlight`, which `/clear` itself is.
+		if (this.#sendsStarted !== sends) return
 		// Drop any message queued in this conversation so it can't auto-send into
 		// the fresh chat or linger as a card across the switch.
 		this.#clearQueue()
@@ -5373,6 +5517,10 @@ export class AIChatManager implements ChatViewHost {
 		// one in underneath it misfiles the turn — or duplicates it, when the loaded
 		// chat already carries the turn's own checkpoint. Gated on `sendInFlight`
 		// too, for the pre-`loading` window `sendOrQueue` documents.
+		if (this.loading || this.sendInFlight) return
+		// A save settles its card in whatever conversation is on screen when it lands.
+		await this.#secretSavesLanded()
+		// The composer stays open meanwhile, so a turn may have started.
 		if (this.loading || this.sendInFlight) return
 		const chat = await this.historyManager.loadPastChat(id)
 		if (chat) {
@@ -5792,6 +5940,12 @@ export class AIChatManager implements ChatViewHost {
 					userQuestion: message.userQuestion
 						? { ...message.userQuestion, canceled: true }
 						: undefined,
+					secretRequest:
+						message.secretRequest && !message.secretRequest.saved
+							? this.#secretRequests.get(message.tool_call_id)?.save
+								? { ...message.secretRequest, saving: true }
+								: { ...message.secretRequest, canceled: true }
+							: message.secretRequest,
 					runForm: message.runForm
 						? settledRunForm({ ...message.runForm, canceled: runState === 'idle' })
 						: undefined

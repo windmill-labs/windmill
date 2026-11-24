@@ -406,6 +406,8 @@
       - write_resource
       - deploy_workspace_item
       - delete_workspace_item
+      # The user gave the token, so the secret card would only make them type it again.
+      - request_secret
     toolCallArgs:
       - tool: write_variable
         field: value
@@ -584,6 +586,8 @@
       - write_trigger
       - deploy_workspace_item
       - delete_workspace_item
+      # The user gave the password, so the secret card would only make them type it again.
+      - request_secret
     toolCallArgs:
       - tool: write_variable
         field: value
@@ -3790,22 +3794,32 @@
     sessionChat: true
     userAnswers:
       - It is for the Stripe API; I will paste the value myself
+    secretRequests:
+      - action: save
   validate:
-    requiredDrafts:
-      - type: variable
-        valueIncludes:
-          - '"is_secret": true'
+    draftCountExactly: 1
   toolExpect:
+    requiredToolsUsed:
+      - request_secret
     forbiddenToolsUsed:
+      - write_variable
       - deploy_workspace_item
+      # The card saved the draft: what is left is a deploy the AI offers, not a page to open.
+      - open_page
+    toolCallArgs:
+      - tool: request_secret
+        field: resource_type
+        fieldMustBeAbsent: true
   assistantExpect:
     requiredMentionsAnyOf:
       - - getVariable
         - get_variable
         - "$var:"
+      - - deploy
+  skipJudge: true
   judgeChecklist:
-    - stages a secret variable with a placeholder value instead of inventing the key
-    - any example script reads the variable rather than embedding the key; an example given only in the chat is checked separately, so do not score its absence here
+    - asks for the key through one secure card for a secret variable, without asking for it in the chat or staging a placeholder
+    - any example script reads the variable rather than embedding the key
 
 # Pills that name what an established workspace holds, read from composer_connected_workspace.
 - id: global-composer-explore-datatable
@@ -4239,3 +4253,234 @@
     - creates a script draft at f/evals/global/open_tasks_per_user
     - the script fetches the todos and counts the open ones per user
     - the script returns the per-user counts rather than the raw todo list
+
+# Connecting a service whose secrets the user has not given goes through one request_secret
+# card: no question about a field the card takes, and no write of the resource or its secret
+# variable, since the card saves both as drafts; the AI then offers to deploy them.
+# `runtime.secretRequests` plays the user on the card and saves through its own save.
+- id: global-secret-card-supabase-postgres
+  prompt: |-
+    Connect our Supabase Postgres database so my scripts can query it. Save it as f/evals/global/supabase_db.
+  initial: ai_evals/fixtures/frontend/global/initial/user_admin_evals_folder.json
+  runtime:
+    maxTurns: 8
+    userAnswers:
+      - With a connection string
+    secretRequests:
+      - action: save
+        fields:
+          host: aws-0-eu-west-1.pooler.supabase.com
+          port: 5432
+          user: postgres.abcdefgh
+          dbname: postgres
+          sslmode: require
+        check:
+          ok: true
+  validate:
+    draftCountExactly: 2
+  toolExpect:
+    requiredToolsUsed:
+      - request_secret
+    forbiddenToolsUsed:
+      - write_resource
+      - write_variable
+      - deploy_workspace_item
+      # The card saved the drafts: what is left is a deploy the AI offers, not a page to open.
+      - open_page
+    toolCallArgs:
+      - tool: request_secret
+        field: resource_type
+        stringEqualsAnyOf:
+          - postgresql
+      - tool: request_secret
+        field: path
+        stringEqualsAnyOf:
+          - f/evals/global/supabase_db
+  assistantExpect:
+    # The card leaves drafts, which nothing can run until deployed.
+    requiredMentionsAnyOf:
+      - - deploy
+  skipJudge: true
+  judgeChecklist:
+    - asks in the chat for no connection detail the card takes (host, user, database, password, connection string)
+    - connects the database through one secure card at f/evals/global/supabase_db
+    - refers to it as $res:f/evals/global/supabase_db once it is saved
+
+- id: global-secret-card-openai
+  prompt: |-
+    I want my scripts to call OpenAI. Can you add my OpenAI API key to the workspace?
+  initial: ai_evals/fixtures/frontend/global/initial/user_admin_evals_folder.json
+  runtime:
+    maxTurns: 8
+    secretRequests:
+      - action: save
+        check:
+          ok: true
+  validate:
+    draftCountExactly: 2
+  toolExpect:
+    requiredToolsUsed:
+      - request_secret
+    forbiddenToolsUsed:
+      - write_resource
+      - write_variable
+      - deploy_workspace_item
+    toolCallArgs:
+      - tool: request_secret
+        field: resource_type
+        stringEqualsAnyOf:
+          - openai
+  assistantExpect:
+    # The card leaves drafts, which nothing can run until deployed.
+    requiredMentionsAnyOf:
+      - - deploy
+  skipJudge: true
+  judgeChecklist:
+    - connects OpenAI as an openai resource through one secure card, without asking for the key in the chat
+
+# A secret that goes into no resource is a request_secret without a resource type.
+- id: global-secret-card-variable
+  prompt: |-
+    Store our Mailgun API key as a secret variable at f/evals/global/mailgun_api_key. A script will take it as an argument later.
+  initial: ai_evals/fixtures/frontend/global/initial/user_admin_evals_folder.json
+  runtime:
+    maxTurns: 8
+    secretRequests:
+      - action: save
+  validate:
+    draftCountExactly: 1
+  toolExpect:
+    requiredToolsUsed:
+      - request_secret
+    forbiddenToolsUsed:
+      - write_resource
+      - write_variable
+      - deploy_workspace_item
+    toolCallArgs:
+      - tool: request_secret
+        field: resource_type
+        fieldMustBeAbsent: true
+      - tool: request_secret
+        field: path
+        stringEqualsAnyOf:
+          - f/evals/global/mailgun_api_key
+  assistantExpect:
+    # The card leaves drafts, which nothing can run until deployed.
+    requiredMentionsAnyOf:
+      - - deploy
+  skipJudge: true
+  judgeChecklist:
+    - asks for the Mailgun key through one secure card for a secret variable at f/evals/global/mailgun_api_key, without asking for it in the chat
+    - refers to it as $var:f/evals/global/mailgun_api_key once it is saved
+
+# A rotated password replaces the secret the existing resource references. Asking for the
+# bare variable at that path and replacing the resource with its fields carried over both
+# keep the host, user and database.
+- id: global-secret-card-replace-password
+  prompt: |-
+    The password of our reporting database changed. Can you update it in Windmill?
+  initial: ai_evals/fixtures/frontend/global/initial/reporting_db_resource.json
+  runtime:
+    maxTurns: 8
+    secretRequests:
+      - action: save
+        check:
+          ok: true
+  validate:
+    draftCountAtLeast: 1
+  toolExpect:
+    requiredToolsUsed:
+      - request_secret
+    forbiddenToolsUsed:
+      - write_resource
+      - write_variable
+      - deploy_workspace_item
+      - delete_workspace_item
+    toolCallArgs:
+      - tool: request_secret
+        field: path
+        stringEqualsAnyOf:
+          - f/evals/global/reporting_db
+  assistantExpect:
+    # The card leaves drafts, which nothing can run until deployed.
+    requiredMentionsAnyOf:
+      - - deploy
+  skipJudge: true
+  judgeChecklist:
+    - asks for the new password through one secure card on the existing f/evals/global/reporting_db resource, not in the chat
+    - keeps the resource's host, port, user and database as they are
+
+- id: global-secret-card-s3
+  prompt: |-
+    Connect our S3 bucket acme-exports in eu-west-1 so flows can write files there. Save it as f/evals/global/exports_s3.
+  initial: ai_evals/fixtures/frontend/global/initial/user_admin_evals_folder.json
+  runtime:
+    maxTurns: 8
+    secretRequests:
+      - action: save
+        check:
+          ok: true
+  validate:
+    draftCountAtLeast: 2
+  toolExpect:
+    requiredToolsUsed:
+      - request_secret
+    forbiddenToolsUsed:
+      - write_resource
+      - write_variable
+      - deploy_workspace_item
+    toolCallArgs:
+      - tool: request_secret
+        field: resource_type
+        stringEqualsAnyOf:
+          - s3
+      - tool: request_secret
+        field: resource_value.bucket
+        stringIncludesAnyOf:
+          - acme-exports
+  assistantExpect:
+    # The card leaves drafts, which nothing can run until deployed.
+    requiredMentionsAnyOf:
+      - - deploy
+  skipJudge: true
+  judgeChecklist:
+    - connects the acme-exports bucket as an s3 resource through one secure card that asks for its access keys
+    - prepares the bucket and region on the card rather than asking for them in the chat
+
+# A session held in Use has no write tools, but the card is the user's own save, so connecting
+# a service still leaves its drafts there.
+- id: global-secret-card-read-only-session
+  prompt: |-
+    Can you add my OpenAI API key to the workspace?
+  initial: ai_evals/fixtures/frontend/global/initial/user_admin_evals_folder.json
+  runtime:
+    maxTurns: 8
+    sessionChat: true
+    profile:
+      operator: true
+      operatorSettings:
+        builder_flows: false
+        builder_apps: false
+        manage_schedules: false
+        manage_triggers: false
+    secretRequests:
+      - action: save
+        check:
+          ok: true
+  validate:
+    draftCountExactly: 2
+  toolExpect:
+    requiredToolsUsed:
+      - request_secret
+    toolCallArgs:
+      - tool: request_secret
+        field: resource_type
+        stringEqualsAnyOf:
+          - openai
+  assistantExpect:
+    # The card leaves drafts, which nothing can run until deployed.
+    requiredMentionsAnyOf:
+      - - deploy
+  skipJudge: true
+  judgeChecklist:
+    - connects OpenAI through the secure card even though the session itself cannot write drafts

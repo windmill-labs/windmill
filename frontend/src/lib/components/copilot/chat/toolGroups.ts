@@ -110,6 +110,7 @@ function standsAlone(message: ToolDisplayMessage): boolean {
 			(message.outOfScope && !message.outOfScope.decision) ||
 			message.heldForFolderInstructions ||
 			message.userQuestion ||
+			message.secretRequest ||
 			message.declinedByUser
 	)
 }

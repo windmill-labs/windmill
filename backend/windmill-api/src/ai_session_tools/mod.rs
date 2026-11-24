@@ -69,6 +69,7 @@ mod instructions;
 mod items;
 mod misc;
 mod runs;
+mod secrets;
 mod settings;
 mod views;
 mod workspace;
@@ -217,7 +218,7 @@ macro_rules! groups {
         }
     };
 }
-groups!(guidance, workspace, items, misc, flows, apps, runs, deploy, data, settings);
+groups!(guidance, workspace, items, misc, flows, apps, runs, deploy, data, settings, secrets);
 
 /// A tool as a client lists it.
 #[cfg(feature = "mcp")]
@@ -479,14 +480,22 @@ impl Ctx<'_> {
             .map_or((page, None), |(p, h)| (p, Some(h)));
         let sep = if page.contains('?') { '&' } else { '?' };
         let hash = hash.map(|h| format!("#{h}")).unwrap_or_default();
+        format!(
+            "{}{page}{sep}workspace={}{hash}",
+            self.base_url(),
+            enc(self.w_id)
+        )
+    }
+
+    /// The instance's address as the user opens it.
+    pub fn base_url(&self) -> String {
         // An instance that never set its base URL holds this placeholder, which no client
         // can open; the host the client reached is the better guess then.
         let base = windmill_common::BASE_URL.load();
-        let base = match self.origin {
-            Some(origin) if base.as_str() == "http://localhost" => origin,
-            _ => base.as_str(),
-        };
-        format!("{base}{page}{sep}workspace={}{hash}", enc(self.w_id))
+        match self.origin {
+            Some(origin) if base.as_str() == "http://localhost" => origin.to_string(),
+            _ => base.as_str().to_string(),
+        }
     }
 }
 

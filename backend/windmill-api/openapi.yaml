@@ -15332,6 +15332,35 @@ paths:
                       type: object
                       additionalProperties: true
 
+  /w/{workspace}/ai_session_tools/secret_request/open:
+    post:
+      summary: read the secret request a request_secret link carries
+      description: The page an MCP client's request_secret link opens reads the card to draw from the link's signed token. Refused when the token is invalid, expired, or made for another user or workspace.
+      operationId: openSecretRequest
+      tags:
+        - ai
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - token
+              properties:
+                token:
+                  type: string
+      responses:
+        "200":
+          description: the card's request
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+
   /w/{workspace}/ai/sessions/list:
     get:
       summary: list the calling user's AI session backups in the workspace object storage
