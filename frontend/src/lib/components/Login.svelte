@@ -42,7 +42,12 @@
 	import { sameTopDomainOrigin } from '$lib/cookies'
 	import { isValidLogoutRedirect, toSameOriginRelativePath } from '$lib/logoutRedirect'
 	import InputError from './InputError.svelte'
-	import { loginErrorMessage } from '$lib/loginError'
+	import {
+		loginErrorDetail,
+		loginErrorMessage,
+		TOTP_INVALID_MESSAGE,
+		TOTP_REQUIRED
+	} from '$lib/loginError'
 	import Badge from './common/badge/Badge.svelte'
 	import {
 		getLastLoginMethod,
@@ -108,6 +113,7 @@
 	const emailId = `${uid}-email`
 	const passwordId = `${uid}-password`
 	const errorId = `${uid}-error`
+	const totpId = `${uid}-totp`
 	const emailErrorId = `${uid}-email-error`
 
 	const providers = [
@@ -182,6 +188,11 @@
 
 	let showPassword = $state(false)
 	let passwordField = $state<Password | undefined>(undefined)
+	// The account the server asked an authenticator code for; editing the email drops the field.
+	let totpFor = $state<string | undefined>(undefined)
+	let totpCode = $state('')
+	let totpField = $state<TextInput | undefined>(undefined)
+	let showTotp = $derived(totpFor !== undefined && totpFor === email)
 	// Type argument rather than annotation: annotating narrows the declaration to the
 	// initializer's `undefined`, so a top-level read sees `never` instead of the array.
 	let logins = $state<OAuthLogin[] | undefined>(undefined)
@@ -199,7 +210,7 @@
 	let formError = $state<
 		| {
 				message: string
-				fields: 'both' | 'email' | 'password'
+				fields: 'both' | 'email' | 'password' | 'totp'
 				email: string | undefined
 				password: string | undefined
 		  }
@@ -220,7 +231,7 @@
 
 	async function failLogin(
 		message: string,
-		fields: 'both' | 'email' | 'password' = 'both',
+		fields: 'both' | 'email' | 'password' | 'totp' = 'both',
 		// The pair the message is about. Defaults to what is in the fields right now, but a
 		// rejected request passes what it actually submitted: the user may have typed on since.
 		attempted: { email: string | undefined; password: string | undefined } = { email, password }
@@ -257,9 +268,15 @@
 			return
 		}
 
+		if (showTotp && !totpCode.trim()) {
+			failLogin('Enter the code from your authenticator app.', 'totp')
+			return
+		}
+
 		const requestBody = {
 			email,
-			password
+			password,
+			totp_code: showTotp ? totpCode : undefined
 		}
 
 		// Await the DOM update: the field must be back to type="password" before the
@@ -273,7 +290,16 @@
 			// previous account must not be served to this one.
 			noteSessionEmail(email)
 		} catch (err) {
-			failLogin(loginErrorMessage(err), 'both', requestBody)
+			if (loginErrorDetail(err) === TOTP_REQUIRED) {
+				formError = undefined
+				totpFor = email
+				totpCode = ''
+				await tick()
+				totpField?.focus()
+				return
+			}
+			const message = loginErrorMessage(err)
+			failLogin(message, message === TOTP_INVALID_MESSAGE ? 'totp' : 'both', requestBody)
 			return
 		}
 
@@ -845,8 +871,33 @@
 								onKeyDown={handleKeyDown}
 							/>
 						</div>
-						{@render errorMessage()}
+						{#if !showTotp}
+							{@render errorMessage()}
+						{/if}
 					</div>
+					{#if showTotp}
+						<div class="space-y-1">
+							<label for={totpId} class="block text-xs font-semibold text-emphasis">
+								Authentication code
+							</label>
+							<TextInput
+								bind:this={totpField}
+								size="md"
+								bind:value={totpCode}
+								error={errorField === 'totp'}
+								inputProps={{
+									id: totpId,
+									'aria-invalid': errorField === 'totp' ? 'true' : undefined,
+									'aria-describedby': errorField === 'totp' ? errorId : undefined,
+									autocomplete: 'one-time-code',
+									inputmode: 'numeric',
+									placeholder: 'Code from your authenticator app',
+									onkeydown: handleKeyDown
+								}}
+							/>
+							{@render errorMessage()}
+						</div>
+					{/if}
 				</div>
 
 				<div>

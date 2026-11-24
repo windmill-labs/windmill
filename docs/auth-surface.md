@@ -25,6 +25,16 @@ Symbols, not line numbers, are cited: they drift less.
   access-token row, then its grant, the order the trigger also follows. A new path that writes a
   user's tokens and may revoke must lock that row first too. `leave_workspace` deletes no tokens
   and revokes nothing; `leave_instance` deletes every token of the account, as `delete_user` does.
+- **Two-factor (TOTP) guards `POST /auth/login` only** (`windmill-api-users/src/totp.rs`). The
+  password is checked first, so "Two-factor code required" tells only someone who knows the
+  password that a code is needed. Every other way into a session skips it on purpose: OAuth and
+  SAML (the provider owns the second factor), login links (minted by a superadmin, who can reset
+  the second factor anyway, and never for a superadmin or devops account), and `GET /users/refresh_token` (a session already exists).
+  Codes are single-use (`totp_last_step`). Wrong codes are capped per account at 5 a minute by an
+  in-memory counter that is always on, unlike the login limiter's per-account tier. Without that
+  cap, a known password leaves a 6-digit code as the only barrier. Recovery is
+  `POST /users/totp/reset/{user}` (superadmin). The secret is stored in plaintext in `password`,
+  since no instance-level key exists to encrypt it.
 - **Sessions** are `token` rows with `label='session'` plus the HttpOnly `token` cookie, minted only
   by `create_session_token` (`windmill-api-users/src/users.rs`). `GET /api/users/refresh_token`
   mints one for any non-job token but returns plain text, no redirect.

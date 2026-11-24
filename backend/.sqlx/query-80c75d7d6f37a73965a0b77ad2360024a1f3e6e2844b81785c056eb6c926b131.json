@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE password SET totp_secret = totp_pending_secret, totp_pending_secret = NULL\n         WHERE email = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "80c75d7d6f37a73965a0b77ad2360024a1f3e6e2844b81785c056eb6c926b131"
+}

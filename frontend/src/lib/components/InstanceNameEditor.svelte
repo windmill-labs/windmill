@@ -44,6 +44,10 @@
 		sendUserToast(`Password updated for ${email}`)
 	}
 
+	async function resetTotp() {
+		sendUserToast(await UserService.resetTotpOfUser({ user: email }))
+	}
+
 	async function saveLoginType() {
 		await UserService.setLoginTypeForUser({ user: email, requestBody: { login_type } })
 		sendUserToast(`Login type updated for ${email}`)
@@ -173,6 +177,22 @@
 					Update login type
 				</Button>
 			</label>
+			<div class="block text-primary">
+				<div class="pb-1 text-xs font-semibold text-emphasis">Two-factor authentication</div>
+				<div class="text-2xs text-secondary mb-1">
+					Removes the user's authenticator, for when they lost access to it. They can set up a new
+					one from their user settings.
+				</div>
+				<Button
+					unifiedSize="md"
+					variant="default"
+					buttonType="button"
+					btnClasses="mt-2"
+					onclick={resetTotp}
+				>
+					Reset two-factor
+				</Button>
+			</div>
 		</div>
 	{/snippet}
 </Popover>

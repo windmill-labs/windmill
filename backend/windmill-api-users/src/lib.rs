@@ -1,3 +1,4 @@
+pub mod totp;
 pub mod users;
 #[cfg(feature = "private")]
 pub mod users_ee;

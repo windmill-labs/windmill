@@ -5,6 +5,8 @@
 	import { Button } from '$lib/components/common'
 	import { sendUserToast } from '$lib/toast'
 	import TextInput from '../text_input/TextInput.svelte'
+	import CopyButton from '../common/button/CopyButton.svelte'
+	import { renderSVG } from 'uqr'
 
 	let newPassword = $state<string | undefined>(undefined)
 	let passwordError = $state<string | undefined>(undefined)
@@ -19,9 +21,35 @@
 
 	async function loadLoginType(): Promise<void> {
 		login_type = (await UserService.globalWhoami()).login_type
+		if (login_type == 'password') await loadTotp()
 		if (login_type == 'pending_oauth') {
 			passwordAllowed = !(await UserService.isPasswordLoginDisabled().catch(() => false))
 		}
+	}
+
+	let totpEnabled = $state<boolean | undefined>(undefined)
+	let totpSetup = $state<{ secret: string; otpauth_url: string } | undefined>(undefined)
+	let totpCode = $state('')
+
+	async function loadTotp(): Promise<void> {
+		totpEnabled = (await UserService.getTotpStatus()).enabled
+	}
+
+	async function startTotpSetup(): Promise<void> {
+		totpSetup = await UserService.setupTotp()
+		totpCode = ''
+	}
+
+	async function submitTotp(): Promise<void> {
+		const requestBody = { code: totpCode }
+		sendUserToast(
+			totpEnabled
+				? await UserService.disableTotp({ requestBody })
+				: await UserService.enableTotp({ requestBody })
+		)
+		totpSetup = undefined
+		totpCode = ''
+		await loadTotp()
 	}
 
 	async function setPassword(): Promise<void> {
@@ -78,5 +106,58 @@
 				>
 			{/if}
 		</label>
+
+		{#if login_type == 'password' && totpEnabled != undefined}
+			<div class="flex flex-col gap-1 w-120">
+				<span class="text-xs text-emphasis font-semibold">Two-factor authentication</span>
+				{#if totpEnabled}
+					<span class="text-xs text-primary font-normal">
+						Enabled. Logging in with your password also asks for a code from your authenticator app.
+						Enter a current code to turn it off.
+					</span>
+				{:else if totpSetup}
+					<span class="text-xs text-primary font-normal">
+						Scan this QR code with an authenticator app, then enter the 6-digit code it shows.
+					</span>
+					<div class="w-40 h-40 bg-white p-1 rounded-md">
+						{@html renderSVG(totpSetup.otpauth_url)}
+					</div>
+					<div class="flex flex-row gap-1 items-center text-2xs text-secondary">
+						Or enter this key manually: <code class="font-mono">{totpSetup.secret}</code>
+						<CopyButton value={totpSetup.secret} />
+					</div>
+				{:else}
+					<span class="text-xs text-primary font-normal">
+						Ask for a code from an authenticator app each time you log in with your password.
+					</span>
+					<div>
+						<Button unifiedSize="sm" variant="default" onClick={startTotpSetup}>
+							Set up two-factor authentication
+						</Button>
+					</div>
+				{/if}
+				{#if totpEnabled || totpSetup}
+					<div class="flex flex-row gap-1 items-center">
+						<TextInput
+							inputProps={{
+								autocomplete: 'one-time-code',
+								inputmode: 'numeric',
+								placeholder: '123456'
+							}}
+							bind:value={totpCode}
+						/>
+						<Button
+							unifiedSize="sm"
+							variant="default"
+							btnClasses="w-min whitespace-nowrap"
+							disabled={!totpCode}
+							onClick={submitTotp}
+						>
+							{totpEnabled ? 'Turn off' : 'Turn on'}
+						</Button>
+					</div>
+				{/if}
+			</div>
+		{/if}
 	</form>
 </div>
