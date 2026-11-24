@@ -316,18 +316,29 @@ function testRunOf(message: DisplayMessage, tools: GroupingTools): TestedItem | 
 
 // An edit or read of the item between two of its runs: what the model changes before running
 // it again. Its diff folds with it, since the next run is what says whether the change worked.
+// The kind of item a call edits, for the edits a test group takes and counts. An agent is an
+// `ai_agent` resource, so it is edited through write_resource.
+function testedEditKind(call: ToolDisplayMessage): TestedItemKind | undefined {
+	const tool = call.toolName ?? ''
+	if (Object.hasOwn(EDIT_TOOLS, tool)) return EDIT_TOOLS[tool]
+	if (SCRIPT_EDIT_TOOLS.has(tool)) return 'script'
+	if (tool === 'write_resource' && callParams(call).resource_type === 'ai_agent') return 'agent'
+	return undefined
+}
+
 function touchesTestedItem(message: DisplayMessage, item: TestedItem): boolean {
 	if (message.role !== 'tool' || !message.toolName) return false
 	if (standsAlone(message) || hasContentCard(message)) return false
 	const tool = message.toolName
 	const type = callParams(message).type
 	const kind: TestedItemKind | undefined =
-		EDIT_TOOLS[tool] ??
+		testedEditKind(message) ??
 		ITEM_READ_TOOLS[tool] ??
-		(SCRIPT_EDIT_TOOLS.has(tool) ? 'script' : undefined) ??
 		(tool === 'read_workspace_item' && (type === 'script' || type === 'flow' || type === 'app')
 			? type
-			: undefined)
+			: tool === 'read_workspace_item' && message.readsAgent
+				? 'agent'
+				: undefined)
 	if (!kind) return false
 	const path = callPath(message, PATHLESS_FLOW_MODE_TOOLS.has(tool) || tool === 'edit_code')
 	return sameTestedItem(item, { kind, path })
@@ -534,11 +545,7 @@ export function groupHeader(
 	}
 	if (group.groupKind === 'test' && group.tested) {
 		const { kind, runs } = group.tested
-		const edits = calls.filter(
-			(m) =>
-				(Object.hasOwn(EDIT_TOOLS, m.toolName ?? '') || SCRIPT_EDIT_TOOLS.has(m.toolName ?? '')) &&
-				!callFailed(m)
-		).length
+		const edits = calls.filter((m) => testedEditKind(m) && !callFailed(m)).length
 		return {
 			prefix: { queued: 'Test', running: 'Testing', settled: 'Tested' }[state],
 			label: [

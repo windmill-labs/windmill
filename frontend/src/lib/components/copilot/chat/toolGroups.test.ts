@@ -31,7 +31,8 @@ const TOOLS: GroupingTools = {
 	testRuns: new Map([
 		['test_run_script', 'script'],
 		['test_run_flow', 'flow'],
-		['test_run_app_runnable', 'app']
+		['test_run_app_runnable', 'app'],
+		['test_run_agent', 'agent']
 	])
 }
 
@@ -309,6 +310,22 @@ describe('groupToolRuns', () => {
 		]
 		expect(shape(messages)).toEqual([{ test: [0, 1, 2] }, 3, 4, 5, 6])
 		expect(header(messages)).toBe('Tested the flow · 2 runs · 1 change')
+	})
+
+	it("folds an agent's runs with the resource writes and reads between them", () => {
+		const path = 'f/a/agent'
+		const run = () => tool('test_run_agent', {}, { runForm: { path, args: {} } })
+		const messages = [
+			run(),
+			tool('read_workspace_item', { path, type: 'resource' }, { readsAgent: true }),
+			tool('write_resource', { path, resource_type: 'ai_agent', value: {} }),
+			run(),
+			// Another resource at the same path is not the agent.
+			tool('write_resource', { path, resource_type: 'postgresql', value: {} }),
+			run()
+		]
+		expect(shape(messages)).toEqual([{ test: [0, 1, 2, 3] }, 4, 5])
+		expect(header(messages)).toBe('Tested f/a/agent · 2 runs · 1 change')
 	})
 
 	it('names what a group did', () => {
