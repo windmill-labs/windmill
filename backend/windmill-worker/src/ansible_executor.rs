@@ -36,7 +36,8 @@ use crate::{
         build_command_with_isolation, check_executor_binary_exists, get_reserved_variables,
         interpolate_template, read_and_check_result, render_nsjail_rlimit_as,
         render_nsjail_rlimit_fsize, resolve_nsjail_timeout, resolve_nsjail_tmp_mount_block,
-        start_child_process, transform_json, validate_relative_path, OccupancyMetrics,
+        script_envars, start_child_process, transform_json, validate_relative_path,
+        OccupancyMetrics,
     },
     handle_child::{handle_child, run_future_with_polling_update_job_poller},
     is_sandboxing_enabled,
@@ -2137,7 +2138,7 @@ pub async fn handle_ansible_job(
         get_reserved_variables(job, &client.token, conn, parent_runnable_path).await?;
     let additional_python_paths_folders = additional_python_paths.join(":");
 
-    if is_sandboxing_enabled() {
+    let run_config = if is_sandboxing_enabled() {
         let shared_deps = additional_python_paths
             .into_iter()
             .map(|pp| {
@@ -2155,10 +2156,8 @@ mount {{
             .join("\n");
         let nsjail_timeout =
             resolve_nsjail_timeout(conn, &job.workspace_id, job.id, job.timeout).await;
-        let _ = write_file(
-            job_dir,
-            "run.config.proto",
-            &NSJAIL_CONFIG_RUN_ANSIBLE_CONTENT
+        Some(
+            NSJAIL_CONFIG_RUN_ANSIBLE_CONTENT
                 .replace(
                     "{RLIMIT_AS}",
                     &render_nsjail_rlimit_as(NSJAIL_ANSIBLE_RLIMIT_AS_MB.as_deref(), 4096),
@@ -2182,10 +2181,11 @@ mount {{
                     &resolve_nsjail_tmp_mount_block(job_dir).await,
                 )
                 .replace("{TIMEOUT}", &nsjail_timeout),
-        )?;
+        )
     } else {
         reserved_variables.insert("PYTHONPATH".to_string(), additional_python_paths_folders);
-    }
+        None
+    };
 
     let playbook = playbook_override
         .flatten()
@@ -2237,6 +2237,13 @@ fi
             )
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
+        let _ = write_file(
+            job_dir,
+            "run.config.proto",
+            &run_config
+                .unwrap_or_default()
+                .replace("{ENVARS}", &script_envars(&envs, &nsjail_cmd, &[])),
+        )?;
         start_child_process(nsjail_cmd, NSJAIL_PATH.as_str(), false).await?
     } else {
         let ansible_args: Vec<&str> = cmd_args.iter().map(|s| s.as_ref()).collect();
