@@ -318,9 +318,11 @@ async fn ci_tests_failure(
 ) -> error::Result<Option<String>> {
     let refs = sqlx::query!(
         "SELECT test_script_path, tested_item_path, has_wildcard AS \"has_wildcard!\" \
-         FROM ci_test_reference \
+         FROM ci_test_reference r \
          WHERE workspace_id = $1 AND tested_item_kind = $2 \
-           AND (has_wildcard OR tested_item_path = $3 OR tested_item_path = $4)",
+           AND (has_wildcard OR tested_item_path = $3 OR tested_item_path = $4) \
+           AND EXISTS (SELECT 1 FROM script s WHERE s.workspace_id = $1 \
+               AND s.path = r.test_script_path AND NOT s.archived AND NOT s.deleted)",
         w_id,
         kind,
         path,
@@ -340,8 +342,11 @@ async fn ci_tests_failure(
             .collect();
     let is_test = kind == "script"
         && sqlx::query_scalar!(
-            "SELECT EXISTS(SELECT 1 FROM ci_test_reference \
-             WHERE workspace_id = $1 AND (test_script_path = $2 OR test_script_path = $3))",
+            "SELECT EXISTS(SELECT 1 FROM ci_test_reference r JOIN script s \
+                 ON s.workspace_id = r.workspace_id AND s.path = r.test_script_path \
+                 AND NOT s.archived AND NOT s.deleted \
+             WHERE r.workspace_id = $1 \
+               AND (r.test_script_path = $2 OR r.test_script_path = $3))",
             w_id,
             path,
             renamed_from

@@ -14,6 +14,7 @@ import {
   parseDatatableMigrationDeployPath,
   type DeployKind,
   type DeployProvider,
+  type DeployResult,
   type TriggerDeployKind,
 } from "../../../windmill-utils-internal/src/deploy.ts";
 import { offerToRunNewMigrations } from "../datatable_migrations.ts";
@@ -562,16 +563,15 @@ async function mergeWorkspaces(
     name: string;
   }[] = [];
 
-  for (const diff of sorted) {
+  const mergeOne = async (diff: (typeof sorted)[number]) => {
     const label = `${diff.kind}:${diff.path}`;
-
     // Check if the item was deleted in the source workspace
     const itemDeletedInSource =
       direction === "to-parent"
         ? diff.exists_in_fork === false
         : diff.exists_in_source === false;
 
-    let result;
+    let result: DeployResult;
     if (itemDeletedInSource) {
       log.info(colors.yellow(`  ⌫ ${label} (removing from target)`));
       result = await deleteItemInWorkspace(
@@ -601,6 +601,22 @@ async function mergeWorkspaces(
       );
     }
 
+    return { diff, label, result, itemDeletedInSource };
+  };
+  const outcomes = [];
+  for (const diff of sorted) outcomes.push(await mergeOne(diff));
+  // A parent requiring passing CI tests refuses an item merged ahead of the changed test it
+  // is checked against, until that test lands: one more pass picks it up.
+  if (
+    direction === "to-parent" &&
+    outcomes.some((o) => o.result.success) &&
+    outcomes.some((o) => !o.result.success)
+  ) {
+    for (const [i, o] of outcomes.entries()) {
+      if (!o.result.success) outcomes[i] = await mergeOne(o.diff);
+    }
+  }
+  for (const { diff, label, result, itemDeletedInSource } of outcomes) {
     if (result.success) {
       log.info(colors.green(`  ✓ ${label}`));
       successCount++;

@@ -4398,7 +4398,9 @@ async fn archive_script_by_hash(
     // Archiving the live version puts the one before it back in its place.
     if windmill_dep_map::ci_tests::ci_tests_rule_active(&db, &w_id).await? {
         if let Some(path) = sqlx::query_scalar!(
-            "SELECT path FROM script WHERE workspace_id = $1 AND hash = $2",
+            "SELECT path FROM script s WHERE workspace_id = $1 AND hash = $2 \
+             AND hash = (SELECT hash FROM script WHERE workspace_id = $1 AND path = s.path \
+                 AND NOT archived AND NOT deleted ORDER BY created_at DESC LIMIT 1)",
             &w_id,
             hash.0
         )

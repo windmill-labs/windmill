@@ -956,7 +956,17 @@
 		const deployedMigrationDatatables = new Set<string>()
 		const ciTested: { kind: 'script' | 'flow' | 'resource'; path: string }[] = []
 		const applyAll = async () => {
-			for (const itemKey of sortedItems) {
+			await applyItems(sortedItems)
+			// A target requiring passing CI tests refuses an item merged ahead of the changed test it
+			// is checked against, until that test lands: one more pass picks it up.
+			const failed = sortedItems.filter((k) => deploymentStatus[k]?.status === 'failed')
+			if (mergeIntoParent && failed.length > 0 && failed.length < sortedItems.length) {
+				await applyItems(failed)
+			}
+			anyFailed = sortedItems.some((k) => deploymentStatus[k]?.status === 'failed')
+		}
+		const applyItems = async (keys: string[]) => {
+			for (const itemKey of keys) {
 				const deployable = deployableItems.find((d) => d.key === itemKey)
 
 				if (!deployable) {
@@ -967,7 +977,7 @@
 				const from = mergeIntoParent ? current : parent
 				await deploy(deployable.kind, deployable.path, to, from, itemKey)
 				if (deploymentStatus[itemKey]?.status === 'failed') {
-					anyFailed = true
+					continue
 				} else if (deployable.kind === 'datatable_migration') {
 					deployedMigrationDatatables.add(deployable.path.split('/')[0])
 				} else if (
