@@ -137,7 +137,10 @@ export async function requireLogin(
       );
     }
 
-    const { addWorkspace } = await import("../commands/workspace/workspace.ts");
+    // Removed silently first: `addWorkspace` logs the update to stdout, which would land in the
+    // output of the command being run (e.g. `wmill variable get … > file`).
+    const { removeWorkspace, addWorkspace } = await import("../commands/workspace/workspace.ts");
+    await removeWorkspace(workspace.name, true, opts);
     workspace.token = newToken;
     await addWorkspace(workspace, opts);
 

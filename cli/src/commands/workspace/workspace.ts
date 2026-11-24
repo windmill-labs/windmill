@@ -589,6 +589,17 @@ async function login(opts: GlobalOptions, workspaceName?: string) {
     );
     return process.exit(1);
   }
+  if (
+    opts.baseUrl &&
+    new URL(opts.baseUrl).toString() !== new URL(workspace.remote).toString()
+  ) {
+    log.info(
+      colors.red.bold(
+        `! --base-url ${opts.baseUrl} does not match profile ${workspace.name} (${workspace.remote}). Use 'wmill workspace add' for another instance.`
+      )
+    );
+    return process.exit(1);
+  }
 
   let token = await tryGetLoginInfo(opts);
   if (!token) {
