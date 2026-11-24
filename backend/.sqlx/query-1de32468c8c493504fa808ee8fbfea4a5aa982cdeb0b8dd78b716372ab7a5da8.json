@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT email, totp_secret AS \"totp_secret!\", totp_last_step FROM password\n         WHERE totp_secret IS NOT NULL",
+  "query": "DELETE FROM password RETURNING email, totp_secret, totp_last_step",
   "describe": {
     "columns": [
       {
@@ -10,7 +10,7 @@
       },
       {
         "ordinal": 1,
-        "name": "totp_secret!",
+        "name": "totp_secret",
         "type_info": "Text"
       },
       {
@@ -28,5 +28,5 @@
       true
     ]
   },
-  "hash": "323467ab59d213b8245393d0db5959568ce653e99bfaad93045a554ba7f2b40b"
+  "hash": "1de32468c8c493504fa808ee8fbfea4a5aa982cdeb0b8dd78b716372ab7a5da8"
 }

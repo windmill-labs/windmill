@@ -2934,6 +2934,19 @@ async fn login(
                     return Err(Error::BadRequest(crate::totp::TOTP_REQUIRED.to_string()));
                 };
                 if !crate::totp::verify_and_consume(&mut tx, &email, &secret, &code).await? {
+                    // Committed, unlike a wrong password: the code was refused before anything
+                    // else was written, and a guessed code must leave a trace.
+                    audit_log(
+                        &mut *tx,
+                        &audit_author,
+                        "users.login_failure",
+                        ActionKind::Create,
+                        "global",
+                        None,
+                        Some([("reason", "invalid_totp_code")].into()),
+                    )
+                    .await?;
+                    tx.commit().await?;
                     windmill_common::login_rate_limit::record_login_failure(&email);
                     return Err(Error::BadRequest(crate::totp::TOTP_INVALID.to_string()));
                 }
@@ -4612,14 +4625,10 @@ async fn overwrite_global_users(
     // dropping every draft on the instance to restore accounts would be pure collateral.
     // The export leaves TOTP secrets out, since its files end up in git. A second factor is
     // kept for every account the overwrite reinstates, rather than silently switched off.
-    let totp = sqlx::query!(
-        "SELECT email, totp_secret AS \"totp_secret!\", totp_last_step FROM password
-         WHERE totp_secret IS NOT NULL"
-    )
-    .fetch_all(&mut *tx)
-    .await?;
-    sqlx::query!("DELETE FROM password")
-        .execute(&mut *tx)
+    // Read by the DELETE itself: a separate snapshot would miss an enrollment committing
+    // between the two and then delete it.
+    let totp = sqlx::query!("DELETE FROM password RETURNING email, totp_secret, totp_last_step")
+        .fetch_all(&mut *tx)
         .await?;
     for user in users {
         sqlx::query!(
@@ -4638,7 +4647,7 @@ async fn overwrite_global_users(
         .execute(&mut *tx)
         .await?;
     }
-    for t in totp {
+    for t in totp.into_iter().filter(|t| t.totp_secret.is_some()) {
         sqlx::query!(
             "UPDATE password SET totp_secret = $2, totp_last_step = $3 WHERE email = $1",
             t.email,

@@ -28,7 +28,7 @@ use windmill_common::{
 const STEP_SECONDS: u64 = 30;
 const SECRET_BYTES: usize = 20;
 const B32: base32::Alphabet = base32::Alphabet::Rfc4648 { padding: false };
-// ponytail: in-memory, so per server; a shared counter if instances multiply attempts matters.
+// Counted per server process: N API replicas allow N times this many guesses a minute.
 const MAX_FAILED_CODES_PER_MINUTE: u32 = 5;
 static FAILED_CODES: LazyLock<PerMinuteCounter<String>> = LazyLock::new(PerMinuteCounter::new);
 
