@@ -4,6 +4,12 @@ const POLL_INTERVAL_MS = 1500
 // How long polls may keep failing, which a rolling deploy's replicas without the status route cause.
 const MAX_FAILING_POLLS_MS = 3 * 60 * 1000
 
+/** The database a fork's copy of data table `name` is created as. A dev workspace's id has no
+ *  `wm-fork-` prefix; its copies are named like a fork's. */
+export function forkDatatableDbName(forkId: string, name: string): string {
+	return `wm_fork_${forkId.replace(/^wm-fork-/, '').replace(/-/g, '_')}__${name}`
+}
+
 /**
  * Create a fork and resolve once it exists, rejecting with the reason it could not be created.
  *

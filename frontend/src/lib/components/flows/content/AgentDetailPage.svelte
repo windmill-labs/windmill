@@ -3,7 +3,7 @@
 	import { FlaskConical, FormInput, LayoutDashboard, MessageSquare, Pen } from 'lucide-svelte'
 	import { resource } from 'runed'
 	import { goto } from '$lib/navigation'
-	import { copilotInfo } from '$lib/aiStore'
+	import { getAiChatManager } from '$lib/components/copilot/chat/aiChatManagerContext'
 	import AgentEvalsModal from '$lib/components/flows/content/AgentEvalsModal.svelte'
 	import AgentUsePanel from '$lib/components/flows/content/AgentUsePanel.svelte'
 	import { SlackAgentsService } from '$lib/gen'
@@ -76,6 +76,9 @@
 		onSummary = undefined,
 		openConversation = undefined
 	}: Props = $props()
+
+	const aiChat = getAiChatManager()
+	const aiInfo = $derived(aiChat.aiInfo)
 
 	// Every workspace-scoped call below and in the drawers this page opens (the summary's save,
 	// permissions, history) targets `workspace`, not the nav store: a session shows the agent of its
@@ -394,7 +397,7 @@
 			bind:this={host}
 			{path}
 			workspace={ws}
-			enableAi={$copilotInfo.enabled}
+			enableAi={!!aiInfo?.enabled}
 			view
 			onOpenConfig={() => configModal?.open()}
 			onRunStarted={embedded || pendingRun ? runStarted : undefined}

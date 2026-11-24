@@ -1457,23 +1457,37 @@ pub async fn resolve_nsjail_timeout(
 /// - `unlimited`/`none`/`inf`/`0` -> `rlimit_as_type: INF` (address space uncapped)
 /// - a positive integer (MiB) -> `rlimit_as: {n}`
 pub fn render_nsjail_rlimit_as(env_override: Option<&str>, default_mb: u32) -> String {
+    render_nsjail_rlimit("rlimit_as", env_override, default_mb)
+}
+
+/// Render the `rlimit_fsize` line (largest single file a jailed job may write, in
+/// MiB) for the nsjail run configs that set one (python3, ansible, dbt), honoring
+/// the `NSJAIL_RLIMIT_FSIZE_MB` env var. Same value grammar as
+/// [`render_nsjail_rlimit_as`]. The total space a job can fill is bounded
+/// separately by its `/tmp` (tmpfs size or, when disk-backed, the worker's disk),
+/// so operators who move `/tmp` to disk usually want to raise or lift this too.
+pub fn render_nsjail_rlimit_fsize(env_override: Option<&str>, default_mb: u32) -> String {
+    render_nsjail_rlimit("rlimit_fsize", env_override, default_mb)
+}
+
+fn render_nsjail_rlimit(field: &str, env_override: Option<&str>, default_mb: u32) -> String {
     match env_override.map(str::trim) {
-        None | Some("") => format!("rlimit_as: {default_mb}"),
+        None | Some("") => format!("{field}: {default_mb}"),
         Some(v)
             if v.eq_ignore_ascii_case("unlimited")
                 || v.eq_ignore_ascii_case("none")
                 || v.eq_ignore_ascii_case("inf")
                 || v == "0" =>
         {
-            "rlimit_as_type: INF".to_string()
+            format!("{field}_type: INF")
         }
         Some(v) => match v.parse::<u32>() {
-            Ok(mb) => format!("rlimit_as: {mb}"),
+            Ok(mb) => format!("{field}: {mb}"),
             Err(_) => {
                 tracing::warn!(
-                    "Invalid nsjail rlimit_as override {v:?}, using default {default_mb}MiB"
+                    "Invalid nsjail {field} override {v:?}, using default {default_mb}MiB"
                 );
-                format!("rlimit_as: {default_mb}")
+                format!("{field}: {default_mb}")
             }
         },
     }
@@ -1668,7 +1682,7 @@ pub(crate) async fn resolve_nsjail_tmp_mount_block(job_dir: &str) -> String {
 
 #[cfg(test)]
 mod nsjail_rlimit_as_tests {
-    use super::render_nsjail_rlimit_as;
+    use super::{render_nsjail_rlimit_as, render_nsjail_rlimit_fsize};
 
     #[test]
     fn unset_uses_default() {
@@ -1706,6 +1720,23 @@ mod nsjail_rlimit_as_tests {
             "rlimit_as: 4096"
         );
         assert_eq!(render_nsjail_rlimit_as(Some("-1"), 4096), "rlimit_as: 4096");
+    }
+
+    #[test]
+    fn fsize_uses_its_own_field() {
+        assert_eq!(render_nsjail_rlimit_fsize(None, 1000), "rlimit_fsize: 1000");
+        assert_eq!(
+            render_nsjail_rlimit_fsize(Some("20000"), 1000),
+            "rlimit_fsize: 20000"
+        );
+        assert_eq!(
+            render_nsjail_rlimit_fsize(Some("unlimited"), 1000),
+            "rlimit_fsize_type: INF"
+        );
+        assert_eq!(
+            render_nsjail_rlimit_fsize(Some("abc"), 1000),
+            "rlimit_fsize: 1000"
+        );
     }
 }
 

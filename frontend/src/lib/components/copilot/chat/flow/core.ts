@@ -376,6 +376,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 	{
 		def: resourceTypeToolDef,
 		planModeSafe: true,
+		lookup: true,
 		fn: async ({ args, toolId, workspace, toolCallbacks }) => {
 			const parsedArgs = resourceTypeToolSchema.parse(args)
 			toolCallbacks.setToolStatus(toolId, {
@@ -395,6 +396,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 	{
 		def: getInstructionsForCodeGenerationToolDef,
 		planModeSafe: true,
+		lookup: true,
 		fn: async ({ args, toolId, toolCallbacks }) => {
 			const parsedArgs = getInstructionsForCodeGenerationToolSchema.parse(args)
 			const langContext = getLangContext(parsedArgs.language, {
@@ -408,6 +410,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 	},
 	{
 		def: testRunFlowToolDef,
+		testRun: 'flow',
 		fn: async function ({ args, workspace, helpers, toolCallbacks, toolId }) {
 			const { flow } = helpers.getFlowAndSelectedId()
 
@@ -452,6 +455,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 	{
 		// set strict to false to avoid issues with open ai models
 		def: testRunStepToolDef,
+		testRun: 'flow',
 		fn: async ({ args, workspace, helpers, toolCallbacks, toolId }) => {
 			const { flow } = helpers.getFlowAndSelectedId()
 
@@ -498,6 +502,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 	{
 		def: inspectInlineScriptToolDef,
 		planModeSafe: true,
+		lookup: true,
 		fn: async ({ args, helpers, toolCallbacks, toolId }) => {
 			const parsedArgs = inspectInlineScriptSchema.parse(args)
 			const moduleId = parsedArgs.moduleId
@@ -835,6 +840,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 	{
 		def: getLintErrorsToolDef,
 		planModeSafe: true,
+		lookup: true,
 		fn: async ({ args, helpers, toolCallbacks, toolId }) => {
 			const parsedArgs = getLintErrorsSchema.parse(args)
 

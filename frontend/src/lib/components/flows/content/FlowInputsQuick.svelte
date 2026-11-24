@@ -23,7 +23,7 @@
 	import DefaultScriptsInner from '$lib/components/DefaultScriptsInner.svelte'
 	import GenAiQuick from './GenAiQuick.svelte'
 	import FlowToplevelNode from '../pickers/FlowToplevelNode.svelte'
-	import { copilotInfo } from '$lib/aiStore'
+	import { getAiChatManager } from '$lib/components/copilot/chat/aiChatManagerContext'
 	import {
 		canHavePreprocessor,
 		canHaveTrigger,
@@ -70,6 +70,9 @@
 		displayPath = false,
 		refreshCount = 0
 	}: Props = $props()
+
+	const aiChat = getAiChatManager()
+	const aiInfo = $derived(aiChat.aiInfo)
 
 	if ($operatingWorkspace && cachedOwners?.[$operatingWorkspace]) {
 		owners = cachedOwners[$operatingWorkspace]
@@ -119,7 +122,7 @@
 	}
 
 	async function onGenerate() {
-		if (!$copilotInfo.enabled) {
+		if (!aiInfo?.enabled) {
 			sendUserToast(
 				'Windmill AI is not enabled, you can activate it in the workspace settings',
 				true
@@ -259,7 +262,8 @@
 	// on indices that render nothing.
 	let showAiRows = $derived(
 		!disableAi &&
-			!$copilotInfo.workspaceDisabled &&
+			!!aiInfo &&
+			!aiInfo.workspaceDisabled &&
 			!composeOnlyFlows &&
 			funcDesc?.length > 0 &&
 			kind != 'failure' &&

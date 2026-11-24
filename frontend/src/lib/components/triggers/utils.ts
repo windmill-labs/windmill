@@ -110,9 +110,8 @@ export const jobTriggerKinds: JobTriggerKind[] = [
 	'github',
 	'asset',
 	'freshness',
-	'app'
-	// `ui` is deliberately absent: the backend does not stamp it yet, so offering it here
-	// would be a filter that can only ever return nothing.
+	'app',
+	'ui'
 ]
 
 export type Trigger = {

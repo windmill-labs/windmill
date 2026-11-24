@@ -56,10 +56,9 @@ pub enum JobTriggerKind {
     // produced from files a viewer forged by running a declared runnable directly.
     App,
     // A run started from the browser (the `/jobs/run*` request carried the session token
-    // minted at login). Nothing writes this yet — it exists so every binary from this release
-    // can decode it, which is what a later release needs before it can start stamping it.
-    // When that happens: attribution, not authority, unlike `App` — a member can have a
-    // session token minted for a script (`/users/refresh_token`), so nothing may gate on it.
+    // minted at login), stamped only once every worker decodes it (`trigger_or_fallback`).
+    // Attribution, not authority, unlike `App` — a member can have a session token minted for
+    // a script (`/users/refresh_token`), so no access decision may gate on it.
     Ui,
 }
 

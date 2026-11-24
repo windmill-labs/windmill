@@ -139,6 +139,7 @@ function parseTypeAnnotation(
 }
 
 function serializeArgValue(v: any): any {
+  if (Array.isArray(v)) return v.map(serializeArgValue);
   if (typeof v === "bigint") return v.toString();
   if (v instanceof Date) return v.toISOString();
   if (typeof v === "number" && !Number.isFinite(v)) {
@@ -453,6 +454,19 @@ describe("datatable() — template tag", () => {
     expect(sql`SELECT ${-Infinity}`.args.arg1).toBe("-Infinity");
     // Tag stays DOUBLE PRECISION (these are floats).
     expect(sql`SELECT ${NaN}`.content).toContain("$1::DOUBLE PRECISION");
+  });
+
+  test("BigInt and non-finite array elements are stringified", () => {
+    const sql = dt();
+    const out = sql`SELECT ${[1n, 2n]}`;
+    expect(out.content).toContain("$1::BIGINT[]");
+    expect(out.args.arg1).toEqual(["1", "2"]);
+    expect(() => JSON.stringify(out.args)).not.toThrow();
+    expect(sql`SELECT ${[1.5, NaN, -Infinity]}`.args.arg1).toEqual([
+      1.5,
+      "NaN",
+      "-Infinity",
+    ]);
   });
 
   test("homogeneous arrays auto-tag with TYPE[]", () => {

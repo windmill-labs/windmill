@@ -39,6 +39,7 @@
 	import { deepEqual } from 'fast-equals'
 	import FlowTimeline from './FlowTimeline.svelte'
 	import { dfs } from './flows/dfs'
+	import { resolveLoadedExpandedSubflowStep } from './flows/expandedSubflowStep'
 	import { dfs as dfsPreviousResults } from '$lib/components/flows/previousResults'
 	import Alert from './common/alert/Alert.svelte'
 	import FlowGraphViewerStep from './FlowGraphViewerStep.svelte'
@@ -1363,6 +1364,7 @@
 	let flowTimeline: FlowTimeline | undefined = $state()
 
 	let stepDetail: FlowModule | string | undefined = $state(undefined)
+	let subflowPathChain: string[] | undefined = $state(undefined)
 
 	let storedListJobs: Record<number, Job> = $state({})
 
@@ -2192,6 +2194,7 @@
 									runDone={job?.type === 'CompletedJob'}
 									bind:expandedSubflows
 									onSelect={(e) => {
+										subflowPathChain = undefined
 										if (rightColumnSelect != 'node_definition' && rightColumnSelect != 'tracing') {
 											rightColumnSelect = 'node_status'
 										}
@@ -2204,10 +2207,15 @@
 												stepDetail = 'end'
 											} else {
 												const id = e.startsWith(AI_TOOL_CALL_PREFIX) ? e.split('-').pop() : e
-												const mod = dfs(job?.raw_flow?.modules ?? [], (m) => m).find(
-													(m) => m?.id === id
+												const resolved = resolveLoadedExpandedSubflowStep(
+													e,
+													job?.raw_flow?.modules ?? [],
+													expandedSubflows ?? {}
 												)
-												stepDetail = mod
+												stepDetail =
+													resolved?.module ??
+													dfs(job?.raw_flow?.modules ?? [], (m) => m).find((m) => m?.id === id)
+												subflowPathChain = resolved?.pathChain
 												selectedNode = e
 												if (e.startsWith(AI_TOOL_CALL_PREFIX)) {
 													const [_prefix, agentModuleId, j, _toolModuleId] = e.split('-')
@@ -2518,7 +2526,11 @@
 											</div>
 										{:else if rightColumnSelect == 'node_definition'}
 											{@const node = selectedNode ? localModuleStates[selectedNode] : undefined}
-											<FlowGraphViewerStep {stepDetail} jobScriptHash={node?.script_hash} />
+											<FlowGraphViewerStep
+												{stepDetail}
+												{subflowPathChain}
+												jobScriptHash={node?.script_hash}
+											/>
 										{:else if rightColumnSelect == 'user_states'}
 											<div class="p-2">
 												<JobArgs argLabel="Key" args={job?.flow_status?.user_states ?? {}} />

@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE v2_job_queue SET extras = extras - 'waiting_on' WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "636af7f63043d20752ef1ef0968efff600fcc5d453edcff05810220daa306bd1"
+}

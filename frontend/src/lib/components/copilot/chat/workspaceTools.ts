@@ -87,6 +87,8 @@ const getScheduleSchemaTool: Tool<any> = {
 		'get_schedule_schema',
 		"Get the shape of create_schedule's `advanced` object: retry, pausing, tags, and error-handler tuning."
 	),
+	planModeSafe: true,
+	lookup: true,
 	fn: async () => JSON.stringify(advancedScheduleShape(SCHEDULE_TOOL_OPTIONS), null, 2)
 }
 
@@ -155,6 +157,8 @@ const getTriggerSchemaTool: Tool<any> = {
 		'get_trigger_schema',
 		'Get the configuration schema for one trigger kind. Call before create_trigger.'
 	),
+	planModeSafe: true,
+	lookup: true,
 	fn: async ({ args }) => {
 		const { kind } = parseWithExplicitErrors(getTriggerSchemaToolSchema, args, 'Trigger kind')
 		const schema = z.toJSONSchema(triggerConfigSchemas[kind]) as Record<string, unknown>
@@ -333,9 +337,7 @@ const createScheduleTool: Tool<any> = {
 			)
 			const dropped = droppedOptionKeys(merged, requestBody)
 			if (dropped.length) {
-				throw new Error(
-					describeDroppedScheduleOptions(dropped)
-				)
+				throw new Error(describeDroppedScheduleOptions(dropped))
 			}
 
 			toolCallbacks.setToolStatus(toolId, {

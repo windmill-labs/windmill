@@ -39,7 +39,7 @@ write a secret you were not given: keep the placeholder.
 | Key | Value |
 |---|---|
 | `auto_invite` | `{ enabled, mode: invite \| add, operator, instance_groups?, instance_groups_roles? }`. The instance groups are managed only when `instance_groups` is stated; clearing a group removes the members it added. |
-| `error_handler` / `success_handler` | `{ path, extra_args?, muted_on_cancel?, muted_on_user_path? }`, `path` being `script/<path>` or `flow/<path>`. |
+| `error_handler` / `success_handler` | `{ path, extra_args?, muted_on_cancel?, muted_on_user_path?, muted_on_ui_runs? }`, `path` being `script/<path>` or `flow/<path>`. `muted_on_ui_runs` (error handler only) skips jobs started from the UI. |
 | `error_handler_fallback_to_instance_alerts` | Report failures to the instance critical alert channels when no error handler is set. |
 | `webhook` | URL POSTed a JSON event on every change to the workspace's items. |
 | `ai_config` | Providers, default and completion models, custom prompts, `copilot_disabled`. |

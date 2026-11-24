@@ -23,7 +23,6 @@ import { findNextAvailablePath } from '$lib/path'
 import type { ExtendedOpenFlow } from './types'
 import { emptySchema, type StateStore } from '$lib/utils'
 import { loadStoredConfig } from '../aiProviderStorage'
-import { copilotInfo } from '$lib/aiStore'
 import { stepSettingDefaults } from './flowStepSettings'
 import type { InlineScript, InsertKind } from '$lib/components/graph/graphBuilder.svelte'
 import {
@@ -510,7 +509,7 @@ export async function createNewModule(
 			workspace
 		)
 	} else if (kind == 'forloop') {
-		;[module, state] = await createLoop(module.id, !disableAi && get(copilotInfo).enabled)
+		;[module, state] = await createLoop(module.id, !disableAi)
 	} else if (kind == 'whileloop') {
 		;[module, state] = await createWhileLoop(module.id)
 	} else if (kind == 'branchone') {

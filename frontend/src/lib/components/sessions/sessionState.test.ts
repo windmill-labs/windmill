@@ -50,7 +50,11 @@ vi.mock('$lib/gen', async (orig) => {
 			...actual.WorkspaceService,
 			createWorkspaceFork: vi.fn().mockRejectedValue(new Error('fork creation failed')),
 			getForkCreationStatus: vi.fn().mockResolvedValue({ status: 'completed' }),
-			listUserWorkspaces: vi.fn().mockResolvedValue([])
+			listUserWorkspaces: vi.fn().mockResolvedValue([]),
+			// What a staged fork's request is checked against before it is sent.
+			listDataTables: vi.fn().mockResolvedValue([]),
+			listDucklakes: vi.fn().mockResolvedValue([]),
+			listProtectionRules: vi.fn().mockResolvedValue([])
 		}
 	}
 })

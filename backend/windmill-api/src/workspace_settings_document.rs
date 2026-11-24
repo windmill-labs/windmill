@@ -1236,6 +1236,12 @@ fn plan_document(
             "a boolean",
         ),
         (
+            "error_handler",
+            "muted_on_ui_runs",
+            Value::is_boolean,
+            "a boolean",
+        ),
+        (
             "variable_expiration_handler",
             "muted_on_user_path",
             Value::is_boolean,
@@ -1280,6 +1286,15 @@ fn plan_document(
                     handler.insert(key.to_string(), Value::Bool(false));
                 }
             }
+        }
+    }
+    // ...but stores this one only when on, so an off one compares as absent.
+    if let Some(handler) = desired
+        .get_mut("error_handler")
+        .and_then(Value::as_object_mut)
+    {
+        if handler.get("muted_on_ui_runs") != Some(&Value::Bool(true)) {
+            handler.remove("muted_on_ui_runs");
         }
     }
     for key in SECRET_KEYS {
@@ -1429,6 +1444,7 @@ fn plan_document(
                 "extra_args": handler.get("extra_args"),
                 "muted_on_cancel": handler.get("muted_on_cancel").and_then(Value::as_bool).unwrap_or(false),
                 "muted_on_user_path": handler.get("muted_on_user_path").and_then(Value::as_bool).unwrap_or(false),
+                "muted_on_ui_runs": handler.get("muted_on_ui_runs").and_then(Value::as_bool).unwrap_or(false),
                 "fallback_to_instance_alerts": if fallback_changes { fallback.and_then(|f| f.as_bool()) } else { None },
             }),
         );
@@ -2359,6 +2375,24 @@ mod tests {
         let d = doc(json!({ "error_handler": { "path": "f/x", "extra_args": {} } }));
         let p = plan_document(cur, d, false, &mc, &DatatableNames::default()).unwrap();
         assert!(p.changes.is_empty(), "{:?}", keys(&p));
+    }
+
+    #[test]
+    fn muted_on_ui_runs_off_matches_a_blob_without_it() {
+        let mc = WorkspaceCrypt::new("k");
+        let names = DatatableNames::default();
+        let mut cur = current();
+        cur.insert(
+            "error_handler".into(),
+            json!({ "path": "f/x", "muted_on_cancel": false, "muted_on_user_path": false }),
+        );
+        let off = doc(json!({ "error_handler": { "path": "f/x", "muted_on_ui_runs": false } }));
+        let p = plan_document(cur.clone(), off, false, &mc, &names).unwrap();
+        assert!(p.changes.is_empty(), "{:?}", keys(&p));
+
+        let on = doc(json!({ "error_handler": { "path": "f/x", "muted_on_ui_runs": true } }));
+        let p = plan_document(cur, on, false, &mc, &names).unwrap();
+        assert_eq!(keys(&p), ["error_handler"]);
     }
 
     #[test]
