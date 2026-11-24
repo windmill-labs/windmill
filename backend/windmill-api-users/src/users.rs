@@ -4626,7 +4626,14 @@ async fn overwrite_global_users(
     // The export leaves TOTP secrets out, since its files end up in git. A second factor is
     // kept for every account the overwrite reinstates, rather than silently switched off.
     // Read by the DELETE itself: a separate snapshot would miss an enrollment committing
-    // between the two and then delete it.
+    // between the two and then delete it. The secrets are under the `admins` key: its row lock
+    // keeps a rotation from re-encrypting while the restored rows are not visible to it.
+    sqlx::query!(
+        "SELECT 1 AS \"one!\" FROM workspace_key
+         WHERE workspace_id = 'admins' AND kind = 'cloud' FOR UPDATE"
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
     let totp = sqlx::query!(
         "DELETE FROM password RETURNING email, totp_secret, totp_last_step, totp_recovery_codes"
     )
