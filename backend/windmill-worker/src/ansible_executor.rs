@@ -35,14 +35,14 @@ use crate::{
     common::{
         build_command_with_isolation, check_executor_binary_exists, get_reserved_variables,
         interpolate_template, read_and_check_result, render_nsjail_rlimit_as,
-        resolve_nsjail_timeout, resolve_nsjail_tmp_mount_block, start_child_process,
-        transform_json, validate_relative_path, OccupancyMetrics,
+        render_nsjail_rlimit_fsize, resolve_nsjail_timeout, resolve_nsjail_tmp_mount_block,
+        start_child_process, transform_json, validate_relative_path, OccupancyMetrics,
     },
     handle_child::{handle_child, run_future_with_polling_update_job_poller},
     is_sandboxing_enabled,
     python_executor::{create_dependencies_dir, handle_python_reqs, uv_pip_compile},
-    PyV, DISABLE_NUSER, GIT_PATH, HOME_ENV, NSJAIL_ANSIBLE_RLIMIT_AS_MB, NSJAIL_PATH, PATH_ENV,
-    PROXY_ENVS, PY_INSTALL_DIR, TZ_ENV,
+    PyV, DISABLE_NUSER, GIT_PATH, HOME_ENV, NSJAIL_ANSIBLE_RLIMIT_AS_MB, NSJAIL_PATH,
+    NSJAIL_RLIMIT_FSIZE_MB, PATH_ENV, PROXY_ENVS, PY_INSTALL_DIR, TZ_ENV,
 };
 use windmill_common::client::AuthedClient;
 
@@ -2162,6 +2162,10 @@ mount {{
                 .replace(
                     "{RLIMIT_AS}",
                     &render_nsjail_rlimit_as(NSJAIL_ANSIBLE_RLIMIT_AS_MB.as_deref(), 4096),
+                )
+                .replace(
+                    "{RLIMIT_FSIZE}",
+                    &render_nsjail_rlimit_fsize(NSJAIL_RLIMIT_FSIZE_MB.as_deref(), 1000),
                 )
                 .replace("{PY_INSTALL_DIR}", &*PY_INSTALL_DIR)
                 .replace("{JOB_DIR}", job_dir)

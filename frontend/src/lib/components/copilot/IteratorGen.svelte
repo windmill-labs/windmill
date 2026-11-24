@@ -10,7 +10,10 @@
 	import { dfs } from '../flows/dfs'
 	import { yamlStringifyExceptKeys } from './utils'
 	import { stepInputCompletionEnabled } from '$lib/stores'
-	import { copilotInfo } from '$lib/aiStore'
+	import { getAiChatManager } from './chat/aiChatManagerContext'
+
+	const aiChat = getAiChatManager()
+	const aiInfo = $derived(aiChat.aiInfo)
 
 	let generatedContent = $state('')
 	let loading = $state(false)
@@ -69,7 +72,8 @@ Only output the expression, do not explain or discuss.`
 						content: user
 					}
 				],
-				abortController
+				abortController,
+				aiChat.loadedSessionAiTarget
 			)
 		} catch (err) {
 			if (!abortController.signal.aborted) {
@@ -81,7 +85,7 @@ Only output the expression, do not explain or discuss.`
 	}
 
 	export function onKeyUp(event: KeyboardEvent) {
-		if (!$copilotInfo.enabled || !$stepInputCompletionEnabled) {
+		if (!aiInfo?.enabled || !$stepInputCompletionEnabled) {
 			return
 		}
 		if (event.key === 'Tab') {
@@ -120,7 +124,7 @@ Only output the expression, do not explain or discuss.`
 	})
 
 	$effect(() => {
-		if ($copilotInfo.enabled && $stepInputCompletionEnabled && focused) {
+		if (aiInfo?.enabled && $stepInputCompletionEnabled && focused) {
 			untrack(() => {
 				automaticGeneration()
 			})

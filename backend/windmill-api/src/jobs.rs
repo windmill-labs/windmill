@@ -12650,6 +12650,28 @@ struct CompletedJobResult {
 #[derive(Deserialize)]
 struct GetCompletedJobQuery {
     get_started: Option<bool>,
+    /// The caller is blocked until this job completes (the SDK wait helpers). Only such polls
+    /// may be failed for a same-tag deadlock; a plain status read never is.
+    wait_for_child: Option<bool>,
+}
+
+/// Why a job blocked on its own child's result should stop waiting: the child is stuck behind a
+/// same-tag deadlock. A failed check answers `None`, so the poll carries on.
+async fn waiting_parent_deadlock(
+    db: &DB,
+    child: Uuid,
+    authed: Option<&ApiAuthed>,
+    wait_for_child: Option<bool>,
+) -> Option<Error> {
+    if wait_for_child != Some(true) {
+        return None;
+    }
+    let caller = authed?.job_id?;
+    windmill_common::tag_deadlock::fail_fast_waiting_parent(db, child, Some(caller))
+        .await
+        .inspect_err(|e| tracing::warn!("same-tag deadlock check for job {child} failed: {e}"))
+        .ok()
+        .flatten()
 }
 
 async fn get_completed_job_result_maybe(
@@ -12659,7 +12681,7 @@ async fn get_completed_job_result_maybe(
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, id)): Path<(String, Uuid)>,
-    Query(GetCompletedJobQuery { get_started }): Query<GetCompletedJobQuery>,
+    Query(GetCompletedJobQuery { get_started, wait_for_child }): Query<GetCompletedJobQuery>,
 ) -> error::Result<Response> {
     let tags = opt_authed
         .as_ref()
@@ -12712,6 +12734,10 @@ async fn get_completed_job_result_maybe(
             is_skipped: Some(res.is_skipped),
         })
         .into_response())
+    } else if let Some(e) =
+        waiting_parent_deadlock(&db, id, opt_authed.as_ref(), wait_for_child).await
+    {
+        Err(e)
     } else if get_started.is_some_and(|x| x) {
         // No completed row yet — the job may be queued/running. Returning its
         // running-state still discloses information about a (possibly private) job, so

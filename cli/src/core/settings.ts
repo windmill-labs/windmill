@@ -27,6 +27,7 @@ export interface ErrorHandlerConfig {
   extra_args?: any;
   muted_on_cancel?: boolean;
   muted_on_user_path?: boolean;
+  muted_on_ui_runs?: boolean;
 }
 
 export interface SuccessHandlerConfig {
@@ -254,6 +255,9 @@ export async function pushWorkspaceSettings(
   for (const key of SETTINGS_MANAGED_ONLY_WHEN_PRESENT) {
     delete (localSettings as any)[key];
   }
+  // Such a server reads an error handler body carrying this key as the legacy format, which
+  // clears the handler.
+  delete localSettings.error_handler?.muted_on_ui_runs;
   const webhookUnreadable = unreadableSecret(localSettings.webhook);
   if (webhookUnreadable) {
     log.warn(

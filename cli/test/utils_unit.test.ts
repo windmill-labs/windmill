@@ -391,6 +391,13 @@ describe("inferContentTypeFromFilePath", () => {
     expect(inferContentTypeFromFilePath("script.fetch.ts", "bun")).toBe("nativets");
   });
 
+  test("language suffix needs its dot", () => {
+    expect(inferContentTypeFromFilePath("f/a/a_fetch.ts", "bun")).toBe("bun");
+    expect(inferContentTypeFromFilePath("f/a/afetch.ts", "bun")).toBe("bun");
+    expect(inferContentTypeFromFilePath("f/a/a_bun.ts", "deno")).toBe("deno");
+    expect(inferContentTypeFromFilePath("f/a/a_deno.ts", "bun")).toBe("bun");
+  });
+
   test("detects SQL variants", () => {
     expect(inferContentTypeFromFilePath("query.pg.sql", undefined)).toBe("postgresql");
     expect(inferContentTypeFromFilePath("query.my.sql", undefined)).toBe("mysql");

@@ -257,6 +257,7 @@
 	let errorHandlerDraft: HandlerDraft = $state(cloneHandlerDraft(noErrorHandler))
 	let errorHandlerMutedOnCancel: boolean | undefined = $state(undefined)
 	let errorHandlerMutedOnUserPath: boolean | undefined = $state(undefined)
+	let errorHandlerMutedOnUiRuns: boolean = $state(false)
 	let successHandlerScriptPath: string | undefined = $state(undefined)
 	const noVariableExpirationHandler = handlerDraftFromStored('variableExpiration', undefined)
 	let variableExpirationDraft: HandlerDraft = $state(cloneHandlerDraft(noVariableExpirationHandler))
@@ -337,6 +338,7 @@
 	let initialErrorHandlerDraft: HandlerDraft = $state(cloneHandlerDraft(noErrorHandler))
 	let initialErrorHandlerMutedOnCancel: boolean | undefined = $state(undefined)
 	let initialErrorHandlerMutedOnUserPath: boolean | undefined = $state(undefined)
+	let initialErrorHandlerMutedOnUiRuns: boolean = $state(false)
 
 	// Track initial success handler for unsaved changes detection
 	let initialSuccessHandlerScriptPath: string | undefined = $state(undefined)
@@ -851,11 +853,18 @@
 		usesInstanceAiConfig = copilotSettingsState.uses_instance_ai_config
 		instanceAiSummary = copilotSettingsState.instance_ai_summary
 		const errorHandler = settings.error_handler as
-			| { path?: string; extra_args?: any; muted_on_cancel?: boolean; muted_on_user_path?: boolean }
+			| {
+					path?: string
+					extra_args?: any
+					muted_on_cancel?: boolean
+					muted_on_user_path?: boolean
+					muted_on_ui_runs?: boolean
+			  }
 			| undefined
 		const errorHandlerPath = errorHandler?.path ?? ''
 		errorHandlerMutedOnCancel = errorHandler?.muted_on_cancel
 		errorHandlerMutedOnUserPath = errorHandler?.muted_on_user_path
+		errorHandlerMutedOnUiRuns = errorHandler?.muted_on_ui_runs ?? false
 		criticalAlertUIMuted = settings.mute_critical_alerts
 		initialCriticalAlertUIMuted = settings.mute_critical_alerts
 		publicAppRateLimitPerMinute = settings.public_app_execution_limit_per_minute ?? undefined
@@ -950,6 +959,7 @@
 		initialErrorHandlerDraft = cloneHandlerDraft(errorHandlerDraft)
 		initialErrorHandlerMutedOnCancel = errorHandlerMutedOnCancel
 		initialErrorHandlerMutedOnUserPath = errorHandlerMutedOnUserPath
+		initialErrorHandlerMutedOnUiRuns = errorHandlerMutedOnUiRuns
 
 		// Store initial success handler state for unsaved changes detection
 		initialSuccessHandlerScriptPath = successHandlerScriptPath
@@ -1128,6 +1138,7 @@
 					extra_args: handler.args,
 					muted_on_cancel: errorHandlerMutedOnCancel,
 					muted_on_user_path: errorHandlerMutedOnUserPath,
+					muted_on_ui_runs: errorHandlerMutedOnUiRuns,
 					fallback_to_instance_alerts: false
 				}
 			})
@@ -1164,6 +1175,8 @@
 		)
 		initialErrorHandlerMutedOnCancel = errorHandlerMutedOnCancel
 		initialErrorHandlerMutedOnUserPath = errorHandlerMutedOnUserPath
+		initialErrorHandlerMutedOnUiRuns = handler.path ? errorHandlerMutedOnUiRuns : false
+		errorHandlerMutedOnUiRuns = initialErrorHandlerMutedOnUiRuns
 	}
 
 	async function editVariableExpirationHandler() {
@@ -1398,13 +1411,15 @@
 	function errorHandlerSettingsValue(
 		draft: HandlerDraft,
 		mutedOnCancel: boolean | undefined,
-		mutedOnUserPath: boolean | undefined
+		mutedOnUserPath: boolean | undefined,
+		mutedOnUiRuns: boolean
 	) {
 		return {
 			errorHandler: handlerDraftToStored(draft),
 			fallbackToInstanceAlerts: draft.selected === 'instance_alerts',
 			errorHandlerMutedOnCancel: mutedOnCancel,
-			errorHandlerMutedOnUserPath: mutedOnUserPath
+			errorHandlerMutedOnUserPath: mutedOnUserPath,
+			errorHandlerMutedOnUiRuns: mutedOnUiRuns
 		}
 	}
 
@@ -1414,12 +1429,14 @@
 			savedValue: errorHandlerSettingsValue(
 				initialErrorHandlerDraft,
 				initialErrorHandlerMutedOnCancel,
-				initialErrorHandlerMutedOnUserPath
+				initialErrorHandlerMutedOnUserPath,
+				initialErrorHandlerMutedOnUiRuns
 			),
 			modifiedValue: errorHandlerSettingsValue(
 				errorHandlerDraft,
 				errorHandlerMutedOnCancel,
-				errorHandlerMutedOnUserPath
+				errorHandlerMutedOnUserPath,
+				errorHandlerMutedOnUiRuns
 			)
 		}
 	}
@@ -1429,6 +1446,7 @@
 		errorHandlerDraft = cloneHandlerDraft(initialErrorHandlerDraft)
 		errorHandlerMutedOnCancel = initialErrorHandlerMutedOnCancel
 		errorHandlerMutedOnUserPath = initialErrorHandlerMutedOnUserPath
+		errorHandlerMutedOnUiRuns = initialErrorHandlerMutedOnUiRuns
 	}
 
 	// Combined function to check for unsaved changes across all tabs
@@ -2349,6 +2367,15 @@
 												disabled={!$enterpriseLicense || errorHandlerChannelMissing}
 												bind:checked={errorHandlerMutedOnUserPath}
 												options={{ right: 'Do not run error handler for u/ scripts and flows' }}
+											/>
+											<Toggle
+												disabled={!$enterpriseLicense || errorHandlerChannelMissing}
+												bind:checked={errorHandlerMutedOnUiRuns}
+												options={{
+													right: 'Do not run error handler for jobs started from the UI',
+													rightTooltip:
+														'The person who started them sees the error. Schedules, triggers, webhooks, apps, and API or CLI runs still run the handler. Applies once every worker runs 1.776 or later.'
+												}}
 											/>
 										</SettingCard>
 									{/if}

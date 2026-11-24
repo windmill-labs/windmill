@@ -4,7 +4,7 @@
 	import { slide } from 'svelte/transition'
 	import OpenInSessionButton from '$lib/components/sessions/OpenInSessionButton.svelte'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
-	import { copilotInfo } from '$lib/aiStore'
+	import { getAiChatManager } from '$lib/components/copilot/chat/aiChatManagerContext'
 	import { logFeatureUsage } from '$lib/utils/featureUsage'
 
 	interface Props {
@@ -18,6 +18,9 @@
 	}
 
 	const { onEditInstructions, instructions, runnableType, path }: Props = $props()
+
+	const aiChat = getAiChatManager()
+	const aiInfo = $derived(aiChat.aiInfo)
 
 	const operatingWorkspace = useOperatingWorkspace()
 
@@ -46,7 +49,7 @@
 	<OpenInSessionButton source={sessionSource} btnProps={{ unifiedSize }} deferToHeader />
 {/snippet}
 
-{#if $copilotInfo.workspaceDisabled}
+{#if !aiInfo || aiInfo.workspaceDisabled}
 	<!-- The workspace hid the assistant. -->
 {:else if instructions}
 	<div class="my-2 flex flex-col gap-1">

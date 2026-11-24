@@ -418,6 +418,19 @@ describe('lookup tools', () => {
 	})
 })
 
+describe('test-run tools', () => {
+	// The transcript looks a name up across modes, so a name runs the same kind of item in every
+	// mode that offers it, or is a test run in none.
+	it('agree on every name across modes', () => {
+		const kinds = new Map<string, Set<string | undefined>>()
+		for (const t of everyChatTool()) {
+			const name = t.def.function.name
+			kinds.set(name, (kinds.get(name) ?? new Set()).add(t.testRun))
+		}
+		expect([...kinds].filter(([, values]) => values.size > 1).map(([n]) => n)).toEqual([])
+	})
+})
+
 describe('draft write tools', () => {
 	// Script, flow and app writes have a diff card or an edit group. Every other item kind's
 	// writes need its own draft capability and show only the item's path, so a new one must say

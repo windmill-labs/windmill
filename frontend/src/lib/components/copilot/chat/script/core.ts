@@ -986,6 +986,7 @@ export const editCodeTool: Tool<ScriptChatHelpers> = {
 
 export const testRunScriptTool: Tool<ScriptChatHelpers> = {
 	def: TEST_RUN_SCRIPT_TOOL,
+	testRun: 'script',
 	fn: async function ({ args, workspace, helpers, toolCallbacks, toolId }) {
 		const scriptOptions = helpers.getScriptOptions()
 

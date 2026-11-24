@@ -9,26 +9,32 @@ import {
 	type ToolGroup
 } from './toolGroups'
 
-// What the chat's tool definitions mark `lookup` and `draftWrite`, for the calls these cases make.
-const LOOKUPS = new Set([
-	'read_workspace_item',
-	'list_workspace_items',
-	'search_workspace',
-	'search_docs',
-	'list_runs',
-	'list_workers',
-	'read_flow_module_code',
-	'inspect_inline_script',
-	'get_lint_errors',
-	'read_app_file',
-	'search_app',
-	'search_mcp_tools',
-	'call_mcp_read_tool',
-	'get_db_schema',
-	'search_hub_scripts'
-])
+// What the chat's tool definitions mark `lookup`, `testRun` and `draftWrite`, for the calls these
+// cases make.
 const TOOLS: GroupingTools = {
-	lookups: LOOKUPS,
+	lookups: new Set([
+		'read_workspace_item',
+		'list_workspace_items',
+		'search_workspace',
+		'search_docs',
+		'list_runs',
+		'list_workers',
+		'read_flow_module_code',
+		'inspect_inline_script',
+		'get_lint_errors',
+		'read_app_file',
+		'search_app',
+		'search_mcp_tools',
+		'call_mcp_read_tool',
+		'get_db_schema',
+		'search_hub_scripts'
+	]),
+	testRuns: new Map([
+		['test_run_script', 'script'],
+		['test_run_flow', 'flow'],
+		['test_run_app_runnable', 'app'],
+		['test_run_agent', 'agent']
+	]),
 	draftWrites: new Map([
 		['write_schedule', 'schedule'],
 		['write_trigger', 'trigger'],
@@ -108,6 +114,10 @@ describe('groupToolRuns', () => {
 				tool('read_flow_module_code', flow)
 			])
 		).toEqual([0, 1, { explore: [2, 3] }])
+		// Arguments of JSON `null` reach the row as they are.
+		expect(shape([tool('search_docs', { query: 'a' }), tool('search_docs', null as any)])).toEqual([
+			{ explore: [0, 1] }
+		])
 		expect(
 			shape([
 				tool('patch_flow_json', flow),
@@ -284,6 +294,59 @@ describe('groupToolRuns', () => {
 				tool('search_workspace')
 			])
 		).toEqual([{ explore: [0, 1, 2] }, 3, { explore: [4, 5] }, 6, 7])
+	})
+
+	it('folds test runs of one item and the edits between them, leaving a form awaiting input out', () => {
+		const a = { path: 'f/a/script' }
+		// A run form's row carries the run's arguments as `parameters`, and its path on the form.
+		const run = (path = a.path, extra = {}) =>
+			tool('test_run_script', { x: 1 }, { runForm: { path, args: { x: 1 } }, ...extra })
+		const messages = [
+			run(a.path, { error: 'boom' }),
+			tool('edit_script', a, { codeDiff: { before: '1', after: '2' } }),
+			run(),
+			tool('edit_script', a),
+			run('f/b/script'),
+			run(),
+			// Still preparing: its form has not opened yet.
+			tool('test_run_script', a, { isLoading: true }),
+			run(a.path, { isLoading: true })
+		]
+		expect(shape(messages)).toEqual([{ test: [0, 1, 2] }, 3, 4, 5, 6, 7])
+		expect(header(messages)).toBe('Tested f/a/script · 2 runs · 1 change')
+	})
+
+	it("folds the flow editor's test runs, whose `path` is the flow's own input, but not runs refused before starting", () => {
+		const messages = [
+			tool('test_run_flow', { path: '/tmp/a' }),
+			tool('set_flow_json', {}),
+			// A failed job still ran: its row carries the job's result.
+			tool('test_run_flow', { path: '/tmp/b' }, { error: 'boom', result: { error: 'boom' } }),
+			// Refused before any job: an error and no result, whatever path it was given.
+			tool('test_run_flow', { path: 'f/missing/one' }, { error: 'Flow not found' }),
+			tool('test_run_flow', { path: 'f/missing/two' }, { error: 'Flow not found' }),
+			// An app runnable has no form either, and its path is the app's: still not a run.
+			tool('test_run_app_runnable', { path: 'f/a/app' }, { error: 'No runnable "x"' }),
+			tool('test_run_app_runnable', { path: 'f/a/app' }, { error: 'No runnable "x"' })
+		]
+		expect(shape(messages)).toEqual([{ test: [0, 1, 2] }, 3, 4, 5, 6])
+		expect(header(messages)).toBe('Tested the flow · 2 runs · 1 change')
+	})
+
+	it("folds an agent's runs with the resource writes and reads between them", () => {
+		const path = 'f/a/agent'
+		const run = () => tool('test_run_agent', {}, { runForm: { path, args: {} } })
+		const messages = [
+			run(),
+			tool('read_workspace_item', { path, type: 'resource' }, { readsAgent: true }),
+			tool('write_resource', { path, resource_type: 'ai_agent', value: {} }),
+			run(),
+			// Another resource at the same path is not the agent.
+			tool('write_resource', { path, resource_type: 'postgresql', value: {} }),
+			run()
+		]
+		expect(shape(messages)).toEqual([{ test: [0, 1, 2, 3] }, 4, 5])
+		expect(header(messages)).toBe('Tested f/a/agent · 2 runs · 1 change')
 	})
 
 	it('names what a group did', () => {

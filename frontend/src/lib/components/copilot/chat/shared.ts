@@ -1390,6 +1390,9 @@ export function appendPendingToolImages(
 	addedMessages.push(message)
 }
 
+/** The kind of item a test-run tool runs; `code` is the code sent with the call. */
+export type TestedItemKind = 'script' | 'flow' | 'app' | 'agent' | 'code'
+
 export interface Tool<T> {
 	def: ChatCompletionFunctionTool
 	fn: (p: {
@@ -1422,6 +1425,10 @@ export interface Tool<T> {
 	 * `schedule`: consecutive ones fold into one group, `Drafted 2 schedules, 1 trigger`. A write
 	 * with a diff card leaves it unset, as the diff is what the user reads. */
 	draftWrite?: string
+	/** Test-runs an item of this kind (a step test runs its flow), so the transcript may fold
+	 * consecutive runs of one item, and the edits between them, into one row. A run of the
+	 * deployed version never sets it; absence keeps the row on its own. */
+	testRun?: TestedItemKind
 	/** Shows an item without changing or running it, though not `planModeSafe`: working
 	 * folders never hold it, so the AI can show what it reads in any folder. */
 	viewOnly?: boolean

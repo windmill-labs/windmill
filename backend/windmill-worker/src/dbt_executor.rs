@@ -31,7 +31,8 @@ use windmill_parser_yaml::{
 use windmill_queue::{append_logs, CanceledBy, MiniPulledJob};
 
 use crate::common::{
-    render_envars, render_nsjail_rlimit_as, resolve_nsjail_timeout, resolve_nsjail_tmp_mount_block,
+    render_envars, render_nsjail_rlimit_as, render_nsjail_rlimit_fsize, resolve_nsjail_timeout,
+    resolve_nsjail_tmp_mount_block,
 };
 use crate::common::{start_child_process, OccupancyMetrics};
 use crate::dbt_engine::{provision_engine, ProvisionedEngine, DBT_CACHE_DIR};
@@ -46,8 +47,8 @@ use crate::handle_child::{
 };
 use crate::worker::write_module_files;
 use crate::{
-    is_sandboxing_enabled, GIT_PATH, NSJAIL_DBT_RLIMIT_AS_MB, NSJAIL_PATH, PATH_ENV, PROXY_ENVS,
-    TZ_ENV,
+    is_sandboxing_enabled, GIT_PATH, NSJAIL_DBT_RLIMIT_AS_MB, NSJAIL_PATH, NSJAIL_RLIMIT_FSIZE_MB,
+    PATH_ENV, PROXY_ENVS, TZ_ENV,
 };
 
 /// The profile name Windmill renders into `profiles.yml`. dbt takes the profile
@@ -1371,6 +1372,10 @@ pub(crate) async fn prepare_project(
                 .replace(
                     "{RLIMIT_AS}",
                     &render_nsjail_rlimit_as(NSJAIL_DBT_RLIMIT_AS_MB.as_deref(), 4096),
+                )
+                .replace(
+                    "{RLIMIT_FSIZE}",
+                    &render_nsjail_rlimit_fsize(NSJAIL_RLIMIT_FSIZE_MB.as_deref(), 1000),
                 )
                 .replace("{JOB_DIR}", &escape_textproto(job_dir))
                 .replace(

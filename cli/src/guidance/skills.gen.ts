@@ -8651,7 +8651,7 @@ write a secret you were not given: keep the placeholder.
 | Key | Value |
 |---|---|
 | \`auto_invite\` | \`{ enabled, mode: invite \\| add, operator, instance_groups?, instance_groups_roles? }\`. The instance groups are managed only when \`instance_groups\` is stated; clearing a group removes the members it added. |
-| \`error_handler\` / \`success_handler\` | \`{ path, extra_args?, muted_on_cancel?, muted_on_user_path? }\`, \`path\` being \`script/<path>\` or \`flow/<path>\`. |
+| \`error_handler\` / \`success_handler\` | \`{ path, extra_args?, muted_on_cancel?, muted_on_user_path?, muted_on_ui_runs? }\`, \`path\` being \`script/<path>\` or \`flow/<path>\`. \`muted_on_ui_runs\` (error handler only) skips jobs started from the UI. |
 | \`error_handler_fallback_to_instance_alerts\` | Report failures to the instance critical alert channels when no error handler is set. |
 | \`webhook\` | URL POSTed a JSON event on every change to the workspace's items. |
 | \`ai_config\` | Providers, default and completion models, custom prompts, \`copilot_disabled\`. |
@@ -9703,6 +9703,7 @@ workspace related commands
   - \`--create-workspace-name <workspace_name:string>\` - Specify the workspace name. Ignored if --create is not specified or the workspace already exists. Will default to the workspace id.
   - \`--create-username <username:string>\` - Specify your own username in the newly created workspace. Ignored if --create is not specified, the workspace already exists or automatic username creation is enabled on the instance.
 - \`workspace remove <workspace_name:string>\` - Remove a workspace
+- \`workspace login [workspace_name:string:workspace]\` - Sign in again for a workspace profile (default: the active one) and replace its token, e.g. to extend one about to expire. The previous token is revoked when the CLI's browser login created it.
 - \`workspace whoami\` - Show the currently active user
 - \`workspace list\` - List local workspace profiles
 - \`workspace list-remote\` - List workspaces on the remote server that you have access to

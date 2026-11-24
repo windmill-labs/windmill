@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT COALESCE((error_handler->>'muted_on_ui_runs')::boolean, false) AS \"muted!\"\n                 FROM workspace_settings WHERE workspace_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "muted!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "0fc3318da2c8dd5304a0ba7a83f25cb2b7728ac069dcc29f9c7e76d915ea3076"
+}

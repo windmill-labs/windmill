@@ -289,8 +289,13 @@ export async function waitJob(
   verbose: boolean = false
 ): Promise<any> {
   while (true) {
-    // Implement your HTTP request logic here to get job result
-    const resultRes = await getResultMaybe(jobId);
+    // `waitForChild` tells the server this job is blocked on `jobId`, so a child that can never
+    // start (every worker of its tag held by such a waiting job) fails the wait instead of hanging.
+    const resultRes: any = await JobService.getCompletedJobResultMaybe({
+      workspace: getWorkspace(),
+      id: jobId,
+      waitForChild: true,
+    });
 
     const started = resultRes.started;
     const completed = resultRes.completed;

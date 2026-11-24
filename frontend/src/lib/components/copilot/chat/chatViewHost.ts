@@ -184,9 +184,9 @@ export interface ChatViewHost {
 	 * included. A consumer narrows it by tool metadata; assembling its own list from the
 	 * sources behind it is how the advertised set and the sent set drift apart. */
 	readonly tools: readonly Tool<any>[]
-	/** Which tools' rows may fold into a run of lookups or of draft writes. Every tool the
-	 * transcript's chat could have called, not only `tools`: a row outlives the request that
-	 * carried its tool. */
+	/** Tools whose rows may fold into a run of lookups, of test runs or of draft writes. Every
+	 * tool the transcript's chat could have called, not only `tools`: a row outlives the request
+	 * that carried its tool. */
 	readonly groupingTools: GroupingTools
 	autonomyMode: AIAutonomyMode
 	setAutonomyMode: (mode: AIAutonomyMode) => void
