@@ -58,7 +58,7 @@
 								onShowSection()
 							}}
 						>
-							Show on home
+							Show approvals on home
 						</Button>
 					</div>
 				{/if}

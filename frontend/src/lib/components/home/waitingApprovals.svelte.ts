@@ -1,5 +1,4 @@
 import { JobService, type ListWaitingApprovalsResponse } from '$lib/gen'
-import { getLocalSetting, storeLocalSetting } from '$lib/utils'
 import { IsDocumentVisible, useInterval } from 'runed'
 import { persistedResource } from '$lib/persistedResource.svelte'
 
@@ -77,22 +76,4 @@ export function approvalAge(a: WaitingApproval, now: number) {
 	if (s < 3600) return `${Math.floor(s / 60)}m`
 	if (s < 86400) return `${Math.floor(s / 3600)}h`
 	return `${Math.floor(s / 86400)}d`
-}
-
-const SECTION_SETTING = 'wm-home-approvals-section'
-
-/** Whether the user added the approvals section to Home's side column; off until they do. */
-export function useApprovalsSectionOpen() {
-	let open = $state(getLocalSetting(SECTION_SETTING) === 'true')
-	return {
-		get val() {
-			return open
-		},
-		set val(v: boolean) {
-			open = v
-			try {
-				storeLocalSetting(SECTION_SETTING, v ? 'true' : undefined)
-			} catch {}
-		}
-	}
 }

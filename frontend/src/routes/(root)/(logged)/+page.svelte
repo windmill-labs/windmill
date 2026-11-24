@@ -19,10 +19,7 @@
 	import RecentRunsHeaderStatus from '$lib/components/home/RecentRunsHeaderStatus.svelte'
 	import WaitingApprovalsHeaderStatus from '$lib/components/home/WaitingApprovalsHeaderStatus.svelte'
 	import WaitingApprovalsPanel from '$lib/components/home/WaitingApprovalsPanel.svelte'
-	import {
-		useApprovalsSectionOpen,
-		useWaitingApprovals
-	} from '$lib/components/home/waitingApprovals.svelte'
+	import { useWaitingApprovals } from '$lib/components/home/waitingApprovals.svelte'
 	import {
 		allRunsHref,
 		itemHref,
@@ -135,7 +132,7 @@
 	// Read whether or not the workspace shows the user any item: someone who can only approve,
 	// through a group, may see none of its scripts or flows.
 	const waitingApprovals = useWaitingApprovals(() => $workspaceStore ?? undefined)
-	const approvalsSectionOpen = useApprovalsSectionOpen()
+	const approvalsSectionOpen = usePanelOpen('wm-home-approvals-open')
 	let showApprovalsPanel = $derived(
 		tab == 'workspace' && wide.current && approvalsSectionOpen.val && waitingApprovals.total > 0
 	)

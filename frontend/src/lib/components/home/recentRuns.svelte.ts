@@ -128,10 +128,9 @@ export function useRecentRuns(
 
 export type RecentRunsState = ReturnType<typeof useRecentRuns>
 
-const PANEL_OPEN_SETTING = 'wm-home-runs-open'
-
-export function usePanelOpen() {
-	let open = $state(getLocalSetting(PANEL_OPEN_SETTING) !== 'false')
+/** Whether a Home side-column section is shown; on until the user hides it. */
+export function usePanelOpen(setting: string = 'wm-home-runs-open') {
+	let open = $state(getLocalSetting(setting) !== 'false')
 	return {
 		get val() {
 			return open
@@ -139,7 +138,7 @@ export function usePanelOpen() {
 		set val(v: boolean) {
 			open = v
 			try {
-				storeLocalSetting(PANEL_OPEN_SETTING, v ? undefined : 'false')
+				storeLocalSetting(setting, v ? undefined : 'false')
 			} catch {}
 		}
 	}
