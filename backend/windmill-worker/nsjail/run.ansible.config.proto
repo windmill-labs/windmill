@@ -175,7 +175,7 @@ mount {
 iface_no_lo: true
 
 envar: "LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH"
-envar: "PYTHONPATH={ADDITIONAL_PYTHON_PATHS}"
+envar: {PYTHONPATH}
 envar: "HOME=/tmp"
 envar: "ANSIBLE_CONFIG=/tmp/ansible.cfg"
 # Ansible never flushes its own stdout; on the pipe Windmill gives it, python block-buffers

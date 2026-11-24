@@ -1159,11 +1159,12 @@ except BaseException as e:
         let shared_deps = additional_python_paths
             .into_iter()
             .map(|pp| {
+                let pp = proto_str(&pp);
                 format!(
                     r#"
 mount {{
-    src: "{pp}"
-    dst: "{pp}"
+    src: {pp}
+    dst: {pp}
     is_bind: true
     rw: false
 }}
@@ -1195,10 +1196,14 @@ mount {{
                 .replace("{SHARED_DEPENDENCIES}", shared_deps.as_str())
                 .replace("{MODULE_MOUNTS}", &module_mounts)
                 .replace("{GLOBAL_SITE_PACKAGES}", &global_site_packages_path)
-                .replace("{MAIN}", format!("{dirs}/{last}").as_str())
                 .replace(
-                    "{ADDITIONAL_PYTHON_PATHS}",
-                    additional_python_paths_folders.as_str(),
+                    "{MAIN_SRC}",
+                    &proto_str(&format!("{job_dir}/{dirs}/{last}.py")),
+                )
+                .replace("{MAIN_DST}", &proto_str(&format!("/tmp/{dirs}/{last}.py")))
+                .replace(
+                    "{PYTHONPATH}",
+                    &proto_str(&format!("PYTHONPATH={additional_python_paths_folders}")),
                 )
                 .replace("{TRACING_PROXY_CA_CERT_PATH}", &*TRACING_PROXY_CA_CERT_PATH)
                 .replace("#{DEV}", DEV_CONF_NSJAIL)
@@ -2424,7 +2429,7 @@ async fn spawn_uv_install(
             NSJAIL_CONFIG_DOWNLOAD_PY_CONTENT
                 .replace("{WORKER_DIR}", worker_dir)
                 .replace("{PY_INSTALL_DIR}", &*PY_INSTALL_DIR)
-                .replace("{TARGET_DIR}", &venv_p)
+                .replace("{TARGET_DIR}", &proto_str(venv_p))
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
                 .replace("{TRACING_PROXY_CA_CERT_PATH}", &*TRACING_PROXY_CA_CERT_PATH)
                 .replace("#{DEV}", DEV_CONF_NSJAIL)

@@ -60,8 +60,8 @@ mount {
 {TMP_MOUNT_BLOCK}
 
 mount {
-    src: "{JOB_DIR}/{MAIN}.py"
-    dst: "/tmp/{MAIN}.py"
+    src: {MAIN_SRC}
+    dst: {MAIN_DST}
     is_bind: true
 }
 
@@ -170,7 +170,7 @@ mount {
 iface_no_lo: true
 
 envar: "LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH"
-envar: "PYTHONPATH={ADDITIONAL_PYTHON_PATHS}"
+envar: {PYTHONPATH}
 envar: "HOME=/tmp"
 
 mount {
