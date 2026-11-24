@@ -229,14 +229,7 @@
 	{/if}
 
 	<span class="relative w-[46px] shrink-0 text-right text-[11px] text-hint">
-		<span
-			class="group-hover:invisible group-focus-within:invisible {latest?.status === 'suspended'
-				? 'text-violet-600 dark:text-violet-400'
-				: ''}"
-			title={latest?.status === 'suspended'
-				? `Awaiting approval for ${shortAge(latest, now)}`
-				: undefined}
-		>
+		<span class="group-hover:invisible group-focus-within:invisible">
 			{latest ? shortAge(latest, now) : ''}
 		</span>
 		{#if latest}
