@@ -299,6 +299,11 @@ function testRunOf(message: DisplayMessage, tools: GroupingTools): TestedItem | 
 	// The global chat's runs open their form once prepared, so a loading row without one has
 	// not got there yet. The editors' runs never have a form, so they join once settled.
 	if (!message.runForm && message.isLoading) return undefined
+	// Failed with no job result: refused before any job started (an item that does not exist,
+	// arguments that do not parse), so it never ran and its row names no item to group by.
+	if (!message.runForm && message.error !== undefined && message.result === undefined) {
+		return undefined
+	}
 	// A run form replaces the row's `parameters` with the run's arguments, so its item is read
 	// off the form. test_run_code runs the code it is sent, so its runs are all of one item.
 	// The editors' runs act on the open item: their parameters are the run's own inputs, where

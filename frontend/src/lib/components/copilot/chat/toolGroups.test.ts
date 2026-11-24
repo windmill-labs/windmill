@@ -289,13 +289,17 @@ describe('groupToolRuns', () => {
 		expect(header(messages)).toBe('Tested f/a/script · 2 runs · 1 change')
 	})
 
-	it("folds the flow editor's test runs, whose `path` is the flow's own input", () => {
+	it("folds the flow editor's test runs, whose `path` is the flow's own input, but not runs refused before starting", () => {
 		const messages = [
 			tool('test_run_flow', { path: '/tmp/a' }),
 			tool('set_flow_json', {}),
-			tool('test_run_flow', { path: '/tmp/b' })
+			// A failed job still ran: its row carries the job's result.
+			tool('test_run_flow', { path: '/tmp/b' }, { error: 'boom', result: { error: 'boom' } }),
+			// Refused before any job: an error and no result, whatever path it was given.
+			tool('test_run_flow', { path: 'f/missing/one' }, { error: 'Flow not found' }),
+			tool('test_run_flow', { path: 'f/missing/two' }, { error: 'Flow not found' })
 		]
-		expect(shape(messages)).toEqual([{ test: [0, 1, 2] }])
+		expect(shape(messages)).toEqual([{ test: [0, 1, 2] }, 3, 4])
 		expect(header(messages)).toBe('Tested the flow · 2 runs · 1 change')
 	})
 
