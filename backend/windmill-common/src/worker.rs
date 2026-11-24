@@ -868,7 +868,7 @@ fn format_pull_query(peek: String) -> String {
             j.same_worker, j.pre_run_error, j.visible_to_owner,
             j.tag, j.concurrent_limit, j.concurrency_time_window_s, j.flow_innermost_root_job, j.root_job,
             j.timeout, j.flow_step_id, j.cache_ttl, q.cache_ignore_s3_path, q.runnable_settings_handle, j.priority, j.raw_code, j.raw_lock, j.raw_flow,
-            j.script_entrypoint_override, j.preprocessed, p.job_token_scopes, COALESCE(pj.runnable_path, j.args->>'_FLOW_PATH') as parent_runnable_path,
+            j.script_entrypoint_override, j.preprocessed, p.job_token_scopes, COALESCE(pj.runnable_path, CASE WHEN j.kind = 'preview' THEN j.args->>'_FLOW_PATH' END) as parent_runnable_path,
             COALESCE(p.email, j.permissioned_as_email) as permissioned_as_email, p.username as permissioned_as_username, p.is_admin as permissioned_as_is_admin,
             p.is_operator as permissioned_as_is_operator, p.groups as permissioned_as_groups, p.folders as permissioned_as_folders, p.end_user_email as permissioned_as_end_user_email,
             p.viewer_data_access, p.mcp_client
@@ -1294,6 +1294,10 @@ pub struct SqlAnnotations {
     // `wmill datatable serve` to map Postgres results onto the wire protocol
     // without re-stringifying every JSON value.
     pub raw_output: bool,
+    // The job's args are values bound to the query's parameters, passed on as they are:
+    // `$var:`/`$res:` strings and `$`-prefixed reserved variable names in them stay text.
+    // Emitted by the SDKs' `datatable()`/`ducklake()` helpers, whose args are run-time data.
+    pub literal_args: bool,
 }
 
 impl SqlAnnotations {
@@ -4117,6 +4121,19 @@ mod tests {
         let combined = SqlAnnotations::parse("-- prepare\n-- raw_output\nSELECT 1");
         assert!(combined.raw_output);
         assert!(combined.prepare);
+    }
+
+    #[test]
+    fn test_sql_literal_args_annotation() {
+        // As the SDK helpers emit it, among the other leading annotations.
+        let sdk = SqlAnnotations::parse(
+            "-- result_collection=last_statement_first_row\n-- literal_args\n-- role analytics\n-- $1 arg1\nSELECT $1::TEXT",
+        );
+        assert!(sdk.literal_args);
+
+        assert!(!SqlAnnotations::parse("-- $1 arg1\nSELECT $1::TEXT").literal_args);
+        // Only the leading comment block is read: a value cannot switch it on or off.
+        assert!(!SqlAnnotations::parse("SELECT 1;\n-- literal_args").literal_args);
     }
 
     #[test]

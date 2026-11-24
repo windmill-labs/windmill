@@ -142,6 +142,22 @@ pub async fn build_args_values(
     }
 }
 
+/// The job's args exactly as submitted, for a query annotated `-- literal_args`: unlike
+/// [`build_args_values`], no `$var:`/`$res:`/`$encrypted:` reference and no `$`-prefixed
+/// reserved variable in them is resolved.
+pub fn build_literal_args_values(job: &MiniPulledJob) -> HashMap<String, serde_json::Value> {
+    job.args
+        .iter()
+        .flat_map(|args| args.0.iter())
+        .map(|(k, v)| {
+            (
+                k.to_string(),
+                serde_json::from_str(v.get()).unwrap_or_else(|_| serde_json::Value::Null),
+            )
+        })
+        .collect()
+}
+
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn create_args_and_out_file(
     client: &AuthedClient,
