@@ -30,7 +30,8 @@ const TOOLS: GroupingTools = {
 	]),
 	testRuns: new Map([
 		['test_run_script', 'script'],
-		['test_run_flow', 'flow']
+		['test_run_flow', 'flow'],
+		['test_run_app_runnable', 'app']
 	])
 }
 
@@ -105,6 +106,10 @@ describe('groupToolRuns', () => {
 				tool('read_flow_module_code', flow)
 			])
 		).toEqual([0, 1, { explore: [2, 3] }])
+		// Arguments of JSON `null` reach the row as they are.
+		expect(shape([tool('search_docs', { query: 'a' }), tool('search_docs', null as any)])).toEqual([
+			{ explore: [0, 1] }
+		])
 		expect(
 			shape([
 				tool('patch_flow_json', flow),
@@ -297,9 +302,12 @@ describe('groupToolRuns', () => {
 			tool('test_run_flow', { path: '/tmp/b' }, { error: 'boom', result: { error: 'boom' } }),
 			// Refused before any job: an error and no result, whatever path it was given.
 			tool('test_run_flow', { path: 'f/missing/one' }, { error: 'Flow not found' }),
-			tool('test_run_flow', { path: 'f/missing/two' }, { error: 'Flow not found' })
+			tool('test_run_flow', { path: 'f/missing/two' }, { error: 'Flow not found' }),
+			// An app runnable has no form either, and its path is the app's: still not a run.
+			tool('test_run_app_runnable', { path: 'f/a/app' }, { error: 'No runnable "x"' }),
+			tool('test_run_app_runnable', { path: 'f/a/app' }, { error: 'No runnable "x"' })
 		]
-		expect(shape(messages)).toEqual([{ test: [0, 1, 2] }, 3, 4])
+		expect(shape(messages)).toEqual([{ test: [0, 1, 2] }, 3, 4, 5, 6])
 		expect(header(messages)).toBe('Tested the flow · 2 runs · 1 change')
 	})
 
