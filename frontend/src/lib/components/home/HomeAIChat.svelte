@@ -113,13 +113,7 @@
 {#snippet homeMenu()}
 	<!-- The band's own menu: the connect helper, the hub, and the way back to favorites & recent
 	     — all of them preferences or side trips, none of them the page's work. -->
-	<!-- A hairline sets the side trips apart from the workspace's own state before them, the one the
-	     runs status uses; only when something comes before, or it would stand alone in the bar. -->
-	<span
-		class="flex items-center gap-1 {sideTripsInBar
-			? '[&:not(:first-child)]:pl-2.5 [&:not(:first-child)]:border-l border-border-light'
-			: ''}"
-	>
+	<span class="flex items-center gap-1">
 		<!-- Wide enough, and the two side trips are buttons of their own: a menu is where a thing
 		     goes when the bar cannot hold it, not where it belongs. They fold back below the width
 		     above. -->

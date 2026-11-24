@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { workspaceStore, userWorkspaces } from '$lib/stores'
 	import { workspaceIsFork } from '$lib/utils/workspaceHierarchy'
-	import { Button } from './common'
+	import { Badge } from './common'
 	import { Pencil } from 'lucide-svelte'
 	import { useWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
 	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
@@ -16,7 +16,8 @@
 	// Surfaces pending drafts (scripts/flows/apps) for the current workspace and
 	// links to the compare page in draft mode. Mutually exclusive with
 	// ForkWorkspaceBanner: that one self-gates on `isFork`, this one on `!isFork`,
-	// so a fork workspace never shows both. A fork counts its drafts in its changes button.
+	// so a fork workspace never shows both. In a fork, drafts are discovered via
+	// the on-page "Deployed ↔ draft (N)" toggle badge instead.
 	let isFork = $derived(workspaceIsFork($workspaceStore, $userWorkspaces))
 
 	// Count comes from the shared Workspace Drafts resource (count ≡ the draft
@@ -47,27 +48,23 @@
 
 {#if !isFork && draftCount > 0 && !homeActionsGathered()}
 	<!-- In the band rather than a banner over the page: it is a standing fact about the workspace,
-	     not an interruption, and one button says it and acts on it. -->
+	     not an interruption, and one badge says it and acts on it. -->
 	<PageHeaderContent actions={draftsAction} actionsOrder={-100} />
 {/if}
 
 {#snippet draftsAction()}
-	<!-- The count is the button, shaped like a fork's changes button: a count beside a button that
-	     goes to the same place reads as two ways in. Fades in: the count lands after the bar it
-	     joins has already painted. -->
-	{@const label = `${draftCount} draft${draftCount !== 1 ? 's' : ''} not deployed yet: review and deploy`}
-	<!-- Named by aria-label too: compact, the button's own text is a bare number. -->
-	<Button
-		btnClasses="wm-page-in tabular-nums"
-		variant="default"
-		unifiedSize="sm"
-		href={draftCompareHref}
-		title={label}
-		aria-label={label}
-	>
-		<span class="flex items-center gap-1">
-			<Pencil class="w-3 h-3 text-accent" />
+	<!-- The same badge a fork shows for its drafts. Fades in: the count lands after the bar it joins
+	     has already painted. -->
+	<span class="flex items-center wm-page-in">
+		<Badge
+			color="blue"
+			small
+			clickable
+			href={draftCompareHref}
+			title="Review and deploy {draftCount} draft{draftCount !== 1 ? 's' : ''}"
+		>
+			<Pencil class="w-3 h-3 inline" />
 			{draftCount}{phone || !homeCountLabels() ? '' : ` draft${draftCount !== 1 ? 's' : ''}`}
-		</span>
-	</Button>
+		</Badge>
+	</span>
 {/snippet}

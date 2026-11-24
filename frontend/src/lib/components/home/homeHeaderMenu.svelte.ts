@@ -5,9 +5,8 @@ import { pageHeader } from '$lib/components/pageHeaderRegistry.svelte'
  *  the first the runs status shrinks to an icon, at the second every action joins the ⋮ menu. */
 export const HOME_ACTION_FOLDS = 2
 
-/** Bar width from which Home's changes and drafts buttons name what they count. Below it they keep
- *  the icon and the number, which is the part a reader scans for; the tooltip names them either
- *  way. */
+/** Bar width from which the fork badges say what they count. Below it they keep the icon and the
+ *  number, which is the part a reader scans for; the tooltip names them either way. */
 const BAR_FITS_COUNT_LABELS = 1280
 /** Bar width from which CLI / MCP and the hub stand in the bar rather than in the ⋮ menu. Home's
  *  trail is ~250px and the rest of its actions ~400, so this leaves room for both labelled
