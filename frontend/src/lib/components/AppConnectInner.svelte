@@ -143,7 +143,7 @@
 		}
 	> = $state({})
 
-	/** An instance entry with shared credentials (admin id+secret), which the browser
+	/** An instance entry with shared credentials (instance id+secret), which the browser
 	 * sign-in needs. Bring-your-own-only entries (no shared creds) are not one. */
 	function isSharedConnect(key: string): boolean {
 		return connectsInfo[key]?.has_shared_credentials ?? false
@@ -374,7 +374,7 @@
 		disabled: boolean
 	): { label: string; description: string; grant: string } {
 		const browser = disabled
-			? `Needs an OAuth client for ${providerName} in the instance settings, added by a superadmin.`
+			? `Needs an OAuth client for ${providerName} in the instance settings.`
 			: 'Opens a browser window to authorize.'
 		switch (m) {
 			case 'auth_code':
@@ -399,7 +399,7 @@
 				return {
 					label: "Connect as this instance's app",
 					description:
-						'Uses the app your admin set up. No input needed. The connection acts as that app, not as you.',
+						'Uses the app configured in the instance settings. No input needed. The connection acts as that app, not as you.',
 					grant: 'Client credentials'
 				}
 			case 'cc_byo':
@@ -1343,7 +1343,7 @@
 						<Badge verySmall color="blue" class="px-2 shrink-0">Log in with your account</Badge>
 					{/if}
 					{#if configured && connectsInfo[key].shares_client_credentials}
-						<Badge verySmall color="blue" class="px-2 shrink-0">Set up by your admin</Badge>
+						<Badge verySmall color="blue" class="px-2 shrink-0">Preconfigured</Badge>
 					{/if}
 				{/snippet}
 				{#snippet subtitle()}
