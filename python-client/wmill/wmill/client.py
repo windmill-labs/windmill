@@ -535,6 +535,9 @@ class Windmill:
             result_res = self.get(
                 f"/w/{self.workspace}/jobs_u/completed/get_result_maybe/{job_id}",
                 True,
+                # this job is blocked on `job_id`: a child that can never start (every worker of
+                # its tag held by such a waiting job) fails the wait instead of hanging
+                params={"wait_for_child": "true"},
                 retry_budget=(timeout - (time.time() - start_time)) if timeout else None,
             ).json()
 

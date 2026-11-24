@@ -124,6 +124,7 @@ export function getDatatableMigrationTools(): SessionTool<{}>[] {
 			requires: NONE,
 			def: getListMigrationsToolDef(),
 			planModeSafe: true,
+			lookup: true,
 			fn: async (ctx) => {
 				const { datatable_name } = getListMigrationsSchema().parse(ctx.args)
 				ctx.toolCallbacks.setToolStatus(ctx.toolId, {

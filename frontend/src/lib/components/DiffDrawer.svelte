@@ -15,7 +15,9 @@
 	import type { Script } from '$lib/gen'
 	import Select from './select/Select.svelte'
 	import type { DiffAiReview, DiffVersionOption } from './diff_drawer'
-	import { copilotInfo } from '$lib/aiStore'
+	import { getAiChatManager } from '$lib/components/copilot/chat/aiChatManagerContext'
+	import type { AIChatManager } from '$lib/components/copilot/chat/AIChatManager.svelte'
+	import { untrack } from 'svelte'
 	import AiReview from './deploymentRequest/AiReview.svelte'
 	import type { ReviewScope } from './deploymentRequest/aiReview'
 
@@ -61,9 +63,15 @@
 	interface Props {
 		restoreDeployed?: () => Promise<void>
 		isFlow?: boolean
+		/** The session's chat manager, for a session editor view that mounts this drawer outside
+		 * the session's context. */
+		aiChat?: AIChatManager
 	}
 
-	let { restoreDeployed = undefined, isFlow = false }: Props = $props()
+	let { restoreDeployed = undefined, isFlow = false, aiChat: sessionChat }: Props = $props()
+
+	const aiChat = untrack(() => sessionChat) ?? getAiChatManager()
+	const aiInfo = $derived(aiChat.aiInfo)
 
 	let data:
 		| {
@@ -386,11 +394,15 @@
 <Drawer bind:this={diffViewer} size="1200px" on:close>
 	<DrawerContent title="Diff" on:close={diffViewer.closeDrawer}>
 		<div class="flex flex-col gap-4 h-full">
-			{#if data && aiReviewScope && $copilotInfo.enabled}
+			{#if data && aiReviewScope && aiInfo?.enabled}
 				<div class="max-h-[40vh] overflow-y-auto shrink-0">
 					<!-- A new diff is a new review: a result never carries over to it. -->
 					{#key aiReviewScope}
-						<AiReview scope={aiReviewScope} source="draft_diff" />
+						<AiReview
+							scope={aiReviewScope}
+							source="draft_diff"
+							info={aiChat.loadedSessionAiTarget?.info}
+						/>
 					{/key}
 				</div>
 			{/if}

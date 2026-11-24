@@ -8,7 +8,7 @@
 		COPILOT_SESSION_REASONING_SETTING_NAME
 	} from '$lib/stores'
 	import { storeLocalSetting } from '$lib/utils'
-	import { copilotInfo, copilotSessionModel } from '$lib/aiStore'
+	import { copilotInfo, copilotSessionModel, tryResolveModelFor } from '$lib/aiStore'
 	import type { AIProvider } from '$lib/gen'
 	import {
 		getReasoningCapability,
@@ -17,14 +17,14 @@
 		type ReasoningProviderModel
 	} from '../reasoningRegistry'
 
-	let providerModel = $derived(
-		($copilotSessionModel ??
-			$copilotInfo.defaultModel ??
-			$copilotInfo.aiModels[0] ?? {
-				model: 'No model',
-				provider: 'No provider'
-			}) as ReasoningProviderModel
-	)
+	let providerModel = $derived.by(() => {
+		// Subscribes only: `tryResolveModelFor` reads the pick through `get()`, which tracks nothing.
+		void $copilotSessionModel
+		return (tryResolveModelFor($copilotInfo) ?? {
+			model: 'No model',
+			provider: 'No provider'
+		}) as ReasoningProviderModel
+	})
 
 	let multipleModels = $derived($copilotInfo.aiModels.length > 1)
 

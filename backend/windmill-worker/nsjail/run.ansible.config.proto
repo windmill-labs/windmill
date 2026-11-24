@@ -7,7 +7,7 @@ time_limit: {TIMEOUT}
 
 {RLIMIT_AS}
 rlimit_cpu: 1000
-rlimit_fsize: 1000
+{RLIMIT_FSIZE}
 rlimit_nofile: 10000
 
 cwd: "/tmp"

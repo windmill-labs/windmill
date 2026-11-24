@@ -19479,6 +19479,15 @@ paths:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/JobId"
         - $ref: "#/components/parameters/GetStarted"
+        - name: wait_for_child
+          description: |
+            Set by a job's SDK wait helpers when the calling job is blocked until this job, its
+            child, completes. If every worker of the child's tag is held by such a waiting parent,
+            the child can never start, and the request fails with 409 instead of the wait hanging.
+            Leave unset for a plain status read.
+          in: query
+          schema:
+            type: boolean
 
       responses:
         "200":
@@ -30843,6 +30852,10 @@ components:
         muted_on_user_path:
           type: boolean
           default: false
+        muted_on_ui_runs:
+          type: boolean
+          default: false
+          description: Skip jobs started from the UI, whose trigger kind is `ui`. Stored only when true.
 
     SuccessHandlerConfig:
       type: object
@@ -30875,6 +30888,9 @@ components:
         muted_on_user_path:
           type: boolean
           default: false
+        muted_on_ui_runs:
+          type: boolean
+          description: Skip jobs started from the UI, whose trigger kind is `ui`. Omit to leave the stored value untouched.
         fallback_to_instance_alerts:
           type: boolean
           description: Report failed jobs to the instance critical alert channels when no workspace error handler is set. Omit to leave the stored value untouched.

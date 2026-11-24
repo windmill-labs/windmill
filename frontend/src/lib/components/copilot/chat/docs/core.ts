@@ -37,6 +37,7 @@ export const readDocsPageTool: SessionTool<{}> = {
 	requires: NONE,
 	def: READ_DOCS_PAGE_TOOL,
 	planModeSafe: true,
+	lookup: true,
 	fn: async ({ args, toolId, toolCallbacks }) => {
 		const url = typeof args?.url === 'string' ? args.url : ''
 		const section =
@@ -90,6 +91,7 @@ export const searchDocsTool: SessionTool<{}> = {
 	requires: NONE,
 	def: SEARCH_DOCS_TOOL,
 	planModeSafe: true,
+	lookup: true,
 	fn: async ({ args, toolId, toolCallbacks }) => {
 		const query = typeof args?.query === 'string' ? args.query.trim() : ''
 		toolCallbacks.setToolStatus(toolId, {

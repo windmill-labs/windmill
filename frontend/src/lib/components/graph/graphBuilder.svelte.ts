@@ -104,6 +104,19 @@ export function expandedSubflowOf(flow: OpenFlow): ExpandedSubflow {
 	}
 }
 
+/**
+ * A group of the expansion `expansionId` (an `expandedSubflows` key), its ends named by their
+ * graph node ids: the same subflow can be expanded at several steps, and its groups must not
+ * share a `groupKey` across them.
+ */
+export function expandedSubflowGroup<G extends { start_id: string; end_id: string }>(
+	expansionId: string,
+	g: G
+): G {
+	const p = 'subflow:' + expansionId.replace(/^subflow:/, '') + ':'
+	return { ...g, start_id: p + g.start_id, end_id: p + g.end_id }
+}
+
 export function buildPrefix(prefix: string | undefined, id: string): string {
 	return (prefix ?? '') + id + ':'
 }
@@ -734,10 +747,10 @@ export function graphBuilder(
 			if (prefix != undefined) {
 				items.forEach((item) => {
 					if (item.kind === 'group') return
-					const m = moduleMap.get(item.id)
+					const newId = 'subflow:' + prefix + item.id
+					const m = moduleMap.get(newId)
 					if (m) {
 						const oid = m['oid'] ?? m.id
-						const newId = 'subflow:' + prefix + oid
 						const clone = { ...m, id: newId, oid } as FlowModule & { oid: string }
 						clone['oid'] = oid
 						moduleMap.set(newId, clone)
@@ -775,7 +788,7 @@ export function graphBuilder(
 									autocollapse: g.autocollapse,
 									stepCount: item.moduleIds?.length ?? 0,
 									modules: leafIds
-										.map((id) => moduleMap.get(id))
+										.map((id) => moduleMap.get(prefix != undefined ? 'subflow:' + prefix + id : id))
 										.filter((m): m is FlowModule => !!m),
 									isOwner: extra.isOwner,
 									showNotes,
@@ -1214,19 +1227,19 @@ export function graphBuilder(
 
 							nodes.push(endNode)
 
-							// Register expanded subflow modules so prefix rewriting finds
-							// the inner modules (not the parent flow's modules with same IDs)
+							const subflowPrefix = buildPrefix(prefix, module['oid'] ?? module.id)
+							// Under their prefixed ids: a raw id would shadow a step of the drawing
+							// flow, or of another expansion, that shares it.
 							for (const em of getAllModules(expandedMods)) {
-								moduleMap.set(em.id, em)
+								moduleMap.set('subflow:' + subflowPrefix + em.id, em)
 							}
 
 							const expandedGroups = (expandedData.groups ?? []).map((g) => ({
 								...g,
-								id: groupKey(g),
+								id: groupKey(expandedSubflowGroup(module.id, g)),
 								moduleIds: computeGroupModuleIds(g.start_id, g.end_id, getAllModules(expandedMods))
 							}))
 
-							const subflowPrefix = buildPrefix(prefix, module['oid'] ?? module.id)
 							if (expandedData.failureModule) {
 								failureModulesByPrefix['subflow:' + subflowPrefix] = expandedData.failureModule
 							}

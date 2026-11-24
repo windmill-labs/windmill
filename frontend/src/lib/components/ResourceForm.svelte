@@ -17,7 +17,7 @@
 	import TestConnection from './TestConnection.svelte'
 	import TestAiKey from './copilot/TestAIKey.svelte'
 	import { aiResourceProvider, isTokenVertexResource } from './copilot/aiResourceProvider'
-	import { copilotInfo } from '$lib/aiStore'
+	import { getAiChatManager } from './copilot/chat/aiChatManagerContext'
 	import GfmMarkdown from './GfmMarkdown.svelte'
 	import TestTriggerConnection from './triggers/TestTriggerConnection.svelte'
 	import GitHubAppIntegration from './GitHubAppIntegration.svelte'
@@ -93,6 +93,8 @@
 		actingUser,
 		onCredentialStored
 	}: Props = $props()
+
+	const aiChat = getAiChatManager()
 
 	let ws = $derived(workspace ?? $operatingWorkspace)
 	let aiProvider = $derived(aiResourceProvider(resource_type, args))
@@ -325,7 +327,7 @@
 					{aiProvider}
 					workspace={ws}
 					resourceValue={args}
-					model={$copilotInfo.aiModels.find((m) => m.provider === aiProvider)?.model}
+					model={aiChat.aiInfo?.aiModels.find((m) => m.provider === aiProvider)?.model}
 				/>
 			{/if}
 			{#if resource_type === 'git_repository' && ws && (actingUser?.is_admin || actingUser?.is_super_admin)}

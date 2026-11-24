@@ -3,7 +3,8 @@
 	import { isInitialCode } from '$lib/script_helpers'
 	import { Check, Loader2, Wand2 } from 'lucide-svelte'
 	import { metadataCompletionEnabled } from '$lib/stores'
-	import { copilotInfo, getMetadataModel } from '$lib/aiStore'
+	import { getMetadataModel, resolveMetadataModelFor } from '$lib/aiStore'
+	import { getAiChatManager } from './chat/aiChatManagerContext'
 	import { onDestroy, untrack } from 'svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { twMerge } from 'tailwind-merge'
@@ -19,6 +20,9 @@
 		inputSizeClasses
 	} from '../text_input/TextInput.svelte'
 	import { AIBtnClasses } from './chat/AIButtonStyle'
+
+	const aiChat = getAiChatManager()
+	const aiInfo = $derived(aiChat.aiInfo)
 
 	type PromptConfig = {
 		system: string
@@ -176,8 +180,11 @@ Generate a tool name for the script below:
 					content: config.user.replace(`{${config.placeholderName}}`, placeholderContent)
 				}
 			]
+			const target = aiChat.loadedSessionAiTarget
 			const response = await getCompletion(messages, abortController, undefined, {
-				forceModelProvider: getMetadataModel()
+				forceModelProvider: target ? resolveMetadataModelFor(target.info) : getMetadataModel(),
+				workspace: target?.workspace,
+				info: target?.info
 			})
 			generatedContent = ''
 			for await (const chunk of response) {
@@ -197,7 +204,7 @@ Generate a tool name for the script below:
 	}
 
 	if (
-		$copilotInfo.enabled &&
+		aiInfo?.enabled &&
 		$metadataCompletionEnabled &&
 		untrack(() => generateOnAppear) &&
 		!content &&
@@ -216,7 +223,7 @@ Generate a tool name for the script below:
 
 	$effect(() => {
 		active =
-			$copilotInfo.enabled &&
+			!!aiInfo?.enabled &&
 			$metadataCompletionEnabled &&
 			!content &&
 			(loading || focused || !!generatedContent) &&
@@ -267,7 +274,7 @@ Generate a tool name for the script below:
 		}
 	}}
 	onkeydown={(event) => {
-		if (!$copilotInfo.enabled || !$metadataCompletionEnabled) {
+		if (!aiInfo?.enabled || !$metadataCompletionEnabled) {
 			return
 		}
 		if (event.key === 'Tab') {
