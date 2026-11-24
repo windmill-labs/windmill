@@ -12652,6 +12652,21 @@ struct GetCompletedJobQuery {
     get_started: Option<bool>,
 }
 
+/// Why a job polling for its own child's result should stop waiting: the child is stuck behind
+/// a same-tag deadlock. A failed check answers `None`, so the poll carries on.
+async fn waiting_parent_deadlock(
+    db: &DB,
+    child: Uuid,
+    authed: Option<&ApiAuthed>,
+) -> Option<Error> {
+    let caller = authed?.job_id?;
+    windmill_common::tag_deadlock::fail_fast_waiting_parent(db, child, Some(caller))
+        .await
+        .inspect_err(|e| tracing::warn!("same-tag deadlock check for job {child} failed: {e}"))
+        .ok()
+        .flatten()
+}
+
 async fn get_completed_job_result_maybe(
     OptViewToken(view_token): OptViewToken,
     OptAuthed(opt_authed): OptAuthed,
@@ -12712,6 +12727,8 @@ async fn get_completed_job_result_maybe(
             is_skipped: Some(res.is_skipped),
         })
         .into_response())
+    } else if let Some(e) = waiting_parent_deadlock(&db, id, opt_authed.as_ref()).await {
+        Err(e)
     } else if get_started.is_some_and(|x| x) {
         // No completed row yet — the job may be queued/running. Returning its
         // running-state still discloses information about a (possibly private) job, so
