@@ -48,6 +48,7 @@ jobs:
       # ("No space left on device" in cargo test (build)). Drop preinstalled
       # toolchains no test uses before anything is installed or restored.
       - name: Free disk space
+        working-directory: /
         run: |
           df -h /
           sudo rm -rf /usr/local/lib/android /opt/ghc /usr/local/.ghcup /usr/share/swift \
