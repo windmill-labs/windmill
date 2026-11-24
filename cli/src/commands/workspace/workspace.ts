@@ -633,7 +633,13 @@ async function login(opts: GlobalOptions, workspaceName?: string) {
   const oldToken = workspace.token;
   await addWorkspace({ ...workspace, token }, opts);
 
-  if (oldToken && oldToken !== token) {
+  // `wmill instance pull --include-workspaces` copies one token into the instance profile and
+  // every workspace profile it creates: revoking it would sign all the others out.
+  const { allInstances } = await import("../instance/instance.ts");
+  const stillReferenced =
+    (await allWorkspaces(opts.configDir)).some((w) => w.token === oldToken) ||
+    (await allInstances()).some((i) => i.token === oldToken);
+  if (oldToken && oldToken !== token && !stillReferenced) {
     try {
       if (await revokeCliLoginToken(oldToken)) {
         log.info("Revoked the profile's previous token.");
