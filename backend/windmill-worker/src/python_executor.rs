@@ -349,7 +349,10 @@ pub async fn uv_pip_compile(
 
         args.extend(["-p", &py_version_str, "--python-preference", "only-managed"]);
 
-        if no_cache {
+        // The jailed resolution runs package code (sdist build backends), so it gets its own
+        // cache rather than the worker-wide one every later resolution reads wheel metadata
+        // from. uv then keeps a throwaway cache in the jail's /tmp.
+        if no_cache || is_sandboxing_enabled() {
             args.extend(["--no-cache"]);
         }
         let (pip_extra_index_url, pip_index_url) = pip_indexes.urls(job_id, w_id, conn).await;
@@ -388,8 +391,8 @@ pub async fn uv_pip_compile(
         // setup.py). When sandboxing is on, confine that under nsjail exactly
         // like the install and run steps already are — otherwise it runs as the
         // worker, in the worker's namespaces, with the worker's env and tokens
-        // readable. The jail gets network to the index, the job dir and the
-        // shared uv cache writable, and the managed interpreter read-only.
+        // readable. The jail gets network to the index, the job dir writable,
+        // and the managed interpreter read-only.
         let mut child_cmd = if is_sandboxing_enabled() {
             let index_cert_mount = INDEX_CERT
                 .as_ref()
@@ -399,9 +402,6 @@ pub async fn uv_pip_compile(
                     )
                 })
                 .unwrap_or_default();
-            // The cache dir is bind-mounted into the jail, so it must exist before
-            // nsjail builds the mount tree (uv would otherwise create it itself).
-            std::fs::create_dir_all(&*UV_CACHE_DIR)?;
             let nsjail_timeout = resolve_nsjail_timeout(conn, w_id, *job_id, None).await;
             write_file(
                 job_dir,
@@ -409,7 +409,6 @@ pub async fn uv_pip_compile(
                 NSJAIL_CONFIG_LOCK_PY_CONTENT
                     .replace("{TIMEOUT}", &nsjail_timeout)
                     .replace("{JOB_DIR}", job_dir)
-                    .replace("{UV_CACHE_DIR}", &*UV_CACHE_DIR)
                     .replace("{PY_INSTALL_DIR}", &*PY_INSTALL_DIR)
                     .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
                     .replace("{INDEX_CERT_MOUNT}", &index_cert_mount)
@@ -2610,6 +2609,27 @@ fn record_first_field(line: &str) -> Option<String> {
     None
 }
 
+/// First entry under `root` (or `root` itself) that is neither a directory nor
+/// a regular file, without following symlinks.
+fn find_non_regular_entry(root: &Path) -> std::io::Result<Option<std::path::PathBuf>> {
+    if !std::fs::symlink_metadata(root)?.is_dir() {
+        return Ok(Some(root.to_path_buf()));
+    }
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        for entry in std::fs::read_dir(&dir)? {
+            let entry = entry?;
+            let ft = entry.file_type()?;
+            if ft.is_dir() {
+                stack.push(entry.path());
+            } else if !ft.is_file() {
+                return Ok(Some(entry.path()));
+            }
+        }
+    }
+    Ok(None)
+}
+
 /// Verify that every file listed in the wheel's RECORD exists on disk under
 /// `venv_p`. Used as a structural integrity check after both a successful
 /// `pull_from_tar` (object-store cache hit) and a successful local
@@ -2618,6 +2638,23 @@ fn record_first_field(line: &str) -> Option<String> {
 /// on the first integrity issue (no .dist-info, no RECORD, or any listed
 /// path missing on disk).
 async fn verify_wheel_record(venv_p: &str) -> Result<(), String> {
+    // The install jail writes this directory, while the worker reads it outside
+    // the jail (RECORD, postinstall merge, piptar upload, the marker). A wheel
+    // installed with --link-mode=copy holds only directories and regular files:
+    // anything else fails the check before any read below opens it.
+    let root = std::path::PathBuf::from(venv_p);
+    match tokio::task::spawn_blocking(move || find_non_regular_entry(&root)).await {
+        Ok(Ok(None)) => {}
+        Ok(Ok(Some(p))) => {
+            return Err(format!(
+                "{} is neither a directory nor a regular file",
+                p.display()
+            ))
+        }
+        Ok(Err(e)) => return Err(format!("walk {venv_p}: {e}")),
+        Err(e) => return Err(format!("walk {venv_p}: {e}")),
+    }
+
     let mut entries = tokio::fs::read_dir(venv_p)
         .await
         .map_err(|e| format!("read_dir({venv_p}): {e}"))?;
@@ -4013,6 +4050,25 @@ mod tests {
         assert!(verify_wheel_record(dir.path().to_str().unwrap())
             .await
             .is_ok());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn test_verify_wheel_record_err_on_symlink() {
+        let dir = tempfile::tempdir().unwrap();
+        write_fake_wheel(
+            dir.path(),
+            &["pkg/__init__.py"],
+            &[
+                "pkg/__init__.py,sha256=aaa,1",
+                "pkg-1.0.0.dist-info/RECORD,,",
+            ],
+        );
+        std::os::unix::fs::symlink("/etc/hostname", dir.path().join("pkg/linked")).unwrap();
+        let err = verify_wheel_record(dir.path().to_str().unwrap())
+            .await
+            .unwrap_err();
+        assert!(err.contains("linked"), "{err}");
     }
 
     #[tokio::test]
