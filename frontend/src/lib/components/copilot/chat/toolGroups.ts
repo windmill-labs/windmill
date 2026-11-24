@@ -314,8 +314,6 @@ function testRunOf(message: DisplayMessage, tools: GroupingTools): TestedItem | 
 	return { kind, path: '' }
 }
 
-// An edit or read of the item between two of its runs: what the model changes before running
-// it again. Its diff folds with it, since the next run is what says whether the change worked.
 // The kind of item a call edits, for the edits a test group takes and counts. An agent is an
 // `ai_agent` resource, so it is edited through write_resource.
 function testedEditKind(call: ToolDisplayMessage): TestedItemKind | undefined {
@@ -326,6 +324,8 @@ function testedEditKind(call: ToolDisplayMessage): TestedItemKind | undefined {
 	return undefined
 }
 
+// An edit or read of the item between two of its runs: what the model changes before running
+// it again. Its diff folds with it, since the next run is what says whether the change worked.
 function touchesTestedItem(message: DisplayMessage, item: TestedItem): boolean {
 	if (message.role !== 'tool' || !message.toolName) return false
 	if (standsAlone(message) || hasContentCard(message)) return false
