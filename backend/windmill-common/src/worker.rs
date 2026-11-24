@@ -3134,16 +3134,15 @@ pub fn load_env_vars(
 ) -> HashMap<String, String> {
     iter.sorted()
         .unique()
-        .map(|envvar_name| {
-            (
-                envvar_name.clone(),
-                env_vars_static
-                    .get::<String>(&envvar_name)
-                    .map(|v| v.to_owned())
-                    .unwrap_or_else(|| {
-                        std::env::var(envvar_name.clone()).unwrap_or("".to_string())
-                    }),
-            )
+        .filter_map(|envvar_name| {
+            // An allowlisted name that is defined neither in the static map nor in the
+            // worker's own environment must stay absent: injecting it as an empty
+            // string makes every script see a variable that exists nowhere.
+            let value = env_vars_static
+                .get::<String>(&envvar_name)
+                .map(|v| v.to_owned())
+                .or_else(|| std::env::var(&envvar_name).ok())?;
+            Some((envvar_name, value))
         })
         .collect()
 }
@@ -3463,6 +3462,31 @@ mod tests {
         assert_eq!(path("u/me/x"), "u/me/x");
         assert_eq!(path("//u/me/x"), "//u/me/x");
         assert_eq!(path("/f/dw/*"), "f/dw/*");
+    }
+
+    #[test]
+    fn whitelisted_env_vars_undefined_nowhere_are_not_injected() {
+        // set_var is safe: the name is unique to this test and tests run in one process
+        std::env::set_var("WM_TEST_DEFINED_VAR", "value");
+        let resolved = load_env_vars(
+            // Mirrors the real call site, which chains the static map's keys into
+            // the iterator so they resolve from the map rather than the env.
+            [
+                "WM_TEST_DEFINED_VAR",
+                "WM_TEST_UNDEFINED_VAR",
+                "WM_TEST_STATIC_VAR",
+            ]
+            .into_iter()
+            .map(String::from),
+            &HashMap::from([("WM_TEST_STATIC_VAR".to_string(), "static".to_string())]),
+        );
+        assert_eq!(
+            resolved,
+            HashMap::from([
+                ("WM_TEST_DEFINED_VAR".to_string(), "value".to_string()),
+                ("WM_TEST_STATIC_VAR".to_string(), "static".to_string()),
+            ])
+        );
     }
 
     #[test]
