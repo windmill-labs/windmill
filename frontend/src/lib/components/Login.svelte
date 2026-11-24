@@ -871,7 +871,9 @@
 								onKeyDown={handleKeyDown}
 							/>
 						</div>
-						{#if !showTotp}
+						{#if showTotp}
+							<div class="min-h-5"></div>
+						{:else}
 							{@render errorMessage()}
 						{/if}
 					</div>
