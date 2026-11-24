@@ -369,7 +369,7 @@
 					options={{ right: 'Require passing CI tests' }}
 				/>
 				{@render description(
-					"An item this workspace's CI tests cover deploys only once every one of them has passed on that exact version in a fork. Applies to wm_deployers too."
+					"An item this workspace's CI tests cover deploys only by merging it from a fork where every one of them passed on it. Applies to wm_deployers too."
 				)}
 			</div>
 			<div class="flex flex-col gap-1">

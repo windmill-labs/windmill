@@ -197,70 +197,84 @@ pub async fn trigger_all_ci_tests(
     Ok(vec![])
 }
 
-/// What a deploy writes at its path, as `RequirePassingCiTests` compares it with a fork's.
-pub enum DeployedContent<'a> {
-    Script {
-        content: &'a str,
-        modules: Option<serde_json::Value>,
-        codebase: Option<&'a str>,
-        /// The version it supersedes, whose path is the one a rename leaves.
-        parent_hash: Option<i64>,
-    },
-    Flow(&'a serde_json::value::RawValue),
-    /// `None` when the write clears the value.
-    Resource(Option<&'a serde_json::value::RawValue>),
+/// `promote_from` on a deploy endpoint: the fork of the target workspace to copy the item from.
+/// Under `RequirePassingCiTests` the server then reads the item from that fork itself and uses the
+/// request only for what belongs to the target (lineage, the principal it runs as).
+#[derive(serde::Deserialize, Default, Clone)]
+pub struct PromoteQuery {
+    pub promote_from: Option<String>,
 }
 
-impl DeployedContent<'_> {
-    fn kind(&self) -> &'static str {
-        match self {
-            DeployedContent::Script { .. } => "script",
-            DeployedContent::Flow(_) => "flow",
-            DeployedContent::Resource(_) => "resource",
-        }
-    }
+/// A deploy whose content the server copied from `fork`, where it was last deployed at
+/// `deployed_at`.
+pub struct Promotion {
+    pub fork: String,
+    pub deployed_at: chrono::DateTime<chrono::Utc>,
 }
 
-/// Enforces `RequirePassingCiTests` on a deploy of `path` in `w_id`. The workspace's own CI tests
-/// of the item must all have passed, in a fork of it holding the same content, on that content
-/// and with the same test code. A user who may bypass the rule deploys anyway, and a deploy that
-/// would have been refused is audited. A rename also answers to the tests of the path it leaves,
-/// since their references follow it.
+pub async fn ci_tests_rule_active(
+    db: &sqlx::Pool<sqlx::Postgres>,
+    w_id: &str,
+) -> error::Result<bool> {
+    use windmill_common::workspaces::{get_protection_rules, ProtectionRules};
+    Ok(get_protection_rules(w_id, db)
+        .await?
+        .iter()
+        .any(|r| r.rules.contains(ProtectionRules::REQUIRE_PASSING_CI_TESTS)))
+}
+
+/// Whether the caller may write past `RequirePassingCiTests` in `w_id`.
+pub async fn may_bypass_ci_tests_rule(
+    db: &sqlx::Pool<sqlx::Postgres>,
+    w_id: &str,
+    username: &str,
+    groups: &[String],
+    is_admin: bool,
+) -> error::Result<bool> {
+    use windmill_common::workspaces::{
+        check_user_against_rule, ProtectionRuleKind, RuleCheckResult,
+    };
+    Ok(matches!(
+        check_user_against_rule(
+            w_id,
+            &ProtectionRuleKind::RequirePassingCiTests,
+            username,
+            groups,
+            is_admin,
+            db
+        )
+        .await?,
+        RuleCheckResult::Allowed
+    ))
+}
+
+/// Enforces `RequirePassingCiTests` on a write of `kind` at `path` in `w_id`. An item the
+/// workspace's CI tests cover deploys only as a promotion from a fork whose latest runs of every
+/// one of those tests passed on what it copied, with the same test code. A test is held to the
+/// same, on its own runs there: whoever could rewrite one in place could switch the rule off. A
+/// user who may bypass the rule writes anyway, and a write that would have been refused is
+/// audited. A rename also answers to the tests of the path it leaves, since their references
+/// follow it.
 pub async fn check_ci_tests_rule(
     db: &sqlx::Pool<sqlx::Postgres>,
     w_id: &str,
+    kind: &str,
     path: &str,
     renamed_from: Option<&str>,
-    content: DeployedContent<'_>,
+    promotion: Option<&Promotion>,
     author: &impl windmill_audit::audit_oss::AuditAuthorable,
     groups: &[String],
     is_admin: bool,
 ) -> error::Result<()> {
     use windmill_common::workspaces::{
-        check_user_against_rule, get_protection_rules, ProtectionRuleKind, ProtectionRules,
-        RuleCheckResult,
+        check_user_against_rule, ProtectionRuleKind, RuleCheckResult,
     };
-    let rulesets = get_protection_rules(w_id, db).await?;
-    if !rulesets
-        .iter()
-        .any(|r| r.rules.contains(ProtectionRules::REQUIRE_PASSING_CI_TESTS))
-    {
+    if !ci_tests_rule_active(db, w_id).await? {
         return Ok(());
     }
-    let parent_path = match content {
-        DeployedContent::Script { parent_hash: Some(h), .. } if renamed_from.is_none() => {
-            sqlx::query_scalar!(
-                "SELECT path FROM script WHERE workspace_id = $1 AND hash = $2",
-                w_id,
-                h
-            )
-            .fetch_optional(db)
-            .await?
-        }
-        _ => None,
-    };
-    let renamed_from = renamed_from.or(parent_path.as_deref().filter(|p| *p != path));
-    let Some(failure) = ci_tests_failure(db, w_id, path, renamed_from, &content).await? else {
+    let renamed_from = renamed_from.filter(|p| *p != path);
+    let Some(failure) = ci_tests_failure(db, w_id, kind, path, renamed_from, promotion).await?
+    else {
         return Ok(());
     };
     match check_user_against_rule(
@@ -283,7 +297,7 @@ pub async fn check_ci_tests_rule(
                 "ci_tests.bypass",
                 windmill_audit::ActionKind::Update,
                 w_id,
-                Some(&format!("{}/{path}", content.kind())),
+                Some(&format!("{kind}/{path}")),
                 Some([("reason", failure.as_str())].into()),
             )
             .await?;
@@ -292,16 +306,16 @@ pub async fn check_ci_tests_rule(
     }
 }
 
-/// Why `content` at `path` has not passed `w_id`'s CI tests in any fork, or `None` when it has,
-/// or when no test covers it.
+/// Why this deploy has not passed `w_id`'s CI tests, or `None` when it has, or when no test
+/// covers it.
 async fn ci_tests_failure(
     db: &sqlx::Pool<sqlx::Postgres>,
     w_id: &str,
+    kind: &str,
     path: &str,
     renamed_from: Option<&str>,
-    content: &DeployedContent<'_>,
+    promotion: Option<&Promotion>,
 ) -> error::Result<Option<String>> {
-    let kind = content.kind();
     let refs = sqlx::query!(
         "SELECT test_script_path, tested_item_path, has_wildcard AS \"has_wildcard!\" \
          FROM ci_test_reference \
@@ -324,92 +338,75 @@ async fn ci_tests_failure(
             })
             .map(|r| r.test_script_path)
             .collect();
-    if tests.is_empty() {
+    let is_test = kind == "script"
+        && sqlx::query_scalar!(
+            "SELECT EXISTS(SELECT 1 FROM ci_test_reference \
+             WHERE workspace_id = $1 AND (test_script_path = $2 OR test_script_path = $3))",
+            w_id,
+            path,
+            renamed_from
+        )
+        .fetch_one(db)
+        .await?
+        .unwrap_or(false);
+    if tests.is_empty() && !is_test {
         return Ok(None);
     }
-
-    let forks = sqlx::query_scalar!(
-        "SELECT id FROM workspace WHERE parent_workspace_id = $1 AND deleted = false ORDER BY id",
-        w_id
-    )
-    .fetch_all(db)
-    .await?;
-    let raw = match content {
-        DeployedContent::Script { .. } => None,
-        DeployedContent::Flow(v) => Some(Some(*v)),
-        DeployedContent::Resource(v) => Some(*v),
+    let Some(p) = promotion else {
+        return Ok(Some(format!(
+            "{kind} {path} has CI tests or is one, so it deploys here only when promoted from a \
+             fork where they passed"
+        )));
     };
-    let value = raw
-        .map(|v| {
-            v.map_or(Ok(serde_json::Value::Null), |v| {
-                serde_json::from_str(v.get())
-            })
-            .map_err(|e| error::Error::BadRequest(format!("invalid {kind} value: {e}")))
-        })
-        .transpose()?;
-    let mut failure = format!("No fork of {w_id} holds this version of {kind} {path}");
-    for fork in forks {
-        let Some(deployed_at) = fork_deployed_at(db, &fork, path, content, value.as_ref()).await?
-        else {
-            continue;
-        };
-        match fork_tests_failure(db, w_id, &fork, kind, path, &tests, deployed_at).await? {
-            None => return Ok(None),
-            Some(f) => failure = f,
+    if !tests.is_empty() {
+        if let Some(f) =
+            fork_tests_failure(db, w_id, &p.fork, kind, path, &tests, p.deployed_at).await?
+        {
+            return Ok(Some(f));
         }
     }
-    Ok(Some(failure))
+    if is_test {
+        return own_runs_failure(db, &p.fork, path, p.deployed_at).await;
+    }
+    Ok(None)
 }
 
-/// When `fork` last deployed `path`, if what it holds there is `content` (`value` being its JSON,
-/// parsed, for a flow or a resource).
-async fn fork_deployed_at(
+/// Why the runs of the test at `path` in `fork` since it was deployed there at `deployed_at` do
+/// not vouch for it, or `None` when the latest one for each item it tests passed.
+async fn own_runs_failure(
     db: &sqlx::Pool<sqlx::Postgres>,
     fork: &str,
     path: &str,
-    content: &DeployedContent<'_>,
-    value: Option<&serde_json::Value>,
-) -> error::Result<Option<chrono::DateTime<chrono::Utc>>> {
-    Ok(match (content, value) {
-        (DeployedContent::Script { content: c, modules, codebase, .. }, _) => sqlx::query!(
-            "SELECT content, modules, codebase, created_at FROM script \
-             WHERE workspace_id = $1 AND path = $2 AND deleted = false AND archived = false \
-             ORDER BY created_at DESC LIMIT 1",
-            fork,
-            path
-        )
-        .fetch_optional(db)
-        .await?
-        .filter(|s| s.content == *c && s.modules == *modules && s.codebase.as_deref() == *codebase)
-        .map(|s| s.created_at),
-        (DeployedContent::Flow(_), Some(v)) => sqlx::query!(
-            "SELECT f.value AS \"value: sqlx::types::Json<serde_json::Value>\", \
-                    (SELECT max(created_at) FROM flow_version \
-                     WHERE workspace_id = $1 AND path = $2) AS deployed_at \
-             FROM flow f WHERE f.workspace_id = $1 AND f.path = $2 AND f.archived = false",
-            fork,
-            path
-        )
-        .fetch_optional(db)
-        .await?
-        .filter(|f| same_flow(&f.value.0, v))
-        .and_then(|f| f.deployed_at),
-        (DeployedContent::Resource(_), Some(v)) => sqlx::query!(
-            "SELECT value AS \"value: sqlx::types::Json<serde_json::Value>\", resource_type, \
-                    edited_at \
-             FROM resource WHERE workspace_id = $1 AND path = $2",
-            fork,
-            path
-        )
-        .fetch_optional(db)
-        .await?
-        .filter(|r| {
-            let fork_value = r.value.as_ref().map_or(&serde_json::Value::Null, |v| &v.0);
-            same_resource(&r.resource_type, fork_value, v)
-        })
-        .and_then(|r| r.edited_at),
-        _ => None,
-    })
+    deployed_at: chrono::DateTime<chrono::Utc>,
+) -> error::Result<Option<String>> {
+    let runs = sqlx::query!(
+        "SELECT DISTINCT ON (j.trigger) j.trigger, jc.status::text AS status \
+         FROM v2_job j LEFT JOIN v2_job_completed jc ON jc.id = j.id \
+         WHERE j.workspace_id = $1 AND j.runnable_path = $2 AND j.trigger_kind = 'ci_test' \
+           AND j.created_at >= $3 \
+         ORDER BY j.trigger, j.created_at DESC",
+        fork,
+        path,
+        deployed_at
+    )
+    .fetch_all(db)
+    .await?;
+    if runs.is_empty() {
+        return Ok(Some(format!(
+            "CI test {path} has not run since its last deploy in fork {fork}"
+        )));
+    }
+    Ok(runs.into_iter().find_map(|r| {
+        let failure = match r.status.as_deref() {
+            Some("success") => return None,
+            None => "is still running",
+            Some(_) => "failed",
+        };
+        Some(format!(
+            "CI test {path} {failure} on {} in fork {fork}",
+            r.trigger.unwrap_or_default()
+        ))
+    }))
 }
 
 /// Why the latest run of one of `tests` for `kind/path` in `fork` does not vouch for what it
@@ -427,14 +424,15 @@ async fn fork_tests_failure(
     for test in tests {
         let run = sqlx::query!(
             "SELECT j.created_at, jc.status::text AS status, \
-                    (s.content IS NOT DISTINCT FROM t.content \
-                     AND s.modules IS NOT DISTINCT FROM t.modules \
-                     AND s.codebase IS NOT DISTINCT FROM t.codebase) AS \"same_test!\" \
+                    s.content AS \"ran_content?\", s.language::text AS ran_language, \
+                    s.modules AS ran_modules, s.codebase AS ran_codebase, \
+                    t.content AS \"own_content?\", t.language::text AS own_language, \
+                    t.modules AS own_modules, t.codebase AS own_codebase \
              FROM v2_job j \
              LEFT JOIN v2_job_completed jc ON jc.id = j.id \
              LEFT JOIN script s ON s.workspace_id = j.workspace_id AND s.hash = j.runnable_id \
              LEFT JOIN LATERAL ( \
-                 SELECT content, modules, codebase FROM script \
+                 SELECT content, language, modules, codebase FROM script \
                  WHERE workspace_id = $4 AND path = $2 AND deleted = false AND archived = false \
                  ORDER BY created_at DESC LIMIT 1 \
              ) t ON true \
@@ -451,7 +449,15 @@ async fn fork_tests_failure(
         let failure = match run {
             None => "has not run",
             Some(r) if r.created_at < deployed_at => "has not run since its last deploy",
-            Some(r) if !r.same_test => "ran with test code that differs from this workspace's",
+            Some(r)
+                if r.ran_content.is_none()
+                    || r.ran_content != r.own_content
+                    || r.ran_language != r.own_language
+                    || r.ran_codebase != r.own_codebase
+                    || without_locks(&r.ran_modules) != without_locks(&r.own_modules) =>
+            {
+                "ran with test code that differs from this workspace's"
+            }
             Some(r) => match r.status.as_deref() {
                 None => "is still running",
                 Some("success") => continue,
@@ -465,120 +471,15 @@ async fn fork_tests_failure(
     Ok(None)
 }
 
-/// A flow carries over to its parent without the hashes its script steps pin, and the locks
-/// of its steps are recomputed per workspace: neither tells two versions of its logic apart. A
-/// deploy may keep the fork's pin of a step or drop it, but a pin of its own runs code no fork
-/// has tested. A step is an object with an `id` and a `value`, so arguments that merely look like
-/// one are compared as they are.
-fn same_flow(fork: &serde_json::Value, deployed: &serde_json::Value) -> bool {
-    use serde_json::Value;
-    fn step_value(
-        m: &serde_json::Map<String, Value>,
-    ) -> Option<(&str, &serde_json::Map<String, Value>)> {
-        let id = m.get("id")?.as_str()?;
-        let step = m.get("value")?.as_object()?;
-        matches!(step.get("type")?.as_str()?, "rawscript" | "script" | "flow").then_some((id, step))
+/// A script's modules with their locks, which each workspace resolves on its own.
+fn without_locks(modules: &Option<serde_json::Value>) -> Option<serde_json::Value> {
+    let mut modules = modules.clone()?;
+    if let Some(m) = modules.as_object_mut() {
+        m.values_mut()
+            .filter_map(|v| v.as_object_mut())
+            .for_each(|v| {
+                v.remove("lock");
+            });
     }
-    fn pins<'a>(v: &'a Value, out: &mut std::collections::HashMap<&'a str, &'a Value>) {
-        match v {
-            Value::Object(m) => {
-                if let Some((id, step)) = step_value(m) {
-                    if let Some(h) = step.get("hash") {
-                        out.insert(id, h);
-                    }
-                }
-                m.values().for_each(|v| pins(v, out));
-            }
-            Value::Array(a) => a.iter().for_each(|v| pins(v, out)),
-            _ => {}
-        }
-    }
-    fn strip(v: &Value, fork_pins: Option<&std::collections::HashMap<&str, &Value>>) -> Value {
-        match v {
-            Value::Object(m) => {
-                let drop_hash =
-                    step_value(m).map(|(id, step)| match (fork_pins, step.get("hash")) {
-                        (None, _) | (_, None) => true,
-                        (Some(p), Some(h)) => p.get(id) == Some(&h),
-                    });
-                let mut out: serde_json::Map<_, _> = m
-                    .iter()
-                    .map(|(k, v)| (k.clone(), strip(v, fork_pins)))
-                    .collect();
-                if let (Some(drop_hash), Some(Value::Object(step))) =
-                    (drop_hash, out.get_mut("value"))
-                {
-                    step.remove("lock");
-                    if drop_hash {
-                        step.remove("hash");
-                    }
-                }
-                Value::Object(out)
-            }
-            Value::Array(a) => Value::Array(a.iter().map(|v| strip(v, fork_pins)).collect()),
-            v => v.clone(),
-        }
-    }
-    let mut fork_pins = std::collections::HashMap::new();
-    pins(fork, &mut fork_pins);
-    strip(fork, None) == strip(deployed, Some(&fork_pins))
-}
-
-/// An agent carries over to its parent with the principal it runs as replaced.
-fn same_resource(fork_type: &str, a: &serde_json::Value, b: &serde_json::Value) -> bool {
-    if fork_type != "ai_agent" {
-        return a == b;
-    }
-    let strip = |v: &serde_json::Value| {
-        let mut v = v.clone();
-        if let Some(m) = v.as_object_mut() {
-            m.remove("on_behalf_of");
-        }
-        v
-    };
-    strip(a) == strip(b)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    #[test]
-    fn same_flow_ignores_step_hashes_and_locks_only() {
-        let fork = json!({"modules": [{"id": "a", "value": {"type": "rawscript", "content": "x",
-            "lock": "l1", "input_transforms": {"lock": {"type": "static", "value": 1}}}},
-            {"id": "b", "value": {"type": "script", "path": "f/s", "hash": "h1"}}]});
-        let merged = json!({"modules": [{"id": "a", "value": {"type": "rawscript", "content": "x",
-            "input_transforms": {"lock": {"type": "static", "value": 1}}}},
-            {"id": "b", "value": {"type": "script", "path": "f/s"}}]});
-        assert!(same_flow(&fork, &merged));
-        let mut changed_arg = merged.clone();
-        changed_arg["modules"][0]["value"]["input_transforms"]["lock"]["value"] = json!(2);
-        assert!(!same_flow(&fork, &changed_arg));
-        let mut changed_code = merged.clone();
-        changed_code["modules"][0]["value"]["content"] = json!("y");
-        assert!(!same_flow(&fork, &changed_code));
-        let mut pinned = merged.clone();
-        pinned["modules"][1]["value"]["hash"] = json!("h2");
-        assert!(!same_flow(&fork, &pinned));
-        let mut kept_pin = merged.clone();
-        kept_pin["modules"][1]["value"]["hash"] = json!("h1");
-        assert!(same_flow(&fork, &kept_pin));
-        let (mut fork_arg, mut merged_arg) = (fork.clone(), merged);
-        fork_arg["modules"][0]["value"]["input_transforms"]["lock"]["value"] =
-            json!({"type": "script", "hash": "v1"});
-        merged_arg["modules"][0]["value"]["input_transforms"]["lock"]["value"] =
-            json!({"type": "script", "hash": "v2"});
-        assert!(!same_flow(&fork_arg, &merged_arg));
-    }
-
-    #[test]
-    fn same_resource_ignores_agent_principal() {
-        let fork = json!({"model": "m", "on_behalf_of": "u/a"});
-        let other_principal = json!({"model": "m", "on_behalf_of": "u/b"});
-        assert!(same_resource("ai_agent", &fork, &other_principal));
-        assert!(!same_resource("custom", &fork, &other_principal));
-        assert!(!same_resource("ai_agent", &fork, &json!({"model": "n"})));
-    }
+    Some(modules)
 }

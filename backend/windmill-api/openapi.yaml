@@ -9307,6 +9307,7 @@ paths:
           schema:
             type: boolean
         - $ref: "#/components/parameters/SkipCiTests"
+        - $ref: "#/components/parameters/PromoteFrom"
       requestBody:
         description: new resource
         required: true
@@ -9384,6 +9385,7 @@ paths:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/Path"
         - $ref: "#/components/parameters/SkipCiTests"
+        - $ref: "#/components/parameters/PromoteFrom"
       requestBody:
         description: updated resource
         required: true
@@ -11495,6 +11497,7 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/SkipCiTests"
+        - $ref: "#/components/parameters/PromoteFrom"
       requestBody:
         description: Partially filled script
         required: true
@@ -11540,6 +11543,7 @@ paths:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/ScriptPath"
         - $ref: "#/components/parameters/SkipCiTests"
+        - $ref: "#/components/parameters/PromoteFrom"
       requestBody:
         description: The new version of the script, whose `path` is where it should end up.
         required: true
@@ -13946,6 +13950,7 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/SkipCiTests"
+        - $ref: "#/components/parameters/PromoteFrom"
       requestBody:
         description: Partially filled flow
         required: true
@@ -13992,6 +13997,7 @@ paths:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/ScriptPath"
         - $ref: "#/components/parameters/SkipCiTests"
+        - $ref: "#/components/parameters/PromoteFrom"
       requestBody:
         description: Partially filled flow
         required: true
@@ -29670,6 +29676,12 @@ components:
       name: workspace
       in: path
       required: true
+      schema:
+        type: string
+    PromoteFrom:
+      name: promote_from
+      description: A fork of this workspace to copy the item from. When this workspace requires passing CI tests, the server reads the item from that fork, as the caller is there, and uses the request only for what belongs to this workspace (lineage, deployment message, the principal it runs as); the deploy then passes the rule when the item's tests passed on it in that fork.
+      in: query
       schema:
         type: string
     SkipCiTests:

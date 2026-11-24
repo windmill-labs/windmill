@@ -850,7 +850,8 @@
 				workspaceTo: workspaceToDeployTo,
 				onBehalfOf: getOnBehalfOfForDeploy(statusKey, kind),
 				onBehalfOfPrincipal: getOnBehalfOfPermissionedAsForDeploy(statusKey, kind),
-				skipCiTests: true
+				skipCiTests: true,
+				promoteFrom: mergeIntoParent && !isArbitraryTarget ? workspaceFrom : undefined
 			})
 		}
 

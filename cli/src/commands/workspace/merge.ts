@@ -532,6 +532,17 @@ async function mergeWorkspaces(
     direction === "to-parent" ? forkWorkspaceId : parentWorkspaceId;
   const workspaceTo =
     direction === "to-parent" ? parentWorkspaceId : forkWorkspaceId;
+  // A parent requiring passing CI tests takes scripts, flows and resources from a fork only as
+  // copies it reads from the fork itself; one without the rule ignores `promoteFrom`.
+  const promoteFrom = forkWorkspaceId;
+  const promotingProvider: DeployProvider = {
+    ...provider,
+    createFlow: (p) => wmill.createFlow({ ...p, promoteFrom }),
+    updateFlow: (p) => wmill.updateFlow({ ...p, promoteFrom }),
+    createScript: (p) => wmill.createScript({ ...p, promoteFrom }),
+    createResource: (p) => wmill.createResource({ ...p, promoteFrom }),
+    updateResource: (p) => wmill.updateResource({ ...p, promoteFrom }),
+  };
 
   // 10. Deploy
   // Updating the fork copies the parent's state in, so nothing it writes there —
@@ -581,7 +592,7 @@ async function mergeWorkspaces(
       }
 
       result = await deployItem(
-        provider,
+        direction === "to-parent" ? promotingProvider : provider,
         diff.kind as DeployKind,
         diff.path,
         workspaceFrom,

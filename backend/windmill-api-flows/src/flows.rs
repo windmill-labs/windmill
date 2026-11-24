@@ -659,6 +659,136 @@ pub async fn validate_operator_composed_flow(
     Ok(())
 }
 
+/// Fields of a deploy that belong to the target workspace rather than to the flow itself.
+const TARGET_FLOW_FIELDS: [&str; 6] = [
+    "path",
+    "deployment_message",
+    "on_behalf_of_email",
+    "on_behalf_of",
+    "preserve_on_behalf_of",
+    "skip_draft_deletion",
+];
+
+/// The flow `fork` holds at `nf.path`, read as the caller is there and shaped as reading it back
+/// returns it, with `nf`'s target fields, when a deploy names that fork under
+/// `RequirePassingCiTests`. Its script steps resolve by path here: the hashes they pin name the
+/// fork's versions.
+async fn promoted_flow(
+    db: &DB,
+    user_db: &UserDB,
+    w_id: &str,
+    fork: Option<&str>,
+    nf: NewFlow,
+    authed: &ApiAuthed,
+) -> Result<(NewFlow, Option<windmill_dep_map::ci_tests::Promotion>)> {
+    let Some(fork) = fork else {
+        return Ok((nf, None));
+    };
+    if !windmill_dep_map::ci_tests::ci_tests_rule_active(db, w_id).await? {
+        return Ok((nf, None));
+    }
+    check_scopes(authed, || format!("flows:read:{}", nf.path))?;
+    let fork_authed = match windmill_api_auth::authed_in_fork(db, w_id, fork, authed).await {
+        Ok(a) => a,
+        Err(e) => {
+            // A bypasser outside the fork writes the request as sent, and is audited for it.
+            let username = AuditAuthorable::username(authed);
+            if windmill_dep_map::ci_tests::may_bypass_ci_tests_rule(
+                db,
+                w_id,
+                username,
+                &authed.groups,
+                authed.is_admin,
+            )
+            .await?
+            {
+                return Ok((nf, None));
+            }
+            return Err(e);
+        }
+    };
+    let mut tx = user_db.clone().begin(&fork_authed).await?;
+    let flow = sqlx::query_as::<_, FlowWithStarred>(
+        "SELECT flow.workspace_id, flow.path, flow.lock_error_logs, flow.summary, \
+            flow.description, flow.archived, flow.extra_perms, flow.dedicated_worker, flow.tag, \
+            flow.ws_error_handler_muted, flow.timeout, flow.visible_to_runner_only, \
+            flow.on_behalf_of, flow.labels, flow.job_token_scopes, \
+            folder_labels(flow.workspace_id, flow.path) AS inherited_labels, \
+            flow_version.id AS version_id, flow_version.schema, flow_version.value, \
+            flow_version.created_at AS edited_at, flow_version.created_by AS edited_by, \
+            NULL AS starred \
+         FROM flow LEFT JOIN flow_version \
+            ON flow_version.id = flow.versions[array_upper(flow.versions, 1)] \
+         WHERE flow.path = $1 AND flow.workspace_id = $2",
+    )
+    .bind(&nf.path)
+    .bind(fork)
+    .fetch_optional(&mut *tx)
+    .await?
+    .ok_or_else(|| Error::NotFound(format!("flow {} not found in {fork}", nf.path)))?;
+    tx.commit().await?;
+    let deployed_at = flow.flow.edited_at;
+    let mut copied = serde_json::to_value(&flow).map_err(|e| Error::internal_err(e.to_string()))?;
+    let target = serde_json::to_value(&nf).map_err(|e| Error::internal_err(e.to_string()))?;
+    for k in TARGET_FLOW_FIELDS {
+        copied[k] = target.get(k).cloned().unwrap_or_default();
+    }
+    // Read back, an unrestricted item omits the key, which a deploy reads as keeping the target's
+    // restriction rather than clearing it.
+    if copied.get("job_token_scopes").is_none() {
+        copied["job_token_scopes"] = serde_json::Value::Null;
+    }
+    clear_step_hashes(&mut copied["value"]);
+    let nf = serde_json::from_value(copied).map_err(|e| Error::internal_err(e.to_string()))?;
+    Ok((
+        nf,
+        Some(windmill_dep_map::ci_tests::Promotion { fork: fork.to_string(), deployed_at }),
+    ))
+}
+
+/// Drops the hash every script step of a flow value pins, walking its steps as
+/// `FlowValue::traverse_modules` does.
+fn clear_step_hashes(flow_value: &mut serde_json::Value) {
+    fn steps(modules: &mut serde_json::Value) {
+        modules.as_array_mut().into_iter().flatten().for_each(step);
+    }
+    fn step(module: &mut serde_json::Value) {
+        let Some(v) = module.get_mut("value").and_then(|v| v.as_object_mut()) else {
+            return;
+        };
+        match v.get("type").and_then(|t| t.as_str()) {
+            Some("script") => {
+                v.remove("hash");
+            }
+            Some("forloopflow" | "whileloopflow") => {
+                v.get_mut("modules").map(steps);
+            }
+            Some("branchone") => {
+                v.get_mut("default").map(steps);
+                branches(v);
+            }
+            Some("branchall") => branches(v),
+            Some("aiagent") => {
+                v.get_mut("tools").map(steps);
+            }
+            _ => {}
+        }
+    }
+    fn branches(v: &mut serde_json::Map<String, serde_json::Value>) {
+        v.get_mut("branches")
+            .and_then(|b| b.as_array_mut())
+            .into_iter()
+            .flatten()
+            .for_each(|b| {
+                b.get_mut("modules").map(steps);
+            });
+    }
+    flow_value.get_mut("modules").map(steps);
+    for m in ["failure_module", "preprocessor_module"] {
+        flow_value.get_mut(m).map(step);
+    }
+}
+
 async fn create_flow(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -666,11 +796,21 @@ async fn create_flow(
     Extension(webhook): Extension<WebhookShared>,
     Path(w_id): Path<String>,
     Query(ci): Query<windmill_dep_map::ci_tests::SkipCiTestsQuery>,
-    Json(mut nf): Json<NewFlow>,
+    Query(promote): Query<windmill_dep_map::ci_tests::PromoteQuery>,
+    Json(nf): Json<NewFlow>,
 ) -> Result<(StatusCode, String)> {
     let flows_level =
         check_operator_can_build(&db, &w_id, &authed, BuilderKind::Flows, "create flows").await?;
     check_scopes(&authed, || format!("flows:write:{}", nf.path))?;
+    let (mut nf, promotion) = promoted_flow(
+        &db,
+        &user_db,
+        &w_id,
+        promote.promote_from.as_deref(),
+        nf,
+        &authed,
+    )
+    .await?;
 
     // A `<= 0` flow timeout is "unset", not a 0-second limit that kills every run instantly.
     // (The concurrency settings inside the flow value are normalized on deserialization; see
@@ -693,9 +833,10 @@ async fn create_flow(
     windmill_dep_map::ci_tests::check_ci_tests_rule(
         &db,
         &w_id,
+        "flow",
         &nf.path,
         None,
-        windmill_dep_map::ci_tests::DeployedContent::Flow(&nf.value),
+        promotion.as_ref(),
         &authed,
         &authed.groups,
         authed.is_admin,
@@ -1294,13 +1435,23 @@ async fn update_flow(
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, flow_path)): Path<(String, StripPath)>,
     Query(ci): Query<windmill_dep_map::ci_tests::SkipCiTestsQuery>,
+    Query(promote): Query<windmill_dep_map::ci_tests::PromoteQuery>,
     Json(ef): Json<EditFlow>,
 ) -> Result<String> {
     let flows_level =
         check_operator_can_build(&db, &w_id, &authed, BuilderKind::Flows, "update flows").await?;
     let flow_path = flow_path.to_path();
     // The URL identifies the flow being updated; the body path is only needed to rename.
-    let mut nf = ef.into_new_flow(flow_path);
+    let nf = ef.into_new_flow(flow_path);
+    let (mut nf, promotion) = promoted_flow(
+        &db,
+        &user_db,
+        &w_id,
+        promote.promote_from.as_deref(),
+        nf,
+        &authed,
+    )
+    .await?;
     // A `<= 0` flow timeout is "unset", not a 0-second limit (see create_flow).
     nf.timeout = windmill_common::runnable_settings::none_if_non_positive(nf.timeout);
     check_scopes(&authed, || format!("flows:write:{}", flow_path))?;
@@ -1328,9 +1479,10 @@ async fn update_flow(
     windmill_dep_map::ci_tests::check_ci_tests_rule(
         &db,
         &w_id,
+        "flow",
         &nf.path,
-        Some(flow_path).filter(|p| *p != nf.path),
-        windmill_dep_map::ci_tests::DeployedContent::Flow(&nf.value),
+        Some(flow_path),
+        promotion.as_ref(),
         &authed,
         &authed.groups,
         authed.is_admin,
@@ -2330,6 +2482,25 @@ async fn delete_flow_by_path(
 mod tests {
 
     use std::{collections::HashMap, time::Duration};
+
+    #[test]
+    fn clear_step_hashes_reaches_nested_steps_only() {
+        let pinned = |id: &str| {
+            serde_json::json!({"id": id, "value": {"type": "script", "path": "f/s", "hash": "h",
+                "input_transforms": {"x": {"type": "static",
+                    "value": {"id": "z", "value": {"type": "script", "hash": "data"}}}}}})
+        };
+        let mut v = serde_json::json!({
+            "modules": [pinned("a"), {"id": "b", "value": {"type": "forloopflow",
+                "modules": [{"id": "c", "value": {"type": "branchone",
+                    "branches": [{"modules": [pinned("d")]}], "default": [pinned("e")]}}]}}],
+            "failure_module": pinned("f"),
+        });
+        super::clear_step_hashes(&mut v);
+        let s = v.to_string();
+        assert!(!s.contains(r#""hash":"h""#), "{s}");
+        assert_eq!(s.matches(r#""hash":"data""#).count(), 4, "{s}");
+    }
 
     use windmill_common::{
         flows::{

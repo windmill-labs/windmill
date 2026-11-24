@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT u.username FROM usr u JOIN workspace w ON w.id = u.workspace_id WHERE w.id = $1 AND w.parent_workspace_id = $2 AND w.deleted = false AND u.email = $3 AND u.disabled = false",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "username",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "34c3be9266a15f308265694cbda4ee6723b7ca3e1aea2654f99c4de2d0ce9175"
+}

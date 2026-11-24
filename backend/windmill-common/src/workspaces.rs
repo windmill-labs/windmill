@@ -147,7 +147,7 @@ impl ProtectionRuleKind {
                 "Forks of this workspace must isolate its data: no shared object storage or ducklake, and every data table cloned"
             }
             ProtectionRuleKind::RequirePassingCiTests => {
-                "An item with CI tests can only be deployed here once those tests pass on it in a fork"
+                "An item with CI tests can only be deployed here by merging it from a fork where those tests passed on it"
             }
         }
     }
