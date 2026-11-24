@@ -17,14 +17,12 @@
 		type ReasoningProviderModel
 	} from '../reasoningRegistry'
 
-	let providerModel = $derived.by(() => {
-		// Subscribes only: `tryResolveModelFor` reads the pick through `get()`, which tracks nothing.
-		void $copilotSessionModel
-		return (tryResolveModelFor($copilotInfo) ?? {
+	let providerModel = $derived(
+		(tryResolveModelFor($copilotInfo, $copilotSessionModel) ?? {
 			model: 'No model',
 			provider: 'No provider'
 		}) as ReasoningProviderModel
-	})
+	)
 
 	let multipleModels = $derived($copilotInfo.aiModels.length > 1)
 

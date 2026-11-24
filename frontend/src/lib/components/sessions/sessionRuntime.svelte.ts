@@ -50,9 +50,11 @@ import {
 	getEffectiveWorkspaceId,
 	markSessionStateChanged,
 	materializeTransient,
+	pickSessionModel,
 	sessionState,
 	setGeneratedSessionSummary,
 	setSessionChatId,
+	setSessionModel,
 	setSessionPreviewCollapsed,
 	setSessionPreviewSize,
 	setSessionTabs,
@@ -392,6 +394,9 @@ function createRuntime(session: Session): SessionRuntime {
 	manager.sessionId = session.id
 	manager.workMode = session.workMode ?? AIWorkMode.BUILD
 	manager.onWorkModeChanged = (mode) => setSessionWorkMode(session.id, mode)
+	manager.modelPickResolver = () => sessionState.sessions.find((x) => x.id === session.id)?.model
+	manager.onModelPicked = (model) => pickSessionModel(session.id, model)
+	manager.onModelSettled = (model, replaced) => setSessionModel(session.id, model, replaced)
 	manager.directInResolver = () => sessionState.sessions.find((x) => x.id === session.id)?.direct_in
 	manager.workingInResolver = () => {
 		const s = sessionState.sessions.find((x) => x.id === session.id)

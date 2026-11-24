@@ -37,12 +37,22 @@
 	import { truncate } from '$lib/utils'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { loadWorkspaceCopilotInfo } from '$lib/aiStore'
-	import { Archive, ArchiveRestore, EllipsisVertical, GitFork, Pencil, Trash2 } from 'lucide-svelte'
+	import CloseButton from '$lib/components/common/CloseButton.svelte'
+	import {
+		AlertTriangle,
+		Archive,
+		ArchiveRestore,
+		EllipsisVertical,
+		GitFork,
+		Pencil,
+		Trash2
+	} from 'lucide-svelte'
 	import SessionChangesBar from './SessionChangesBar.svelte'
 	import { sessionHandEdits } from './sessionHandEdits.svelte'
 	import SessionShareButton from './SessionShareButton.svelte'
 	import {
 		deleteSessionsForWorkspace,
+		dismissReplacedModel,
 		getEffectiveWorkspaceId,
 		moveSessionToNewFork,
 		moveSessionToWorkspace,
@@ -631,11 +641,28 @@
 	{#snippet sessionEmptyHint()}<div class="flex-1 min-h-0"></div>{/snippet}
 
 	{#snippet inputPreface()}
-		<!-- gap-1 (4px) spaces the archived banner and the changes bar when both
+		<!-- gap-1 (4px) spaces the banners and the changes bar when several
 		     are visible. Each renders a single in-flow root (or nothing); the diff
 		     drawer is position:fixed, so it doesn't count as a flex item — no stray
 		     gap when only one shows. -->
 		<div class="flex flex-col gap-1">
+			{#if session.replacedModel && session.model}
+				<div class="{bannerClass} bg-surface-tertiary" role="status">
+					<div class="flex flex-row items-center gap-2 min-w-0">
+						<AlertTriangle class="w-4 h-4 shrink-0 text-tertiary" />
+						<span class="text-primary min-w-0 break-words">
+							{session.replacedModel} is not available here. This session now uses
+							{session.model.model}.
+						</span>
+					</div>
+					<CloseButton
+						small
+						noBg
+						title="Dismiss"
+						onClick={() => dismissReplacedModel(session.id)}
+					/>
+				</div>
+			{/if}
 			{#if session.archived && !isUnavailable}
 				<!-- Unarchive is only meaningful when the workspace is still live:
 				     putSession refuses to resurrect a session whose workspace is gone,

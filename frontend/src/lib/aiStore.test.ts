@@ -166,6 +166,6 @@ it("keeps a model pick the tab's workspace does not offer, without sending it th
 	setCopilotInfo(withModel('parent'))
 
 	expect(get(copilotSessionModel)).toEqual(pick)
-	expect(tryResolveModelFor(get(copilotInfo))?.model).toBe('parent')
+	expect(tryResolveModelFor(get(copilotInfo), pick)?.model).toBe('parent')
 	copilotSessionModel.set(undefined)
 })

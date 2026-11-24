@@ -105,6 +105,7 @@ import {
 	getWorkspaceCopilotInfo,
 	loadWorkspaceCopilotInfo,
 	resolveModelFor,
+	setLastModelPick,
 	tryResolveModelFor,
 	workspaceCopilotInfoFailed,
 	type AiTarget,
@@ -841,6 +842,13 @@ export class AIChatManager implements ChatViewHost {
 	 * Set before `moving`, which waits for the editors to hand over their pending edits. */
 	moveStarted = $state(false)
 	onWorkModeChanged: ((mode: AIWorkMode) => void) | undefined = undefined
+	/** The model and effort the session record holds. Unset outside sessions. */
+	modelPickResolver: (() => ReasoningProviderModel | undefined) | undefined = undefined
+	onModelPicked: ((model: ReasoningProviderModel) => void) | undefined = undefined
+	/** `replaced`: the pick `model` stands in for, when the workspace does not offer it. */
+	onModelSettled:
+		| ((model: ReasoningProviderModel, replaced: ReasoningProviderModel | undefined) => void)
+		| undefined = undefined
 	/** The protected workspace the session was opted into working in directly (`direct_in`). */
 	directInResolver: (() => string | undefined) | undefined = undefined
 	get directIn(): string | undefined {
@@ -1161,10 +1169,28 @@ export class AIChatManager implements ChatViewHost {
 	}
 
 	get currentModel(): ReasoningProviderModel | undefined {
-		// Subscribes only: the model helpers read through `get()`, which tracks nothing.
-		void this.#sessionModel.current
 		const info = this.aiInfo
-		return info && tryResolveModelFor(info)
+		return info && tryResolveModelFor(info, this.#modelPick)
+	}
+
+	/** A session's own once it has one, so that a pick in another chat never moves it. */
+	get #modelPick(): ReasoningProviderModel | undefined {
+		return this.modelPickResolver?.() ?? this.#sessionModel.current
+	}
+
+	/** The user picks `model` for this chat. It is also the one new sessions start on. */
+	pickModel = (model: ReasoningProviderModel) => {
+		this.onModelPicked?.(model)
+		setLastModelPick(model)
+	}
+
+	/** Pins a session to the model it sends with, so that nothing but a pick moves it from here on.
+	 * A pick its workspace does not offer is replaced for good: offered again, it stays replaced. */
+	#settleModel() {
+		const own = this.modelPickResolver?.()
+		const model = this.currentModel
+		if (!model || (own?.model === model.model && own.provider === model.provider)) return
+		this.onModelSettled?.(model, own)
 	}
 
 	/** Resolved at each request, after any fork commit. Undefined for other chats, whose requests
@@ -1935,7 +1961,11 @@ export class AIChatManager implements ChatViewHost {
 					{ role: 'user', content: getCompactionSummaryPrompt() }
 				],
 				abortController,
-				{ maxTokensCap: SUMMARY_OUTPUT_RESERVE_TOKENS, ...target }
+				{
+					maxTokensCap: SUMMARY_OUTPUT_RESERVE_TOKENS,
+					...target,
+					forceModelProvider: target && resolveModelFor(target.info, this.#modelPick)
+				}
 			)
 			const formatted = formatCompactSummary(raw)
 			if (!formatted) {
@@ -2190,6 +2220,9 @@ export class AIChatManager implements ChatViewHost {
 		this.loading = true
 		let result: 'ok' | 'empty' | 'aborted' | 'error' = 'error'
 		try {
+			// A failed load is reported by the summary request, which needs it too.
+			await this.sessionAiTarget().catch(() => {})
+			this.#settleModel()
 			// Everything is the prefix, nothing is kept verbatim: keepFrom and
 			// displayKeepFrom point past the end so the kept tail is empty.
 			result = await this.runSummarization(
@@ -3664,7 +3697,7 @@ export class AIChatManager implements ChatViewHost {
 				abortController,
 				callbacks,
 				get modelProvider() {
-					return info ? resolveModelFor(info) : getCurrentModel()
+					return info ? resolveModelFor(info, self.#modelPick) : getCurrentModel()
 				},
 				get webSearch() {
 					return isWebSearchEnabledForProvider(this.modelProvider.provider, info)
@@ -3997,6 +4030,10 @@ export class AIChatManager implements ChatViewHost {
 	}
 
 	sendRequest = async (options: Parameters<typeof this.sendRequestImpl>[0] = {}) => {
+		// Before any await, during which a pick in another session would move this one. Again once
+		// the workspace is committed, which may not offer this model. Not while another tab runs the
+		// session: storing the record here would overwrite what that tab stored.
+		if (!this.runHeldElsewhere) this.#settleModel()
 		if (this.#ready) {
 			this.#sendsAwaitingReady++
 			try {
@@ -4552,6 +4589,7 @@ export class AIChatManager implements ChatViewHost {
 			// loading + abortController were set optimistically before beforeSend, above.
 			this.#automaticScroll = true
 
+			this.#settleModel()
 			const model = this.currentModel
 			if (model) {
 				const chatId = this.historyManager.getCurrentChatId()
