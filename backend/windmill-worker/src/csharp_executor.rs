@@ -143,6 +143,10 @@ pub async fn generate_nuget_lockfile(
         .env("NUGET_PACKAGES", format!("{}/nuget", *CSHARP_CACHE_DIR))
         .env("DOTNET_CLI_TELEMETRY_OPTOUT", "true")
         .env("DOTNET_NOLOGO", "true")
+        // The SDK's first run otherwise generates an HTTPS dev certificate and puts the global
+        // tools directory on PATH, in a home every worker sharing the cache may enter at once.
+        .env("DOTNET_GENERATE_ASPNET_CERTIFICATE", "false")
+        .env("DOTNET_ADD_GLOBAL_TOOLS_TO_PATH", "false")
         .env("MSBUILDDISABLENODEREUSE", "1")
         .env("DOTNET_ROOT", DOTNET_ROOT.as_str())
         .args(vec!["restore", "--use-lock-file"])
@@ -495,6 +499,8 @@ async fn build_cs_proj(
             .env("NUGET_PACKAGES", format!("{}/nuget", *CSHARP_CACHE_DIR))
             .env("DOTNET_CLI_TELEMETRY_OPTOUT", "true")
             .env("DOTNET_NOLOGO", "true")
+            .env("DOTNET_GENERATE_ASPNET_CERTIFICATE", "false")
+            .env("DOTNET_ADD_GLOBAL_TOOLS_TO_PATH", "false")
             .env("MSBUILDDISABLENODEREUSE", "1")
             .env("DOTNET_ROOT", DOTNET_ROOT.as_str())
             .envs(PROXY_ENVS.clone())
@@ -514,6 +520,8 @@ async fn build_cs_proj(
             .env("NUGET_PACKAGES", format!("{}/nuget", *CSHARP_CACHE_DIR))
             .env("DOTNET_CLI_TELEMETRY_OPTOUT", "true")
             .env("DOTNET_NOLOGO", "true")
+            .env("DOTNET_GENERATE_ASPNET_CERTIFICATE", "false")
+            .env("DOTNET_ADD_GLOBAL_TOOLS_TO_PATH", "false")
             .env("MSBUILDDISABLENODEREUSE", "1")
             .env("DOTNET_ROOT", DOTNET_ROOT.as_str())
             .args(publish_args.clone())
