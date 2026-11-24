@@ -128,6 +128,7 @@
 		starter = undefined,
 		onSent = undefined,
 		inputPreface,
+		actingOn,
 		workModeLock = undefined,
 		footerSettings,
 		initialInstructions = undefined,
@@ -169,6 +170,8 @@
 		/** After the composer hands a new turn to the host. */
 		onSent?: () => void
 		inputPreface?: Snippet
+		/** Where the session acts: first among the controls after the attach button. */
+		actingOn?: Snippet
 		/** Holds a session chat in Use, and says why in the picker. */
 		workModeLock?: WorkModeLock
 		/** The settings control at the footer's right edge, where the copilot puts its
@@ -200,7 +203,7 @@
 	let plusMenuOpen = $state(false)
 	let editingMessageIndex = $state<number | null>(null)
 	const groupChatItems = createChatItemGrouper()
-	const chatItems = $derived(groupChatItems(messages))
+	const chatItems = $derived(groupChatItems(messages, chatHost.lookupTools))
 
 	// Mounting a message parses its markdown, so a long transcript mounted at once blocks the
 	// page for every message in it. Only the tail is mounted when a transcript arrives; older
@@ -903,6 +906,7 @@
 	const showFooterLeftControls = $derived(
 		!footerMessageShown &&
 			(canAttachFiles ||
+				!!actingOn ||
 				attachmentsOffReason !== undefined ||
 				showContextPicker ||
 				showAutonomyModeSelector ||
@@ -1563,6 +1567,7 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 										onchange={onFolderInputChange}
 									/>
 								{/if}
+								{@render actingOn?.()}
 								{#if showAutonomyModeSelector}
 									<AutonomyModePicker
 										mode={chatHost.autonomyMode}

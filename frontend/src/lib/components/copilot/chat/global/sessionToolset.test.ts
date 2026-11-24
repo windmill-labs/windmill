@@ -25,6 +25,8 @@ import { globalTools, prepareGlobalSystemMessage, type SessionPromptContext } fr
 import { appendPlanModeInstructions } from '../planMode'
 import { PlanModeController } from '../planModeController.svelte'
 import { pipelineTools } from '../pipeline/core'
+import type { Tool } from '../shared'
+import { everyChatTool } from '../lookupTools'
 import { assembleGlobalSystemMessage, assembleGlobalTools } from './globalAssembly'
 import { filterSessionTools, sessionToolAllowed } from './sessionToolset'
 import { capabilitiesForRole, fullSessionAccess } from './sessionAccess'
@@ -400,5 +402,18 @@ describe('session tool policies', () => {
 		)
 		expect(prompt({})).toContain('schedule a deployed script or flow themselves')
 		expect(prompt({ manage_schedules: false })).not.toContain('schedule a deployed script')
+	})
+})
+
+describe('lookup tools', () => {
+	// A lookup's row folds into a collapsed group, so it must be a call plan mode lets run; and
+	// the transcript looks a name up across modes, so a name is a lookup everywhere or nowhere.
+	it('are plan-mode-safe, and agree on every name across modes', () => {
+		const tools = everyChatTool()
+		const name = (t: Tool<any>) => t.def.function.name
+		expect(tools.filter((t) => t.lookup && !t.planModeSafe).map(name)).toEqual([])
+		const lookup = new Map<string, Set<boolean>>()
+		for (const t of tools) lookup.set(name(t), (lookup.get(name(t)) ?? new Set()).add(!!t.lookup))
+		expect([...lookup].filter(([, values]) => values.size > 1).map(([n]) => n)).toEqual([])
 	})
 })

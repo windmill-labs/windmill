@@ -394,6 +394,7 @@ function createRuntime(session: Session): SessionRuntime {
 	manager.sessionId = session.id
 	manager.workMode = session.workMode ?? AIWorkMode.BUILD
 	manager.onWorkModeChanged = (mode) => setSessionWorkMode(session.id, mode)
+	manager.directInResolver = () => sessionState.sessions.find((x) => x.id === session.id)?.direct_in
 	manager.workingInResolver = () => {
 		const s = sessionState.sessions.find((x) => x.id === session.id)
 		// Read from the browser's store, so only a list counts.

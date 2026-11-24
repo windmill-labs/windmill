@@ -14,7 +14,6 @@
 	import { logStepInputFill } from './stepInputFillTelemetry'
 	import { Check, ExternalLink, Loader2, Wand2 } from 'lucide-svelte'
 	import { stepInputCompletionEnabled } from '$lib/stores'
-	import { copilotInfo } from '$lib/aiStore'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import type { SchemaProperty, Schema } from '$lib/common'
 	import FlowCopilotInputsModal from './FlowCopilotInputsModal.svelte'
@@ -22,6 +21,10 @@
 	import { twMerge } from 'tailwind-merge'
 	import { AIBtnClasses } from './chat/AIButtonStyle'
 	import { newFlowInputOf, newFlowInputsInstruction } from './stepInputFlowInputs'
+	import { getAiChatManager } from './chat/aiChatManagerContext'
+
+	const aiChat = getAiChatManager()
+	const aiInfo = $derived(aiChat.aiInfo)
 
 	let loading = $state(false)
 	interface Props {
@@ -101,7 +104,8 @@ input_name2: expression2
 						content: user
 					}
 				],
-				abortController
+				abortController,
+				aiChat.loadedSessionAiTarget
 			)
 
 			parsedInputs = generatedContent.split('\n').map((x) => x.split(': '))
@@ -191,7 +195,7 @@ input_name2: expression2
 </script>
 
 <div class="flex flex-row justify-end">
-	{#if $copilotInfo.enabled && $stepInputCompletionEnabled}
+	{#if aiInfo?.enabled && $stepInputCompletionEnabled}
 		<FlowCopilotInputsModal
 			on:confirmed={async () => {
 				createFlowInputs()
@@ -225,7 +229,7 @@ input_name2: expression2
 				Fill inputs
 			{/if}
 		</Button>
-	{:else if !$copilotInfo.workspaceDisabled}
+	{:else if aiInfo && !aiInfo.workspaceDisabled}
 		<Popover
 			floatingConfig={{
 				placement: 'top-end'
@@ -248,7 +252,7 @@ input_name2: expression2
 			{#snippet content({ close })}
 				<div class="p-4">
 					<p class="text-sm">
-						{#if !$copilotInfo.enabled}
+						{#if !aiInfo?.enabled}
 							Enable Windmill AI in the{' '}
 							<a
 								href="/workspace_settings?tab=ai"

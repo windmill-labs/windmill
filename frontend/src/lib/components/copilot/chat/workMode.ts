@@ -16,6 +16,9 @@ export type WorkModeLock = {
 	escape?: { label: string; action: () => void }
 	/** The session cannot run either: the user's role withholds `run`. */
 	readsOnly?: boolean
+	/** Picking a held mode asks how to leave the hold (Home's fork or direct-work choice) rather
+	 * than being refused. */
+	onPick?: (mode: AIWorkMode) => void
 }
 
 /** The answer to a call approved after its session switched to Use: the card or form it

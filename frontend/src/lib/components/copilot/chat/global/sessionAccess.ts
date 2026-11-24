@@ -1,11 +1,12 @@
 import { get } from 'svelte/store'
 import { userWorkspaces } from '$lib/stores'
 import type { ProtectionRuleset, RoleCapabilities } from '$lib/gen'
-import { getWorkspaceRole } from '$lib/user'
+import { getWorkspaceRole, type RoleLookup } from '$lib/user'
 import { roleCanAuthor, roleCanDraft } from '$lib/editRights'
 import { capabilitiesIn, FULL_CAPABILITIES } from '$lib/roleCapabilities'
 import { checkDeployRules } from '$lib/utils_workspace_deploy'
 import {
+	canUserBypassRuleKindInRulesets,
 	isRuleActiveInRulesets,
 	readProtectionRulesForWorkspace
 } from '$lib/workspaceProtectionRules.svelte'
@@ -120,9 +121,29 @@ export function capabilitiesForRole(role: {
  * `RestrictDeployToDeployers` alone leaves its users their drafts. Unreadable rules protect too:
  * the server holds deploys to the rule but not drafts. The MCP server applies the same rule
  * (`workspace_access` in `backend/windmill-api/src/mcp/core.rs`), and in `session_ctx_with` holds a
- * role without `run` to reading only, as `capabilitiesForRole` does: change both. */
+ * role without `run` to reading only, as `capabilitiesForRole` does: change both. The one
+ * difference is `worksDirectly`, an opt-in only the in-app chat offers. */
 function protects(rulesets: ProtectionRuleset[] | undefined): boolean {
 	return !rulesets || isRuleActiveInRulesets(rulesets, 'DisableDirectDeployment')
+}
+
+/** Whether this user may opt a session out of `protects`: the rule's bypassers, admins included,
+ * whom the server lets deploy there anyway. A session is held unless they explicitly opt it in. */
+function worksDirectly(rulesets: ProtectionRuleset[] | undefined, lookup: RoleLookup): boolean {
+	return (
+		!!rulesets &&
+		lookup.kind === 'resolved' &&
+		canUserBypassRuleKindInRulesets(rulesets, 'DisableDirectDeployment', lookup.user)
+	)
+}
+
+/** Whether this user may work directly in protected `workspace`, for the UI that offers it. */
+export async function canWorkDirectly(workspace: string): Promise<boolean> {
+	const [rulesets, lookup] = await Promise.all([
+		readProtectionRulesForWorkspace(workspace),
+		getWorkspaceRole(workspace)
+	])
+	return worksDirectly(rulesets, lookup)
 }
 
 // The session UI asks this from every preview tab, the composer and the picker, and the rules
@@ -166,7 +187,12 @@ export function settledReadOnlyVerdict(workspace: string): boolean | undefined {
 	return settled && Date.now() - settled.at < READ_ONLY_TTL_MS ? settled.readOnly : undefined
 }
 
-export async function resolveSessionAccess(workspace: string): Promise<SessionAccess> {
+/** `direct`: the session was opted into working directly in a protected workspace, which
+ * `worksDirectly` honours for its bypassers only. */
+export async function resolveSessionAccess(
+	workspace: string,
+	{ direct = false }: { direct?: boolean } = {}
+): Promise<SessionAccess> {
 	const [rulesets, lookup] = await Promise.all([
 		// Not the memoized verdict above: the chat's toolset follows a rule change on the next send.
 		readProtectionRulesForWorkspace(workspace),
@@ -176,15 +202,16 @@ export async function resolveSessionAccess(workspace: string): Promise<SessionAc
 		// `lookup_failed` covers a rejected request AND a body too malformed to map.
 		getWorkspaceRole(workspace)
 	])
+	const held = protects(rulesets) && !(direct && worksDirectly(rulesets, lookup))
 	if (lookup.kind !== 'resolved') {
-		return protects(rulesets) ? USE_MODE_ACCESS : fullSessionAccess()
+		return held ? USE_MODE_ACCESS : fullSessionAccess()
 	}
 	const me = lookup.user
 	const capabilities = capabilitiesIn(
 		me,
 		get(userWorkspaces).find((w) => w.id === workspace)
 	)
-	if (protects(rulesets)) return capabilities.run ? USE_MODE_ACCESS : NO_RUN_ACCESS
+	if (held) return capabilities.run ? USE_MODE_ACCESS : NO_RUN_ACCESS
 
 	return capabilitiesForRole({
 		isAdmin: !!me.is_admin || !!me.is_super_admin,

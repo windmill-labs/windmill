@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
-	import { emptyString } from '$lib/utils'
+	import { displayDate, emptyString } from '$lib/utils'
 	import { ScriptService, type ScriptHistory } from '$lib/gen'
 	import { Skeleton } from '$lib/components/common'
 	import FlowModuleScript from './flows/content/FlowModuleScript.svelte'
@@ -59,6 +59,10 @@
 
 	loadVersions()
 
+	function versionMeta(version: ScriptHistory): string {
+		return [version.created_by, displayDate(version.created_at)].filter(Boolean).join(' · ')
+	}
+
 	let showDiff: boolean = $state(false)
 	let previousHash: string | undefined = $state()
 </script>
@@ -93,9 +97,14 @@
 									deploymentMsgUpdateMode = false
 								}}
 							>
-								<span class="text-xs truncate">
-									{#if emptyString(version.deployment_msg)}Version {version.script_hash}{:else}{version.deployment_msg}{/if}
-								</span>
+								<div class="flex flex-col gap-0.5 truncate">
+									<span class="text-xs truncate">
+										{#if emptyString(version.deployment_msg)}Version {version.script_hash}{:else}{version.deployment_msg}{/if}
+									</span>
+									<span class="text-2xs text-tertiary truncate" title={versionMeta(version)}>
+										{versionMeta(version)}
+									</span>
+								</div>
 								{#snippet action()}
 									{#if openDetails}
 										<Button
