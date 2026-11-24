@@ -21,6 +21,7 @@
 	import LinkRenderer from './LinkRenderer.svelte'
 	import {
 		SecretCheckFailed,
+		SecretDraftsInTheWay,
 		connectionStringParts,
 		fieldLabel,
 		resourcePageUrl,
@@ -77,6 +78,8 @@
 	let saveError = $state<string | undefined>()
 	// Saved, but the saved resource does not connect: the database's or provider's own words.
 	let checkError = $state<string | undefined>()
+	// Drafts the user already has where the card saves: the next save at that path replaces them.
+	let draftsInTheWay = $state<{ path: string; message: string }>()
 
 	// A taken path is the only error that still lets the user save: saving then updates what
 	// is there.
@@ -89,6 +92,7 @@
 	let pathError = $state<string | undefined>()
 	const savePath = $derived(pickedPath || request.path)
 	const taken = $derived(pathError === TAKEN)
+	const replaceDrafts = $derived(draftsInTheWay?.path === savePath)
 	const variablePaths = $derived(secretVariablePaths(savePath, secretFields))
 	// A type that also takes a connection string offers both; the AI only picks which opens.
 	const offersString = $derived(resource?.connectionString !== undefined)
@@ -176,6 +180,7 @@
 				// The user asked the AI to replace what is at its path, which the path picker may not
 				// show: it checks the resource path, not the variables beside it. Only that path.
 				replace: taken || (!!request.replace && savePath === request.path),
+				replaceDrafts,
 				...(connectionParts
 					? {
 							secrets: { [secretFields[0].field]: connectionParts.secret },
@@ -187,7 +192,8 @@
 			secrets = {}
 			connectionString = ''
 		} catch (e) {
-			if (e instanceof SecretCheckFailed) checkError = e.message
+			if (e instanceof SecretDraftsInTheWay) draftsInTheWay = { path: savePath, message: e.message }
+			else if (e instanceof SecretCheckFailed) checkError = e.message
 			else saveError = e instanceof Error ? e.message : String(e)
 		} finally {
 			submitting = false
@@ -433,6 +439,8 @@
 
 			{#if saveError}
 				<p class="text-2xs text-red-600 dark:text-red-400">Could not save: {saveError}</p>
+			{:else if replaceDrafts && draftsInTheWay}
+				<p class="text-2xs text-orange-600 dark:text-orange-400">{draftsInTheWay.message}</p>
 			{:else if checkError}
 				<div class="flex flex-col gap-0.5 text-2xs">
 					<p class="font-medium text-red-600 dark:text-red-400">
@@ -487,6 +495,8 @@
 				>
 					{#if checkError}
 						Try again
+					{:else if replaceDrafts}
+						Replace drafts
 					{:else if tested}
 						{taken ? 'Update draft and test' : 'Save draft and test'}
 					{:else}

@@ -3614,11 +3614,6 @@ export const globalTools: SessionTool<{}>[] = [
 			})
 			// The chat settles the card itself, whether the turn is still running or not.
 			const outcome = await toolCallbacks.requestSecret(toolId, request)
-			// The drafts the card saved are this session's changes, deployed from its panel.
-			for (const variable of outcome?.variables ?? []) {
-				toolCallbacks.onItemModified?.('variable', variable)
-			}
-			if (outcome && request.resource) toolCallbacks.onItemModified?.('resource', outcome.path)
 			return secretRequestToolResult(request, outcome)
 		}
 	},

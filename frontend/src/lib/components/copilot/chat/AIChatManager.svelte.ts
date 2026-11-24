@@ -1,5 +1,5 @@
 import type { AttachedBlob } from './blobUtils'
-import { SecretCheckFailed, checkSubmission, saveSecretRequest } from './secretRequest'
+import { SecretCheckFailed, checkSubmission, checkText, saveSecretRequest } from './secretRequest'
 import type { ChatViewHost } from './chatViewHost'
 import type { ScriptLang } from '$lib/gen/types.gen'
 import { JobService, type CompletedJob } from '$lib/gen'
@@ -2539,6 +2539,12 @@ export class AIChatManager implements ChatViewHost {
 					}
 				: m
 		)
+		// The drafts the card saved are this session's changes, deployed from its panel, whether
+		// they landed during the turn or after it stopped.
+		if (outcome) {
+			for (const variable of outcome.variables) this.recordModifiedItem('variable', variable)
+			if (entry.request.resource) this.recordModifiedItem('resource', outcome.path)
+		}
 		if (!entry.stopped) {
 			entry.resolve(outcome)
 			return Promise.resolve()
@@ -2546,13 +2552,15 @@ export class AIChatManager implements ChatViewHost {
 		const note = outcome
 			? this.queueModelNote(
 					entry.request.resource
-						? `The user saved ${label} after the turn stopped: it is a draft of the resource ${outcome.path}, referenced as "$res:${outcome.path}", with its secrets in drafts of ${outcome.variables.join(', ')}. Nothing is deployed, so no run can read it until it is.`
+						? `The user saved ${label} after the turn stopped: it is a draft of the resource ${outcome.path}, referenced as "$res:${outcome.path}", with its secrets in drafts of ${outcome.variables.join(', ')}.${checkText(outcome)} Nothing is deployed, so no run can read it until it is.`
 						: `The user's ${label} was saved after the turn stopped: it is a draft of the secret variable ${outcome.path}, referenced as "$var:${outcome.path}". Nothing is deployed, so no run can read it until it is.`
 				)
 			: Promise.resolve()
 		// The variable is saved whatever happens here, so a failed write must not reach the card.
 		const written = note
-			.then(() => this.#persistBackgroundJobs())
+			.then(async () => {
+				await Promise.all([this.#persistBackgroundJobs(), this.#persistModifiedItems()])
+			})
 			.catch((e) => console.error('Failed to persist a secret saved after stop', e))
 		this.#lateSecretWrites.add(written)
 		void written.finally(() => this.#lateSecretWrites.delete(written))

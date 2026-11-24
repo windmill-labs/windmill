@@ -583,6 +583,33 @@ describe('AIChatManager secret request', () => {
 			saving: false
 		})
 	})
+
+	it('records the drafts and tells the model of a failed check when the save lands after stop', async () => {
+		const manager = new AIChatManager()
+		manager.initModifiedItemsTracking()
+		const note = vi.spyOn(manager, 'queueModelNote').mockResolvedValue(undefined)
+		const request = {
+			workspace: 'test_workspace',
+			path: 'u/a/s3',
+			label: 'S3',
+			resource: { type: 's3', value: {}, secretFields: [{ field: 'secretKey', label: 'Secret key' }] }
+		}
+		manager.displayMessages = [
+			{ role: 'tool', tool_call_id: 'call_l', content: '', isLoading: true, secretRequest: request }
+		]
+		let land!: (outcome: { path: string; replaced: boolean; variables: string[] }) => void
+		mocks.saveSecretRequest.mockReturnValueOnce(new Promise((resolve) => (land = resolve)))
+		mocks.checkSubmission.mockResolvedValueOnce({ ok: false, error: 'InvalidAccessKeyId' })
+
+		void manager.requestSecret('call_l', request)
+		const saved = manager.saveSecret('call_l', { path: 'u/a/s3', replace: false, secrets: {} })
+		manager.cancel()
+		land({ path: 'u/a/s3', replaced: false, variables: ['u/a/s3'] })
+		await saved
+
+		expect([...(manager.modifiedItems ?? [])].sort()).toEqual(['resource:u/a/s3', 'variable:u/a/s3'])
+		expect(note).toHaveBeenCalledWith(expect.stringContaining('InvalidAccessKeyId'))
+	})
 })
 
 // The resource exists once saved, so a failed check must never read as dismissed.

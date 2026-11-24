@@ -633,6 +633,8 @@ export type SecretRequestOutcome = {
 export type SecretSubmission = {
 	path: string
 	replace: boolean
+	/** The user confirmed replacing their own drafts at the paths the card saves to. */
+	replaceDrafts?: boolean
 	secrets: Record<string, string>
 	fields?: Record<string, unknown>
 }

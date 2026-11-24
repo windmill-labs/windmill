@@ -1,5 +1,5 @@
 import { base } from '$app/paths'
-import { ResourceService, VariableService } from '$lib/gen'
+import { DraftService, ResourceService, VariableService } from '$lib/gen'
 import { buildResourcesUrl, buildVariablesUrl } from './global/pageNavigation'
 import { withWorkspaceParam } from '$lib/components/sessions/sessionMode.svelte'
 import type { SecretRequest, SecretRequestOutcome, SecretSubmission } from './shared'
@@ -27,11 +27,11 @@ const ACRONYMS = new Set([
 	'uri'
 ])
 
-/** A resource field's key as a sentence-case label, as the brand guidelines want form labels:
- * `endPoint` reads "End point", `use_ssl` and `useSSL` read "Use SSL". */
 // Keys written as one word, which no casing rule splits.
 const WHOLE_KEYS: Record<string, string> = { dbname: 'Database name', sslmode: 'SSL mode' }
 
+/** A resource field's key as a sentence-case label, as the brand guidelines want form labels:
+ * `endPoint` reads "End point", `use_ssl` and `useSSL` read "Use SSL". */
 export function fieldLabel(key: string): string {
 	if (WHOLE_KEYS[key]) return WHOLE_KEYS[key]
 	const words = key
@@ -88,14 +88,23 @@ export function secretVariablePaths(path: string, fields: { field: string }[]): 
 /** The save landed but the saved resource does not connect. */
 export class SecretCheckFailed extends Error {}
 
-/** Saves one draft. The draft store encrypts a secret variable's value at rest. */
+/** The user already has drafts where the card saves, which it replaces only once they confirm. */
+export class SecretDraftsInTheWay extends Error {
+	constructor(readonly paths: string[]) {
+		super(
+			`You already have ${paths.length === 1 ? 'a draft' : 'drafts'} at ${paths.join(', ')}. Saving replaces ${paths.length === 1 ? 'it' : 'them'}.`
+		)
+	}
+}
+
+/** Saves one draft. The draft store encrypts a secret variable's value at rest. The caller has
+ * checked what draft is there, so it is written over. */
 async function saveDraft(
 	workspace: string,
 	kind: 'variable' | 'resource',
 	path: string,
 	value: Record<string, unknown>
 ): Promise<void> {
-	// The user confirmed this path on the card, so it is written over whatever draft is there.
 	const saved = await persistDraftAt(workspace, kind, path, value, { force: true })
 	if (saved.status === 'error') throw new Error(saved.message)
 }
@@ -104,7 +113,7 @@ async function saveDraft(
  * resource referencing them, which the session deploys together. Nothing is readable by a run
  * until it is deployed. What is deployed at `path` is replaced only with `replace`, which the
  * card sets once it shows the path as taken, so a save racing that check never overwrites
- * unannounced. `own` holds what an earlier try of this request wrote, as `variable:<path>` and
+ * unannounced, and a draft the user has there only with `replaceDrafts`. `own` holds what an earlier try of this request wrote, as `variable:<path>` and
  * `resource:<path>`, which a retry updates rather than calls taken. */
 export async function saveSecretRequest(
 	request: SecretRequest,
@@ -112,7 +121,7 @@ export async function saveSecretRequest(
 	own: Set<string>
 ): Promise<SecretRequestOutcome> {
 	const { workspace, resource } = request
-	const { path, replace } = submission
+	const { path, replace, replaceDrafts } = submission
 	const fields = secretFieldsOf(request)
 	const variables = secretVariablePaths(path, fields)
 	const variableExists = await Promise.all(
@@ -129,9 +138,22 @@ export async function saveSecretRequest(
 			throw new Error(`A variable already exists at ${p}. Pick another path.`)
 		}
 	})
+	if (!replaceDrafts) {
+		const drafts = new Set(
+			(await DraftService.listDrafts({ workspace })).map((d) => `${d.kind}:${d.path}`)
+		)
+		const inTheWay = [
+			...variables.map((p) => `variable:${p}`),
+			...(resource ? [ownKey] : [])
+		].filter((key) => drafts.has(key) && !own.has(key))
+		if (inTheWay.length) {
+			throw new SecretDraftsInTheWay(inTheWay.map((key) => key.slice(key.indexOf(':') + 1)))
+		}
+	}
 
 	for (const [i, p] of variables.entries()) {
-		// A replaced variable keeps what describes it: deploying the draft overwrites every field.
+		// A replaced variable keeps what describes it and its expiry: deploying the draft
+		// overwrites every field.
 		const deployed = variableExists[i]
 			? await VariableService.getVariable({ workspace, path: p, decryptSecret: false })
 			: undefined
@@ -145,7 +167,9 @@ export async function saveSecretRequest(
 					(resource ? `${fields[i].label} for ${path}` : (request.description ?? request.label))
 			},
 			...(deployed?.labels ? { labels: deployed.labels } : {}),
-			wsSpecific: false
+			...(deployed?.expires_at ? { expires_at: deployed.expires_at } : {}),
+			...(deployed?.value_valid_until ? { value_valid_until: deployed.value_valid_until } : {}),
+			wsSpecific: deployed?.ws_specific ?? false
 		})
 		own.add(`variable:${p}`)
 	}
@@ -160,7 +184,7 @@ export async function saveSecretRequest(
 				...Object.fromEntries(fields.map((f, i) => [f.field, `$var:${variables[i]}`]))
 			},
 			...(deployed?.labels ? { labels: deployed.labels } : {}),
-			wsSpecific: false,
+			wsSpecific: deployed?.ws_specific ?? false,
 			// A path the user picked may hold another type; it becomes the one they confirmed.
 			resource_type: resource.type
 		})
@@ -195,7 +219,7 @@ export function resourcePageUrl(path: string, workspace: string): string {
 }
 
 // The database's or provider's own words, which carry no secret, so the model can diagnose them.
-function checkText(outcome: SecretRequestOutcome): string {
+export function checkText(outcome: SecretRequestOutcome): string {
 	if (!outcome.check) return ''
 	if (outcome.check.ok) return ' Its connection test passed.'
 	return ` Its connection test failed and the user kept it anyway: ${outcome.check.error.slice(0, 500)}. Tell the user the likely cause and how to fix it at their provider, without opening the resource: to fix it, call request_secret again on the same path with replace: true.`

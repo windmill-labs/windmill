@@ -5,11 +5,13 @@ const services = vi.hoisted(() => ({
 	getVariable: vi.fn(),
 	existsResource: vi.fn(),
 	getResource: vi.fn(),
-	persistDraftAt: vi.fn()
+	persistDraftAt: vi.fn(),
+	listDrafts: vi.fn()
 }))
 vi.mock('$lib/gen', () => ({
 	VariableService: { existsVariable: services.existsVariable, getVariable: services.getVariable },
-	ResourceService: { existsResource: services.existsResource, getResource: services.getResource }
+	ResourceService: { existsResource: services.existsResource, getResource: services.getResource },
+	DraftService: { listDrafts: services.listDrafts }
 }))
 vi.mock('./global/userDraftAdapter', () => ({ persistDraftAt: services.persistDraftAt }))
 vi.mock('$lib/components/resourceConnectionTest', () => ({
@@ -22,6 +24,7 @@ vi.mock('$lib/components/sessions/sessionMode.svelte', () => ({
 }))
 
 import {
+	SecretDraftsInTheWay,
 	connectionStringParts,
 	fieldLabel,
 	saveSecretRequest,
@@ -75,6 +78,7 @@ describe('saveSecretRequest', () => {
 	it('drafts each secret, then the resource referencing them, and retries over its own variables', async () => {
 		services.existsResource.mockResolvedValue(false)
 		services.existsVariable.mockResolvedValue(false)
+		services.listDrafts.mockResolvedValue([])
 		services.getVariable.mockResolvedValue({ description: 'Client ID for u/a/acme' })
 		services.persistDraftAt.mockImplementation(async (_w, kind) =>
 			kind === 'resource' && services.persistDraftAt.mock.calls.length === 3
@@ -118,6 +122,35 @@ describe('saveSecretRequest', () => {
 					client_id: '$var:u/a/acme_client_id',
 					client_secret: '$var:u/a/acme_client_secret'
 				}
+			}),
+			{ force: true }
+		)
+	})
+
+	it("replaces the user's own drafts only once they confirm, and keeps a replaced secret's metadata", async () => {
+		services.persistDraftAt.mockReset().mockResolvedValue({ status: 'saved' })
+		services.existsVariable.mockResolvedValue(true)
+		services.getVariable.mockResolvedValue({
+			description: 'Rotated monthly',
+			value_valid_until: '2027-01-01T00:00:00Z',
+			ws_specific: true
+		})
+		services.listDrafts.mockResolvedValue([{ kind: 'variable', path: 'u/a/key' }])
+		const submission = { path: 'u/a/key', replace: true, secrets: { '': 'new' } }
+		await expect(saveSecretRequest(bare, submission, new Set())).rejects.toBeInstanceOf(
+			SecretDraftsInTheWay
+		)
+		expect(services.persistDraftAt).not.toHaveBeenCalled()
+
+		await saveSecretRequest(bare, { ...submission, replaceDrafts: true }, new Set())
+		expect(services.persistDraftAt).toHaveBeenCalledWith(
+			'w',
+			'variable',
+			'u/a/key',
+			expect.objectContaining({
+				value_valid_until: '2027-01-01T00:00:00Z',
+				wsSpecific: true,
+				variable: expect.objectContaining({ description: 'Rotated monthly' })
 			}),
 			{ force: true }
 		)
