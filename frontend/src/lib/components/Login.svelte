@@ -292,7 +292,7 @@
 		} catch (err) {
 			if (loginErrorDetail(err) === TOTP_REQUIRED) {
 				formError = undefined
-				totpFor = email
+				totpFor = requestBody.email
 				totpCode = ''
 				await tick()
 				totpField?.focus()

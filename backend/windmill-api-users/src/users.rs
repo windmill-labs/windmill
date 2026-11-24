@@ -4610,6 +4610,14 @@ async fn overwrite_global_users(
     // Replaces the account table, so — unlike the paths that remove one account — it deliberately
     // does not call `delete_drafts_of_email`: the addresses are about to be reinstated, and
     // dropping every draft on the instance to restore accounts would be pure collateral.
+    // The export leaves TOTP secrets out, since its files end up in git. A second factor is
+    // kept for every account the overwrite reinstates, rather than silently switched off.
+    let totp = sqlx::query!(
+        "SELECT email, totp_secret AS \"totp_secret!\", totp_last_step FROM password
+         WHERE totp_secret IS NOT NULL"
+    )
+    .fetch_all(&mut *tx)
+    .await?;
     sqlx::query!("DELETE FROM password")
         .execute(&mut *tx)
         .await?;
@@ -4626,6 +4634,16 @@ async fn overwrite_global_users(
             user.company,
             user.first_time_user,
             user.username
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
+    for t in totp {
+        sqlx::query!(
+            "UPDATE password SET totp_secret = $2, totp_last_step = $3 WHERE email = $1",
+            t.email,
+            t.totp_secret,
+            t.totp_last_step
         )
         .execute(&mut *tx)
         .await?;

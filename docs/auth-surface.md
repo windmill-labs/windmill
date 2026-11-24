@@ -34,7 +34,9 @@ Symbols, not line numbers, are cited: they drift less.
   in-memory counter that is always on, unlike the login limiter's per-account tier. Without that
   cap, a known password leaves a 6-digit code as the only barrier. Recovery is
   `POST /users/totp/reset/{user}` (superadmin). The secret is stored in plaintext in `password`,
-  since no instance-level key exists to encrypt it.
+  since no instance-level key exists to encrypt it. The global user export leaves it out, as
+  its files end up in git: an overwrite keeps the second factor of every account it
+  reinstates, and a push to another instance arrives without one.
 - **Sessions** are `token` rows with `label='session'` plus the HttpOnly `token` cookie, minted only
   by `create_session_token` (`windmill-api-users/src/users.rs`). `GET /api/users/refresh_token`
   mints one for any non-job token but returns plain text, no redirect.

@@ -1,0 +1,32 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT email, totp_secret AS \"totp_secret!\", totp_last_step FROM password\n         WHERE totp_secret IS NOT NULL",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "email",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "totp_secret!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "totp_last_step",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "323467ab59d213b8245393d0db5959568ce653e99bfaad93045a554ba7f2b40b"
+}

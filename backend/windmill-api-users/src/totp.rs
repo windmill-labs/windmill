@@ -79,7 +79,10 @@ fn now_s() -> u64 {
 /// Checks `code` against `secret` and consumes its time step, so a code that was already
 /// accepted (by a login, enable or disable) cannot be replayed. The `UPDATE` row lock
 /// serializes concurrent attempts with the same code.
-pub async fn verify_and_consume<'c>(
+///
+/// Proves possession of `secret` only. The caller must already have authenticated `email`
+/// (its password, or its own session) and read `secret` from that account's row.
+pub(crate) async fn verify_and_consume<'c>(
     tx: &mut sqlx::Transaction<'c, sqlx::Postgres>,
     email: &str,
     secret: &str,
