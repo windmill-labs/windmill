@@ -4978,12 +4978,13 @@ async fn push_next_flow_job(
             .await?;
 
     // Pushed job `i` fills slot `slots[i]`; the kept slots count as already completed.
-    let (slots, kept, n_slots) = match &next_status {
-        NextStatus::AllFlowJobs { failed_only: Some(f), .. } => {
-            (f.rerun_slots(), f.kept(), f.flow_jobs.len())
-        }
-        _ => ((0..len).collect::<Vec<_>>(), 0, len),
+    let failed_only = match &next_status {
+        NextStatus::AllFlowJobs { failed_only: Some(f), .. } => Some(f),
+        _ => None,
     };
+    let slots = failed_only.map(FailedOnlySlots::rerun_slots);
+    let kept = failed_only.map_or(0, FailedOnlySlots::kept);
+    let n_slots = failed_only.map_or(len, |f| f.flow_jobs.len());
 
     // Evaluated before the push transaction opens, so a slow label never holds it.
     let (has_iteration_label, mut iteration_labels) = match (&next_status, args.as_ref()) {
@@ -5026,7 +5027,7 @@ async fn push_next_flow_job(
     let mut tx = db.begin().warn_after_seconds(3).await?;
     let nargs = args.as_ref();
     for (i, mut payload_tag) in job_payloads.into_iter().enumerate() {
-        let slot = slots[i];
+        let slot = slots.as_ref().map_or(i, |s| s[i]);
         // A `FlowNode` here is a branch/loop sub-flow from `payload_from_modules`: it never defines
         // its own `flow_env`, so it inherits exactly this flow's. The mark lives in the child's
         // status, not its definition: a `RawFlow` child's stored definition is replayed by nested
@@ -5729,21 +5730,7 @@ async fn push_next_flow_job(
             };
 
             let (flow_jobs, flow_jobs_success, flow_jobs_duration) = match failed_only {
-                Some(f) => {
-                    let mut flow_jobs = f.flow_jobs;
-                    for (slot, uuid) in slots.iter().zip(&uuids) {
-                        flow_jobs[*slot] = *uuid;
-                    }
-                    let n = flow_jobs.len();
-                    (
-                        flow_jobs,
-                        f.flow_jobs_success
-                            .filter(|s| s.len() == n)
-                            .unwrap_or(vec![None; n]),
-                        f.flow_jobs_duration
-                            .unwrap_or_else(|| FlowJobsDuration::new(n)),
-                    )
-                }
+                Some(f) => f.with_reruns(&uuids),
                 None => (
                     uuids.clone(),
                     vec![None; uuids.len()],

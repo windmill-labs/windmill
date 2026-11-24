@@ -76,6 +76,34 @@ impl FailedOnlySlots {
         self.flow_jobs.iter().filter(|j| !j.is_nil()).count()
     }
 
+    /// The step's job, success and duration lists with the pushed `reruns` in the nil slots.
+    pub(crate) fn with_reruns(
+        self,
+        reruns: &[Uuid],
+    ) -> (Vec<Uuid>, Vec<Option<bool>>, FlowJobsDuration) {
+        let mut reruns = reruns.iter();
+        let flow_jobs: Vec<Uuid> = self
+            .flow_jobs
+            .into_iter()
+            .map(|j| {
+                if j.is_nil() {
+                    reruns.next().copied().unwrap_or(j)
+                } else {
+                    j
+                }
+            })
+            .collect();
+        let n = flow_jobs.len();
+        let success = self
+            .flow_jobs_success
+            .filter(|s| s.len() == n)
+            .unwrap_or(vec![None; n]);
+        let duration = self
+            .flow_jobs_duration
+            .unwrap_or_else(|| FlowJobsDuration::new(n));
+        (flow_jobs, success, duration)
+    }
+
     /// Reads, from the restarted run, each rerun slot's original job and its first step that
     /// did not succeed. A slot that failed before its first step finished starts over.
     pub(crate) async fn load_resumes(
