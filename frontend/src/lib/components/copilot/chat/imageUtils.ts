@@ -71,16 +71,14 @@ export function imagesFromContent(content: unknown): AttachedImage[] | undefined
 }
 
 /**
- * Raster scale for a DOM screenshot of a target whose longest CSS edge is
- * `cssEdge`. Above CSS resolution (up to 2×) for small targets — the SVG
- * re-render is vector, so the extra scale is real detail, not interpolation —
- * but never a raster larger than MAX_IMAGE_EDGE: normalize would downscale the
- * excess away, and rasterising an oversized body (a tall scrolling app) at ≥1×
- * first can allocate a tab-freezing canvas. Sub-1× output is deliberate.
+ * How the preview shell scales a DOM screenshot: min(maxScale, maxEdge / the
+ * captured rect's longest CSS edge). Above CSS resolution (up to 2×) for small
+ * targets — the SVG re-render is vector, so the extra scale is real detail, not
+ * interpolation — but never a raster larger than MAX_IMAGE_EDGE: normalize would
+ * downscale the excess away, and rasterising a tall scrolling page at ≥1× first
+ * can allocate a tab-freezing canvas. Sub-1× output is deliberate.
  */
-export function captureScale(cssEdge: number): number {
-	return Math.min(2, MAX_IMAGE_EDGE / Math.max(1, cssEdge))
-}
+export const CAPTURE_FIT = { maxEdge: MAX_IMAGE_EDGE, maxScale: 2 }
 
 export function isImageFile(file: File | Blob): boolean {
 	return typeof file.type === 'string' && file.type.startsWith('image/')

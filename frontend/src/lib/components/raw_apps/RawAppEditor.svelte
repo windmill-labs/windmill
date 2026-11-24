@@ -58,7 +58,7 @@
 		createAppSelectedContext,
 		type AppCodeSelectionElement
 	} from '../copilot/chat/context'
-	import { captureScale, MAX_IMAGE_EDGE } from '../copilot/chat/imageUtils'
+	import { CAPTURE_FIT, MAX_IMAGE_EDGE } from '../copilot/chat/imageUtils'
 	import { rawAppLintStore } from './lintStore'
 	import { dbSchemas, userStore } from '$lib/stores'
 	import { getAiChatManager } from '$lib/components/copilot/chat/aiChatManagerContext'
@@ -2325,7 +2325,7 @@ addEventListener('message', function (e) {
 	// modern-screenshot: there is no native element-screenshot API, so it
 	// reconstructs the DOM into an SVG foreignObject, and a WebGL canvas is only
 	// captured when its context was created with preserveDrawingBuffer.
-	const captureScreenshot: RawAppScreenshotRequester = async () => {
+	const captureScreenshot: RawAppScreenshotRequester = async (target) => {
 		await buildTracker.wait()
 		if (editorDestroyed) throw new Error('The app preview was closed')
 		if (buildTracker.pending) throw new Error(BUILD_PENDING_TEXT)
@@ -2333,36 +2333,44 @@ addEventListener('message', function (e) {
 		if (previewSdkPending) throw new Error(SDK_STARTING_TEXT)
 		if (previewUserPending) throw new Error(VIEWER_PENDING_TEXT)
 		if (buildError !== undefined) throw new Error(buildFailedText(buildError))
-		const body = await requestFromPreview('elementRect', { selector: 'body' })
-		if (!body?.rect) throw new Error('App preview is not ready')
-		const { width, height } = body.rect
+		const root = await requestFromPreview('elementRect', { selector: 'html' })
+		if (!root?.rect) throw new Error('App preview is not ready')
 		// Collapsing the preview leaves the iframe mounted and populated at zero
 		// width, which then fails inside the rasteriser as an opaque decode error.
-		// Name the cause so the agent can act on it.
-		if (!width || !height) {
+		// Name the cause so the agent can act on it. Height can be 0 on a live app
+		// whose content is all fixed or absolute.
+		if (!root.rect.width) {
 			throw new Error(
 				'The app preview is collapsed, so there is nothing to capture. Ask the user to expand the preview panel, then try again.'
 			)
 		}
-		// Above CSS resolution for small previews (a 1× capture of a ~900px preview
-		// reads blurry next to the live render), sub-1× for oversized bodies — see
-		// captureScale. maximumCanvasSize is the belt over that math: the rasterised
-		// box can exceed the body's size, and an unbounded canvas on a tall scrolling
-		// app can freeze the tab before normalize ever bounds the pixels.
+		// The shell scales the captured rect by CAPTURE_FIT. maximumCanvasSize is the
+		// belt over that math: an unbounded canvas can freeze the tab.
 		const res = await requestFromPreview(
 			'screenshot',
 			{
-				options: {
-					backgroundColor: '#ffffff',
-					scale: captureScale(Math.max(width, height)),
-					maximumCanvasSize: MAX_IMAGE_EDGE
-				}
+				target,
+				fit: CAPTURE_FIT,
+				options: { backgroundColor: '#ffffff', maximumCanvasSize: MAX_IMAGE_EDGE }
 			},
 			SCREENSHOT_TIMEOUT_MS
 		)
 		if (!res) throw new Error('The app preview did not return a screenshot')
 		if (typeof res.error === 'string') throw new Error(res.error)
-		return res.dataUrl
+		if (typeof res.dataUrl !== 'string') throw new Error('The app preview returned no image')
+		// A shell older than targeting ignores `target` and reports no rect.
+		if (!res.rect && (target?.selector || target?.region || target?.fullPage)) {
+			throw new Error(
+				'This app preview cannot capture a selector, region or full page yet. Call take_screenshot without them.'
+			)
+		}
+		return {
+			dataUrl: res.dataUrl,
+			rect: res.rect,
+			page: res.page,
+			scale: res.scale,
+			matchCount: res.matchCount
+		}
 	}
 
 	onMount(() => {

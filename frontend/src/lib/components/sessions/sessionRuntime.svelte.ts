@@ -110,7 +110,9 @@ import {
 	type RawAppRuntimeLogRequester,
 	type RawAppRunSummary,
 	type RawAppRunsProvider,
-	type RawAppScreenshotRequester
+	type RawAppScreenshot,
+	type RawAppScreenshotRequester,
+	type RawAppScreenshotTarget
 } from '$lib/components/raw_apps/utils'
 import { resolveGlobalDraftStoragePathByKind } from '$lib/components/copilot/chat/global/userDraftAdapter'
 import type {
@@ -307,7 +309,7 @@ export interface SessionRuntime {
 	setScreenshotRequester(requester: RawAppScreenshotRequester | undefined): void
 	/** Release the slot only if `requester` still owns it. */
 	clearScreenshotRequester(requester: RawAppScreenshotRequester): void
-	requestScreenshot(): Promise<string | undefined>
+	requestScreenshot(target?: RawAppScreenshotTarget): Promise<RawAppScreenshot | undefined>
 	/** Everything this session must do once an item has been deployed from inside it:
 	 * discard the local draft, force-reload the editor so the preview matches what is
 	 * deployed, bump the viewer's revision, and drop the workspace caches whose answers
@@ -1334,8 +1336,8 @@ function createRuntime(session: Session): SessionRuntime {
 				screenshotRequester = undefined
 			}
 		},
-		async requestScreenshot() {
-			return screenshotRequester ? screenshotRequester() : undefined
+		async requestScreenshot(target) {
+			return screenshotRequester ? screenshotRequester(target) : undefined
 		}
 	}
 }
@@ -1741,7 +1743,7 @@ setListAppRunsHandler(({ sessionId: callerSessionId, limit }) => {
 	}
 })
 
-setScreenshotHandler(async ({ sessionId: callerSessionId }) => {
+setScreenshotHandler(async ({ sessionId: callerSessionId, target }) => {
 	const sessionId = callerSessionId ?? sessionState.currentSessionId
 	const runtime = sessionId ? runtimes.get(sessionId) : undefined
 	if (!runtime) {
@@ -1752,15 +1754,15 @@ setScreenshotHandler(async ({ sessionId: callerSessionId }) => {
 		}
 	}
 	try {
-		const dataUrl = await runtime.requestScreenshot()
-		if (dataUrl === undefined) {
+		const shot = await runtime.requestScreenshot(target)
+		if (shot === undefined) {
 			return {
 				error:
 					'No raw app preview is open for this session, so there is nothing to screenshot. Next step: call open_preview with kind="raw_app" and the app path, wait for it to load, then call take_screenshot again.',
 				uiMessage: 'Screenshot unavailable'
 			}
 		}
-		return { dataUrl }
+		return { shot }
 	} catch (e) {
 		return {
 			error: `Could not capture the app preview: ${e instanceof Error ? e.message : String(e)}`,
