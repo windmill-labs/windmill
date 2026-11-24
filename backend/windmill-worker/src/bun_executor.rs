@@ -20,11 +20,11 @@ use windmill_queue::{append_logs, CanceledBy, MiniPulledJob, PrecomputedAgentInf
 use crate::{
     check_no_network_jailed,
     common::{
-        build_command_with_isolation, create_args_and_out_file, get_reserved_variables,
-        parse_npm_config, read_file, read_file_content, read_result, resolve_nsjail_timeout,
-        resolve_nsjail_tmp_mount_block, resolve_nsjail_tmpfs_size_bytes, script_envars,
-        start_child_process, write_file_binary, MaybeLock, OccupancyMetrics, StreamNotifier,
-        DEV_CONF_NSJAIL,
+        build_command_with_isolation, create_args_and_out_file,
+        get_reserved_and_workspace_variables, get_reserved_variables, parse_npm_config, read_file,
+        read_file_content, read_result, resolve_nsjail_timeout, resolve_nsjail_tmp_mount_block,
+        resolve_nsjail_tmpfs_size_bytes, script_envars, start_child_process, write_file_binary,
+        MaybeLock, OccupancyMetrics, StreamNotifier, DEV_CONF_NSJAIL,
     },
     get_proxy_envs_for_lang, get_run_proxy_envs,
     handle_child::handle_child,
@@ -2995,8 +2995,13 @@ try {{
             Ok(()) as Result<()>
         };
         let reserved_variables_f = async {
-            let vars =
-                get_reserved_variables(job, &client.token, conn, parent_runnable_path).await?;
+            // A native script is evaluated in the worker: no process is started with these.
+            let vars = if annotation.native {
+                get_reserved_and_workspace_variables(job, &client.token, conn, parent_runnable_path)
+                    .await?
+            } else {
+                get_reserved_variables(job, &client.token, conn, parent_runnable_path).await?
+            };
             Ok(vars) as Result<HashMap<String, String>>
         };
         let (_, reserved_variables) = tokio::try_join!(args_and_out_f, reserved_variables_f)?;

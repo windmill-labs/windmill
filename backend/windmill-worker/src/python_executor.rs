@@ -155,7 +155,7 @@ use crate::{
     common::{
         build_command_with_isolation, create_args_and_out_file, get_reserved_variables, proto_str,
         read_file, read_result, render_nsjail_rlimit_as, render_nsjail_rlimit_fsize,
-        resolve_nsjail_timeout, resolve_nsjail_tmp_mount_block, start_child_process,
+        resolve_nsjail_timeout, resolve_nsjail_tmp_mount_block, script_envars, start_child_process,
         OccupancyMetrics, StreamNotifier, DEV_CONF_NSJAIL,
     },
     get_proxy_envs_for_lang, get_run_proxy_envs,
@@ -1146,7 +1146,7 @@ except BaseException as e:
     #[cfg(windows)]
     let additional_python_paths_folders = additional_python_paths_folders.replace(":", ";");
 
-    if jailed {
+    let run_config = if jailed {
         let shared_deps = additional_python_paths
             .into_iter()
             .map(|pp| {
@@ -1165,10 +1165,8 @@ mount {{
         let module_mounts = python_module_mounts(job_dir, &dirs, modules.as_ref());
         let nsjail_timeout =
             resolve_nsjail_timeout(conn, &job.workspace_id, job.id, job.timeout).await;
-        let _ = write_file(
-            job_dir,
-            "run.config.proto",
-            &NSJAIL_CONFIG_RUN_PYTHON3_CONTENT
+        Some(
+            NSJAIL_CONFIG_RUN_PYTHON3_CONTENT
                 .replace(
                     "{RLIMIT_AS}",
                     &render_nsjail_rlimit_as(NSJAIL_PY_RLIMIT_AS_MB.as_deref(), 4096),
@@ -1200,10 +1198,11 @@ mount {{
                     &resolve_nsjail_tmp_mount_block(job_dir).await,
                 )
                 .replace("{TIMEOUT}", &nsjail_timeout),
-        )?;
+        )
     } else {
         reserved_variables.insert("PYTHONPATH".to_string(), additional_python_paths_folders);
-    }
+        None
+    };
 
     tracing::info!(
         workspace_id = %job.workspace_id,
@@ -1245,6 +1244,13 @@ mount {{
             ])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
+        let _ = write_file(
+            job_dir,
+            "run.config.proto",
+            &run_config
+                .unwrap_or_default()
+                .replace("{ENVARS}", &script_envars(&envs, &nsjail_cmd, &[])),
+        )?;
         start_child_process(nsjail_cmd, NSJAIL_PATH.as_str(), false).await?
     } else {
         let args = vec!["-u", "-m", "wrapper"];

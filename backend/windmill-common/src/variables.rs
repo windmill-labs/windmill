@@ -965,7 +965,7 @@ pub async fn get_reserved_variables(
 })).collect()
 }
 
-async fn get_cached_workspace_envs(conn: &Connection, w_id: &str) -> Vec<(String, String)> {
+pub async fn get_cached_workspace_envs(conn: &Connection, w_id: &str) -> Vec<(String, String)> {
     let cached_envs_o = CUSTOM_ENVS_CACHE.get(w_id).and_then(|(ts, envs)| {
         if ts > chrono::Utc::now().timestamp() - (60 * 15) {
             Some(envs)
