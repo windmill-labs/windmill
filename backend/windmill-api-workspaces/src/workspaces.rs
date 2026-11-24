@@ -680,6 +680,9 @@ pub struct EditErrorHandlerNew {
     pub muted_on_cancel: bool,
     #[serde(default)]
     pub muted_on_user_path: bool,
+    /// Skip runs whose `trigger_kind` is `ui`. `None` keeps the stored value, for the same
+    /// reason as `fallback_to_instance_alerts`.
+    pub muted_on_ui_runs: Option<bool>,
     /// Left as `None` by clients that predate the setting (the CLI among them), which must
     /// keep the stored value rather than silently reset it on every settings push.
     pub fallback_to_instance_alerts: Option<bool>,
@@ -711,6 +714,7 @@ impl EditErrorHandler {
                 extra_args: legacy.error_handler_extra_args,
                 muted_on_cancel: legacy.error_handler_muted_on_cancel,
                 muted_on_user_path: false, // Old format doesn't have this field
+                muted_on_ui_runs: None,
                 fallback_to_instance_alerts: None,
             },
         }
@@ -6366,6 +6370,22 @@ async fn edit_error_handler(
         });
         if let Some(extra_args) = &ee.extra_args {
             error_handler["extra_args"] = extra_args.clone();
+        }
+        // Written only when set, so the blob of every workspace that never turns it on, and
+        // its `settings.yaml`, stays as it was before the flag existed.
+        let muted_on_ui_runs = match ee.muted_on_ui_runs {
+            Some(muted) => muted,
+            None => sqlx::query_scalar!(
+                "SELECT COALESCE((error_handler->>'muted_on_ui_runs')::boolean, false) AS \"muted!\"
+                 FROM workspace_settings WHERE workspace_id = $1",
+                &w_id
+            )
+            .fetch_optional(&mut *tx)
+            .await?
+            .unwrap_or(false),
+        };
+        if muted_on_ui_runs {
+            error_handler["muted_on_ui_runs"] = serde_json::Value::Bool(true);
         }
 
         sqlx::query!(

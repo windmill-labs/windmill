@@ -48,6 +48,9 @@ pub const MIN_VERSION_SUPPORTS_LEASE_FREE_VOLUMES: VC = vc(1, 872, 0, "Lease-fre
 // so a step the test mocks would run for real. Must name the release this ships in.
 pub const MIN_VERSION_SUPPORTS_FLOW_TEST_SUBFLOWS: VC =
     vc(1, 879, 0, "Overriding steps inside subflows in flow tests");
+// A worker before this release decodes `trigger_kind` strictly and cannot read `ui`, so a job
+// stamped with it would fail on every pull of that worker.
+pub const MIN_VERSION_SUPPORTS_UI_TRIGGER_KIND: VC = vc(1, 776, 0, "ui trigger kind");
 pub const MIN_VERSION_SUPPORTS_NODE_DEBOUNCING: VC = vc(1, 658, 0, "Flow node debouncing");
 pub const MIN_VERSION_SUPPORTS_TOKEN_HASH: VC = vc(1, 659, 0, "Token hash storage");
 pub const MIN_VERSION_SUPPORTS_SYNC_JOBS_DEBOUNCING: VC = vc(1, 602, 0, "Sync jobs debouncing");

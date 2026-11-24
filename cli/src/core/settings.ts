@@ -27,6 +27,7 @@ export interface ErrorHandlerConfig {
   extra_args?: any;
   muted_on_cancel?: boolean;
   muted_on_user_path?: boolean;
+  muted_on_ui_runs?: boolean;
 }
 
 export interface SuccessHandlerConfig {
@@ -414,6 +415,13 @@ export async function pushWorkspaceSettings(
         extra_args: localErrorHandler?.extra_args,
         muted_on_cancel: localErrorHandler?.muted_on_cancel ?? false,
         muted_on_user_path: localErrorHandler?.muted_on_user_path ?? false,
+        // Stored only when on. Sent only when either side states it: a server that predates
+        // the key rejects the body as the grouped format and reads it as the legacy one,
+        // which clears the handler.
+        ...(localErrorHandler?.muted_on_ui_runs !== undefined ||
+        settings.error_handler?.muted_on_ui_runs !== undefined
+          ? { muted_on_ui_runs: localErrorHandler?.muted_on_ui_runs ?? false }
+          : {}),
       },
     });
   }
