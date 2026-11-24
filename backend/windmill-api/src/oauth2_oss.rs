@@ -115,6 +115,7 @@ async fn list_logins() -> error::JsonResult<Logins> {
 struct OAuthConnectListItem {
     name: String,
     supports_client_credentials: bool,
+    supports_authorization_code: bool,
     has_shared_credentials: bool,
 }
 

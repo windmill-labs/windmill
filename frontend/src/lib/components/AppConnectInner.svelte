@@ -22,7 +22,7 @@
 	} from '$lib/gen'
 	import { emptyString, truncateRev, urlize } from '$lib/utils'
 	import { registryEntryFor, registryCcCapableFor, stripSandboxSuffix } from './oauthRegistry'
-	import { createEventDispatcher, onDestroy, tick, untrack } from 'svelte'
+	import { createEventDispatcher, onDestroy, tick } from 'svelte'
 	import Path from './Path.svelte'
 	import { Badge, ListRow, RadioCard, Skeleton } from './common'
 	import Stepper from './common/stepper/Stepper.svelte'
@@ -134,7 +134,11 @@
 	/** Per-provider instance-entry metadata, keyed by provider name. */
 	let connectsInfo: Record<
 		string,
-		{ supports_client_credentials: boolean; has_shared_credentials: boolean }
+		{
+			supports_client_credentials: boolean
+			supports_authorization_code: boolean
+			has_shared_credentials: boolean
+		}
 	> = $state({})
 
 	/** An instance entry with shared credentials (admin id+secret), which the browser
@@ -550,32 +554,6 @@
 		popularity = byPopularity(hub, local)
 	}
 
-	/** Which configured providers offer a browser sign-in, for the list's badge. Only
-	 * `get_connect` knows whether the entry declares authorization_code, so it is asked per
-	 * provider, off the list's critical path: the rows render first and gain the badge later. */
-	let connectBadges: Record<string, { signIn: boolean }> = $state({})
-
-	// Fetched only once the list is on screen: a drawer opened on one type never shows it.
-	let badgesRequested = false
-	$effect(() => {
-		if (step == 1 && connects && !badgesRequested) {
-			badgesRequested = true
-			loadConnectBadges(untrack(() => connects!.filter(isSharedConnect)))
-		}
-	})
-
-	function loadConnectBadges(names: string[]) {
-		for (const name of names) {
-			OauthService.getOauthConnect({ client: name })
-				.then((c) => {
-					connectBadges[name] = {
-						signIn: c.grant_types?.includes('authorization_code') ?? true
-					}
-				})
-				.catch(() => {})
-		}
-	}
-
 	async function loadConnects() {
 		if (!connects) {
 			try {
@@ -584,7 +562,6 @@
 				)
 				connects = list.map((x) => x.name)
 				connectsInfo = Object.fromEntries(list.map((x) => [x.name, x]))
-				badgesRequested = false
 			} catch (e) {
 				connects = []
 				connectsInfo = {}
@@ -1342,7 +1319,6 @@
 
 			{#snippet resourceButton(key: string, index: number)}
 				{@const configured = isSharedConnect(key)}
-				{@const badges = connectBadges[key]}
 				{#snippet icon()}
 					<IconedResourceType name={key} silent width="20px" height="20px" />
 				{/snippet}
@@ -1352,7 +1328,7 @@
 					{#if customResourceTypes.has(key)}
 						<Badge verySmall class="px-2 shrink-0">Custom</Badge>
 					{/if}
-					{#if badges?.signIn}
+					{#if configured && connectsInfo[key].supports_authorization_code}
 						<Badge verySmall color="blue" class="px-2 shrink-0">Log in with your account</Badge>
 					{/if}
 				{/snippet}
