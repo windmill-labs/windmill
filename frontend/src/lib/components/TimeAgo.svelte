@@ -170,7 +170,7 @@
 		const nbSecondsAgo = secondsAgo(date)
 		if (nbSecondsAgo < 60) {
 			return `${nbSecondsAgo}s ago`
-		} else if (nbSecondsAgo < 3600) {
+		} else if (nbSecondsAgo < 600) {
 			const mins = Math.floor(nbSecondsAgo / 60)
 			return `${mins} min${mins !== 1 ? 's' : ''} ago`
 		} else if (isToday(date)) {
