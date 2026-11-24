@@ -1625,7 +1625,18 @@ pub fn pad_string(value: &str, total_length: usize) -> String {
         format!("{value}{}", " ".repeat(padding_needed)) // Pad with spaces
     }
 }
+/// Copies only directories and regular files, never following a symlink: the
+/// trees copied here are written by jailed steps (dependency installs, a job's
+/// `vendor/`) and this runs outside the jail, so a link must not resolve
+/// against the worker's filesystem. Links are skipped, not recreated, since
+/// several trees may be merged into one `dst` and `fs::copy` would write the
+/// next tree's files through a recreated link.
 pub fn copy_dir_recursively(src: &Path, dst: &Path) -> error::Result<()> {
+    if fs::symlink_metadata(src)?.file_type().is_symlink() {
+        return Err(error::Error::InternalErr(format!(
+            "refusing to copy {src:?}: it is a symlink"
+        )));
+    }
     if !dst.exists() {
         fs::create_dir_all(dst)?;
     }
@@ -1637,10 +1648,13 @@ pub fn copy_dir_recursively(src: &Path, dst: &Path) -> error::Result<()> {
         let src_path = entry.path();
         let dst_path = dst.join(entry.file_name());
 
-        if src_path.is_dir() && !src_path.is_symlink() {
+        let file_type = entry.file_type()?;
+        if file_type.is_dir() {
             copy_dir_recursively(&src_path, &dst_path)?;
-        } else {
+        } else if file_type.is_file() {
             fs::copy(&src_path, &dst_path)?;
+        } else {
+            tracing::warn!("not copying {src_path:?}: neither a directory nor a regular file");
         }
     }
 
@@ -3454,6 +3468,27 @@ pub fn try_parse_locked_python_version_from_requirements<S: AsRef<str>>(
 mod tests {
     use super::*;
     use std::collections::HashMap;
+
+    #[cfg(unix)]
+    #[test]
+    fn copy_dir_recursively_does_not_follow_symlinks() {
+        let outside = tempfile::tempdir().unwrap();
+        std::fs::write(outside.path().join("other"), "s").unwrap();
+        let src = tempfile::tempdir().unwrap();
+        std::fs::create_dir(src.path().join("pkg")).unwrap();
+        std::fs::write(src.path().join("pkg/a.py"), "a").unwrap();
+        std::os::unix::fs::symlink(outside.path().join("other"), src.path().join("pkg/link"))
+            .unwrap();
+        let dst = tempfile::tempdir().unwrap();
+
+        copy_dir_recursively(src.path(), dst.path()).unwrap();
+        assert!(dst.path().join("pkg/a.py").is_file());
+        assert!(std::fs::symlink_metadata(dst.path().join("pkg/link")).is_err());
+
+        let link = src.path().join("link");
+        std::os::unix::fs::symlink(outside.path(), &link).unwrap();
+        assert!(copy_dir_recursively(&link, dst.path()).is_err());
+    }
 
     #[test]
     fn dedicated_path_is_read_like_a_job_path() {
