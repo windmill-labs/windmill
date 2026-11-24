@@ -48,9 +48,10 @@ pub struct TagDeadlock {
     pub parents: Vec<Uuid>,
 }
 
-/// Every tag (or only `tag`) whose live workers are all held by a running job with a child
-/// queued on that tag for longer than the grace period. With `waiting_only`, a holder counts only
-/// while it is marked as waiting on that very child (see the module doc).
+/// Every tag (or only `tag`) whose live workers are all held by a running job freshly marked as
+/// waiting on its own child queued on that tag for longer than the grace period (see the module
+/// doc). The child is reached through the mark rather than by walking the parent's children,
+/// which on a backlog costs a lookup per queued child.
 ///
 /// Instance-wide and unauthorized: the parents it returns belong to any workspace, so they may
 /// reach superadmin alerts but not a workspace caller.
@@ -63,7 +64,6 @@ pub struct TagDeadlock {
 pub async fn deadlocked_tags(
     db: impl sqlx::PgExecutor<'_>,
     tag: Option<&str>,
-    waiting_only: bool,
 ) -> error::Result<Vec<TagDeadlock>> {
     let rows = sqlx::query!(
         r#"
@@ -71,17 +71,16 @@ pub async fn deadlocked_tags(
             SELECT DISTINCT r.worker, c.tag, r.id AS parent
             FROM v2_job_queue r
                 JOIN v2_job rj ON rj.id = r.id
-                JOIN v2_job cj ON cj.parent_job = r.id
-                JOIN v2_job_queue c ON c.id = cj.id
+                JOIN v2_job_queue c ON c.id = (r.extras->'waiting_on'->>'child')::uuid
+                JOIN v2_job cj ON cj.id = c.id AND cj.parent_job = r.id
             WHERE r.running AND r.worker IS NOT NULL AND r.suspend = 0 AND r.started_at IS NOT NULL
+                AND (r.extras->'waiting_on'->>'at')::timestamptz
+                    > now() - make_interval(secs => $3)
                 AND rj.kind NOT IN ('flow', 'flowpreview', 'singlestepflow', 'flownode',
                                     'unassigned_flow', 'unassigned_singlestepflow')
                 AND NOT c.running AND c.suspend = 0
                 AND c.scheduled_for <= now() - make_interval(secs => $2::bigint::double precision)
                 AND ($1::text IS NULL OR c.tag = $1)
-                AND (NOT $3 OR (r.extras->'waiting_on'->>'child' = c.id::text
-                    AND (r.extras->'waiting_on'->>'at')::timestamptz
-                        > now() - make_interval(secs => $4)))
         ),
         live AS (
             SELECT worker, unnest(custom_tags) AS tag, native_mode
@@ -100,7 +99,6 @@ pub async fn deadlocked_tags(
         "#,
         tag,
         *TAG_DEADLOCK_GRACE_SECS,
-        waiting_only,
         WAITING_MARK_TTL_SECS,
     )
     .fetch_all(db)
@@ -159,7 +157,7 @@ async fn deadlock_for_waiting_parent(
     let deadlock = match cached {
         Some(d) => d,
         None => {
-            let d = deadlocked_tags(db, Some(&tag), true)
+            let d = deadlocked_tags(db, Some(&tag))
                 .await?
                 .into_iter()
                 .next();
@@ -200,7 +198,7 @@ pub async fn fail_fast_waiting_parent(
     )
     .fetch_one(&mut *tx)
     .await?;
-    let Some(d) = deadlocked_tags(&mut *tx, Some(&d.tag), true)
+    let Some(d) = deadlocked_tags(&mut *tx, Some(&d.tag))
         .await?
         .into_iter()
         .find(|d| d.parents.contains(&parent))
@@ -294,7 +292,7 @@ async fn alert_on_fail_fast(db: &DB, d: &TagDeadlock) {
 pub async fn recover_tag_deadlock_alerts(db: &DB) -> error::Result<()> {
     for resource in open_alerts(db).await? {
         let tag = &resource[ALERT_RESOURCE_PREFIX.len()..];
-        if deadlocked_tags(db, Some(tag), true).await?.is_empty() {
+        if deadlocked_tags(db, Some(tag)).await?.is_empty() {
             crate::utils::report_recovered_critical_error(
                 format!("Tag `{tag}` is no longer deadlocked"),
                 db.clone(),
@@ -359,6 +357,18 @@ mod tests {
         Ok((parent, child))
     }
 
+    async fn mark_waiting(db: &DB, parent: Uuid, child: Uuid) -> anyhow::Result<()> {
+        sqlx::query(
+            "UPDATE v2_job_queue SET extras = jsonb_build_object('waiting_on',
+                jsonb_build_object('child', $2::uuid, 'at', now())) WHERE id = $1",
+        )
+        .bind(parent)
+        .bind(child)
+        .execute(db)
+        .await?;
+        Ok(())
+    }
+
     #[sqlx::test(migrations = "../migrations")]
     async fn a_tag_is_deadlocked_only_when_every_worker_holds_a_blocked_parent(
         db: DB,
@@ -366,14 +376,13 @@ mod tests {
         live_worker(&db, "w1").await?;
         live_worker(&db, "w2").await?;
         let (p1, c1) = parent_with_stuck_child(&db, "w1", "script").await?;
-        assert!(
-            deadlocked_tags(&db, None, false).await?.is_empty(),
-            "w2 is free"
-        );
+        mark_waiting(&db, p1, c1).await?;
+        assert!(deadlocked_tags(&db, None).await?.is_empty(), "w2 is free");
 
         // A flow holds no worker while its step waits, nor does a parked workflow-as-code parent.
         let (p2, c2) = parent_with_stuck_child(&db, "w2", "flow").await?;
-        assert!(deadlocked_tags(&db, None, false).await?.is_empty());
+        mark_waiting(&db, p2, c2).await?;
+        assert!(deadlocked_tags(&db, None).await?.is_empty());
         sqlx::query("UPDATE v2_job SET kind = 'script' WHERE id = $1")
             .bind(p2)
             .execute(&db)
@@ -382,16 +391,19 @@ mod tests {
             .bind(p2)
             .execute(&db)
             .await?;
-        assert!(deadlocked_tags(&db, None, false).await?.is_empty());
+        assert!(deadlocked_tags(&db, None).await?.is_empty());
 
         sqlx::query("UPDATE v2_job_queue SET suspend = 0, started_at = now() WHERE id = $1")
             .bind(p2)
             .execute(&db)
             .await?;
-        let d = deadlocked_tags(&db, Some("t1"), false).await?;
+        let d = deadlocked_tags(&db, Some("t1")).await?;
         assert_eq!(d.len(), 1);
         assert_eq!(d[0].workers, 2);
         assert!(d[0].parents.contains(&p1) && d[0].parents.contains(&p2));
+        sqlx::query("UPDATE v2_job_queue SET extras = extras - 'waiting_on'")
+            .execute(&db)
+            .await?;
 
         // p2 has not polled for its child, so it may be about to finish: no wait is failed yet.
         assert!(deadlock_for_waiting_parent(&db, c1, Some(p1))
