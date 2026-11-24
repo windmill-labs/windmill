@@ -278,9 +278,9 @@ async fn alert_unless_open(db: &DB, d: &TagDeadlock, open: &[String]) {
     .await;
 }
 
-/// Alerts on a deadlock a waiting parent is about to be failed for. That failure frees a worker
-/// within seconds, usually before the monitor's next pass could see the deadlock, so without
-/// this the alert would rarely fire for parents that wait through the SDK or `run_wait_result`.
+/// Alerts on a deadlock a waiting parent is about to be failed for. This is the only place a tag
+/// deadlock alert is raised: a deadlock counts only while its parents are polling with a fresh
+/// waiting mark, and such a poll reaches this path within seconds.
 async fn alert_on_fail_fast(db: &DB, d: &TagDeadlock) {
     match open_alerts(db).await {
         Ok(open) => alert_unless_open(db, d, &open).await,
@@ -288,18 +288,13 @@ async fn alert_on_fail_fast(db: &DB, d: &TagDeadlock) {
     }
 }
 
-/// Raises a critical alert for each tag that became deadlocked and a recovered alert for each
-/// one that no longer is. Instance maintenance, run by the server monitor. Only proven deadlocks
-/// count: a parent that queued a same-tag child and carries on is not one.
-pub async fn alert_deadlocked_tags(db: &DB) -> error::Result<()> {
-    let deadlocked = deadlocked_tags(db, None, true).await?;
-    let open = open_alerts(db).await?;
-    for d in &deadlocked {
-        alert_unless_open(db, d, &open).await;
-    }
-    for resource in open {
+/// Raises a recovered alert for each tag with an open deadlock alert that is no longer
+/// deadlocked. Instance maintenance, run by the server monitor. The queue is only read while an
+/// alert is open, so the monitor costs one read of `alerts` the rest of the time.
+pub async fn recover_tag_deadlock_alerts(db: &DB) -> error::Result<()> {
+    for resource in open_alerts(db).await? {
         let tag = &resource[ALERT_RESOURCE_PREFIX.len()..];
-        if !deadlocked.iter().any(|d| d.tag == tag) {
+        if deadlocked_tags(db, Some(tag), true).await?.is_empty() {
             crate::utils::report_recovered_critical_error(
                 format!("Tag `{tag}` is no longer deadlocked"),
                 db.clone(),

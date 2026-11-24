@@ -4464,8 +4464,9 @@ pub async fn monitor_db(
     let tag_deadlock_alerts_f = async {
         if server_mode && !initial_load {
             if let Some(db) = conn.as_sql() {
-                if let Err(e) = windmill_common::tag_deadlock::alert_deadlocked_tags(db).await {
-                    tracing::error!("Failed to check for deadlocked tags: {e:#}");
+                if let Err(e) = windmill_common::tag_deadlock::recover_tag_deadlock_alerts(db).await
+                {
+                    tracing::error!("Failed to check tag deadlock alerts for recovery: {e:#}");
                 }
             }
         }
