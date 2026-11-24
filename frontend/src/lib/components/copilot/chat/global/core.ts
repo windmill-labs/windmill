@@ -399,7 +399,7 @@ const requestSecretSchema = z.object({
 		.string()
 		.min(1)
 		.describe(
-			'With resource_type, the path of the resource to create; otherwise the path of the secret variable. Follow the path conventions (e.g. "u/<username>/openai"). It must be free unless replace is set: check it first.'
+			"With resource_type, the resource's path; otherwise the secret variable's. Refused if taken, unless replace is set."
 		),
 	replace: z
 		.boolean()
@@ -417,24 +417,13 @@ const requestSecretSchema = z.object({
 		.describe(
 			'One short sentence on what it is used for. Becomes the description of what is saved.'
 		),
-	help_url: z
-		.string()
-		.optional()
-		.describe(
-			"The provider's page where the user can create or copy the secrets, when you know it."
-		),
 	help_text: z
 		.string()
 		.optional()
 		.describe(
-			"Markdown, shown on the card: a numbered list of two or three short steps to get the value at the user's provider. Include what Windmill needs that the provider's default does not give, e.g. for Supabase: the Session pooler connection string, since the direct host is IPv6-only."
+			"Markdown shown on the card: two or three numbered steps to get the values at the user's provider, linking its page when you know it. Include what Windmill needs that the provider's default does not give, e.g. for Supabase the Session pooler string, since the direct host is IPv6-only."
 		),
-	resource_type: z
-		.string()
-		.optional()
-		.describe(
-			'To connect a service: the resource type. The card then creates the resource at path, deployed, once the user enters its secrets.'
-		),
+	resource_type: z.string().optional().describe('To connect a service: its resource type.'),
 	resource_value: z
 		.record(z.string(), z.unknown())
 		.optional()
@@ -444,20 +433,23 @@ const requestSecretSchema = z.object({
 	secret_fields: z
 		.array(
 			z.object({
-				field: z.string().min(1).describe('The secret field of the resource type, e.g. "api_key".'),
-				label: z.string().min(1).describe('How the user would name it, e.g. "API key".')
+				field: z.string().min(1).describe('The secret field, e.g. "api_key".'),
+				label: z
+					.string()
+					.optional()
+					.describe('Its label on the card; defaults to the key in words.')
 			})
 		)
 		.min(1)
 		.optional()
 		.describe(
-			'With resource_type: every secret field of the resource (passwords, keys, tokens; not usernames or hosts), all asked on the one card.'
+			'With resource_type: every secret field of the resource (passwords, keys, tokens; not usernames or hosts).'
 		),
 	connection_string: z
 		.boolean()
 		.optional()
 		.describe(
-			'With resource_type "postgresql", when the user chose to connect with a connection string: the card takes the string instead of the fields, and secret_fields is not needed.'
+			'With resource_type "postgresql": open the card on a connection string rather than the fields, as for Supabase or Neon. The user can switch.'
 		)
 })
 
@@ -1966,7 +1958,7 @@ ${testDraftRule}
 - Use list_runs to find recent runs (optionally filtered by path, creator, label, or status), then get_run with a returned id to see what that run was called with, what it returned and what it logged — without starting a new test run.
 - get_run also covers what a flow run did per step — statuses and results across the whole execution tree, subflow steps and loop iterations included — and works while the flow is still running. Pass step to read one step's result in full (capped at 12k chars).
 - Use open_page to show a workspace page with filters applied — Runs, Schedules, Variables, Resources, Assets, Audit logs, or Workspace settings on a specific tab (e.g. "open the failed runs of f/foo/bar", "open the schedule for X", "open the git sync settings"). Carry over every filter the user described — Runs takes the page's whole filter set (time window, path, user, folder, label, tag, worker, trigger kind, args/result, ...), so don't drop a criterion just because it wasn't in the request's main clause. Only the pages listed for this user in the tool are available; don't offer pages that aren't listed. Don't use it as a substitute for list_runs when you just need the data yourself.
-- Whenever you ask the user to perform a manual step in the UI — fill in a resource's credentials, set a secret variable's value, adjust a schedule or setting — call open_page in the same message, targeted at that item (pass open with its path to land in its editor, or the page's filters otherwise). Never just describe where to click.${when(
+- When you need the user to do a step in the UI that you cannot do for them — fill in a resource's credentials, set a secret variable's value, adjust a schedule or setting — call open_page in the same message, targeted at that item (pass open with its path to land in its editor, or the page's filters otherwise). Never just describe where to click. Once nothing is left for them to do, as when an item is saved, offer to open it instead of opening it.${when(
 		canWriteDraft,
 		`
 - Do not offer or open the Compare & Deploy page for normal draft review. Only use open_page with page "compare" when the user explicitly asks to deploy a forked workspace's changes to its parent workspace.`
@@ -2348,14 +2340,15 @@ function getResourceInstructions(external: boolean): string {
 - A resource draft is a workspace item: \`{ type: 'resource', path, summary?, value, isDraft }\`. \`value\` is a CreateResource body: \`{ path, value, description?, resource_type, labels? }\` where the inner \`value\` is the resource type's data shape.
 - Reading a variable returns \`{ type: 'variable', path, summary?, isSecret, isDraft }\` — never its value, secret or not. \`isSecret\` tells you whether the value is encrypted.
 - \`write_variable\` takes \`{ path, value?, is_secret?, description?, is_oauth?, expires_at?, value_valid_until?, labels? }\`. Creating a variable needs \`value\` and \`is_secret\`; editing one needs only the fields you are changing. Omitting \`value\` keeps the stored value, which is the only way to edit a secret variable — you cannot read its value, so passing any \`value\` you did not get from the user destroys it.
-- Connecting a service (a resource with a secret field) happens in one \`request_secret\` call, not in an editor or a draft:
-  1. Ask only what shapes the card${external ? '' : ', in one \`askUserQuestion\`'}: where the service is hosted (e.g. Supabase, Neon, RDS) and, for a Postgres database, whether they connect with a connection string or with the details. For the string, the card takes it whole (\`connection_string: true\`). Never ask for a value the card takes (a host, a user, a database name, a region): put each field you do not know in \`resource_value\` as an empty string, and the user fills it on the card. Default what has a sensible default.
+- Connecting a service (a resource with a secret field) happens in one \`request_secret\` call, not in an editor or with \`write_resource\`:
+  1. Ask only what shapes the card and the user has not said${external ? '' : ', in one \`askUserQuestion\`'}: where the service is hosted (e.g. Supabase, Neon, RDS). A Postgres card takes a connection string or the details, and the user picks there; \`connection_string: true\` opens it on the string. Never ask for a value the card takes (a host, a user, a database name, a region): put each field you do not know in \`resource_value\` as an empty string, and the user fills it on the card. Default what has a sensible default.
   2. Call \`request_secret\` with \`resource_type\`, a resource path you checked is free (list the resources and variables near it first), the non-secret fields you prepared as \`resource_value\`, and every secret field in \`secret_fields\`. ${
-	external
-		? 'It returns a link to a Windmill page where the user types the secrets: give them the link, and once they say it is saved, check that the resource exists and use its \`$res:\` path. Do not write or deploy that resource yourself.'
-		: 'The user checks the card, types the secrets, and one confirmation saves them and creates the resource, deployed. Use the \`$res:\` path it returns, which is the one the user chose if it differs from yours; do not write, open or deploy that resource yourself.'
-}
-  3. Never ask for a secret in ${external ? 'the conversation' : 'chat'}, and never create a secret variable with a placeholder or empty value for the user to fill in. A secret that goes into no resource (a run argument) is a \`request_secret\` without \`resource_type\`.
+		external
+			? 'It returns a link to a Windmill page where the user types the secrets: give them the link, and once they say it is saved, check that the resource draft exists and use its \`$res:\` path. Do not write that resource yourself.'
+			: 'The user checks the card, types the secrets, and one confirmation saves them and the resource as drafts. Use the \`$res:\` path it returns, which is the one the user chose if it differs from yours; do not write or open that resource yourself.'
+	}
+  3. The card saves drafts, and every run, test runs and connection tests included, reads only deployed items. Before running anything that uses the resource, offer to deploy it with its secret variables; when the user only wanted it saved, end by offering that deploy.
+  4. Never ask for a secret in ${external ? 'the conversation' : 'chat'}, and never create a secret variable with a placeholder or empty value for the user to fill in. A secret that goes into no resource (a run argument) is a \`request_secret\` without \`resource_type\`.
 - Reference formats inside resource values: \`$var:g/all/name\` (global), \`$var:u/user/name\` (user), \`$var:f/folder/name\` (folder). Reference another resource with \`$res:path/to/resource\`. The same strings are also how a resource or variable is passed as a run argument (see the run-argument rule in the resource reference below); what they are never valid as is a variable's own value.
 - Use \`search_resource_types\` to discover valid \`resource_type\` names and their JSON Schemas. Match the resource value to that schema.
 - For an agent (an \`ai_agent\` resource), call \`get_instructions\` with \`subject: "agent"\` instead.
@@ -3566,7 +3559,7 @@ export const globalTools: SessionTool<{}>[] = [
 		def: createToolDef(
 			requestSecretSchema,
 			'request_secret',
-			'Ask the user for secrets (API key, token, password) through a secure input card in Windmill (in an external client, a link to it). The values are saved as deployed secret variables and never reach you. With resource_type it connects a service: the card shows the resource you prepared and asks for all its secrets, and one confirmation saves them and creates the resource, deployed; you get back "$res:<path>". For a database, first ask the user only where it is hosted (e.g. Supabase, Neon, RDS) and, for postgresql, whether they connect with a connection string or with the details (connection_string: true for the string); then pass help_text with the steps for that provider. Never ask for the host, user, database or any other field in the conversation: put each field you do not know in resource_value as an empty string, and the user fills it on the card. The card tests the connection when the type has a test and tells you the result. Without resource_type, it asks for one secret and you get back "$var:<path>" to reference from a run argument or elsewhere. Use it whenever you need a secret; never ask the user to paste one in chat or create a placeholder variable for them to fill.'
+			'Ask the user for secrets (API key, token, password) through a secure input card in Windmill (in an external client, a link to it). The values are saved as drafts of secret variables, encrypted, and never reach you. With resource_type it connects a service: the card shows the fields you prepared and asks for all its secrets, one confirmation saves them and a draft of the resource, and you get back "$res:<path>", with a connection test result for the types tested without a deploy. Runs read only deployed items, so the drafts must be deployed before anything uses them. Without resource_type it asks for one secret and you get back "$var:<path>". Never ask in the conversation for a value the card takes, secret or not: leave a field you do not know as an empty string in resource_value. Use it for every secret the user has not given you, rather than a placeholder variable for them to fill. A secret the user gave you goes in a secret variable with write_variable, referenced as "$var:<path>", never inline in a resource.'
 		),
 		streamingLabel: 'Asking the user for a secret...',
 		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
@@ -3592,6 +3585,11 @@ export const globalTools: SessionTool<{}>[] = [
 			})
 			// The chat settles the card itself, whether the turn is still running or not.
 			const outcome = await toolCallbacks.requestSecret(toolId, request)
+			// The drafts the card saved are this session's changes, deployed from its panel.
+			for (const variable of outcome?.variables ?? []) {
+				toolCallbacks.onItemModified?.('variable', variable)
+			}
+			if (outcome && request.resource) toolCallbacks.onItemModified?.('resource', outcome.path)
 			return secretRequestToolResult(request, outcome)
 		}
 	},
@@ -4331,7 +4329,7 @@ export const globalTools: SessionTool<{}>[] = [
 		def: createToolDef(
 			writeVariableSchema,
 			'write_variable',
-			'Create or edit a draft variable. Editing is a partial update: pass only the fields you are changing. You can never read the value of a variable, so to edit a secret variable you MUST omit value — any value you pass replaces the stored secret. FAILS if you pass a "$var:" self-reference as the value, or un-secret a variable without giving its new value.',
+			'Create or edit a draft variable. Editing is a partial update: pass only the fields you are changing. You can never read the value of a variable, so to edit a secret variable you MUST omit value — any value you pass replaces the stored secret. FAILS if you pass a "$var:" self-reference as the value, or un-secret a variable without giving its new value. For a secret the user has not given you, call request_secret instead.',
 			{ strict: false }
 		),
 		showDetails: true,
@@ -5231,7 +5229,7 @@ function buildVariableCreateRequestBody(draftValue: CreateVariable): CreateVaria
 	const requestBody = structuredClone(draftValue)
 	if (requestBody.is_secret && requestBody.value === '') {
 		throw new Error(
-			`Draft variable "${draftValue.path}" is secret but stages no value, so it cannot be created. Run write_variable with its value first.`
+			`Draft variable "${draftValue.path}" is secret but stages no value, so it cannot be created. If the user gave you its value, set it with write_variable. If not, discard this draft and call request_secret: the user types the secret in a secure card and you get back only its path.`
 		)
 	}
 	return requestBody

@@ -3,15 +3,18 @@
 	import { resource } from 'runed'
 	import { CircleCheck, Link2Off, LogIn } from 'lucide-svelte'
 	import { Button, EmptyState, Skeleton } from '$lib/components/common'
-	import WindmillIcon from '$lib/components/icons/WindmillIcon.svelte'
+	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import SecretRequestCard from '$lib/components/copilot/chat/SecretRequestCard.svelte'
-	import { SecretCheckFailed, saveSecretRequest } from '$lib/components/copilot/chat/secretRequest'
+	import {
+		SecretCheckFailed,
+		checkSubmission,
+		saveSecretRequest
+	} from '$lib/components/copilot/chat/secretRequest'
 	import type {
 		SecretRequest,
 		SecretRequestOutcome,
 		SecretSubmission
 	} from '$lib/components/copilot/chat/shared'
-	import { checkSavedResource } from '$lib/components/resourceConnectionTest'
 	import { applyDarkModeVariant } from '$lib/darkModeVariant'
 	import { AiService } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
@@ -26,9 +29,20 @@
 	document.documentElement.classList.toggle('dark', darkMode === 'dark')
 	applyDarkModeVariant()
 
-	// The link fixes its workspace: the page offers no other.
-	const workspace = page.url.searchParams.get('workspace') ?? ''
+	// The link fixes its workspace: the page offers no other. The token names it too, read
+	// unverified here only to know where to ask when the parameter is lost; the server checks it.
 	const token = page.url.searchParams.get('token') ?? ''
+	const workspace = page.url.searchParams.get('workspace') || tokenWorkspace(token)
+
+	function tokenWorkspace(token: string): string {
+		try {
+			const payload = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')
+			const claims = JSON.parse(atob(payload))
+			return typeof claims.w === 'string' ? claims.w : ''
+		} catch {
+			return ''
+		}
+	}
 	workspaceStore.set(workspace)
 	// The card's path picker reads the user of the navigation workspace, which only the app's
 	// layout loads otherwise.
@@ -42,7 +56,11 @@
 	const opened = resource(
 		() => ({ workspace, token }),
 		async ({ workspace, token }): Promise<Loaded> => {
-			if (!workspace || !token) return { state: 'error', message: 'This link is incomplete.' }
+			if (!workspace)
+				return {
+					state: 'error',
+					message: 'This link is incomplete: open it again from your AI assistant, in full.'
+				}
 			try {
 				const request = await AiService.openSecretRequest({ workspace, requestBody: { token } })
 				return { state: 'found', request: request as unknown as SecretRequest }
@@ -63,14 +81,7 @@
 
 	async function save(request: SecretRequest, submission: SecretSubmission) {
 		const outcome = await saveSecretRequest(request, submission, own)
-		const check = request.resource
-			? await checkSavedResource({
-					workspace: request.workspace,
-					path: outcome.path,
-					resourceType: request.resource.type,
-					value: submission.fields
-				})
-			: undefined
+		const check = await checkSubmission(request, submission)
 		const full = check ? { ...outcome, check } : outcome
 		if (check && !check.ok) {
 			saved = full
@@ -80,18 +91,14 @@
 	}
 </script>
 
-<div class="flex min-h-screen flex-col bg-surface">
-	<div class="border-b bg-surface-secondary">
-		<div class="mx-auto flex w-full max-w-2xl items-center gap-3 px-4 py-3">
-			<WindmillIcon height="20px" width="20px" />
-			<span class="text-sm font-semibold text-emphasis">Secure input</span>
-			{#if workspace}
-				<span class="text-xs text-secondary">· {workspace}</span>
-			{/if}
-		</div>
-	</div>
-
-	<div class="mx-auto w-full max-w-2xl flex-1 px-4 py-8">
+<CenteredModal
+	title="Secure input"
+	subtitle={workspace ? `Workspace ${workspace}` : undefined}
+	centerVertically={false}
+	showVersion={false}
+	box={false}
+>
+	<div class="w-full">
 		{#if opened.current?.state === 'signin'}
 			<EmptyState
 				icon={LogIn}
@@ -118,9 +125,9 @@
 				<div class="flex flex-col items-center gap-2 py-8 text-center">
 					<CircleCheck class="text-green-600 dark:text-green-400" size={28} />
 					<p class="text-sm font-medium text-emphasis">
-						{request.resource ? 'Connected' : 'Saved'}
-						{request.label} as <span class="font-mono">{done.path}</span>
+						Saved {request.label} as a draft of <span class="font-mono">{done.path}</span>
 					</p>
+					<p class="text-xs text-secondary"> Scripts and flows can use it once it is deployed. </p>
 					{#if done.check}
 						<p class="text-xs text-secondary">
 							{done.check.ok
@@ -146,4 +153,4 @@
 			<Skeleton layout={[[16], 1, [4], 1, [4]]} />
 		{/if}
 	</div>
-</div>
+</CenteredModal>

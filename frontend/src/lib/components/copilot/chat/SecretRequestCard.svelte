@@ -1,13 +1,20 @@
 <script lang="ts">
-	import { ExternalLink, KeyRound, Lock, ShieldCheck } from 'lucide-svelte'
+	import { KeyRound, Lock, PlugZap, Rocket, ShieldCheck } from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
 	import Password from '$lib/components/Password.svelte'
 	import IconedResourceType from '$lib/components/IconedResourceType.svelte'
 	import Path from '$lib/components/Path.svelte'
+	import CollapseLink from '$lib/components/CollapseLink.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
+	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import { ResourceService } from '$lib/gen'
 	import { resource as asyncResource } from 'runed'
-	import { safeHref } from '$lib/utils/safeHref'
+	import {
+		canTestUnsaved,
+		testUnsavedResource,
+		type ConnectionTestResult
+	} from '$lib/components/resourceConnectionTest'
 	import Markdown from 'svelte-exmarkdown'
 	import { gfmPlugin } from 'svelte-exmarkdown/gfm'
 	import { markdownProse } from '$lib/components/markdownProse'
@@ -35,12 +42,13 @@
 
 	let { request, interactive = true, save, onDismiss }: Props = $props()
 
-	// The model writes this URL, so a prompt injection could make it `javascript:`.
-	const helpHref = $derived(safeHref(request.helpUrl, window.location.href))
-	// LinkRenderer applies the same check to the links the model puts in its steps.
+	// The model writes the steps, so a prompt injection could put a `javascript:` link in them,
+	// which LinkRenderer does not render as a link.
 	const helpPlugins = [gfmPlugin(), { renderer: { a: LinkRenderer } }]
 	const resource = $derived(request.resource)
 	const secretFields = $derived(secretFieldsOf(request))
+	// The chat and the secure input page test such a resource as they save it.
+	const tested = $derived(!!resource && canTestUnsaved(resource.type, resource.value))
 	// The resource type's own description of each field, as the resource editor shows it.
 	const fieldDescriptions = asyncResource(
 		() => ({ type: resource?.type, workspace: request.workspace }),
@@ -82,22 +90,61 @@
 	const savePath = $derived(pickedPath || request.path)
 	const taken = $derived(pathError === TAKEN)
 	const variablePaths = $derived(secretVariablePaths(savePath, secretFields))
+	// A type that also takes a connection string offers both; the AI only picks which opens.
+	const offersString = $derived(resource?.connectionString !== undefined)
+	let entry = $derived<'string' | 'fields'>(resource?.connectionString ? 'string' : 'fields')
+	const useString = $derived(offersString && entry === 'string')
 	let connectionString = $state('')
 	const connection = $derived(
-		resource?.connectionString && connectionString.trim()
-			? connectionStringParts(connectionString)
-			: undefined
+		useString && connectionString.trim() ? connectionStringParts(connectionString) : undefined
 	)
 	const connectionParts = $derived(connection && 'secret' in connection ? connection : undefined)
 
 	const canSave = $derived(
 		interactive &&
-			(resource?.connectionString
+			(useString
 				? !!connectionParts
 				: secretFields.every((f) => (secrets[f.field] ?? '').length > 0)) &&
 			!saving &&
 			(!pathError || taken)
 	)
+
+	const testable = $derived(
+		!!resource && !useString && canTestUnsaved(resource.type, resource.value)
+	)
+	const allSecrets = $derived(secretFields.every((f) => (secrets[f.field] ?? '').length > 0))
+	function unsavedValue(): Record<string, unknown> {
+		return { ...submittedFields(), ...$state.snapshot(secrets) }
+	}
+	let testing = $state(false)
+	// Kept with the values it tested, so it disappears as soon as the user changes one.
+	let unsavedTest = $state<{ of: string; result: ConnectionTestResult }>()
+	const testResult = $derived(
+		unsavedTest && unsavedTest.of === JSON.stringify(unsavedValue())
+			? unsavedTest.result
+			: undefined
+	)
+
+	async function testNow() {
+		if (!resource || testing) return
+		const value = unsavedValue()
+		testing = true
+		try {
+			const result = await testUnsavedResource({
+				workspace: request.workspace,
+				resourceType: resource.type,
+				value
+			})
+			if (result) unsavedTest = { of: JSON.stringify(value), result }
+		} catch (e) {
+			unsavedTest = {
+				of: JSON.stringify(value),
+				result: { ok: false, error: e instanceof Error ? e.message : String(e) }
+			}
+		} finally {
+			testing = false
+		}
+	}
 
 	/** Simple fields are editable; anything nested is shown as the AI wrote it. */
 	function isEditable(v: unknown): v is string | number {
@@ -162,13 +209,12 @@
 		<ShieldCheck class="mt-px h-3.5 w-3.5 shrink-0 text-green-600 dark:text-green-400" />
 		<span class="min-w-0 font-medium text-secondary">
 			{#if resource}
-				{request.saved.replaced ? 'Updated' : 'Connected'}
-				{request.label} as
+				Saved {request.label} as a draft of
 				<a
 					class="text-accent hover:underline"
 					href={resourcePageUrl(request.saved.path, request.workspace)}>{request.saved.path}</a
 				>
-				· secrets in
+				· secrets in drafts of
 				{#each request.saved.variables as variable, i (variable)}
 					{#if i > 0},
 					{/if}
@@ -180,8 +226,7 @@
 					· {request.saved.check.ok ? 'test passed' : 'test failed'}
 				{/if}
 			{:else}
-				{request.saved.replaced ? 'Replaced' : 'Saved'}
-				{request.label} in secret variable
+				Saved {request.label} as a draft of secret variable
 				<a
 					class="text-accent hover:underline"
 					href={variablePageUrl(request.saved.path, request.workspace)}>{request.saved.path}</a
@@ -234,24 +279,32 @@
 						{/if}
 					</p>
 					{#if request.helpText}
-						<div class="mt-1 {markdownProse.xs}">
-							<Markdown md={request.helpText} plugins={helpPlugins} />
+						<div class="mt-1">
+							<CollapseLink text="How to get these values" class="mb-0">
+								<div class={markdownProse.xs}>
+									<Markdown md={request.helpText} plugins={helpPlugins} />
+								</div>
+							</CollapseLink>
 						</div>
 					{/if}
 				</div>
-				{#if helpHref}
-					<a
-						class="flex shrink-0 items-center gap-1 text-2xs text-accent"
-						href={helpHref}
-						target="_blank"
-						rel="noopener noreferrer"
-					>
-						Where to find it <ExternalLink class="h-3 w-3" />
-					</a>
-				{/if}
 			</div>
 
-			{#if resource?.connectionString}
+			{#if offersString}
+				<ToggleButtonGroup
+					noWFull
+					selected={entry}
+					onSelected={(v) => (entry = v)}
+					disabled={!interactive || saving}
+				>
+					{#snippet children({ item })}
+						<ToggleButton value="string" label="Connection string" size="sm" {item} />
+						<ToggleButton value="fields" label="Details" size="sm" {item} />
+					{/snippet}
+				</ToggleButtonGroup>
+			{/if}
+
+			{#if useString}
 				<div class="flex flex-col gap-1">
 					<span class="text-xs font-semibold text-emphasis">Connection string</span>
 					<Password
@@ -295,7 +348,7 @@
 				{/each}
 			{/if}
 
-			{#if resource && !resource.connectionString}
+			{#if resource && !useString}
 				{#each Object.entries(resource.value) as [key, fieldValue] (key)}
 					<div class="flex flex-col gap-1">
 						<span class="text-xs font-semibold text-emphasis">{fieldLabel(key)}</span>
@@ -325,7 +378,7 @@
 
 			<div class="flex flex-col gap-1">
 				<span class="text-xs font-semibold text-emphasis">
-					{resource ? 'Saved as the resource' : 'Saved as the secret variable'}
+					{resource ? 'Saved as a draft of the resource' : 'Saved as a draft of the secret variable'}
 				</span>
 				<Path
 					kind={resource ? 'resource' : 'variable'}
@@ -347,13 +400,19 @@
 					<ShieldCheck class="mt-0.5 h-3 w-3 shrink-0 text-green-600 dark:text-green-400" />
 					<span>
 						{#if resource}
-							Encrypted and stored in this workspace as secret
-							{variablePaths.length === 1 ? 'variable' : 'variables'}
+							Encrypted and stored as
+							{variablePaths.length === 1
+								? 'a draft of the secret variable'
+								: 'drafts of the secret variables'}
 							<span class="font-mono">{variablePaths.join(', ')}</span>.
 						{:else}
-							Encrypted and stored in this workspace.
+							Encrypted and stored as a draft in this workspace.
 						{/if}
 					</span>
+				</li>
+				<li class="flex items-start gap-1.5">
+					<Rocket class="mt-0.5 h-3 w-3 shrink-0 text-tertiary" />
+					<span>Scripts and flows can use {resource ? 'them' : 'it'} once deployed.</span>
 				</li>
 				<li class="flex items-start gap-1.5">
 					<ShieldCheck class="mt-0.5 h-3 w-3 shrink-0 text-green-600 dark:text-green-400" />
@@ -366,7 +425,7 @@
 			{:else if checkError}
 				<div class="flex flex-col gap-0.5 text-2xs">
 					<p class="font-medium text-red-600 dark:text-red-400">
-						Saved, but the connection test failed:
+						Saved as a draft, but the connection test failed:
 					</p>
 					<p class="break-words font-mono text-red-600 dark:text-red-400">{checkError}</p>
 					<p class="text-secondary">
@@ -375,7 +434,30 @@
 				</div>
 			{/if}
 
+			{#if testResult && !saveError && !checkError}
+				<p
+					class="break-words text-2xs {testResult.ok
+						? 'text-green-600 dark:text-green-400'
+						: 'text-red-600 dark:text-red-400'}"
+				>
+					{testResult.ok ? 'The test passed.' : `The test failed: ${testResult.error}`}
+				</p>
+			{/if}
+
 			<div class="flex justify-end gap-2">
+				{#if testable}
+					<Button
+						variant="subtle"
+						unifiedSize="sm"
+						wrapperClasses="mr-auto"
+						startIcon={{ icon: PlugZap }}
+						disabled={!interactive || saving || !allSecrets}
+						loading={testing}
+						onClick={() => void testNow()}
+					>
+						Test
+					</Button>
+				{/if}
 				<Button
 					variant="default"
 					unifiedSize="sm"
@@ -394,10 +476,10 @@
 				>
 					{#if checkError}
 						Try again
-					{:else if resource}
-						{taken ? 'Update resource' : 'Save and connect'}
+					{:else if tested}
+						{taken ? 'Update draft and test' : 'Save draft and test'}
 					{:else}
-						{taken ? 'Update secret' : 'Save secret'}
+						{taken ? 'Update draft' : 'Save draft'}
 					{/if}
 				</Button>
 			</div>

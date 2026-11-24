@@ -300,48 +300,41 @@ export async function testResourceConnection({
 	}
 }
 
-/** Whether `checkSavedResource` has a check for this type: a connection test, or a request to
- * the AI provider the resource holds a key for. */
-export function canCheckResource(resourceType: string, value?: Record<string, any>): boolean {
-	return canTestConnection(resourceType) || !!aiResourceProvider(resourceType, value)
+/** Whether `testUnsavedResource` can test this type before it is saved. */
+export function canTestUnsaved(resourceType: string, value?: Record<string, any>): boolean {
+	return resourceType in objectStorageBody || !!aiResourceProvider(resourceType, value)
 }
 
-/** Checks a resource already saved at `path`. A database test runs as a job on `$res:<path>`,
- * so the worker reads its secrets; a storage test is built from the stored value, whose secrets
- * the browser resolves and sends to the server's storage test, as the resource editor does. */
-export async function checkSavedResource({
+/** Tests values the user has typed but not saved. Only where the test writes nothing: a storage
+ * test is a request to the API server and an AI key goes to the AI proxy in a header. A database
+ * test runs as a job whose arguments stay in its run history, so it waits for the save. */
+export async function testUnsavedResource({
 	workspace,
-	path,
 	resourceType,
 	value
 }: {
 	workspace: string
-	path: string
 	resourceType: string
-	value?: Record<string, any>
+	value: Record<string, any>
 }): Promise<ConnectionTestResult | undefined> {
-	if (canTestConnection(resourceType)) {
-		return await testResourceConnection({
-			workspace,
-			resourceType,
-			// A storage probe is built from the resource's fields, so it takes the stored value,
-			// whose `$var:` references are resolved where the probe runs.
-			args:
-				resourceType in objectStorageBody
-					? await ResourceService.getResourceValue({ workspace, path })
-					: `$res:${path}`,
-			timeoutMs: 20_000
-		})
+	if (resourceType in objectStorageBody) {
+		return await testResourceConnection({ workspace, resourceType, args: value })
 	}
 	const aiProvider = aiResourceProvider(resourceType, value)
 	if (!aiProvider) return undefined
+	return await testAiKey(aiProvider, { workspace, resourceValue: value })
+}
+
+async function testAiKey(
+	aiProvider: NonNullable<ReturnType<typeof aiResourceProvider>>,
+	credential: { workspace: string; resourcePath?: string; resourceValue?: Record<string, any> }
+): Promise<ConnectionTestResult> {
 	const { testKey } = await import('./copilot/lib')
 	const abortController = new AbortController()
 	const timer = setTimeout(() => abortController.abort(), 15_000)
 	try {
 		await testKey({
-			workspace,
-			resourcePath: path,
+			...credential,
 			model: undefined,
 			messages: [{ role: 'user', content: "this is a test, simply reply with 'ok'" }],
 			abortController,

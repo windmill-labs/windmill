@@ -39,7 +39,7 @@ const mocks = vi.hoisted(() => ({
 	getJobUpdates: vi.fn(),
 	whoami: vi.fn(),
 	saveSecretRequest: vi.fn(),
-	checkSavedResource: vi.fn(),
+	checkSubmission: vi.fn(),
 	workspace: 'test_workspace' as string | undefined,
 	// The workspace being browsed, which a session chat's own workspace need not be.
 	navWorkspace: undefined as string | undefined,
@@ -171,11 +171,13 @@ vi.mock('./api/apiTools', () => ({
 
 vi.mock('./secretRequest', async (importOriginal) => ({
 	...(await importOriginal<typeof import('./secretRequest')>()),
-	saveSecretRequest: mocks.saveSecretRequest
+	saveSecretRequest: mocks.saveSecretRequest,
+	checkSubmission: mocks.checkSubmission
 }))
 
 vi.mock('$lib/components/resourceConnectionTest', () => ({
-	checkSavedResource: mocks.checkSavedResource
+	canTestUnsaved: vi.fn(),
+	testUnsavedResource: vi.fn()
 }))
 
 // Mock only runChatLoop; keep the real truncateToToolPairedPrefix (pure) that
@@ -605,7 +607,7 @@ describe('AIChatManager secret connection check', () => {
 			replaced: false,
 			variables: ['u/a/db']
 		})
-		mocks.checkSavedResource.mockResolvedValueOnce({ ok: false, error: 'Network is unreachable' })
+		mocks.checkSubmission.mockResolvedValueOnce({ ok: false, error: 'Network is unreachable' })
 
 		const toolResult = manager.requestSecret('call_c', request)
 		await expect(

@@ -2,23 +2,19 @@ import { describe, expect, it, vi } from 'vitest'
 
 const services = vi.hoisted(() => ({
 	existsVariable: vi.fn(),
-	createVariable: vi.fn(),
-	updateVariable: vi.fn(),
+	getVariable: vi.fn(),
 	existsResource: vi.fn(),
-	createResource: vi.fn(),
-	updateResource: vi.fn()
+	getResource: vi.fn(),
+	persistDraftAt: vi.fn()
 }))
 vi.mock('$lib/gen', () => ({
-	VariableService: {
-		existsVariable: services.existsVariable,
-		createVariable: services.createVariable,
-		updateVariable: services.updateVariable
-	},
-	ResourceService: {
-		existsResource: services.existsResource,
-		createResource: services.createResource,
-		updateResource: services.updateResource
-	}
+	VariableService: { existsVariable: services.existsVariable, getVariable: services.getVariable },
+	ResourceService: { existsResource: services.existsResource, getResource: services.getResource }
+}))
+vi.mock('./global/userDraftAdapter', () => ({ persistDraftAt: services.persistDraftAt }))
+vi.mock('$lib/components/resourceConnectionTest', () => ({
+	canTestUnsaved: () => false,
+	testUnsavedResource: vi.fn()
 }))
 vi.mock('$app/paths', () => ({ base: '' }))
 vi.mock('$lib/components/sessions/sessionMode.svelte', () => ({
@@ -76,10 +72,15 @@ describe('secretRequestToolResult', () => {
 })
 
 describe('saveSecretRequest', () => {
-	it('saves each secret, then the resource referencing them, and retries over its own variables', async () => {
+	it('drafts each secret, then the resource referencing them, and retries over its own variables', async () => {
 		services.existsResource.mockResolvedValue(false)
 		services.existsVariable.mockResolvedValue(false)
-		services.createResource.mockRejectedValueOnce(new Error('refused'))
+		services.getVariable.mockResolvedValue({ description: 'Client ID for u/a/acme' })
+		services.persistDraftAt.mockImplementation(async (_w, kind) =>
+			kind === 'resource' && services.persistDraftAt.mock.calls.length === 3
+				? { status: 'error', message: 'refused' }
+				: { status: 'saved' }
+		)
 		const own = new Set<string>()
 		const submission = {
 			path: 'u/a/acme',
@@ -99,18 +100,27 @@ describe('saveSecretRequest', () => {
 		await expect(
 			saveSecretRequest(connect, { ...submission, path: 'u/a/acme_client_id' }, own)
 		).rejects.toThrow('already taken')
-		expect(services.updateVariable).toHaveBeenCalledTimes(2)
-		expect(services.createResource).toHaveBeenLastCalledWith({
-			workspace: 'w',
-			requestBody: expect.objectContaining({
+		expect(services.persistDraftAt).toHaveBeenCalledWith(
+			'w',
+			'variable',
+			'u/a/acme_client_secret',
+			expect.objectContaining({ variable: expect.objectContaining({ value: 'shh', is_secret: true }) }),
+			{ force: true }
+		)
+		expect(services.persistDraftAt).toHaveBeenLastCalledWith(
+			'w',
+			'resource',
+			'u/a/acme',
+			expect.objectContaining({
 				resource_type: 'acme',
-				value: {
+				args: {
 					host: 'eu.acme.io',
 					client_id: '$var:u/a/acme_client_id',
 					client_secret: '$var:u/a/acme_client_secret'
 				}
-			})
-		})
+			}),
+			{ force: true }
+		)
 	})
 })
 

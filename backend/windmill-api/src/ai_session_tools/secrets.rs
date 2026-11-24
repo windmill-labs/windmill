@@ -3,10 +3,12 @@
 //! gets a link to the same card on a Windmill page instead.
 
 use axum::{extract::Path, Json};
+use hmac::{Hmac, Mac};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
+use sha2::Sha256;
 use windmill_common::error::{Error, JsonResult};
-use windmill_common::jwt::{decode_with_internal_secret, encode_with_internal_secret};
+use windmill_common::jwt::{decode_with_internal_secret, encode_with_internal_secret, JWT_SECRET};
 
 use super::chat::Effect;
 use super::workspace::path_enc;
@@ -15,9 +17,15 @@ use crate::db::ApiAuthed;
 
 pub(super) const TOOLS: &[&str] = &["request_secret"];
 
-/// The resource types whose card can take a connection string instead of the fields, and the
-/// secret field the string's password is saved as.
-const CONNECTION_STRING_TYPES: &[(&str, &str, &str)] = &[("postgresql", "password", "Password")];
+/// The resource types whose card also takes a connection string: the secret field the
+/// string's password is saved as, its label, and, as JSON, the fields the card shows when the
+/// user enters the details instead, for those the model did not prepare.
+const CONNECTION_STRING_TYPES: &[(&str, &str, &str, &str)] = &[(
+    "postgresql",
+    "password",
+    "Password",
+    r#"{"host": "", "port": 5432, "user": "", "dbname": "", "sslmode": "require"}"#,
+)];
 
 /// How long a link to the card can be opened.
 const LINK_TTL_SECS: u64 = 60 * 60;
@@ -43,16 +51,23 @@ async fn request_secret(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
         ctx.effect(Effect::SecretRequest { request });
         return Ok(String::new());
     }
-    let claims = LinkClaims {
-        sub: ctx.auth.email.clone(),
-        w: ctx.w_id.to_string(),
-        req: request.clone(),
-        exp: now_secs() + LINK_TTL_SECS,
-    };
+    let claims = LinkClaims::for_user(
+        &JWT_SECRET.load(),
+        &ctx.auth.email,
+        ctx.w_id,
+        request.clone(),
+    )?;
     let token = encode_with_internal_secret(claims)
         .await
         .map_err(|e| format!("Could not sign the link: {e}"))?;
-    let link = ctx.page_url(&format!("/secure_input?token={}", enc(&token)));
+    // The workspace first, for the login page to return to it; the page also reads it from
+    // the token, so a link cut after the token still opens.
+    let link = format!(
+        "{}/secure_input?workspace={}&token={}",
+        ctx.base_url(),
+        enc(ctx.w_id),
+        enc(&token)
+    );
     let (kind, reference) = if request.get("resource").is_some() {
         ("resource", format!("$res:{path}"))
     } else {
@@ -60,10 +75,10 @@ async fn request_secret(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
     };
     Ok(format!(
         "Give the user this link, as a link, and tell them to open it, enter the secret there and come back: {link}\n\
-         It opens a Windmill page, signed in as them, where the secret is saved as the {kind} {path} without reaching you. \
+         It opens a Windmill page, signed in as them, where the secret is saved as a draft of the {kind} {path} without reaching you. \
          It works for one hour and only for this user. Never ask for the secret in this conversation. \
-         Once they say it is saved, check that the {kind} exists (they can change the path on the page, so ask which one if it is not at {path}), \
-         then reference it as \"{reference}\"."
+         Once they say it is saved, check that the draft of the {kind} exists (they can change the path on the page, so ask which one if it is not at {path}), \
+         then reference it as \"{reference}\". Runs read only deployed items: before running anything that uses it, offer to deploy it with its secret variables."
     ))
 }
 
@@ -74,22 +89,19 @@ fn secret_request(w_id: &str, args: &Value) -> Result<Value, String> {
     let label = str_arg(args, "label")?;
     let resource_type = opt_str_arg(args, "resource_type");
     let connection_string = bool_arg(args, "connection_string");
-    let string_field = connection_string
-        .then(|| {
-            CONNECTION_STRING_TYPES
-                .iter()
-                .find(|(t, _, _)| Some(*t) == resource_type)
-        })
-        .flatten();
-    if connection_string && string_field.is_none() {
-        let types: Vec<_> = CONNECTION_STRING_TYPES.iter().map(|(t, _, _)| *t).collect();
+    let string_type = CONNECTION_STRING_TYPES
+        .iter()
+        .find(|(t, _, _, _)| Some(*t) == resource_type);
+    if connection_string && string_type.is_none() {
+        let types: Vec<_> = CONNECTION_STRING_TYPES.iter().map(|(t, ..)| *t).collect();
         return Err(format!(
             "connection_string works with resource_type {} only.",
             types.join(", ")
         ));
     }
-    let secret_fields: Vec<Value> = match string_field {
-        Some((_, field, label)) => vec![json!({ "field": field, "label": label })],
+    // The string carries one secret, so the fields must ask for that one alone.
+    let secret_fields: Vec<Value> = match string_type {
+        Some((_, field, label, _)) => vec![json!({ "field": field, "label": label })],
         None => args
             .get("secret_fields")
             .and_then(Value::as_array)
@@ -101,10 +113,8 @@ fn secret_request(w_id: &str, args: &Value) -> Result<Value, String> {
     request.insert("workspace".into(), json!(w_id));
     request.insert("path".into(), json!(path));
     request.insert("label".into(), json!(label));
-    for (arg, key) in [("description", "description"), ("help_url", "helpUrl")] {
-        if let Some(value) = opt_str_arg(args, arg) {
-            request.insert(key.into(), json!(value));
-        }
+    if let Some(description) = opt_str_arg(args, "description") {
+        request.insert("description".into(), json!(description));
     }
     // Models sometimes escape the newlines of a JSON string twice.
     if let Some(text) = opt_str_arg(args, "help_text") {
@@ -122,23 +132,25 @@ fn secret_request(w_id: &str, args: &Value) -> Result<Value, String> {
                 .iter()
                 .filter_map(|f| f.get("field").and_then(Value::as_str))
                 .collect();
-            let value: Map<String, Value> = resource_value
-                .and_then(Value::as_object)
-                .map(|value| {
-                    value
-                        .iter()
-                        .filter(|(k, _)| !secret_keys.contains(&k.as_str()))
-                        .map(|(k, v)| (k.clone(), v.clone()))
-                        .collect()
-                })
+            let mut value: Map<String, Value> = string_type
+                .and_then(|(_, _, _, details)| serde_json::from_str(details).ok())
                 .unwrap_or_default();
+            for (k, v) in resource_value
+                .and_then(Value::as_object)
+                .into_iter()
+                .flatten()
+            {
+                if !secret_keys.contains(&k.as_str()) {
+                    value.insert(k.clone(), v.clone());
+                }
+            }
             let mut resource = json!({
                 "type": resource_type,
                 "value": value,
                 "secretFields": secret_fields,
             });
-            if string_field.is_some() {
-                resource["connectionString"] = json!(true);
+            if string_type.is_some() {
+                resource["connectionString"] = json!(connection_string);
             }
             request.insert("resource".into(), resource);
         }
@@ -207,6 +219,27 @@ struct LinkClaims {
     exp: u64,
 }
 
+impl LinkClaims {
+    fn for_user(secret: &str, email: &str, w_id: &str, req: Value) -> Result<Self, String> {
+        Ok(Self {
+            sub: link_subject(secret, email)?,
+            w: w_id.to_string(),
+            req,
+            exp: now_secs() + LINK_TTL_SECS,
+        })
+    }
+}
+
+/// The user a link is for, as a keyed hash of their email: the link passes through the
+/// client, its logs and its model, so it must carry no personal data, and only this server
+/// can tell whose it is.
+fn link_subject(secret: &str, email: &str) -> Result<String, String> {
+    let mut mac = Hmac::<Sha256>::new_from_slice(secret.as_bytes()).map_err(|e| e.to_string())?;
+    mac.update(b"secure_input_link:");
+    mac.update(email.as_bytes());
+    Ok(hex::encode(mac.finalize().into_bytes()))
+}
+
 #[derive(Deserialize)]
 pub(super) struct OpenLink {
     token: String,
@@ -221,7 +254,8 @@ pub(super) async fn open_secret_request(
     let claims: LinkClaims = decode_with_internal_secret(&token)
         .await
         .map_err(|_| Error::BadRequest("This link is invalid or has expired.".to_string()))?;
-    if claims.w != w_id || claims.sub != authed.email {
+    let subject = link_subject(&JWT_SECRET.load(), &authed.email).map_err(Error::internal_err)?;
+    if claims.w != w_id || claims.sub != subject {
         return Err(Error::PermissionDenied(
             "This link was made for another user or workspace.".to_string(),
         ));
@@ -241,11 +275,26 @@ mod tests {
                 "path": "u/a/db", "label": "DB", "resource_type": "postgresql",
                 "connection_string": true,
                 "resource_value": { "host": "h", "password": "typed-by-the-model" },
+                "secret_fields": [{ "field": "password" }, { "field": "root_certificate_pem" }],
             }),
         )
         .unwrap();
-        assert_eq!(request["resource"]["value"], json!({ "host": "h" }));
-        assert_eq!(request["resource"]["secretFields"][0]["field"], "password");
+        // The details the user can switch to are complete, whatever the model prepared.
+        assert_eq!(
+            request["resource"]["value"],
+            json!({ "host": "h", "port": 5432, "user": "", "dbname": "", "sslmode": "require" })
+        );
+        assert_eq!(
+            request["resource"]["secretFields"],
+            json!([{ "field": "password", "label": "Password" }])
+        );
+        assert_eq!(request["resource"]["connectionString"], true);
+        let request = secret_request(
+            "ws",
+            &json!({ "path": "u/a/db", "label": "DB", "resource_type": "postgresql" }),
+        )
+        .unwrap();
+        assert_eq!(request["resource"]["connectionString"], false);
 
         let refused = |args: Value| secret_request("ws", &args).unwrap_err();
         assert!(
@@ -258,5 +307,15 @@ mod tests {
             refused(json!({ "path": "p", "label": "l", "secret_fields": [{ "field": "k" }] }))
                 .contains("need resource_type")
         );
+    }
+
+    #[test]
+    fn a_link_names_its_user_without_their_email() {
+        let claims = LinkClaims::for_user("key", "alice@example.com", "ws", json!({})).unwrap();
+        assert!(!serde_json::to_string(&claims).unwrap().contains("alice"));
+        let subject = |key: &str, email: &str| link_subject(key, email).unwrap();
+        assert_eq!(claims.sub, subject("key", "alice@example.com"));
+        assert_ne!(claims.sub, subject("key", "bob@example.com"));
+        assert_ne!(claims.sub, subject("another key", "alice@example.com"));
     }
 }

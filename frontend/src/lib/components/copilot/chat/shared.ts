@@ -596,9 +596,7 @@ export type SecretRequest = {
 	 * "OpenAI"). */
 	label: string
 	description?: string
-	/** Where the user can get the value (the provider's API keys page). */
-	helpUrl?: string
-	/** The steps to get it at the user's provider, written by the AI. */
+	/** The steps to get it at the user's provider, written by the AI as markdown. */
 	helpText?: string
 	/** Set to connect a service: one confirmation saves the secrets and creates the resource. */
 	resource?: SecretRequestResource
@@ -611,9 +609,12 @@ export type SecretRequestResource = {
 	type: string
 	/** The non-secret fields the AI prepared, which the user can correct on the card. */
 	value: Record<string, unknown>
-	/** The fields the user types, each saved as a secret variable the resource references. */
-	secretFields: { field: string; label: string }[]
-	/** The user chose to paste a connection string, which the card splits in the browser. */
+	/** The fields the user types, each saved as a secret variable the resource references. A
+	 * field without a label is shown by its key (`secretFieldsOf`). */
+	secretFields: { field: string; label?: string }[]
+	/** Set for a type the card can also take as a connection string, which it splits in the
+	 * browser: the user switches between the string and the fields, and `true` opens on the
+	 * string. */
 	connectionString?: boolean
 }
 

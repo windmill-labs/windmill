@@ -3,6 +3,8 @@ import { ResourceService, VariableService } from '$lib/gen'
 import { buildResourcesUrl, buildVariablesUrl } from './global/pageNavigation'
 import { withWorkspaceParam } from '$lib/components/sessions/sessionMode.svelte'
 import type { SecretRequest, SecretRequestOutcome, SecretSubmission } from './shared'
+import { persistDraftAt } from './global/userDraftAdapter'
+import { canTestUnsaved, testUnsavedResource } from '$lib/components/resourceConnectionTest'
 import {
 	connectionParamRefusal,
 	DEFAULT_SSLMODE,
@@ -69,7 +71,12 @@ export function connectionStringParts(
 
 /** The values the card asks for. A bare variable is one field, keyed `""`. */
 export function secretFieldsOf(request: SecretRequest): { field: string; label: string }[] {
-	return request.resource?.secretFields ?? [{ field: '', label: request.label }]
+	return (
+		request.resource?.secretFields.map((f) => ({
+			...f,
+			label: f.label || fieldLabel(f.field)
+		})) ?? [{ field: '', label: request.label }]
+	)
 }
 
 /** Where each secret field is saved, in the order of `fields`. The app-connect form's
@@ -81,12 +88,24 @@ export function secretVariablePaths(path: string, fields: { field: string }[]): 
 /** The save landed but the saved resource does not connect. */
 export class SecretCheckFailed extends Error {}
 
-/** Saves the secrets as secret variables and, for a resource request, creates the resource
- * referencing them, all deployed rather than drafted: the AI references them right after, and
- * a draft is readable by neither a run nor another resource. What is at `path` is replaced only
- * with `replace`, which the card sets once it shows the path as taken, so a save racing that
- * check never overwrites unannounced. `own` holds what an earlier try of this request wrote, as
- * `variable:<path>` and `resource:<path>`, which a retry updates rather than calls taken. */
+/** Saves one draft. The draft store encrypts a secret variable's value at rest. */
+async function saveDraft(
+	workspace: string,
+	kind: 'variable' | 'resource',
+	path: string,
+	value: Record<string, unknown>
+): Promise<void> {
+	// The user confirmed this path on the card, so it is written over whatever draft is there.
+	const saved = await persistDraftAt(workspace, kind, path, value, { force: true })
+	if (saved.status === 'error') throw new Error(saved.message)
+}
+
+/** Saves the secrets as drafts of secret variables and, for a resource request, a draft of the
+ * resource referencing them, which the session deploys together. Nothing is readable by a run
+ * until it is deployed. What is deployed at `path` is replaced only with `replace`, which the
+ * card sets once it shows the path as taken, so a save racing that check never overwrites
+ * unannounced. `own` holds what an earlier try of this request wrote, as `variable:<path>` and
+ * `resource:<path>`, which a retry updates rather than calls taken. */
 export async function saveSecretRequest(
 	request: SecretRequest,
 	submission: SecretSubmission,
@@ -112,55 +131,58 @@ export async function saveSecretRequest(
 	})
 
 	for (const [i, p] of variables.entries()) {
-		const value = submission.secrets[fields[i].field] ?? ''
-		if (variableExists[i]) {
-			await VariableService.updateVariable({
-				workspace,
-				path: p,
-				requestBody: { value, is_secret: true }
-			})
-		} else {
-			await VariableService.createVariable({
-				workspace,
-				requestBody: {
-					path: p,
-					value,
-					is_secret: true,
-					description: resource
-						? `${fields[i].label} for ${path}`
-						: (request.description ?? request.label)
-				}
-			})
-		}
+		// A replaced variable keeps what describes it: deploying the draft overwrites every field.
+		const deployed = variableExists[i]
+			? await VariableService.getVariable({ workspace, path: p, decryptSecret: false })
+			: undefined
+		await saveDraft(workspace, 'variable', p, {
+			path: p,
+			variable: {
+				value: submission.secrets[fields[i].field] ?? '',
+				is_secret: true,
+				description:
+					deployed?.description ||
+					(resource ? `${fields[i].label} for ${path}` : (request.description ?? request.label))
+			},
+			...(deployed?.labels ? { labels: deployed.labels } : {}),
+			wsSpecific: false
+		})
 		own.add(`variable:${p}`)
 	}
 
 	if (resource) {
-		const value = {
-			...submission.fields,
-			...Object.fromEntries(fields.map((f, i) => [f.field, `$var:${variables[i]}`]))
-		}
-		if (replaced) {
-			await ResourceService.updateResource({
-				workspace,
-				path,
-				// A path the user picked may hold another type; it becomes the one they confirmed.
-				requestBody: { value, resource_type: resource.type, description: request.description }
-			})
-		} else {
-			await ResourceService.createResource({
-				workspace,
-				requestBody: {
-					path,
-					resource_type: resource.type,
-					value,
-					description: request.description ?? request.label
-				}
-			})
-		}
+		const deployed = replaced ? await ResourceService.getResource({ workspace, path }) : undefined
+		await saveDraft(workspace, 'resource', path, {
+			path,
+			description: request.description || deployed?.description || request.label,
+			args: {
+				...submission.fields,
+				...Object.fromEntries(fields.map((f, i) => [f.field, `$var:${variables[i]}`]))
+			},
+			...(deployed?.labels ? { labels: deployed.labels } : {}),
+			wsSpecific: false,
+			// A path the user picked may hold another type; it becomes the one they confirmed.
+			resource_type: resource.type
+		})
 	}
 	own.add(ownKey)
 	return { path, replaced, variables }
+}
+
+/** Tests the values the user confirmed, where the test writes nothing and needs nothing
+ * deployed: a storage test or an AI key. A database test runs as a job, which reads only
+ * deployed variables, so it waits for the deploy. */
+export async function checkSubmission(
+	request: SecretRequest,
+	submission: SecretSubmission
+): Promise<SecretRequestOutcome['check']> {
+	const { resource, workspace } = request
+	if (!resource || !canTestUnsaved(resource.type, submission.fields)) return undefined
+	return await testUnsavedResource({
+		workspace,
+		resourceType: resource.type,
+		value: { ...submission.fields, ...submission.secrets }
+	})
 }
 
 // The workspace the secret was saved in, which a fork session does not navigate to.
@@ -177,6 +199,12 @@ function checkText(outcome: SecretRequestOutcome): string {
 	if (!outcome.check) return ''
 	if (outcome.check.ok) return ' Its connection test passed.'
 	return ` Its connection test failed and the user kept it anyway: ${outcome.check.error.slice(0, 500)}. Tell the user the likely cause and how to fix it at their provider, without opening the resource: to fix it, call request_secret again on the same path with replace: true.`
+}
+
+// Every run reads only deployed items, the card's own connection test included.
+function notDeployed(resource: boolean): string {
+	const them = resource ? 'them' : 'it'
+	return `Nothing is deployed: no run, test run or connection test can read ${them} until deployed. Before running anything that uses ${them}, offer to deploy ${resource ? 'the variables with the resource' : 'it'}; when the user only wanted ${them} saved, end by offering it.`
 }
 
 /** What the model reads back. Never a value: only where it now lives. */
@@ -199,12 +227,12 @@ export function secretRequestToolResult(
 		return JSON.stringify({
 			success: true,
 			resource: `$res:${outcome.path}`,
-			message: `${outcome.replaced ? 'Updated' : 'Created'} resource ${outcome.path}, deployed, with its secrets in the secret variables ${outcome.variables.join(', ')}.${moved}${checkText(outcome)} Reference it as "$res:${outcome.path}". Do not write, open or deploy it yourself.`
+			message: `The user typed the secrets on the card and saved it, so nothing is left for them to fill in. ${outcome.replaced ? 'The update of resource' : 'Resource'} ${outcome.path} is saved as a draft, its secrets as drafts of the secret variables ${outcome.variables.join(', ')}.${moved}${checkText(outcome)} ${notDeployed(true)} Reference it as "$res:${outcome.path}". Do not write or open it yourself.`
 		})
 	}
 	return JSON.stringify({
 		success: true,
 		variable: `$var:${outcome.path}`,
-		message: `${outcome.replaced ? 'Replaced the value of' : 'Created'} secret variable ${outcome.path}.${moved} It is deployed. Reference it as "$var:${outcome.path}"; you cannot read its value.`
+		message: `The user typed the secret on the card and saved it, so nothing is left for them to fill in. ${outcome.replaced ? 'The new value of secret variable' : 'Secret variable'} ${outcome.path} is saved as a draft.${moved} ${notDeployed(false)} Reference it as "$var:${outcome.path}"; you cannot read its value.`
 	})
 }

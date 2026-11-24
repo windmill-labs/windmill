@@ -1,6 +1,5 @@
 import type { AttachedBlob } from './blobUtils'
-import { SecretCheckFailed, saveSecretRequest } from './secretRequest'
-import { checkSavedResource } from '$lib/components/resourceConnectionTest'
+import { SecretCheckFailed, checkSubmission, saveSecretRequest } from './secretRequest'
 import type { ChatViewHost } from './chatViewHost'
 import type { ScriptLang } from '$lib/gen/types.gen'
 import { JobService, type CompletedJob } from '$lib/gen'
@@ -2479,14 +2478,7 @@ export class AIChatManager implements ChatViewHost {
 		const { request } = entry
 		const save = (async () => {
 			const saved = await saveSecretRequest(request, submission, entry.own)
-			const check = request.resource
-				? await checkSavedResource({
-						workspace: request.workspace,
-						path: saved.path,
-						resourceType: request.resource.type,
-						value: submission.fields
-					})
-				: undefined
+			const check = await checkSubmission(request, submission)
 			const outcome = check ? { ...saved, check } : saved
 			if (check && !check.ok && !entry.stopped) {
 				entry.saved = outcome
@@ -2524,8 +2516,8 @@ export class AIChatManager implements ChatViewHost {
 						isLoading: false,
 						content: outcome
 							? entry.request.resource
-								? `Connected ${label} as ${outcome.path}${outcome.check ? (outcome.check.ok ? ' · test passed' : ' · test failed') : ''}`
-								: `Saved ${label} to ${outcome.path}`
+								? `Saved ${label} as a draft of ${outcome.path}${outcome.check ? (outcome.check.ok ? ' · test passed' : ' · test failed') : ''}`
+								: `Saved ${label} as a draft of ${outcome.path}`
 							: `Asked for ${label} — dismissed`,
 						secretRequest: outcome
 							? { ...m.secretRequest, saving: false, saved: outcome }
@@ -2540,8 +2532,8 @@ export class AIChatManager implements ChatViewHost {
 		const note = outcome
 			? this.queueModelNote(
 					entry.request.resource
-						? `The user connected ${label} after the turn stopped: it is the deployed resource ${outcome.path}, referenced as "$res:${outcome.path}".`
-						: `The user's ${label} was saved after the turn stopped: it is the secret variable ${outcome.path}, referenced as "$var:${outcome.path}".`
+						? `The user saved ${label} after the turn stopped: it is a draft of the resource ${outcome.path}, referenced as "$res:${outcome.path}", with its secrets in drafts of ${outcome.variables.join(', ')}. Nothing is deployed, so no run can read it until it is.`
+						: `The user's ${label} was saved after the turn stopped: it is a draft of the secret variable ${outcome.path}, referenced as "$var:${outcome.path}". Nothing is deployed, so no run can read it until it is.`
 				)
 			: Promise.resolve()
 		// The variable is saved whatever happens here, so a failed write must not reach the card.
