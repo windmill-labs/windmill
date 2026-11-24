@@ -603,6 +603,10 @@ pub enum JobPayload {
         /// upon reaching `step_id`, should spawn the inner child as a `RestartedFlow`
         /// using this chain rather than fresh-launching it.
         nested: Option<Box<crate::flow_status::RestartedFrom>>,
+        /// See `RestartedFrom::failed_only`.
+        failed_only: bool,
+        /// See `RestartedFrom::from_failed_step`.
+        from_failed_step: bool,
     },
     RawFlow {
         value: FlowValue,

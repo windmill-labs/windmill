@@ -576,6 +576,8 @@ mod job_payload {
                 flow_version: None,
                 branch_chosen: None,
                 nested: None,
+                failed_only: false,
+                from_failed_step: false,
             })
             .arg("iter", json!({ "value": "tests", "index": 0 }))
             .run_until_complete(&db, false, port)
@@ -954,7 +956,11 @@ mod job_payload {
                         flow_version: None,
                         branch_chosen: None,
                         nested: None,
+                        failed_only: false,
+                        from_failed_step: false,
                     })),
+                    failed_only: false,
+                    from_failed_step: false,
                 }),
             })
             .arg("world", json!("bar"))
@@ -984,7 +990,11 @@ mod job_payload {
                         flow_version: None,
                         branch_chosen: None,
                         nested: None,
+                        failed_only: false,
+                        from_failed_step: false,
                     })),
+                    failed_only: false,
+                    from_failed_step: false,
                 }),
             })
             .arg("world", json!("baz"))
@@ -1104,7 +1114,11 @@ mod job_payload {
                         flow_version: None,
                         branch_chosen: None,
                         nested: None,
+                        failed_only: false,
+                        from_failed_step: false,
                     })),
+                    failed_only: false,
+                    from_failed_step: false,
                 }),
             })
             .arg("tag", json!("second"))
@@ -1182,7 +1196,11 @@ mod job_payload {
                     flow_version: None,
                     branch_chosen: None,
                     nested: None,
+                    failed_only: false,
+                    from_failed_step: false,
                 })),
+                failed_only: false,
+                from_failed_step: false,
             })
             .run_until_complete(db, false, port)
             .await;
@@ -1314,8 +1332,14 @@ mod job_payload {
                             flow_version: None,
                             branch_chosen: None,
                             nested: None,
+                            failed_only: false,
+                            from_failed_step: false,
                         })),
+                        failed_only: false,
+                        from_failed_step: false,
                     })),
+                    failed_only: false,
+                    from_failed_step: false,
                 }),
             })
             .arg("tag", json!("second"))
@@ -1452,8 +1476,14 @@ mod job_payload {
                             flow_version: None,
                             branch_chosen: None,
                             nested: None,
+                            failed_only: false,
+                            from_failed_step: false,
                         })),
+                        failed_only: false,
+                        from_failed_step: false,
                     })),
+                    failed_only: false,
+                    from_failed_step: false,
                 }),
             })
             .arg("tag", json!("second"))
@@ -1549,8 +1579,14 @@ mod job_payload {
                             flow_version: None,
                             branch_chosen: None,
                             nested: None,
+                            failed_only: false,
+                            from_failed_step: false,
                         })),
+                        failed_only: false,
+                        from_failed_step: false,
                     })),
+                    failed_only: false,
+                    from_failed_step: false,
                 }),
             })
             .run_until_complete(db, false, port)

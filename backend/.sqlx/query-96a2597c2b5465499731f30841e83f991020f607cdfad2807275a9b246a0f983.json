@@ -1,0 +1,35 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT c.id, j.runnable_id, c.flow_status AS \"flow_status: Json<FlowStatus>\"\n             FROM v2_job_completed c JOIN v2_job j USING (id)\n             WHERE c.id = ANY($1) AND c.workspace_id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "runnable_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "flow_status: Json<FlowStatus>",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "UuidArray",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "96a2597c2b5465499731f30841e83f991020f607cdfad2807275a9b246a0f983"
+}

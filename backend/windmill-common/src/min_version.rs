@@ -44,6 +44,11 @@ pub const MIN_VERSION_SUPPORTS_ED25519_LICENSE: VC = vc(1, 838, 0, "Ed25519 lice
 // lease-free pull overlapping its write would keep a mix of old and new files; until the
 // whole fleet has it, read-only mounts take the lease. Must name the release this ships in.
 pub const MIN_VERSION_SUPPORTS_LEASE_FREE_VOLUMES: VC = vc(1, 872, 0, "Lease-free volume reads");
+// A failed-only restart queues its parallel step as `InProgress` with nil slots to rerun. A
+// worker that predates it rejects that status and fails the restart. Must name the release
+// this ships in.
+pub const MIN_VERSION_SUPPORTS_FAILED_ONLY_RESTART: VC =
+    vc(1, 883, 0, "Rerun only failed iterations");
 // A worker that predates `FlowStatus::test_subflows` ignores it and runs the deployed subflow,
 // so a step the test mocks would run for real. Must name the release this ships in.
 pub const MIN_VERSION_SUPPORTS_FLOW_TEST_SUBFLOWS: VC =

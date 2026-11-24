@@ -7732,6 +7732,14 @@ pub struct RestartFlowRequestBody {
     /// containers along the way.
     #[serde(default)]
     nested_path: Vec<NestedRestartStep>,
+    /// For a parallel ForLoop / BranchAll at `step_id`: rerun only the iterations
+    /// (branches) that did not succeed, keeping the others' results in their slots.
+    #[serde(default)]
+    failed_only: bool,
+    /// With `failed_only`: resume each failed iteration (branch) at the step where it failed
+    /// rather than rerunning it from its first step.
+    #[serde(default)]
+    from_failed_step: bool,
 }
 
 #[cfg(feature = "enterprise")]
@@ -7936,6 +7944,8 @@ async fn resolve_nested_restart(
         flow_version: None,
         branch_chosen: child_branch_chosen,
         nested: deeper_nested,
+        failed_only: false,
+        from_failed_step: false,
     };
 
     Ok((parent_branch_chosen, Some(Box::new(nested_chain))))
@@ -7953,9 +7963,25 @@ pub async fn restart_flow(
         branch_or_iteration_n,
         flow_version,
         nested_path,
+        failed_only,
+        from_failed_step,
     }): Json<RestartFlowRequestBody>,
 ) -> error::Result<(StatusCode, String)> {
     check_license_key_valid().await?;
+    // `failed_only` applies to the restart point: `step_id`, or the last `nested_path` entry.
+    let restart_point_n = nested_path
+        .last()
+        .map_or(branch_or_iteration_n, |s| s.branch_or_iteration_n);
+    if from_failed_step && !failed_only {
+        return Err(Error::BadRequest(
+            "from_failed_step only applies with failed_only".to_string(),
+        ));
+    }
+    if failed_only && restart_point_n.unwrap_or(0) != 0 {
+        return Err(Error::BadRequest(
+            "failed_only reruns a whole parallel step; it cannot be combined with an iteration to restart at".to_string(),
+        ));
+    }
 
     let mut tx = user_db.clone().begin(&authed).await?;
     let completed_job = sqlx::query!(
@@ -7995,7 +8021,8 @@ pub async fn restart_flow(
 
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
 
-    let (top_branch_chosen, nested_chain) = resolve_nested_restart(
+    let nested = !nested_path.is_empty();
+    let (top_branch_chosen, mut nested_chain) = resolve_nested_restart(
         &db,
         &w_id,
         job_id,
@@ -8005,6 +8032,15 @@ pub async fn restart_flow(
         flow_version.map(|v| (flow_path.as_str(), v)),
     )
     .await?;
+    let mut innermost = nested_chain.as_deref_mut();
+    while let Some(level) = innermost {
+        if level.nested.is_none() {
+            level.failed_only = failed_only;
+            level.from_failed_step = from_failed_step;
+            break;
+        }
+        innermost = level.nested.as_deref_mut();
+    }
 
     let tx = PushIsolationLevel::Isolated(user_db, authed.clone().into());
 
@@ -8020,6 +8056,8 @@ pub async fn restart_flow(
             flow_version,
             branch_chosen: top_branch_chosen,
             nested: nested_chain,
+            failed_only: failed_only && !nested,
+            from_failed_step: from_failed_step && !nested,
         },
         push_args,
         &authed.username,

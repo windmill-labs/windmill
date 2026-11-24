@@ -94,6 +94,9 @@ use windmill_common::{
 use backon::ConstantBuilder;
 use backon::{BackoffBuilder, Retryable};
 
+use crate::failed_only_restart::{
+    create_failed_only_module, refuse_failed_only_on_outdated_workers,
+};
 use crate::flow_status::{update_flow_status_in_progress, update_workflow_as_code_status};
 use crate::schedule::{get_schedule_opt, push_scheduled_job};
 use crate::tags::per_workspace_tag;
@@ -7426,6 +7429,11 @@ async fn push_inner<'c, 'd>(
 
             let flow_status: FlowStatus = match restarted_from {
                 Some(restarted_from_val) => {
+                    refuse_failed_only_on_outdated_workers(
+                        restarted_from_val.failed_only,
+                        restarted_from_val.nested.as_deref(),
+                    )
+                    .await?;
                     let (_, _, _, step_n, truncated_modules, user_states, cleanup_module, _) =
                         restarted_flows_resolution(
                             db,
@@ -7435,6 +7443,7 @@ async fn push_inner<'c, 'd>(
                             restarted_from_val.branch_or_iteration_n,
                             restarted_from_val.flow_version,
                             restarted_from_val.nested.is_some(),
+                            restarted_from_val.failed_only,
                             Some(&value),
                         )
                         .await?;
@@ -7460,6 +7469,8 @@ async fn push_inner<'c, 'd>(
                             flow_version: restarted_from_val.flow_version,
                             branch_chosen: restarted_from_val.branch_chosen,
                             nested: restarted_from_val.nested,
+                            failed_only: restarted_from_val.failed_only,
+                            from_failed_step: restarted_from_val.from_failed_step,
                         }),
                         user_states,
                         preprocessor_module: None,
@@ -7817,7 +7828,10 @@ async fn push_inner<'c, 'd>(
             flow_version,
             branch_chosen,
             nested,
+            failed_only,
+            from_failed_step,
         } => {
+            refuse_failed_only_on_outdated_workers(failed_only, nested.as_deref()).await?;
             let (
                 version,
                 flow_path,
@@ -7835,6 +7849,7 @@ async fn push_inner<'c, 'd>(
                 branch_or_iteration_n,
                 flow_version,
                 nested.is_some(),
+                failed_only,
                 // RestartedFlow resolves and queues the completed job's stored definition, so the
                 // step validated for reuse is the one that will run.
                 None,
@@ -7863,6 +7878,8 @@ async fn push_inner<'c, 'd>(
                     flow_version,
                     branch_chosen,
                     nested,
+                    failed_only,
+                    from_failed_step,
                 }),
                 user_states,
                 preprocessor_module: None,
@@ -9118,6 +9135,8 @@ async fn restarted_flows_resolution(
     // A nested restart chain (RestartedFrom.nested) descends into the restart step's child to
     // re-run an inner step; zombie reuse would skip the whole container and ignore it.
     nested_restart: bool,
+    // Keep a parallel restart step's successful iterations/branches and rerun only the rest.
+    failed_only: bool,
     // The definition the restart queues when it is not the completed job's stored one
     // (JobPayload::RawFlow queues the editor's, possibly EDITED, definition). Approval gates are
     // read from it. Zombie reuse validates the restart step against the STORED definition and
@@ -9210,8 +9229,28 @@ async fn restarted_flows_resolution(
 
             if module_id == restart_step_id {
                 refuse_restart_past_unopened_suspend_gate(gate_flow, &truncated_modules)?;
+                if failed_only {
+                    let old_module = flow_status
+                        .modules
+                        .iter()
+                        .find(|m| &m.id() == module_id)
+                        .ok_or_else(|| {
+                            Error::BadRequest(format!(
+                                "Step {restart_step_id} did not run in the original flow, it has no failed iterations to rerun"
+                            ))
+                        })?;
+                    truncated_modules.push(
+                        create_failed_only_module(
+                            db,
+                            workspace_id,
+                            old_module,
+                            module_definition,
+                            restart_step_id,
+                        )
+                        .await?,
+                    );
                 // Mark this and all following modules as WaitingForPriorSteps
-                if branch_or_iteration_n.is_none() || branch_or_iteration_n.unwrap() == 0 {
+                } else if branch_or_iteration_n.is_none() || branch_or_iteration_n.unwrap() == 0 {
                     truncated_modules
                         .push(FlowStatusModule::WaitingForPriorSteps { id: module_id.clone() });
                 } else {
@@ -9274,7 +9313,18 @@ async fn restarted_flows_resolution(
                 // (the run page's "Re-start from" button always sends 0); both mean "redo this step",
                 // which for a monitor-reaped zombie means reuse it. `Some(n>=1)` is an explicit
                 // partial container restart and keeps its existing reuse-0..n-1 / rerun-from-n path.
-                if allow_zombie_reuse
+                if failed_only {
+                    truncated_modules.push(
+                        create_failed_only_module(
+                            db,
+                            workspace_id,
+                            &module,
+                            module_definition,
+                            restart_step_id,
+                        )
+                        .await?,
+                    );
+                } else if allow_zombie_reuse
                     && reaped_by_monitor
                     && branch_or_iteration_n.unwrap_or(0) == 0
                     && !nested_restart
