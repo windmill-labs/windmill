@@ -1,5 +1,28 @@
 # Changelog
 
+## [1.884.0](https://github.com/windmill-labs/windmill/compare/v1.883.0...v1.884.0) (2026-11-24)
+
+
+### Features
+
+* add SAP icon for the sap_hana resource type ([#12633](https://github.com/windmill-labs/windmill/issues/12633)) ([a888954](https://github.com/windmill-labs/windmill/commit/a8889548144110cd2d92a2687d3042365dbe9f3b))
+* ask for secrets and connect services in the AI chat through a secure card ([#12575](https://github.com/windmill-labs/windmill/issues/12575)) ([9536cfd](https://github.com/windmill-labs/windmill/commit/9536cfdab198dbe189b5181e87934a8ac5f9956a))
+* full-screen image viewer with zoom, pan, copy and download ([#12634](https://github.com/windmill-labs/windmill/issues/12634)) ([3908150](https://github.com/windmill-labs/windmill/commit/39081509dd9158c5858a616ff8039d243bef8b2b))
+* give each AI session its own model and effort ([#12632](https://github.com/windmill-labs/windmill/issues/12632)) ([564fdf7](https://github.com/windmill-labs/windmill/commit/564fdf7d2ded8d84fab9172ea6f820954ce1310b))
+* group consecutive draft writes in the AI chat transcript ([#12597](https://github.com/windmill-labs/windmill/issues/12597)) ([f399a22](https://github.com/windmill-labs/windmill/commit/f399a22c1034ffeb1634fd3a704d5ee44f60f076))
+* rerun only the failed iterations of a parallel for-loop or branch-all ([#12590](https://github.com/windmill-labs/windmill/issues/12590)) ([6a0283a](https://github.com/windmill-labs/windmill/commit/6a0283a9506b5328466a3983e3b0ec949f88464e))
+
+
+### Bug Fixes
+
+* bind datatable() args as literals and read _FLOW_PATH on previews ([#12638](https://github.com/windmill-labs/windmill/issues/12638)) ([a8b2228](https://github.com/windmill-labs/windmill/commit/a8b22287533ca72c3c09d59d5c0facadd2973703))
+* give jailed uv lock its own cache and copy no symlinked deps ([#12641](https://github.com/windmill-labs/windmill/issues/12641)) ([a2de197](https://github.com/windmill-labs/windmill/commit/a2de1979bb895b928693b23b312802dd026e8887))
+* pass ai agent tools only the inputs in their schema ([#12642](https://github.com/windmill-labs/windmill/issues/12642)) ([b23037e](https://github.com/windmill-labs/windmill/commit/b23037e3e1b6d4b154c3d51a6bf4721eade3bddc))
+* pin definer function search_path and check sql contextual vars ([#12640](https://github.com/windmill-labs/windmill/issues/12640)) ([2df2c83](https://github.com/windmill-labs/windmill/commit/2df2c83313c871567de448e33acecffda4ad459a))
+* read request bodies as plain json and keep cancel reasons literal ([#12646](https://github.com/windmill-labs/windmill/issues/12646)) ([114d684](https://github.com/windmill-labs/windmill/commit/114d68456e19b71b3f5d635829b568e6e1edbca9))
+* scope app dependency relock to the job's workspace ([#12644](https://github.com/windmill-labs/windmill/issues/12644)) ([1683b80](https://github.com/windmill-labs/windmill/commit/1683b801859a15884e139e91f3366d57ab8f8157))
+* suggest filter values by their label and in any case ([#12582](https://github.com/windmill-labs/windmill/issues/12582)) ([cf8a1c3](https://github.com/windmill-labs/windmill/commit/cf8a1c38500e64567e5e8fd496feee5bf2e3b0b7))
+
 ## [1.883.0](https://github.com/windmill-labs/windmill/compare/v1.882.0...v1.883.0) (2026-11-24)
 
 
