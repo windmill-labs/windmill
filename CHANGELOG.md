@@ -1,5 +1,44 @@
 # Changelog
 
+## [1.883.0](https://github.com/windmill-labs/windmill/compare/v1.882.0...v1.883.0) (2026-11-24)
+
+
+### Features
+
+* alert on same-tag wait deadlocks and fail the waiting parent ([#12613](https://github.com/windmill-labs/windmill/issues/12613)) ([304f912](https://github.com/windmill-labs/windmill/commit/304f9121835655c35091b3a98ddcb6b579548115))
+* **cli:** 30-day CLI login tokens with expiry picker and token roll ([#12621](https://github.com/windmill-labs/windmill/issues/12621)) ([e810cbb](https://github.com/windmill-labs/windmill/commit/e810cbb93a1847ba823cc5088bc3f88ed7552090))
+* fold consecutive test runs of one item in the ai chat ([#12599](https://github.com/windmill-labs/windmill/issues/12599)) ([924d9b7](https://github.com/windmill-labs/windmill/commit/924d9b7755485d59379f1ff745a051ad5da3b820))
+* keep mcp consent page open with a copyable callback for localhost clients ([#12619](https://github.com/windmill-labs/windmill/issues/12619)) ([3194184](https://github.com/windmill-labs/windmill/commit/3194184c521c2ad4a99529f6c7422c14af3ebb84))
+* let the workspace error handler skip jobs started from the UI ([#12624](https://github.com/windmill-labs/windmill/issues/12624)) ([ade2a55](https://github.com/windmill-labs/windmill/commit/ade2a55e862caa78dfca09646aac74670cbfd901))
+* **nsjail:** make rlimit_fsize configurable per worker (NSJAIL_RLIMIT_FSIZE_MB) ([#12609](https://github.com/windmill-labs/windmill/issues/12609)) ([e6d9ff8](https://github.com/windmill-labs/windmill/commit/e6d9ff8f9596f7529c899f9f8fd1d34a91698792))
+* pick how to connect a resource in a wizard, one row per provider ([#12418](https://github.com/windmill-labs/windmill/issues/12418)) ([2ca87ef](https://github.com/windmill-labs/windmill/commit/2ca87efdb8527d591865125db42d9f6f3b42bee3))
+* redesign the token scope picker and add a scope search ([#12595](https://github.com/windmill-labs/windmill/issues/12595)) ([344694a](https://github.com/windmill-labs/windmill/commit/344694ada73c857724cb8244e7e7f8188efa2611))
+* restore working in a new fork from the Home session composer ([#12559](https://github.com/windmill-labs/windmill/issues/12559)) ([1fb70c4](https://github.com/windmill-labs/windmill/commit/1fb70c4fab5379874c42d349120ed2e2db9a0806))
+* show who deployed each version in script and flow history ([#12587](https://github.com/windmill-labs/windmill/issues/12587)) ([ba0ef82](https://github.com/windmill-labs/windmill/commit/ba0ef82eedf97ce310967134b9200c4f93e7c3db))
+* store refreshed installation JWT for managed GitHub app git sync ([#12592](https://github.com/windmill-labs/windmill/issues/12592)) ([c3cb814](https://github.com/windmill-labs/windmill/commit/c3cb814e9e99c414a56fac9e1874f4eed5c1f42c))
+
+
+### Bug Fixes
+
+* apply a changed default value to the Time and Date Select app components ([#12581](https://github.com/windmill-labs/windmill/issues/12581)) ([17fe165](https://github.com/windmill-labs/windmill/commit/17fe165d605c6043afd53cdd83a88b63deae3d59))
+* **cli:** require the dot in .fetch.ts/.bun.ts/.deno.ts language suffixes ([#12583](https://github.com/windmill-labs/windmill/issues/12583)) ([ff8f2e0](https://github.com/windmill-labs/windmill/commit/ff8f2e05fb20cf4f5e931f7169856217c8088312))
+* derive chat lookup grouping from tool definitions ([#12596](https://github.com/windmill-labs/windmill/issues/12596)) ([3a720da](https://github.com/windmill-labs/windmill/commit/3a720da989416caabed08e9659b81f04cf510ac1))
+* generate branch predicates from the branch node ([#12623](https://github.com/windmill-labs/windmill/issues/12623)) ([f9ade48](https://github.com/windmill-labs/windmill/commit/f9ade481dae05bdbb0ef876939bcd3e5b7d02da4))
+* harden telemetry submission ([#12606](https://github.com/windmill-labs/windmill/issues/12606)) ([1d3fcb4](https://github.com/windmill-labs/windmill/commit/1d3fcb4a06c26f0007a95fbe40cc55761d4988f5))
+* let a Date & Time input become valid again once a later day is picked ([#12584](https://github.com/windmill-labs/windmill/issues/12584)) ([508b9f8](https://github.com/windmill-labs/windmill/commit/508b9f84f3a9ab80eb37db48c9a1e6c480d0ec55))
+* make schedule and trigger lists usable on small screens ([#12594](https://github.com/windmill-labs/windmill/issues/12594)) ([1fe3704](https://github.com/windmill-labs/windmill/commit/1fe370451576689215678e4da9098b4b342d1220))
+* raise windmill-worker macro recursion limit so main builds again ([#12612](https://github.com/windmill-labs/windmill/issues/12612)) ([db218c0](https://github.com/windmill-labs/windmill/commit/db218c0d3aff6476643fbf98188cf743a5c285ea))
+* serialize BigInt and non-finite elements of sql template arrays ([#12616](https://github.com/windmill-labs/windmill/issues/12616)) ([5044d02](https://github.com/windmill-labs/windmill/commit/5044d02325ff788bb5316e115fc52b377ef3c237))
+* steps inside expanded subflows on the flow detail and run pages ([#12591](https://github.com/windmill-labs/windmill/issues/12591)) ([a5c7dd4](https://github.com/windmill-labs/windmill/commit/a5c7dd4f699c85190eca5cc88717d85fcc28cfae))
+* stop AI sessions rewriting the tab's copy of the AI settings ([#12615](https://github.com/windmill-labs/windmill/issues/12615)) ([a87ab5d](https://github.com/windmill-labs/windmill/commit/a87ab5d6acfac1f175e4abac90e931de91ae4d50))
+* use the session's AI config in session editor tabs ([#12593](https://github.com/windmill-labs/windmill/issues/12593)) ([3ceff81](https://github.com/windmill-labs/windmill/commit/3ceff81e72541d63a29029fd8b296c318cd64b77))
+* **worker:** fall back to host RAM when cgroup v2 memory.max is max ([#12588](https://github.com/windmill-labs/windmill/issues/12588)) ([7d5a09a](https://github.com/windmill-labs/windmill/commit/7d5a09af83d611b06bff881d5c9d6dc57204b567))
+
+
+### Performance Improvements
+
+* **worker:** read cgroup and proc files directly instead of spawning cat ([#12614](https://github.com/windmill-labs/windmill/issues/12614)) ([3495d42](https://github.com/windmill-labs/windmill/commit/3495d42f78250572b913d15c0209cb9598f89646))
+
 ## [1.882.0](https://github.com/windmill-labs/windmill/compare/v1.881.1...v1.882.0) (2026-11-22)
 
 
