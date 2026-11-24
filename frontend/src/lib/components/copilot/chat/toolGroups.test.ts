@@ -274,11 +274,18 @@ describe('groupToolRuns', () => {
 			tool('write_schedule', { path: 'f/a/hourly' }),
 			tool('write_trigger', { kind: 'http', config: { path: 'f/a/hook' } }),
 			tool('write_variable', { path: 'f/a/token' }, { error: 'invalid value' }),
+			tool('write_resource', { path: 'f/a/pg', resource_type: 'postgresql' }),
+			// Its `resource_type` has not streamed in yet: it may still turn out to be an agent.
+			tool(
+				'write_resource',
+				{},
+				{ parameters: '{"path":"f/a/bot","value":{"model"', isStreamingArguments: true }
+			),
 			tool('write_resource', { path: 'f/a/db' }, { needsConfirmation: true, isLoading: true }),
 			tool('write_resource', { path: 'f/a/bot', resource_type: 'ai_agent' })
 		]
-		expect(shape(run)).toEqual([{ draft: [0, 1, 2, 3, 4] }, 5, 6])
-		expect(header(run)).toBe('Drafted 2 schedules, 1 trigger')
+		expect(shape(run)).toEqual([{ draft: [0, 1, 2, 3, 4, 5] }, 6, 7, 8])
+		expect(header(run)).toBe('Drafted 2 schedules, 1 trigger, 1 resource')
 	})
 
 	it('folds consecutive lookups of any tool, split by a write or a row with its own card', () => {
