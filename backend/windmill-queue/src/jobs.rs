@@ -1426,8 +1426,8 @@ lazy_static::lazy_static! {
     static ref RESTART_UNLESS_CANCELLED_CACHE: Cache<(i64, String), (bool, Option<i32>, Option<Vec<String>>)> = Cache::new(10000);
 
     // Cache for workspace error handler settings with 60s TTL
-    // Key: workspace_id, Value: (error_handler, error_handler_extra_args, error_handler_muted_on_cancel, error_handler_muted_on_user_path, report_to_instance_alerts, expiry_timestamp)
-    static ref WORKSPACE_ERROR_HANDLER_CACHE: Cache<String, (Option<String>, Option<Json<Box<RawValue>>>, bool, bool, bool, i64)> = Cache::new(1000);
+    // Key: workspace_id, Value: (settings, expiry_timestamp)
+    static ref WORKSPACE_ERROR_HANDLER_CACHE: Cache<String, (WorkspaceErrorHandler, i64)> = Cache::new(1000);
 
     // Best-effort per-worker throttle for the instance-channel fallback: a flapping runnable
     // would otherwise turn every failure into outbound Slack/SMTP traffic on channels shared by
@@ -2989,24 +2989,26 @@ pub async fn report_error_to_workspace_handler_or_critical_side_channel(
     }
 }
 
+#[derive(Clone)]
+struct WorkspaceErrorHandler {
+    path: Option<String>,
+    extra_args: Option<Json<Box<RawValue>>>,
+    muted_on_cancel: bool,
+    muted_on_user_path: bool,
+    muted_on_ui_runs: bool,
+    report_to_instance_alerts: bool,
+}
+
 async fn fetch_error_handler_from_db(
     db: &Pool<Postgres>,
     w_id: &str,
-) -> Result<
-    (
-        Option<String>,
-        Option<Json<Box<RawValue>>>,
-        bool,
-        bool,
-        bool,
-    ),
-    Error,
-> {
+) -> Result<WorkspaceErrorHandler, Error> {
     sqlx::query_as::<
         _,
         (
             Option<String>,
             Option<Json<Box<RawValue>>>,
+            Option<bool>,
             Option<bool>,
             Option<bool>,
             bool,
@@ -3018,6 +3020,7 @@ async fn fetch_error_handler_from_db(
             (error_handler->'extra_args')::text::json,
             (error_handler->>'muted_on_cancel')::boolean,
             (error_handler->>'muted_on_user_path')::boolean,
+            (error_handler->>'muted_on_ui_runs')::boolean,
             ws.error_handler_fallback_to_instance_alerts AND w.parent_workspace_id IS NULL
         FROM workspace_settings ws
         JOIN workspace w ON w.id = ws.workspace_id
@@ -3029,14 +3032,20 @@ async fn fetch_error_handler_from_db(
     .await
     .context("fetching error handler info from workspace_settings")?
     .map(
-        |(path, extra_args, muted_on_cancel, muted_on_user_path, report_to_instance_alerts)| {
-            (
-                path,
-                extra_args,
-                muted_on_cancel.unwrap_or(false),
-                muted_on_user_path.unwrap_or(false),
-                report_to_instance_alerts,
-            )
+        |(
+            path,
+            extra_args,
+            muted_on_cancel,
+            muted_on_user_path,
+            muted_on_ui_runs,
+            report_to_instance_alerts,
+        )| WorkspaceErrorHandler {
+            path,
+            extra_args,
+            muted_on_cancel: muted_on_cancel.unwrap_or(false),
+            muted_on_user_path: muted_on_user_path.unwrap_or(false),
+            muted_on_ui_runs: muted_on_ui_runs.unwrap_or(false),
+            report_to_instance_alerts,
         },
     )
     .ok_or_else(|| Error::internal_err(format!("no workspace settings for id {w_id}")))
@@ -3051,39 +3060,25 @@ pub async fn send_error_to_workspace_handler<'a, 'c, T: Serialize + Send + Sync>
     let w_id = &queued_job.workspace_id;
 
     let now = chrono::Utc::now().timestamp();
-    let (
-        error_handler,
-        error_handler_extra_args,
-        error_handler_muted_on_cancel,
-        error_handler_muted_on_user_path,
-        report_to_instance_alerts,
-    ) = if let Some(cached) = WORKSPACE_ERROR_HANDLER_CACHE.get(w_id) {
-        if cached.5 > now {
-            (
-                cached.0.clone(),
-                cached.1.clone(),
-                cached.2,
-                cached.3,
-                cached.4,
-            )
-        } else {
-            let row = fetch_error_handler_from_db(db, w_id).await?;
-            let expiry = now + WORKSPACE_HANDLER_CACHE_TTL_SECONDS;
+    let handler = match WORKSPACE_ERROR_HANDLER_CACHE.get(w_id) {
+        Some((handler, expiry)) if expiry > now => handler,
+        _ => {
+            let handler = fetch_error_handler_from_db(db, w_id).await?;
             WORKSPACE_ERROR_HANDLER_CACHE.insert(
                 w_id.clone(),
-                (row.0.clone(), row.1.clone(), row.2, row.3, row.4, expiry),
+                (handler.clone(), now + WORKSPACE_HANDLER_CACHE_TTL_SECONDS),
             );
-            row
+            handler
         }
-    } else {
-        let row = fetch_error_handler_from_db(db, w_id).await?;
-        let expiry = now + WORKSPACE_HANDLER_CACHE_TTL_SECONDS;
-        WORKSPACE_ERROR_HANDLER_CACHE.insert(
-            w_id.clone(),
-            (row.0.clone(), row.1.clone(), row.2, row.3, row.4, expiry),
-        );
-        row
     };
+    let WorkspaceErrorHandler {
+        path: error_handler,
+        extra_args: error_handler_extra_args,
+        muted_on_cancel,
+        muted_on_user_path,
+        muted_on_ui_runs,
+        report_to_instance_alerts,
+    } = handler;
 
     // Nothing to do for the vast majority of workspaces, and returning here keeps the
     // per-runnable mute lookup below off the path of every failed job.
@@ -3091,17 +3086,26 @@ pub async fn send_error_to_workspace_handler<'a, 'c, T: Serialize + Send + Sync>
         return Ok(());
     }
 
-    if is_canceled && error_handler_muted_on_cancel {
+    if is_canceled && muted_on_cancel {
         return Ok(());
     }
 
     // Skip error handler for scripts/flows starting with u/
-    if error_handler_muted_on_user_path {
+    if muted_on_user_path {
         if let Some(ref path) = queued_job.runnable_path {
             if path.starts_with("u/") {
                 return Ok(());
             }
         }
+    }
+
+    if muted_on_ui_runs
+        && queued_job
+            .trigger_kind
+            .as_ref()
+            .is_some_and(|k| k.is(JobTriggerKind::Ui))
+    {
+        return Ok(());
     }
 
     let ws_error_handler_muted: Option<bool> = match queued_job.kind {

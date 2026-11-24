@@ -30843,6 +30843,10 @@ components:
         muted_on_user_path:
           type: boolean
           default: false
+        muted_on_ui_runs:
+          type: boolean
+          default: false
+          description: Skip jobs started from the UI, whose trigger kind is `ui`. Stored only when true.
 
     SuccessHandlerConfig:
       type: object
@@ -30875,6 +30879,9 @@ components:
         muted_on_user_path:
           type: boolean
           default: false
+        muted_on_ui_runs:
+          type: boolean
+          description: Skip jobs started from the UI, whose trigger kind is `ui`. Omit to leave the stored value untouched.
         fallback_to_instance_alerts:
           type: boolean
           description: Report failed jobs to the instance critical alert channels when no workspace error handler is set. Omit to leave the stored value untouched.
