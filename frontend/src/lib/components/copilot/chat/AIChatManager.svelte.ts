@@ -203,6 +203,8 @@ import {
 	assembleGlobalTools,
 	type GlobalAssemblyOpts
 } from './global/globalAssembly'
+import type { GroupingTools } from './toolGroups'
+import { chatGroupingTools } from './groupingTools'
 import { formatChatJobCompletion } from './datatableTools'
 import { loadMcpServers, type McpServer } from './global/mcpTools'
 import type { PipelineAIChatHelpers } from './pipeline/core'
@@ -927,6 +929,10 @@ export class AIChatManager implements ChatViewHost {
 			...(this.workModesAvailable && !this.#useOnly ? Object.values(this.#workModeSwitches) : [])
 		])
 	)
+	// A getter: the manager is built while the tool modules that groupingTools.ts imports still load.
+	get groupingTools(): GroupingTools {
+		return chatGroupingTools()
+	}
 	/** Whether a tool the call was made with is no longer shipped: a switch to Use withdraws
 	 * every write while its card waits. The mode transitions are not assembled, so never are. */
 	isToolWithdrawn = (toolName: string): boolean => {

@@ -1,9 +1,9 @@
-import type { DisplayMessage, ToolDisplayMessage } from './shared'
+import type { DisplayMessage, Tool, ToolDisplayMessage } from './shared'
 import { DRAFT_CONFLICT_RESULT, DRAFT_SAVE_FAILED_RESULT } from './draftWriteResults'
 import { webSearchResultOf } from './webSearchResult'
 
-// A tool missing from these lists always renders as its own row, so a new write never gets
-// hidden by default.
+// A tool missing from these lists, whose definition sets neither `lookup` nor `draftWrite`,
+// renders as its own row, so a new write never gets hidden by default.
 
 type EditedItemKind = 'flow' | 'app'
 
@@ -25,15 +25,6 @@ const EDIT_TOOLS: Record<string, EditedItemKind> = {
 	write_app_runnable: 'app',
 	delete_app_runnable: 'app'
 }
-// Draft writes of items without a diff card, by the word the group header counts them as.
-// Unlike edits they fold across items and kinds: a setup turn drafts several in a row, and
-// each row only names its item.
-const DRAFT_WRITE_TOOLS: Record<string, string> = {
-	write_schedule: 'schedule',
-	write_trigger: 'trigger',
-	write_resource: 'resource',
-	write_variable: 'variable'
-}
 // Reads of the item being edited: the model reads a step or file before changing it, and
 // splitting the group on every read would leave one group per edit.
 const ITEM_READ_TOOLS: Record<string, EditedItemKind> = {
@@ -54,47 +45,23 @@ const PATHLESS_FLOW_MODE_TOOLS = new Set([
 	'inspect_inline_script',
 	'get_lint_errors'
 ])
-// Calls that only look things up. Not derived from `planModeSafe`, which also admits test
-// runs and plan-document writes.
-const READ_TOOLS = new Set([
-	...Object.keys(ITEM_READ_TOOLS),
-	'list_workspace_items',
-	'read_workspace_item',
-	'search_workspace',
-	'get_runnable_details',
-	'search_hub_scripts',
-	'search_resource_types',
-	'resource_type',
-	'search_docs',
-	'read_docs_page',
-	'get_db_schema',
-	'search_npm_packages',
-	'get_instructions',
-	'get_instructions_for_code_generation',
-	'read_skill',
-	'get_trigger_schema',
-	'get_schedule_schema',
-	'list_runs',
-	'list_workers',
-	'list_app_runs',
-	'get_app_runtime_logs',
-	'get_preview_status',
-	'get_current_page_name',
-	'search_dom',
-	'read_dom',
-	'read_file',
-	'search_files',
-	'list_data_metrics',
-	'list_ducklakes',
-	'get_pipeline_graph',
-	'read_pipeline_node',
-	'list_artifacts',
-	'read_artifact',
-	'list_artifact_versions',
-	'search_mcp_tools',
-	'call_mcp_read_tool'
-])
+/** What the tool definitions of the chat showing the transcript say about grouping, by tool
+ * name: the names that set `lookup`, and the noun of each that sets `draftWrite`. A name that
+ * chat does not define (a flow's own agent tools) is neither. */
+export type GroupingTools = {
+	lookups: ReadonlySet<string>
+	draftWrites: ReadonlyMap<string, string>
+}
 
+export function groupingToolsOf(tools: Iterable<Tool<any>>): GroupingTools {
+	const lookups = new Set<string>()
+	const draftWrites = new Map<string, string>()
+	for (const tool of tools) {
+		if (tool.lookup) lookups.add(tool.def.function.name)
+		if (tool.draftWrite) draftWrites.set(tool.def.function.name, tool.draftWrite)
+	}
+	return { lookups, draftWrites }
+}
 export type ToolGroup = {
 	kind: 'group'
 	/** 'edit': edits of one flow or app. 'draft': draft writes of schedules, triggers,
@@ -105,6 +72,8 @@ export type ToolGroup = {
 	key: string
 	/** Edit groups: the item's path, or '' for the flow open in the editor. */
 	target: string
+	/** Draft groups: the noun each draft write tool's calls are counted as. */
+	draftNouns?: ReadonlyMap<string, string>
 	entries: { message: DisplayMessage; index: number }[]
 }
 
@@ -198,16 +167,14 @@ function isAgentWrite(call: ToolDisplayMessage): boolean {
 		: call.parameters?.resource_type === 'ai_agent'
 }
 
-function isDraftWrite(message: DisplayMessage): boolean {
+function isDraftWrite(message: DisplayMessage, tools: GroupingTools): boolean {
 	const call = groupableCall(message)
-	return (
-		call !== undefined && Object.hasOwn(DRAFT_WRITE_TOOLS, call.toolName!) && !isAgentWrite(call)
-	)
+	return call !== undefined && tools.draftWrites.has(call.toolName!) && !isAgentWrite(call)
 }
 
-function isReadCall(message: DisplayMessage): boolean {
+function isReadCall(message: DisplayMessage, tools: GroupingTools): boolean {
 	const call = groupableCall(message)
-	return call !== undefined && READ_TOOLS.has(call.toolName!)
+	return call !== undefined && tools.lookups.has(call.toolName!)
 }
 
 // Thinking between two calls stays inside the group; visible text ends it. The live
@@ -278,13 +245,18 @@ function inFlight(message: DisplayMessage): boolean {
 function waitingGroupAt(
 	messages: DisplayMessage[],
 	start: number,
-	previous: ChatItem | undefined
+	previous: ChatItem | undefined,
+	tools: GroupingTools
 ): ToolGroup | undefined {
 	if (!isWaitingCall(messages[start]) || !previous) return undefined
 	const ahead =
 		previous.kind === 'group' ? previous.entries.map((e) => e.message) : [previous.message]
 	if (!ahead.some(inFlight)) return undefined
-	const end = runEnd(messages, start, (m, j) => isWaitingCall(m) && !kindGroupAt(messages, j))
+	const end = runEnd(
+		messages,
+		start,
+		(m, j) => isWaitingCall(m) && !kindGroupAt(messages, j, tools)
+	)
 	return {
 		kind: 'group',
 		groupKind: 'waiting',
@@ -297,24 +269,32 @@ function waitingGroupAt(
 // An edit group wins over an explore group: its reads belong to the edits they prepare, so an
 // explore run also stops before a read that starts one. Both win over a waiting row, which
 // stops before either: its header says less than `Edit f/a/flow · 2 changes`.
-function kindGroupAt(messages: DisplayMessage[], start: number): ToolGroup | undefined {
-	const explores = (m: DisplayMessage, j: number) => isReadCall(m) && !editGroupAt(messages, j)
+function kindGroupAt(
+	messages: DisplayMessage[],
+	start: number,
+	tools: GroupingTools
+): ToolGroup | undefined {
+	const explores = (m: DisplayMessage, j: number) =>
+		isReadCall(m, tools) && !editGroupAt(messages, j)
+	const drafts = (m: DisplayMessage) => isDraftWrite(m, tools)
+	const draftGroup = drafts(messages[start])
+		? toolGroup(messages, start, runEnd(messages, start, drafts), 'draft', '')
+		: undefined
 	return (
 		editGroupAt(messages, start) ??
-		(isDraftWrite(messages[start])
-			? toolGroup(messages, start, runEnd(messages, start, isDraftWrite), 'draft', '')
-			: undefined) ??
-		(isReadCall(messages[start])
+		(draftGroup && { ...draftGroup, draftNouns: tools.draftWrites }) ??
+		(isReadCall(messages[start], tools)
 			? toolGroup(messages, start, runEnd(messages, start, explores), 'explore', '')
 			: undefined)
 	)
 }
 
-export function groupToolRuns(messages: DisplayMessage[]): ChatItem[] {
+export function groupToolRuns(messages: DisplayMessage[], tools: GroupingTools): ChatItem[] {
 	const items: ChatItem[] = []
 	let i = 0
 	while (i < messages.length) {
-		const group = kindGroupAt(messages, i) ?? waitingGroupAt(messages, i, items.at(-1))
+		const group =
+			kindGroupAt(messages, i, tools) ?? waitingGroupAt(messages, i, items.at(-1), tools)
 		if (group) {
 			items.push(group)
 			i = group.entries.at(-1)!.index + 1
@@ -335,6 +315,7 @@ function sameChatItem(a: ChatItem, b: ChatItem): boolean {
 		a.groupKind === b.groupKind &&
 		a.key === b.key &&
 		a.target === b.target &&
+		a.draftNouns === b.draftNouns &&
 		a.entries.length === b.entries.length &&
 		a.entries.every((e, i) => e.message === b.entries[i].message && e.index === b.entries[i].index)
 	)
@@ -347,20 +328,29 @@ function sameChatItem(a: ChatItem, b: ChatItem): boolean {
  *
  * A changed message is told apart by identity alone, so a row must be replaced, never mutated
  * in place, for its grouping to update. */
-export function createChatItemGrouper(): (messages: DisplayMessage[]) => ChatItem[] {
+export function createChatItemGrouper(): (
+	messages: DisplayMessage[],
+	tools: GroupingTools
+) => ChatItem[] {
 	let settled: DisplayMessage[] = []
 	let settledItems: ChatItem[] = []
-	return (messages) => {
+	let settledTools: GroupingTools | undefined
+	return (messages, tools) => {
 		// The live answer only ever comes last, and it can neither join nor end a group
 		// differently than the end of the transcript does, so it is grouped on its own and the
 		// rows before it are not regrouped while it streams.
 		const last = messages.at(-1)
 		const live = last?.role === 'assistant' && last.streaming ? last : undefined
 		const n = live ? messages.length - 1 : messages.length
-		if (n !== settled.length || settled.some((m, i) => m !== messages[i])) {
+		if (
+			tools !== settledTools ||
+			n !== settled.length ||
+			settled.some((m, i) => m !== messages[i])
+		) {
 			const previous = new Map(settledItems.map((item) => [chatItemKey(item), item]))
 			settled = messages.slice(0, n)
-			settledItems = groupToolRuns(settled).map((item) => {
+			settledTools = tools
+			settledItems = groupToolRuns(settled, tools).map((item) => {
 				const before = previous.get(chatItemKey(item))
 				return before && sameChatItem(before, item) ? before : item
 			})
@@ -454,7 +444,7 @@ export function groupHeader(
 		const drafted = new Map<string, number>()
 		for (const call of calls) {
 			if (callFailed(call)) continue
-			const kind = DRAFT_WRITE_TOOLS[call.toolName!]
+			const kind = group.draftNouns?.get(call.toolName!) ?? 'draft'
 			drafted.set(kind, (drafted.get(kind) ?? 0) + 1)
 		}
 		const kinds = [...drafted].map(([kind, n]) => plural(n, kind))
