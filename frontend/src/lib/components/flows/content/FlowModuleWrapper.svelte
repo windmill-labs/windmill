@@ -108,7 +108,7 @@
 			summary,
 			flowModule.id,
 			hash,
-			undefined,
+			kind,
 			opWorkspace?.()
 		)
 

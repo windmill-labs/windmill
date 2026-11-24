@@ -58,6 +58,11 @@
 	// The server adds a hub path only for a role that has code, whatever its flows level.
 	let showHub = $derived($roleCaps.code)
 
+	// The pickers return no reliable kind, and the step's trigger or approval settings depend on it.
+	function pick(e: CustomEvent) {
+		dispatch('pick', { ...e.detail, kind: scriptKind })
+	}
+
 	let langs = $derived(
 		processInlineLangs(undefined, $defaultScripts?.order ?? Object.keys(defaultScriptLanguages))
 			.map((l) => [defaultScriptLanguages[l], l])
@@ -322,13 +327,13 @@
 		>
 		{#if preprocessorModule}
 			<!-- The hub publishes no preprocessor script, so this slot only ever picks from the workspace. -->
-			<WorkspaceScriptPicker displayLock bind:filter kind="preprocessor" on:pick />
+			<WorkspaceScriptPicker displayLock bind:filter kind="preprocessor" on:pick={pick} />
 		{:else if showHub && pick_existing == 'hub'}
-			<PickHubScript bind:filter {kind} on:pick>
+			<PickHubScript bind:filter {kind} on:pick={pick}>
 				<ToggleHubWorkspace bind:selected={pick_existing} />
 			</PickHubScript>
 		{:else}
-			<WorkspaceScriptPicker displayLock bind:filter {kind} on:pick>
+			<WorkspaceScriptPicker displayLock bind:filter {kind} on:pick={pick}>
 				{#if showHub}
 					<ToggleHubWorkspace bind:selected={pick_existing} />
 				{/if}

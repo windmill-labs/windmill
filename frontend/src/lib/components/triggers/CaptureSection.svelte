@@ -486,9 +486,8 @@
 							<Alert type="info" title="Raw payload displayed" size="xs" class="mt-2 mb-2">
 								<div class="flex flex-col gap-2">
 									<div>
-										{canAddInlinePreprocessor
-											? 'Add a preprocessor to use the raw payload data in the flow.'
-											: 'Add a preprocessor from the flow graph to use the raw payload data in the flow.'}
+										Add a preprocessor{canAddInlinePreprocessor ? '' : ' from the flow graph'} to use
+										the raw payload data in the flow.
 										<a
 											href="https://www.windmill.dev/docs/core_concepts/preprocessors"
 											target="_blank"
