@@ -395,11 +395,10 @@
 		{#snippet belowHeader()}
 			{#if message.imageUrl}
 				<div class="my-1">
-					<!-- A fixed frame, letterboxed: a capture can be any shape, a one-line app included. -->
 					<ExpandableImage
 						src={message.imageUrl}
 						alt="App preview screenshot"
-						class="h-24 w-40 object-contain rounded border border-border-light bg-surface-secondary"
+						class="max-h-48 max-w-full rounded border border-border-light"
 						onOpen={toolImageOpener(message.imageUrl)}
 					/>
 				</div>
