@@ -1236,18 +1236,8 @@ pub fn apply_custom_tags_setting(q: Option<serde_json::Value>) {
 
 #[cfg(not(windows))]
 fn parse_file<T: FromStr>(path: &str) -> Option<T> {
-    std::process::Command::new("cat")
-        .args([path])
-        .output()
-        .ok()
-        .map(|o| {
-            String::from_utf8_lossy(&o.stdout)
-                .to_string()
-                .trim()
-                .parse::<T>()
-                .ok()
-        })
-        .flatten()
+    let bytes = fs::read(path).ok()?;
+    String::from_utf8_lossy(&bytes).trim().parse::<T>().ok()
 }
 
 #[annotations("#")]
