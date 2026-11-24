@@ -43,7 +43,7 @@ use windmill_common::bench::BenchmarkIter;
 use windmill_common::jobs::{
     args_contain_nul, normalize_nul_in_args, sanitize_untrusted_args, script_path_to_payload,
     JobTriggerKind, TriggerKindLabel, EMAIL_ERROR_HANDLER_USER_EMAIL, FLOW_TIMEOUT_CANCELER,
-    MODULES_ARG,
+    MODULES_ARG, TEMP_SCRIPT_REFS_ARG,
 };
 use windmill_common::min_version::{
     MIN_VERSION_SUPPORTS_DEBOUNCING, MIN_VERSION_SUPPORTS_DEBOUNCING_V2,
@@ -6810,6 +6810,23 @@ async fn inherited_low_priority(
     Ok(priority.flatten())
 }
 
+/// Whether the topmost ancestor of `job_id` (or the job itself) is a flow preview pushed
+/// by its author.
+async fn is_in_flow_preview(db: &Pool<Postgres>, job_id: Uuid) -> Result<bool, Error> {
+    let root_kind = sqlx::query_scalar::<_, JobKind>(
+        "WITH RECURSIVE a(id, parent_job, kind, depth) AS (
+            SELECT id, parent_job, kind, 0 FROM v2_job WHERE id = $1
+            UNION ALL
+            SELECT j.id, j.parent_job, j.kind, a.depth + 1
+            FROM v2_job j JOIN a ON j.id = a.parent_job WHERE a.depth < 100
+        ) SELECT kind FROM a WHERE parent_job IS NULL LIMIT 1",
+    )
+    .bind(job_id)
+    .fetch_optional(db)
+    .await?;
+    Ok(matches!(root_kind, Some(JobKind::FlowPreview)))
+}
+
 // #[instrument(level = "trace", skip_all)]
 async fn push_inner<'c, 'd>(
     db: &Pool<Postgres>,
@@ -6876,6 +6893,30 @@ async fn push_inner<'c, 'd>(
         };
         PushArgs { extra, args }
     };
+
+    // `_TEMP_SCRIPT_REFS` points a preview's workspace imports at the temporary script store,
+    // for its author to test undeployed code. A worker pushes a child with args the running
+    // job computed or forwarded (a workflow task, a flow's preprocessor or failure module, an
+    // agent's tool): only the jobs of a flow preview, given its author's refs, keep them.
+    let refs_stripped_args;
+    if let Some(parent_job) = parent_job {
+        let in_args = args.args.contains_key(TEMP_SCRIPT_REFS_ARG);
+        let in_extra = args
+            .extra
+            .as_ref()
+            .is_some_and(|e| e.contains_key(TEMP_SCRIPT_REFS_ARG));
+        if (in_args || in_extra) && !is_in_flow_preview(db, parent_job).await? {
+            if let Some(extra) = args.extra.as_mut() {
+                extra.remove(TEMP_SCRIPT_REFS_ARG);
+            }
+            if in_args {
+                let mut stripped = args.args.clone();
+                stripped.remove(TEMP_SCRIPT_REFS_ARG);
+                refs_stripped_args = stripped;
+                args.args = &refs_stripped_args;
+            }
+        }
+    }
 
     #[cfg(feature = "cloud")]
     if *CLOUD_HOSTED {
