@@ -91,6 +91,10 @@ if (duration - last > endHold + 0.2) {
 	if (prev && prev.to >= from - 0.5) Object.assign(prev, { to: duration, end: true })
 	else cuts.push({ from, to: duration, end: true })
 }
+// Cuts fall on frame times and the render keeps each segment half-open (select, below), so the
+// output has exactly the planned frames and the times printed and mapped here are the rendered ones.
+const snap = (t) => Math.round(t * fps) / fps
+for (const c of cuts) Object.assign(c, { from: snap(c.from), to: c.end ? duration : snap(c.to) })
 const kept = []
 let cursor = 0
 for (const c of cuts) {
@@ -180,7 +184,9 @@ await browser.close()
 
 // 5. Render: keep the segments, retime them, show each note for a moment after its cut.
 const noteFiles = [...notes.values()]
-const keep = kept.map(([a, b]) => `between(t,${a.toFixed(3)},${b.toFixed(3)})`).join('+')
+// Half a frame below each bound, so a frame exactly on a bound is kept once, by the later segment.
+const half = 0.5 / fps
+const keep = kept.map(([a, b]) => `gte(t,${(a - half).toFixed(4)})*lt(t,${(b - half).toFixed(4)})`).join('+')
 const filters = [`[0:v]fps=${fps},select='${keep}',setpts=N/(${fps}*TB)[v0]`]
 rows.forEach((c, k) => {
 	const next = rows[k + 1]?.outAt ?? outDuration

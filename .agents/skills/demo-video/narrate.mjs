@@ -162,8 +162,9 @@ const filters = []
 const pieces = []
 let from = 0
 for (const p of [...holds.keys()].sort((a, b) => a - b)) {
+	// fps= restores the frame rate FFmpeg 7's setpts clears; without it tpad adds no frames.
 	filters.push(
-		`[0:v]trim=start=${from.toFixed(3)}:end=${p.toFixed(3)},setpts=PTS-STARTPTS,` +
+		`[0:v]trim=start=${from.toFixed(3)}:end=${p.toFixed(3)},setpts=PTS-STARTPTS,fps=${fps},` +
 			`tpad=stop_mode=clone:stop_duration=${holds.get(p).toFixed(3)}[p${pieces.length}]`
 	)
 	pieces.push(`[p${pieces.length}]`)

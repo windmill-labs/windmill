@@ -144,12 +144,16 @@ await browser.close()
 ```
 
 - `waitForOutput(pattern, { agent, cwd, since, timeout })` polls the logs of the `agent`
-  (`'codex'` or `'claude'`) sessions started in `cwd` (default: the script's own folder, which
-  is where vhs starts the agent) and written after `since`, and returns the match. Other agents
-  on the machine write logs during the take too, a review in the same worktree or the recording
-  agent itself, and only this folder's sessions count. It finds a log folder created during the
-  take (Codex's per-day folder), so never build a dated path yourself. Logs are JSON: end the
-  pattern before `"` and `\`. Take `since` when the script starts, before the agent can answer.
+  (`'codex'` or `'claude'`) sessions started in `cwd` (default: the folder `node` was started
+  from, so start the browser script from the folder vhs starts the agent in) and returns the
+  match. Other agents on the machine write logs during the take too, a review in the same
+  worktree or the recording agent itself, and only this folder's sessions count. It finds a log
+  folder created during the take (Codex's per-day folder), so never build a dated path yourself.
+  Logs are JSON: end the pattern before `"` and `\`. Take `since` when the script starts, before
+  the agent can answer.
+- `since` skips log files last written before it, but a file written after it is searched from
+  the top. Start a new agent session for each take: a resumed session's log still holds the
+  links of earlier takes, and the first match wins.
 - The log holds the prompt and every tool result too, and the first match wins. Make the
   pattern match only the reply: tool results carry look-alike URLs (Windmill's deploy tool
   returns the page under the instance's base URL, not the host the prompt asked for), and the
