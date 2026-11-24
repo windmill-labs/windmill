@@ -145,6 +145,7 @@ function serializeArgValue(v: any): any {
     if (Number.isNaN(v)) return "NaN";
     return v > 0 ? "Infinity" : "-Infinity";
   }
+  if (Array.isArray(v)) return v.map(serializeArgValue);
   return v;
 }
 
@@ -453,6 +454,15 @@ describe("datatable() — template tag", () => {
     expect(sql`SELECT ${-Infinity}`.args.arg1).toBe("-Infinity");
     // Tag stays DOUBLE PRECISION (these are floats).
     expect(sql`SELECT ${NaN}`.content).toContain("$1::DOUBLE PRECISION");
+  });
+
+  test("BigInt and non-finite elements inside an array are stringified", () => {
+    const sql = dt();
+    const out = sql`SELECT ${[1n, 2n]}, ${[1.5, NaN, -Infinity]}`;
+    expect(out.content).toContain("$1::BIGINT[]");
+    expect(out.args.arg1).toEqual(["1", "2"]);
+    expect(out.args.arg2).toEqual([1.5, "NaN", "-Infinity"]);
+    expect(() => JSON.stringify(out.args)).not.toThrow();
   });
 
   test("homogeneous arrays auto-tag with TYPE[]", () => {

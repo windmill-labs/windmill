@@ -256,6 +256,8 @@ function buildSqlStatement(
 //                            silently became NULL in the database. The
 //                            executor accepts these literals via
 //                            `Value::String → FLOAT8` (`f64::from_str`).
+//   - array                → each element serialized as above, so a
+//                            `BIGINT[]` / `DOUBLE PRECISION[]` arg survives.
 //   - everything else      → passed through unchanged.
 function serializeArgValue(v: any): any {
   if (typeof v === "bigint") return v.toString();
@@ -264,6 +266,7 @@ function serializeArgValue(v: any): any {
     if (Number.isNaN(v)) return "NaN";
     return v > 0 ? "Infinity" : "-Infinity";
   }
+  if (Array.isArray(v)) return v.map(serializeArgValue);
   return v;
 }
 
