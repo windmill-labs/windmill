@@ -604,6 +604,10 @@ pub struct Suspend {
     pub continue_on_disapprove_timeout: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub skin: Option<ApprovalSkin>,
+    /// Lists the waiting step on its approvers' Home. Off unless set: an approval announced
+    /// elsewhere (a resume link sent to a chat) would otherwise sit there unanswered.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub show_on_home: Option<bool>,
 }
 
 /// How an approval request is presented, on the approval page and in Slack/Teams messages.

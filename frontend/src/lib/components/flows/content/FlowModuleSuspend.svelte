@@ -91,6 +91,26 @@
 		formEditor?.openDrawer()
 	}
 
+	// Picking approver groups names who approves, so the step goes on their Home unless the author
+	// set the toggle themselves. Only a change made here counts: opening a step that already has
+	// groups must not edit it.
+	const initialGroups = untrack(() => JSON.stringify(flowModule.suspend?.user_groups_required))
+	let groupsEdited = false
+	$effect(() => {
+		const groups = flowModule.suspend?.user_groups_required
+		if (!groupsEdited && JSON.stringify(groups) === initialGroups) return
+		groupsEdited = true
+		const named =
+			groups?.type === 'static'
+				? Array.isArray(groups.value) && groups.value.length > 0
+				: groups?.type === 'javascript' && !emptyString(groups.expr)
+		untrack(() => {
+			if (named && flowModule.suspend && flowModule.suspend.show_on_home === undefined) {
+				flowModule.suspend.show_on_home = true
+			}
+		})
+	})
+
 	function setSkin(skin: ApprovalSkin) {
 		if (!flowModule.suspend) return
 		flowModule.suspend.skin = skin === 'detailed' ? undefined : skin
@@ -212,6 +232,22 @@
 			{:else if suspendTabSelected === 'permissions'}
 				<div class="flex flex-col gap-3">
 					<div class="flex flex-col gap-2">
+						<Toggle
+							size="xs"
+							textClass="text-xs font-normal text-primary"
+							disabled={!flowModule.suspend}
+							checked={Boolean(flowModule.suspend?.show_on_home)}
+							options={{
+								right: "List on approvers' Home",
+								rightTooltip:
+									'A run waiting on this step shows on the Home page of everyone who can approve it. Leave off when the request is sent through Slack, Discord or email.'
+							}}
+							on:change={(e) => {
+								if (flowModule.suspend) {
+									flowModule.suspend.show_on_home = e.detail
+								}
+							}}
+						/>
 						<Toggle
 							size="xs"
 							textClass="text-xs font-normal text-primary"
