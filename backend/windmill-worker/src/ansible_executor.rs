@@ -34,7 +34,7 @@ use crate::{
     bash_executor::BIN_BASH,
     common::{
         build_command_with_isolation, check_executor_binary_exists, get_reserved_variables,
-        interpolate_template, read_and_check_result, render_nsjail_rlimit_as,
+        interpolate_template, proto_str, read_and_check_result, render_nsjail_rlimit_as,
         render_nsjail_rlimit_fsize, resolve_nsjail_timeout, resolve_nsjail_tmp_mount_block,
         start_child_process, transform_json, validate_relative_path, OccupancyMetrics,
     },
@@ -2141,11 +2141,12 @@ pub async fn handle_ansible_job(
         let shared_deps = additional_python_paths
             .into_iter()
             .map(|pp| {
+                let pp = proto_str(&pp);
                 format!(
                     r#"
 mount {{
-    src: "{pp}"
-    dst: "{pp}"
+    src: {pp}
+    dst: {pp}
     is_bind: true
     rw: false
 }}
@@ -2174,8 +2175,8 @@ mount {{
                 .replace("{SHARED_DEPENDENCIES}", shared_deps.as_str())
                 .replace("{FILE_RESOURCES}", nsjail_extra_mounts.join("\n").as_str())
                 .replace(
-                    "{ADDITIONAL_PYTHON_PATHS}",
-                    additional_python_paths_folders.as_str(),
+                    "{PYTHONPATH}",
+                    &proto_str(&format!("PYTHONPATH={additional_python_paths_folders}")),
                 )
                 .replace(
                     "{TMP_MOUNT_BLOCK}",
