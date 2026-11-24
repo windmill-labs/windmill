@@ -710,6 +710,13 @@ fn is_python_keyword(s: &str) -> bool {
     )
 }
 
+/// Whether a character of the job's path is kept in the module names derived from it, which
+/// are written into the wrapper's `from <dirs> import <name>` line. A Hub path keeps whatever
+/// follows its id and a preview path is request-supplied: any other character becomes `_`.
+fn is_python_module_char(c: char) -> bool {
+    c.is_alphanumeric() || c == '_'
+}
+
 /// Compute the directory (relative to job_dir) where Python writes the main script.
 /// Module files must be placed in this same directory for relative imports to work.
 pub fn compute_python_module_dir(script_path: &str) -> String {
@@ -724,8 +731,11 @@ pub fn compute_python_module_dir(script_path: &str) -> String {
         .clone()
         .take(script_path_splitted.clone().count() - 1)
         .join("/")
-        .replace("-", "_")
-        .replace("@", ".");
+        .replace("@", ".")
+        .replace(
+            |c: char| !is_python_module_char(c) && c != '.' && c != '/',
+            "_",
+        );
     if dirs_full.len() > 0 {
         let dirs = dirs_full.strip_prefix("/").unwrap_or(&dirs_full);
         // This directory is appended to job_dir and written to. Neutralize any
@@ -1427,9 +1437,8 @@ pub fn compute_py_codegen(content: &str, script_path: &str) -> PyScriptCodegen {
         })
         .last()
         .unwrap()
-        .replace("-", "_")
-        .replace(" ", "_")
-        .to_lowercase();
+        .to_lowercase()
+        .replace(|c: char| !is_python_module_char(c), "_");
     // `last` is lowercased above, so this catches a keyword id in any case.
     let last = if is_python_keyword(&last) {
         format!("_{last}")
@@ -1825,9 +1834,8 @@ async fn prepare_wrapper(
         .clone()
         .last()
         .unwrap()
-        .replace("-", "_")
-        .replace(" ", "_")
-        .to_lowercase();
+        .to_lowercase()
+        .replace(|c: char| !is_python_module_char(c), "_");
     // `last` is lowercased above, so this catches a keyword id in any case.
     let last = if is_python_keyword(&last) {
         format!("_{last}")
@@ -3892,6 +3900,20 @@ mod tests {
         assert_eq!(dirs, "u/x/_/_/_/_/tmp/evil");
         // The `@`->`.` rewrite must not be able to synthesize a `..` segment.
         assert_eq!(compute_python_module_dir("u/@./script"), "u/_");
+    }
+
+    /// A Hub path keeps whatever follows its id: its segments reach the wrapper's
+    /// `from <dirs> import <name> as inner_script` line.
+    #[test]
+    fn test_hub_path_tail_yields_module_names_only() {
+        let code = "def main():\n    return 1\n";
+        let cg = compute_py_codegen(code, "hub/123/a\"b/c;d('e').f()#");
+        assert_eq!(cg.module_name, "c_d__e___f___");
+        assert_eq!(cg.module_dir_dot, "hub._123.a_b");
+        assert_eq!(
+            compute_py_codegen(code, "hub/1/app/Send Message-v2").module_name,
+            "send_message_v2"
+        );
     }
 
     #[test]

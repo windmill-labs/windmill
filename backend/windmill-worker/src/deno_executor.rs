@@ -659,9 +659,8 @@ pub(crate) async fn build_import_map(
     let mut relative_mounts = "".to_string();
     for c in 0..script_path_parts_len {
         relative_mounts += ",\n          ";
-        relative_mounts += &format!(
-            "\"./{}\": \"{base_internal_url}/api/w/{w_id}/scripts/raw/p/{}{}\"",
-            (0..c).map(|_| "../").join(""),
+        let mount = format!(
+            "{base_internal_url}/api/w/{w_id}/scripts/raw/p/{}{}",
             &script_path_split
                 .clone()
                 .take(script_path_parts_len - c - 1)
@@ -671,6 +670,14 @@ pub(crate) async fn build_import_map(
             } else {
                 "/"
             },
+        );
+        // A Hub path keeps whatever follows its id and a preview path is request-supplied:
+        // encoded, the path cannot add entries to the map.
+        relative_mounts += &format!(
+            "\"./{}\": {}",
+            (0..c).map(|_| "../").join(""),
+            serde_json::to_string(&mount)
+                .map_err(|e| error::Error::internal_err(format!("encoding job path: {e}")))?,
         );
     }
     let extra_import_map = DENO_EXTRA_IMPORT_MAP.as_str();
@@ -925,5 +932,21 @@ mod tests {
             assert!(deno_flags_choose_config(&flags(f)), "{f}");
         }
         assert!(!deno_flags_choose_config(&flags("-A --cached-only")));
+    }
+
+    /// The wrapper imports `./main.ts` through the import map: a Hub path's tail or a
+    /// preview path must not add or replace entries.
+    #[tokio::test]
+    async fn import_map_path_cannot_add_entries() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = r#"hub/1/x","./main.ts":"data:text/javascript,0","y":"/z"#;
+        super::build_import_map("w", path, "http://h", dir.path().to_str().unwrap())
+            .await
+            .unwrap();
+        let map = std::fs::read_to_string(dir.path().join("import_map.json")).unwrap();
+        let map: serde_json::Value = serde_json::from_str(&map).unwrap();
+        let imports = map["imports"].as_object().unwrap();
+        assert_eq!(imports.len(), 5 + path.split('/').count());
+        assert_eq!(imports["./main.ts"], "./main.ts");
     }
 }
