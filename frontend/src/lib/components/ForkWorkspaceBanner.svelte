@@ -148,8 +148,7 @@
 		}
 	}
 
-	/** The compare page opened on one direction, for a badge that counts exactly that. The button
-	 *  beside them still chooses on the reader's behalf; a badge means the one thing it names. */
+	/** The compare page opened on one direction, for a badge that counts exactly that. */
 	function compareDirHref(dir: 'deploy_to' | 'update'): string | undefined {
 		if (!parentWorkspaceId || !$workspaceStore) return undefined
 		return (
@@ -245,9 +244,13 @@
 				: total > 0
 					? 'drift'
 					: undefined}
-	<!-- What the comparison has to say is a mark beside the button, never instead of it: a fork
-	     still being counted, or one whose count failed, is exactly when a reader wants the page
-	     that does the counting properly. The button below renders in every state. -->
+	<!-- Each badge opens the side of the compare page it counts, so badges make the button redundant.
+	     The button stays for a fork still being counted, one whose count failed, or one with nothing
+	     to count: that is when a reader wants the page that does the counting properly. -->
+	{@const badged =
+		status === 'drafts' ||
+		(status === 'drift' &&
+			(changesAhead > 0 || changesBehind > 0 || conflicts > 0 || draftCount > 0))}
 	<!-- Keyed on what it says, so each answer the comparison lands with fades in rather than
 	     popping into a bar that is already showing. -->
 	{#key status}
@@ -256,10 +259,6 @@
 				<span class="text-2xs text-tertiary">Checking for changes…</span>
 			{:else if error}
 				<span class="text-2xs text-red-600 dark:text-red-400" title={error}>Comparison failed</span>
-			{:else if showDraftsOnly}
-				<Badge color="blue" small>
-					{draftCount} draft{draftCount !== 1 ? 's' : ''}
-				</Badge>
 			{:else if total > 0}
 				<!-- Which way the drift goes is the thing to know at a glance: ahead is what this fork has
 				     to give its parent, behind is what it has yet to take. -->
@@ -303,39 +302,29 @@
 						{conflicts}{compactCounts ? '' : ` conflict${conflicts !== 1 ? 's' : ''}`}
 					</Badge>
 				{/if}
-				<!-- Drafts are a different axis from the drift beside them: ahead and behind count deployed
-				     items against the parent, this counts work in this fork that is not deployed anywhere
-				     yet. It shares blue with "behind" and is told apart by the pencil and by naming what it
-				     counts, rather than by an arrow that would read as a third direction. Clicking goes to
-				     the drafts half of the compare page rather than the drawer the button opens. It shows at
-				     every drift — a fork both behind and holding drafts said nothing about the drafts. -->
-				{#if draftCount > 0}
-					<Badge
-						color="blue"
-						small
-						clickable
-						href={draftCompareHref}
-						title="{draftCount} draft{draftCount !== 1
-							? 's'
-							: ''} in this {currentNoun}, not deployed anywhere yet — review and deploy"
-					>
-						<Pencil class="w-3 h-3 inline" />
-						{draftCount}{compactCounts ? '' : ` draft${draftCount !== 1 ? 's' : ''}`}
-					</Badge>
-				{/if}
+			{/if}
+			<!-- Drafts are a different axis from the drift beside them: ahead and behind count deployed
+			     items against the parent, this counts work in this fork that is not deployed anywhere
+			     yet. It shares blue with "behind" and is told apart by the pencil and by naming what it
+			     counts, rather than by an arrow that would read as a third direction. It shows at every
+			     drift, and on its own when drafts are all there is. -->
+			{#if (status === 'drafts' || status === 'drift') && draftCount > 0}
+				<Badge
+					color="blue"
+					small
+					clickable
+					href={draftCompareHref}
+					title="{draftCount} draft{draftCount !== 1
+						? 's'
+						: ''} in this {currentNoun}, not deployed anywhere yet — review and deploy"
+				>
+					<Pencil class="w-3 h-3 inline" />
+					{draftCount}{compactCounts ? '' : ` draft${draftCount !== 1 ? 's' : ''}`}
+				</Badge>
 			{/if}
 		</span>
 	{/key}
-	{#if showDraftsOnly}
-		<Button
-			variant="subtle"
-			unifiedSize="sm"
-			href={draftCompareHref}
-			title={`Review and deploy this workspace's drafts`}
-		>
-			Review & deploy drafts
-		</Button>
-	{:else}
+	{#if !badged}
 		<Button
 			variant="subtle"
 			unifiedSize="sm"
