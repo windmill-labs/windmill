@@ -19479,6 +19479,15 @@ paths:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/JobId"
         - $ref: "#/components/parameters/GetStarted"
+        - name: wait_for_child
+          description: |
+            Set by a job's SDK wait helpers when the calling job is blocked until this job, its
+            child, completes. If every worker of the child's tag is held by such a waiting parent,
+            the child can never start, and the request fails with 409 instead of the wait hanging.
+            Leave unset for a plain status read.
+          in: query
+          schema:
+            type: boolean
 
       responses:
         "200":
