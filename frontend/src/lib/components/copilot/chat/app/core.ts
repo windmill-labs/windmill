@@ -524,6 +524,7 @@ export const getAppTools = memo((): Tool<AppAIChatHelpers>[] => [
 	{
 		def: getListFilesToolDef(),
 		planModeSafe: true,
+		lookup: true,
 		fn: async ({ helpers, toolId, toolCallbacks }) => {
 			toolCallbacks.setToolStatus(toolId, { content: 'Listing files...' })
 			const files = helpers.getFiles()
@@ -560,6 +561,7 @@ export const getAppTools = memo((): Tool<AppAIChatHelpers>[] => [
 	{
 		def: getGetFrontendFileToolDef(),
 		planModeSafe: true,
+		lookup: true,
 		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
 			const parsedArgs = getGetFrontendFileSchema().parse(args)
 			toolCallbacks.setToolStatus(toolId, {
@@ -693,6 +695,7 @@ export const getAppTools = memo((): Tool<AppAIChatHelpers>[] => [
 	{
 		def: getGetBackendRunnableToolDef(),
 		planModeSafe: true,
+		lookup: true,
 		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
 			const parsedArgs = getGetBackendRunnableSchema().parse(args)
 			toolCallbacks.setToolStatus(toolId, {
@@ -781,6 +784,7 @@ export const getAppTools = memo((): Tool<AppAIChatHelpers>[] => [
 	{
 		def: getLintToolDef(),
 		planModeSafe: true,
+		lookup: true,
 		fn: async ({ helpers, toolId, toolCallbacks }) => {
 			toolCallbacks.setToolStatus(toolId, { content: 'Linting app...' })
 			const lintResult = helpers.lint()
@@ -803,6 +807,7 @@ export const getAppTools = memo((): Tool<AppAIChatHelpers>[] => [
 	{
 		def: getListDatatablesToolDef(),
 		planModeSafe: true,
+		lookup: true,
 		fn: async ({ helpers, toolId, toolCallbacks }) => {
 			toolCallbacks.setToolStatus(toolId, { content: 'Listing datatables...' })
 			try {
@@ -826,6 +831,7 @@ export const getAppTools = memo((): Tool<AppAIChatHelpers>[] => [
 	{
 		def: getGetDatatableTableSchemaToolDef(),
 		planModeSafe: true,
+		lookup: true,
 		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
 			const parsedArgs = getGetDatatableTableSchemaSchema().parse(args)
 			toolCallbacks.setToolStatus(toolId, {

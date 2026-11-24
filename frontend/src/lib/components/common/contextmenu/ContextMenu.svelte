@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { createContextMenu, melt } from '@melt-ui/svelte'
-	import { overlayPortalTarget } from '$lib/components/common/overlayHost.svelte'
+	import { overlayPortalTarget, overlayShown } from '$lib/components/common/overlayHost.svelte'
 	import { fly } from 'svelte/transition'
 	import { twMerge } from 'tailwind-merge'
 	import { untrack, type Snippet } from 'svelte'
@@ -49,6 +49,7 @@
 
 	// Overlays belong to the enclosing pane when there is one — see overlayHost.
 	const hostPortal = overlayPortalTarget('body')
+	const shown = overlayShown()
 
 	const {
 		elements: { menu: menuElement, item, trigger },
@@ -111,7 +112,7 @@
 	{@render children?.()}
 </div>
 
-{#if $open}
+{#if $open && shown()}
 	<div
 		class="{getContextMenuContainerClass(zIndex)} {CONTEXT_MENU_ANIMATION_CLASSES}"
 		use:melt={$menuElement}

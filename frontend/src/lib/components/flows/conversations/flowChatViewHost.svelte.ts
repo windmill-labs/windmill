@@ -1,3 +1,4 @@
+import { STRUCTURED_OUTPUT_CALL } from '$lib/components/aiAgentResult'
 import { untrack } from 'svelte'
 import type {
 	AttachmentUpload,
@@ -24,6 +25,7 @@ import type {
 	WebSearchResult
 } from '$lib/components/copilot/chat/shared'
 import type { AIAutonomyMode } from '$lib/components/copilot/chat/AIChatManager.svelte'
+import type { GroupingTools } from '$lib/components/copilot/chat/toolGroups'
 import { AIWorkMode } from '$lib/components/copilot/chat/workMode'
 import { isPlanCardTool } from '$lib/components/copilot/chat/planMode'
 import { AttachedFilesStore } from '$lib/components/copilot/chat/files/attachedFiles.svelte'
@@ -250,9 +252,6 @@ function builtInWebSearch(message: ChatMessage): WebSearchResult | undefined {
 		}))
 	}
 }
-
-/** The name the worker gives the structured-output tool: suffixed when an agent tool already has it. */
-const STRUCTURED_OUTPUT_CALL = /^structured_output(_\d+)?$/
 
 /**
  * `busy`: the latest turn is still running, so a failed tool call is not yet its outcome.
@@ -946,6 +945,9 @@ export class FlowChatViewHost implements ChatViewHost, DraftSender<ComposerAttac
 	// 400 rather than read. Widen this only alongside a worker that inlines text as text.
 	attachmentAccept = 'image/*,application/pdf,.pdf'
 	tools = []
+	// The agent's tools are the flow author's, named as they chose: a name that matches a
+	// copilot lookup or test run says nothing about what the tool does.
+	groupingTools: GroupingTools = { lookups: new Set(), testRuns: new Map() }
 	// The enum's value, written out so this module never imports the copilot manager at
 	// runtime: its unit test would otherwise load the manager and the editor it pulls in.
 	autonomyMode = 'default' as AIAutonomyMode.DEFAULT

@@ -9,7 +9,7 @@
 		type ListableApp,
 		type ListableRawApp,
 		type ListableResource,
-		type Script,
+		type ListableScript,
 		type SearchJobsIndexResponse
 	} from '$lib/gen'
 	import { clickOutside, isMac, scroll_into_view_if_needed_polyfill } from '$lib/utils'
@@ -90,7 +90,7 @@
 	let switchModeItems: quickMenuItem[] = [
 		{
 			search_id: 'switchto:run-search',
-			label: 'Search across completed runs' + (!$enterpriseLicense ? '' : ' (EE)'),
+			label: 'Search across completed runs' + ($enterpriseLicense ? '' : ' (EE)'),
 			action: () => switchMode('runs'),
 			shortcutKey: RUNS_PREFIX,
 			icon: Search,
@@ -131,35 +131,35 @@
 		},
 		{
 			search_id: 'nav:kafka_triggers',
-			label: 'Go to Kafka triggers' + (!$enterpriseLicense ? '' : ' (EE)'),
+			label: 'Go to Kafka triggers' + ($enterpriseLicense ? '' : ' (EE)'),
 			...navTo('/kafka_triggers'),
 			icon: KafkaIcon,
 			disabled: !$roleCapabilities.visibility.triggers
 		},
 		{
 			search_id: 'nav:nats_triggers',
-			label: 'Go to NATS triggers' + (!$enterpriseLicense ? '' : ' (EE)'),
+			label: 'Go to NATS triggers' + ($enterpriseLicense ? '' : ' (EE)'),
 			...navTo('/nats_triggers'),
 			icon: NatsIcon,
 			disabled: !$roleCapabilities.visibility.triggers
 		},
 		{
 			search_id: 'nav:sqs_triggers',
-			label: 'Go to SQS triggers' + (!$enterpriseLicense ? '' : ' (EE)'),
+			label: 'Go to SQS triggers' + ($enterpriseLicense ? '' : ' (EE)'),
 			...navTo('/sqs_triggers'),
 			icon: AwsIcon,
 			disabled: !$roleCapabilities.visibility.triggers
 		},
 		{
 			search_id: 'nav:gcp_pub_sub',
-			label: 'Go to GCP Pub/Sub' + (!$enterpriseLicense ? '' : ' (EE)'),
+			label: 'Go to GCP Pub/Sub' + ($enterpriseLicense ? '' : ' (EE)'),
 			...navTo('/gcp_triggers'),
 			icon: GoogleCloudIcon,
 			disabled: !$roleCapabilities.visibility.triggers
 		},
 		{
 			search_id: 'nav:azure_event_grid',
-			label: 'Go to Azure Event Grid' + (!$enterpriseLicense ? '' : ' (EE)'),
+			label: 'Go to Azure Event Grid' + ($enterpriseLicense ? '' : ' (EE)'),
 			...navTo('/azure_triggers'),
 			icon: AzureIcon,
 			disabled: !$roleCapabilities.visibility.triggers
@@ -533,7 +533,7 @@
 	// 	search_id: string
 	// }
 
-	type TableScript = TableItem<Script, 'script'>
+	type TableScript = TableItem<ListableScript, 'script'>
 	type TableFlow = TableItem<Flow, 'flow'>
 	type TableApp = TableItem<ListableApp, 'app'>
 	type TableRawApp = TableItem<ListableRawApp, 'raw_app'>

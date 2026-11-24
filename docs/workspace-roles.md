@@ -79,6 +79,12 @@ returns `FULL` for an unrestricted or admin caller without reading the role), so
 derived from the role: a stale flag lets a restricted member through. The authentication cache
 holds it for up to 120s.
 
+`ApiAuthed::capabilities` is the role itself, read for each request before its handler runs, so a
+capability check inside a save's transaction, the Hub rule included, never needs a second
+connection. It is read from the role caches and never stored with the cached login: storing it
+there would need every role change to clear the login on every server, running jobs' tokens
+included. An identity built outside a request has none, and `caller_capabilities` reads the role.
+
 `usr.operator` is kept as "this role cannot write code", which is what clients that predate roles
 read it as. A member's role is `usr.workspace_role`, or, while that is NULL, `operator` /
 `developer` from `usr.operator`: rows written by paths that know nothing of roles stay meaningful.

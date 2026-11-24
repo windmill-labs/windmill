@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { instanceBannerFormError } from './instanceBanner'
 import { ACCENT_COLOR_SETTING, parseAccentColor } from '$lib/accentColor'
 import { parseMaxTokenExpirationDays } from '$lib/tokenExpiration'
+import { parseCount } from '$lib/parseCount'
 import { writable } from 'svelte/store'
 import { OidcService } from '$lib/gen'
 import { workspaceRolesErrors } from '$lib/workspaceRoles'
@@ -114,6 +115,9 @@ export interface Setting {
 }
 
 export type SettingStorage = 'setting'
+
+// Mirrors `RAW_APP_VERSIONS_TO_KEEP_BOUND` in windmill-common.
+const RAW_APP_VERSIONS_TO_KEEP_BOUND = 1_000_000
 
 const positiveNumber = z.number().positive('Must be a positive number')
 const nonNegativeNumber = z.number().nonnegative('Must be zero or a positive number')
@@ -345,6 +349,22 @@ export const settings: Record<string, Setting[]> = {
 			hideInQuickSetup: true
 		},
 		{
+			label: 'Full-code app versions to keep',
+			key: 'raw_app_versions_to_keep',
+			description:
+				'Number of versions to keep for each full-code app, counting the deployed one. Older versions and their bundles are permanently deleted within about 20 minutes, except versions replaced less than an hour ago and versions a draft is based on. Leave empty to keep every version.',
+			fieldType: 'number',
+			placeholder: 'all versions',
+			storage: 'setting',
+			hideInQuickSetup: true,
+			error: 'Must be a whole number of versions, from 1 to 1,000,000',
+			isValid: (value: unknown) =>
+				value === undefined ||
+				value === null ||
+				value === '' ||
+				parseCount(value, RAW_APP_VERSIONS_TO_KEEP_BOUND) !== undefined
+		},
+		{
 			label: 'Maximum token expiration (days)',
 			key: 'max_token_expiration_days',
 			description:
@@ -460,7 +480,7 @@ export const settings: Record<string, Setting[]> = {
 			key: 'nsjail_tmp_backing',
 			fieldType: 'select',
 			description:
-				'How <code>/tmp</code> is backed inside the nsjail sandbox. <strong>RAM (tmpfs)</strong> is the default — fast, with a hard size cap from <em>Nsjail tmpfs size</em>, but consumes worker memory. <strong>Disk (bind mount)</strong> uses a per-job directory on the worker disk — no RAM cost, but the only remaining per-file ceiling is <code>rlimit_fsize</code> (~1GB for python/ansible, unbounded for most other languages because they set <code>disable_rl: true</code>); pair with host disk monitoring or quotas.',
+				'How <code>/tmp</code> is backed inside the nsjail sandbox. <strong>RAM (tmpfs)</strong> is the default — fast, with a hard size cap from <em>Nsjail tmpfs size</em>, but consumes worker memory. <strong>Disk (bind mount)</strong> uses a per-job directory on the worker disk — no RAM cost, but the only remaining per-file ceiling is <code>rlimit_fsize</code> (1000 MiB for python/ansible/dbt, raise it per worker group with the <code>NSJAIL_RLIMIT_FSIZE_MB</code> env var; unbounded for most other languages because they set <code>disable_rl: true</code>); pair with host disk monitoring or quotas.',
 			storage: 'setting',
 			placeholder: 'tmpfs',
 			defaultValue: () => 'tmpfs',

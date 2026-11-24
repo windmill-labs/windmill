@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM app_version WHERE app_id = $1 AND id = ANY($2)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8Array"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "89fb1f38292bd64e0b74f805e30a18af3cf6e3ac237b0eb864af026e4325757f"
+}

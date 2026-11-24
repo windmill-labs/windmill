@@ -1,4 +1,5 @@
 <script lang="ts">
+	import HostWindow from '$lib/components/common/HostWindow.svelte'
 	import { Button } from '$lib/components/common'
 	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
 	import { ButtonType } from '$lib/components/common/button/model'
@@ -734,7 +735,7 @@
 </script>
 
 <!-- Add svelte:window to listen for keyboard events -->
-<svelte:window onkeydown={handleKeydown} />
+<HostWindow onkeydown={handleKeydown} />
 
 <!-- The edit toggle and the add-input target, shared by both panels below: chat mode
      carries a smaller set of side tabs, but the controls themselves must not differ. -->

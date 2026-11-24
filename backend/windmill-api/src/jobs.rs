@@ -291,6 +291,7 @@ pub fn workspaced_service() -> Router {
         )
         .route("/add_batch_jobs/{n}", post(add_batch_jobs))
         .route("/run/preview_flow", post(run_preview_flow_job))
+        .route("/run/flow_test/{*path}", post(crate::flow_test::run_flow_test))
         .route("/run/agent/{*path}", post(crate::agent_runs::run_agent))
         .route(
             "/run_wait_result/preview_flow",
@@ -302,6 +303,14 @@ pub fn workspaced_service() -> Router {
         .route(
             "/recent_runs",
             get(crate::jobs_recent_runs::list_recent_runs),
+        )
+        .route(
+            "/recent_runs/hide",
+            post(crate::jobs_recent_runs::hide_recent_run_items),
+        )
+        .route(
+            "/recent_runs/unhide",
+            post(crate::jobs_recent_runs::unhide_recent_run_items),
         )
         .route("/asset_dispatch_edges", get(list_asset_dispatch_edges))
         .route(
@@ -773,32 +782,51 @@ async fn cancel_job_api(
 async fn cancel_persistent_script_api(
     OptAuthed(opt_authed): OptAuthed,
     Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
     Path((w_id, script_path)): Path<(String, StripPath)>,
     Json(CancelJob { reason }): Json<CancelJob>,
 ) -> error::Result<()> {
-    let audit_author: AuditAuthor = match opt_authed {
-        Some(authed) => {
-            let path = script_path.to_path();
-            if !windmill_api_auth::scopes::job_cancel_path_confinement(authed.scopes.as_deref())
-                .is_none_or(|c| windmill_api_auth::scopes::cancel_confinement_admits(&c, path))
-            {
-                return Err(Error::NotFound(format!("Script {path} not found")));
-            }
-            (&authed).into()
-        }
-        None => {
-            return Err(Error::BadRequest(format!(
-                "Cancelling persistent script require to be logged in and member of {w_id}"
-            )))
-        }
+    let Some(authed) = opt_authed else {
+        return Err(Error::BadRequest(format!(
+            "Cancelling persistent script require to be logged in and member of {w_id}"
+        )));
     };
+    let path = script_path.to_path();
+    if !windmill_api_auth::scopes::job_cancel_path_confinement(authed.scopes.as_deref())
+        .is_none_or(|c| windmill_api_auth::scopes::cancel_confinement_admits(&c, path))
+    {
+        return Err(Error::NotFound(format!("Script {path} not found")));
+    }
+    let audit_author: AuditAuthor = (&authed).into();
 
+    let mut first_batch = true;
     let cancelled_job_ids = windmill_queue::cancel_persistent_script_jobs(
         &audit_author.username,
         reason,
-        script_path.to_path(),
+        path,
         &w_id,
         &db,
+        // The cancel runs on the root pool, so each run it reaches must pass the per-job check
+        // `/queue/cancel/{id}` applies. A denial in the first batch refuses the request; one in
+        // the later batch is a run someone else started after the first committed, so it is left
+        // running rather than failing a request whose first cancels already landed.
+        |ids| {
+            let strict = std::mem::replace(&mut first_batch, false);
+            let (db, user_db, authed, w_id) = (&db, &user_db, &authed, w_id.as_str());
+            async move {
+                let mut admitted = Vec::with_capacity(ids.len());
+                for id in ids {
+                    match require_job_cancel_access(db, user_db, authed, w_id, &id).await {
+                        Ok(()) => admitted.push(id),
+                        // Ended (and restarted) since the batch was read: the next batch has it.
+                        Err(Error::NotFound(_)) => {}
+                        Err(e) if strict => return Err(e),
+                        Err(_) => {}
+                    }
+                }
+                Ok(admitted)
+            }
+        },
     )
     .await?;
 
@@ -2331,7 +2359,7 @@ fn job_read_access_cache_key(authed: &ApiAuthed, w_id: &str, job_id: &Uuid) -> [
 
 /// [`require_job_read_access`] for callers (job-update poll / SSE) that haven't
 /// already loaded `created_by` — fetches it (root DB, by id+workspace) first.
-async fn require_job_update_read_access(
+pub(crate) async fn require_job_update_read_access(
     db: &DB,
     user_db: &UserDB,
     authed: &ApiAuthed,
@@ -7158,18 +7186,18 @@ pub struct WorkflowTask {
 }
 
 #[derive(Deserialize)]
-struct PreviewFlow {
-    value: FlowValue,
-    path: Option<String>,
-    args: Option<HashMap<String, Box<JsonRawValue>>>,
-    tag: Option<String>,
-    restarted_from: Option<RestartedFrom>,
+pub(crate) struct PreviewFlow {
+    pub(crate) value: FlowValue,
+    pub(crate) path: Option<String>,
+    pub(crate) args: Option<HashMap<String, Box<JsonRawValue>>>,
+    pub(crate) tag: Option<String>,
+    pub(crate) restarted_from: Option<RestartedFrom>,
     /// Map of relative-import script path -> temp storage hash. Propagated to
     /// each flow step so inline-script relative imports resolve from
     /// not-yet-deployed local content instead of the deployed script.
-    temp_script_refs: Option<HashMap<String, String>>,
+    pub(crate) temp_script_refs: Option<HashMap<String, String>>,
     /// See `Preview::on_behalf_of`.
-    on_behalf_of: Option<String>,
+    pub(crate) on_behalf_of: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -9446,7 +9474,7 @@ async fn operator_may_run_datatable_query(
 
 /// Whether the caller's role may run code of its own: previews, dependency jobs, inline dynamic
 /// selects, resolving jobs.
-async fn role_can_code(db: &DB, w_id: &str, authed: &ApiAuthed) -> error::Result<bool> {
+pub(crate) async fn role_can_code(db: &DB, w_id: &str, authed: &ApiAuthed) -> error::Result<bool> {
     Ok(
         windmill_common::roles::caller_capabilities(db, w_id, authed)
             .await?
@@ -9456,7 +9484,7 @@ async fn role_can_code(db: &DB, w_id: &str, authed: &ApiAuthed) -> error::Result
 
 /// The refusal a member whose role cannot code gets from a preview route. Inside a job the caller
 /// never ran a preview themselves, so name the one thing the job's token may do.
-fn operator_preview_refusal(job_id: Option<Uuid>) -> error::Error {
+pub(crate) fn operator_preview_refusal(job_id: Option<Uuid>) -> error::Error {
     let reason = if job_id.is_some() {
         "Your role cannot run preview jobs in this workspace: from inside a job, a member \
          whose role cannot code may only run a wmill.datatable() query while that job is running"
@@ -10370,22 +10398,22 @@ async fn push_flow_dependencies_job(
     // lock step from becoming the way to run code the write path refuses.
     if flows_level == AuthorLevel::Compose {
         validate_operator_composed_flow(&req.flow_value, &None, authed, db, user_db, w_id).await?;
-        // The job rewrites bookkeeping stored under `req.path` (dependency map, asset usages,
-        // lock error) even with `skip_flow_update`, so a builder must be able to write there.
-        crate::drafts::require_can_write_path(
-            authed,
-            db,
-            user_db,
-            w_id,
-            windmill_common::user_drafts::UserDraftItemKind::Flow,
-            &req.path,
-        )
-        .await
-        .map_err(|e| match e {
-            error::Error::NotAuthorized(msg) => error::Error::PermissionDenied(msg),
-            e => e,
-        })?;
     }
+    // The job rewrites bookkeeping stored under `req.path` (dependency map, asset usages,
+    // lock error) even with `skip_flow_update`, so the caller must be able to write there.
+    crate::drafts::require_can_write_path(
+        authed,
+        db,
+        user_db,
+        w_id,
+        windmill_common::user_drafts::UserDraftItemKind::Flow,
+        &req.path,
+    )
+    .await
+    .map_err(|e| match e {
+        error::Error::NotAuthorized(msg) => error::Error::PermissionDenied(msg),
+        e => e,
+    })?;
 
     if req.raw_deps.is_some() {
         return Err(error::Error::MigrationNeeded {
@@ -10787,6 +10815,20 @@ async fn run_preview_flow_job(
     Query(run_query): Query<RunJobQuery>,
     Json(raw_flow): Json<PreviewFlow>,
 ) -> error::Result<(StatusCode, String)> {
+    push_preview_flow_job(authed, db, user_db, w_id, run_query, raw_flow, None).await
+}
+
+/// `test_subflows`: see `FlowStatus::test_subflows`, written with the job so no worker can
+/// start the run without it.
+pub(crate) async fn push_preview_flow_job(
+    authed: ApiAuthed,
+    db: DB,
+    user_db: UserDB,
+    w_id: String,
+    run_query: RunJobQuery,
+    raw_flow: PreviewFlow,
+    test_subflows: Option<HashMap<String, serde_json::Value>>,
+) -> error::Result<(StatusCode, String)> {
     let flows_level =
         check_operator_can_build(&db, &w_id, &authed, BuilderKind::Flows, "run preview jobs")
             .await?;
@@ -10911,6 +10953,17 @@ async fn run_preview_flow_job(
     // Set memory_id if provided (for agent memory)
     if let Some(memory_id) = run_query.memory_key(&w_id, &flow_path) {
         set_flow_memory_id(&mut tx, &w_id, uuid, memory_id).await?;
+    }
+
+    if let Some(test_subflows) = test_subflows.filter(|m| !m.is_empty()) {
+        sqlx::query!(
+            "UPDATE v2_job_status SET flow_status = jsonb_set(flow_status, '{test_subflows}', $2)
+             WHERE id = $1",
+            uuid,
+            sqlx::types::Json(test_subflows) as sqlx::types::Json<HashMap<String, serde_json::Value>>
+        )
+        .execute(&mut *tx)
+        .await?;
     }
 
     tx.commit().await?;
@@ -12597,6 +12650,28 @@ struct CompletedJobResult {
 #[derive(Deserialize)]
 struct GetCompletedJobQuery {
     get_started: Option<bool>,
+    /// The caller is blocked until this job completes (the SDK wait helpers). Only such polls
+    /// may be failed for a same-tag deadlock; a plain status read never is.
+    wait_for_child: Option<bool>,
+}
+
+/// Why a job blocked on its own child's result should stop waiting: the child is stuck behind a
+/// same-tag deadlock. A failed check answers `None`, so the poll carries on.
+async fn waiting_parent_deadlock(
+    db: &DB,
+    child: Uuid,
+    authed: Option<&ApiAuthed>,
+    wait_for_child: Option<bool>,
+) -> Option<Error> {
+    if wait_for_child != Some(true) {
+        return None;
+    }
+    let caller = authed?.job_id?;
+    windmill_common::tag_deadlock::fail_fast_waiting_parent(db, child, Some(caller))
+        .await
+        .inspect_err(|e| tracing::warn!("same-tag deadlock check for job {child} failed: {e}"))
+        .ok()
+        .flatten()
 }
 
 async fn get_completed_job_result_maybe(
@@ -12606,7 +12681,7 @@ async fn get_completed_job_result_maybe(
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, id)): Path<(String, Uuid)>,
-    Query(GetCompletedJobQuery { get_started }): Query<GetCompletedJobQuery>,
+    Query(GetCompletedJobQuery { get_started, wait_for_child }): Query<GetCompletedJobQuery>,
 ) -> error::Result<Response> {
     let tags = opt_authed
         .as_ref()
@@ -12659,6 +12734,10 @@ async fn get_completed_job_result_maybe(
             is_skipped: Some(res.is_skipped),
         })
         .into_response())
+    } else if let Some(e) =
+        waiting_parent_deadlock(&db, id, opt_authed.as_ref(), wait_for_child).await
+    {
+        Err(e)
     } else if get_started.is_some_and(|x| x) {
         // No completed row yet — the job may be queued/running. Returning its
         // running-state still discloses information about a (possibly private) job, so
@@ -13358,6 +13437,7 @@ mod approval_view_gate_tests {
             job_id: None,
             credential_expiry: None,
             mcp_client: None,
+            capabilities: Some(windmill_common::roles::RoleCapabilities::FULL),
         }
     }
 

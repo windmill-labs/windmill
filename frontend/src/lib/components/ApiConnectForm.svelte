@@ -7,7 +7,7 @@
 	import TestConnection from './TestConnection.svelte'
 	import TestAiKey from './copilot/TestAIKey.svelte'
 	import { aiResourceProvider } from './copilot/aiResourceProvider'
-	import { copilotInfo } from '$lib/aiStore'
+	import { getAiChatManager } from './copilot/chat/aiChatManagerContext'
 	import Popover from './meltComponents/Popover.svelte'
 	import Button from './common/button/Button.svelte'
 	import { Loader2 } from 'lucide-svelte'
@@ -59,6 +59,8 @@
 		onCredentialStored,
 		onSynced = undefined
 	}: Props = $props()
+
+	const aiChat = getAiChatManager()
 
 	let aiProvider = $derived(aiResourceProvider(resourceType, args))
 
@@ -225,7 +227,7 @@
 					{aiProvider}
 					workspace={workspace ?? $operatingWorkspace}
 					resourceValue={args}
-					model={$copilotInfo.aiModels.find((m) => m.provider === aiProvider)?.model}
+					model={aiChat.aiInfo?.aiModels.find((m) => m.provider === aiProvider)?.model}
 				/>
 			{/if}
 			{#if resourceType == 'postgresql'}

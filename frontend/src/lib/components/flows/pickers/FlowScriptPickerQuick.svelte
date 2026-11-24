@@ -1,4 +1,5 @@
 <script lang="ts">
+	import HostWindow from '$lib/components/common/HostWindow.svelte'
 	import type { SupportedLanguage } from '$lib/common'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import LanguageIcon from '$lib/components/common/languageIcons/LanguageIcon.svelte'
@@ -42,7 +43,7 @@
 	}
 </script>
 
-<svelte:window onkeydown={handleKeydown} />
+<HostWindow onkeydown={handleKeydown} />
 
 <Button
 	id={`flow-editor-new-${lang}`}

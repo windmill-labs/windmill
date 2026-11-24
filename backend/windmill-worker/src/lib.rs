@@ -1,3 +1,4 @@
+#![recursion_limit = "256"]
 #[cfg(feature = "bigquery")]
 mod bigquery_executor;
 #[cfg(all(feature = "enterprise", feature = "mssql"))]

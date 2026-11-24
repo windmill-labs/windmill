@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { copilotInfo } from '$lib/aiStore'
-	import { ScriptService, type Script } from '$lib/gen'
+	import { getAiChatManager } from '$lib/components/copilot/chat/aiChatManagerContext'
+	import { ScriptService, type ListableScript } from '$lib/gen'
 
 	import { Wand2, Loader2 } from 'lucide-svelte'
 	import SearchItems from '../SearchItems.svelte'
@@ -11,14 +11,14 @@
 
 	const operatingWorkspace = useOperatingWorkspace()
 
-	let scripts: Script[] | undefined = $state(undefined)
+	let scripts: ListableScript[] | undefined = $state(undefined)
 	interface Props {
 		funcDesc: string
 		trigger?: boolean
 		loading?: boolean
 		preFilter: string
 		disableAi?: boolean
-		filteredItems?: (Script & { marked?: string })[] | (Item & { marked?: string })[]
+		filteredItems?: (ListableScript & { marked?: string })[] | (Item & { marked?: string })[]
 	}
 
 	let {
@@ -29,8 +29,11 @@
 		disableAi = false,
 		filteredItems = $bindable([])
 	}: Props = $props()
+
+	const aiChat = getAiChatManager()
+	const aiInfo = $derived(aiChat.aiInfo)
 	let prefilteredItems = $derived(scripts ?? [])
-	let aiHidden = $derived(disableAi || $copilotInfo.workspaceDisabled)
+	let aiHidden = $derived(disableAi || !aiInfo || aiInfo.workspaceDisabled)
 
 	const dispatch = createEventDispatcher()
 

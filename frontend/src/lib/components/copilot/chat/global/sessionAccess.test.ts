@@ -14,7 +14,13 @@ vi.mock('$lib/workspaceProtectionRules.svelte', () => ({
 		rulesets.some((r) => r.rules.includes(kind))
 }))
 
-import { capabilitiesForRole, resolveSessionAccess } from './sessionAccess'
+import {
+	capabilitiesForRole,
+	forgetReadOnlyVerdicts,
+	isReadOnlySessionWorkspace,
+	resolveSessionAccess,
+	settledReadOnlyVerdict
+} from './sessionAccess'
 import { clearWorkspaceRoleCache } from '$lib/user'
 import { FULL_CAPABILITIES, legacyOperatorCapabilities } from '$lib/roleCapabilities'
 import type { OperatorSettings, RoleCapabilities } from '$lib/gen'
@@ -261,5 +267,25 @@ describe('resolveSessionAccess', () => {
 		const access = await resolveSessionAccess('ws')
 		expect(access.has('write_draft')).toBe(true)
 		expect(access.has('deploy')).toBe(true)
+	})
+})
+
+describe('isReadOnlySessionWorkspace', () => {
+	it('keeps a read started before forgetReadOnlyVerdicts from overwriting a newer one', async () => {
+		forgetReadOnlyVerdicts()
+		protectionRules.mockClear()
+		let releaseOld!: (rulesets: unknown[]) => void
+		protectionRules.mockReturnValueOnce(new Promise((resolve) => (releaseOld = resolve)))
+		const old = isReadOnlySessionWorkspace('race')
+
+		forgetReadOnlyVerdicts()
+		protectionRules.mockResolvedValueOnce([{ rules: ['DisableDirectDeployment'] }])
+		expect(await isReadOnlySessionWorkspace('race')).toBe(true)
+
+		releaseOld([])
+		expect(await old).toBe(false)
+		expect(settledReadOnlyVerdict('race')).toBe(true)
+		expect(await isReadOnlySessionWorkspace('race')).toBe(true)
+		expect(protectionRules).toHaveBeenCalledTimes(2)
 	})
 })

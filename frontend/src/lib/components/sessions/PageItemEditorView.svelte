@@ -2,7 +2,6 @@
 	import { setContext, untrack } from 'svelte'
 	import { Loader2 } from 'lucide-svelte'
 	import { enterpriseLicense } from '$lib/stores'
-	import { copilotInfo } from '$lib/aiStore'
 	import { resource } from 'runed'
 	import { Button } from '$lib/components/common'
 	import { lookupPageItem } from './pageItemLookup'
@@ -33,6 +32,8 @@
 		/** Bumped to reload the item from the server, discarding the mounted editor. */
 		reloadNonce?: number
 	} = $props()
+
+	const aiInfo = $derived(runtime.manager.aiInfo)
 
 	// Mounted in the preview panel, outside the chat's own subtree: chat-aware components
 	// below would otherwise resolve the app-wide manager rather than this session's.
@@ -184,7 +185,7 @@
 						layout="pane"
 						fixedTarget={{ path: item.path, workspace: workspaceId }}
 						owns={() => false}
-						enableAi={$copilotInfo.enabled}
+						enableAi={!!aiInfo?.enabled}
 						onClose={closeTab}
 						onRenamed={(_, to) => onSaved(to)}
 						onSummary={(summary) => runtime.previewTabs.stampAgentTab(item, summary)}

@@ -79,7 +79,7 @@
 					"type": "string"
 				},
 				"job_trigger_kind": {
-					"description": "Runs: filter by how the job was triggered — one of webhook, default_email, http, websocket, kafka, email, nats, mqtt, amqp, sqs, postgres, schedule, gcp, azure, google, github, asset, freshness, app. comma-separate to match several values, or prefix each with ! to exclude them instead (never mix included and excluded values in one filter). (e.g. '!schedule' to hide scheduled runs)",
+					"description": "Runs: filter by how the job was triggered — one of webhook, default_email, http, websocket, kafka, email, nats, mqtt, amqp, sqs, postgres, schedule, gcp, azure, google, github, asset, freshness, app, ui. comma-separate to match several values, or prefix each with ! to exclude them instead (never mix included and excluded values in one filter). (e.g. '!schedule' to hide scheduled runs)",
 					"type": "string"
 				},
 				"label": {

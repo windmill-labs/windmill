@@ -80,6 +80,21 @@ export function overlayHostActive(): () => boolean {
 	return () => host?.active() ?? true
 }
 
+/**
+ * Whether this component's overlay is drawn. An overlay anchored to its host's element hides
+ * with it; a host without one leaves its overlays on the viewport, where one left open while
+ * the host is hidden would cover whatever the user went to. That overlay is not rendered
+ * until the host is back, rather than hidden: an open drawer stays on its stack, an open
+ * popover keeps its focus trap, and other pages stop handling keys while any
+ * `[role="dialog"]` is in the document.
+ *
+ * Reads context, so call it during component initialisation.
+ */
+export function overlayShown(): () => boolean {
+	const host = getOverlayHost()
+	return () => !host || host.active() || !!host.el()
+}
+
 const TOPMOST_SURFACE_KEY = 'topmostSurface'
 
 /**

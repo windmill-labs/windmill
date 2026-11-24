@@ -39,8 +39,6 @@ describe('loadCopilot', () => {
 	it('lets a re-requested workspace win back over the one that superseded it', async () => {
 		const a1 = loadCopilot('a')
 		const b = loadCopilot('b')
-		// `a2` may share `a1`'s download but must apply it on its own token: `a1` already lost
-		// the apply race to `b`, so handing back `a1` itself would leave `a` never written.
 		const a2 = loadCopilot('a')
 		expect(requests.map((r) => r.workspace)).toEqual(['a', 'b'])
 

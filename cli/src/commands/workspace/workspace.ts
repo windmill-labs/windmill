@@ -2,6 +2,7 @@ import { writeFile, open as fsOpen } from "node:fs/promises";
 import { readTextFile } from "../../utils/utils.ts";
 import process from "node:process";
 import { GlobalOptions } from "../../types.ts";
+import type { WorkspaceEntryConfig } from "../../core/conf.ts";
 import {
   getActiveWorkspaceConfigFilePath,
   getWorkspaceConfigFilePath,
@@ -87,27 +88,87 @@ export async function getWorkspaceByName(
   return undefined;
 }
 
-// When the current git branch is a fork branch (wm-fork/<base>/<id>), commands
-// resolve the fork workspace from the branch name and ignore the active
-// profile — surface that wherever we display the active workspace, so users
-// don't act on the wrong "Active:" line.
-async function forkBranchAutoTargetNote(): Promise<string | undefined> {
+// Without --workspace, commands only fall back to the active profile when
+// wmill.yaml defines no workspaces (resolveWorkspace in core/context.ts) —
+// surface what they target instead wherever we display the active workspace,
+// so users don't act on the wrong "Active:" line. Keep in step with that order.
+async function branchAutoTargetNote(
+  opts: GlobalOptions
+): Promise<string | undefined> {
+  if (opts.workspace) {
+    return undefined;
+  }
   const {
     getCurrentGitBranch,
     getOriginalBranchForWorkspaceForks,
     getWorkspaceIdForWorkspaceForkFromBranchName,
+    isGitRepository,
   } = await import("../../utils/git.ts");
-  const branch = getCurrentGitBranch();
-  if (!branch || !getOriginalBranchForWorkspaceForks(branch)) {
+  const {
+    peekWorkspaces,
+    findWorkspaceByGitBranch,
+    getEffectiveWorkspaceId,
+    getWorkspaceNames,
+  } = await import("../../core/conf.ts");
+  // Not readConfigFile: a note must never exit, throw or chdir the command.
+  const workspacesConf = await peekWorkspaces();
+  const branch = isGitRepository() ? getCurrentGitBranch() : null;
+  const originalBranch = branch ? getOriginalBranchForWorkspaceForks(branch) : null;
+  const match = branch
+    ? findWorkspaceByGitBranch(workspacesConf, originalBranch ?? branch)
+    : undefined;
+
+  // Without a profile for the target, commands offer to create one and,
+  // when they cannot, may end up on the active profile after all.
+  const profiles = await allWorkspaces(opts.configDir);
+  const missingProfile = (wsName: string, entry: WorkspaceEntryConfig) => {
+    const workspaceId = getEffectiveWorkspaceId(wsName, entry);
+    let remote: string;
+    try {
+      remote = new URL(entry.baseUrl!).toString();
+    } catch {
+      return "";
+    }
+    return profiles.some((p) => p.remote === remote && p.workspaceId === workspaceId)
+      ? ""
+      : ` No local profile targets it yet: run \`wmill workspace add <profile> ${workspaceId} ${remote}\`, otherwise commands may fall back to the active profile.`;
+  };
+
+  if (match?.[1].baseUrl) {
+    const [wsName, entry] = match;
+    if (originalBranch) {
+      const forkWorkspaceId = getWorkspaceIdForWorkspaceForkFromBranchName(branch!);
+      return (
+        `Note: you are on fork branch \`${branch}\` — wmill commands automatically target the fork workspace \`${forkWorkspaceId}\` on ${entry.baseUrl} here, regardless of the active profile. Use --workspace to override.`
+      );
+    }
+    return (
+      `Note: git branch \`${branch}\` matches workspace \`${wsName}\` in wmill.yaml — wmill commands here target \`${getEffectiveWorkspaceId(wsName, entry)}\` on ${entry.baseUrl}, regardless of the active profile. Use --workspace to override.` +
+      missingProfile(wsName, entry)
+    );
+  }
+  if (originalBranch) {
+    // resolveWorkspace exits with its own error here.
     return undefined;
   }
-  const forkWorkspaceId = getWorkspaceIdForWorkspaceForkFromBranchName(branch);
-  if (!forkWorkspaceId) {
-    return undefined;
+
+  const wsNames = getWorkspaceNames(workspacesConf);
+  if (wsNames.length === 1) {
+    const entry = (workspacesConf as any)[wsNames[0]] as WorkspaceEntryConfig;
+    if (!entry?.baseUrl) {
+      return undefined;
+    }
+    return (
+      `Note: wmill.yaml defines a single workspace, \`${wsNames[0]}\` — wmill commands here target \`${getEffectiveWorkspaceId(wsNames[0], entry)}\` on ${entry.baseUrl}, regardless of the active profile. Use --workspace to override.` +
+      missingProfile(wsNames[0], entry)
+    );
   }
-  return (
-    `Note: you are on fork branch \`${branch}\` — wmill commands automatically target the fork workspace \`${forkWorkspaceId}\` here, regardless of the active profile. Use --workspace to override.`
-  );
+  if (wsNames.length > 1) {
+    return (
+      `Note: wmill.yaml defines workspaces ${wsNames.map((n) => `\`${n}\``).join(", ")} and the current git branch selects none of them — wmill commands here ask which one to use, or exit when not run in a terminal. Use --workspace to pick one.`
+    );
+  }
+  return undefined;
 }
 
 export async function list(opts: GlobalOptions) {
@@ -132,9 +193,9 @@ export async function list(opts: GlobalOptions) {
 
   log.info("Active: " + colors.green.bold(activeName || "none"));
 
-  const forkNote = await forkBranchAutoTargetNote();
-  if (forkNote) {
-    log.info(colors.yellow(forkNote));
+  const branchNote = await branchAutoTargetNote(opts);
+  if (branchNote) {
+    log.info(colors.yellow(branchNote));
   }
 }
 
@@ -169,9 +230,9 @@ async function switchC(opts: GlobalOptions, workspaceName: string) {
       `Switched to workspace ${workspaceName} (${workspace?.workspaceId} on ${workspace?.remote})`
     )
   );
-  const forkNote = await forkBranchAutoTargetNote();
-  if (forkNote) {
-    log.info(colors.yellow(forkNote));
+  const branchNote = await branchAutoTargetNote(opts);
+  if (branchNote) {
+    log.info(colors.yellow(branchNote));
   }
   return;
 }
@@ -490,6 +551,106 @@ async function remove(_opts: GlobalOptions, name: string) {
   await removeWorkspace(name, false, _opts);
 }
 
+const CLI_LOGIN_TOKEN_LABEL_PREFIX = "cli-login:";
+
+// Only a token the CLI's own browser login minted is revoked: a token pasted into the profile may
+// also be used elsewhere (CI, another machine), so deleting it could break more than this profile.
+async function revokeCliLoginToken(token: string): Promise<boolean> {
+  const prefix = token.substring(0, 10);
+  const perPage = 100;
+  for (let page = 1; page <= 50; page++) {
+    const tokens = await wmill.listTokens({ excludeEphemeral: true, page, perPage });
+    const match = tokens.find((t) => t.token_prefix === prefix);
+    if (match) {
+      if (!match.label?.startsWith(CLI_LOGIN_TOKEN_LABEL_PREFIX)) {
+        return false;
+      }
+      await wmill.deleteToken({ tokenPrefix: prefix });
+      return true;
+    }
+    if (tokens.length < perPage) {
+      return false;
+    }
+  }
+  return false;
+}
+
+async function login(opts: GlobalOptions, workspaceName?: string) {
+  const workspace = workspaceName
+    ? await getWorkspaceByName(workspaceName, opts.configDir)
+    : await getActiveWorkspace(opts);
+  if (!workspace) {
+    log.info(
+      colors.red.bold(
+        workspaceName
+          ? `! Workspace profile ${workspaceName} does not exist locally`
+          : "! No active workspace profile. Add one with 'wmill workspace add'."
+      )
+    );
+    return process.exit(1);
+  }
+  if (
+    opts.baseUrl &&
+    new URL(opts.baseUrl).toString() !== new URL(workspace.remote).toString()
+  ) {
+    log.info(
+      colors.red.bold(
+        `! --base-url ${opts.baseUrl} does not match profile ${workspace.name} (${workspace.remote}). Use 'wmill workspace add' for another instance.`
+      )
+    );
+    return process.exit(1);
+  }
+
+  let token = await tryGetLoginInfo(opts);
+  if (!token) {
+    if (!(process.stdin.isTTY ?? false)) {
+      log.info("Not a TTY, can't login interactively. Pass the token in --token");
+      return process.exit(1);
+    }
+    log.info(
+      `Signing in again to ${workspace.workspaceId} on ${workspace.remote} for profile ${workspace.name}`
+    );
+    token = await loginInteractive(workspace.remote);
+  }
+  if (!token) {
+    log.info(colors.red.bold("! Login failed, the profile was left unchanged."));
+    return process.exit(1);
+  }
+
+  const remote = workspace.remote.substring(0, workspace.remote.length - 1);
+  setClient(token, remote);
+  try {
+    await wmill.whoami({ workspace: workspace.workspaceId });
+  } catch (e) {
+    log.info(
+      colors.red.bold(
+        `! The new token cannot access workspace ${workspace.workspaceId}, the profile was left unchanged.`
+      )
+    );
+    throw e;
+  }
+
+  const oldToken = workspace.token;
+  await addWorkspace({ ...workspace, token }, opts);
+
+  // `wmill instance pull --include-workspaces` copies one token into the instance profile and
+  // every workspace profile it creates: revoking it would sign all the others out.
+  const { allInstances } = await import("../instance/instance.ts");
+  const stillReferenced =
+    (await allWorkspaces(opts.configDir)).some((w) => w.token === oldToken) ||
+    (await allInstances()).some((i) => i.token === oldToken);
+  if (oldToken && oldToken !== token && !stillReferenced) {
+    try {
+      if (await revokeCliLoginToken(oldToken)) {
+        log.info("Revoked the profile's previous token.");
+      }
+    } catch {
+      // Already expired or deleted, or owned by another user: nothing left to revoke.
+    }
+  }
+  log.info(colors.green.underline(`Successfully signed in again for profile ${workspace.name}`));
+}
+
 async function whoami(_opts: GlobalOptions) {
   const whoamiInfo = await requireLogin(_opts);
   log.info(JSON.stringify(whoamiInfo, null, 2));
@@ -507,6 +668,10 @@ async function whoami(_opts: GlobalOptions) {
     }
   } else {
     log.info("Active: " + colors.green.bold(activeName || "none"));
+    const branchNote = await branchAutoTargetNote(_opts);
+    if (branchNote) {
+      log.info(colors.yellow(branchNote));
+    }
   }
 }
 
@@ -872,6 +1037,13 @@ const command = new Command()
   .description("Remove a workspace")
   .arguments("<workspace_name:string>")
   .action(remove as any)
+  .command("login")
+  .complete("workspace", async () => (await allWorkspaces()).map((x) => x.name))
+  .description(
+    "Sign in again for a workspace profile (default: the active one) and replace its token, e.g. to extend one about to expire. The previous token is revoked when the CLI's browser login created it."
+  )
+  .arguments("[workspace_name:string:workspace]")
+  .action(login as any)
   .command("whoami")
   .description("Show the currently active user")
   .action(whoami as any)

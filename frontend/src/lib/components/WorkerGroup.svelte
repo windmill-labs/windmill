@@ -232,6 +232,8 @@
 		workers: [string, WorkerPing[]][]
 		isAgent?: boolean
 		defaultTagPerWorkspace?: boolean | undefined
+		/** undefined while unknown: the reserve toggle then stays shown */
+		workspaceFairnessEnabled?: boolean | undefined
 		width: number
 		shouldAutoOpenDrawer?: boolean
 		onDrawerOpened?: () => void
@@ -248,6 +250,7 @@
 		workers,
 		isAgent = false,
 		defaultTagPerWorkspace = undefined,
+		workspaceFairnessEnabled = undefined,
 		width = 0,
 		shouldAutoOpenDrawer = false,
 		onDrawerOpened = () => {},
@@ -943,7 +946,7 @@
 					disabled={!canEditConfig}
 				/>
 			</Label>
-			{#if !isAgent}
+			{#if !isAgent && (workspaceFairnessEnabled !== false || config?.fairness_reserve === true)}
 				<div class="mt-8"></div>
 				<Label label="Fairness reserve" eeOnly={!hasEnterpriseFeatures}>
 					{#snippet header()}
@@ -967,10 +970,17 @@
 						}}
 						disabled={!canEditEEConfig}
 					/>
-					<p class="text-2xs text-secondary">
-						Idle until a workspace is capped. Requires workspace fairness to be enabled in the
-						instance settings, otherwise the group never pulls a job.
-					</p>
+					{#if workspaceFairnessEnabled === false && nconfig?.fairness_reserve === true}
+						<Alert size="xs" type="warning" title="Workspace fairness is off">
+							This group pulls no jobs while workspace fairness is off in the instance settings.
+							Turn the reserve off, or enable workspace fairness.
+						</Alert>
+					{:else}
+						<p class="text-2xs text-secondary">
+							Idle until a workspace is capped. Requires workspace fairness to be enabled in the
+							instance settings, otherwise the group never pulls a job.
+						</p>
+					{/if}
 				</Label>
 			{/if}
 			<div class="mt-8"></div>
@@ -1561,12 +1571,16 @@
 					</Badge>
 				{/if}
 				{#if config?.fairness_reserve === true && !isAgent}
-					<Badge color="indigo" small>
+					<Badge color={workspaceFairnessEnabled === false ? 'yellow' : 'indigo'} small>
 						Fairness reserve
 						<Tooltip>
 							{#snippet text()}
-								Pulls jobs only while workspace fairness caps a workspace, and then only jobs of the
-								workspaces it does not cap. Idle otherwise.
+								{#if workspaceFairnessEnabled === false}
+									Workspace fairness is off in the instance settings, so this group pulls no jobs.
+								{:else}
+									Pulls jobs only while workspace fairness caps a workspace, and then only jobs of
+									the workspaces it does not cap. Idle otherwise.
+								{/if}
 							{/snippet}
 						</Tooltip>
 					</Badge>

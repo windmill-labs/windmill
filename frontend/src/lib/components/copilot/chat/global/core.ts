@@ -230,6 +230,7 @@ import {
 	resolveGlobalDraftStoragePathByKind,
 	type DraftPersistResult
 } from './userDraftAdapter'
+import { describeDeployEdits, takeDeployEdits } from './deployEdits'
 import {
 	applySessionToolEffects,
 	applyStatusEffects,
@@ -1900,7 +1901,9 @@ ${groupMembershipRule}- Listings and reads return only what this user can see: i
 		` You may draft a new agent or a change to one, after calling get_instructions with subject "agent". The user can review it on the agent's page, \`/agents/edit/<path>\`.`
 	)}${when(
 		buildsFlows,
-		' Its tools, like flow steps, may only reference deployed scripts and flows by path: the server refuses inline code and hub scripts.'
+		canWriteDraft
+			? ' Its tools, like flow steps, may only reference deployed scripts and flows, or hub scripts, by path: the server refuses inline code.'
+			: ' Its tools, like flow steps, may only reference deployed scripts and flows by path: the server refuses inline code and hub scripts.'
 	)}${when(
 		canRunFlowPreview,
 		' Test an agent, its draft included, with test_run_agent.'
@@ -2228,7 +2231,8 @@ ${getScriptPrompt(selected)}`
 async function getFlowInstructions(
 	workspace: string | undefined,
 	composeOnly: boolean,
-	external = false
+	external: boolean,
+	hub: boolean
 ): Promise<string> {
 	// An external client's catalog is rendered where no workspace is known, so it gets none.
 	const aiAgentProviders = external
@@ -2247,7 +2251,9 @@ async function getFlowInstructions(
 - Every module needs a stable unique \`id\` and a useful \`summary\` when the schema supports it.
 ${
 	composeOnly
-		? '- Compose only path modules (`script` / `flow`) that reference items already deployed in the workspace. Rawscript modules and hub scripts are refused for this user.'
+		? hub
+			? '- Compose only path modules (`script` / `flow`) that reference items already deployed in the workspace or hub scripts. Rawscript modules are refused for this user.'
+			: '- Compose only path modules (`script` / `flow`) that reference items already deployed in the workspace. Rawscript modules and hub scripts are refused for this user.'
 		: `- Prefer path/script/flow modules when composing existing workspace logic. Use rawscript modules only when new inline code is needed.
 - When writing rawscript module code, call \`get_instructions\` with \`subject: "script"\` and the rawscript language first.`
 }
@@ -2275,7 +2281,13 @@ ${
 }${aiAgentProviders ? `\n${aiAgentProviders}\n` : ''}
 # Windmill flow authoring reference
 
-${composeOnly ? 'This reference is written for every author. For this user, skip what it says about inline code (rawscript steps, inline AI agent tools) and hub scripts: the server refuses them. Compose only path steps that reference deployed scripts and flows.\n\n' : ''}${getFlowPrompt()}`
+${
+	composeOnly
+		? hub
+			? 'This reference is written for every author. For this user, skip what it says about inline code (rawscript steps, inline AI agent tools): the server refuses it. Compose only path steps that reference deployed scripts and flows or hub scripts.\n\n'
+			: 'This reference is written for every author. For this user, skip what it says about inline code (rawscript steps, inline AI agent tools) and hub scripts: the server refuses them. Compose only path steps that reference deployed scripts and flows.\n\n'
+		: ''
+}${getFlowPrompt()}`
 }
 
 type InstructionSubject = (typeof ALL_INSTRUCTION_SUBJECTS)[number]
@@ -2283,7 +2295,8 @@ type InstructionSubject = (typeof ALL_INSTRUCTION_SUBJECTS)[number]
 function getAppInstructions(
 	language: ScriptLang | undefined,
 	composeOnly: boolean,
-	external = false
+	external: boolean,
+	hub: boolean
 ): string {
 	// getRawAppPrompt swaps in the Python SDK for python3, so the pointer has to swap with
 	// it: telling the model to re-fetch a reference it is already holding wastes a turn, and
@@ -2313,7 +2326,9 @@ ${
 - Frontend file paths start with \`/\` (e.g. \`/index.tsx\`, \`/App.tsx\`, \`/styles.css\`). Use \`write_app_file\` / \`patch_app_file\` / \`delete_app_file\`.
 ${
 	composeOnly
-		? '- Every backend runnable is a path runnable (`script` / `flow`) referencing an item already deployed in the workspace, created with `write_app_runnable` and removed with `delete_app_runnable`. Inline and hub runnables are refused for this user.'
+		? hub
+			? '- Every backend runnable is a path runnable (`script` / `flow` / `hubscript`) referencing an item already deployed in the workspace or a hub script, created with `write_app_runnable` and removed with `delete_app_runnable`. Inline runnables are refused for this user.'
+			: '- Every backend runnable is a path runnable (`script` / `flow`) referencing an item already deployed in the workspace, created with `write_app_runnable` and removed with `delete_app_runnable`. Inline and hub runnables are refused for this user.'
 		: `- Backend inline runnables are addressed as \`backend/<key>/main.{ts|py}\` from the file tools, but you create or update them via \`write_app_runnable\` / \`delete_app_runnable\` (which take the runnable shape directly: \`{ name, type, inlineScript?, path?, staticInputs? }\`).`
 }
 - \`/wmill.d.ts\` (or \`wmill.ts\`) is generated automatically from the backend runnables — never write it directly.${
@@ -2329,7 +2344,13 @@ ${composeOnly ? '' : `${sdkLine}\n`}- Use \`deploy_workspace_item\` after explic
 
 # Windmill raw app authoring reference
 
-${composeOnly ? 'This reference is written for every author. For this user, skip what it says about inline runnables, hub scripts and the data setup: the server refuses inline and hub runnables. Every runnable is a path runnable referencing a deployed script or flow.\n\n' : ''}${getRawAppPrompt(language)}`
+${
+	composeOnly
+		? hub
+			? 'This reference is written for every author. For this user, skip what it says about inline runnables and the data setup: the server refuses inline runnables. Every runnable is a path runnable referencing a deployed script or flow, or a hub script.\n\n'
+			: 'This reference is written for every author. For this user, skip what it says about inline runnables, hub scripts and the data setup: the server refuses inline and hub runnables. Every runnable is a path runnable referencing a deployed script or flow.\n\n'
+		: ''
+}${getRawAppPrompt(language)}`
 }
 
 // An external client has no secret card and no question card, so it keeps the write_variable route.
@@ -2365,7 +2386,8 @@ async function getAgentInstructions(
 	/** The user cannot write inline code: the server refuses a rawscript tool from them. */
 	composeOnly: boolean,
 	/** The session cannot run `test_run_agent`. */
-	untestable: boolean
+	untestable: boolean,
+	hub: boolean
 ): Promise<string> {
 	const aiAgentProviders = external
 		? ''
@@ -2382,7 +2404,9 @@ async function getAgentInstructions(
 - The user can review the agent on its page, ${external ? 'the url `write_resource` returns' : '`/agents/edit/<path>`'}. Deploy it with \`deploy_workspace_item\` (type "resource") once they ask, as for any other draft.
 ${
 	composeOnly
-		? '- This user cannot write inline code, so skip what the reference says about inline tools: every script tool points at a deployed script, found with the workspace search tools. When none does the job, say so and suggest asking a workspace admin for that script; never add a rawscript tool.'
+		? hub
+			? '- This user cannot write inline code, so skip what the reference says about inline tools: every script tool points at a deployed script, found with the workspace search tools, or at a hub script. When none does the job, draft the script, and point the tool at it once it is deployed; never add a rawscript tool.'
+			: '- This user cannot write inline code, so skip what the reference says about inline tools: every script tool points at a deployed script, found with the workspace search tools. When none does the job, say so and suggest asking a workspace admin for that script; never add a rawscript tool.'
 		: '- Before writing an inline tool, look for a deployed script that already does the job with the workspace search tools.'
 }
 ${aiAgentProviders ? `\n${aiAgentProviders}\n` : ''}
@@ -2417,19 +2441,21 @@ export function getInstructions(
 	composeOnly: boolean,
 	external = false,
 	/** The session cannot run a flow preview, which an agent's test run is. */
-	untestable = false
+	untestable = false,
+	/** The role has code, which the server requires to add a hub path. */
+	hub = true
 ): string | Promise<string> {
 	switch (subject) {
 		case 'script':
 			return getScriptInstructions(language)
 		case 'flow':
-			return getFlowInstructions(workspace, composeOnly, external)
+			return getFlowInstructions(workspace, composeOnly, external, hub)
 		case 'resource':
 			return getResourceInstructions(external)
 		case 'agent':
-			return getAgentInstructions(workspace, external, composeOnly, untestable)
+			return getAgentInstructions(workspace, external, composeOnly, untestable, hub)
 		case 'app':
-			return getAppInstructions(language, composeOnly, external)
+			return getAppInstructions(language, composeOnly, external, hub)
 		case 'datatable':
 			return getDatatableInstructions(language)
 		case 'pipeline':
@@ -2637,6 +2663,7 @@ export const readSkillTool: SessionTool<{}> = {
 		'Load the full instructions for an AI skill by resource path. Skills are listed in the system prompt under "Skills"; call this before acting on a task a skill covers, then follow its instructions.'
 	),
 	planModeSafe: true,
+	lookup: true,
 	fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 		const parsed = readSkillSchema.parse(args)
 		const name = skillNameFromPath(parsed.path)
@@ -3423,6 +3450,7 @@ export const globalTools: SessionTool<{}>[] = [
 			'Get authoring guidance for scripts, flows, AI agents, data pipelines, resources, apps, or data tables: their migrations and permissions, and the SQL SDK (wmill.datatable()) used inside runnables.'
 		),
 		planModeSafe: true,
+		lookup: true,
 		fn: async (ctx) => {
 			const { args, toolId, toolCallbacks } = ctx
 			const parsed = getInstructionsSchema.parse(args)
@@ -3472,7 +3500,8 @@ export const globalTools: SessionTool<{}>[] = [
 				ctx.workspace,
 				composeOnly,
 				false,
-				!!access && !access.has('run_flow_preview')
+				!!access && !access.has('run_flow_preview'),
+				!access || access.has('write_draft')
 			)
 		}
 	},
@@ -3677,6 +3706,7 @@ export const globalTools: SessionTool<{}>[] = [
 			'List workspace items and drafts. Returns metadata only, up to limit items per item type per page (default 50); pass page to continue past a full page.'
 		),
 		planModeSafe: true,
+		lookup: true,
 		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 			listWorkspaceItemsSchema.parse(args)
 			toolCallbacks.setToolStatus(toolId, { content: 'Listing workspace items...' })
@@ -3698,6 +3728,7 @@ export const globalTools: SessionTool<{}>[] = [
 			'List the data pipelines of the workspace: each folder holding at least one pipeline script, with its number of scripts. A pipeline is named by its folder, not by an item path.'
 		),
 		planModeSafe: true,
+		lookup: true,
 		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 			toolCallbacks.setToolStatus(toolId, { content: 'Listing data pipelines...' })
 			const { text } = await runOnServer('list_pipelines', workspace, args)
@@ -3715,6 +3746,7 @@ export const globalTools: SessionTool<{}>[] = [
 			'Read one workspace item or draft. Prefers your draft when one exists; pass version: "deployed" to read the deployed state instead. A deployed item carries extraPerms (a draft does not; pass version: "deployed" for it): who it is shared with beyond its owner, as u/<user> or g/<group> → true (write) or false (read-only). A folder returns its owners and extraPerms; a group returns its members and extraPerms (who may manage it). For a folder or group, path is its name. A g/<group> entry grants every member of that group (g/all is everyone), and workspace admins can read and write every folder and item whatever these lists say.'
 		),
 		planModeSafe: true,
+		lookup: true,
 		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 			const parsed = readWorkspaceItemSchema.parse(args)
 			const { type } = parsed
@@ -3865,6 +3897,7 @@ export const globalTools: SessionTool<{}>[] = [
 			'Get the configuration schema for one trigger kind — its config fields differ per kind.'
 		),
 		planModeSafe: true,
+		lookup: true,
 		fn: async (ctx) => {
 			const { kind } = getTriggerSchemaSchema.parse(ctx.args)
 			return triggerConfigJsonSchema(kind)
@@ -3878,6 +3911,7 @@ export const globalTools: SessionTool<{}>[] = [
 			"Get the shape of a schedule's `advanced` object: retry, pausing, tags, and error-handler tuning."
 		),
 		planModeSafe: true,
+		lookup: true,
 		fn: async () => JSON.stringify(advancedScheduleShape(), null, 2)
 	},
 	{
@@ -3913,6 +3947,7 @@ export const globalTools: SessionTool<{}>[] = [
 	{
 		requires: RUN_PREVIEW,
 		def: testRunScriptToolDef,
+		testRun: 'script',
 		fn: async (ctx) => {
 			const parsed = testRunScriptSchema.parse(ctx.args)
 			return testRunScriptByPath(parsed, ctx)
@@ -3931,6 +3966,7 @@ export const globalTools: SessionTool<{}>[] = [
 	{
 		requires: RUN_PREVIEW,
 		def: testRunCodeToolDef,
+		testRun: 'code',
 		fn: async (ctx) => {
 			const parsed = testRunCodeSchema.parse(ctx.args)
 			return testRunCode(parsed, ctx)
@@ -3966,6 +4002,7 @@ export const globalTools: SessionTool<{}>[] = [
 	{
 		requires: RUN_FLOW_PREVIEW,
 		def: testRunFlowToolDef,
+		testRun: 'flow',
 		fn: async (ctx) => {
 			const parsed = testRunFlowSchema.parse(ctx.args)
 			return testRunFlowByPath(parsed, ctx)
@@ -3996,6 +4033,7 @@ export const globalTools: SessionTool<{}>[] = [
 	{
 		requires: RUN_FLOW_PREVIEW,
 		def: testRunAgentToolDef,
+		testRun: 'agent',
 		fn: async (ctx) => {
 			const parsed = testRunAgentSchema.parse(ctx.args)
 			return testRunAgentByPath(parsed, ctx)
@@ -4026,6 +4064,7 @@ export const globalTools: SessionTool<{}>[] = [
 	{
 		requires: RUN_PREVIEW,
 		def: testRunStepToolDef,
+		testRun: 'flow',
 		fn: async (ctx) => {
 			const parsed = testRunStepSchema.parse(ctx.args)
 			return testRunFlowStepByPath(parsed, ctx)
@@ -4046,6 +4085,7 @@ export const globalTools: SessionTool<{}>[] = [
 			'List recent runs (jobs), most recent first. Optionally filter by path, creator, label, or status. Returns compact metadata only — use get_run with a returned id to see what a run was called with, returned and logged.'
 		),
 		planModeSafe: true,
+		lookup: true,
 		showDetails: true,
 		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 			listRunsSchema.parse(args)
@@ -4066,6 +4106,7 @@ export const globalTools: SessionTool<{}>[] = [
 			'List the workers connected to this Windmill instance (those that pinged in the last 5 minutes), with their worker group, custom tags, seconds since their last ping, and jobs executed. Pair with list_runs to diagnose a stuck queue: runs queued on a tag no listed worker picks up will never start. Three blind spots to report rather than reason past: an empty result states whether no worker is connected or whether workers may be hidden from you, so relay the one it gives instead of picking; a missing custom_tags can mean tags are hidden from you, not unset; and only the 100 most recently pinging workers are listed, so on a bigger instance a tag none of them carries may still be served.'
 		),
 		planModeSafe: true,
+		lookup: true,
 		showDetails: true,
 		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 			toolCallbacks.setToolStatus(toolId, { content: 'Listing workers...' })
@@ -4091,6 +4132,7 @@ export const globalTools: SessionTool<{}>[] = [
 			"Inspect one run: its status, arguments, result and logs, plus — for a flow — the per-step execution tree with each step's status and truncated result (subflow steps, loop iterations, branches and retries included). Works on running jobs too. Pass step to fetch one step's result in full (up to 12k chars)."
 		),
 		planModeSafe: true,
+		lookup: true,
 		showDetails: true,
 		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 			const parsed = getRunSchema.parse(args)
@@ -4214,6 +4256,7 @@ export const globalTools: SessionTool<{}>[] = [
 		// Safe while planning: diff only flushes user-authored parked autosaves, honors the
 		// autosave toggle, and never changes content, deploys, or runs user code.
 		planModeSafe: true,
+		lookup: true,
 		showDetails: true,
 		fn: async (ctx) => {
 			const parsed = diffSchema.parse(ctx.args)
@@ -4348,6 +4391,7 @@ export const globalTools: SessionTool<{}>[] = [
 			'Search workspace resource types and schemas.'
 		),
 		planModeSafe: true,
+		lookup: true,
 		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 			const parsed = searchResourceTypesSchema.parse(args)
 			toolCallbacks.setToolStatus(toolId, {
@@ -4398,6 +4442,7 @@ export const globalTools: SessionTool<{}>[] = [
 			'Read inline script code from one flow module.'
 		),
 		planModeSafe: true,
+		lookup: true,
 		fn: async (ctx) => {
 			const parsed = readFlowModuleCodeSchema.parse(ctx.args)
 			ctx.toolCallbacks.setToolStatus(ctx.toolId, {
@@ -4448,6 +4493,7 @@ export const globalTools: SessionTool<{}>[] = [
 			'Read one raw app frontend file or inline backend runnable. Large files are truncated to a head slice; pass offset/limit to page through the rest.'
 		),
 		planModeSafe: true,
+		lookup: true,
 		fn: async (ctx) => {
 			const parsed = readAppFileSchema.parse(ctx.args)
 			ctx.toolCallbacks.setToolStatus(ctx.toolId, {
@@ -4464,6 +4510,7 @@ export const globalTools: SessionTool<{}>[] = [
 			"Grep across all of a raw app's frontend files and inline backend runnables in one call. Returns matching file:line rows (capped), not file bodies — use it to locate a symbol or string before read_app_file instead of reading whole files one by one."
 		),
 		planModeSafe: true,
+		lookup: true,
 		fn: async (ctx) => {
 			const parsed = searchAppSchema.parse(ctx.args)
 			if (parsed.query.length > 0) {
@@ -4564,6 +4611,7 @@ export const globalTools: SessionTool<{}>[] = [
 		// operators too once `force_viewer_static_fields` marks the call a preview.
 		requires: RUN_PREVIEW,
 		def: testRunAppRunnableToolDef,
+		testRun: 'app',
 		fn: async (ctx) => {
 			const parsed = testRunAppRunnableSchema.parse(ctx.args)
 			return testRunAppRunnable(parsed, ctx)
@@ -4622,6 +4670,7 @@ export const globalTools: SessionTool<{}>[] = [
 			'Check whether the side-panel preview is open in this AI session and which item (kind + path) it is showing — for an artifact tab, also the version the user has pinned in its version picker, which may be older than the latest. Call this before offering or calling open_preview so you do not re-open a preview that is already showing the item you just edited, and whenever the user asks what they are looking at with no ACTIVE PREVIEW section to answer from. Only meaningful inside a session.'
 		),
 		planModeSafe: true,
+		lookup: true,
 		fn: async (ctx) => getSessionPreviewStatus(sessionIdFromCtx(ctx))
 	},
 	{
@@ -4645,6 +4694,7 @@ export const globalTools: SessionTool<{}>[] = [
 			'Fetch the most recent browser console logs (and uncaught errors) from the raw app preview currently open in this AI session. Also reports the build: right after an edit it waits (up to 20s) for the rebuild, and when the build failed it returns the build error and bundler logs first.'
 		),
 		planModeSafe: true,
+		lookup: true,
 		showDetails: true,
 		fn: async (ctx) => {
 			const parsed = getRuntimeLogsSchema.parse(ctx.args)
@@ -4669,6 +4719,7 @@ export const globalTools: SessionTool<{}>[] = [
 			'List the backend runnable executions (jobs) the raw app preview currently open in this AI session has triggered, newest first.'
 		),
 		planModeSafe: true,
+		lookup: true,
 		showDetails: true,
 		fn: async (ctx) => {
 			const parsed = listAppRunsSchema.parse(ctx.args)
@@ -4689,6 +4740,7 @@ export const globalTools: SessionTool<{}>[] = [
 			'Search the live rendered HTML of the raw app preview open in this AI session with a regex, returning matching lines with their line numbers. Use it to check what actually rendered (verify an edit landed, diagnose a blank/empty view). Scope to an element with `selector`, or omit it for the whole page. The DOM is read live, so it reflects the current state.'
 		),
 		planModeSafe: true,
+		lookup: true,
 		showDetails: true,
 		fn: async (ctx) => {
 			const parsed = searchDomSchema.parse(ctx.args)
@@ -4718,6 +4770,7 @@ export const globalTools: SessionTool<{}>[] = [
 			'Read a bounded window of the live rendered HTML of the raw app preview open in this AI session, pretty-printed and line-numbered. Scope to an element with `selector`, or omit it for the whole page. Use search_dom first to locate content, then read_dom to see a specific region. The DOM is read live.'
 		),
 		planModeSafe: true,
+		lookup: true,
 		showDetails: true,
 		fn: async (ctx) => {
 			const parsed = readDomSchema.parse(ctx.args)
@@ -4749,6 +4802,7 @@ export const globalTools: SessionTool<{}>[] = [
 			'Capture a screenshot of the raw app preview currently open in this AI session and attach it as an image so you can see the rendered UI. Use it when the user raises how the app looks, whether reporting a problem or asking for the design improved, rather than to check your own edits. The image is attached in the following message. Requires the raw app preview open (open_preview kind="raw_app").'
 		),
 		planModeSafe: true,
+		lookup: true,
 		showDetails: true,
 		fn: async (ctx) => {
 			// A known text-only model would reject the follow-up image message and fail
@@ -7217,13 +7271,30 @@ async function deployDraft(
 	ctx: WriteDraftCtx
 ): Promise<string> {
 	const { workspace, toolId, toolCallbacks, sessionId } = ctx
-	const {
-		type,
-		path,
-		trigger_kind: triggerKind,
-		deployment_message: deploymentMessage,
-		force
-	} = args
+	const { type, path, trigger_kind: triggerKind, force } = args
+	const edits = takeDeployEdits(toolId)
+	const deploymentMessage =
+		edits?.deploymentMessage !== undefined
+			? edits.deploymentMessage || undefined
+			: args.deployment_message
+	const onBehalfOf = edits?.onBehalfOf
+	// A picked path creates the item there: one already taken would turn the create into an update
+	// of whatever lives at it, so it is refused rather than overwritten.
+	if (edits?.deployPath && edits.deployPath !== path) {
+		const taken =
+			type === 'script'
+				? await ScriptService.existsScriptByPath({ workspace, path: edits.deployPath })
+				: type === 'flow'
+					? await FlowService.existsFlowByPath({ workspace, path: edits.deployPath })
+					: type === 'app'
+						? await AppService.existsApp({ workspace, path: edits.deployPath })
+						: false
+		if (taken) {
+			throw new Error(
+				`Cannot deploy ${type} "${path}" at "${edits.deployPath}": something is already deployed there.`
+			)
+		}
+	}
 
 	if (type === 'trigger' && !triggerKind) {
 		throw new Error('trigger_kind is required when deploying a trigger.')
@@ -7288,13 +7359,20 @@ async function deployDraft(
 				: undefined
 			assertDraftBasedOnLatest('flow', path, draft.parentVersionId, existing?.version_id, force)
 		}
+		const isNewItem = !(type === 'script'
+			? await ScriptService.existsScriptByPath({ workspace, path })
+			: await FlowService.existsFlowByPath({ workspace, path }))
+		if (edits?.deployPath && isNewItem) deployedPath = edits.deployPath
 		const draftOnly =
 			type === 'flow'
 				? !(await FlowService.existsFlowByPath({ workspace, path: storagePath }))
 				: false
 		const result = await deployDraftToWorkspace(type, storagePath, workspace, {
 			draftOnly,
-			deploymentMessage
+			deploymentMessage,
+			onBehalfOf,
+			// A path change is a rename for an item already deployed, which the card never offers.
+			deployPath: edits?.deployPath && isNewItem ? edits.deployPath : undefined
 		})
 		if (!result.success) {
 			throw new Error(result.error ?? `Failed to deploy ${type} "${path}".`)
@@ -7402,6 +7480,10 @@ async function deployDraft(
 				if (!policy) {
 					throw new Error(`Draft app "${path}" has no policy to deploy.`)
 				}
+				if (onBehalfOf) {
+					policy.on_behalf_of = onBehalfOf.permissionedAs
+					policy.on_behalf_of_email = onBehalfOf.email
+				}
 
 				// An app deployed on its own while a path runnable still points at a draft
 				// is deployed and broken — the deploy has to say so, not just report success.
@@ -7475,8 +7557,14 @@ async function deployDraft(
 						throw e
 					}
 				}
+				if (edits?.deployPath && !(await AppService.existsApp({ workspace, path: targetPath }))) {
+					targetPath = edits.deployPath
+				}
 				deployedPath = targetPath
 				const isUpdate = await AppService.existsApp({ workspace, path: targetPath })
+				// The access the user picked on the card applies to a new app only: an update keeps the
+				// deployed one, which only the Share dialog changes.
+				if (!isUpdate && edits?.appAccess) policy.execution_mode = edits.appAccess
 				if (isUpdate) {
 					// Who can open the app and its custom URL are set from the Share dialog: the update
 					// states neither, and the server keeps the deployed ones.
@@ -7592,17 +7680,25 @@ async function deployDraft(
 		})
 	}
 
+	const userChanges = describeDeployEdits(edits, {
+		requestedMessage: args.deployment_message,
+		path,
+		deployedPath
+	})
+
 	toolCallbacks.setToolStatus(toolId, {
-		content: `Deployed ${noun} "${path}"`,
+		content: `Deployed ${noun} "${deployedPath}"`,
 		result: 'Deployed',
 		actions
 	})
 	return JSON.stringify(
 		{
 			success: true,
-			message: `Deployed draft ${type} "${path}" to the workspace. Draft removed.${
-				deployNote ? ` ${deployNote}` : ''
-			}`,
+			message: `Deployed draft ${type} "${path}" to the workspace${
+				deployedPath !== path ? ` at "${deployedPath}"` : ''
+			}. Draft removed.${
+				userChanges ? ` ${userChanges}` : ''
+			}${deployNote ? ` ${deployNote}` : ''}`,
 			type,
 			path,
 			triggerKind

@@ -983,8 +983,17 @@ export async function inferSchema(
     argSigToJsonSchemaType(arg.typ, currentSchema.properties[arg.name]);
 
     // For T | T[] detection for debouncing arg accumulation
-    if ((arg as any).otyp && (arg as any).otyp.includes('[') && (arg as any).otyp.includes('|')) {
-      currentSchema.properties[arg.name].originalType = (arg as any).otyp
+    const otyp: string | undefined = (arg as any).otyp;
+    if (otyp && otyp.includes("[") && otyp.includes("|")) {
+      currentSchema.properties[arg.name].originalType = otyp;
+    } else if (
+      otyp &&
+      !currentSchema.properties[arg.name].description &&
+      ["python3", "deno", "bun", "bunnative", "nativets"].includes(language)
+    ) {
+      // Python docstring `Args:` and TS JSDoc `@param` text: the parsers pass it as `otyp`.
+      // It only fills an empty description, never replaces one typed in the schema.
+      currentSchema.properties[arg.name].description = otyp;
     }
 
     // Most languages cannot write a resource default in code, so one picked in the

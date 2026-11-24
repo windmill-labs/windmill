@@ -539,5 +539,7 @@ export class ImportExecution {
 }
 
 function itemCount(e: ProjectExport): number {
-	return e.scripts.length + e.flows.length + e.apps.length + e.resources.length
+	return (
+		e.scripts.length + e.flows.length + e.apps.length + e.resources.length + (e.agents?.length ?? 0)
+	)
 }

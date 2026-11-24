@@ -47,6 +47,8 @@
 	let historicInputs: HistoricInputs | undefined = $state(undefined)
 
 	let runnableId = $derived(scriptHash || scriptPath || flowPath || undefined)
+	// The runs page filters by path, and on an older version of a script runnableId is a hash.
+	let runsPath = $derived(scriptPath || flowPath || '')
 
 	let runnableType: RunnableType | undefined = $derived(
 		scriptHash ? 'ScriptHash' : scriptPath ? 'ScriptPath' : flowPath ? 'FlowPath' : undefined
@@ -158,7 +160,7 @@
 						<Button
 							unifiedSize="sm"
 							endIcon={{ icon: ExternalLink }}
-							href={`/runs/${runnableId}`}
+							href={`/runs/${runsPath}`}
 							target="_blank"
 						>
 							All runs
@@ -169,6 +171,7 @@
 					bind:this={historicInputs}
 					{runnableId}
 					{runnableType}
+					runnablePath={runsPath || undefined}
 					on:select={(e) => {
 						if (e.detail) savedInputsPicker?.resetSelected()
 						selectArgs(e.detail?.args, e.detail ? 'history' : undefined)

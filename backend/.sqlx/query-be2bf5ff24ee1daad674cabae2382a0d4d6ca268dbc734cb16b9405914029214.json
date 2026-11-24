@@ -1,0 +1,36 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        WITH blocked AS (\n            SELECT DISTINCT r.worker, c.tag, r.id AS parent\n            FROM v2_job_queue r\n                JOIN v2_job rj ON rj.id = r.id\n                JOIN v2_job_queue c ON c.id = (r.extras->'waiting_on'->>'child')::uuid\n                JOIN v2_job cj ON cj.id = c.id AND cj.parent_job = r.id\n            WHERE r.running AND r.worker IS NOT NULL AND r.suspend = 0 AND r.started_at IS NOT NULL\n                AND (r.extras->'waiting_on'->>'at')::timestamptz\n                    > now() - make_interval(secs => $3)\n                AND rj.kind NOT IN ('flow', 'flowpreview', 'singlestepflow', 'flownode',\n                                    'unassigned_flow', 'unassigned_singlestepflow')\n                AND NOT c.running AND c.suspend = 0\n                AND c.scheduled_for <= now() - make_interval(secs => $2::bigint::double precision)\n                AND ($1::text IS NULL OR c.tag = $1)\n        ),\n        live AS (\n            SELECT worker, unnest(custom_tags) AS tag, native_mode\n            FROM worker_ping\n            WHERE ping_at > now() - interval '60 seconds' AND draining IS NOT TRUE\n        )\n        SELECT l.tag AS \"tag!\", count(*) AS \"workers!\",\n            array_agg(b.parent) FILTER (WHERE b.parent IS NOT NULL) AS \"parents!\"\n        FROM live l\n            LEFT JOIN LATERAL (\n                SELECT parent FROM blocked b WHERE b.worker = l.worker AND b.tag = l.tag LIMIT 1\n            ) b ON true\n        WHERE l.tag IN (SELECT tag FROM blocked)\n        GROUP BY l.tag\n        HAVING count(*) = count(b.parent) AND NOT bool_or(l.native_mode)\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "tag!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "workers!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "parents!",
+        "type_info": "UuidArray"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8",
+        "Float8"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "be2bf5ff24ee1daad674cabae2382a0d4d6ca268dbc734cb16b9405914029214"
+}

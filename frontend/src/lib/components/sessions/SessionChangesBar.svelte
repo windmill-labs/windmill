@@ -20,7 +20,8 @@
 	} from '$lib/stores'
 	import { canCreateFork } from '$lib/utils/editInFork'
 	import { isCloudHosted } from '$lib/cloud'
-	import { sessionState, type Session } from './sessionState.svelte'
+	import { untrack } from 'svelte'
+	import type { Session } from './sessionState.svelte'
 	import { getRuntime } from './sessionRuntime.svelte'
 	import { useSessionPermissions } from './sessionPermissions.svelte'
 	import SessionDiffDrawer from './SessionDiffDrawer.svelte'
@@ -29,7 +30,13 @@
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 	import { maskKey } from './modifiedItemsMask'
 	import { removeHandEdit, renameHandEdit, sessionHandEdits } from './sessionHandEdits.svelte'
-	import { badgeCounts, badgeOf, buildDeployItems, type DeployItem } from './sessionDeployModel'
+	import {
+		badgeCounts,
+		badgeOf,
+		buildDeployItems,
+		editsToken,
+		type DeployItem
+	} from './sessionDeployModel'
 	import { useExistingMaskKeys } from './sessionDeployModel.svelte'
 	import { previewTargetForDeployKind } from './sessionPreviewTabs.svelte'
 	import { PIPELINE_DRAFT_KIND, pipelineFolderFromBundlePath } from '$lib/pipelinePaths'
@@ -45,12 +52,15 @@
 	// session diff drawer.
 	let {
 		session,
+		onScreen,
 		onMove,
 		onCreateForkAndMove,
 		onArchive,
 		onDelete
 	}: {
 		session: Session
+		/** Whether this is the session the sessions page shows, with its route open. */
+		onScreen: boolean
 		onMove?: (workspaceId: string) => void
 		onCreateForkAndMove?: (fork: {
 			parent_workspace_id: string
@@ -129,22 +139,26 @@
 	})
 
 	// Refresh when the user comes back to this view — covers edits made
-	// elsewhere while we were away. Two signals: visibilitychange (another tab
-	// in the same window) and window focus (a second browser window, where this
+	// elsewhere while we were away. Three signals: coming back on screen from
+	// another session or page (the bar stays mounted meanwhile, so nothing else
+	// refetches; the first time, mounting did), visibilitychange (another tab in
+	// the same window) and window focus (a second browser window, where this
 	// tab never goes hidden so visibilitychange never fires — e.g. deploying
 	// from the full-page editor side by side).
+	let shownBefore = false
 	$effect(() => {
-		if (!committedId) return
-		function refreshIfCurrent() {
+		if (!committedId || !onScreen) return
+		if (shownBefore) untrack(refreshDock)
+		shownBefore = true
+		function refreshIfVisible() {
 			if (document.visibilityState !== 'visible') return
-			if (sessionState.currentSessionId !== session.id) return
 			refreshDock()
 		}
-		document.addEventListener('visibilitychange', refreshIfCurrent)
-		window.addEventListener('focus', refreshIfCurrent)
+		document.addEventListener('visibilitychange', refreshIfVisible)
+		window.addEventListener('focus', refreshIfVisible)
 		return () => {
-			document.removeEventListener('visibilitychange', refreshIfCurrent)
-			window.removeEventListener('focus', refreshIfCurrent)
+			document.removeEventListener('visibilitychange', refreshIfVisible)
+			window.removeEventListener('focus', refreshIfVisible)
 		}
 	})
 
@@ -246,11 +260,7 @@
 
 	// Drafts are what still needs action, so the token counts only them while any
 	// are pending; once none are left it turns green and counts the deployed.
-	const editsLabel = $derived(
-		dockCounts.draft > 0
-			? `${dockCounts.draft} draft${dockCounts.draft === 1 ? '' : 's'}`
-			: `${dockCounts.deployed} deployed`
-	)
+	const editsLabel = $derived(editsToken(dockCounts).label)
 	let editsOpen = $state(false)
 
 	// Routed on the storage `path` — the edit route's key, which for a draft-only
@@ -299,11 +309,7 @@
 
 	// Only draft-vs-deployed drives the color: stale/failed live in the drawer's
 	// deploy model, not here.
-	const editsColorClass = $derived(
-		dockCounts.draft > 0
-			? '!bg-indigo-100 !text-indigo-800 hover:!bg-indigo-200 dark:!bg-indigo-700/40 dark:!text-indigo-100 dark:hover:!bg-indigo-600/40'
-			: '!bg-green-100 !text-green-700 hover:!bg-green-200 dark:!bg-green-700/40 dark:!text-green-100 dark:hover:!bg-green-600/40'
-	)
+	const editsColorClass = $derived(editsToken(dockCounts).class)
 </script>
 
 {#if committedId && isUnavailable}
