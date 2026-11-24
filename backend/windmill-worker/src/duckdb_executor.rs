@@ -21,7 +21,9 @@ use windmill_queue::{append_logs, CanceledBy, MiniPulledJob};
 use windmill_types::s3::S3Object;
 
 use crate::agent_workers::{get_datatable_resource_from_agent_http, get_ducklake_from_agent_http};
-use crate::common::{build_args_values, get_reserved_variables, OccupancyMetrics};
+use crate::common::{
+    build_args_values, build_literal_args_values, get_reserved_variables, OccupancyMetrics,
+};
 use crate::duckdb_runner::{RequestMode, RunnerMode, RunnerRequest};
 use crate::handle_child::run_future_with_polling_update_job_poller;
 #[cfg(feature = "mysql")]
@@ -1412,7 +1414,11 @@ pub async fn do_duckdb(
         } else {
             collection_strategy
         };
-        let mut job_args = build_args_values(job, client, conn).await?;
+        let mut job_args = if annotations.literal_args {
+            build_literal_args_values(job)
+        } else {
+            build_args_values(job, client, conn).await?
+        };
 
         let reserved_variables =
             get_reserved_variables(job, &client.token, conn, parent_runnable_path).await?;
