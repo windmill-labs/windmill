@@ -179,7 +179,7 @@
 			{#if error.startsWith('Not authorized:')}
 				<div class="flex flex-row gap-4 justify-center">
 					<AlertTriangle />
-					<p class="text-lg">Not Authorized</p>
+					<p class="text-lg">Not authorized</p>
 				</div>
 				<p class="text-sm">{error.replace(/^(Not authorized: )/, '')}</p>
 				<Button href={`/user/login?${rd ? 'rd=' + encodeURIComponent(rd) : ''}`}>
@@ -237,9 +237,9 @@
 
 		<div class="mt-8"></div>
 
-		<div class="p-4 rounded-md bg-surface-tertiary shadow-md">
+		<div class="flex flex-col gap-4 p-4 rounded-md bg-surface-tertiary border border-border-light">
 			{#if approver}
-				<p class="text-xs font-normal text-primary mb-2"
+				<p class="text-xs font-normal text-primary"
 					>Approving as: <b class="font-semibold text-emphasis">{approver}</b></p
 				>
 			{/if}
@@ -278,9 +278,9 @@
 						<DenyReason confirmLabel="Deny" disabled={completed || alreadyResumed} onDeny={cancel}>
 							{#snippet button()}
 								<Button
-									variant="accent"
+									variant="default"
 									destructive
-									size="lg"
+									unifiedSize="lg"
 									disabled={completed || alreadyResumed}
 									nonCaptureEvent>Deny</Button
 								>
@@ -293,26 +293,24 @@
 					<Button
 						variant="accent"
 						on:click|once={resume}
-						size="lg"
+						unifiedSize="lg"
 						disabled={completed || alreadyResumed || !valid}>Approve</Button
 					>
 				</div>
 			{/if}
 			{#if !completed && !alreadyResumed && job?.raw_flow?.modules?.[approvalStep]?.suspend?.user_auth_required && job?.raw_flow?.modules?.[approvalStep]?.suspend?.self_approval_disabled && $userStore && $userStore.email === job.email && ($userStore.is_admin || $userStore.is_super_admin)}
-				<div class="mt-2">
-					<Alert type="warning" title="Warning">
-						As an administrator, by resuming or cancelling this stage of the flow, you bypass the
-						self-approval interdiction.
-					</Alert>
-				</div>
+				<Alert type="warning" title="Warning">
+					As an administrator, by resuming or cancelling this stage of the flow, you bypass the
+					self-approval interdiction.
+				</Alert>
 			{/if}
 		</div>
 
 		<div class="mt-4 flex flex-row flex-wrap justify-between">
 			{#if isWorkspaceMember}
 				<Button
-					size="xs"
-					variant="accent-secondary"
+					unifiedSize="sm"
+					variant="default"
 					href={runDetailsHref}
 					target="_blank"
 					endIcon={{ icon: ExternalLink }}

@@ -33,7 +33,7 @@ workflows:
         - 'actions/setup-dotnet@v4.3.1'
         - 'actions/setup-go@v7.0.0'
         - 'actions/setup-node@v7.1.0'
-        - 'astral-sh/setup-uv@v7.6.0'
+        - 'astral-sh/setup-uv@v10.3.3'
         - 'denoland/setup-deno@v2.0.5'
         - 'ikalnytskyi/action-setup-postgres@v6'
         - 'oven-sh/setup-bun@v2.2.0'
@@ -45,7 +45,7 @@ workflows:
         - 'actions/setup-dotnet@v4.3.1'
         - 'actions/setup-go@v7.0.0'
         - 'actions/setup-node@v7.1.0'
-        - 'astral-sh/setup-uv@v7.6.0'
+        - 'astral-sh/setup-uv@v10.3.3'
         - 'denoland/setup-deno@v2.0.5'
         - 'oven-sh/setup-bun@v2.2.0'
         - 'ruby/setup-ruby@v1.338.0'
@@ -231,7 +231,7 @@ workflows:
     '.github/workflows/sdk-tests.yml':
         - 'actions/checkout@v4.4.0'
         - 'actions/setup-node@v7.1.0'
-        - 'astral-sh/setup-uv@v7.6.0'
+        - 'astral-sh/setup-uv@v10.3.3'
         - 'oven-sh/setup-bun@v2.2.0'
     '.github/workflows/shareable-discord-notification.yml': []
     '.github/workflows/sign-cla.yml':
@@ -354,9 +354,9 @@ dependencies:
         repo_id: 986421638
         uses:
             - 'oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6'
-    'astral-sh/setup-uv@v7.6.0':
-        ref: 'v7.6.0'
-        commit: 'sha1-37802adc94f370d6bfd71619e3f0bf239e1f3b78'
+    'astral-sh/setup-uv@v10.3.3':
+        ref: 'v10.3.3'
+        commit: 'sha1-68559e99cc807c1eb7e9238fd43a15bba460eec2'
         owner_id: 115962839
         repo_id: 846733598
     'cachix/install-nix-action@v31.11.5':

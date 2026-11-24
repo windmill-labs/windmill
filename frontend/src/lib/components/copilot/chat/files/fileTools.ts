@@ -100,6 +100,7 @@ export const searchFilesTool: SessionTool<{}> = {
 	requires: NONE,
 	def: searchFilesToolDef,
 	planModeSafe: true,
+	lookup: true,
 	fn: async ({ args, helpers, toolId, toolCallbacks }) => {
 		const store = storeFrom(helpers)
 		if (!store || store.count === 0) {
@@ -170,6 +171,7 @@ export const readFileTool: SessionTool<{}> = {
 	requires: NONE,
 	def: readFileToolDef,
 	planModeSafe: true,
+	lookup: true,
 	fn: async ({ args, helpers, toolId, toolCallbacks }) => {
 		const store = storeFrom(helpers)
 		if (!store || store.count === 0) {

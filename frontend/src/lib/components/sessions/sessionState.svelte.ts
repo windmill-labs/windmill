@@ -20,7 +20,11 @@ import { type DBSchema, type IDBPDatabase } from 'idb'
 import { userScopedDb } from '$lib/userScopedDb'
 import { emailOfScopedKey, scopedKeyFor } from '$lib/userScopedStorage'
 import { deleteItemsForSession } from '../copilot/chat/files/attachedFilesDB'
-import { deleteArtifactsForSession } from '../copilot/chat/artifacts/artifactsDB'
+import {
+	deleteArtifactsForSession,
+	isQuotaError,
+	makeRoom
+} from '../copilot/chat/artifacts/artifactsDB'
 import { deleteSessionHandEdits } from './sessionHandEdits.svelte'
 import { deleteSessionChats } from '../copilot/chat/HistoryManager.svelte'
 import type { DraftAttachments } from '../copilot/chat/messageDraft.svelte'
@@ -41,8 +45,15 @@ export function syncWorkspaceTo(workspaceId: string | undefined): void {
 	if (workspaceId === get(workspaceStore)) return
 	switchWorkspace(workspaceId)
 }
-import { WorkspaceService } from '$lib/gen'
+import { SettingService, WorkspaceService } from '$lib/gen'
 import { createWorkspaceForkAndWait, waitForForkCreation } from '$lib/utils/forkCreation'
+import { stagedForkRequest, type StagedFork } from './sessionForkDefaults'
+import {
+	canUserBypassRuleKindInRulesets,
+	isRuleActiveInRulesets,
+	readProtectionRulesForWorkspace
+} from '$lib/workspaceProtectionRules.svelte'
+import { getUserExt } from '$lib/user'
 import { sendUserToast } from '$lib/toast'
 import { onUserChange } from '$lib/userScopedStorage'
 
@@ -73,13 +84,7 @@ export function isForkSession(
 	return !!ws.parent_workspace_id
 }
 
-export type PendingFork = {
-	// Existing workspace to fork from (drives routing/scope pre-send).
-	parent_workspace_id: string
-	// Slug the new fork will use, e.g. `wm-fork-foo`.
-	id: string
-	// Display name shown in the workspace bar.
-	name: string
+export type PendingFork = StagedFork & {
 	// The background creation this fork started, so a reload mid-copy waits for it rather than
 	// requesting the fork again, which the server refuses while that creation runs.
 	creation_id?: string
@@ -102,9 +107,13 @@ export type Session = {
 	// into workspace_id at first send and then becomes irrelevant.
 	pending_workspace_id?: string
 	// Intent to create a new fork at first send (via commitSessionWorkspace), so
-	// cancelling the draft doesn't leave an orphan fork behind. Found only on records
-	// older clients wrote: no control stages one.
+	// cancelling the draft doesn't leave an orphan fork behind. Staged by Home's "Work in
+	// fork"; `pending_workspace_id` stays the header's workspace it was staged from.
 	pending_fork?: PendingFork
+	// The protected workspace its user chose to work in directly rather than in a fork, which
+	// `resolveSessionAccess` honours for the rule's bypassers only. Keyed by workspace, so it
+	// lapses when the session acts on another one.
+	direct_in?: string
 	// Stable root workspace id used only for sidebar grouping. Lifecycle follows
 	// workspace_id, not this field. Root sessions store the same id in both fields.
 	workspace_root_id?: string
@@ -384,9 +393,23 @@ export const sessionState = $state<{
 // Keyed per session: a single shared timer would let a keystroke in one draft
 // cancel a sibling draft's pending flush, dropping that draft's first-touch write.
 const draftPromptFlushHandles = new Map<string, ReturnType<typeof setTimeout>>()
+
+// The composer's unsent input in a session already sent, which a chat column mounted again
+// reads back: the composer's draft is component-local, and the sessions view unmounts on the
+// pages outside the logged layout (`/user/*`). Kept apart from `draftPrompt` and
+// `draftAttachments`, which hold the first message until the commit consumes it. In memory
+// only: a reload drops it.
+const sentSessionDraftText = new Map<string, string>()
+const sentSessionDraftAttachments = new Map<string, DraftAttachments>()
+
 export function setSessionDraftPrompt(sessionId: string, text: string): void {
 	const s = sessionState.sessions.find((x) => x.id === sessionId)
-	if (!s || s.workspace_id) return
+	if (!s) return
+	if (s.workspace_id) {
+		if (text === '') sentSessionDraftText.delete(sessionId)
+		else sentSessionDraftText.set(sessionId, text)
+		return
+	}
 	// No-op on an unchanged prompt, so opening an untouched draft never persists
 	// it. Writes of '' are real edits (a draft typed then erased is still a
 	// session), which is why the composer reports edits only — see AIChatInput.
@@ -406,12 +429,10 @@ export function setSessionDraftPrompt(sessionId: string, text: string): void {
 	)
 }
 
-// Read back the persisted composer text when a pending session's chat mounts.
-// Returns nothing once the session is committed (its draft prompt was consumed).
 export function getSessionDraftPrompt(sessionId: string): string | undefined {
 	const s = sessionState.sessions.find((x) => x.id === sessionId)
-	if (!s || s.workspace_id) return undefined
-	return s.draftPrompt
+	if (!s) return undefined
+	return s.workspace_id ? sentSessionDraftText.get(sessionId) : s.draftPrompt
 }
 
 // The rest of an unsent draft (collapsed pastes, images, files), so a composer mounted again
@@ -424,10 +445,15 @@ export function setSessionDraftAttachments(sessionId: string, attachments: Draft
 	const empty = Object.values(attachments).every((lane) => lane.length === 0)
 	if (empty) {
 		draftAttachments.delete(sessionId)
+		sentSessionDraftAttachments.delete(sessionId)
 		return
 	}
 	const s = sessionState.sessions.find((x) => x.id === sessionId)
-	if (!s || s.workspace_id) return
+	if (!s) return
+	if (s.workspace_id) {
+		sentSessionDraftAttachments.set(sessionId, attachments)
+		return
+	}
 	draftAttachments.set(sessionId, attachments)
 	// Attaching is a touch, as typing is: a draft holding only an image would otherwise still
 	// read as a blank, be reused by the next hand-off with the image in it, or be dropped.
@@ -436,8 +462,10 @@ export function setSessionDraftAttachments(sessionId: string, attachments: Draft
 
 export function getSessionDraftAttachments(sessionId: string): DraftAttachments | undefined {
 	const s = sessionState.sessions.find((x) => x.id === sessionId)
-	if (!s || s.workspace_id) return undefined
-	return draftAttachments.get(sessionId)
+	if (!s) return undefined
+	return s.workspace_id
+		? sentSessionDraftAttachments.get(sessionId)
+		: draftAttachments.get(sessionId)
 }
 
 // A hand-off arrives within a navigation; anything older than this is the debris
@@ -592,7 +620,15 @@ export async function putSession(s: Session): Promise<void> {
 	try {
 		await putSessionRow(db, $state.snapshot(s))
 	} catch (e) {
-		console.error('Failed to persist session', e)
+		if (isQuotaError(e) && (await makeRoom())) {
+			// Snapshot again: a newer save of `s` may have landed while room was made, and the
+			// first snapshot would overwrite it.
+			await putSessionRow(db, $state.snapshot(s)).catch((err) =>
+				console.error('Failed to persist session', err)
+			)
+		} else {
+			console.error('Failed to persist session', e)
+		}
 	}
 }
 
@@ -1125,7 +1161,8 @@ function followHomeDraft(): void {
 	const s = homeDraft.id ? sessionState.sessions.find((x) => x.id === homeDraft.id) : undefined
 	const ws = get(workspaceStore)
 	if (!s || !ws || s.workspace_id || sendUnderWay(s.id)) return
-	if (s.pending_workspace_id === ws && !s.pending_fork) return
+	// A fork staged from the header's workspace stays; picking another workspace drops it.
+	if (s.pending_workspace_id === ws) return
 	if (s.pending_workspace_id && workspaceRootId(ws, get(userWorkspaces)) !== sessionRootId(s)) {
 		return
 	}
@@ -1291,6 +1328,24 @@ export function setSessionPendingWorkspace(id: string, workspace_id: string) {
 	// Picking an existing workspace cancels any pending fork intent.
 	s.pending_fork = undefined
 	if (changed) persistTouched(s)
+}
+
+/** Stage `fork` for a session's first send, or drop the staged one (`undefined`). */
+export function setSessionPendingFork(id: string, fork: StagedFork | undefined) {
+	const s = sessionState.sessions.find((x) => x.id === id)
+	if (!s || s.workspace_id) return
+	s.pending_fork = fork && { ...fork }
+	if (fork) s.direct_in = undefined
+	persistTouched(s)
+}
+
+/** Opt a session into working directly in protected `workspace`, or out (`undefined`). */
+export function setSessionDirectIn(id: string, workspace: string | undefined) {
+	const s = sessionState.sessions.find((x) => x.id === id)
+	if (!s) return
+	s.direct_in = workspace
+	if (workspace) s.pending_fork = undefined
+	persistTouched(s)
 }
 
 // Keep a just-created session in memory until the user starts it (see `untilStarted`).
@@ -1532,9 +1587,23 @@ export async function materializeForkOutcome(
 			)
 		}
 		if (!resumed) {
+			const base = fork.parent_workspace_id
+			const [datatables, ducklakes, storages, readRules, user] = await Promise.all([
+				WorkspaceService.listDataTables({ workspace: base }).catch(() => undefined),
+				WorkspaceService.listDucklakes({ workspace: base }).catch(() => undefined),
+				SettingService.getSecondaryStorageNames({ workspace: base, includeDefault: true }).catch(
+					() => undefined
+				),
+				readProtectionRulesForWorkspace(base),
+				getUserExt(base)
+			])
+			const rules = readRules ?? []
+			const requireIsolation =
+				isRuleActiveInRulesets(rules, 'RequireIsolatedForks') &&
+				!canUserBypassRuleKindInRulesets(rules, 'RequireIsolatedForks', user)
 			await createWorkspaceForkAndWait(
-				fork.parent_workspace_id,
-				{ id: fork.id, name: fork.name },
+				base,
+				stagedForkRequest(fork, { datatables, ducklakes, storages, requireIsolation }),
 				{ onCreationStarted }
 			)
 		}
@@ -1682,6 +1751,8 @@ export function deleteSession(id: string) {
 	clearTimeout(draftPromptFlushHandles.get(id))
 	draftPromptFlushHandles.delete(id)
 	draftAttachments.delete(id)
+	sentSessionDraftText.delete(id)
+	sentSessionDraftAttachments.delete(id)
 	sessionState.sessions = sessionState.sessions.filter((x) => x.id !== id)
 	if (sessionState.currentSessionId === id) {
 		sessionState.currentSessionId = sessionState.sessions[0]?.id

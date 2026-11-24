@@ -14,12 +14,15 @@
 	import { stepInputCompletionEnabled } from '$lib/stores'
 	import type { SchemaProperty } from '$lib/common'
 	import FlowCopilotInputsModal from './FlowCopilotInputsModal.svelte'
-	import { copilotInfo } from '$lib/aiStore'
 	import Button from '../common/button/Button.svelte'
 	import { AIBtnClasses } from './chat/AIButtonStyle'
 	import { Check, Wand2 } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { newFlowInputOf, newFlowInputsInstruction } from './stepInputFlowInputs'
+	import { getAiChatManager } from './chat/aiChatManagerContext'
+
+	const aiChat = getAiChatManager()
+	const aiInfo = $derived(aiChat.aiInfo)
 
 	let generatedContent = $state('')
 	let loading = $state(false)
@@ -119,7 +122,8 @@ Only return the expression without any wrapper.`
 						content: user
 					}
 				],
-				abortController
+				abortController,
+				aiChat.loadedSessionAiTarget
 			)
 
 			const newInput = newFlowInputOf(generatedContent, pickableProperties)
@@ -137,7 +141,7 @@ Only return the expression without any wrapper.`
 	}
 
 	export function onKeyUp(event: KeyboardEvent) {
-		if (!$copilotInfo.enabled || !$stepInputCompletionEnabled) {
+		if (!aiInfo?.enabled || !$stepInputCompletionEnabled) {
 			return
 		}
 		if (event.key === 'Tab') {
@@ -206,7 +210,7 @@ Only return the expression without any wrapper.`
 	}
 </script>
 
-{#if $copilotInfo.enabled && $stepInputCompletionEnabled}
+{#if aiInfo?.enabled && $stepInputCompletionEnabled}
 	<FlowCopilotInputsModal
 		on:confirmed={async () => {
 			createFlowInput()

@@ -60,3 +60,36 @@ export async function resolveExpandedSubflowStep(
 		module: findStepPath(modules, parsed.leaf)?.target
 	}
 }
+
+/**
+ * `resolveExpandedSubflowStep` for a graph whose expansions are already loaded: each boundary's
+ * modules are read from `expandedSubflows`, keyed as the graph keys them (`a`, then
+ * `subflow:a:b`...). `undefined` for any other node id, or when an expansion is missing.
+ */
+export function resolveLoadedExpandedSubflowStep(
+	id: string,
+	rootModules: FlowModule[],
+	expandedSubflows: Record<string, { modules: FlowModule[] }>
+): ResolvedExpandedSubflowStep | undefined {
+	const parsed = parseExpandedSubflowId(id)
+	if (!parsed) {
+		return undefined
+	}
+	let modules = rootModules
+	const pathChain: string[] = []
+	for (const [i, stepId] of parsed.subflowSteps.entries()) {
+		const value = findStepPath(modules, stepId)?.target.value
+		const expansion =
+			expandedSubflows[i == 0 ? stepId : 'subflow:' + parsed.subflowSteps.slice(0, i + 1).join(':')]
+		if (value?.type !== 'flow' || !expansion) {
+			return undefined
+		}
+		pathChain.push(value.path)
+		modules = expansion.modules
+	}
+	return {
+		containingFlowPath: pathChain[pathChain.length - 1],
+		pathChain,
+		module: findStepPath(modules, parsed.leaf)?.target
+	}
+}

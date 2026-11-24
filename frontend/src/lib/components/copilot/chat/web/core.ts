@@ -46,6 +46,7 @@ export const searchWebTool: SessionTool<{}> = {
 	requires: NONE,
 	def: SEARCH_WEB_TOOL,
 	planModeSafe: true,
+	lookup: true,
 	fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 		const query = typeof args?.query === 'string' ? args.query.trim() : ''
 		if (!query) return 'No search query was provided. Provide a `query`.'
@@ -85,6 +86,7 @@ export const fetchWebPageTool: SessionTool<{}> = {
 	requires: NONE,
 	def: FETCH_WEB_PAGE_TOOL,
 	planModeSafe: true,
+	lookup: true,
 	fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 		const url = typeof args?.url === 'string' ? args.url.trim() : ''
 		if (!url) return 'No URL was provided. Provide a `url`.'

@@ -111,6 +111,20 @@ curl -s -H "Authorization: Bearer $TOK" \
   "localhost:8420/api/w/<ws>/jobs_u/completed/get/<job>" | jq -r .worker
 ```
 
+## Flows on an agent's tag
+
+An agent never receives a flow job (a flow run with its tag, a subflow step whose
+`tag_override` names it, a loop or branch iteration below them): `pull` moves any flow job it
+finds through the agent endpoint's query onto the generic `flow` tag, so a regular worker
+drives the flow. The job keeps the agent's tag in `v2_job.tag`, which its steps inherit, so
+agents run them. A flow job's `worker` is therefore never `ag-`: check its leaf steps instead.
+An instance whose only workers are agents cannot run such a flow at all.
+
+Flows created for such a test on a dev box can come back as another worktree's flow: the
+flow version cache under `/tmp/windmill/cache_db` is shared unless the server runs with its
+own `WINDMILL_CACHE_PREFIX`. Compare the stored `flow.value` with what was sent before
+trusting a run.
+
 ## What dbt does on an agent worker
 
 Runs, retries, and publishes its graph — including a per-run snapshot for a

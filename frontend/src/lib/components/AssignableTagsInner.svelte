@@ -1,4 +1,5 @@
 <script lang="ts">
+	import HostWindow from '$lib/components/common/HostWindow.svelte'
 	import { preventDefault, stopPropagation } from 'svelte/legacy'
 
 	import { Button } from './common'
@@ -169,7 +170,7 @@
 	}
 </script>
 
-<svelte:window onkeydown={onKeyDown} />
+<HostWindow onkeydown={onKeyDown} />
 
 {#snippet reachesAnyTagWarning(scoped: boolean)}
 	Nothing fixed at its start or its end, so it allows anyone{scoped ? ' in its workspaces' : ''} to reach

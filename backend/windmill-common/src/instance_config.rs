@@ -1023,6 +1023,10 @@ pub struct WorkerGroupConfig {
     /// The group listens to its tags suffixed with the dev workspace tag suffix, and only to them.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub serves_dev_workspaces: Option<bool>,
+    /// Workers of the group pull only while workspace fairness caps a workspace, and only jobs
+    /// of the workspaces it does not cap.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fairness_reserve: Option<bool>,
     /// Object store this group's dependency cache uses instead of the instance one. Same shape
     /// as the instance `object_store_cache_config`.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1596,6 +1600,10 @@ pub async fn sync_global_settings_declarative(
     let max_expiration_key = crate::global_settings::MAX_TOKEN_EXPIRATION_DAYS_SETTING;
     crate::global_settings::parse_max_token_expiration_days(desired.get(max_expiration_key))
         .map_err(|e| anyhow::anyhow!("{max_expiration_key}: {e}"))?;
+
+    let versions_key = crate::global_settings::RAW_APP_VERSIONS_TO_KEEP_SETTING;
+    crate::global_settings::parse_raw_app_versions_to_keep(desired.get(versions_key))
+        .map_err(|e| anyhow::anyhow!("{versions_key}: {e}"))?;
 
     let idp_key = crate::global_settings::MCP_EXTERNAL_IDP_SETTING;
     crate::global_settings::parse_mcp_external_idp(desired.get(idp_key))

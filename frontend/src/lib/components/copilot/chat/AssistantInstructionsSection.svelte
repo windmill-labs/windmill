@@ -21,10 +21,8 @@ its block on a detail page laid over the list, like a skill in the Skills sectio
 	import { gfmPlugin } from 'svelte-exmarkdown/gfm'
 	import { markdownProse } from '$lib/components/markdownProse'
 	import {
-		copilotInfo,
+		applySavedWorkspaceCopilotInfo,
 		getUserCustomPrompts,
-		invalidateWorkspaceCopilotInfo,
-		setCopilotInfo,
 		setUserCustomPrompts
 	} from '$lib/aiStore'
 	import { ResourceService, WorkspaceService } from '$lib/gen'
@@ -259,7 +257,7 @@ its block on a detail page laid over the list, like a skill in the Skills sectio
 			// Seeded from the same source `saveWorkspace` writes to (the raw workspace
 			// ai_config), which also says whether the workspace has providers of its own.
 			// Non-admins cannot read raw settings, so they get the effective prompt.
-			let workspace = $copilotInfo.customPrompts?.[mode] ?? ''
+			let workspace = aiChatManager.aiInfo?.customPrompts?.[mode] ?? ''
 			let missingProviders = false
 			if (isAdmin) {
 				try {
@@ -596,8 +594,7 @@ its block on a detail page laid over the list, like a skill in the Skills sectio
 				workspace: target,
 				requestBody: { ...config, custom_prompts }
 			})
-			setCopilotInfo(response.effective_ai_config)
-			invalidateWorkspaceCopilotInfo(target)
+			applySavedWorkspaceCopilotInfo(target, response.effective_ai_config)
 			workspaceSaved = value
 			workspaceDraft = value
 			sendUserToast('Workspace instructions were saved')

@@ -12,6 +12,7 @@
 	import { safeSelectItems } from './select/utils.svelte'
 	import { untrack } from 'svelte'
 	import TextInput from './text_input/TextInput.svelte'
+	import { latestRequest } from '$lib/utils/latestRequest'
 
 	interface Props {
 		schedule: string
@@ -68,13 +69,19 @@
 	let daysOfWeek: string[] = $state([])
 	let UTCTime: string = $state('')
 
+	// A slower reply for an earlier cron or timezone must not overwrite the current preview.
+	const previewRequests = latestRequest()
 	async function handleScheduleInput(input: string, timezone: string): Promise<void> {
+		const isLatest = previewRequests.start()
 		try {
-			preview = await ScheduleService.previewSchedule({
+			const result = await ScheduleService.previewSchedule({
 				requestBody: { schedule: formatCron(input), timezone, cron_version: cronVersion }
 			})
+			if (!isLatest()) return
+			preview = result
 			validCRON = true
 		} catch (err) {
+			if (!isLatest()) return
 			if (err.status == 400 && err.body.includes('cron')) {
 				validCRON = false
 			} else {
@@ -139,7 +146,9 @@
 			: [{ value: timezone, label: timezone, group: 'Current' }, ...timezoneItems]
 	)
 	$effect(() => {
+		// The preview is computed in the timezone, so changing it must refetch.
 		schedule
+		timezone
 		untrack(() => {
 			!emptyString(schedule) && handleScheduleInput(schedule, timezone)
 		})

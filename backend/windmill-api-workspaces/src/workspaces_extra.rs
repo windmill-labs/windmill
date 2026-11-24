@@ -446,6 +446,13 @@ pub(crate) async fn change_workspace_id(
     .execute(&mut *tx)
     .await?;
 
+    info!("Updating recent_run_hidden_item table");
+    sqlx::query("UPDATE recent_run_hidden_item SET workspace_id = $1 WHERE workspace_id = $2")
+        .bind(&rw.new_id)
+        .bind(&old_id)
+        .execute(&mut *tx)
+        .await?;
+
     // Duplicate flow table rows (FK constraint requires insert then delete)
     info!("Duplicating flow table rows");
     sqlx::query!(

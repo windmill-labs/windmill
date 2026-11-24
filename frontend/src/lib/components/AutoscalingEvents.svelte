@@ -4,11 +4,12 @@
 	import { Button, Skeleton } from './common'
 	import { twMerge } from 'tailwind-merge'
 	import TimeAgo from './TimeAgo.svelte'
-	import { enterpriseLicense } from '$lib/stores'
+	import { devopsRole, enterpriseLicense, superadmin } from '$lib/stores'
 	import { untrack } from 'svelte'
 	import DataTable from './table/DataTable.svelte'
 	import Head from './table/Head.svelte'
 	import Cell from './table/Cell.svelte'
+	import AutoscalingDiagnostics from './AutoscalingDiagnostics.svelte'
 
 	interface Props {
 		worker_group: string
@@ -19,6 +20,7 @@
 	let loading = $state(true)
 	let events: AutoscalingEvent[] | undefined = $state(undefined)
 	let limit = $state(5)
+	let refreshKey = $state(0)
 
 	async function loadEvents() {
 		loading = true
@@ -49,16 +51,24 @@
 			{/if}
 		</div>
 		{#if $enterpriseLicense}
-			<Button
-				startIcon={{
-					icon: RefreshCw,
-					classes: twMerge(loading ? 'animate-spin' : '')
-				}}
-				variant="subtle"
-				unifiedSize="sm"
-				on:click={() => loadEvents()}
-				iconOnly
-			/>
+			<div class="flex flex-row items-center gap-2">
+				{#if $superadmin || $devopsRole}
+					<AutoscalingDiagnostics {worker_group} {refreshKey} />
+				{/if}
+				<Button
+					startIcon={{
+						icon: RefreshCw,
+						classes: twMerge(loading ? 'animate-spin' : '')
+					}}
+					variant="subtle"
+					unifiedSize="sm"
+					on:click={() => {
+						loadEvents()
+						refreshKey++
+					}}
+					iconOnly
+				/>
+			</div>
 		{/if}
 	</div>
 

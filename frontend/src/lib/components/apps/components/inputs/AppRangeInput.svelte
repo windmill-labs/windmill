@@ -74,7 +74,9 @@
 		return `${v}`
 	}
 	$effect.pre(() => {
-		resolvedConfig.defaultLow != undefined || resolvedConfig.defaultHigh != undefined
+		// Both read on their own: joined with `||`, a set default low leaves default high untracked.
+		resolvedConfig.defaultLow
+		resolvedConfig.defaultHigh
 		untrack(() => handleDefault())
 	})
 	$effect.pre(() => {

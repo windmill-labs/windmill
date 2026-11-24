@@ -1,9 +1,9 @@
-import type { DisplayMessage, ToolDisplayMessage } from './shared'
+import type { DisplayMessage, Tool, ToolDisplayMessage } from './shared'
 import { DRAFT_CONFLICT_RESULT, DRAFT_SAVE_FAILED_RESULT } from './draftWriteResults'
 import { webSearchResultOf } from './webSearchResult'
 
-// A tool missing from these lists always renders as its own row, so a new write never gets
-// hidden by default.
+// A tool missing from these lists, whose definition does not set `lookup` either, renders as
+// its own row, so a new write never gets hidden by default.
 
 type EditedItemKind = 'flow' | 'app'
 
@@ -45,47 +45,15 @@ const PATHLESS_FLOW_MODE_TOOLS = new Set([
 	'inspect_inline_script',
 	'get_lint_errors'
 ])
-// Calls that only look things up. Not derived from `planModeSafe`, which also admits test
-// runs and plan-document writes.
-const READ_TOOLS = new Set([
-	...Object.keys(ITEM_READ_TOOLS),
-	'list_workspace_items',
-	'read_workspace_item',
-	'search_workspace',
-	'get_runnable_details',
-	'search_hub_scripts',
-	'search_resource_types',
-	'resource_type',
-	'search_docs',
-	'read_docs_page',
-	'get_db_schema',
-	'search_npm_packages',
-	'get_instructions',
-	'get_instructions_for_code_generation',
-	'read_skill',
-	'get_trigger_schema',
-	'get_schedule_schema',
-	'list_runs',
-	'list_workers',
-	'list_app_runs',
-	'get_app_runtime_logs',
-	'get_preview_status',
-	'get_current_page_name',
-	'search_dom',
-	'read_dom',
-	'read_file',
-	'search_files',
-	'list_data_metrics',
-	'list_ducklakes',
-	'get_pipeline_graph',
-	'read_pipeline_node',
-	'list_artifacts',
-	'read_artifact',
-	'list_artifact_versions',
-	'search_mcp_tools',
-	'call_mcp_read_tool'
-])
+/** The tool names whose definition sets `lookup` in the chat showing the transcript. A name
+ * that chat does not define (a flow's own agent tools) is not one. */
+export type LookupTools = ReadonlySet<string>
 
+export function lookupToolNames(tools: Iterable<Tool<any>>): Set<string> {
+	const names = new Set<string>()
+	for (const tool of tools) if (tool.lookup) names.add(tool.def.function.name)
+	return names
+}
 export type ToolGroup = {
 	kind: 'group'
 	/** 'edit': edits of one flow or app. 'explore': consecutive lookups of anything.
@@ -178,9 +146,9 @@ function sameItem(a: Membership | undefined, b: Membership): boolean {
 	return a !== undefined && a.kind === b.kind && (a.path === undefined || a.path === b.path)
 }
 
-function isReadCall(message: DisplayMessage): boolean {
+function isReadCall(message: DisplayMessage, lookups: LookupTools): boolean {
 	const call = groupableCall(message)
-	return call !== undefined && READ_TOOLS.has(call.toolName!)
+	return call !== undefined && lookups.has(call.toolName!)
 }
 
 // Thinking between two calls stays inside the group; visible text ends it. The live
@@ -251,13 +219,18 @@ function inFlight(message: DisplayMessage): boolean {
 function waitingGroupAt(
 	messages: DisplayMessage[],
 	start: number,
-	previous: ChatItem | undefined
+	previous: ChatItem | undefined,
+	lookups: LookupTools
 ): ToolGroup | undefined {
 	if (!isWaitingCall(messages[start]) || !previous) return undefined
 	const ahead =
 		previous.kind === 'group' ? previous.entries.map((e) => e.message) : [previous.message]
 	if (!ahead.some(inFlight)) return undefined
-	const end = runEnd(messages, start, (m, j) => isWaitingCall(m) && !kindGroupAt(messages, j))
+	const end = runEnd(
+		messages,
+		start,
+		(m, j) => isWaitingCall(m) && !kindGroupAt(messages, j, lookups)
+	)
 	return {
 		kind: 'group',
 		groupKind: 'waiting',
@@ -270,21 +243,27 @@ function waitingGroupAt(
 // An edit group wins over an explore group: its reads belong to the edits they prepare, so an
 // explore run also stops before a read that starts one. Both win over a waiting row, which
 // stops before either: its header says less than `Edit f/a/flow · 2 changes`.
-function kindGroupAt(messages: DisplayMessage[], start: number): ToolGroup | undefined {
-	const explores = (m: DisplayMessage, j: number) => isReadCall(m) && !editGroupAt(messages, j)
+function kindGroupAt(
+	messages: DisplayMessage[],
+	start: number,
+	lookups: LookupTools
+): ToolGroup | undefined {
+	const explores = (m: DisplayMessage, j: number) =>
+		isReadCall(m, lookups) && !editGroupAt(messages, j)
 	return (
 		editGroupAt(messages, start) ??
-		(isReadCall(messages[start])
+		(isReadCall(messages[start], lookups)
 			? toolGroup(messages, start, runEnd(messages, start, explores), 'explore', '')
 			: undefined)
 	)
 }
 
-export function groupToolRuns(messages: DisplayMessage[]): ChatItem[] {
+export function groupToolRuns(messages: DisplayMessage[], lookups: LookupTools): ChatItem[] {
 	const items: ChatItem[] = []
 	let i = 0
 	while (i < messages.length) {
-		const group = kindGroupAt(messages, i) ?? waitingGroupAt(messages, i, items.at(-1))
+		const group =
+			kindGroupAt(messages, i, lookups) ?? waitingGroupAt(messages, i, items.at(-1), lookups)
 		if (group) {
 			items.push(group)
 			i = group.entries.at(-1)!.index + 1
@@ -317,20 +296,29 @@ function sameChatItem(a: ChatItem, b: ChatItem): boolean {
  *
  * A changed message is told apart by identity alone, so a row must be replaced, never mutated
  * in place, for its grouping to update. */
-export function createChatItemGrouper(): (messages: DisplayMessage[]) => ChatItem[] {
+export function createChatItemGrouper(): (
+	messages: DisplayMessage[],
+	lookups: LookupTools
+) => ChatItem[] {
 	let settled: DisplayMessage[] = []
 	let settledItems: ChatItem[] = []
-	return (messages) => {
+	let settledLookups: LookupTools | undefined
+	return (messages, lookups) => {
 		// The live answer only ever comes last, and it can neither join nor end a group
 		// differently than the end of the transcript does, so it is grouped on its own and the
 		// rows before it are not regrouped while it streams.
 		const last = messages.at(-1)
 		const live = last?.role === 'assistant' && last.streaming ? last : undefined
 		const n = live ? messages.length - 1 : messages.length
-		if (n !== settled.length || settled.some((m, i) => m !== messages[i])) {
+		if (
+			lookups !== settledLookups ||
+			n !== settled.length ||
+			settled.some((m, i) => m !== messages[i])
+		) {
 			const previous = new Map(settledItems.map((item) => [chatItemKey(item), item]))
 			settled = messages.slice(0, n)
-			settledItems = groupToolRuns(settled).map((item) => {
+			settledLookups = lookups
+			settledItems = groupToolRuns(settled, lookups).map((item) => {
 				const before = previous.get(chatItemKey(item))
 				return before && sameChatItem(before, item) ? before : item
 			})

@@ -14,6 +14,7 @@ import type { ChatCompletionMessageParam } from 'openai/resources/index.mjs'
 import type { PersistedContextUsage } from './tokenUsage'
 import { IMAGE_OMITTED_PLACEHOLDER, type AttachedImage } from './imageUtils'
 import { randomUUID } from '$lib/utils/uuid'
+import { isQuotaError, makeRoom } from './artifacts/artifactsDB'
 
 // Base IndexedDB name; userScopedDb namespaces the effective DB by the logged-in
 // user's email so chat messages are never physically shared across users on a
@@ -374,7 +375,13 @@ export default class HistoryManager {
 			if (!name || scopedKey(DB_NAME) !== name) return
 			const db = await this.dbh.whenReady()
 			if (!db || db.name !== name) return
-			return op(db)
+			// Every op is puts and deletes, so running one again after making room is safe.
+			try {
+				return await op(db)
+			} catch (err) {
+				if (!isQuotaError(err) || !(await makeRoom())) throw err
+				return op(db)
+			}
 		}
 		const run = this.dbWriteQueue.then(exec, exec)
 		this.dbWriteQueue = run.catch(() => {})

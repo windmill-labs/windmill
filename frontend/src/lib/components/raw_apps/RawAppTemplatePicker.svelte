@@ -24,6 +24,7 @@
 	import { Alert, Badge } from '$lib/components/common'
 	import { copilotInfo, copilotWorkspace } from '$lib/aiStore'
 	import { loadCopilot } from '$lib/components/copilot/loadCopilot'
+	import { getAiChatManager } from '$lib/components/copilot/chat/aiChatManagerContext'
 	import { BUILDER_FRAMEWORK_TEMPLATES, FRAMEWORK_TEMPLATES } from './templates'
 	import { conformBuilderAppPolicy } from './builderAppPolicy'
 	import type { Runnable } from './rawAppPolicy'
@@ -45,7 +46,11 @@
 	import RawAppDataTableList from './RawAppDataTableList.svelte'
 	import RawAppDataTableDrawer from './RawAppDataTableDrawer.svelte'
 	import FileEditorIcon from './FileEditorIcon.svelte'
-	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import {
+		useOperatingUser,
+		useOperatingWorkspace,
+		useOperatingWorkspaceHref
+	} from '$lib/components/operatingWorkspace.svelte'
 	import { useRoleCapabilities } from '$lib/operatorWriteRights'
 
 	export type RawAppTemplatePickerResult = {
@@ -86,6 +91,8 @@
 	let dataTableDrawer: RawAppDataTableDrawer | undefined = $state()
 
 	const operatingWorkspace = useOperatingWorkspace()
+	const operatingUser = useOperatingUser()
+	const operatingHref = useOperatingWorkspaceHref()
 	const roleCaps = useRoleCapabilities()
 	const composeOnlyApps = $derived($roleCaps.apps === 'compose')
 	let opWs = $derived($operatingWorkspace)
@@ -272,17 +279,27 @@
 	// `enabled` alone cannot tell "no providers" from "not loaded yet" and the modal
 	// would announce AI as unconfigured while it is merely unknown. Gate on the
 	// config describing opWs, and load it here so the claim owns its own evidence.
-	const aiConfigLoaded = $derived(!!opWs && $copilotWorkspace === opWs)
-	const isAiEnabled = $derived(aiConfigLoaded && $copilotInfo.enabled)
+	const aiChat = getAiChatManager()
+	const aiInfo = $derived(
+		aiChat.isSessionChat
+			? aiChat.aiInfo
+			: !!opWs && $copilotWorkspace === opWs
+				? $copilotInfo
+				: undefined
+	)
+	const aiConfigLoaded = $derived(!!aiInfo)
+	const isAiEnabled = $derived(!!aiInfo?.enabled)
 
 	$effect(() => {
-		if (open && opWs && !aiConfigLoaded) {
+		if (open && opWs && $copilotWorkspace !== opWs) {
 			loadCopilot(opWs)
 		}
 	})
 
 	// With AI turned off for the workspace there is nothing to choose between.
-	const aiOffered = $derived(!$copilotInfo.workspaceDisabled)
+	const aiOffered = $derived(
+		aiChat.isSessionChat ? !!aiInfo && !aiInfo.workspaceDisabled : !$copilotInfo.workspaceDisabled
+	)
 
 	const canStart = $derived(
 		!!templates[selectedTemplateIndex] && !newSchemaAlreadyExists && rolesSettled && accessSettled
@@ -461,10 +478,10 @@
 						You can still create an app, but for data storage you won't be able to use data tables
 						which are <b>highly recommended</b>.
 						<br />
-						{#if $userStore?.is_admin}
+						{#if operatingUser.current?.is_admin}
 							Configure datatables in
 							<a
-								href="/workspace_settings?tab=windmill_data_tables"
+								href={operatingHref('/workspace_settings?tab=windmill_data_tables')}
 								target="_blank"
 								class="inline-flex items-center gap-1"
 								>workspace settings <ExternalLinkIcon size={16} />
@@ -624,10 +641,10 @@
 				<Alert type="info" title="AI is not configured.">
 					You can still create an app manually but using AI is highly recommended.
 					<br />
-					{#if $userStore?.is_admin}
+					{#if operatingUser.current?.is_admin}
 						Configure AI in
 						<a
-							href="/workspace_settings?tab=ai"
+							href={operatingHref('/workspace_settings?tab=ai')}
 							target="_blank"
 							class="inline-flex items-center gap-1 font-semibold"
 							>workspace settings <ExternalLinkIcon size={16} />

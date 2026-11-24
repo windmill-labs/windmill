@@ -5,6 +5,7 @@
 	import { PlusIcon } from 'lucide-svelte'
 	import GenericDropdown from './GenericDropdown.svelte'
 	import { Debounced } from 'runed'
+	import { overlayHostActive } from '$lib/components/common/overlayHost.svelte'
 
 	let {
 		processedItems: _processedItems,
@@ -74,11 +75,14 @@
 	// Dirty fix to prevent a rendering bug where the ul is present in the layout but
 	// displays as empty. It only happens with overflow-y-auto set.
 	let enableOverflowYAuto = new Debounced(() => isVisible, 15)
+
+	// Hidden hosts stay mounted and still receive window keys — see overlayHost.
+	const hostActive = overlayHostActive()
 </script>
 
 <svelte:window
 	onkeydown={(e) => {
-		if (!isVisible || !processedItems?.length) return
+		if (!isVisible || !processedItems?.length || !hostActive()) return
 		if (e.key === 'ArrowUp' && keyArrowPos !== undefined && processedItems.length > 0) {
 			keyArrowPos = keyArrowPos <= 0 ? undefined : keyArrowPos - 1
 		} else if (e.key === 'ArrowDown') {

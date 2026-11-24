@@ -8,9 +8,7 @@
 	import ResourcePathHint from '$lib/components/ResourcePathHint.svelte'
 	import { ResourceService, type InputTransform, type Resource } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
-	import { userStore, userWorkspaces, workspaceStore } from '$lib/stores'
-	import { canEditItem } from '$lib/editRights'
-	import { capabilitiesIn } from '$lib/roleCapabilities'
+	import { useEditRights } from '$lib/operatorWriteRights'
 	import { Bot, ChevronDown, ChevronUp, Save, Unlink, Pencil } from 'lucide-svelte'
 	import {
 		AGENT_BRAIN_KEYS,
@@ -88,6 +86,7 @@
 	} = $props()
 
 	let ws = $derived(opWorkspace ?? $operatingWorkspace)
+	const editRights = useEditRights(() => ws)
 
 	// How many times the linked agent has been written, from anywhere: this card's own save, or a
 	// deploy from the agent editor mounted alongside it. Both reads below key on it, so neither
@@ -239,17 +238,7 @@
 	let providerOk = $derived(linkedInfo?.providerOk ?? true)
 	let unavailable = $derived(linkedInfo?.unavailable ?? false)
 	let canEditAgent = $derived(
-		!!agent &&
-			canEditItem(
-				'agent',
-				agent,
-				linkedInfo?.extraPerms,
-				$userStore ?? undefined,
-				capabilitiesIn(
-					ws === $workspaceStore ? $userStore : undefined,
-					$userWorkspaces.find((w) => w.id === ws)
-				)
-			)
+		!!agent && editRights.canEditItem('agent', agent, linkedInfo?.extraPerms)
 	)
 	// The hint flips on the first keystroke in the agent editor, so the badge does not wait for the
 	// debounced autosave and the refetch behind it; the fetched answer covers a draft written

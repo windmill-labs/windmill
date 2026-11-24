@@ -35,6 +35,7 @@ callers that already know which section they mean, such as the "+" menu's Manage
 	import Modal2 from '$lib/components/common/modal/Modal2.svelte'
 	import SidebarNavigation from '$lib/components/common/sidebar/SidebarNavigation.svelte'
 	import { logFeatureUsage } from '$lib/utils/featureUsage'
+	import { SettingsService } from '$lib/gen'
 	import { getAiChatManager } from './aiChatManagerContext'
 	import { summarizeTools } from './agentContext'
 	import AssistantToolsSection from './AssistantToolsSection.svelte'
@@ -47,15 +48,24 @@ callers that already know which section they mean, such as the "+" menu's Manage
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 	import AssistantDangerZoneSection from './AssistantDangerZoneSection.svelte'
 	import { useActingUser } from '$lib/actingUser.svelte'
+	import { overlayHostActive } from '$lib/components/common/overlayHost.svelte'
 
 	// Prefilled title marks the issue as AI Sessions feedback for triage.
 	const FEEDBACK_ISSUE_URL =
 		'https://github.com/windmill-labs/windmill/issues/new?title=' +
 		encodeURIComponent('AI Sessions feedback: ')
+	// Fetched on first open; until it answers, the link opens without a body.
+	let version: string | undefined = $state()
+	let feedbackIssueUrl = $derived(
+		version
+			? FEEDBACK_ISSUE_URL + '&body=' + encodeURIComponent(`Windmill version: ${version}\n\n`)
+			: FEEDBACK_ISSUE_URL
+	)
 
 	const operatingWorkspace = useOperatingWorkspace()
 
 	const aiChatManager = getAiChatManager()
+	const hostActive = overlayHostActive()
 
 	let isOpen = $state(false)
 	let section = $state<AssistantSettingsSection>('tools')
@@ -101,7 +111,8 @@ callers that already know which section they mean, such as the "+" menu's Manage
 	 * it would then answer the key it was revealed by — reverting the very draft the
 	 * user was brought here to see. */
 	function onKeydown(event: KeyboardEvent) {
-		if (!isOpen || event.key !== 'Escape') return
+		// Hidden hosts stay mounted and still receive window keys — see overlayHost.
+		if (!isOpen || event.key !== 'Escape' || !hostActive()) return
 		const blocker = blockingSection
 		if (!blocker || blocker === section) return
 		event.preventDefault()
@@ -124,7 +135,9 @@ callers that already know which section they mean, such as the "+" menu's Manage
 	// assistant can call here, so it must not shift when the autonomy picker does.
 	// The danger zone writes the workspace's AI config, which only its admins may change.
 	const acting = useActingUser(() => ws)
-	let isWsAdmin = $derived(!!acting.current && (acting.current.is_admin || acting.current.is_super_admin))
+	let isWsAdmin = $derived(
+		!!acting.current && (acting.current.is_admin || acting.current.is_super_admin)
+	)
 
 	let tools = $derived(summarizeTools(aiChatManager.availableTools))
 	let providerTools = $derived(aiChatManager.providerTools)
@@ -158,6 +171,11 @@ callers that already know which section they mean, such as the "+" menu's Manage
 		focusRoot = undefined
 		section = target
 		isOpen = true
+		if (!version) {
+			SettingsService.backendVersion()
+				.then((v) => (version = v))
+				.catch(() => {})
+		}
 		refresh()
 		record('open')
 		record(target)
@@ -246,7 +264,7 @@ callers that already know which section they mean, such as the "+" menu's Manage
 					unifiedSize="sm"
 					endIcon={{ icon: ExternalLink }}
 					btnClasses="!justify-start !w-full"
-					href={FEEDBACK_ISSUE_URL}
+					href={feedbackIssueUrl}
 					target="_blank"
 				>
 					Give feedback
@@ -313,9 +331,7 @@ callers that already know which section they mean, such as the "+" menu's Manage
 				<AssistantPermissionsSection {ws} />
 			</div>
 			{#if isWsAdmin}
-				<div
-					class="{section === 'danger' ? 'block' : 'hidden'} grow min-h-0 overflow-y-auto pr-2"
-				>
+				<div class="{section === 'danger' ? 'block' : 'hidden'} grow min-h-0 overflow-y-auto pr-2">
 					<AssistantDangerZoneSection {ws} />
 				</div>
 			{/if}

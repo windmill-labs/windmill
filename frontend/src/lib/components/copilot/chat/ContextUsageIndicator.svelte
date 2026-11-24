@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { copilotInfo, copilotSessionModel } from '$lib/aiStore'
 	import { getConfiguredModelContextWindow, getEffectiveModelContextWindow } from '../modelConfig'
 	import { getChatViewHost } from './chatViewHost'
 	import { AIMode } from './AIChatManager.svelte'
@@ -12,9 +11,8 @@
 	// so only advertise it where it actually works.
 	let canCompact = $derived(chatHost.isSessionChat && chatHost.mode === AIMode.GLOBAL)
 
-	let providerModel = $derived(
-		$copilotSessionModel ?? $copilotInfo.defaultModel ?? $copilotInfo.aiModels[0]
-	)
+	let providerModel = $derived(chatHost.currentModel)
+	let contextWindowPerModel = $derived(chatHost.aiInfo?.contextWindowPerModel)
 	// The same number the compaction trigger uses: the workspace's override or
 	// the known window when there is one, otherwise the conservative window the
 	// trigger assumes. The tooltip marks the assumed case so the guess never
@@ -24,7 +22,7 @@
 			? getEffectiveModelContextWindow(
 					providerModel.provider,
 					providerModel.model,
-					$copilotInfo.contextWindowPerModel
+					contextWindowPerModel
 				)
 			: undefined
 	)
@@ -33,7 +31,7 @@
 			getConfiguredModelContextWindow(
 				providerModel.provider,
 				providerModel.model,
-				$copilotInfo.contextWindowPerModel
+				contextWindowPerModel
 			) === undefined
 	)
 	// The same number the compaction trigger uses: the provider's report when

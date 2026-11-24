@@ -106,6 +106,7 @@ pub(crate) fn redact_git_sync(git_sync: Option<Value>) -> Option<Value> {
                     "webhook_secret",
                     "webhook_id",
                     "webhook_error",
+                    "webhook_verified_id",
                     "last_synced_sha",
                     "last_pull_status",
                     "enabled_by",

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { resource } from 'runed'
-	import { onDestroy, tick, untrack } from 'svelte'
+	import { onDestroy, setContext, tick, untrack } from 'svelte'
 	import { Loader2, Save, Workflow } from 'lucide-svelte'
 	import PipelineGraphEditor from '$lib/components/assets/AssetGraph/PipelineGraphEditor.svelte'
 	import PipelineTriggerEditors from '$lib/components/assets/AssetGraph/PipelineTriggerEditors.svelte'
@@ -27,6 +27,7 @@
 	import PipelineDeployTriggersModal from '$lib/components/assets/AssetGraph/PipelineDeployTriggersModal.svelte'
 	import AutosaveIndicator from '$lib/components/AutosaveIndicator.svelte'
 	import { Button } from '$lib/components/common'
+	import { setOperatingWorkspace } from '../operatingWorkspace.svelte'
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 	import { PIPELINE_DRAFT_KIND, pipelineBundlePath } from '$lib/pipelinePaths'
 	import type { DeployResult } from '$lib/utils_workspace_deploy'
@@ -59,6 +60,10 @@
 	// register the pipeline tools (build_pipeline_node / edit_pipeline_node) on the
 	// wrong chat — leaving this session's chat unable to build canvas nodes.
 	const aiChatManager = runtime.manager
+	// For the same reason, the AI features of the nodes' editors would read the tab's AI settings,
+	// which may be another workspace's, rather than this session's.
+	setContext('aiChatManager', aiChatManager)
+	setOperatingWorkspace(() => workspaceId)
 
 	// Only the foreground tab of the foreground session runs the live-badge poll.
 	const engaged = $derived(isActiveSession && active)

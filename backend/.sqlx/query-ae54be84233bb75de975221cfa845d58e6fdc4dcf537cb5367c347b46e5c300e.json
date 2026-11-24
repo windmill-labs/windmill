@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT count(path) FROM resource WHERE path LIKE 'f/' || $1 || '%' AND resource_type IS DISTINCT FROM 'ai_agent' AND workspace_id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "ae54be84233bb75de975221cfa845d58e6fdc4dcf537cb5367c347b46e5c300e"
+}

@@ -339,6 +339,32 @@
 	transition: none !important;
 }
 
+/* Draggable gutter between a session's chat and its preview: a real (layout-occupying)
+   10px-wide grab zone, no overlap tricks that could cover the chat's scrollbar
+   or the preview's edge. Transparent at rest; on hover the app-global
+   `.splitpanes__splitter::after` grabber fades in. Uses a dedicated class, not
+   the shared `.splitter-hidden`, which force-zeroes splitter opacity and would
+   hide that grabber. */
+.splitpanes--vertical.session-splitter > .splitpanes__splitter {
+	background-color: transparent !important;
+	border: none !important;
+	width: 10px !important;
+}
+/* Inset the global hover grabber from the pane's top/bottom edges so the line
+   doesn't run the full height, and round its ends into a pill. */
+.splitpanes--vertical.session-splitter > .splitpanes__splitter::after {
+	top: 8px !important;
+	bottom: 8px !important;
+	height: auto !important;
+	border-radius: 9999px !important;
+}
+/* Collapsed preview: the pane is resized to 0 but stays mounted, so remove
+   the gutter entirely — it would otherwise leave a dead 10px drag zone on the
+   chat's right edge. */
+.splitpanes--vertical.splitter-off > .splitpanes__splitter {
+	display: none !important;
+}
+
 .monaco-workbench > .notifications-toasts.visible {
 	display: none !important;
 }
@@ -468,8 +494,11 @@ input[type='time']::-webkit-calendar-picker-indicator {
 		opacity: 1;
 	}
 }
+/* No fill: a filled animation never ends for the compositor, so every faded element (Home's whole
+   scroll container among them) keeps a GPU layer for the page's lifetime. `from` paints on the
+   first frame anyway, and `to` is the resting style. */
 .wm-page-in {
-	animation: wm-page-in 500ms ease-out both;
+	animation: wm-page-in 500ms ease-out;
 }
 @media (prefers-reduced-motion: reduce) {
 	.wm-page-in {

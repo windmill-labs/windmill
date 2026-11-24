@@ -1270,6 +1270,7 @@ pub async fn handle_ai_agent_job(
             db,
             conn,
             job,
+            &flow_job_id,
             flow_status_job.as_ref(),
             Some(flow_step_id.as_str()),
             &args,
@@ -1285,7 +1286,9 @@ pub async fn handle_ai_agent_job(
             killpill_rx,
             has_stream,
             has_websearch,
-            omit_output_from_conversation,
+            // A nested agent answers its caller, whose tool message carries that answer into the
+            // chat; its own rows would also be tied to the calling agent's job, not the turn.
+            omit_output_from_conversation || direct_parent_job_kind == JobKind::AIAgent,
             preserve_step_tags,
             cancel_rx,
             tool_abort_handles.clone(),
@@ -1641,6 +1644,8 @@ pub async fn run_agent(
 
     // agent job and flow data
     job: &MiniPulledJob,
+    // the flow the agent is a step of, past the calling agent for a nested agent tool
+    flow_job_id: &Uuid,
     parent_job: Option<&Uuid>,
     flow_step_id_override: Option<&str>,
     args: &AIAgentArgs,
@@ -1719,7 +1724,7 @@ pub async fn run_agent(
     ));
 
     // Fetch flow context for input transforms context, chat and memory
-    let mut flow_context = get_flow_context(db, job).await;
+    let mut flow_context = get_flow_context(db, job, flow_job_id).await;
     // Set when the job parked on a request or on background jobs and has been pulled again. Read
     // whatever the roster says now: a linked agent can lose a tool while one of its runs is parked.
     let resumed = match load_checkpoint(db, &job.id).await? {
@@ -1766,10 +1771,7 @@ pub async fn run_agent(
 
     // The run's memory id is also the chat conversation id, which a step's own memory id never
     // replaces.
-    let conversation_id = flow_context
-        .flow_status
-        .as_ref()
-        .and_then(|fs| fs.memory_id);
+    let conversation_id = flow_context.run_status.as_ref().and_then(|fs| fs.memory_id);
     let (history, history_notes) = resolve_history_source(
         args,
         conversation_id,
@@ -1847,11 +1849,20 @@ pub async fn run_agent(
     // Extract previous step result only if any tool needs it
     let previous_result = {
         if any_tool_needs_previous_result(&tools) {
-            if let Some(ref flow_status) = flow_context.flow_status {
-                get_previous_job_result(db, &job.workspace_id, flow_status)
-                    .await
-                    .ok()
-                    .flatten()
+            if let Some(ref flow_status) = flow_context.step_flow_status {
+                // As for a regular step, the first step of a flow (a subflow, a loop iteration)
+                // gets that flow's args: no step precedes it.
+                if flow_status.step == 0 {
+                    flow_context
+                        .flow_inputs
+                        .as_ref()
+                        .and_then(|args| serde_json::value::to_raw_value(args).ok())
+                } else {
+                    get_previous_job_result(db, &job.workspace_id, flow_status)
+                        .await
+                        .ok()
+                        .flatten()
+                }
             } else {
                 None
             }
@@ -1862,13 +1873,18 @@ pub async fn run_agent(
 
     // Build IdContext for results.stepId syntax
     let id_context = {
-        if let Some(ref flow_status) = flow_context.flow_status {
+        if let Some(ref flow_status) = flow_context.step_flow_status {
             // Get the step ID from the AI agent's flow step
             let previous_id = effective_flow_step_id
                 .map(str::to_string)
                 .unwrap_or_else(|| "unknown".to_string());
 
-            Some(get_transform_context(job, &previous_id, flow_status))
+            let mut id_context = get_transform_context(job, &previous_id, flow_status);
+            // The agent's own root names the calling agent for a nested agent.
+            if let Some(root) = flow_context.root_job_id {
+                id_context.root_flow_job = root;
+            }
+            Some(id_context)
         } else {
             None
         }
@@ -2028,7 +2044,7 @@ pub async fn run_agent(
     let mut stream_event_processor = new_stream_event_processor(&final_events_str);
 
     let chat_enabled = flow_context
-        .flow_status
+        .run_status
         .as_ref()
         .and_then(|fs| fs.chat_input_enabled)
         .unwrap_or(false);

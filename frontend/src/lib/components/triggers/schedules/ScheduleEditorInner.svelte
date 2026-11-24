@@ -35,7 +35,7 @@
 		type Schedule
 	} from '$lib/gen'
 	import { emptyString, formatCron, sendUserToast, cronV1toV2 } from '$lib/utils'
-	import { useEditRights } from '$lib/operatorWriteRights'
+	import { useEditRights, useRoleCapabilities } from '$lib/operatorWriteRights'
 	import Section from '$lib/components/Section.svelte'
 	import { List, Loader2, AlertTriangle } from 'lucide-svelte'
 	import autosize from '$lib/autosize'
@@ -132,6 +132,7 @@
 
 	const operatingWorkspace = useOperatingWorkspace()
 	const wsId = $derived($operatingWorkspace)
+	const roleCaps = useRoleCapabilities()
 	// `undefined` while the lookup is in flight or after it failed; the checks below then
 	// refuse rather than fall back to rights that belong to another workspace.
 	const acting = useActingUser(() => wsId)
@@ -755,7 +756,7 @@
 							initialPath={initialScriptPath}
 							kinds={['script']}
 							allowFlow={true}
-							allowHub={true}
+							allowHub={$roleCaps.code}
 							allowRefresh={can_write}
 							bind:itemKind
 							bind:scriptPath={script_path}
@@ -810,6 +811,13 @@
 										showReset
 										onlyMaskPassword
 										disabled={!can_write}
+										helperScript={runnable && script_path && !script_path.startsWith('hub/')
+											? {
+													source: 'deployed',
+													path: script_path,
+													runnable_kind: is_flow ? 'flow' : 'script'
+												}
+											: undefined}
 										schema={$state.snapshot(schema)}
 										bind:isValid
 										bind:args

@@ -189,7 +189,8 @@ const SPECS: { key: StepSettingKey; spec: SettingSpec }[] = [
 				const isConstant = r?.constant != undefined
 				const n = (isConstant ? r?.constant?.attempts : r?.exponential?.attempts) ?? 0
 				const kind = isConstant ? 'constant' : 'exponential'
-				return cfg(`${n} attempt${n === 1 ? '' : 's'}, ${kind}`)
+				// `attempts` counts the runs after the first one, so it is a number of retries.
+				return cfg(`${n} retr${n === 1 ? 'y' : 'ies'}, ${kind}`)
 			}
 		}
 	},

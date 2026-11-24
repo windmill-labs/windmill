@@ -2,6 +2,7 @@ import { getContext, setContext } from 'svelte'
 import type { AIMode, AIAutonomyMode } from './AIChatManager.svelte'
 import type { AIWorkMode } from './workMode'
 import type { ReasoningProviderModel } from '../reasoningRegistry'
+import type { CopilotInfo } from '$lib/aiStore'
 import { getAiChatManager } from './aiChatManagerContext'
 import type { DisplayMessage, Tool } from './shared'
 import type { ContextElement } from './context'
@@ -10,6 +11,7 @@ import type { AttachedImage } from './imageUtils'
 import type { AttachedTextFile } from './textFileUtils'
 import type { PasteAttachment } from './pasteTokens'
 import type { ScopeDecision } from './workingScope'
+import type { LookupTools } from './toolGroups'
 import type { AttachedFilesStore } from './files/attachedFiles.svelte'
 import type { SessionArtifactsStore } from './artifacts/artifactsState.svelte'
 import type { ArtifactVersionTarget } from '$lib/components/sessions/previewRouter'
@@ -143,6 +145,9 @@ export interface ChatViewHost {
 	supportsModelSettings: boolean
 	/** The model the host's next turn sends, where `supportsModelSettings` is on. */
 	readonly currentModel?: ReasoningProviderModel
+	/** The AI config `currentModel` is resolved for: a session's own workspace's, never the tab's.
+	 * Undefined while a session's is loading. */
+	readonly aiInfo?: CopilotInfo
 
 	/** Click a user message to edit and resend it. Needs a host that can rewind
 	 * its own transcript, which a host replaying a server-side run cannot. */
@@ -179,6 +184,9 @@ export interface ChatViewHost {
 	 * included. A consumer narrows it by tool metadata; assembling its own list from the
 	 * sources behind it is how the advertised set and the sent set drift apart. */
 	readonly tools: readonly Tool<any>[]
+	/** Tools whose rows may fold into a run of lookups. Every tool the transcript's chat could
+	 * have called, not only `tools`: a row outlives the request that carried its tool. */
+	readonly lookupTools: LookupTools
 	autonomyMode: AIAutonomyMode
 	setAutonomyMode: (mode: AIAutonomyMode) => void
 	/** Use, Plan or Build: offered by a session chat only. */

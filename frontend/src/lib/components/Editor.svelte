@@ -5,6 +5,7 @@
 </script>
 
 <script lang="ts">
+	import HostWindow from '$lib/components/common/HostWindow.svelte'
 	import { BROWSER } from 'esm-env'
 
 	import { buildWsUrl } from '$lib/wsUrl'
@@ -2226,7 +2227,7 @@
 	watch([() => customTsTypesData.current], setTypescriptCustomTypes)
 </script>
 
-<svelte:window onkeydown={onKeyDown} />
+<HostWindow onkeydown={onKeyDown} />
 <EditorTheme />
 {#if datatableForMigrations && $operatingWorkspace}
 	<DdlMigrationGuard

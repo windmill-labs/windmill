@@ -6,7 +6,6 @@
 	import { goto } from '$lib/navigation'
 	import { getOrCreateRuntime } from './sessionRuntime.svelte'
 	import { workspaceStore } from '$lib/stores'
-	import { copilotWorkspace } from '$lib/aiStore'
 	import {
 		getSessionDraftAttachments,
 		getSessionDraftPrompt,
@@ -17,12 +16,18 @@
 		sessionPageHref,
 		sessionState,
 		setSessionDraftPrompt,
+		setSessionDirectIn,
 		takeHomeDraftFlash,
 		takeHomeDraftFocus
 	} from './sessionState.svelte'
 	import { useWorkModeLock } from './workModeLock.svelte'
 	import { AIWorkMode } from '$lib/components/copilot/chat/workMode'
 	import { homeComposerContext } from './homeComposerContext.svelte'
+	import WorkInForkToggle from './WorkInForkToggle.svelte'
+	import ProtectedBuildDialog from './ProtectedBuildDialog.svelte'
+	import { useForkStaging } from './forkStaging.svelte'
+	import { resource } from 'runed'
+	import { canWorkDirectly } from '$lib/components/copilot/chat/global/sessionAccess'
 
 	// Home's block is the unsent session's own chat, run by that session's manager: the
 	// composer, its controls and what a send does are the session's, not a copy of them.
@@ -46,9 +51,49 @@
 	setContext<AIChatManager>('aiChatManager', runtime.manager)
 
 	const session = $derived(sessionState.sessions.find((s) => s.id === sessionId))
+	let aiInfoSeen = false
+	const aiInfoLoaded = $derived(
+		(aiInfoSeen ||= !!runtime.manager.aiInfo || runtime.manager.aiInfoFailed)
+	)
 	// The draft acts on the workspace the page header names: holdHomeDraft keeps it there, so
 	// the lock's way out to a dev workspace switches the page.
-	const workModeLock = useWorkModeLock(() => session, true)
+	const forkStaging = useForkStaging(() => session)
+	// On a protected workspace, picking a mode that builds asks where to build.
+	let protectedPick: { mode: AIWorkMode; workspace: string } | undefined = $state(undefined)
+	let protectedDialogOpen = $state(false)
+	const directAllowed = resource(
+		() => forkStaging.workspace,
+		async (ws) => (ws ? canWorkDirectly(ws) : false)
+	)
+	const workModeLock = useWorkModeLock(
+		() => session,
+		true,
+		() =>
+			forkStaging.available || directAllowed.current
+				? (mode) => {
+						const ws = forkStaging.workspace
+						if (!ws) return
+						protectedPick = { mode, workspace: ws }
+						protectedDialogOpen = true
+					}
+				: undefined
+	)
+	async function workInFork() {
+		const pick = protectedPick
+		if (pick && (await forkStaging.stage())) runtime.manager.setWorkMode(pick.mode)
+	}
+	function workDirectly() {
+		const pick = protectedPick
+		if (!pick) return
+		setSessionDirectIn(sessionId, pick.workspace)
+		void runtime.manager.refreshSessionAccess(pick.workspace)
+		runtime.manager.setWorkMode(pick.mode)
+	}
+	function leaveDirect() {
+		const ws = session?.direct_in
+		setSessionDirectIn(sessionId, undefined)
+		if (ws) void runtime.manager.refreshSessionAccess(ws)
+	}
 	const starterPrompts = new StarterPrompts(
 		() => $workspaceStore ?? undefined,
 		() => !workModeLock.current && runtime.manager.workMode !== AIWorkMode.USE
@@ -108,11 +153,28 @@
 	})
 </script>
 
-<!-- Until a config has loaded the chat reads "AI not configured" and would flash its disabled
-     state. Any loaded config will do, so a fork switch does not hide it while the fork's loads.
+{#snippet actingOn()}
+	{#if session}
+		<WorkInForkToggle {session} staging={forkStaging} onLeaveDirect={leaveDirect} />
+	{/if}
+{/snippet}
+
+{#if protectedPick}
+	<ProtectedBuildDialog
+		bind:isOpen={protectedDialogOpen}
+		workspace={protectedPick.workspace}
+		canFork={forkStaging.available}
+		canDirect={!!directAllowed.current}
+		onFork={() => void workInFork()}
+		onDirect={workDirectly}
+	/>
+{/if}
+
+<!-- Waits for the session's own config, without which the chat cannot say whether AI is on.
+     Latched, so a workspace switch or a save's reload does not unmount it while the next loads.
      The item count decides whether the composer rests collapsed, so it waits for that too
      rather than open and fold up a moment later. -->
-{#if session && $copilotWorkspace !== undefined && starterPrompts.empty !== undefined}
+{#if session && aiInfoLoaded && starterPrompts.empty !== undefined}
 	<div bind:this={chatWrapper}>
 		<AIChat
 			bind:this={() => aiChat, bindChat}
@@ -128,6 +190,7 @@
 				restsOpen: starterPrompts.empty
 			}}
 			{onSent}
+			{actingOn}
 			workModeLock={workModeLock.current}
 		/>
 	</div>

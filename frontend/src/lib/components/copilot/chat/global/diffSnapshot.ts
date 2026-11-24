@@ -569,15 +569,18 @@ export async function resolveWorkspaceDiffTarget(
 	workspace: string,
 	kinds: UserDraftItemKind[],
 	path: string
-): Promise<{ kind: UserDraftItemKind; storagePath: string } | undefined> {
+): Promise<{ kind: UserDraftItemKind; storagePath: string; draftOnly: boolean } | undefined> {
 	const cache = await reconcile(workspace)
 	for (const kind of kinds) {
-		if (cache.entries.has(entryKey(kind, path))) return { kind, storagePath: path }
+		const exact = cache.entries.get(entryKey(kind, path))
+		if (exact) return { kind, storagePath: path, draftOnly: exact.row.draft_only }
 	}
 	const entry = [...cache.entries.values()].find(
 		(e) => kinds.includes(e.row.kind) && (e.displayPath === path || e.row.path === path)
 	)
-	return entry ? { kind: entry.row.kind, storagePath: entry.row.path } : undefined
+	return entry
+		? { kind: entry.row.kind, storagePath: entry.row.path, draftOnly: entry.row.draft_only }
+		: undefined
 }
 
 /** One item's diff entry, addressed by storage path or friendly draft path.

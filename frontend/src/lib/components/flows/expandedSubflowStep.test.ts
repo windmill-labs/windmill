@@ -1,6 +1,10 @@
 import { describe, it, expect } from 'vitest'
 import type { FlowModule } from '$lib/gen'
-import { expandedSubflowParentId, resolveExpandedSubflowStep } from './expandedSubflowStep'
+import {
+	expandedSubflowParentId,
+	resolveExpandedSubflowStep,
+	resolveLoadedExpandedSubflowStep
+} from './expandedSubflowStep'
 
 const script = (id: string): FlowModule =>
 	({ id, value: { type: 'rawscript', language: 'bun', content: '', input_transforms: {} } }) as any
@@ -48,5 +52,20 @@ describe('resolveExpandedSubflowStep', () => {
 		)
 		expect(resolved?.containingFlowPath).toBe('f/innermost')
 		expect(resolved?.module).toBeUndefined()
+	})
+})
+
+describe('resolveLoadedExpandedSubflowStep', () => {
+	it('reads each boundary from the expansion the graph keys it under', () => {
+		const expanded = {
+			a: { modules: flows['f/inner'] },
+			'subflow:a:b': { modules: flows['f/innermost'] }
+		}
+		const resolved = resolveLoadedExpandedSubflowStep('subflow:a:b:leaf', rootModules, expanded)
+		expect(resolved?.pathChain).toEqual(['f/inner', 'f/innermost'])
+		expect(resolved?.module?.id).toBe('leaf')
+		expect(
+			resolveLoadedExpandedSubflowStep('subflow:a:b:leaf', rootModules, { a: expanded.a })
+		).toBeUndefined()
 	})
 })

@@ -25,6 +25,8 @@ import { globalTools, prepareGlobalSystemMessage, type SessionPromptContext } fr
 import { appendPlanModeInstructions } from '../planMode'
 import { PlanModeController } from '../planModeController.svelte'
 import { pipelineTools } from '../pipeline/core'
+import type { Tool } from '../shared'
+import { everyChatTool } from '../lookupTools'
 import { assembleGlobalSystemMessage, assembleGlobalTools } from './globalAssembly'
 import { filterSessionTools, sessionToolAllowed } from './sessionToolset'
 import { capabilitiesForRole, fullSessionAccess } from './sessionAccess'
@@ -314,6 +316,45 @@ describe('session tool policies', () => {
 		}
 	})
 
+	it('tells a composing role hub scripts are refused only when it lacks code', async () => {
+		const tool = globalTools.find((t) => t.def.function.name === 'get_instructions')!
+		const texts = async (code: boolean) => {
+			const access = capabilitiesForRole({
+				isAdmin: false,
+				deployRulesPass: true,
+				capabilities: { ...FULL_CAPABILITIES, code, flows: 'compose', apps: 'compose' }
+			})
+			const guide = (subject: string) =>
+				tool.fn({
+					args: { subject },
+					workspace: 'ws',
+					helpers: { access },
+					toolId: 't1',
+					toolCallbacks: { setToolStatus: () => {} }
+				} as any) as Promise<string>
+			return {
+				flow: await guide('flow'),
+				app: await guide('app'),
+				agent: await guide('agent'),
+				prompt: prepareGlobalSystemMessage(undefined, { user: { username: 'u' }, access })
+					.content as string
+			}
+		}
+		const refusesHub = /refuse[sd]? [^.]*hub|hub [^.]*(are|is) refused/i
+		const without = await texts(false)
+		const withCode = await texts(true)
+		for (const subject of ['flow', 'app'] as const) {
+			expect(without[subject]).toMatch(refusesHub)
+			expect(withCode[subject]).not.toMatch(refusesHub)
+		}
+		expect(withCode.flow).toContain('deployed in the workspace or hub scripts')
+		// Without `code` the agent guide names only deployed scripts, so it never mentions hub scripts.
+		expect(without.agent).not.toContain('hub script')
+		expect(withCode.agent).toContain('hub script')
+		expect(without.prompt).toContain('the server refuses inline code and hub scripts')
+		expect(withCode.prompt).not.toMatch(refusesHub)
+	})
+
 	// A data setup needs SQL and inline runnables, neither of which a builder has.
 	it('offers a builder no init_app data setup', async () => {
 		const tool = globalTools.find((t) => t.def.function.name === 'init_app')!
@@ -361,5 +402,18 @@ describe('session tool policies', () => {
 		)
 		expect(prompt({})).toContain('schedule a deployed script or flow themselves')
 		expect(prompt({ manage_schedules: false })).not.toContain('schedule a deployed script')
+	})
+})
+
+describe('lookup tools', () => {
+	// A lookup's row folds into a collapsed group, so it must be a call plan mode lets run; and
+	// the transcript looks a name up across modes, so a name is a lookup everywhere or nowhere.
+	it('are plan-mode-safe, and agree on every name across modes', () => {
+		const tools = everyChatTool()
+		const name = (t: Tool<any>) => t.def.function.name
+		expect(tools.filter((t) => t.lookup && !t.planModeSafe).map(name)).toEqual([])
+		const lookup = new Map<string, Set<boolean>>()
+		for (const t of tools) lookup.set(name(t), (lookup.get(name(t)) ?? new Set()).add(!!t.lookup))
+		expect([...lookup].filter(([, values]) => values.size > 1).map(([n]) => n)).toEqual([])
 	})
 })

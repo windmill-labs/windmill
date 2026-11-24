@@ -512,6 +512,7 @@ export interface ScriptChatHelpers {
 export const resourceTypeTool: Tool<ScriptChatHelpers> = {
 	def: RESOURCE_TYPE_FUNCTION_DEF,
 	planModeSafe: true,
+	lookup: true,
 	fn: async ({ args, workspace, helpers, toolCallbacks, toolId }) => {
 		toolCallbacks.setToolStatus(toolId, {
 			content: 'Searching resource types for "' + args.query + '"...'
@@ -544,6 +545,7 @@ export function createDbSchemaTool<T>(
 		// codebase authors, never the user's code, and writes nothing. Planning a change to a
 		// database is not possible without its schema.
 		planModeSafe: true,
+		lookup: true,
 		fn: async ({ args, workspace, toolCallbacks, toolId }) => {
 			if (!args.resourcePath) {
 				throw new Error('Database path not provided')
@@ -690,6 +692,7 @@ export const searchNpmPackagesTool: SessionTool<{}> = {
 	requires: NONE,
 	def: SEARCH_NPM_PACKAGES_TOOL,
 	planModeSafe: true,
+	lookup: true,
 	fn: async ({ args, toolId, toolCallbacks, helpers }) => {
 		toolCallbacks.setToolStatus(toolId, { content: 'Searching for relevant packages...' })
 		const sessionAi = (helpers as { sessionAi?: () => SessionAi } | undefined)?.sessionAi
@@ -1026,6 +1029,7 @@ export const testRunScriptTool: Tool<ScriptChatHelpers> = {
 export const getLintErrorsTool: Tool<ScriptChatHelpers> = {
 	def: GET_LINT_ERRORS_TOOL,
 	planModeSafe: true,
+	lookup: true,
 	fn: async function ({ helpers, toolCallbacks, toolId }) {
 		toolCallbacks.setToolStatus(toolId, { content: 'Getting lint errors...' })
 

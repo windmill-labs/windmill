@@ -373,9 +373,11 @@ async fn test_tarball_export_settings_are_admin_only(db: Pool<Postgres>) -> anyh
 
     let (status, body) = export("SECRET_TOKEN").await?;
     assert_eq!(status, 200, "admin denied settings: {body}");
+    assert!(body.contains("AI_CONFIG_SECRET"), "admin got no settings");
+    // The webhook URL carries the receiver's token, so it leaves encrypted.
     assert!(
-        body.contains("WEBHOOK_SECRET") && body.contains("AI_CONFIG_SECRET"),
-        "admin got no settings"
+        body.contains(r#""webhook": "$encrypted:"#) && !body.contains("WEBHOOK_SECRET"),
+        "webhook not exported encrypted: {body}"
     );
 
     // Git sync pushes the workspace to the repo by exporting it under
@@ -397,7 +399,7 @@ async fn test_tarball_export_settings_are_admin_only(db: Pool<Postgres>) -> anyh
     let (status, body) = export(&sync_token).await?;
     assert_eq!(status, 200, "git-sync identity denied settings: {body}");
     assert!(
-        body.contains("WEBHOOK_SECRET"),
+        body.contains("AI_CONFIG_SECRET"),
         "git-sync identity got no settings"
     );
 

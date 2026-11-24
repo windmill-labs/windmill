@@ -14,6 +14,7 @@
 	import {
 		getOverlayHost,
 		overlayHostActive,
+		overlayShown,
 		setTopmostSurface
 	} from '$lib/components/common/overlayHost.svelte'
 
@@ -108,6 +109,9 @@
 	const hostEl = $derived(overlayHost?.el())
 	const posClass = $derived(hostEl ? 'absolute' : 'fixed')
 	const hostActive = overlayHostActive()
+	// The whole dialog, its place on the overlay stack included, goes while it is not drawn:
+	// other pages read that stack to decide whether an Escape is theirs.
+	const shown = overlayShown()
 
 	// A trail of one level is the dialog at its root, which the plain title already shows.
 	const crumbs = $derived(trail && trail.length > 1 ? trail : undefined)
@@ -186,175 +190,177 @@
 	</h3>
 {/snippet}
 
-<Disposable bind:open bind:this={disposable} preventEscape {minZIndex}>
-	{#snippet children({ zIndex })}
-		<!-- Always portalled, as Drawer is: rendered in place, any `transform`, `filter` or
-		     `overflow` on an ancestor confines the dialog and the nav rail paints over it. -->
-		<ConditionalPortal condition target={hostEl} class={hostEl ? 'contents' : undefined}>
-			{#if open}
-				<!-- svelte-ignore a11y_click_events_have_key_events -->
-				<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-				<div
-					onclick={() => (open = false)}
-					transition:fadeFast|local
-					class="{posClass} top-0 bottom-0 left-0 right-0"
-					style="z-index: {zIndex}"
-					role="dialog"
-					tabindex="-1"
-				>
+{#if shown()}
+	<Disposable bind:open bind:this={disposable} preventEscape {minZIndex}>
+		{#snippet children({ zIndex })}
+			<!-- Always portalled, as Drawer is: rendered in place, any `transform`, `filter` or
+			     `overflow` on an ancestor confines the dialog and the nav rail paints over it. -->
+			<ConditionalPortal condition target={hostEl} class={hostEl ? 'contents' : undefined}>
+				{#if open}
+					<!-- svelte-ignore a11y_click_events_have_key_events -->
+					<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 					<div
-						class={twMerge(
-							posClass,
-							'inset-0 bg-gray-500 bg-opacity-75 transition-opacity',
-							open ? 'ease-out duration-300 opacity-100' : 'ease-in duration-200 opacity-0'
-						)}
-					></div>
-
-					<div class="{posClass} inset-0 z-10 overflow-y-auto">
+						onclick={() => (open = false)}
+						transition:fadeFast|local
+						class="{posClass} top-0 bottom-0 left-0 right-0"
+						style="z-index: {zIndex}"
+						role="dialog"
+						tabindex="-1"
+					>
 						<div
-							class="flex {fillHeight || fitHeight
-								? 'h-full'
-								: 'min-h-full'} items-center justify-center p-4"
-						>
-							<!-- svelte-ignore a11y_no_static_element_interactions -->
+							class={twMerge(
+								posClass,
+								'inset-0 bg-gray-500 bg-opacity-75 transition-opacity',
+								open ? 'ease-out duration-300 opacity-100' : 'ease-in duration-200 opacity-0'
+							)}
+						></div>
+
+						<div class="{posClass} inset-0 z-10 overflow-y-auto">
 							<div
-								onclick={stopPropagation(bubble('click'))}
-								class={twMerge(
-									'relative transform overflow-hidden rounded-md bg-surface px-4 pt-5 pb-4 text-left shadow-xl transition-all sm:w-full sm:max-w-lg sm:p-6',
-									// The margins are what keeps a content-sized dialog off the viewport edges; a
-									// filling or fitting one takes its inset from the wrapper's padding instead.
-									// Fitting is a grid, not a flex column: a grid row gives the body a definite
-									// height while the dialog still hugs its content, so `h-full` resolves in it.
-									// The column's 0 minimum is the grid's `min-w-0`: long unbreakable content
-									// would otherwise widen it past the dialog.
-									fillHeight
-										? 'h-full flex flex-col'
-										: fitHeight
-											? kind == 'button'
-												? 'max-h-full grid grid-cols-[minmax(0,1fr)] grid-rows-[minmax(0,1fr)_auto]'
-												: 'max-h-full grid grid-cols-[minmax(0,1fr)] grid-rows-[minmax(0,1fr)]'
-											: 'sm:my-8',
-									c,
-									open
-										? 'ease-out duration-300 opacity-100 translate-y-0 sm:scale-100'
-										: 'ease-in duration-200 opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95'
-								)}
-								{style}
+								class="flex {fillHeight || fitHeight
+									? 'h-full'
+									: 'min-h-full'} items-center justify-center p-4"
 							>
-								{#if kind == 'X'}
-									<div class="absolute top-4 right-4"
-										><CloseButton on:close={() => (open = false)} /></div
-									>
-								{/if}
-								<div class="flex {fillHeight ? 'flex-1 min-h-0' : fitHeight ? 'min-h-0' : ''}">
-									<!-- min-w-0: without it this flex item takes its content's min-content width and
-									     stretches the modal past its max-width instead of letting content shrink. -->
-									<div
-										class="text-left flex-1 min-w-0 {fillHeight || fitHeight
-											? 'flex flex-col min-h-0'
-											: ''}"
-									>
-										<!-- pr-8 under `kind="X"`: the close button is absolutely positioned, so a long
-										     heading or the header actions would otherwise run under it. -->
+								<!-- svelte-ignore a11y_no_static_element_interactions -->
+								<div
+									onclick={stopPropagation(bubble('click'))}
+									class={twMerge(
+										'relative transform overflow-hidden rounded-md bg-surface px-4 pt-5 pb-4 text-left shadow-xl transition-all sm:w-full sm:max-w-lg sm:p-6',
+										// The margins are what keeps a content-sized dialog off the viewport edges; a
+										// filling or fitting one takes its inset from the wrapper's padding instead.
+										// Fitting is a grid, not a flex column: a grid row gives the body a definite
+										// height while the dialog still hugs its content, so `h-full` resolves in it.
+										// The column's 0 minimum is the grid's `min-w-0`: long unbreakable content
+										// would otherwise widen it past the dialog.
+										fillHeight
+											? 'h-full flex flex-col'
+											: fitHeight
+												? kind == 'button'
+													? 'max-h-full grid grid-cols-[minmax(0,1fr)] grid-rows-[minmax(0,1fr)_auto]'
+													: 'max-h-full grid grid-cols-[minmax(0,1fr)] grid-rows-[minmax(0,1fr)]'
+												: 'sm:my-8',
+										c,
+										open
+											? 'ease-out duration-300 opacity-100 translate-y-0 sm:scale-100'
+											: 'ease-in duration-200 opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95'
+									)}
+									{style}
+								>
+									{#if kind == 'X'}
+										<div class="absolute top-4 right-4"
+											><CloseButton on:close={() => (open = false)} /></div
+										>
+									{/if}
+									<div class="flex {fillHeight ? 'flex-1 min-h-0' : fitHeight ? 'min-h-0' : ''}">
+										<!-- min-w-0: without it this flex item takes its content's min-content width and
+										     stretches the modal past its max-width instead of letting content shrink. -->
 										<div
-											class="flex flex-row items-start justify-between gap-2 min-w-0 {kind === 'X'
-												? 'pr-8'
+											class="text-left flex-1 min-w-0 {fillHeight || fitHeight
+												? 'flex flex-col min-h-0'
 												: ''}"
 										>
-											{#if crumbs && current}
-												<div class="flex flex-row items-start gap-1 min-w-0">
-													{#if back?.onclick}
-														<!-- Pulled left so the heading lands about where the title sits at the
-														     root, and up so it reads against that heading rather than against
-														     the two lines together. -->
-														<Button
-															variant="subtle"
-															unifiedSize="sm"
-															iconOnly
-															startIcon={{ icon: ChevronLeft }}
-															title="Back to {back.label}"
-															onClick={back.onclick}
-															wrapperClasses="shrink-0 -ml-1 -mt-0.5"
-														/>
-													{/if}
-													<div class="flex flex-col min-w-0">
-														{@render heading(current.label, levelBadge, true)}
-														<!-- The way back in full: the control above carries one level of it. -->
-														<nav
-															aria-label="Breadcrumb"
-															class="flex flex-row items-center gap-0.5 min-w-0 text-xs text-secondary"
-														>
-															{#each crumbs.slice(0, -1) as segment, i (i)}
-																{#if i > 0}
-																	<span class="flex shrink-0" in:fade={{ duration: 150 }}>
-																		<ChevronRight size={12} class="text-tertiary shrink-0" />
-																	</span>
-																{/if}
-																{#if segment.onclick}
-																	<Button
-																		variant="subtle"
-																		unifiedSize="2xs"
-																		onClick={segment.onclick}
-																		wrapperClasses="min-w-0 shrink"
-																		btnClasses="!px-0 !font-normal !text-xs text-secondary hover:text-emphasis hover:underline hover:!bg-transparent min-w-0"
-																	>
-																		<span class="truncate">{segment.label}</span>
-																	</Button>
-																{:else}
-																	<span class="truncate" in:fade={{ duration: 150 }}
-																		>{segment.label}</span
-																	>
-																{/if}
-																{#if i === 0}
-																	{@render titleBadge?.()}
-																{/if}
-															{/each}
-														</nav>
+											<!-- pr-8 under `kind="X"`: the close button is absolutely positioned, so a long
+											     heading or the header actions would otherwise run under it. -->
+											<div
+												class="flex flex-row items-start justify-between gap-2 min-w-0 {kind === 'X'
+													? 'pr-8'
+													: ''}"
+											>
+												{#if crumbs && current}
+													<div class="flex flex-row items-start gap-1 min-w-0">
+														{#if back?.onclick}
+															<!-- Pulled left so the heading lands about where the title sits at the
+															     root, and up so it reads against that heading rather than against
+															     the two lines together. -->
+															<Button
+																variant="subtle"
+																unifiedSize="sm"
+																iconOnly
+																startIcon={{ icon: ChevronLeft }}
+																title="Back to {back.label}"
+																onClick={back.onclick}
+																wrapperClasses="shrink-0 -ml-1 -mt-0.5"
+															/>
+														{/if}
+														<div class="flex flex-col min-w-0">
+															{@render heading(current.label, levelBadge, true)}
+															<!-- The way back in full: the control above carries one level of it. -->
+															<nav
+																aria-label="Breadcrumb"
+																class="flex flex-row items-center gap-0.5 min-w-0 text-xs text-secondary"
+															>
+																{#each crumbs.slice(0, -1) as segment, i (i)}
+																	{#if i > 0}
+																		<span class="flex shrink-0" in:fade={{ duration: 150 }}>
+																			<ChevronRight size={12} class="text-tertiary shrink-0" />
+																		</span>
+																	{/if}
+																	{#if segment.onclick}
+																		<Button
+																			variant="subtle"
+																			unifiedSize="2xs"
+																			onClick={segment.onclick}
+																			wrapperClasses="min-w-0 shrink"
+																			btnClasses="!px-0 !font-normal !text-xs text-secondary hover:text-emphasis hover:underline hover:!bg-transparent min-w-0"
+																		>
+																			<span class="truncate">{segment.label}</span>
+																		</Button>
+																	{:else}
+																		<span class="truncate" in:fade={{ duration: 150 }}
+																			>{segment.label}</span
+																		>
+																	{/if}
+																	{#if i === 0}
+																		{@render titleBadge?.()}
+																	{/if}
+																{/each}
+															</nav>
+														</div>
 													</div>
-												</div>
-											{:else}
-												{@render heading(title, titleBadge, false)}
+												{:else}
+													{@render heading(title, titleBadge, false)}
+												{/if}
+												{@render settings?.()}
+											</div>
+
+											{#if description}
+												<p class="mt-1 text-xs text-secondary">{description}</p>
 											{/if}
-											{@render settings?.()}
-										</div>
 
-										{#if description}
-											<p class="mt-1 text-xs text-secondary">{description}</p>
-										{/if}
-
-										<!-- `mt-1` when paginated: a page carries its own description as its first line,
-										     and it belongs where the dialog's own sat, right under the title. Fitting, the
-										     body is the scroller of last resort: 4px of padding, taken back by the margins,
-										     keeps the focus rings of controls along its edges from being clipped. -->
-										<div
-											class={fitHeight
-												? 'mt-3 -mx-1 -mb-1 p-1 flex-1 min-h-0 overflow-y-auto text-sm text-primary'
-												: `${paginated ? 'mt-1' : 'mt-4'} text-sm text-primary ${fillHeight ? 'flex-1 min-h-0' : ''}`}
-										>
-											{@render children_render?.()}
+											<!-- `mt-1` when paginated: a page carries its own description as its first line,
+											     and it belongs where the dialog's own sat, right under the title. Fitting, the
+											     body is the scroller of last resort: 4px of padding, taken back by the margins,
+											     keeps the focus rings of controls along its edges from being clipped. -->
+											<div
+												class={fitHeight
+													? 'mt-3 -mx-1 -mb-1 p-1 flex-1 min-h-0 overflow-y-auto text-sm text-primary'
+													: `${paginated ? 'mt-1' : 'mt-4'} text-sm text-primary ${fillHeight ? 'flex-1 min-h-0' : ''}`}
+											>
+												{@render children_render?.()}
+											</div>
 										</div>
 									</div>
+									{#if kind == 'button'}
+										<div class="flex items-center space-x-2 flex-row-reverse space-x-reverse mt-4">
+											{@render actions?.()}
+											<Button
+												on:click={() => {
+													dispatch('canceled')
+													open = false
+												}}
+												color="light"
+												size="sm"
+											>
+												{cancelText ?? 'Cancel'}
+											</Button>
+										</div>
+									{/if}
 								</div>
-								{#if kind == 'button'}
-									<div class="flex items-center space-x-2 flex-row-reverse space-x-reverse mt-4">
-										{@render actions?.()}
-										<Button
-											on:click={() => {
-												dispatch('canceled')
-												open = false
-											}}
-											color="light"
-											size="sm"
-										>
-											{cancelText ?? 'Cancel'}
-										</Button>
-									</div>
-								{/if}
 							</div>
 						</div>
 					</div>
-				</div>
-			{/if}
-		</ConditionalPortal>
-	{/snippet}
-</Disposable>
+				{/if}
+			</ConditionalPortal>
+		{/snippet}
+	</Disposable>
+{/if}

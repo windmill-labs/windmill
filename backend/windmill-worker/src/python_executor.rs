@@ -153,18 +153,18 @@ use windmill_object_store::get_cache_object_store;
 use crate::{
     check_no_network_jailed,
     common::{
-        build_command_with_isolation, create_args_and_out_file, get_reserved_variables, read_file,
-        read_result, render_nsjail_rlimit_as, resolve_nsjail_timeout,
-        proto_str, resolve_nsjail_tmp_mount_block, start_child_process, OccupancyMetrics,
-        StreamNotifier, DEV_CONF_NSJAIL,
+        build_command_with_isolation, create_args_and_out_file, get_reserved_variables, proto_str,
+        read_file, read_result, render_nsjail_rlimit_as, render_nsjail_rlimit_fsize,
+        resolve_nsjail_timeout, resolve_nsjail_tmp_mount_block, start_child_process,
+        OccupancyMetrics, StreamNotifier, DEV_CONF_NSJAIL,
     },
     get_proxy_envs_for_lang, get_run_proxy_envs,
     handle_child::handle_child,
     is_sandboxing_enabled, nsjail_clone_newnet, read_ee_registry,
     worker_utils::ping_job_status,
     PyV, DISABLE_NUSER, HOME_ENV, INDEX_CERT, NATIVE_CERT, NSJAIL_AVAILABLE, NSJAIL_PATH,
-    NSJAIL_PY_RLIMIT_AS_MB, PATH_ENV, PIP_EXTRA_INDEX_URL, PIP_INDEX_URL, PROXY_ENVS,
-    PY_INSTALL_DIR, TRACING_PROXY_CA_CERT_PATH, TRUSTED_HOST, TZ_ENV, UV_CACHE_DIR,
+    NSJAIL_PY_RLIMIT_AS_MB, NSJAIL_RLIMIT_FSIZE_MB, PATH_ENV, PIP_EXTRA_INDEX_URL, PIP_INDEX_URL,
+    PROXY_ENVS, PY_INSTALL_DIR, TRACING_PROXY_CA_CERT_PATH, TRUSTED_HOST, TZ_ENV, UV_CACHE_DIR,
     UV_EXCLUDE_NEWER, UV_HTTP_TIMEOUT, UV_INDEX_STRATEGY, UV_PYTHON_INSTALL_MIRROR,
 };
 use windmill_common::client::AuthedClient;
@@ -1173,6 +1173,10 @@ mount {{
                     "{RLIMIT_AS}",
                     &render_nsjail_rlimit_as(NSJAIL_PY_RLIMIT_AS_MB.as_deref(), 4096),
                 )
+                .replace(
+                    "{RLIMIT_FSIZE}",
+                    &render_nsjail_rlimit_fsize(NSJAIL_RLIMIT_FSIZE_MB.as_deref(), 1000),
+                )
                 .replace("{JOB_DIR}", job_dir)
                 .replace("{PY_INSTALL_DIR}", &*PY_INSTALL_DIR)
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
@@ -1619,6 +1623,27 @@ from datetime import datetime, date
 
 scripts = {{}}
 
+# `step_id`, `job_id` and `flow_path` are per job, so the worker adds them, not this process.
+def error_json(e, tb):
+    err = {{ "message": str(e), "name": e.__class__.__name__, "stack": '\n'.join(tb[1:]) }}
+    extra = getattr(e, '__dict__', None)
+    if extra:
+        err['extra'] = extra
+    try:
+        return json.dumps(err, separators=(',', ':'), default=str).replace('\n', '')
+    except Exception:
+        pass
+    # A cyclic attribute would raise here and end the process every later job runs in.
+    safe = {{}}
+    for k, v in extra.items():
+        try:
+            json.dumps(v, default=str)
+            safe[k] = v
+        except Exception:
+            safe[k] = '[unserializable]'
+    err['extra'] = safe
+    return json.dumps(err, separators=(',', ':'), default=str).replace('\n', '')
+
 def to_b_64(v: bytes):
     b64 = base64.b64encode(v)
     return b64.decode('ascii')
@@ -1677,7 +1702,7 @@ for line in sys.stdin:
         except BaseException as e:
             exc_type, exc_value, exc_traceback = sys.exc_info()
             tb = traceback.format_tb(exc_traceback)
-            err_json = json.dumps({{ "message": str(e), "name": e.__class__.__name__, "stack": '\n'.join(tb[1:]) }}, separators=(',', ':'), default=str).replace('\n', '')
+            err_json = error_json(e, tb)
             sys.stdout.write("wm_res[error]:" + err_json + "\n")
         sys.stdout.flush()
         continue
@@ -1705,7 +1730,7 @@ for line in sys.stdin:
         except BaseException as e:
             exc_type, exc_value, exc_traceback = sys.exc_info()
             tb = traceback.format_tb(exc_traceback)
-            err_json = json.dumps({{ "message": str(e), "name": e.__class__.__name__, "stack": '\n'.join(tb[1:]) }}, separators=(',', ':'), default=str).replace('\n', '')
+            err_json = error_json(e, tb)
             sys.stdout.write("wm_res[error]:" + err_json + "\n")
         sys.stdout.flush()
         continue
@@ -1723,7 +1748,7 @@ for line in sys.stdin:
         except BaseException as e:
             exc_type, exc_value, exc_traceback = sys.exc_info()
             tb = traceback.format_tb(exc_traceback)
-            err_json = json.dumps({{ "message": str(e), "name": e.__class__.__name__, "stack": '\n'.join(tb[1:]) }}, separators=(',', ':'), default=str).replace('\n', '')
+            err_json = error_json(e, tb)
             sys.stdout.write("wm_res[error]:" + err_json + "\n")
         sys.stdout.flush()
         continue
@@ -1751,7 +1776,7 @@ for line in sys.stdin:
         except BaseException as e:
             exc_type, exc_value, exc_traceback = sys.exc_info()
             tb = traceback.format_tb(exc_traceback)
-            err_json = json.dumps({{ "message": str(e), "name": e.__class__.__name__, "stack": '\n'.join(tb[1:]) }}, separators=(',', ':'), default=str).replace('\n', '')
+            err_json = error_json(e, tb)
             sys.stdout.write("wm_res[error]:" + err_json + "\n")
         sys.stdout.flush()
         continue

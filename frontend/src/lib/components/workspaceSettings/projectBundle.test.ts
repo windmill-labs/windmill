@@ -3,6 +3,9 @@ import {
 	classifyPath,
 	extractScriptRefs,
 	extractFlowRefs,
+	extractAgentRefs,
+	rewriteAgentValue,
+	withoutAgentWorkspaceKeys,
 	extractAppRefs,
 	buildPathMap,
 	rewriteContent,
@@ -924,5 +927,491 @@ describe('textHoldsBarePath', () => {
 		['the same path inside a longer token', `"$res:${P}_prod"`, false]
 	])('%s', (_label, text, expected) => {
 		expect(textHoldsBarePath(text, P)).toBe(expected)
+	})
+})
+
+describe('saved AI agents', () => {
+	// An `ai_agent` resource value: a provider, a script tool with a fixed resource input, an
+	// inline tool reading a resource by token.
+	const value = {
+		provider: { kind: 'anthropic', model: 'claude', resource: '$res:u/admin/claude' },
+		system_prompt: 'You make videos. Never touch u/admin/helper yourself.',
+		memory: { kind: 'compaction' },
+		tools: [
+			{
+				id: 'a',
+				summary: 'make_video',
+				value: {
+					tool_type: 'flowmodule',
+					type: 'script',
+					path: 'u/admin/helper',
+					input_transforms: {
+						gh: { type: 'static', value: '$res:f/shared/api' },
+						name: { type: 'ai' }
+					}
+				}
+			},
+			{
+				id: 'b',
+				summary: 'lookup',
+				value: {
+					tool_type: 'flowmodule',
+					type: 'rawscript',
+					language: 'bun',
+					content: 'const db = "$res:u/admin/pg"',
+					input_transforms: {}
+				}
+			}
+		]
+	}
+
+	it('finds the scripts its tools run and every resource it reaches', () => {
+		expect(extractAgentRefs(value)).toEqual(
+			expect.arrayContaining([
+				{ kind: 'script', path: 'u/admin/helper' },
+				{ kind: 'resource', path: 'f/shared/api' },
+				{ kind: 'resource', path: 'u/admin/pg' },
+				{ kind: 'resource', path: 'u/admin/claude' }
+			])
+		)
+	})
+
+	it('relocates tools, inputs and provider, and leaves the prompt alone', () => {
+		const map = new Map([
+			['u/admin/helper', 'f/proj/helper'],
+			['f/shared/api', 'f/proj/api'],
+			['u/admin/pg', 'f/proj/pg'],
+			['u/admin/claude', 'f/proj/claude']
+		])
+		const out = rewriteAgentValue(value, map)
+		expect(out.provider.resource).toBe('$res:f/proj/claude')
+		expect(out.tools[0].value.path).toBe('f/proj/helper')
+		expect(out.tools[0].value.input_transforms.gh.value).toBe('$res:f/proj/api')
+		expect(out.tools[1].value.content).toContain('$res:f/proj/pg')
+		expect(out.system_prompt).toBe(value.system_prompt)
+		expect(out.memory).toEqual(value.memory)
+	})
+
+	it('ships whole in a bundle: its script comes along, and it is not also a stub', async () => {
+		const agent: FetchedItem = { kind: 'agent', path: 'u/admin/video_agent', value }
+		const helper: FetchedItem = {
+			kind: 'script',
+			path: 'u/admin/helper',
+			language: 'bun',
+			content: 'export async function main(){}'
+		}
+		// An app naming the agent would reference it as a resource: it must stay an item.
+		const flow: FetchedItem = {
+			kind: 'flow',
+			path: 'f/proj/uses_agent',
+			value: {
+				modules: [
+					{
+						id: 'x',
+						value: {
+							type: 'rawscript',
+							content: 'const a = "$res:u/admin/video_agent"',
+							input_transforms: {}
+						}
+					}
+				]
+			}
+		}
+		const bundle = await buildProjectBundle(
+			[
+				{ kind: 'agent', path: 'u/admin/video_agent' },
+				{ kind: 'flow', path: 'f/proj/uses_agent' }
+			],
+			'proj',
+			{
+				fetchItem: async (ref: ItemRef) =>
+					ref.kind === 'agent' ? agent : ref.kind === 'flow' ? flow : helper,
+				resolveResourceType: async (path: string) =>
+					path === 'u/admin/video_agent' ? 'ai_agent' : 'some_type'
+			}
+		)
+		expect(bundle.items.map((i) => `${i.kind}:${i.newPath}`).sort()).toEqual([
+			'agent:f/proj/video_agent',
+			'flow:f/proj/uses_agent',
+			'script:f/proj/helper'
+		])
+		expect(bundle.resourceStubs.map((r) => r.resource_type)).not.toContain('ai_agent')
+		const shipped = bundle.items.find((i) => i.kind === 'agent')!
+		expect(shipped.value.tools[0].value.path).toBe('f/proj/helper')
+		expect(shipped.value.provider.resource).toBe('$res:f/proj/claude')
+	})
+
+	it('follows a retargeted export into another folder', () => {
+		const exp: ProjectExport = {
+			project: { slug: 'proj', name: 'P', summary: '', readme: null },
+			scripts: [{ path: 'f/proj/helper', content: '' }],
+			flows: [],
+			apps: [],
+			resources: [{ path: 'f/proj/claude', resource_type: 'anthropic' }],
+			triggers: [],
+			agents: [
+				{
+					path: 'f/proj/video_agent',
+					value: {
+						provider: { kind: 'anthropic', resource: '$res:f/proj/claude' },
+						tools: [{ id: 'a', value: { type: 'script', path: 'f/proj/helper' } }]
+					}
+				}
+			]
+		}
+		const out = retargetProjectExport(exp, 'proj', 'mine')
+		expect(out.agents?.[0].path).toBe('f/mine/video_agent')
+		expect(out.agents?.[0].value.provider.resource).toBe('$res:f/mine/claude')
+		expect(out.agents?.[0].value.tools[0].value.path).toBe('f/mine/helper')
+	})
+
+	it('ships and rewrites the resource an MCP tool connects to', () => {
+		const value = {
+			provider: { kind: 'anthropic', resource: '$res:f/proj/claude' },
+			tools: [
+				{ id: 'm', value: { tool_type: 'mcp', resource_path: '$res:f/proj/mcp' } },
+				{ id: 'n', value: { tool_type: 'mcp', resource_path: 'f/proj/other_mcp' } }
+			]
+		}
+		expect(extractAgentRefs(value)).toEqual(
+			expect.arrayContaining([
+				{ kind: 'resource', path: 'f/proj/mcp' },
+				{ kind: 'resource', path: 'f/proj/other_mcp' }
+			])
+		)
+		const map = new Map([
+			['f/proj/mcp', 'f/mine/mcp'],
+			['f/proj/other_mcp', 'f/mine/other_mcp']
+		])
+		const out = rewriteAgentValue(value, map)
+		expect(out.tools[0].value.resource_path).toBe('$res:f/mine/mcp')
+		expect(out.tools[1].value.resource_path).toBe('f/mine/other_mcp')
+	})
+
+	it('relocates a variable only an agent uses', () => {
+		const exp: ProjectExport = {
+			project: { slug: 'proj', name: 'P', summary: '', readme: null },
+			scripts: [{ path: 'f/proj/helper', content: '' }],
+			flows: [],
+			apps: [],
+			resources: [],
+			triggers: [],
+			agents: [
+				{
+					path: 'f/proj/video_agent',
+					value: {
+						tools: [
+							{
+								id: 'a',
+								value: {
+									type: 'script',
+									path: 'f/proj/helper',
+									input_transforms: { region: { type: 'static', value: '$var:f/proj/region' } }
+								}
+							}
+						]
+					}
+				}
+			]
+		}
+		expect(collectExportVarPaths(exp)).toContain('f/proj/region')
+		const out = retargetProjectExport(exp, 'proj', 'mine')
+		expect(out.agents?.[0].value.tools[0].value.input_transforms.region.value).toBe(
+			'$var:f/mine/region'
+		)
+	})
+
+	it('ships and rewrites the MCP server of a nested agent tool', () => {
+		const value = {
+			tools: [
+				{
+					id: 'inner',
+					value: {
+						tool_type: 'flowmodule',
+						type: 'aiagent',
+						input_transforms: {},
+						tools: [{ id: 'm', value: { tool_type: 'mcp', resource_path: '$res:f/proj/mcp' } }]
+					}
+				}
+			]
+		}
+		expect(extractAgentRefs(value)).toContainEqual({ kind: 'resource', path: 'f/proj/mcp' })
+		const out = rewriteAgentValue(value, new Map([['f/proj/mcp', 'f/mine/mcp']]))
+		expect(out.tools[0].value.tools[0].value.resource_path).toBe('$res:f/mine/mcp')
+	})
+
+	it('relocates the saved agent a tool is linked to', () => {
+		const exp: ProjectExport = {
+			project: { slug: 'proj', name: 'P', summary: '', readme: null },
+			scripts: [],
+			flows: [],
+			apps: [],
+			resources: [],
+			triggers: [],
+			agents: [
+				{
+					path: 'f/proj/parent',
+					value: {
+						tools: [
+							{
+								id: 'child',
+								value: {
+									tool_type: 'flowmodule',
+									type: 'aiagent',
+									agent: '$res:f/proj/child',
+									input_transforms: {}
+								}
+							}
+						]
+					}
+				},
+				{ path: 'f/proj/child', value: { tools: [] } }
+			]
+		}
+		const out = retargetProjectExport(exp, 'proj', 'mine')
+		expect(out.agents?.[0].value.tools[0].value.agent).toBe('$res:f/mine/child')
+	})
+
+	it('ships a linked agent from outside the folder whole, not as a stub', async () => {
+		const parent: FetchedItem = {
+			kind: 'agent',
+			path: 'f/proj/parent',
+			value: {
+				tools: [
+					{
+						id: 'child',
+						value: {
+							tool_type: 'flowmodule',
+							type: 'aiagent',
+							agent: 'u/admin/child',
+							input_transforms: {}
+						}
+					}
+				]
+			}
+		}
+		const child: FetchedItem = { kind: 'agent', path: 'u/admin/child', value: { tools: [] } }
+		const bundle = await buildProjectBundle([{ kind: 'agent', path: 'f/proj/parent' }], 'proj', {
+			fetchItem: async (ref: ItemRef) => (ref.path === 'u/admin/child' ? child : parent),
+			resolveResourceType: async (path: string) =>
+				path === 'u/admin/child' ? 'ai_agent' : 'some_type'
+		})
+		expect(bundle.items.map((i) => `${i.kind}:${i.newPath}`).sort()).toEqual([
+			'agent:f/proj/child',
+			'agent:f/proj/parent'
+		])
+		expect(bundle.resourceStubs).toEqual([])
+		const shipped = bundle.items.find((i) => i.newPath === 'f/proj/parent')!
+		expect(shipped.value.tools[0].value.agent).toBe('f/proj/child')
+	})
+
+	// A saved agent is read unvalidated, so no list of fields is kept: these pin the places
+	// reviews found one by one, and one nobody has named yet.
+	it('finds and rewrites a reference wherever it sits in the value', () => {
+		const value = {
+			provider: { kind: 'anthropic', resource: '$res:f/proj/claude' },
+			output_schema: '$res:f/proj/answer_schema',
+			memory: { kind: 'auto', store: { resource: 'res://f/proj/store' } },
+			some_future_key: [{ deep: { ref: '$res:f/proj/later' } }],
+			tools: [
+				{
+					id: 'child',
+					value: {
+						tool_type: 'flowmodule',
+						type: 'aiagent',
+						agent: 'f/proj/child',
+						input_transforms: {},
+						tool_inputs: {
+							query: { db: { type: 'static', value: { conn: '$res:f/proj/db' } } }
+						}
+					}
+				},
+				{
+					id: 'code',
+					value: {
+						type: 'rawscript',
+						content: 'const k = "$res:f/proj/inline"',
+						input_transforms: {}
+					}
+				}
+			]
+		}
+		const resources = extractAgentRefs(value)
+			.filter((r) => r.kind === 'resource')
+			.map((r) => r.path)
+			.sort()
+		expect(resources).toEqual([
+			'f/proj/answer_schema',
+			'f/proj/child',
+			'f/proj/claude',
+			'f/proj/db',
+			'f/proj/inline',
+			'f/proj/later',
+			'f/proj/store'
+		])
+
+		const map = new Map(resources.map((p) => [p, p.replace('f/proj/', 'f/mine/')]))
+		const out = rewriteAgentValue(value, map)
+		expect(JSON.stringify(out)).not.toContain('f/proj/')
+		expect(out.output_schema).toBe('$res:f/mine/answer_schema')
+		expect(out.memory.store.resource).toBe('res://f/mine/store')
+		expect(out.some_future_key[0].deep.ref).toBe('$res:f/mine/later')
+		expect(out.tools[0].value.agent).toBe('f/mine/child')
+		expect(out.tools[0].value.tool_inputs.query.db.value.conn).toBe('$res:f/mine/db')
+		expect(out.tools[1].value.content).toBe('const k = "$res:f/mine/inline"')
+		// The source value is left as it was.
+		expect(value.output_schema).toBe('$res:f/proj/answer_schema')
+	})
+
+	it('reads prose and data as what they are, not as references', () => {
+		const value = {
+			// The worker resolves a value that is a reference as a whole, never a token in a
+			// sentence: a prompt explaining the syntax must not block the publish.
+			system_prompt: 'Pass resources as $res:u/user/name strings, e.g. $res:f/team/pg.',
+			memory: { messages: [{ role: 'user', content: 'use $res:u/someone/else' }] },
+			tools: [
+				{
+					id: 't',
+					value: {
+						type: 'script',
+						path: 'f/proj/helper',
+						input_transforms: {
+							// A JSON argument that looks like a tool is an argument.
+							arg: { type: 'static', value: { type: 'flow', path: 'u/other/thing' } },
+							// Evaluated, not resolved.
+							x: { type: 'javascript', expr: '"$res:f/proj/not_a_ref"' }
+						}
+					}
+				}
+			]
+		}
+		expect(extractAgentRefs(value)).toEqual([{ kind: 'script', path: 'f/proj/helper' }])
+		const out = rewriteAgentValue(value, new Map([['u/other/thing', 'f/mine/thing']]))
+		expect(out).toEqual(value)
+	})
+
+	it('hides nothing beside a javascript or static input', () => {
+		// The install check walks the same way: keys set next to `expr` or `value` to make an
+		// object look like an input must still be read.
+		const value = {
+			type: 'javascript',
+			expr: '',
+			provider: { kind: 'openai', resource: '$res:u/admin/prod_openai' },
+			tools: [
+				{
+					id: 't',
+					type: 'static',
+					value: { tool_type: 'flowmodule', type: 'script', path: 'u/admin/danger' }
+				},
+				{ id: 'm', value: { tool_type: 'mcp', resource_path: 'u/admin/mcp' } }
+			]
+		}
+		const paths = extractAgentRefs(value).map((r) => r.path)
+		expect(paths.sort()).toEqual(['u/admin/danger', 'u/admin/mcp', 'u/admin/prod_openai'])
+	})
+
+	it('keeps an MCP server enabled under its new path', () => {
+		const flow = {
+			modules: [
+				{
+					id: 'a',
+					value: {
+						type: 'aiagent',
+						tools: [{ id: 'm', value: { tool_type: 'mcp', resource_path: '$res:u/me/mcp' } }],
+						input_transforms: {
+							enabled_tools: { type: 'static', value: ['u/me/mcp', 'lookup'] }
+						}
+					}
+				}
+			]
+		}
+		const map = new Map([['u/me/mcp', 'f/proj/mcp']])
+		const out = rewriteFlowValue(flow, map)
+		expect(out.modules[0].value.tools[0].value.resource_path).toBe('$res:f/proj/mcp')
+		expect(out.modules[0].value.input_transforms.enabled_tools.value).toEqual([
+			'f/proj/mcp',
+			'lookup'
+		])
+		// The same on an agent used as a tool by a saved agent.
+		const nested = rewriteAgentValue(
+			{ tools: [{ id: 'inner', value: flow.modules[0].value }] },
+			map
+		)
+		expect(nested.tools[0].value.input_transforms.enabled_tools.value).toEqual([
+			'f/proj/mcp',
+			'lookup'
+		])
+	})
+
+	it('ships an agent a trigger already named whole, not as a stub', async () => {
+		const flow: FetchedItem = {
+			kind: 'flow',
+			path: 'f/proj/uses_agent',
+			value: {
+				modules: [
+					{ id: 'a', value: { type: 'aiagent', agent: 'u/me/agent', input_transforms: {} } }
+				]
+			}
+		}
+		const agent: FetchedItem = { kind: 'agent', path: 'u/me/agent', value: { tools: [] } }
+		const bundle = await buildProjectBundle(
+			[{ kind: 'flow', path: 'f/proj/uses_agent' }],
+			'proj',
+			{
+				fetchItem: async (ref: ItemRef) => (ref.kind === 'agent' ? agent : flow),
+				resolveResourceType: async () => 'ai_agent'
+			},
+			['u/me/agent']
+		)
+		expect(bundle.items.map((i) => `${i.kind}:${i.newPath}`).sort()).toEqual([
+			'agent:f/proj/agent',
+			'flow:f/proj/uses_agent'
+		])
+		expect(bundle.resourceStubs).toEqual([])
+	})
+
+	it('follows the tool wiring a linked agent step holds in a flow', () => {
+		const flow = {
+			modules: [
+				{
+					id: 'a',
+					value: {
+						type: 'aiagent',
+						agent: '$res:f/proj/helpdesk',
+						input_transforms: {},
+						tools: [],
+						tool_inputs: {
+							lookup: { db: { type: 'static', value: '$res:f/proj/db' } }
+						}
+					}
+				}
+			]
+		}
+		expect(extractFlowRefs(flow)).toEqual(
+			expect.arrayContaining([
+				{ kind: 'resource', path: 'f/proj/helpdesk' },
+				{ kind: 'resource', path: 'f/proj/db' }
+			])
+		)
+		const out = rewriteFlowValue(
+			flow,
+			new Map([
+				['f/proj/helpdesk', 'f/mine/helpdesk'],
+				['f/proj/db', 'f/mine/db']
+			])
+		)
+		expect(out.modules[0].value.agent).toBe('$res:f/mine/helpdesk')
+		expect(out.modules[0].value.tool_inputs.lookup.db.value).toBe('$res:f/mine/db')
+	})
+
+	it('drops who an agent runs as, whoever wrote the value', () => {
+		const out = withoutAgentWorkspaceKeys({
+			system_prompt: 'x',
+			on_behalf_of: 'u/someone',
+			run_on_behalf_of: true,
+			slack_anyone: true
+		})
+		expect(out).toEqual({ system_prompt: 'x' })
+		expect(withoutAgentWorkspaceKeys(undefined)).toEqual({})
 	})
 })

@@ -3,6 +3,7 @@
 	import { Button, Skeleton } from '$lib/components/common'
 	import { ChevronDown, ExternalLink, Loader2, PanelRightOpen, Play } from 'lucide-svelte'
 	import RecentRunRow from './RecentRunRow.svelte'
+	import RecentRunsHiddenHint from './RecentRunsHiddenHint.svelte'
 	import {
 		allRunsHref,
 		askAI,
@@ -136,9 +137,11 @@
 									})}
 							/>
 						{:else}
-							<p class="px-2.5 py-3 text-secondary text-[12.5px]">
-								Runs show up here once something runs.
-							</p>
+							{#if runs.hiddenItems.length === 0}
+								<p class="px-2.5 py-3 text-secondary text-[12.5px]">
+									Runs show up here once something runs.
+								</p>
+							{/if}
 						{/each}
 						{#if data.items.length > MAX_ITEMS}
 							<a
@@ -148,6 +151,8 @@
 								{data.items.length - MAX_ITEMS} more
 							</a>
 						{/if}
+						<RecentRunsHiddenHint {runs} class="px-2.5 pt-1" />
+
 					{:else if runs.loading}
 						<Skeleton class="px-2.5 pt-2" layout={[[2.5], 0.25, [2.5], 0.25, [2.5]]} />
 					{:else if runs.failed}
