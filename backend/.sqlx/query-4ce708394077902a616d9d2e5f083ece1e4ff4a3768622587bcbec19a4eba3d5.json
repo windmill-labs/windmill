@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE v2_job_queue\n        SET extras = jsonb_set(COALESCE(extras, '{}'::jsonb), '{failed_fast_at}', to_jsonb(now()))\n        WHERE id = $1 AND running AND NOT EXISTS (\n            SELECT 1 FROM v2_job_queue o\n            WHERE o.id = ANY($2)\n                AND (o.extras->>'failed_fast_at')::timestamptz > now() - make_interval(secs => $3)\n        )\n        RETURNING id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "UuidArray",
+        "Float8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "4ce708394077902a616d9d2e5f083ece1e4ff4a3768622587bcbec19a4eba3d5"
+}

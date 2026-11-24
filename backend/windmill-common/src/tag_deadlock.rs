@@ -2,8 +2,14 @@
 //! queued on that same tag, so none of those children can start until a parent gives up.
 //!
 //! A parent that merely queued a child and carries on (fire-and-forget) looks the same from the
-//! queue, so the detection alone is only ever reported. Failing a wait is reserved for a parent
-//! that is provably waiting: the one polling for its own child's result.
+//! queue, and its worker frees up once it finishes, so the queue alone is only ever reported as a
+//! suspected deadlock. Failing a wait needs every holder to be provably waiting: a parent polling
+//! for its own stuck child marks its queue row with that child (`extras.waiting_on`), and only a
+//! tag whose holders are all freshly marked as waiting on one of its stuck children is a
+//! deadlock a wait may be failed for. A parent waiting on a child of another tag is not.
+//!
+//! Everything here reads the queue across workspaces and writes instance-level alerts: it is
+//! for the server's own maintenance and wait paths, never a workspace-facing query.
 
 use std::{
     collections::HashMap,
@@ -25,12 +31,13 @@ lazy_static::lazy_static! {
 
     static ref CACHE: Mutex<HashMap<String, (Instant, Option<TagDeadlock>)>> =
         Mutex::new(HashMap::new());
-
-    static ref LAST_FAIL_FAST: Mutex<HashMap<String, Instant>> = Mutex::new(HashMap::new());
 }
 
 const CACHE_TTL: Duration = Duration::from_secs(5);
-const FAIL_FAST_COOLDOWN: Duration = Duration::from_secs(15);
+/// How long a parent's last poll on its stuck child counts as it still waiting. Pollers mark at
+/// most every 5s, so this spans several of their polls.
+const WAITING_MARK_TTL_SECS: f64 = 30.0;
+const FAIL_FAST_COOLDOWN_SECS: f64 = 15.0;
 
 #[derive(Debug, Clone)]
 pub struct TagDeadlock {
@@ -42,14 +49,22 @@ pub struct TagDeadlock {
 }
 
 /// Every tag (or only `tag`) whose live workers are all held by a running job with a child
-/// queued on that tag for longer than the grace period.
+/// queued on that tag for longer than the grace period. With `waiting_only`, a holder counts only
+/// while it is marked as waiting on that very child (see the module doc).
+///
+/// Instance-wide and unauthorized: the parents it returns belong to any workspace, so they may
+/// reach superadmin alerts but not a workspace caller.
 ///
 /// A worker's job is read from `v2_job_queue` (`running`, `worker`), not from
 /// `worker_ping.current_job_id`, which keeps naming the last job after the worker went idle.
 /// Flow jobs are excluded because they hold no worker while their steps run, and so are
 /// parked jobs (a suspended workflow-as-code parent keeps `running` but released its slot).
 /// Native-mode workers run several jobs at once, so a tag one of them serves is never reported.
-pub async fn deadlocked_tags(db: &DB, tag: Option<&str>) -> error::Result<Vec<TagDeadlock>> {
+pub async fn deadlocked_tags(
+    db: &DB,
+    tag: Option<&str>,
+    waiting_only: bool,
+) -> error::Result<Vec<TagDeadlock>> {
     let rows = sqlx::query!(
         r#"
         WITH blocked AS (
@@ -64,6 +79,9 @@ pub async fn deadlocked_tags(db: &DB, tag: Option<&str>) -> error::Result<Vec<Ta
                 AND NOT c.running AND c.suspend = 0
                 AND c.scheduled_for <= now() - make_interval(secs => $2::bigint::double precision)
                 AND ($1::text IS NULL OR c.tag = $1)
+                AND (NOT $3 OR (r.extras->'waiting_on'->>'child' = c.id::text
+                    AND (r.extras->'waiting_on'->>'at')::timestamptz
+                        > now() - make_interval(secs => $4)))
         ),
         live AS (
             SELECT worker, unnest(custom_tags) AS tag, native_mode
@@ -82,6 +100,8 @@ pub async fn deadlocked_tags(db: &DB, tag: Option<&str>) -> error::Result<Vec<Ta
         "#,
         tag,
         *TAG_DEADLOCK_GRACE_SECS,
+        waiting_only,
+        WAITING_MARK_TTL_SECS,
     )
     .fetch_all(db)
     .await?;
@@ -94,13 +114,14 @@ pub async fn deadlocked_tags(db: &DB, tag: Option<&str>) -> error::Result<Vec<Ta
 
 /// The deadlock that the parent waiting on `child` is part of, if any: `child` has not started
 /// past the grace period, and every worker of its tag, the parent's included, is held by a job
-/// with a child stuck on that tag. `waiter` is the job known to be waiting; `None` takes the
-/// child's own `parent_job`, for a caller that created the child and is waiting on it.
+/// waiting on a child stuck on that tag. `waiter` is the job known to be waiting; `None` takes
+/// the child's own `parent_job`, for a caller that created the child and is waiting on it.
+/// Marks that parent as waiting on `child`, which is what lets the other holders' checks count it.
 async fn deadlock_for_waiting_parent(
     db: &DB,
     child: Uuid,
     waiter: Option<Uuid>,
-) -> error::Result<Option<TagDeadlock>> {
+) -> error::Result<Option<(TagDeadlock, Uuid)>> {
     let stuck = sqlx::query!(
         r#"SELECT q.tag, j.parent_job AS "parent!"
         FROM v2_job_queue q JOIN v2_job j ON j.id = q.id
@@ -116,6 +137,18 @@ async fn deadlock_for_waiting_parent(
     let Some((tag, parent)) = stuck.map(|r| (r.tag, r.parent)) else {
         return Ok(None);
     };
+    sqlx::query!(
+        r#"UPDATE v2_job_queue
+        SET extras = jsonb_set(COALESCE(extras, '{}'::jsonb), '{waiting_on}',
+            jsonb_build_object('child', $2::uuid, 'at', now()))
+        WHERE id = $1 AND running
+            AND (extras->'waiting_on'->>'child' IS DISTINCT FROM $2::uuid::text
+                OR (extras->'waiting_on'->>'at')::timestamptz < now() - interval '5 seconds')"#,
+        parent,
+        child,
+    )
+    .execute(db)
+    .await?;
 
     let cached = CACHE
         .lock()
@@ -126,14 +159,19 @@ async fn deadlock_for_waiting_parent(
     let deadlock = match cached {
         Some(d) => d,
         None => {
-            let d = deadlocked_tags(db, Some(&tag)).await?.into_iter().next();
+            let d = deadlocked_tags(db, Some(&tag), true)
+                .await?
+                .into_iter()
+                .next();
             let mut cache = CACHE.lock().unwrap();
             cache.retain(|_, (at, _)| at.elapsed() < CACHE_TTL);
             cache.insert(tag, (Instant::now(), d.clone()));
             d
         }
     };
-    Ok(deadlock.filter(|d| d.parents.contains(&parent)))
+    Ok(deadlock
+        .filter(|d| d.parents.contains(&parent))
+        .map(|d| (d, parent)))
 }
 
 /// The error to fail a parent's wait on `child` with when it is part of a same-tag deadlock
@@ -142,25 +180,45 @@ async fn deadlock_for_waiting_parent(
 /// One failed parent is enough to start draining the tag: its worker takes a child, that child's
 /// parent completes, and so on. Until the failed parent has exited the tag still reads as
 /// deadlocked, so without the cooldown every parent polling in that window would be failed too.
-/// The cooldown is per process: each API server may fail one parent per tag per window.
+/// Jobs poll whichever API process their worker points at, often the worker's own, so the
+/// cooldown is held in the database: the failed parent's queue row carries `failed_fast_at`, and
+/// the tag's advisory lock serializes the check against it.
+///
+/// `waiter` must be the authenticated caller's own job, or `None` only when the caller created
+/// `child` in this request: the check marks that parent as waiting and fails its wait.
 pub async fn fail_fast_waiting_parent(
     db: &DB,
     child: Uuid,
     waiter: Option<Uuid>,
 ) -> error::Result<Option<error::Error>> {
-    let Some(d) = deadlock_for_waiting_parent(db, child, waiter).await? else {
+    let Some((d, parent)) = deadlock_for_waiting_parent(db, child, waiter).await? else {
         return Ok(None);
     };
-    {
-        let mut last = LAST_FAIL_FAST.lock().unwrap();
-        if last
-            .get(&d.tag)
-            .is_some_and(|at| at.elapsed() < FAIL_FAST_COOLDOWN)
-        {
-            return Ok(None);
-        }
-        last.retain(|_, at| at.elapsed() < FAIL_FAST_COOLDOWN);
-        last.insert(d.tag.clone(), Instant::now());
+    let mut tx = db.begin().await?;
+    sqlx::query!(
+        "SELECT pg_advisory_xact_lock(hashtext('tag_deadlock:' || $1::text))",
+        &d.tag
+    )
+    .fetch_one(&mut *tx)
+    .await?;
+    let claimed = sqlx::query_scalar!(
+        r#"UPDATE v2_job_queue
+        SET extras = jsonb_set(COALESCE(extras, '{}'::jsonb), '{failed_fast_at}', to_jsonb(now()))
+        WHERE id = $1 AND running AND NOT EXISTS (
+            SELECT 1 FROM v2_job_queue o
+            WHERE o.id = ANY($2)
+                AND (o.extras->>'failed_fast_at')::timestamptz > now() - make_interval(secs => $3)
+        )
+        RETURNING id"#,
+        parent,
+        &d.parents,
+        FAIL_FAST_COOLDOWN_SECS,
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    if claimed.is_none() {
+        return Ok(None);
     }
     alert_on_fail_fast(db, &d).await;
     Ok(Some(deadlock_error(child, &d)))
@@ -237,9 +295,9 @@ async fn alert_on_fail_fast(db: &DB, d: &TagDeadlock) {
 }
 
 /// Raises a critical alert for each tag that became deadlocked and a recovered alert for each
-/// one that no longer is.
+/// one that no longer is. Instance maintenance, run by the server monitor.
 pub async fn alert_deadlocked_tags(db: &DB) -> error::Result<()> {
-    let deadlocked = deadlocked_tags(db, None).await?;
+    let deadlocked = deadlocked_tags(db, None, false).await?;
     let open = open_alerts(db).await?;
     for d in &deadlocked {
         alert_unless_open(db, d, &open).await;
@@ -318,38 +376,78 @@ mod tests {
         live_worker(&db, "w1").await?;
         live_worker(&db, "w2").await?;
         let (p1, c1) = parent_with_stuck_child(&db, "w1", "script").await?;
-        assert!(deadlocked_tags(&db, None).await?.is_empty(), "w2 is free");
+        assert!(
+            deadlocked_tags(&db, None, false).await?.is_empty(),
+            "w2 is free"
+        );
 
         // A flow holds no worker while its step waits, nor does a parked workflow-as-code parent.
-        let (flow, _) = parent_with_stuck_child(&db, "w2", "flow").await?;
-        assert!(deadlocked_tags(&db, None).await?.is_empty());
+        let (p2, c2) = parent_with_stuck_child(&db, "w2", "flow").await?;
+        assert!(deadlocked_tags(&db, None, false).await?.is_empty());
         sqlx::query("UPDATE v2_job SET kind = 'script' WHERE id = $1")
-            .bind(flow)
+            .bind(p2)
             .execute(&db)
             .await?;
         sqlx::query("UPDATE v2_job_queue SET suspend = 1, started_at = NULL WHERE id = $1")
-            .bind(flow)
+            .bind(p2)
             .execute(&db)
             .await?;
-        assert!(deadlocked_tags(&db, None).await?.is_empty());
+        assert!(deadlocked_tags(&db, None, false).await?.is_empty());
 
         sqlx::query("UPDATE v2_job_queue SET suspend = 0, started_at = now() WHERE id = $1")
-            .bind(flow)
+            .bind(p2)
             .execute(&db)
             .await?;
-        let d = deadlocked_tags(&db, Some("t1")).await?;
+        let d = deadlocked_tags(&db, Some("t1"), false).await?;
         assert_eq!(d.len(), 1);
         assert_eq!(d[0].workers, 2);
-        assert!(d[0].parents.contains(&p1) && d[0].parents.contains(&flow));
+        assert!(d[0].parents.contains(&p1) && d[0].parents.contains(&p2));
 
-        // Only a parent of the polled child, itself holding one of the workers, is failed.
+        // p2 has not polled for its child, so it may be about to finish: no wait is failed yet.
         assert!(deadlock_for_waiting_parent(&db, c1, Some(p1))
+            .await?
+            .is_none());
+        // Nor while p2 waits on a child of another tag: once that one runs, p2 frees its worker.
+        let other = Uuid::new_v4();
+        sqlx::query(
+            "INSERT INTO v2_job (id, workspace_id, kind, tag, parent_job)
+             VALUES ($1, 'admins', 'script', 't2', $2)",
+        )
+        .bind(other)
+        .bind(p2)
+        .execute(&db)
+        .await?;
+        sqlx::query(
+            "INSERT INTO v2_job_queue (id, workspace_id, scheduled_for, running, tag)
+             VALUES ($1, 'admins', now() - interval '2 minutes', false, 't2')",
+        )
+        .bind(other)
+        .execute(&db)
+        .await?;
+        assert!(deadlock_for_waiting_parent(&db, other, Some(p2))
+            .await?
+            .is_none());
+        CACHE.lock().unwrap().clear();
+        assert!(deadlock_for_waiting_parent(&db, c1, Some(p1))
+            .await?
+            .is_none());
+        CACHE.lock().unwrap().clear();
+        // Once p2 waits too, the polling parent of a stuck child is part of the deadlock.
+        assert!(deadlock_for_waiting_parent(&db, c2, Some(p2))
             .await?
             .is_some());
         assert!(deadlock_for_waiting_parent(&db, c1, None).await?.is_some());
-        assert!(deadlock_for_waiting_parent(&db, c1, Some(flow))
-            .await?
-            .is_none());
+        assert!(
+            deadlock_for_waiting_parent(&db, c1, Some(p2))
+                .await?
+                .is_none(),
+            "not its child"
+        );
+
+        // One failed parent drains the tag, so the other holder is spared for the cooldown, even
+        // when it polls another API process.
+        assert!(fail_fast_waiting_parent(&db, c1, Some(p1)).await?.is_some());
+        assert!(fail_fast_waiting_parent(&db, c2, Some(p2)).await?.is_none());
         Ok(())
     }
 }
