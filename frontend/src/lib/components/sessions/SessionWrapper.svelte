@@ -647,12 +647,16 @@
 		     gap when only one shows. -->
 		<div class="flex flex-col gap-1">
 			{#if session.replacedModel && session.model}
+				{@const replaced = session.replacedModel}
+				{@const current = session.model}
+				<!-- Two providers can offer a model of the same name. -->
+				{@const sameName = replaced.model === current.model}
 				<div class="{bannerClass} bg-surface-tertiary" role="status">
 					<div class="flex flex-row items-center gap-2 min-w-0">
 						<AlertTriangle class="w-4 h-4 shrink-0 text-tertiary" />
 						<span class="text-primary min-w-0 break-words">
-							{session.replacedModel} is not available here. This session now uses
-							{session.model.model}.
+							{replaced.model}{sameName ? ` (${replaced.provider})` : ''} is not available here. This
+							session now uses {current.model}{sameName ? ` (${current.provider})` : ''}.
 						</span>
 					</div>
 					<CloseButton

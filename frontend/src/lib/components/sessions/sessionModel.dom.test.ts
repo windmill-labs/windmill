@@ -105,7 +105,7 @@ it('a pick its workspace no longer offers is replaced for good, and said so', as
 	await a.manager.sendRequest({ instructions: 'again' })
 	expect(sent).toEqual(['model-x', 'model-x'])
 	// Later sends keep the notice; a pick ends it.
-	expect(a.record()?.replacedModel).toBe('model-y')
+	expect(a.record()?.replacedModel).toMatchObject(Y)
 	a.manager.pickModel(Y)
 	expect(a.record()?.replacedModel).toBeUndefined()
 })
@@ -121,10 +121,11 @@ it('compacting also replaces a pick its workspace no longer offers', async () =>
 	expect(a.record()?.model).toMatchObject(X)
 })
 
-it('an untouched draft follows the last pick', () => {
-	const draft = createSession()
+it('an untouched draft follows the last pick', async () => {
+	const draft = getOrCreateRuntime(createSession()).manager
 	const a = startedSession()
-	getOrCreateRuntime(draft).manager.pickModel(X)
+	await draft.sessionAiTarget()
+	draft.pickModel(X)
 	a.manager.pickModel(Y)
-	expect(sessionState.sessions.find((s) => s.id === draft.id)?.model).toBeUndefined()
+	expect(draft.currentModel).toMatchObject(Y)
 })

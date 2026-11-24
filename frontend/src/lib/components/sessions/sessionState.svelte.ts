@@ -190,7 +190,7 @@ export type Session = {
 	model?: ReasoningProviderModel
 	// The pick `model` stands in for because the workspace does not offer it, until the user
 	// dismisses the notice or picks a model.
-	replacedModel?: string
+	replacedModel?: ReasoningProviderModel
 	// Unsent composer text for a pending (uncommitted) session, persisted with
 	// the record so each parallel draft restores its own typed-but-unsent prompt.
 	// Only tracked while unsent; cleared once the workspace commits at first send.
@@ -1507,7 +1507,7 @@ export function setSessionModel(
 	const s = sessionState.sessions.find((x) => x.id === id)
 	if (!s) return
 	s.model = { ...model }
-	s.replacedModel = replaced?.model
+	s.replacedModel = replaced
 	if (!s.transient) void putSession(s)
 }
 
