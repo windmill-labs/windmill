@@ -933,54 +933,6 @@ pub async fn maybe_refresh_folders(
     }
 }
 
-/// The caller as a member of `fork`, a fork of `w_id` that a deploy copies an item from. What
-/// they may read there is what their membership of the fork allows, under their own token's
-/// scopes. A credential bound to workspaces that leave the fork out reaches nothing there: a job's
-/// token, a guest's, or a token row naming another workspace.
-pub async fn authed_in_fork(
-    db: &DB,
-    w_id: &str,
-    fork: &str,
-    authed: &ApiAuthed,
-) -> Result<ApiAuthed> {
-    let bound_elsewhere = authed.job_id.is_some()
-        || authed.credential_expiry.is_some()
-        || match authed.token_prefix.as_deref() {
-            Some(prefix) => sqlx::query_scalar!(
-                "SELECT bool_or(workspace_id IS NOT NULL AND workspace_id <> $2) FROM token \
-                 WHERE token_prefix = $1",
-                prefix,
-                fork
-            )
-            .fetch_one(db)
-            .await?
-            .unwrap_or(false),
-            None => false,
-        };
-    if bound_elsewhere {
-        return Err(Error::BadRequest(format!(
-            "this credential cannot read from {fork}"
-        )));
-    }
-    let username = sqlx::query_scalar!(
-        "SELECT u.username FROM usr u JOIN workspace w ON w.id = u.workspace_id \
-         WHERE w.id = $1 AND w.parent_workspace_id = $2 AND w.deleted = false \
-           AND u.email = $3 AND u.disabled = false",
-        fork,
-        w_id,
-        &authed.email
-    )
-    .fetch_optional(db)
-    .await?
-    .ok_or_else(|| {
-        Error::BadRequest(format!(
-            "{fork} is not a fork of {w_id} you are a member of"
-        ))
-    })?;
-    let fork_authed = fetch_api_authed(username, authed.email.clone(), fork, db, None).await?;
-    Ok(ApiAuthed { scopes: authed.scopes.clone(), ..fork_authed })
-}
-
 // ------------ Router-level gate for withdrawable operator rights ------------
 
 /// Refuses every write (anything but GET/HEAD/OPTIONS) under the router it layers, unless the

@@ -18,7 +18,6 @@ private = []
 [dependencies]
 windmill-common = { workspace = true, default-features = false }
 windmill-queue.workspace = true
-windmill-audit.workspace = true
 windmill-parser-ts.workspace = true
 windmill-parser-py-imports = { workspace = true, optional = true }
 sqlx.workspace = true

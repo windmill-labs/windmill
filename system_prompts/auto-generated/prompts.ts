@@ -4968,6 +4968,7 @@ Arguments (omit both to be prompted interactively):
   - \`--include <items:string>\` - Comma-separated kind:path items to include (e.g. script:f/test/main,flow:f/my/flow)
   - \`--exclude <items:string>\` - Comma-separated kind:path items to exclude
   - \`--preserve-on-behalf-of\` - Preserve original on_behalf_of/permissioned_as values
+  - \`--override-ci-tests\` - Merge items whose CI tests have not passed in the fork, when the parent requires passing CI tests and you may bypass that rule (recorded in the audit log)
   - \`-y --yes\` - Non-interactive mode (deploy without prompts)
 - \`workspace connect-slack\` - Non-interactively connect Slack to the active workspace using a pre-minted bot token (xoxb-...). Produces the same artifacts as the UI OAuth flow: workspace_settings fields, g/slack group, f/slack_bot folder, and the encrypted bot token variable + resource at f/slack_bot/bot_token.
   - \`--bot-token <bot_token:string>\` - Slack bot token (xoxb-...)

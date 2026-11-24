@@ -8253,6 +8253,40 @@ paths:
                 type: string
                 example: "Updated mute critical alert UI settings for workspace: workspace_id"
 
+  /w/{workspace}/workspaces/ci_tests_bypass:
+    post:
+      summary: record a merge past failing CI tests
+      description: |
+        Records, in the audit log, that the caller merges items from a fork although their CI tests
+        have not passed there, when this workspace requires passing CI tests. Refused for a caller
+        who may not bypass that rule; does nothing when the workspace does not have it. The merge
+        clients enforce the rule and call this before such a merge.
+      operationId: recordCiTestsBypass
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - fork
+                - items
+              properties:
+                fork:
+                  type: string
+                  description: The fork the items are merged from
+                items:
+                  type: array
+                  description: The items merged past their tests, as `kind:path`
+                  items:
+                    type: string
+      responses:
+        "200":
+          description: bypass recorded
   /w/{workspace}/workspaces/protection_rules:
     get:
       summary: list all protection rules for a workspace
@@ -9315,7 +9349,6 @@ paths:
           schema:
             type: boolean
         - $ref: "#/components/parameters/SkipCiTests"
-        - $ref: "#/components/parameters/PromoteFrom"
       requestBody:
         description: new resource
         required: true
@@ -9393,7 +9426,6 @@ paths:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/Path"
         - $ref: "#/components/parameters/SkipCiTests"
-        - $ref: "#/components/parameters/PromoteFrom"
       requestBody:
         description: updated resource
         required: true
@@ -11505,7 +11537,6 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/SkipCiTests"
-        - $ref: "#/components/parameters/PromoteFrom"
       requestBody:
         description: Partially filled script
         required: true
@@ -11551,7 +11582,6 @@ paths:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/ScriptPath"
         - $ref: "#/components/parameters/SkipCiTests"
-        - $ref: "#/components/parameters/PromoteFrom"
       requestBody:
         description: The new version of the script, whose `path` is where it should end up.
         required: true
@@ -13958,7 +13988,6 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/SkipCiTests"
-        - $ref: "#/components/parameters/PromoteFrom"
       requestBody:
         description: Partially filled flow
         required: true
@@ -14005,7 +14034,6 @@ paths:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/ScriptPath"
         - $ref: "#/components/parameters/SkipCiTests"
-        - $ref: "#/components/parameters/PromoteFrom"
       requestBody:
         description: Partially filled flow
         required: true
@@ -29693,12 +29721,6 @@ components:
       name: workspace
       in: path
       required: true
-      schema:
-        type: string
-    PromoteFrom:
-      name: promote_from
-      description: A fork of this workspace to copy the item from. When this workspace requires passing CI tests, the server reads the item from that fork, as the caller is there, and uses the request only for what belongs to this workspace (lineage, deployment message, the principal it runs as); the deploy then passes the rule when the item's tests passed on it in that fork.
-      in: query
       schema:
         type: string
     SkipCiTests:

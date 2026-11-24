@@ -16607,7 +16607,6 @@ dependencies = [
  "tokio",
  "tracing",
  "uuid",
- "windmill-audit",
  "windmill-common",
  "windmill-parser-py-imports",
  "windmill-parser-ts",

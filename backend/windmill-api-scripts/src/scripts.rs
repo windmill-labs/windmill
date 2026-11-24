@@ -586,7 +586,6 @@ async fn create_snapshot_script(
                 query.skip_if_noop,
                 query.skip_ci_tests,
                 None,
-                None,
             )
             .await?;
             let mut nh = new_hash.to_string();
@@ -671,85 +670,6 @@ async fn list_paths_from_workspace_runnable(
     Ok(Json(runnables))
 }
 
-/// Fields of a deploy that belong to the target workspace rather than to the script itself.
-const TARGET_SCRIPT_FIELDS: [&str; 7] = [
-    "parent_hash",
-    "auto_parent",
-    "deployment_message",
-    "on_behalf_of_email",
-    "on_behalf_of",
-    "preserve_on_behalf_of",
-    "skip_draft_deletion",
-];
-
-/// The script `fork` holds at `ns.path`, read as the caller is there and shaped as reading it back
-/// returns it, with `ns`'s target fields, when a deploy names that fork under
-/// `RequirePassingCiTests`.
-async fn promoted_script(
-    db: &DB,
-    user_db: &UserDB,
-    w_id: &str,
-    fork: Option<&str>,
-    ns: NewScript,
-    authed: &ApiAuthed,
-) -> Result<(NewScript, Option<windmill_dep_map::ci_tests::Promotion>)> {
-    let Some(fork) = fork else {
-        return Ok((ns, None));
-    };
-    if !windmill_dep_map::ci_tests::ci_tests_rule_active(db, w_id).await? {
-        return Ok((ns, None));
-    }
-    check_scopes(authed, || format!("scripts:read:{}", ns.path))?;
-    let fork_authed = match windmill_api_auth::authed_in_fork(db, w_id, fork, authed).await {
-        Ok(a) => a,
-        Err(e) => {
-            // A bypasser outside the fork writes the request as sent, and is audited for it.
-            let username = AuditAuthorable::username(authed);
-            if windmill_dep_map::ci_tests::may_bypass_ci_tests_rule(
-                db,
-                w_id,
-                username,
-                &authed.groups,
-                authed.is_admin,
-            )
-            .await?
-            {
-                return Ok((ns, None));
-            }
-            return Err(e);
-        }
-    };
-    let mut tx = user_db.clone().begin(&fork_authed).await?;
-    let script = sqlx::query_as::<_, ScriptWithStarred<ScriptRunnableSettingsHandle>>(&format!(
-        "SELECT {}, NULL as starred, folder_labels(workspace_id, path) as inherited_labels \
-         FROM script WHERE path = $1 AND workspace_id = $2 ORDER BY created_at DESC LIMIT 1",
-        windmill_common::scripts::SCRIPT_COLUMNS,
-    ))
-    .bind(&ns.path)
-    .bind(fork)
-    .fetch_optional(&mut *tx)
-    .await?
-    .ok_or_else(|| Error::NotFound(format!("script {} not found in {fork}", ns.path)))?;
-    tx.commit().await?;
-    let deployed_at = script.script.created_at;
-    let script = windmill_common::scripts::prefetch_cached_script_with_starred(script, db).await?;
-    let mut copied = serde_json::to_value(&script).map_err(to_anyhow)?;
-    let target = serde_json::to_value(&ns).map_err(to_anyhow)?;
-    for k in TARGET_SCRIPT_FIELDS {
-        copied[k] = target.get(k).cloned().unwrap_or_default();
-    }
-    // Read back, an unrestricted item omits the key, which a deploy reads as keeping the target's
-    // restriction rather than clearing it.
-    if copied.get("job_token_scopes").is_none() {
-        copied["job_token_scopes"] = serde_json::Value::Null;
-    }
-    let ns = serde_json::from_value(copied).map_err(to_anyhow)?;
-    Ok((
-        ns,
-        Some(windmill_dep_map::ci_tests::Promotion { fork: fork.to_string(), deployed_at }),
-    ))
-}
-
 #[derive(Deserialize, Default, Clone, Copy)]
 struct CreateScriptQuery {
     /// When set by the caller (currently only the CLI), the backend
@@ -770,7 +690,6 @@ async fn create_script(
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
     Query(query): Query<CreateScriptQuery>,
-    Query(promote): Query<windmill_dep_map::ci_tests::PromoteQuery>,
     Json(ns): Json<NewScript>,
 ) -> Result<(StatusCode, String)> {
     deploy_script(
@@ -783,7 +702,6 @@ async fn create_script(
         query.skip_ci_tests,
         ns,
         None,
-        promote.promote_from,
     )
     .await
 }
@@ -802,7 +720,6 @@ async fn update_script(
     Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Query(query): Query<CreateScriptQuery>,
-    Query(promote): Query<windmill_dep_map::ci_tests::PromoteQuery>,
     Json(mut ns): Json<NewScript>,
 ) -> Result<(StatusCode, String)> {
     let path = path.to_path();
@@ -827,7 +744,6 @@ async fn update_script(
         query.skip_ci_tests,
         ns,
         Some(path.to_string()),
-        promote.promote_from,
     )
     .await
 }
@@ -842,7 +758,6 @@ async fn deploy_script(
     skip_ci_tests: bool,
     ns: NewScript,
     supersede_head_at: Option<String>,
-    promote_from: Option<String>,
 ) -> Result<(StatusCode, String)> {
     if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
         &w_id,
@@ -855,8 +770,6 @@ async fn deploy_script(
     {
         return Err(Error::PermissionDenied(msg));
     }
-    let (ns, promotion) =
-        promoted_script(&db, &user_db, &w_id, promote_from.as_deref(), ns, &authed).await?;
     let script_path = ns.path.clone();
     // Only a perpetual deploy can have runs to move, so every other one skips the lookups that
     // would find that out.
@@ -874,7 +787,6 @@ async fn deploy_script(
         skip_if_noop,
         skip_ci_tests,
         supersede_head_at,
-        promotion,
     )
     .await?;
     tx.commit().await?;
@@ -1461,7 +1373,6 @@ async fn create_script_internal<'c>(
     // When set, the parent is the live head at this path rather than anything the body
     // named, resolved against the deploying transaction.
     supersede_head_at: Option<String>,
-    promotion: Option<windmill_dep_map::ci_tests::Promotion>,
 ) -> Result<(
     ScriptHash,
     Transaction<'c, Postgres>,
@@ -1516,33 +1427,6 @@ async fn create_script_internal<'c>(
     // user draft at this path instead of wiping it as part of the deploy.
     let skip_draft_deletion = ns.skip_draft_deletion.unwrap_or(false);
     let authed = maybe_refresh_folders(&ns.path, &w_id, authed, &db).await;
-    if windmill_dep_map::ci_tests::ci_tests_rule_active(&db, &w_id).await? {
-        let renamed_from = match (&supersede_head_at, &ns.parent_hash) {
-            (Some(p), _) => Some(p.clone()),
-            (None, Some(h)) => {
-                sqlx::query_scalar!(
-                    "SELECT path FROM script WHERE workspace_id = $1 AND hash = $2",
-                    &w_id,
-                    h.0
-                )
-                .fetch_optional(&db)
-                .await?
-            }
-            (None, None) => None,
-        };
-        windmill_dep_map::ci_tests::check_ci_tests_rule(
-            &db,
-            &w_id,
-            "script",
-            &ns.path,
-            renamed_from.as_deref(),
-            promotion.as_ref(),
-            &authed,
-            &authed.groups,
-            authed.is_admin,
-        )
-        .await?;
-    }
 
     // Everything read from `db` happens before `tx` opens: `user_db` wraps the same pool, so a
     // deploy taking a second connection while holding `tx` lets N concurrent deploys hold the
@@ -4291,19 +4175,6 @@ async fn archive_script_by_path(
     {
         return Err(Error::PermissionDenied(msg));
     }
-    // Archiving a test drops what it checks from the rule's view.
-    windmill_dep_map::ci_tests::check_ci_tests_rule(
-        &db,
-        &w_id,
-        "script",
-        path,
-        None,
-        None,
-        &authed,
-        &authed.groups,
-        authed.is_admin,
-    )
-    .await?;
     let mut tx = user_db.begin(&authed).await?;
 
     require_owner_of_path(&authed, path)?;
@@ -4394,32 +4265,6 @@ async fn archive_script_by_hash(
     .await?
     {
         return Err(Error::PermissionDenied(msg));
-    }
-    // Archiving the live version puts the one before it back in its place.
-    if windmill_dep_map::ci_tests::ci_tests_rule_active(&db, &w_id).await? {
-        if let Some(path) = sqlx::query_scalar!(
-            "SELECT path FROM script s WHERE workspace_id = $1 AND hash = $2 \
-             AND hash = (SELECT hash FROM script WHERE workspace_id = $1 AND path = s.path \
-                 AND NOT archived AND NOT deleted ORDER BY created_at DESC LIMIT 1)",
-            &w_id,
-            hash.0
-        )
-        .fetch_optional(&db)
-        .await?
-        {
-            windmill_dep_map::ci_tests::check_ci_tests_rule(
-                &db,
-                &w_id,
-                "script",
-                &path,
-                None,
-                None,
-                &authed,
-                &authed.groups,
-                authed.is_admin,
-            )
-            .await?;
-        }
     }
     let mut tx = user_db.begin(&authed).await?;
 

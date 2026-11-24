@@ -1108,6 +1108,7 @@ Arguments (omit both to be prompted interactively):
   .option("--include <items:string>", "Comma-separated kind:path items to include (e.g. script:f/test/main,flow:f/my/flow)")
   .option("--exclude <items:string>", "Comma-separated kind:path items to exclude")
   .option("--preserve-on-behalf-of", "Preserve original on_behalf_of/permissioned_as values")
+  .option("--override-ci-tests", "Merge items whose CI tests have not passed in the fork, when the parent requires passing CI tests and you may bypass that rule (recorded in the audit log)")
   .option("-y --yes", "Non-interactive mode (deploy without prompts)")
   .action(mergeWorkspaces as any)
   .command("connect-slack")

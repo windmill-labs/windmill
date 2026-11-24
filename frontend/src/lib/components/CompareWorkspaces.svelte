@@ -850,8 +850,7 @@
 				workspaceTo: workspaceToDeployTo,
 				onBehalfOf: getOnBehalfOfForDeploy(statusKey, kind),
 				onBehalfOfPrincipal: getOnBehalfOfPermissionedAsForDeploy(statusKey, kind),
-				skipCiTests: true,
-				promoteFrom: mergeIntoParent && !isArbitraryTarget ? workspaceFrom : undefined
+				skipCiTests: true
 			})
 		}
 
@@ -940,6 +939,19 @@
 			deploying = false
 			return
 		}
+		// Refused unless the user may bypass the target's CI rule, and a no-op when it has none.
+		if (mergeIntoParent && ciBlockedDiffs.length > 0) {
+			try {
+				await WorkspaceService.recordCiTestsBypass({
+					workspace: parentWorkspaceId,
+					requestBody: { fork: currentWorkspaceId, items: ciBlockedDiffs.map(getItemKey) }
+				})
+			} catch (e) {
+				sendUserToast(`Cannot deploy: ${e?.body ?? e?.message ?? e}`, true)
+				deploying = false
+				return
+			}
+		}
 
 		const parent = parentWorkspaceId
 		const current = currentWorkspaceId
@@ -956,17 +968,7 @@
 		const deployedMigrationDatatables = new Set<string>()
 		const ciTested: { kind: 'script' | 'flow' | 'resource'; path: string }[] = []
 		const applyAll = async () => {
-			await applyItems(sortedItems)
-			// A target requiring passing CI tests refuses an item merged ahead of the changed test it
-			// is checked against, until that test lands: one more pass picks it up.
-			const failed = sortedItems.filter((k) => deploymentStatus[k]?.status === 'failed')
-			if (mergeIntoParent && failed.length > 0 && failed.length < sortedItems.length) {
-				await applyItems(failed)
-			}
-			anyFailed = sortedItems.some((k) => deploymentStatus[k]?.status === 'failed')
-		}
-		const applyItems = async (keys: string[]) => {
-			for (const itemKey of keys) {
+			for (const itemKey of sortedItems) {
 				const deployable = deployableItems.find((d) => d.key === itemKey)
 
 				if (!deployable) {
@@ -977,7 +979,7 @@
 				const from = mergeIntoParent ? current : parent
 				await deploy(deployable.kind, deployable.path, to, from, itemKey)
 				if (deploymentStatus[itemKey]?.status === 'failed') {
-					continue
+					anyFailed = true
 				} else if (deployable.kind === 'datatable_migration') {
 					deployedMigrationDatatables.add(deployable.path.split('/')[0])
 				} else if (
@@ -1291,6 +1293,15 @@
 			fetchCiTests()
 		}
 	})
+
+	// Selected items with a CI test that has not passed in the source workspace: failing, running
+	// or never run there.
+	let ciBlockedDiffs = $derived(
+		selectedDiffs.filter((d) => {
+			const results = ciTestResults[`${d.kind}:${d.path}`] ?? []
+			return results.some((r) => r.status !== 'success')
+		})
+	)
 
 	function getCiTestStatus(diff: WorkspaceItemDiff): 'pass' | 'fail' | 'running' | null {
 		const key = `${diff.kind}:${diff.path}`
@@ -1676,16 +1687,7 @@
 					{#if mergeIntoParent}
 						<ParentWorkspaceProtectionAlert
 							{parentWorkspaceId}
-							ciBlockedItems={selectedDiffs
-								.filter((d) => {
-									const status = getCiTestStatus(d)
-									return (
-										status === 'fail' ||
-										status === 'running' ||
-										(ciTestResults[`${d.kind}:${d.path}`] ?? []).some((r) => !r.job_id)
-									)
-								})
-								.map((d) => d.path)}
+							ciBlockedItems={ciBlockedDiffs.map((d) => d.path)}
 							onUpdateCanDeploy={(canDeploy) => {
 								canDeployToParent = canDeploy
 							}}

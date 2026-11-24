@@ -369,7 +369,7 @@
 					options={{ right: 'Require passing CI tests' }}
 				/>
 				{@render description(
-					"An item this workspace's CI tests cover deploys only by merging it from a fork where every one of them passed on it. Applies to wm_deployers too."
+					'Merging from a fork, in the UI or the CLI, holds back items whose CI tests have not passed there. Admins and bypassers can override it, which is recorded in the audit log. Combine with direct deployment disabled, so that changes reach this workspace only through a merge.'
 				)}
 			</div>
 			<div class="flex flex-col gap-1">

@@ -202,14 +202,9 @@ function makeProvider(
 	 */
 	conflict?: DeployConflict,
 	/** See `DeployItemParams.skipCiTests`. */
-	skipCiTests?: boolean,
-	/** See `DeployItemParams.promoteFrom`. */
-	promoteFrom?: string
+	skipCiTests?: boolean
 ): DeployProvider {
-	const ci = {
-		...(skipCiTests ? { skipCiTests: true } : {}),
-		...(promoteFrom ? { promoteFrom } : {})
-	}
+	const ci = skipCiTests ? { skipCiTests: true } : {}
 	const withPermissionedAs = <T extends Record<string, any>>(requestBody: T): T =>
 		onBehalfOfPrincipal ? { ...requestBody, on_behalf_of: onBehalfOfPrincipal } : requestBody
 	const withPolicyIdentity = <T extends Record<string, any>>(app: T): T =>
@@ -373,12 +368,6 @@ export interface DeployItemParams {
 	 * queues them.
 	 */
 	skipCiTests?: boolean
-	/**
-	 * `workspaceFrom` when it is a fork of `workspaceTo`: a target requiring passing CI tests then
-	 * copies scripts, flows and resources from it server-side, and lets them through when their
-	 * tests passed there.
-	 */
-	promoteFrom?: string
 }
 
 /**
@@ -399,8 +388,7 @@ export async function deployItem(
 		onBehalfOfPrincipal,
 		createOnly,
 		targetBaseUrl,
-		skipCiTests,
-		promoteFrom
+		skipCiTests
 	} = params
 
 	if (kind === 'trigger') {
@@ -442,7 +430,7 @@ export async function deployItem(
 
 	const conflict: DeployConflict | undefined = createOnly ? { hit: false } : undefined
 	const result = await sharedDeployItem(
-		makeProvider(onBehalfOfPrincipal, conflict, skipCiTests, promoteFrom),
+		makeProvider(onBehalfOfPrincipal, conflict, skipCiTests),
 		kind as DeployKind,
 		path,
 		workspaceFrom,

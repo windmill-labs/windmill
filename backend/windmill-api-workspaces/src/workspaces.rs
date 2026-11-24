@@ -234,6 +234,7 @@ pub fn workspaced_service() -> Router {
             post(get_datatable_full_schema),
         )
         .route("/protection_rules", get(list_protection_rules))
+        .route("/ci_tests_bypass", post(record_ci_tests_bypass))
         .route("/protection_rules", post(create_protection_rule))
         .route(
             "/protection_rules/{rule_name}",
@@ -12835,6 +12836,55 @@ async fn validate_fork_role_mapping(
             )));
         }
     }
+    Ok(())
+}
+
+#[derive(Deserialize)]
+struct CiTestsBypass {
+    fork: String,
+    items: Vec<String>,
+}
+
+/// Records that the caller merges `items` from `fork` although their CI tests have not passed
+/// there, under `RequirePassingCiTests`, and refuses a caller who may not bypass that rule. The
+/// merge clients enforce the rule and call this before such a merge; the deploys that follow are
+/// not checked against it.
+async fn record_ci_tests_bypass(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Json(bypass): Json<CiTestsBypass>,
+) -> Result<()> {
+    let active = windmill_common::workspaces::get_protection_rules(&w_id, &db)
+        .await?
+        .iter()
+        .any(|r| r.rules.contains(ProtectionRules::REQUIRE_PASSING_CI_TESTS));
+    if !active || bypass.items.is_empty() {
+        return Ok(());
+    }
+    if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
+        &w_id,
+        &ProtectionRuleKind::RequirePassingCiTests,
+        AuditAuthorable::username(&authed),
+        &authed.groups,
+        authed.is_admin,
+        &db,
+    )
+    .await?
+    {
+        return Err(Error::PermissionDenied(msg));
+    }
+    let items = bypass.items.join(", ");
+    audit_log(
+        &db,
+        &authed,
+        "ci_tests.bypass",
+        ActionKind::Update,
+        &w_id,
+        Some(&bypass.fork),
+        Some([("items", items.as_str())].into()),
+    )
+    .await?;
     Ok(())
 }
 

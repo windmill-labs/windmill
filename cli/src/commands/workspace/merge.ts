@@ -14,7 +14,6 @@ import {
   parseDatatableMigrationDeployPath,
   type DeployKind,
   type DeployProvider,
-  type DeployResult,
   type TriggerDeployKind,
 } from "../../../windmill-utils-internal/src/deploy.ts";
 import { offerToRunNewMigrations } from "../datatable_migrations.ts";
@@ -236,6 +235,53 @@ function preparePayload(
 // Main merge command
 // ---------------------------------------------------------------------------
 
+/**
+ * Under the parent's `RequirePassingCiTests`, refuses to merge items whose CI tests have not
+ * passed in the fork, unless `override` is set and the server accepts the caller as a bypasser,
+ * which records it in the audit log.
+ */
+async function checkCiTests(
+  diffs: { kind: string; path: string; exists_in_fork?: boolean }[],
+  fork: string,
+  parent: string,
+  override: boolean
+): Promise<void> {
+  const rules = await wmill.listProtectionRules({ workspace: parent });
+  if (!rules.some((r) => r.rules.includes("RequirePassingCiTests"))) return;
+  const items = diffs
+    .filter(
+      (d) =>
+        (d.kind === "script" || d.kind === "flow" || d.kind === "resource") &&
+        d.exists_in_fork !== false
+    )
+    .map((d) => ({ kind: d.kind as "script" | "flow" | "resource", path: d.path }));
+  if (items.length === 0) return;
+  const results = await wmill.getCiTestResultsBatch({
+    workspace: fork,
+    requestBody: { items },
+  });
+  const blocked = items
+    .map((i) => `${i.kind}:${i.path}`)
+    .filter((k) => (results[k] ?? []).some((r) => r.status !== "success"));
+  if (blocked.length === 0) return;
+  if (!override) {
+    throw new Error(
+      `${parent} requires passing CI tests, and these items have tests that are failing, ` +
+        `running or not yet run in ${fork}: ${blocked.join(", ")}. ` +
+        `Run them in the fork, deselect these items, or pass --override-ci-tests if you may bypass the rule.`
+    );
+  }
+  await wmill.recordCiTestsBypass({
+    workspace: parent,
+    requestBody: { fork, items: blocked },
+  });
+  log.info(
+    colors.yellow(
+      `Overriding failing CI tests for ${blocked.join(", ")} (recorded in the audit log).`
+    )
+  );
+}
+
 async function mergeWorkspaces(
   opts: GlobalOptions & {
     direction?: string;
@@ -244,6 +290,7 @@ async function mergeWorkspaces(
     include?: string;
     exclude?: string;
     preserveOnBehalfOf?: boolean;
+    overrideCiTests?: boolean;
     yes?: boolean;
   }
 ): Promise<void> {
@@ -517,6 +564,15 @@ async function mergeWorkspaces(
     }
   }
 
+  if (direction === "to-parent") {
+    await checkCiTests(
+      selectedDiffs,
+      forkWorkspaceId,
+      parentWorkspaceId,
+      !!opts.overrideCiTests
+    );
+  }
+
   log.info(
     `\nDeploying ${colors.bold(String(selectedDiffs.length))} item(s)...`
   );
@@ -533,17 +589,6 @@ async function mergeWorkspaces(
     direction === "to-parent" ? forkWorkspaceId : parentWorkspaceId;
   const workspaceTo =
     direction === "to-parent" ? parentWorkspaceId : forkWorkspaceId;
-  // A parent requiring passing CI tests takes scripts, flows and resources from a fork only as
-  // copies it reads from the fork itself; one without the rule ignores `promoteFrom`.
-  const promoteFrom = forkWorkspaceId;
-  const promotingProvider: DeployProvider = {
-    ...provider,
-    createFlow: (p) => wmill.createFlow({ ...p, promoteFrom }),
-    updateFlow: (p) => wmill.updateFlow({ ...p, promoteFrom }),
-    createScript: (p) => wmill.createScript({ ...p, promoteFrom }),
-    createResource: (p) => wmill.createResource({ ...p, promoteFrom }),
-    updateResource: (p) => wmill.updateResource({ ...p, promoteFrom }),
-  };
 
   // 10. Deploy
   // Updating the fork copies the parent's state in, so nothing it writes there —
@@ -563,15 +608,16 @@ async function mergeWorkspaces(
     name: string;
   }[] = [];
 
-  const mergeOne = async (diff: (typeof sorted)[number]) => {
+  for (const diff of sorted) {
     const label = `${diff.kind}:${diff.path}`;
+
     // Check if the item was deleted in the source workspace
     const itemDeletedInSource =
       direction === "to-parent"
         ? diff.exists_in_fork === false
         : diff.exists_in_source === false;
 
-    let result: DeployResult;
+    let result;
     if (itemDeletedInSource) {
       log.info(colors.yellow(`  ⌫ ${label} (removing from target)`));
       result = await deleteItemInWorkspace(
@@ -592,7 +638,7 @@ async function mergeWorkspaces(
       }
 
       result = await deployItem(
-        direction === "to-parent" ? promotingProvider : provider,
+        provider,
         diff.kind as DeployKind,
         diff.path,
         workspaceFrom,
@@ -601,22 +647,6 @@ async function mergeWorkspaces(
       );
     }
 
-    return { diff, label, result, itemDeletedInSource };
-  };
-  const outcomes = [];
-  for (const diff of sorted) outcomes.push(await mergeOne(diff));
-  // A parent requiring passing CI tests refuses an item merged ahead of the changed test it
-  // is checked against, until that test lands: one more pass picks it up.
-  if (
-    direction === "to-parent" &&
-    outcomes.some((o) => o.result.success) &&
-    outcomes.some((o) => !o.result.success)
-  ) {
-    for (const [i, o] of outcomes.entries()) {
-      if (!o.result.success) outcomes[i] = await mergeOne(o.diff);
-    }
-  }
-  for (const { diff, label, result, itemDeletedInSource } of outcomes) {
     if (result.success) {
       log.info(colors.green(`  ✓ ${label}`));
       successCount++;

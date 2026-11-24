@@ -1258,89 +1258,6 @@ fn note_resource_write(w_id: &str, path: &str, resource_type: &str) {
     }
 }
 
-struct PromotedResource {
-    value: Box<RawValue>,
-    description: String,
-    resource_type: String,
-    labels: Option<Vec<String>>,
-    promotion: windmill_dep_map::ci_tests::Promotion,
-}
-
-/// The resource `fork` holds at `path`, read as the caller is there, when a deploy names it under
-/// `RequirePassingCiTests`. An agent runs as the principal the request names: the fork's names
-/// nobody here.
-async fn promoted_resource(
-    db: &DB,
-    user_db: &UserDB,
-    w_id: &str,
-    fork: Option<&str>,
-    path: &str,
-    authed: &ApiAuthed,
-    requested: Option<&RawValue>,
-) -> Result<Option<PromotedResource>> {
-    let Some(fork) = fork else {
-        return Ok(None);
-    };
-    if !windmill_dep_map::ci_tests::ci_tests_rule_active(db, w_id).await? {
-        return Ok(None);
-    }
-    check_scopes(authed, || format!("resources:read:{}", path))?;
-    let fork_authed = match windmill_api_auth::authed_in_fork(db, w_id, fork, authed).await {
-        Ok(a) => a,
-        Err(e) => {
-            // A bypasser outside the fork writes the request as sent, and is audited for it.
-            let username = AuditAuthorable::username(authed);
-            if windmill_dep_map::ci_tests::may_bypass_ci_tests_rule(
-                db,
-                w_id,
-                username,
-                &authed.groups,
-                authed.is_admin,
-            )
-            .await?
-            {
-                return Ok(None);
-            }
-            return Err(e);
-        }
-    };
-    let mut tx = user_db.clone().begin(&fork_authed).await?;
-    let r = sqlx::query!(
-        "SELECT value::text AS value, description, resource_type, labels, edited_at \
-         FROM resource WHERE workspace_id = $1 AND path = $2",
-        fork,
-        path
-    )
-    .fetch_optional(&mut *tx)
-    .await?
-    .ok_or_else(|| Error::NotFound(format!("resource {path} not found in {fork}")))?;
-    tx.commit().await?;
-    let mut value: Value = serde_json::from_str(r.value.as_deref().unwrap_or("null"))
-        .map_err(|e| Error::internal_err(e.to_string()))?;
-    if r.resource_type == "ai_agent" {
-        let principal = requested
-            .and_then(|v| serde_json::from_str::<Value>(v.get()).ok())
-            .and_then(|v| v.get("on_behalf_of").cloned());
-        if let Some(m) = value.as_object_mut() {
-            match principal {
-                Some(p) => m.insert("on_behalf_of".to_string(), p),
-                None => m.remove("on_behalf_of"),
-            };
-        }
-    }
-    Ok(Some(PromotedResource {
-        value: serde_json::value::to_raw_value(&value)
-            .map_err(|e| Error::internal_err(e.to_string()))?,
-        description: r.description.unwrap_or_default(),
-        resource_type: r.resource_type,
-        labels: r.labels,
-        promotion: windmill_dep_map::ci_tests::Promotion {
-            fork: fork.to_string(),
-            deployed_at: r.edited_at.unwrap_or(chrono::DateTime::UNIX_EPOCH),
-        },
-    }))
-}
-
 #[derive(Deserialize)]
 struct CreateResourceQuery {
     update_if_exists: Option<bool>,
@@ -1354,8 +1271,7 @@ async fn create_resource(
     Extension(webhook): Extension<WebhookShared>,
     Path(w_id): Path<String>,
     Query(q): Query<CreateResourceQuery>,
-    Query(promote): Query<windmill_dep_map::ci_tests::PromoteQuery>,
-    Json(mut resource): Json<CreateResource>,
+    Json(resource): Json<CreateResource>,
 ) -> Result<(StatusCode, String)> {
     check_scopes(&authed, || format!("resources:write:{}", resource.path))?;
     check_proper_path(&resource.path)?;
@@ -1371,26 +1287,6 @@ async fn create_resource(
     {
         return Err(Error::PermissionDenied(msg));
     }
-    let promotion = match promoted_resource(
-        &db,
-        &user_db,
-        &w_id,
-        promote.promote_from.as_deref(),
-        &resource.path,
-        &authed,
-        resource.value.as_deref(),
-    )
-    .await?
-    {
-        Some(p) => {
-            resource.value = Some(p.value);
-            resource.description = Some(p.description);
-            resource.resource_type = p.resource_type;
-            resource.labels = p.labels;
-            Some(p.promotion)
-        }
-        None => None,
-    };
     if *CLOUD_HOSTED {
         let nb_resources = sqlx::query_scalar!(
             "SELECT COUNT(*) FROM resource WHERE workspace_id = $1",
@@ -1417,18 +1313,6 @@ async fn create_resource(
             .as_deref()
             .and_then(|v| serde_json::from_str::<serde_json::Value>(v.get()).ok())
             .as_ref(),
-    )
-    .await?;
-    windmill_dep_map::ci_tests::check_ci_tests_rule(
-        &db,
-        &w_id,
-        "resource",
-        &resource.path,
-        None,
-        promotion.as_ref(),
-        &authed,
-        &authed.groups,
-        authed.is_admin,
     )
     .await?;
 
@@ -2263,8 +2147,7 @@ async fn update_resource(
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Query(ci): Query<windmill_dep_map::ci_tests::SkipCiTestsQuery>,
-    Query(promote): Query<windmill_dep_map::ci_tests::PromoteQuery>,
-    Json(mut ns): Json<EditResource>,
+    Json(ns): Json<EditResource>,
 ) -> Result<String> {
     use sql_builder::prelude::*;
 
@@ -2291,27 +2174,6 @@ async fn update_resource(
     {
         return Err(Error::PermissionDenied(msg));
     }
-    let new_path = ns.path.clone().unwrap_or_else(|| path.to_string());
-    let promotion = match promoted_resource(
-        &db,
-        &user_db,
-        &w_id,
-        promote.promote_from.as_deref(),
-        &new_path,
-        &authed,
-        ns.value.as_deref(),
-    )
-    .await?
-    {
-        Some(p) => {
-            ns.value = Some(p.value);
-            ns.description = Some(p.description);
-            ns.resource_type = Some(p.resource_type);
-            ns.labels = p.labels;
-            Some(p.promotion)
-        }
-        None => None,
-    };
 
     let mut sqlb = SqlBuilder::update_table("resource");
     sqlb.and_where_eq("path", "?".bind(&path));
@@ -2342,20 +2204,6 @@ async fn update_resource(
             .as_ref(),
     )
     .await?;
-    if ns.value.is_some() || ns.resource_type.is_some() || new_path != path {
-        windmill_dep_map::ci_tests::check_ci_tests_rule(
-            &db,
-            &w_id,
-            "resource",
-            &new_path,
-            Some(path),
-            promotion.as_ref(),
-            &authed,
-            &authed.groups,
-            authed.is_admin,
-        )
-        .await?;
-    }
 
     let mut tx = user_db.begin(&authed).await?;
 
@@ -2800,18 +2648,6 @@ async fn set_resource_value(
         return Err(Error::PermissionDenied(msg));
     }
     authorize_azure_devops_reference(authed, db, user_db, w_id, value.as_ref()).await?;
-    windmill_dep_map::ci_tests::check_ci_tests_rule(
-        db,
-        w_id,
-        "resource",
-        path,
-        None,
-        None,
-        authed,
-        &authed.groups,
-        authed.is_admin,
-    )
-    .await?;
 
     let mut tx = user_db.clone().begin(authed).await?;
 
