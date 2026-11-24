@@ -140,6 +140,7 @@ function parseTypeAnnotation(
 
 function serializeArgValue(v: any): any {
   if (typeof v === "bigint") return v.toString();
+  if (Array.isArray(v)) return v.map(serializeArgValue);
   if (v instanceof Date) return v.toISOString();
   if (typeof v === "number" && !Number.isFinite(v)) {
     if (Number.isNaN(v)) return "NaN";
@@ -417,6 +418,15 @@ describe("datatable() — template tag", () => {
     expect(out.content).toContain("$1::BIGINT");
     expect(out.args.arg1).toBe("9007199254740993");
     // Round-trip through JSON without throwing — the original bug.
+    expect(() => JSON.stringify(out.args)).not.toThrow();
+  });
+
+  test("BigInt and non-finite elements of an array are stringified", () => {
+    const sql = dt();
+    const out = sql`SELECT ${[BigInt(1), BigInt("9007199254740993")]}, ${[1.5, NaN]}`;
+    expect(out.content).toContain("$1::BIGINT[]");
+    expect(out.args.arg1).toEqual(["1", "9007199254740993"]);
+    expect(out.args.arg2).toEqual([1.5, "NaN"]);
     expect(() => JSON.stringify(out.args)).not.toThrow();
   });
 

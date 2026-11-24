@@ -259,6 +259,7 @@ function buildSqlStatement(
 //   - everything else      → passed through unchanged.
 function serializeArgValue(v: any): any {
   if (typeof v === "bigint") return v.toString();
+  if (Array.isArray(v)) return v.map(serializeArgValue);
   if (v instanceof Date) return v.toISOString();
   if (typeof v === "number" && !Number.isFinite(v)) {
     if (Number.isNaN(v)) return "NaN";
