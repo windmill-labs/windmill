@@ -78,7 +78,7 @@
 			<Hourglass size={14} />
 		</Badge>
 	{:else if 'running' in job && job.running && stepWaiting === 'sleep'}
-		<Badge color="blue" {roundedFull} baseClass={roundedFull ? '' : '!px-1.5'} title="Sleeping">
+		<Badge {roundedFull} baseClass={roundedFull ? '' : '!px-1.5'} title="Sleeping">
 			<Moon size={14} />
 		</Badge>
 	{:else if 'running' in job && job.running && stepWaiting === 'concurrency'}

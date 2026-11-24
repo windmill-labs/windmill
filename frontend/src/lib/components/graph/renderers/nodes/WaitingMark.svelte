@@ -43,7 +43,7 @@
 		unifiedSize="2xs"
 		startIcon={{
 			icon: reason === 'sleep' ? Moon : Gauge,
-			classes: reason === 'sleep' ? 'text-blue-500' : 'text-orange-500'
+			classes: reason === 'sleep' ? '' : 'text-orange-500'
 		}}
 		btnClasses="text-2xs text-secondary gap-1"
 		{title}

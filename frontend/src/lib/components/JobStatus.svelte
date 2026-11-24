@@ -96,7 +96,7 @@
 	</div>
 {:else if job && 'running' in job && job.running && stepWaiting}
 	<div>
-		<Badge {large} color={stepWaiting === 'sleep' ? 'blue' : 'orange'}>
+		<Badge {large} color={stepWaiting === 'sleep' ? 'gray' : 'orange'}>
 			{stepWaiting === 'sleep' ? 'Sleeping' : 'Step held by concurrency limit'}
 			{#if job.flow_status}
 				({(job.flow_status?.step ?? 0) + 1} of {job.raw_flow?.modules?.length ?? '?'})

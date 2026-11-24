@@ -23,7 +23,6 @@ export type FlowNodeState =
 	| FlowStatusModule['type']
 	| '_VirtualItem'
 	| '_Skipped'
-	| '_Sleeping'
 	| '_AIAdded'
 	| '_AIModified'
 	| '_AIRemoved'
@@ -127,21 +126,6 @@ export function getNodeColorClasses(state: FlowNodeState, selected: boolean): Fl
 		},
 		InProgress: orangeStyle,
 		WaitingForExecutor: orangeStyle,
-		// The blue of a job scheduled for later.
-		_Sleeping: {
-			selected: {
-				bg: 'bg-blue-100 dark:bg-blue-700/60',
-				outline: 'outline-blue-500' + outlined,
-				text: 'text-blue-800 dark:text-blue-100',
-				badge: 'bg-blue-50 text-blue-800'
-			},
-			notSelected: {
-				bg: 'bg-blue-50 dark:bg-blue-700/40',
-				outline: '',
-				text: 'text-blue-800 dark:text-blue-100',
-				badge: 'bg-blue-100 text-blue-800'
-			}
-		},
 		WaitingForEvents: {
 			selected: {
 				bg: 'bg-purple-200 dark:bg-purple-600',

@@ -332,11 +332,7 @@
 					'/' +
 					(state?.iteration_total ?? '?')
 				: ''}
-			nodeState={state?.skipped
-				? '_Skipped'
-				: type === 'WaitingForExecutor' && state?.waiting_reason === 'sleep'
-					? '_Sleeping'
-					: type}
+			nodeState={state?.skipped ? '_Skipped' : type}
 			duration_ms={state?.duration_ms}
 			retries={state?.retries}
 			held={type === 'WaitingForExecutor' && state?.waiting_reason === 'concurrency'
@@ -395,7 +391,7 @@
 					unifiedSize="2xs"
 					startIcon={{
 						icon: waitingInside.reason === 'sleep' ? Moon : Gauge,
-						classes: waitingInside.reason === 'sleep' ? 'text-blue-500' : 'text-orange-500'
+						classes: waitingInside.reason === 'sleep' ? '' : 'text-orange-500'
 					}}
 					btnClasses="text-2xs text-secondary gap-1"
 					title="Expand to see the waiting steps"

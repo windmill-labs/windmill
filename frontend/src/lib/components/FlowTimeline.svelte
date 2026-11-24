@@ -194,8 +194,10 @@
 		return segments
 	}
 	const segmentStyle = {
+		// A wait like the gray one, striped as one the flow asked for.
 		sleep: {
-			colorClass: 'bg-blue-200 dark:bg-blue-700/60 !text-blue-800 dark:!text-blue-100',
+			colorClass:
+				'bg-[repeating-linear-gradient(135deg,#d1d5db_0_4px,#e5e7eb_4px_8px)] dark:bg-[repeating-linear-gradient(135deg,#4b5563_0_4px,#374151_4px_8px)] !text-gray-700 dark:!text-gray-100',
 			label: 'Sleep'
 		},
 		held: { colorClass: 'bg-orange-400/90', label: 'Held by concurrency limit' },
@@ -236,7 +238,9 @@
 				</div>
 				{#if hasSleep}
 					<div class="flex gap-1.5 items-center">
-						<div class="h-2.5 w-2.5 rounded-sm bg-blue-200 dark:bg-blue-700/60"></div>
+						<div
+							class="h-2.5 w-2.5 rounded-sm bg-[repeating-linear-gradient(135deg,#d1d5db_0_4px,#e5e7eb_4px_8px)] dark:bg-[repeating-linear-gradient(135deg,#4b5563_0_4px,#374151_4px_8px)]"
+						></div>
 						<span>Sleep</span>
 					</div>
 				{/if}
