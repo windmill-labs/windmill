@@ -295,6 +295,7 @@ pub async fn create_many_http_triggers(
             .await
             .map_err(|err| error_wrapper(&new_http_trigger.config.route_path, err))?;
         let new = trigger_save_runnables::<HttpTrigger>(new_http_trigger)?;
+        windmill_api_auth::check_run_scopes(&authed, &new)?;
         windmill_api_auth::composed::check_new_hub_paths(&new, &[], &authed, &db, &w_id)
             .await
             .map_err(|err| match err {
