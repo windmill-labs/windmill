@@ -477,3 +477,48 @@ async fn check_builder_agents(
 
     Ok(())
 }
+
+/// Each slot of a flow picks scripts of its own kind. A role without `code` gets the kind it asks
+/// for, preprocessors without a main included, and still no library.
+#[sqlx::test(migrations = "../migrations", fixtures("base", "permissions_test"))]
+async fn test_operator_lists_scripts_of_the_requested_kind(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let api = format!("http://localhost:{port}/api/w/{WS}");
+    let c = operator_client();
+
+    add_script(&db, 5001, "u/operator/action", "operator").await?;
+    add_script(&db, 5002, "u/operator/library", "operator").await?;
+    add_script(&db, 5003, "u/operator/prep", "operator").await?;
+    sqlx::query(
+        "UPDATE script SET auto_kind = 'lib',
+             kind = CASE WHEN hash = 5003 THEN 'preprocessor' ELSE kind END
+         WHERE hash IN (5002, 5003)",
+    )
+    .execute(&db)
+    .await?;
+
+    for (query, expected) in [
+        ("", vec!["u/operator/action"]),
+        ("&kinds=preprocessor", vec!["u/operator/prep"]),
+        (
+            "&kinds=script,preprocessor",
+            vec!["u/operator/action", "u/operator/prep"],
+        ),
+    ] {
+        let scripts: Vec<serde_json::Value> = c
+            .get(format!("{api}/scripts/list?path_start=u/operator/{query}"))
+            .send()
+            .await?
+            .error_for_status()?
+            .json()
+            .await?;
+        let mut paths: Vec<&str> = scripts.iter().filter_map(|s| s["path"].as_str()).collect();
+        paths.sort();
+        assert_eq!(paths, expected, "scripts listed for `{query}`");
+    }
+    Ok(())
+}
