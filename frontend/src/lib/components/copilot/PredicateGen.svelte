@@ -13,9 +13,12 @@
 	import { stepInputCompletionEnabled } from '$lib/stores'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import type { Flow } from '$lib/gen'
-	import { copilotInfo } from '$lib/aiStore'
 	import { AIBtnClasses } from './chat/AIButtonStyle'
 	import { twMerge } from 'tailwind-merge'
+	import { getAiChatManager } from './chat/aiChatManagerContext'
+
+	const aiChat = getAiChatManager()
+	const aiInfo = $derived(aiChat.aiInfo)
 
 	let loading = $state(false)
 	interface Props {
@@ -75,7 +78,8 @@ Only return the expression without any wrapper. Do not explain or discuss.`
 						content: user
 					}
 				],
-				abortController
+				abortController,
+				aiChat.loadedSessionAiTarget
 			)
 
 			dispatch('setExpr', result)
@@ -90,7 +94,7 @@ Only return the expression without any wrapper. Do not explain or discuss.`
 	}
 </script>
 
-{#if $copilotInfo.enabled && $stepInputCompletionEnabled}
+{#if aiInfo?.enabled && $stepInputCompletionEnabled}
 	<Popover
 		floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}
 		contentClasses="p-4 flex w-96"

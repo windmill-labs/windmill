@@ -1,7 +1,7 @@
 <script lang="ts">
 	import TextInput from '../text_input/TextInput.svelte'
 	import SettingToggle from '../itemSettings/SettingToggle.svelte'
-	import { copilotInfo } from '$lib/aiStore'
+	import { getAiChatManager } from '$lib/components/copilot/chat/aiChatManagerContext'
 
 	interface Props {
 		prompt?: string | undefined
@@ -10,12 +10,15 @@
 
 	let { prompt = $bindable(), type = 'script' }: Props = $props()
 
+	const aiChat = getAiChatManager()
+	const aiInfo = $derived(aiChat.aiInfo)
+
 	// An empty prompt is stored as undefined, so the row keeps its own open state to show the field
 	// between turning the toggle on and typing.
 	let open = $state(false)
 </script>
 
-{#if !$copilotInfo.workspaceDisabled}
+{#if aiInfo && !aiInfo.workspaceDisabled}
 	<SettingToggle
 		setting="ai-prompt"
 		label="AI prompt"

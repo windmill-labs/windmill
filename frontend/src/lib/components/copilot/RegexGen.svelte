@@ -10,7 +10,10 @@
 	import { autoPlacement } from '@floating-ui/core'
 	import { ExternalLink, HistoryIcon, Wand2 } from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
-	import { copilotInfo } from '$lib/aiStore'
+	import { getAiChatManager } from './chat/aiChatManagerContext'
+
+	const aiChat = getAiChatManager()
+	const aiInfo = $derived(aiChat.aiInfo)
 
 	// state
 	let funcDesc: string = $state('')
@@ -39,7 +42,8 @@
 						content: funcDesc
 					}
 				],
-				abortController
+				abortController,
+				aiChat.loadedSessionAiTarget
 			)
 			dispatch('gen', { res: res, prompt: funcDesc })
 			funcDesc = ''
@@ -92,7 +96,7 @@
 	}
 </script>
 
-{#if !$copilotInfo.workspaceDisabled}
+{#if aiInfo && !aiInfo.workspaceDisabled}
 	<Popover
 		floatingConfig={{
 			middleware: [
@@ -118,7 +122,7 @@
 		{/snippet}
 		{#snippet content({ close })}
 			<div class="block text-primary p-4">
-				{#if $copilotInfo.enabled}
+				{#if aiInfo?.enabled}
 					<div class="flex flex-col gap-4">
 						<div class="flex w-96">
 							<input

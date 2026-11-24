@@ -24,6 +24,7 @@
 	import { Alert, Badge } from '$lib/components/common'
 	import { copilotInfo, copilotWorkspace } from '$lib/aiStore'
 	import { loadCopilot } from '$lib/components/copilot/loadCopilot'
+	import { getAiChatManager } from '$lib/components/copilot/chat/aiChatManagerContext'
 	import { BUILDER_FRAMEWORK_TEMPLATES, FRAMEWORK_TEMPLATES } from './templates'
 	import { conformBuilderAppPolicy } from './builderAppPolicy'
 	import type { Runnable } from './rawAppPolicy'
@@ -278,17 +279,27 @@
 	// `enabled` alone cannot tell "no providers" from "not loaded yet" and the modal
 	// would announce AI as unconfigured while it is merely unknown. Gate on the
 	// config describing opWs, and load it here so the claim owns its own evidence.
-	const aiConfigLoaded = $derived(!!opWs && $copilotWorkspace === opWs)
-	const isAiEnabled = $derived(aiConfigLoaded && $copilotInfo.enabled)
+	const aiChat = getAiChatManager()
+	const aiInfo = $derived(
+		aiChat.isSessionChat
+			? aiChat.aiInfo
+			: !!opWs && $copilotWorkspace === opWs
+				? $copilotInfo
+				: undefined
+	)
+	const aiConfigLoaded = $derived(!!aiInfo)
+	const isAiEnabled = $derived(!!aiInfo?.enabled)
 
 	$effect(() => {
-		if (open && opWs && !aiConfigLoaded) {
+		if (open && opWs && $copilotWorkspace !== opWs) {
 			loadCopilot(opWs)
 		}
 	})
 
 	// With AI turned off for the workspace there is nothing to choose between.
-	const aiOffered = $derived(!$copilotInfo.workspaceDisabled)
+	const aiOffered = $derived(
+		aiChat.isSessionChat ? !!aiInfo && !aiInfo.workspaceDisabled : !$copilotInfo.workspaceDisabled
+	)
 
 	const canStart = $derived(
 		!!templates[selectedTemplateIndex] && !newSchemaAlreadyExists && rolesSettled && accessSettled
