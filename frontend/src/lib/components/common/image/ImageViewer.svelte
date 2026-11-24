@@ -201,11 +201,23 @@
 		action()
 	}
 
+	const MIME_EXT: Record<string, string> = {
+		'image/png': 'png',
+		'image/jpeg': 'jpg',
+		'image/gif': 'gif',
+		'image/webp': 'webp',
+		'image/svg+xml': 'svg',
+		'image/avif': 'avif',
+		'image/bmp': 'bmp'
+	}
+
+	/** The caption names the file, but the bytes decide its extension: chat attachments keep
+	 *  their original name after being re-encoded (`diagram.svg` holding PNG bytes). */
 	function fileName(mime: string) {
 		const base = caption.split(/[/\\]/).pop() ?? ''
-		if (/\.[a-z0-9]{2,5}$/i.test(base)) return base
-		const ext = mime.split('/')[1]?.split('+')[0] || 'png'
-		return `image.${ext === 'jpeg' ? 'jpg' : ext}`
+		const named = base.match(/^(.+)\.([a-z0-9]{2,5})$/i)
+		const ext = MIME_EXT[mime] ?? named?.[2] ?? 'png'
+		return `${named?.[1] ?? 'image'}.${ext}`
 	}
 
 	async function fetchBlob() {
