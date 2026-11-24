@@ -50,7 +50,7 @@ use windmill_common::runnable_settings::{
 use windmill_common::runtime_assets::{register_runtime_asset, InsertRuntimeAssetParams};
 use windmill_common::scripts::{ScriptModule, ScriptRunnableSettingsInline};
 use windmill_common::triggers::TriggerMetadata;
-use windmill_common::utils::{RunnableKind, WarnAfterExt};
+use windmill_common::utils::{PlainValue, RunnableKind, WarnAfterExt};
 use windmill_common::worker::{Connection, CLOUD_HOSTED, WINDMILL_DIR};
 use windmill_common::workspace_dependencies::{
     RawWorkspaceDependencies, MIN_VERSION_WORKSPACE_DEPENDENCIES,
@@ -5165,7 +5165,7 @@ async fn validate_approval_token(
 
 #[derive(Deserialize)]
 struct ResumeSuspendedBody {
-    payload: Option<serde_json::Value>,
+    payload: Option<PlainValue>,
     approval_token: Option<String>,
     approved: Option<bool>,
 }
@@ -5177,7 +5177,7 @@ async fn resume_suspended(
     Json(body): Json<ResumeSuspendedBody>,
 ) -> error::Result<StatusCode> {
     let approved = body.approved.unwrap_or(true);
-    let value = body.payload.unwrap_or(serde_json::Value::Null);
+    let value = body.payload.map_or(serde_json::Value::Null, |v| v.0);
 
     // Determine if we have a valid authed user or token
     let has_token = if let Some(ref token) = body.approval_token {
@@ -6057,10 +6057,10 @@ pub async fn resume_suspended_job(
     Extension(db): Extension<DB>,
     Path((w_id, job_id, resume_id, secret)): Path<(String, Uuid, u32, String)>,
     Query(approver): Query<QueryApprover>,
-    QueryOrBody(value): QueryOrBody<serde_json::Value>,
+    QueryOrBody(value): QueryOrBody<PlainValue>,
 ) -> error::Result<StatusCode> {
     resume_suspended_job_internal(
-        value,
+        value.map(|v| v.0),
         db,
         w_id,
         job_id,
@@ -6489,10 +6489,10 @@ pub async fn cancel_suspended_job(
     Extension(db): Extension<DB>,
     Path((w_id, job_id, resume_id, secret)): Path<(String, Uuid, u32, String)>,
     Query(approver): Query<QueryApprover>,
-    QueryOrBody(value): QueryOrBody<serde_json::Value>,
+    QueryOrBody(value): QueryOrBody<PlainValue>,
 ) -> error::Result<StatusCode> {
     resume_suspended_job_internal(
-        value,
+        value.map(|v| v.0),
         db,
         w_id,
         job_id,
