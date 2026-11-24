@@ -15,6 +15,7 @@ import { getLocalSetting, storeLocalSetting } from '$lib/utils'
 import { logFeatureUsage } from '$lib/utils/featureUsage'
 import { isReadOnlySessionWorkspace } from '../copilot/chat/global/sessionAccess'
 import { AIWorkMode } from '../copilot/chat/workMode'
+import type { ReasoningProviderModel } from '../copilot/reasoningRegistry'
 import { workspaceRootId } from './sessionScope.svelte'
 import { type DBSchema, type IDBPDatabase } from 'idb'
 import { userScopedDb } from '$lib/userScopedDb'
@@ -184,6 +185,12 @@ export type Session = {
 	workingIn?: string[]
 	// How the scope was set, for its usage counter. Absent: the default.
 	workingInSource?: 'preset' | 'manual'
+	// Absent until a pick or the next send, and the session then follows the last pick: unsent,
+	// stored before this field, or restored from the backup. Per browser, like workMode.
+	model?: ReasoningProviderModel
+	// The pick `model` stands in for because the workspace does not offer it, until the user
+	// dismisses the notice or picks a model.
+	replacedModel?: ReasoningProviderModel
 	// Unsent composer text for a pending (uncommitted) session, persisted with
 	// the record so each parallel draft restores its own typed-but-unsent prompt.
 	// Only tracked while unsent; cleared once the workspace commits at first send.
@@ -1489,6 +1496,35 @@ export function setSessionWorkMode(id: string, mode: AIWorkMode): void {
 	if (!s || (s.workMode ?? AIWorkMode.BUILD) === mode) return
 	s.workMode = mode
 	persistTouched(s)
+}
+
+/** Not a touch: picking a model on Home's untouched draft must not keep it in the sidebar. */
+export function setSessionModel(
+	id: string,
+	model: ReasoningProviderModel,
+	replaced?: ReasoningProviderModel
+): void {
+	const s = sessionState.sessions.find((x) => x.id === id)
+	if (!s) return
+	s.model = { ...model }
+	s.replacedModel = replaced
+	if (!s.transient) void putSession(s)
+}
+
+export function dismissReplacedModel(id: string): void {
+	const s = sessionState.sessions.find((x) => x.id === id)
+	if (!s) return
+	delete s.replacedModel
+	void putSession(s)
+}
+
+/** A pick by the user, which is also the last pick: an untouched draft follows that one, so it
+ * drops a pick of its own. */
+export function pickSessionModel(id: string, model: ReasoningProviderModel): void {
+	for (const s of sessionState.sessions) {
+		if (s.id !== id && isDiscardableDraft(s)) delete s.model
+	}
+	setSessionModel(id, model)
 }
 
 /** Not a touch: picking a scope on Home's untouched draft must not keep it in the sidebar. */

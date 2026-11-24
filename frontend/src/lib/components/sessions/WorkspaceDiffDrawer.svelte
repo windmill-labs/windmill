@@ -43,6 +43,7 @@
 	import type { SessionDeployModel, DiffValues } from './sessionDeployModel.svelte'
 	import { SIDE_BY_SIDE_MIN_WIDTH } from '$lib/components/diffEditorTypes'
 	import { getWorkspaceCopilotInfo } from '$lib/aiStore'
+	import { getAiChatManager } from '$lib/components/copilot/chat/aiChatManagerContext'
 	import AiReview from '$lib/components/deploymentRequest/AiReview.svelte'
 	import type { ReviewItem } from '$lib/components/deploymentRequest/aiReview'
 
@@ -96,6 +97,7 @@
 	const reviewAiInfo = $derived(
 		reviewWorkspaceId ? getWorkspaceCopilotInfo(reviewWorkspaceId) : undefined
 	)
+	const aiChat = getAiChatManager()
 
 	let drawer: Drawer | undefined = $state(undefined)
 	let searchQuery = $state('')
@@ -1168,6 +1170,7 @@
 						scope={{ kind: 'drafts', workspaceId: reviewWorkspaceId, items: reviewItems }}
 						source="session_edits"
 						info={reviewAiInfo}
+						defaultModel={aiChat.isSessionChat ? aiChat.currentModel : undefined}
 					/>
 				</div>
 			{/if}

@@ -198,11 +198,14 @@ export function isWebSearchEnabledForProvider(
 }
 
 export function getCurrentModel(): ReasoningProviderModel {
-	return resolveModelFor(get(copilotInfo))
+	return resolveModelFor(get(copilotInfo), get(copilotSessionModel))
 }
 
-export function resolveModelFor(info: CopilotInfo): ReasoningProviderModel {
-	const model = tryResolveModelFor(info)
+export function resolveModelFor(
+	info: CopilotInfo,
+	pick: ReasoningProviderModel | undefined
+): ReasoningProviderModel {
+	const model = tryResolveModelFor(info, pick)
 	if (!model) {
 		throw new Error('No model selected')
 	}
@@ -222,7 +225,7 @@ export function resolveMetadataModelFor(info: CopilotInfo): AIProviderModel {
 }
 
 export function tryGetCurrentModel(): ReasoningProviderModel | undefined {
-	return tryResolveModelFor(get(copilotInfo))
+	return tryResolveModelFor(get(copilotInfo), get(copilotSessionModel))
 }
 
 /** `workspace`'s AI config if loaded; otherwise starts loading it and returns undefined. */
@@ -297,6 +300,15 @@ export function invalidateWorkspaceCopilotInfo(workspace?: string) {
 	}
 }
 
+/** Sets the last pick, which everything without a pick of its own follows, a session included
+ * until it has one. */
+export function setLastModelPick(model: ReasoningProviderModel) {
+	copilotSessionModel.set(model)
+	storeLocalSetting(COPILOT_SESSION_MODEL_SETTING_NAME, model.model)
+	storeLocalSetting(COPILOT_SESSION_PROVIDER_SETTING_NAME, model.provider)
+	storeLocalSetting(COPILOT_SESSION_REASONING_SETTING_NAME, model.reasoning)
+}
+
 // Leaves copilotSessionModel alone: the pick is shared with sessions in other workspaces, which may
 // offer a model this one does not.
 export function setCopilotInfo(aiConfig: AIConfig) {
@@ -307,11 +319,14 @@ function isOffered(info: CopilotInfo, model: AIProviderModel): boolean {
 	return info.aiModels.some((m) => m.model === model.model && m.provider === model.provider)
 }
 
-/** The model a request for `info`'s workspace sends: the shared pick when that workspace offers
- * it, else its default, else its first model. Never one the workspace does not offer. */
-export function tryResolveModelFor(info: CopilotInfo): ReasoningProviderModel | undefined {
-	const picked = get(copilotSessionModel)
-	if (picked && isOffered(info, picked)) return picked
+/** The model a request for `info`'s workspace sends: `pick` when that workspace offers it, else
+ * its default, else its first model. Never a pick the workspace does not offer. `pick` is required
+ * so that a session passes its own rather than silently following the shared one. */
+export function tryResolveModelFor(
+	info: CopilotInfo,
+	pick: ReasoningProviderModel | undefined
+): ReasoningProviderModel | undefined {
+	if (pick && isOffered(info, pick)) return pick
 	return info.defaultModel ?? info.aiModels[0]
 }
 
