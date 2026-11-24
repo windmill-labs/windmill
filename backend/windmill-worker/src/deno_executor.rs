@@ -737,6 +737,7 @@ pub(crate) async fn build_import_map(
               "{base_internal_url}": "{base_internal_url}/api/w/{w_id}/scripts/raw/p/",
               "/": "{base_internal_url}/api/w/{w_id}/scripts/raw/p/",
               "./wrapper.ts": "./wrapper.ts",
+              "./wm_envs.ts": "./wm_envs.ts",
               "./main.ts": "./main.ts"{relative_mounts}
               {extra_import_map}
             }}
@@ -995,7 +996,8 @@ mod tests {
         let map = std::fs::read_to_string(dir.path().join("import_map.json")).unwrap();
         let map: serde_json::Value = serde_json::from_str(&map).unwrap();
         let imports = map["imports"].as_object().unwrap();
-        assert_eq!(imports.len(), 5 + path.split('/').count());
+        assert_eq!(imports.len(), 6 + path.split('/').count());
         assert_eq!(imports["./main.ts"], "./main.ts");
+        assert_eq!(imports["./wm_envs.ts"], "./wm_envs.ts");
     }
 }
