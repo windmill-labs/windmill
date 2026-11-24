@@ -711,26 +711,37 @@
 				if (now?.type !== 'WaitingForExecutor' || now.job !== mod.job) return
 				if (held === null) unlimitedSteps.add(mod.job ?? '')
 				const scheduledFor: string | undefined = job?.['scheduled_for']
-				// A held job is admitted only as a worker pulls it, so it is held until it runs.
-				const waiting_reason: GraphModuleState['waiting_reason'] = held?.deferred_from
-					? 'concurrency'
-					: scheduledFor &&
-						  new Date(scheduledFor) > getDbClockNow() &&
-						  !retrying &&
-						  sleepsBefore(mod.id)
-						? 'sleep'
-						: undefined
+				// Once let in, a held job only waits for a worker.
+				const waiting_reason: GraphModuleState['waiting_reason'] =
+					held?.deferred_from && !held.released_at
+						? 'concurrency'
+						: scheduledFor &&
+							  new Date(scheduledFor) > getDbClockNow() &&
+							  !retrying &&
+							  sleepsBefore(mod.id)
+							? 'sleep'
+							: undefined
 				setModuleState(mod.id ?? '', {
 					type: mod.type,
 					scheduled_for: job?.['scheduled_for'],
 					waiting_reason,
 					concurrency_key: waiting_reason === 'concurrency' ? held?.key : undefined,
+					held_since:
+						waiting_reason === 'concurrency' ? (held?.deferred_from ?? undefined) : undefined,
 					job_id: job?.id,
 					parent_module: failedStepOf(mod),
 					args: job?.args,
 					tag: job?.tag,
 					script_hash: job?.script_hash
 				})
+				// So the timeline draws the wait while it lasts.
+				if (waiting_reason && job?.created_at)
+					setDurationStatusByJob(
+						mod.id ?? '',
+						job.id,
+						{ created_at: new Date(job.created_at).getTime() },
+						true
+					)
 			})
 			.catch((e) => {
 				console.error(`Could not load inner module for job ${mod.job}`, e)
@@ -1447,12 +1458,33 @@
 		suspend?: boolean
 		/** Shown in place of the id. */
 		label?: string
+		/** The fixed sleep of the step before it, in seconds. */
+		sleepBefore?: number
+		/** An inline script with a concurrency limit, which can be held back. */
+		limited?: boolean
+	}
+
+	// Sleeps in branches and loop bodies are not looked at.
+	function timelineExtras(
+		modules: FlowModule[]
+	): Map<string, { sleepBefore?: number; limited?: boolean }> {
+		const extras = new Map<string, { sleepBefore?: number; limited?: boolean }>()
+		modules.forEach((m, i) => {
+			const sleep = modules[i - 1]?.sleep
+			const v = m.value
+			extras.set(m.id, {
+				sleepBefore: sleep?.type === 'static' ? Number(sleep.value) || undefined : undefined,
+				limited: v.type === 'rawscript' && (v.concurrent_limit ?? 0) > 0
+			})
+		})
+		return extras
 	}
 
 	function allModulesForTimeline(
 		modules: FlowModule[],
 		expandedSubflows: Record<string, { modules: FlowModule[]; groups?: any[] }>
 	): FlowModuleForTimeline[] {
+		const topExtras = timelineExtras(modules)
 		const ids = dfs(
 			modules,
 			(x) =>
@@ -1460,7 +1492,8 @@
 					id: x.id,
 					type: x.value.type,
 					suspend: x.suspend != undefined,
-					label: x.id === AGENT_STEP_ID ? agentStepLabel(job?.script_path) : undefined
+					label: x.id === AGENT_STEP_ID ? agentStepLabel(job?.script_path) : undefined,
+					...topExtras.get(x.id)
 				}) as FlowModuleForTimeline,
 			{
 				skipToolNodes: true
@@ -1479,6 +1512,7 @@
 						return []
 					}
 					let nprefix = buildPrefix(prefix, oid)
+					const extras = fms ? timelineExtras(fms) : undefined
 					return fms
 						? rec(
 								dfs(
@@ -1486,7 +1520,8 @@
 									(x) => ({
 										id: x.id.startsWith('subflow:') ? x.id : buildSubflowKey(x.id, nprefix),
 										type: x.value.type,
-										suspend: x.suspend != undefined
+										suspend: x.suspend != undefined,
+										...extras?.get(x.id)
 									}),
 									{ skipToolNodes: true }
 								),
@@ -2149,6 +2184,7 @@
 									scheduled_for={localModuleStates?.[mod.id ?? '']?.scheduled_for}
 									waiting_reason={localModuleStates?.[mod.id ?? '']?.waiting_reason}
 									concurrency_key={localModuleStates?.[mod.id ?? '']?.concurrency_key}
+									held_since={localModuleStates?.[mod.id ?? '']?.held_since}
 								/>
 							{/if}
 						</li>
@@ -2494,6 +2530,7 @@
 																			scheduled_for={node.scheduled_for}
 																			waiting_reason={node.waiting_reason}
 																			concurrency_key={node.concurrency_key}
+																			held_since={node.held_since}
 																			skipped={node.skipped}
 																		/>
 																		{#if node.duration_ms}

@@ -3,14 +3,16 @@
 	import type { GraphModuleState } from './graph'
 	import { Badge } from './common'
 	import { forLater } from '$lib/forLater'
-	import { displayDate } from '$lib/utils'
-	import { Hourglass, Lock, Timer } from 'lucide-svelte'
+	import { displayDate, msToCompactDuration } from '$lib/utils'
+	import { Gauge, Hourglass, Moon } from 'lucide-svelte'
 
 	interface Props {
 		type: FlowStatusModule['type']
 		scheduled_for: Date | undefined
 		waiting_reason?: GraphModuleState['waiting_reason']
 		concurrency_key?: string
+		/** When its concurrency limit first held the step back. */
+		held_since?: string
 		skipped?: boolean
 	}
 
@@ -19,8 +21,18 @@
 		scheduled_for,
 		waiting_reason = undefined,
 		concurrency_key = undefined,
+		held_since = undefined,
 		skipped = false
 	}: Props = $props()
+
+	let now = $state(Date.now())
+	$effect(() => {
+		if (!waiting_reason) return
+		const id = setInterval(() => (now = Date.now()), 1000)
+		return () => clearInterval(id)
+	})
+	let sleepLeft = $derived(Math.max(new Date(scheduled_for ?? now).getTime() - now, 0))
+	let heldFor = $derived(held_since ? Math.max(now - new Date(held_since).getTime(), 0) : undefined)
 </script>
 
 {#if type == 'WaitingForEvents'}
@@ -33,20 +45,27 @@
 		<Hourglass class="inline" size={14} />
 		Waiting for prior steps to complete
 	</span>
+{:else if type == 'WaitingForExecutor' && waiting_reason === 'sleep'}
+	<span class="italic text-xs text-sky-700 dark:text-sky-300">
+		<Moon class="inline" size={14} />
+		Sleeping until {displayDate(scheduled_for, true)} · {msToCompactDuration(sleepLeft, 0)} left
+	</span>
+{:else if type == 'WaitingForExecutor' && waiting_reason === 'concurrency'}
+	<span class="italic text-xs text-orange-700 dark:text-orange-300">
+		<Gauge class="inline" size={14} />
+		Held by concurrency limit{heldFor != undefined
+			? ` · ${msToCompactDuration(heldFor, 0)}`
+			: ''}{concurrency_key ? ` (key ${concurrency_key})` : ''}, next check by {displayDate(
+			scheduled_for,
+			true
+		)}
+	</span>
 {:else if type == 'WaitingForExecutor'}
 	<span class="italic text-xs text-primary">
-		{#if waiting_reason === 'sleep'}
-			<Timer class="inline" size={14} />
-			Sleeping after the previous step until {displayDate(scheduled_for, true)}
-		{:else if waiting_reason === 'concurrency'}
-			<Lock class="inline" size={14} />
-			Held back by its concurrency limit{concurrency_key ? ` (key ${concurrency_key})` : ''}, next
-			check by {displayDate(scheduled_for, true)}
-		{:else if scheduled_for && forLater(scheduled_for.toString())}
-			<Hourglass class="inline" size={14} />
+		<Hourglass class="inline" size={14} />
+		{#if scheduled_for && forLater(scheduled_for.toString())}
 			Job is scheduled to be executed at {displayDate(scheduled_for, true)}
 		{:else}
-			<Hourglass class="inline" size={14} />
 			Job is waiting for an executor
 		{/if}
 	</span>

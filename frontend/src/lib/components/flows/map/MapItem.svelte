@@ -30,6 +30,8 @@
 		nodeState?: FlowNodeState
 		duration_ms?: number | undefined
 		retries?: number | undefined
+		/** In a run, while its concurrency limit holds the step back. */
+		held?: { since?: string; nextCheck?: Date | string }
 		flowJobs:
 			| {
 					flowJobs: string[]
@@ -81,6 +83,7 @@
 		nodeState,
 		duration_ms = undefined,
 		retries = undefined,
+		held = undefined,
 		flowJobs,
 		attempts = undefined,
 		editMode = false,
@@ -281,6 +284,7 @@
 			{:else}
 				<FlowModuleSchemaItem
 					{retries}
+					{held}
 					attempts={attempts && !insertable
 						? {
 								jobs: attempts.flowJobs,

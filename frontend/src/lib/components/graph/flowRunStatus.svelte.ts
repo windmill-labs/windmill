@@ -44,6 +44,18 @@ export class FlowRunStatus {
 		return count
 	}
 
+	/** Steps inside the subflow step `id`, at any depth, waiting out a sleep or held by their
+	 * concurrency limit. */
+	waitingStepsInside(id: string): { sleep: number; concurrency: number } {
+		const prefix = (id.startsWith('subflow:') ? id : 'subflow:' + id) + ':'
+		const count = { sleep: 0, concurrency: 0 }
+		for (const [key, state] of this.#moduleStates) {
+			if (key.startsWith(prefix) && state.type === 'WaitingForExecutor' && state.waiting_reason)
+				count[state.waiting_reason]++
+		}
+		return count
+	}
+
 	setModuleStates(next: Record<string, GraphModuleState> | undefined) {
 		const incoming = next ?? {}
 		for (const id of [...this.#moduleStates.keys()]) {

@@ -1417,6 +1417,12 @@
 					}}
 					concurrencyKey={concurrency.key}
 					concurrencyDeferredFrom={concurrency.deferredFrom}
+					concurrencyReleasedAt={concurrency.releasedAt}
+					stepWaiting={job.type === 'QueuedJob'
+						? Object.values(graphModuleStates).find(
+								(s) => s.type === 'WaitingForExecutor' && s.waiting_reason
+							)?.waiting_reason
+						: undefined}
 				/>
 			{/if}
 		</div>

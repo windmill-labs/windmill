@@ -8,7 +8,9 @@
 		StickyNote,
 		PictureInPicture2,
 		Bug,
-		RefreshCw
+		RefreshCw,
+		Gauge,
+		Moon
 	} from 'lucide-svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import NodeWrapper from './NodeWrapper.svelte'
@@ -220,6 +222,19 @@
 			: undefined
 	})
 
+	// Live, so it takes the slot of the retried and error handler counts while it lasts.
+	let waitingInside = $derived.by(() => {
+		if (!flowRunStatus?.showsRun || data.editMode || data.module?.value?.type !== 'flow') return
+		const { sleep, concurrency } = flowRunStatus.waitingStepsInside(data.id)
+		if (concurrency > 0)
+			return {
+				reason: 'concurrency' as const,
+				label: `${concurrency} step${concurrency === 1 ? '' : 's'} held by concurrency limit`
+			}
+		if (sleep > 0)
+			return { reason: 'sleep' as const, label: `${sleep} step${sleep === 1 ? '' : 's'} sleeping` }
+	})
+
 	let type = $derived.by(() => {
 		let typ = state?.type
 		if (!typ && flowJobs) {
@@ -317,9 +332,16 @@
 					'/' +
 					(state?.iteration_total ?? '?')
 				: ''}
-			nodeState={state?.skipped ? '_Skipped' : type}
+			nodeState={state?.skipped
+				? '_Skipped'
+				: type === 'WaitingForExecutor' && state?.waiting_reason === 'sleep'
+					? '_Sleeping'
+					: type}
 			duration_ms={state?.duration_ms}
 			retries={state?.retries}
+			held={type === 'WaitingForExecutor' && state?.waiting_reason === 'concurrency'
+				? { since: state.held_since, nextCheck: state.scheduled_for }
+				: undefined}
 			{flowJobs}
 			{attempts}
 			on:delete={(e) => {
@@ -358,8 +380,34 @@
 				reason={state.waiting_reason}
 				until={state.scheduled_for}
 				concurrencyKey={state.concurrency_key}
+				heldSince={state.held_since}
+				onclick={() => data.module && data.eventHandlers.select(data.module.id)}
 			/>
-		{:else}
+		{/if}
+		{#if waitingInside}
+			<!-- svelte-ignore a11y_no_static_element_interactions -->
+			<div
+				class="nodrag nopan absolute -left-1 top-[calc(100%+3px)] z-10"
+				onpointerdown={(e) => e.stopPropagation()}
+			>
+				<Button
+					variant="subtle"
+					unifiedSize="2xs"
+					startIcon={{
+						icon: waitingInside.reason === 'sleep' ? Moon : Gauge,
+						classes: waitingInside.reason === 'sleep' ? 'text-sky-500' : 'text-orange-500'
+					}}
+					btnClasses="text-2xs text-secondary gap-1"
+					title="Expand to see the waiting steps"
+					onClick={(e) => {
+						e?.stopPropagation()
+						expandSubflow()
+					}}
+				>
+					{waitingInside.label}
+				</Button>
+			</div>
+		{:else if !(type === 'WaitingForExecutor' && state?.waiting_reason === 'concurrency')}
 			{#await hiddenErrorHandlers}
 				{@render insideBar(retriedInside, undefined)}
 			{:then handlers}

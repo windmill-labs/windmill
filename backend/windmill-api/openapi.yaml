@@ -27789,6 +27789,11 @@ paths:
                     format: date-time
                     nullable: true
                     description: When the job was first due. Set the first time its concurrency limit held it back, and kept after it ran.
+                  released_at:
+                    type: string
+                    format: date-time
+                    nullable: true
+                    description: When the concurrency limit let in a job it had held back, as the time the job was last due. The rest until it started is queue time.
                 required:
                   - key
   /w/{workspace}/concurrency_groups/list_jobs:

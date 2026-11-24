@@ -95,6 +95,9 @@ struct ConcurrencyKeyStatus {
     /// When the job was first due. Set the first time its limit held it back, and kept
     /// after it ran.
     deferred_from: Option<DateTime<Utc>>,
+    /// When the limit let the job in: the time it was last due. The rest until it started
+    /// is queue time.
+    released_at: Option<DateTime<Utc>>,
 }
 
 async fn get_concurrency_key_status(
@@ -110,7 +113,7 @@ async fn get_concurrency_key_status(
         .await?;
     let status = sqlx::query_as!(
         ConcurrencyKeyStatus,
-        "SELECT key, original_scheduled_for AS deferred_from FROM concurrency_key WHERE job_id = $1",
+        "SELECT key, original_scheduled_for AS deferred_from, released_at FROM concurrency_key WHERE job_id = $1",
         job_id
     )
     .fetch_optional(&db)

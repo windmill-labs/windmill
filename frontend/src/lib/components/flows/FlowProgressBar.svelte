@@ -31,16 +31,24 @@
 		errorAction
 	}: Props = $props()
 
+	// The current step, or a step waiting inside it when it is a subflow.
 	let waitingText = $derived.by(() => {
-		const next = job?.flow_status?.modules?.[job.flow_status.step]
-		const s = next?.type === 'WaitingForExecutor' ? stepStates?.[next.id ?? ''] : undefined
-		if (s?.type !== 'WaitingForExecutor') return undefined
+		const current = job?.flow_status?.modules?.[job.flow_status.step]?.id
+		if (!current || !stepStates) return undefined
+		const inside = `subflow:${current}:`
+		const found = Object.entries(stepStates).find(
+			([key, s]) =>
+				(key === current || key.startsWith(inside)) &&
+				s.type === 'WaitingForExecutor' &&
+				s.waiting_reason
+		)
+		if (!found) return undefined
+		const [key, s] = found
+		const step = key.split(':').pop()
 		const until = displayDate(s.scheduled_for, true)
 		return s.waiting_reason === 'sleep'
-			? `Sleeping before step ${next?.id} until ${until}`
-			: s.waiting_reason === 'concurrency'
-				? `Step ${next?.id} waiting for a concurrency slot, next check by ${until}`
-				: undefined
+			? `Sleeping before step ${step} until ${until}`
+			: `Step ${step} held by concurrency limit, next check by ${until}`
 	})
 
 	let error: number | undefined = $state(undefined)

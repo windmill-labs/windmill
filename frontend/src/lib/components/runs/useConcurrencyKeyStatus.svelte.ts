@@ -1,9 +1,10 @@
 import { ConcurrencyGroupsService, type Job } from '$lib/gen'
 import { getDbClockNow } from '$lib/forLater'
 
-/** A job's concurrency key, and when it was first due if its limit held it back. */
+/** A job's concurrency key and, if its limit held it back, when it was first due and when it was
+ * let in. */
 export function useConcurrencyKeyStatus(getJob: () => Job | undefined) {
-	type Status = { key: string; deferred_from?: string | null } | null
+	type Status = { key: string; deferred_from?: string | null; released_at?: string | null } | null
 	let loaded = $state<{ jobId: string; status: Status } | undefined>(undefined)
 
 	let id = $derived(getJob()?.id)
@@ -58,6 +59,9 @@ export function useConcurrencyKeyStatus(getJob: () => Job | undefined) {
 		},
 		get deferredFrom() {
 			return status?.deferred_from ?? undefined
+		},
+		get releasedAt() {
+			return status?.released_at ?? undefined
 		}
 	}
 }

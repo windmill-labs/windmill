@@ -145,6 +145,7 @@
 				compact
 				concurrencyKey={concurrency.key}
 				concurrencyDeferredFrom={concurrency.deferredFrom}
+				concurrencyReleasedAt={concurrency.releasedAt}
 				onFilterByConcurrencyKey={handleFilterByConcurrencyKey}
 				onFilterByWorker={handleFilterByWorker}
 				{onResolutionChanged}

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT key, original_scheduled_for AS deferred_from FROM concurrency_key WHERE job_id = $1",
+  "query": "SELECT key, original_scheduled_for AS deferred_from, released_at FROM concurrency_key WHERE job_id = $1",
   "describe": {
     "columns": [
       {
@@ -12,6 +12,11 @@
         "ordinal": 1,
         "name": "deferred_from",
         "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 2,
+        "name": "released_at",
+        "type_info": "Timestamptz"
       }
     ],
     "parameters": {
@@ -21,8 +26,9 @@
     },
     "nullable": [
       false,
+      true,
       true
     ]
   },
-  "hash": "c567c7789143e71cb6931ef20cd124ef92b538b0c4b358160bef9e6c04e9ac36"
+  "hash": "eaf0a5853b3550a4706d2aff6587b750ce7392ac6d7406403ce84127c5d978e3"
 }

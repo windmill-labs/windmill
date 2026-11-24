@@ -23,6 +23,7 @@ export type FlowNodeState =
 	| FlowStatusModule['type']
 	| '_VirtualItem'
 	| '_Skipped'
+	| '_Sleeping'
 	| '_AIAdded'
 	| '_AIModified'
 	| '_AIRemoved'
@@ -126,6 +127,21 @@ export function getNodeColorClasses(state: FlowNodeState, selected: boolean): Fl
 		},
 		InProgress: orangeStyle,
 		WaitingForExecutor: orangeStyle,
+		// Sky rather than the blue of a skipped step, which is also not running.
+		_Sleeping: {
+			selected: {
+				bg: 'bg-sky-200 dark:bg-sky-700',
+				outline: 'outline-sky-500' + outlined,
+				text: 'text-sky-800 dark:text-sky-100',
+				badge: 'bg-sky-100 text-sky-700'
+			},
+			notSelected: {
+				bg: 'bg-sky-100 dark:bg-sky-800',
+				outline: '',
+				text: 'text-sky-700 dark:text-sky-200',
+				badge: 'bg-sky-200 text-sky-700'
+			}
+		},
 		WaitingForEvents: {
 			selected: {
 				bg: 'bg-purple-200 dark:bg-purple-600',
