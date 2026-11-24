@@ -203,18 +203,25 @@
 	}
 </script>
 
+{#snippet variableHint(lead: string, path: string, tail?: string)}
+	<p class="flex items-start gap-1 text-2xs text-secondary">
+		<Lock class="mt-0.5 h-3 w-3 shrink-0" />
+		<span>{lead} <span class="font-mono">{path}</span>{tail ? `, ${tail}` : '.'}</span>
+	</p>
+{/snippet}
+
 {#if request.saved}
 	<!-- Settled, it reads as one more tool row in the turn, not a card. -->
 	<div class="my-0.5 flex min-w-0 items-start gap-2 py-0.5 font-mono text-2xs leading-4">
 		<ShieldCheck class="mt-px h-3.5 w-3.5 shrink-0 text-green-600 dark:text-green-400" />
 		<span class="min-w-0 font-medium text-secondary">
 			{#if resource}
-				Saved {request.label} as a draft of
+				Saved {request.label} as a draft of the resource
 				<a
 					class="text-accent hover:underline"
 					href={resourcePageUrl(request.saved.path, request.workspace)}>{request.saved.path}</a
 				>
-				· secrets in drafts of
+				· secrets in drafts of the encrypted variables
 				{#each request.saved.variables as variable, i (variable)}
 					{#if i > 0},
 					{/if}
@@ -253,7 +260,9 @@
 		>
 			<Lock class="h-3.5 w-3.5 shrink-0 text-emphasis" />
 			<span class="text-xs font-semibold text-emphasis">Secure input</span>
-			<span class="text-2xs text-secondary">· saved by Windmill, not sent to the AI</span>
+			<span class="text-2xs text-secondary"
+				>· saved by Windmill as {resource ? 'a resource' : 'a secret variable'}, not sent to the AI</span
+			>
 		</div>
 
 		<div class="flex flex-col gap-3 p-3">
@@ -324,9 +333,14 @@
 							{f.user} @ {f.host}:{f.port ?? 5432}/{f.dbname ?? ''} · sslmode {f.sslmode}
 						</p>
 					{/if}
+					{@render variableHint(
+						'The password is saved as the encrypted variable',
+						variablePaths[0],
+						'the rest in the resource.'
+					)}
 				</div>
 			{:else}
-				{#each secretFields as secretField (secretField.field)}
+				{#each secretFields as secretField, i (secretField.field)}
 					<div class="flex flex-col gap-1">
 						{#if resource}
 							<span class="text-xs font-semibold text-emphasis">{secretField.label}</span>
@@ -344,6 +358,9 @@
 							error={saveError !== undefined}
 							onKeyDown={onSecretKeyDown}
 						/>
+						{#if resource}
+							{@render variableHint('Saved as the encrypted variable', variablePaths[i])}
+						{/if}
 					</div>
 				{/each}
 			{/if}
@@ -399,15 +416,9 @@
 				<li class="flex items-start gap-1.5">
 					<ShieldCheck class="mt-0.5 h-3 w-3 shrink-0 text-green-600 dark:text-green-400" />
 					<span>
-						{#if resource}
-							Encrypted and stored as
-							{variablePaths.length === 1
-								? 'a draft of the secret variable'
-								: 'drafts of the secret variables'}
-							<span class="font-mono">{variablePaths.join(', ')}</span>.
-						{:else}
-							Encrypted and stored as a draft in this workspace.
-						{/if}
+						Secret variables are where Windmill keeps secrets, encrypted.{resource
+							? ' The resource holds the other fields and references them.'
+							: ''}
 					</span>
 				</li>
 				<li class="flex items-start gap-1.5">

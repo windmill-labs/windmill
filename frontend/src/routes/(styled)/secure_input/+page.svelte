@@ -2,7 +2,7 @@
 	import { page } from '$app/state'
 	import { resource } from 'runed'
 	import { CircleCheck, Link2Off, LogIn } from 'lucide-svelte'
-	import { Button, EmptyState, Skeleton } from '$lib/components/common'
+	import { Button, CopyButton, EmptyState, Skeleton } from '$lib/components/common'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import SecretRequestCard from '$lib/components/copilot/chat/SecretRequestCard.svelte'
 	import {
@@ -122,11 +122,21 @@
 					description="You can close this page and tell your AI assistant you dismissed the request."
 				/>
 			{:else if done}
+				{@const reply = `It is saved${done.path !== request.path ? `, at ${done.path}` : ''}.`}
 				<div class="flex flex-col items-center gap-2 py-8 text-center">
 					<CircleCheck class="text-green-600 dark:text-green-400" size={28} />
 					<p class="text-sm font-medium text-emphasis">
-						Saved {request.label} as a draft of <span class="font-mono">{done.path}</span>
+						Saved {request.label} as a draft of the {request.resource
+							? 'resource'
+							: 'secret variable'} <span class="font-mono">{done.path}</span>
 					</p>
+					{#if request.resource}
+						<p class="text-xs text-secondary">
+							Its secrets are in drafts of the encrypted variables <span class="font-mono"
+								>{done.variables.join(', ')}</span
+							>.
+						</p>
+					{/if}
 					<p class="text-xs text-secondary"> Scripts and flows can use it once it is deployed. </p>
 					{#if done.check}
 						<p class="text-xs text-secondary">
@@ -136,11 +146,14 @@
 						</p>
 					{/if}
 					<p class="text-xs text-secondary">
-						You can close this page and tell your AI assistant it is saved{done.path !==
-						request.path
-							? `, at ${done.path}`
-							: ''}.
+						You can close this page and tell your AI assistant:
 					</p>
+					<div
+						class="flex items-center gap-1 rounded-md border bg-surface-secondary py-1 pl-3 pr-1 text-xs text-primary"
+					>
+						<span>{reply}</span>
+						<CopyButton value={reply} title="Copy the message" />
+					</div>
 				</div>
 			{:else}
 				<SecretRequestCard
