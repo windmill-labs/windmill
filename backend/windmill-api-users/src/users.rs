@@ -2929,13 +2929,13 @@ async fn login(
         } else {
             // Asked only once the password matched, so whether an account has a second
             // factor is not disclosed to someone who does not know its password.
-            if let Some(secret) = totp_secret {
+            if totp_secret.is_some() {
                 let Some(code) = totp_code.filter(|c| !c.trim().is_empty()) else {
                     return Err(Error::BadRequest(crate::totp::TOTP_REQUIRED.to_string()));
                 };
-                if !crate::totp::verify_and_consume(&mut tx, &email, &secret, &code).await? {
-                    // Committed, unlike a wrong password: the code was refused before anything
-                    // else was written, and a guessed code must leave a trace.
+                if !crate::totp::check_login_code(&mut tx, &db, &email, &code).await? {
+                    // Committed, unlike a wrong password: it holds the wrong-code count, and a
+                    // guessed code must leave a trace.
                     audit_log(
                         &mut *tx,
                         &audit_author,
@@ -4627,9 +4627,11 @@ async fn overwrite_global_users(
     // kept for every account the overwrite reinstates, rather than silently switched off.
     // Read by the DELETE itself: a separate snapshot would miss an enrollment committing
     // between the two and then delete it.
-    let totp = sqlx::query!("DELETE FROM password RETURNING email, totp_secret, totp_last_step")
-        .fetch_all(&mut *tx)
-        .await?;
+    let totp = sqlx::query!(
+        "DELETE FROM password RETURNING email, totp_secret, totp_last_step, totp_recovery_codes"
+    )
+    .fetch_all(&mut *tx)
+    .await?;
     for user in users {
         sqlx::query!(
             "INSERT INTO password(email, password_hash, login_type, super_admin, verified, name, company, first_time_user, username)
@@ -4649,10 +4651,12 @@ async fn overwrite_global_users(
     }
     for t in totp.into_iter().filter(|t| t.totp_secret.is_some()) {
         sqlx::query!(
-            "UPDATE password SET totp_secret = $2, totp_last_step = $3 WHERE email = $1",
+            "UPDATE password SET totp_secret = $2, totp_last_step = $3, totp_recovery_codes = $4
+             WHERE email = $1",
             t.email,
             t.totp_secret,
-            t.totp_last_step
+            t.totp_last_step,
+            t.totp_recovery_codes.as_deref()
         )
         .execute(&mut *tx)
         .await?;

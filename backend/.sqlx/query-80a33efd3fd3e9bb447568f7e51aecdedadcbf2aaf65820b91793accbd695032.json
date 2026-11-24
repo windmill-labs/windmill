@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE password SET totp_failed_attempts = 0, totp_failed_since = NULL WHERE email = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "80a33efd3fd3e9bb447568f7e51aecdedadcbf2aaf65820b91793accbd695032"
+}

@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE password SET\n                totp_failed_attempts = CASE WHEN totp_failed_since > now() - interval '1 minute'\n                    THEN totp_failed_attempts + 1 ELSE 1 END,\n                totp_failed_since = CASE WHEN totp_failed_since > now() - interval '1 minute'\n                    THEN totp_failed_since ELSE now() END\n             WHERE email = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "4e57eb6c62eb8a04088e91cae5cf955af22d885b24908c3beb949be24378797f"
+}

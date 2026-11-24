@@ -892,8 +892,7 @@
 									'aria-invalid': errorField === 'totp' ? 'true' : undefined,
 									'aria-describedby': errorField === 'totp' ? errorId : undefined,
 									autocomplete: 'one-time-code',
-									inputmode: 'numeric',
-									placeholder: 'Code from your authenticator app',
+									placeholder: 'Authenticator code or recovery code',
 									onkeydown: handleKeyDown
 								}}
 							/>

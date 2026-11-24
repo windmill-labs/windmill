@@ -30,9 +30,11 @@
 	let totpEnabled = $state<boolean | undefined>(undefined)
 	let totpSetup = $state<{ secret: string; otpauth_url: string } | undefined>(undefined)
 	let totpCode = $state('')
+	let recoveryCodes = $state<string[] | undefined>(undefined)
 
 	async function loadTotp(): Promise<void> {
-		totpEnabled = (await UserService.getTotpStatus()).enabled
+		// Builds without two-factor support do not serve the route: the section stays hidden.
+		totpEnabled = (await UserService.getTotpStatus().catch(() => undefined))?.enabled
 	}
 
 	async function startTotpSetup(): Promise<void> {
@@ -40,13 +42,21 @@
 		totpCode = ''
 	}
 
-	async function submitTotp(): Promise<void> {
+	async function submitTotp(action: 'enable' | 'disable' | 'recovery_codes'): Promise<void> {
 		const requestBody = { code: totpCode }
-		sendUserToast(
-			totpEnabled
-				? await UserService.disableTotp({ requestBody })
-				: await UserService.enableTotp({ requestBody })
-		)
+		recoveryCodes = undefined
+		if (action == 'disable') {
+			sendUserToast(await UserService.disableTotp({ requestBody }))
+		} else {
+			recoveryCodes = (
+				action == 'enable'
+					? await UserService.enableTotp({ requestBody })
+					: await UserService.regenerateTotpRecoveryCodes({ requestBody })
+			).recovery_codes
+			sendUserToast(
+				action == 'enable' ? 'Two-factor authentication enabled' : 'New recovery codes created'
+			)
+		}
 		totpSetup = undefined
 		totpCode = ''
 		await loadTotp()
@@ -113,8 +123,25 @@
 				{#if totpEnabled}
 					<span class="text-xs text-primary font-normal">
 						Enabled. Logging in with your password also asks for a code from your authenticator app.
-						Enter a current code to turn it off.
+						Enter a current code or a recovery code to turn it off or to get new recovery codes.
 					</span>
+					{#if recoveryCodes}
+						<div class="flex flex-col gap-1 p-2 rounded-md border bg-surface-secondary">
+							<div class="flex flex-row gap-1 items-center text-xs text-emphasis font-semibold">
+								Recovery codes
+								<CopyButton value={recoveryCodes.join('\n')} />
+							</div>
+							<span class="text-2xs text-secondary">
+								Each code logs you in once if you lose your authenticator. Save them somewhere safe,
+								they are only shown now.
+							</span>
+							<div class="grid grid-cols-2 gap-x-4 font-mono text-xs text-primary">
+								{#each recoveryCodes as code (code)}
+									<span>{code}</span>
+								{/each}
+							</div>
+						</div>
+					{/if}
 				{:else if totpSetup}
 					<span class="text-xs text-primary font-normal">
 						Scan this QR code with an authenticator app, then enter the 6-digit code it shows.
@@ -141,17 +168,27 @@
 						<TextInput
 							inputProps={{
 								autocomplete: 'one-time-code',
-								inputmode: 'numeric',
 								placeholder: '123456'
 							}}
 							bind:value={totpCode}
 						/>
+						{#if totpEnabled}
+							<Button
+								unifiedSize="sm"
+								variant="default"
+								btnClasses="w-min whitespace-nowrap"
+								disabled={!totpCode}
+								onClick={() => submitTotp('recovery_codes')}
+							>
+								New recovery codes
+							</Button>
+						{/if}
 						<Button
 							unifiedSize="sm"
 							variant="default"
 							btnClasses="w-min whitespace-nowrap"
 							disabled={!totpCode}
-							onClick={submitTotp}
+							onClick={() => submitTotp(totpEnabled ? 'disable' : 'enable')}
 						>
 							{totpEnabled ? 'Turn off' : 'Turn on'}
 						</Button>

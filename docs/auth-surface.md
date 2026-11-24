@@ -25,18 +25,21 @@ Symbols, not line numbers, are cited: they drift less.
   access-token row, then its grant, the order the trigger also follows. A new path that writes a
   user's tokens and may revoke must lock that row first too. `leave_workspace` deletes no tokens
   and revokes nothing; `leave_instance` deletes every token of the account, as `delete_user` does.
-- **Two-factor (TOTP) guards `POST /auth/login` only** (`windmill-api-users/src/totp.rs`). The
+- **Two-factor (TOTP) guards `POST /auth/login` only** (`windmill-api-users/src/totp_ee.rs`,
+  with a stub in `totp_oss.rs`; a build without `enterprise` allows it for one user). The
   password is checked first, so "Two-factor code required" tells only someone who knows the
   password that a code is needed. Every other way into a session skips it on purpose: OAuth and
   SAML (the provider owns the second factor), login links (minted by a superadmin, who can reset
   the second factor anyway, and never for a superadmin or devops account), and `GET /users/refresh_token` (a session already exists).
-  Codes are single-use (`totp_last_step`). Wrong codes are capped per account at 5 a minute by an
-  in-memory counter that is always on, unlike the login limiter's per-account tier. Without that
-  cap, a known password leaves a 6-digit code as the only barrier. Recovery is
-  `POST /users/totp/reset/{user}` (superadmin). The secret is stored in plaintext in `password`,
-  since no instance-level key exists to encrypt it. The global user export leaves it out, as
-  its files end up in git: an overwrite keeps the second factor of every account it
-  reinstates, and a push to another instance arrives without one.
+  Authenticator codes are single-use (`totp_last_step`), and so are the ten recovery codes, stored
+  hashed and accepted wherever a code is. Wrong codes are capped per account at 5 a minute on the
+  `password` row, so the cap holds across servers; the caller commits the count even when it
+  refuses the code. Without that cap, a known password leaves a 6-digit code as the only barrier.
+  A superadmin removes a lost second factor with `POST /users/totp/reset/{user}`. The secret is
+  encrypted under the `admins` workspace key, and rotating that key re-encrypts it
+  (`set_encryption_key`); a secret left under an old key locks its user out. The global user
+  export leaves it out, as its files end up in git: an overwrite keeps the second factor of every
+  account it reinstates, and a push to another instance arrives without one.
 - **Sessions** are `token` rows with `label='session'` plus the HttpOnly `token` cookie, minted only
   by `create_session_token` (`windmill-api-users/src/users.rs`). `GET /api/users/refresh_token`
   mints one for any non-job token but returns plain text, no redirect.

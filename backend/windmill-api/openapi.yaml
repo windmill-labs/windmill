@@ -734,15 +734,56 @@ paths:
                 - code
       responses:
         "200":
-          description: two-factor authentication enabled
+          description: two-factor authentication enabled, with its recovery codes
           content:
-            text/plain:
+            application/json:
               schema:
-                type: string
+                type: object
+                properties:
+                  recovery_codes:
+                    type: array
+                    description: single-use codes accepted in place of an authenticator code, shown only once
+                    items:
+                      type: string
+                required:
+                  - recovery_codes
+
+  /users/totp/recovery_codes:
+    post:
+      summary: replace the recovery codes, with a current code or a recovery code
+      operationId: regenerateTotpRecoveryCodes
+      tags:
+        - user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                code:
+                  type: string
+              required:
+                - code
+      responses:
+        "200":
+          description: the new recovery codes
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  recovery_codes:
+                    type: array
+                    description: single-use codes accepted in place of an authenticator code, shown only once
+                    items:
+                      type: string
+                required:
+                  - recovery_codes
 
   /users/totp/disable:
     post:
-      summary: disable two-factor authentication with a current code
+      summary: disable two-factor authentication with a current code or a recovery code
       operationId: disableTotp
       tags:
         - user
@@ -33634,7 +33675,7 @@ components:
         totp_code:
           type: string
           description: >
-            Current code of the account's authenticator app. Required once the account has
+            Current code of the account's authenticator app, or one of its recovery codes. Required once the account has
             two-factor authentication enabled; the login answers "Two-factor code required"
             when it is missing and the password is correct.
       required:
