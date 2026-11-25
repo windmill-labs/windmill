@@ -116,7 +116,7 @@
 		{#if item.status === 'running'}
 			<Loader2 size={14} class="animate-spin text-yellow-500" />
 		{:else if item.status === 'suspended'}
-			<span class="text-violet-600 dark:text-violet-400" title="Awaiting approval"
+			<span class="text-violet-500" title="Awaiting approval"
 				><Hourglass size={14} /></span
 			>
 		{:else if failing}

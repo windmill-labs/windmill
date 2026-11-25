@@ -6,6 +6,7 @@
 	import { displayDate, type StateStore } from '$lib/utils'
 	import FlowExecutionStatus from './FlowExecutionStatus.svelte'
 	import { pendingAgentApproval } from '../agentRequest'
+	import StepIdBadge from '../flows/content/StepIdBadge.svelte'
 
 	interface Props {
 		job: Job
@@ -75,15 +76,16 @@
 
 	let approvedCount = $derived(rows.filter((r) => !r.waiting && !r.rejected).length)
 
+	// Worded as the approval page words it. Admins and flow owners can approve any step, so they
+	// are not listed.
 	function canApproveLabel(): string {
 		const ac = detail.current?.approval_conditions
-		const parts: string[] = []
-		if (!ac?.user_auth_required) parts.push('anyone with the approval link')
-		else if (ac.user_groups_required.length > 0)
-			parts.push(...ac.user_groups_required.map((g) => `g/${g}`), 'admins', 'the flow owners')
-		else parts.push('any signed-in member')
-		const notTriggerer = ac?.self_approval_disabled ? ` · not ${job.created_by}` : ''
-		return parts.join(', ') + notTriggerer
+		const who = !ac?.user_auth_required
+			? 'anyone with the approval link'
+			: ac.user_groups_required.length > 0
+				? `members of ${ac.user_groups_required.join(', ')}`
+				: 'any signed-in member'
+		return ac?.self_approval_disabled ? `${who} · self-approval disabled` : who
 	}
 </script>
 
@@ -92,7 +94,7 @@
 		<div class="flex items-center justify-between px-4 py-2 text-xs font-semibold text-emphasis">
 			<span>Approvals</span>
 			<span class="font-normal text-secondary">
-				{approvedCount} of {rows.length} approved
+				{approvedCount} of {rows.length} step{rows.length === 1 ? '' : 's'} approved
 			</span>
 		</div>
 		{#each rows as row (row.module.id)}
@@ -100,22 +102,25 @@
 				class="grid grid-cols-[16px_minmax(140px,1fr)_minmax(0,2fr)_auto] items-center gap-3 px-4 py-2 border-t text-xs"
 			>
 				{#if row.waiting}
-					<span class="text-violet-600 dark:text-violet-400"><Hourglass size={14} /></span>
+					<Hourglass size={14} class="text-violet-500" />
 				{:else if row.rejected}
-					<span class="text-red-600 dark:text-red-400"><CircleX size={14} /></span>
+					<CircleX size={14} class="text-red-500" />
 				{:else}
-					<span class="text-green-600 dark:text-green-400"><CircleCheck size={14} /></span>
+					<CircleCheck size={14} class="text-green-500" />
 				{/if}
 				<!-- Into the graph below, where the step's own status, logs and result are. -->
-				<Button
-					variant="subtle"
-					unifiedSize="xs"
-					btnClasses="justify-start min-w-0 truncate font-medium text-emphasis"
-					title="Show {row.module.summary || row.module.id} in the graph"
-					onclick={() => onSelectStep(row.module.id)}
-				>
-					{row.module.summary || row.module.id}
-				</Button>
+				<span class="flex items-center gap-1 min-w-0">
+					<Button
+						variant="subtle"
+						unifiedSize="xs"
+						btnClasses="justify-start min-w-0 truncate"
+						title="Show {row.module.summary || row.module.id} in the graph"
+						onclick={() => onSelectStep(row.module.id)}
+					>
+						{row.module.summary || row.module.id}
+					</Button>
+					{#if row.module.summary}<StepIdBadge id={row.module.id} />{/if}
+				</span>
 				<span class="flex flex-wrap items-center gap-x-3 gap-y-0.5 min-w-0 text-secondary">
 					{#if row.waiting}
 						{#if detail.current}
@@ -123,7 +128,7 @@
 						{/if}
 						{#if (detail.current?.approvals.length ?? 0) > 0}
 							<span>
-								{detail.current?.approvals.length} of {detail.current?.required_events} received
+								{detail.current?.approvals.length} of {detail.current?.required_events} approvals
 							</span>
 						{/if}
 					{:else}
@@ -139,15 +144,19 @@
 					{/if}
 				</span>
 				{#if row.waiting}
-					<Button
-						variant="subtle"
-						unifiedSize="xs"
-						endIcon={{ icon: ChevronDown, classes: expanded ? 'rotate-180' : '' }}
-						aria-expanded={expanded}
-						onclick={() => (expandedFor = expanded ? '' : row.module.id)}
-					>
+					<span class="flex items-center gap-1">
 						<Badge color="violet" small>Waiting</Badge>
-					</Button>
+						<Button
+							variant="subtle"
+							unifiedSize="xs"
+							iconOnly
+							startIcon={{ icon: ChevronDown, classes: expanded ? 'rotate-180' : '' }}
+							title={expanded ? 'Hide the approval form' : 'Show the approval form'}
+							aria-label={expanded ? 'Hide the approval form' : 'Show the approval form'}
+							aria-expanded={expanded}
+							onclick={() => (expandedFor = expanded ? '' : row.module.id)}
+						/>
+					</span>
 				{:else if row.rejected}
 					<Badge color="red" small>Rejected, continued</Badge>
 				{:else}

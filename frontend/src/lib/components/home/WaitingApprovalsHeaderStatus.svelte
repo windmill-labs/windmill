@@ -29,13 +29,13 @@
 		debounceDelay={140}
 		placement="bottom-end"
 		bind:isOpen
-		triggerAttrs={{ 'aria-label': label, title: label }}
-		class="flex items-center gap-1.5 h-7 pl-2 pr-1.5 -mr-1.5 rounded-md text-xs font-normal text-violet-700 dark:text-violet-300 whitespace-nowrap tabular-nums hover:bg-surface-secondary {isOpen
+		triggerAttrs={{ 'aria-label': label }}
+		class="flex items-center gap-1.5 h-7 pl-2 pr-1.5 -mr-1.5 rounded-md text-xs font-normal text-violet-600 dark:text-violet-400 whitespace-nowrap tabular-nums hover:bg-surface-secondary {isOpen
 			? 'bg-surface-secondary'
 			: ''}"
 	>
 		{#snippet trigger()}
-			<Hourglass size={13} />
+			<Hourglass size={14} />
 			{approvals.total}{compact ? '' : ' to approve'}
 			{#if !compact}
 				<ChevronDown size={12} class="text-hint" />

@@ -30,7 +30,7 @@
 			onclick={onOpen}
 			class="flex items-center gap-2.5 min-h-[42px] px-2.5 py-[5px] rounded-md hover:bg-surface-hover focus-visible:bg-surface-hover outline-none"
 		>
-			<span class="flex w-3.5 shrink-0 justify-center text-violet-600 dark:text-violet-400">
+			<span class="flex w-3.5 shrink-0 justify-center text-violet-500">
 				<Hourglass size={14} />
 			</span>
 			<span class="flex flex-col min-w-0 flex-1">

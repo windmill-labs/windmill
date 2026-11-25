@@ -14,7 +14,7 @@
 
 <div class="flex flex-col min-h-0 h-full">
 	<div class="flex items-center gap-2 shrink-0 pb-2">
-		<h2 class="flex items-center gap-1.5 min-w-0 flex-1 text-[13px] font-medium text-primary">
+		<h2 class="flex items-baseline gap-1.5 min-w-0 flex-1 text-[13px] font-medium text-primary">
 			<span class="whitespace-nowrap">Awaiting your approval</span>
 			<span class="text-xs font-normal text-hint tabular-nums">{approvals.total}</span>
 		</h2>

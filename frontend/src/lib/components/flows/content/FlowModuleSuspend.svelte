@@ -238,9 +238,9 @@
 							disabled={!flowModule.suspend}
 							checked={Boolean(flowModule.suspend?.show_on_home)}
 							options={{
-								right: "List on approvers' Home",
+								right: "List on approvers' home",
 								rightTooltip:
-									'A run waiting on this step shows on the Home page of everyone who can approve it. Leave off when the request is sent through Slack, Discord or email.'
+									'A run waiting on this step shows on the home page of everyone who can approve it. Leave off when the request is sent through Slack, Discord or email.'
 							}}
 							on:change={(e) => {
 								if (flowModule.suspend) {
