@@ -17,13 +17,14 @@ use serde::{Deserialize, Serialize};
 use sqlx::PgConnection;
 use std::sync::Arc;
 use windmill_api_auth::{
-    build_scope_path_filter, check_scopes, create_token_internal, require_is_writer, ApiAuthed,
-    NewToken,
+    build_scope_path_filter, check_run_scopes, check_scopes, create_token_internal,
+    require_is_writer, ApiAuthed, NewToken,
 };
 use windmill_audit::{audit_oss::audit_log, ActionKind};
 use windmill_common::{
     db::UserDB,
     error::{Error, JsonResult, Result},
+    runnable_ref::RunnableRef,
     DB,
 };
 
@@ -165,6 +166,10 @@ async fn create_native_trigger<T: External>(
     check_scopes(&authed, || {
         format!("native_triggers:write:{}", &data.script_path)
     })?;
+    check_run_scopes(
+        &authed,
+        &[RunnableRef::from_path(&data.script_path, data.is_flow)?],
+    )?;
     require_is_writer_on_runnable(
         &authed,
         &data.script_path,
@@ -303,6 +308,10 @@ async fn update_native_trigger_handler<T: External>(
     check_scopes(&authed, || {
         format!("native_triggers:write:{}", &data.script_path)
     })?;
+    check_run_scopes(
+        &authed,
+        &[RunnableRef::from_path(&data.script_path, data.is_flow)?],
+    )?;
     require_is_writer_on_runnable(
         &authed,
         &data.script_path,
