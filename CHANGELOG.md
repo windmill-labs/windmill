@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.884.1](https://github.com/windmill-labs/windmill/compare/v1.884.0...v1.884.1) (2026-11-25)
+
+
+### Bug Fixes
+
+* unblock backend CI and deno jobs with a script path ([#12648](https://github.com/windmill-labs/windmill/issues/12648)) ([783d89a](https://github.com/windmill-labs/windmill/commit/783d89a92c6a854d76b24c4a54e23c1a84172502))
+
 ## [1.884.0](https://github.com/windmill-labs/windmill/compare/v1.883.0...v1.884.0) (2026-11-24)
 
 
