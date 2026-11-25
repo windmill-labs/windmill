@@ -3,6 +3,7 @@ pub(crate) use crate::volume_ee::*;
 
 #[cfg(not(feature = "private"))]
 #[cfg(feature = "parquet")]
+#[derive(Default)]
 pub(crate) struct LeaseRenewalGuard(pub Option<tokio::task::JoinHandle<()>>);
 
 #[cfg(not(feature = "private"))]
@@ -94,6 +95,7 @@ pub(crate) async fn sync_volumes_sql_worker(
     _worker_name: &str,
     _conn: &windmill_common::worker::Connection,
     _job_succeeded: bool,
+    _lease_renewal: LeaseRenewalGuard,
 ) {
 }
 
@@ -108,5 +110,6 @@ pub(crate) async fn sync_volumes_http_worker(
     _worker_name: &str,
     _conn: &windmill_common::worker::Connection,
     _job_succeeded: bool,
+    _lease_renewal: LeaseRenewalGuard,
 ) {
 }
