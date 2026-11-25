@@ -231,9 +231,10 @@ all_sqlx_features = ["all_languages", "enterprise", "enterprise_saml", "embeddin
 # set instead of migrating it per test, and `SQLX_TEST_MAX_CONNECTIONS` lifts the cap on the
 # connections all test pools share. The rev is tagged `windmill-0.8.6-return-to-pool-timeout-ac66fd0`
 # in the fork so it stays fetchable.
-# The return-to-pool fix (transact-rs/sqlx#4350, unmerged): a dropped connection's permit is held
-# while sqlx pings it, with no time limit, so a peer that went silent (a Postgres primary after a
-# failover) leaks permits until every `acquire()` fails with PoolTimedOut. It bounds that step to 5s.
+# The return-to-pool fix (launchbadge/sqlx#4349): a dropped connection's permit is held while
+# sqlx pings it, with no time limit, so a peer that went silent (a Postgres primary after a
+# failover) leaks permits until every `acquire()` fails with PoolTimedOut. It bounds that step to
+# 5s. Drop it once a release we take carries transact-rs/sqlx#4350.
 # The `Pool::begin` fix: `Pool::begin` is not cancel-safe on Postgres. sqlx raises the
 # transaction depth its rollback-on-drop guard keys on only *after* the BEGIN round trip, so
 # a cancelled caller (a disconnecting API client, a `timeout`, an aborted task) leaves the
@@ -245,8 +246,10 @@ all_sqlx_features = ["all_languages", "enterprise", "enterprise_saml", "embeddin
 # inside the sqlx workspace, so patching it alone leaves two incompatible `sqlx-core`s and
 # `Postgres` stops implementing the `Database` the macros expect.
 # Changing any of this — a bump, a rebase of the fork, dropping these lines — still compiles
-# clean, so run the guard that actually checks the behaviour is still there:
+# clean, so run the guards that actually check the behaviour is still there, the first here and
+# the second in the fork:
 #   cargo test -p windmill-common --test sqlx_begin_cancel_safe -- --ignored
+#   cargo test --test postgres-pool --no-default-features --features postgres,runtime-tokio,macros,migrate
 sqlx = { git = "https://github.com/windmill-labs/sqlx", rev = "ac66fd0c03daf6a0c0e307a1a86d2a7c6cafa459" }
 sqlx-core = { git = "https://github.com/windmill-labs/sqlx", rev = "ac66fd0c03daf6a0c0e307a1a86d2a7c6cafa459" }
 sqlx-macros = { git = "https://github.com/windmill-labs/sqlx", rev = "ac66fd0c03daf6a0c0e307a1a86d2a7c6cafa459" }
