@@ -71,6 +71,15 @@ interface DiffElement {
 	lang: ScriptLang | 'bunnative'
 }
 
+/** The workspace item whose code an editor edits. */
+export type CodeSource = {
+	kind: 'script' | 'flow' | 'raw_app' | 'agent'
+	path: string
+	/** The part of the item the code is: a flow step's id, an app's runnable key, an agent's tool
+	 * id, or a script's module file. Unset for a script's main file. */
+	part?: string
+}
+
 export interface CodePieceElement {
 	type: 'code_piece'
 	content: string
@@ -78,6 +87,8 @@ export interface CodePieceElement {
 	endLine: number
 	title: string
 	lang: ScriptLang | 'bunnative'
+	/** Set on a selection attached to a session, whose chat edits items by path. */
+	source?: CodeSource
 }
 
 export interface FlowModuleElement {
@@ -97,6 +108,51 @@ export interface FlowModuleCodePieceElement extends Omit<CodePieceElement, 'type
 	type: 'flow_module_code_piece'
 	id: string
 	value: FlowModuleElement['value']
+}
+
+/** Code selected in an editor and attached to a session's message. */
+export type CodeSelection = (CodePieceElement | FlowModuleCodePieceElement) & {
+	source: CodeSource
+}
+
+export function isCodeSelection(c: ContextElement): c is CodeSelection {
+	return (c.type === 'code_piece' || c.type === 'flow_module_code_piece') && c.source !== undefined
+}
+
+export function createCodeSelection(
+	source: CodeSource,
+	selection: Pick<CodePieceElement, 'content' | 'startLine' | 'endLine' | 'lang'>
+): CodeSelection {
+	const lines = `L${selection.startLine}-L${selection.endLine}`
+	if (source.kind === 'flow' && source.part) {
+		return {
+			...selection,
+			type: 'flow_module_code_piece',
+			id: source.part,
+			title: `${source.part} ${lines}`,
+			value: { type: 'rawscript', language: selection.lang },
+			source
+		}
+	}
+	const name = source.part ?? source.path.split('/').pop()
+	return {
+		...selection,
+		type: 'code_piece',
+		// A new item is stored under a generated name, which says nothing on a chip.
+		title: !name || name.startsWith('draft_') ? lines : `${name} ${lines}`,
+		source
+	}
+}
+
+/** Whether two selections are of the same lines, whatever code is on them. */
+export function isSameCodeRange(a: CodeSelection, b: CodeSelection): boolean {
+	return (
+		a.source.kind === b.source.kind &&
+		a.source.path === b.source.path &&
+		a.source.part === b.source.part &&
+		a.startLine === b.startLine &&
+		a.endLine === b.endLine
+	)
 }
 
 /** App frontend file context element */
@@ -415,7 +471,13 @@ export type ContextElement = (
 // elements), so identify them by (appPath, selector) — keying or removing by
 // title would collide, giving repeated chips one Svelte key and deleting them
 // together. Other context types stay identified by (type, title).
+// Code selections neither: the same lines of two scripts read alike, and one queued
+// before an edit must not stand in for one taken after it.
 export function contextElementKey(c: ContextElement): string {
+	if (isCodeSelection(c)) {
+		const { kind, path, part } = c.source
+		return `code:${kind}:${path}:${part ?? ''}:${c.startLine}-${c.endLine}:${c.content}`
+	}
 	return c.type === 'app_dom_selector' ? `dom:${c.appPath}:${c.selector}` : `${c.type}:${c.title}`
 }
 
@@ -446,10 +508,21 @@ export function isMentionContext(c: ContextElement): c is MentionContext {
 	)
 }
 
+/** What the user pointed at for one message, a preview element or selected code. It leaves
+ * the composer with that message. */
+export type PickContext = AppDomSelectorElement | CodeSelection
+
+export function isPickContext(c: ContextElement): c is PickContext & { deletable?: boolean } {
+	return c.type === 'app_dom_selector' || isCodeSelection(c)
+}
+
 export function isSameContextElement(a: ContextElement, b: ContextElement): boolean {
 	if (a.type !== b.type) return false
 	if (a.type === 'app_dom_selector' && b.type === 'app_dom_selector') {
 		return a.selector === b.selector && a.appPath === b.appPath
+	}
+	if (isCodeSelection(a) && isCodeSelection(b)) {
+		return isSameCodeRange(a, b) && a.content === b.content
 	}
 	return a.title === b.title
 }

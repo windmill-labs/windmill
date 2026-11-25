@@ -39,11 +39,11 @@ import { get } from 'svelte/store'
 import type { PasteAttachment } from './pasteTokens'
 import { dataUrlToImagePart, type AttachedImage } from './imageUtils'
 import type { AttachedTextFile } from './textFileUtils'
-import type { CodePieceElement, ContextElement, FlowModuleCodePieceElement } from './context'
+import type { ContextElement } from './context'
 import { isUserContextPath } from './context'
 import { workspaceStore } from '$lib/stores'
 import type { ExtendedOpenFlow } from '$lib/components/flows/types'
-import { findModuleInFlow, findModuleInModules } from '$lib/components/flows/flowTree'
+import { findModuleInFlow } from '$lib/components/flows/flowTree'
 import { agentTestInputTransforms } from '$lib/components/flows/agentFormFields'
 import type { FunctionParameters } from 'openai/resources/shared.mjs'
 import { z } from 'zod'
@@ -355,48 +355,6 @@ export const extractAllModules = (modules: FlowModule[]): FlowModule[] => {
 	})
 }
 
-const applyCodePieceToCodeContext = (codePieces: CodePieceElement[], codeContext: string) => {
-	let code = codeContext.split('\n')
-	let shiftOffset = 0
-	codePieces.sort((a, b) => a.startLine - b.startLine)
-	for (const codePiece of codePieces) {
-		code.splice(codePiece.endLine + shiftOffset, 0, '[#END]')
-		code.splice(codePiece.startLine + shiftOffset - 1, 0, '[#START]')
-		shiftOffset += 2
-	}
-	return code.join('\n')
-}
-
-export function applyCodePiecesToFlowModules(
-	codePieces: FlowModuleCodePieceElement[],
-	flowModules: FlowModule[]
-): FlowModule[] {
-	const moduleCodePieces = new Map<string, FlowModuleCodePieceElement[]>()
-	for (const codePiece of codePieces) {
-		const moduleId = codePiece.id
-		if (!moduleCodePieces.has(moduleId)) {
-			moduleCodePieces.set(moduleId, [])
-		}
-		moduleCodePieces.get(moduleId)!.push(codePiece)
-	}
-
-	// Clone modules to avoid mutation
-	const modifiedModules = JSON.parse(JSON.stringify(flowModules))
-
-	// Apply code pieces to each module
-	for (const [moduleId, pieces] of moduleCodePieces) {
-		const module = findModuleInModules(modifiedModules, moduleId)
-		if (module && module.value.type === 'rawscript' && module.value.content) {
-			module.value.content = applyCodePieceToCodeContext(
-				pieces as unknown as CodePieceElement[],
-				module.value.content
-			)
-		}
-	}
-
-	return modifiedModules
-}
-
 export function buildContextString(selectedContext: ContextElement[]): string {
 	const dbTemplate = `- {title}: SCHEMA: \n{schema}\n`
 	const codeTemplate = `
@@ -428,13 +386,7 @@ export function buildContextString(selectedContext: ContextElement[]): string {
 			codeContext += codeTemplate
 				.replace('{title}', context.title)
 				.replace('{language}', scriptLangToEditorLang(context.lang))
-				.replace(
-					'{code}',
-					applyCodePieceToCodeContext(
-						selectedContext.filter((c) => c.type === 'code_piece'),
-						context.content
-					)
-				)
+				.replace('{code}', context.content)
 		} else if (context.type === 'error') {
 			if (hasError) {
 				throw new Error('Multiple error contexts provided')

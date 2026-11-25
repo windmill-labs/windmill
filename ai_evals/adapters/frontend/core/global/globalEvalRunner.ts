@@ -4,6 +4,7 @@ import {
   globalToolsFor,
   prepareGlobalUserMessage,
 } from "../../../../../frontend/src/lib/components/copilot/chat/global/core";
+import { createCodeSelection } from "../../../../../frontend/src/lib/components/copilot/chat/context";
 import { assembleGlobalSystemMessage } from "../../../../../frontend/src/lib/components/copilot/chat/global/globalAssembly";
 import {
   canBuild,
@@ -46,6 +47,7 @@ import {
   type EvalPreviewTabFixture,
 } from "./evalPreviewTabs";
 import type {
+  EvalCaseCodeSelection,
   EvalCaseProfile,
   EvalSecretRequestAnswer,
   ModeRunContext,
@@ -145,6 +147,7 @@ export interface GlobalEvalOptions {
   // Start in plan mode: the gate refuses every tool without `planModeSafe`, and the two plan
   // tools are offered. Needs sessionChat, which is what plan mode is gated on in production.
   planMode?: boolean;
+  codeSelections?: EvalCaseCodeSelection[];
   // The user's rights, resolved as a session resolves them; unset keeps full access.
   profile?: EvalCaseProfile;
   // Run the pipeline the chat drafted once it is over (`validate.pipelineRun`).
@@ -286,6 +289,9 @@ export async function runGlobalEval(
         pipelineFolders: pipelineEditors?.folders(),
       });
     const baseSystemMessage = assembleSystemMessage();
+    const codeSelections = (options.codeSelections ?? []).map(({ source, ...selection }) =>
+      createCodeSelection(source, selection),
+    );
     const helpers = {
       ...evalArtifacts.helpers,
       // A standalone chat has no session: the tools that behave differently in one (a pipeline
@@ -317,7 +323,7 @@ export async function runGlobalEval(
       isToolAvailable: (name) =>
         (!pipelineToolNames.has(name) || (pipelineEditors?.folders().length ?? 0) > 0) &&
         (planMode?.isToolAvailable?.(name) ?? true),
-      userMessage: prepareGlobalUserMessage(userPrompt, [], {
+      userMessage: prepareGlobalUserMessage(userPrompt, codeSelections, {
         ...(injectActiveEditorContext ? { workspace: workspaceRoot } : {}),
         activePreview: panel?.activePreview(),
         resourceTypeSync: await resolveResourceTypeSync(workspaceRoot, []),

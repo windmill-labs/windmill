@@ -1,3 +1,4 @@
+import { createCodeSelection } from '../context'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('monaco-editor', () => ({
@@ -3683,6 +3684,19 @@ describe('session-only preview tools gating', () => {
 		expect(content).toContain('## SELECTED DOM ELEMENTS')
 		expect(content).toContain('div.card > button.primary')
 		expect(content).toContain('search_dom')
+	})
+
+	it('carries selected code, naming the item it belongs to', () => {
+		const content = prepareGlobalUserMessage('Simplify', [
+			createCodeSelection(
+				{ kind: 'flow', path: 'f/shop/sync', part: 'a' },
+				{ content: 'const s = `x`\n// ```', startLine: 3, endLine: 4, lang: 'bun' }
+			)
+		]).content as string
+		expect(content).toContain('## SELECTED CODE')
+		expect(content).toContain(
+			'- type: flow, path: f/shop/sync, step: a, lines 3-4:\n````bun\nconst s = `x`\n// ```\n````'
+		)
 	})
 
 	// The instruction headers are matched by their distinctive parenthetical so the

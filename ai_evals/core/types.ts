@@ -38,6 +38,8 @@ export interface EvalCaseRuntimeSpec {
   secretRequests?: EvalSecretRequestAnswer[];
   backendPreview?: EvalCaseRuntimeBackendPreview;
   appContext?: EvalCaseRuntimeAppContextSpec;
+  // Global mode: code the user selected in an editor and attached to the prompt.
+  codeSelections?: EvalCaseCodeSelection[];
   // Global mode: run as a session chat (preview tools + session prompt) vs the standalone chat.
   sessionChat?: boolean;
   // Global session chats: start the case in plan mode, so the workspace-changing tools are
@@ -58,6 +60,14 @@ export interface EvalSecretRequestAnswer {
   fields?: Record<string, unknown>;
   /** The saved resource's connection test as the card reports it; unset for a type with none. */
   check?: { ok: true } | { ok: false; error: string };
+}
+
+export interface EvalCaseCodeSelection {
+  source: { kind: "script" | "flow" | "raw_app" | "agent"; path: string; part?: string };
+  lang: "bun" | "python3" | "bash" | "postgresql";
+  startLine: number;
+  endLine: number;
+  content: string;
 }
 
 export interface EvalCaseProfile {

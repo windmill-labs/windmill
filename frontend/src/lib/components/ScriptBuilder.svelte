@@ -30,6 +30,7 @@
 	import OpenInSessionButton, {
 		type OpenInSessionSource
 	} from './sessions/OpenInSessionButton.svelte'
+	import { assertDraftSaved } from './sessions/pageDrawerSession'
 	import {
 		defaultScripts,
 		enterpriseLicense,
@@ -1071,17 +1072,19 @@
 	// discardIf baseline, safe only when there is none.
 	async function persistDraftForSession(): Promise<void> {
 		await saveDraft()
-		if (opWorkspace && userDraftPath && savedScript?.no_deployed === true) {
+		if (!opWorkspace || !userDraftPath) return
+		if (savedScript?.no_deployed === true) {
 			await UserDraft.forcePersist('script', userDraftPath, { workspace: opWorkspace })
 		}
+		assertDraftSaved({ workspace: opWorkspace, itemKind: 'script', path: userDraftPath })
 	}
 
 	const sessionOpen: OpenInSessionSource | undefined = $derived(
-		userDraftPath
+		indicatorPath
 			? {
-					// URL draft path the editor loads/saves by, not the friendly
+					// Draft path the editor loads/saves by, not the friendly
 					// `script.path` (a new script's has no row → "not found").
-					target: { kind: 'script', path: userDraftPath },
+					target: { kind: 'script', path: indicatorPath },
 					workspaceId: opWorkspace ?? undefined,
 					beforeOpen: persistDraftForSession
 				}
@@ -2404,6 +2407,7 @@
 				bind:this={scriptEditor}
 				bind:schema={script.schema}
 				path={script.path}
+				storagePath={indicatorPath}
 				bind:code={script.content}
 				timeout={script.timeout}
 				tag={script.tag}
