@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { resource } from 'runed'
-	import { CircleCheck, CircleX } from 'lucide-svelte'
+	import { CircleCheck, CircleX, TimerOff } from 'lucide-svelte'
 	import { Badge, Button } from '$lib/components/common'
 	import { JobService, type FlowModule, type Job } from '$lib/gen'
 	import { displayDate, type StateStore } from '$lib/utils'
@@ -29,12 +29,19 @@
 		stepId: string
 		summary?: string
 		approvers: Approver[]
-		/** A rejection the flow continued past (`continue_on_disapprove_timeout`). */
-		rejected: boolean
+		/** `rejected` and `timedOut`: the flow continued past it (`continue_on_disapprove_timeout`). */
+		outcome: Outcome
 	}
 	type Wait = Located & { job: Job; module: FlowModule }
 
-	const isRejected = (approvers: Approver[]) => approvers.some((a) => a.approved === false)
+	type Outcome = 'approved' | 'rejected' | 'timedOut'
+	// Entries written before `approved` was recorded are approvals.
+	const outcome = (approvers: Approver[], required: number | undefined): Outcome =>
+		approvers.some((a) => a.approved === false)
+			? 'rejected'
+			: approvers.length < (required ?? 1)
+				? 'timedOut'
+				: 'approved'
 
 	let ownDone = $derived.by((): DoneRow[] => {
 		const statuses = job.flow_status?.modules ?? []
@@ -51,7 +58,7 @@
 					graphStep: module.id,
 					summary: module.summary || undefined,
 					approvers,
-					rejected: isRejected(approvers)
+					outcome: outcome(approvers, module.suspend.required_events)
 				}
 			]
 		})
@@ -122,7 +129,7 @@
 					graphStep: a.subflows[0] ?? a.step_id,
 					summary: a.step_summary,
 					approvers: a.approvers,
-					rejected: isRejected(a.approvers)
+					outcome: outcome(a.approvers, a.required_events)
 				})
 			)
 		].sort((a, b) => decidedAt(a).localeCompare(decidedAt(b)))
@@ -139,8 +146,9 @@
 	// until the loop ends.
 	let counts = $derived(
 		[
-			[done.filter((r) => !r.rejected).length, 'approved'],
-			[done.filter((r) => r.rejected).length, 'rejected'],
+			[done.filter((r) => r.outcome == 'approved').length, 'approved'],
+			[done.filter((r) => r.outcome == 'rejected').length, 'rejected'],
+			[done.filter((r) => r.outcome == 'timedOut').length, 'timed out'],
 			[waits.length, 'waiting']
 		]
 			.filter(([n]) => n)
@@ -160,8 +168,10 @@
 		</div>
 		{#each done as row (row.key)}
 			<div class="flex items-start gap-3 px-4 py-2 border-t text-xs">
-				{#if row.rejected}
+				{#if row.outcome == 'rejected'}
 					<CircleX size={14} class="shrink-0 mt-[3px] text-red-500" />
+				{:else if row.outcome == 'timedOut'}
+					<TimerOff size={14} class="shrink-0 mt-[3px] text-yellow-500" />
 				{:else}
 					<CircleCheck size={14} class="shrink-0 mt-[3px] text-green-500" />
 				{/if}
@@ -196,8 +206,10 @@
 					</span>
 				</div>
 				<span class="shrink-0">
-					{#if row.rejected}
+					{#if row.outcome == 'rejected'}
 						<Badge color="red" small>Rejected, continued</Badge>
+					{:else if row.outcome == 'timedOut'}
+						<Badge color="yellow" small>Timed out, continued</Badge>
 					{:else}
 						<Badge color="green" small>Approved</Badge>
 					{/if}

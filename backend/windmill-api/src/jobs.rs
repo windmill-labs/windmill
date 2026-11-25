@@ -5787,6 +5787,8 @@ struct NestedApproval {
     subflows: Vec<String>,
     step_id: String,
     step_summary: Option<String>,
+    /// Fewer approvers than this on a step that went past: it timed out and continued.
+    required_events: u64,
     approvers: Vec<Approval>,
 }
 
@@ -5820,6 +5822,27 @@ fn may_hold_approval(step: &serde_json::Value) -> bool {
         Some("branchone") => holds(&v["default"]) || branches(v),
         Some("branchall") => branches(v),
         _ => false,
+    }
+}
+
+/// The ids of the steps under `modules`, at any depth, that may hold an approval. Read from a
+/// flow's full definition: a loop or branch run's own (`flow_node`) keeps nested loop and branch
+/// bodies as `modules_node` references, so its inline steps are not all of them. Step ids are
+/// unique across a flow, so its loop and branch runs look their steps up here.
+fn approval_holders(modules: &[serde_json::Value], out: &mut HashSet<String>) {
+    for m in modules {
+        if may_hold_approval(m) {
+            if let Some(id) = m["id"].as_str() {
+                out.insert(id.to_string());
+            }
+        }
+        let v = &m["value"];
+        let nested = std::iter::once(&v["modules"])
+            .chain(std::iter::once(&v["default"]))
+            .chain(v["branches"].as_array().into_iter().flatten().map(|b| &b["modules"]));
+        for body in nested {
+            approval_holders(body.as_array().map(Vec::as_slice).unwrap_or_default(), out);
+        }
     }
 }
 
@@ -5864,15 +5887,18 @@ async fn list_nested_approvals(
             .unwrap_or_default()
     };
     let scope_tags = get_scope_tags(&authed);
-    // Each run to read, with the subflow steps leading to it (none for the flow run itself).
-    let mut level: HashMap<Uuid, Option<Vec<String>>> = HashMap::from([(flow_id, None)]);
+    // Each run to read, with the subflow steps leading to it (none for the flow run itself) and,
+    // for a loop or branch run, the steps of its flow that may hold an approval.
+    type Holders = std::sync::Arc<HashSet<String>>;
+    let mut level: HashMap<Uuid, (Option<Vec<String>>, Option<Holders>)> =
+        HashMap::from([(flow_id, (None, None))]);
     let mut seen: HashSet<Uuid> = HashSet::from([flow_id]);
     let mut approvals = vec![];
     let mut more = false;
     while !level.is_empty() {
         let ids: Vec<Uuid> = level.keys().copied().collect();
         let rows = sqlx::query!(
-            r#"SELECT j.id, j.tag,
+            r#"SELECT j.id, j.tag, j.kind = 'flownode' AS "is_node!",
                       COALESCE(s.flow_status, c.flow_status) AS flow_status,
                       COALESCE(j.raw_flow, fv.value, fn.flow) AS flow
                FROM v2_job j
@@ -5890,8 +5916,16 @@ async fn list_nested_approvals(
         .await?;
         let mut next = HashMap::new();
         for r in rows {
-            let at = level.get(&r.id).cloned().flatten();
+            let (at, inherited) = level.get(&r.id).cloned().unwrap_or_default();
             let defs = modules(&r.flow);
+            let holders = match inherited {
+                Some(h) if r.is_node => h,
+                _ => {
+                    let mut h = HashSet::new();
+                    approval_holders(&defs, &mut h);
+                    std::sync::Arc::new(h)
+                }
+            };
             let statuses = modules(&r.flow_status);
             // The read check admitted the flow run on its own tag only. A nested run outside
             // the caller's tag scope is still walked through, so it cannot hide a descendant
@@ -5910,23 +5944,26 @@ async fn list_nested_approvals(
                         continue;
                     };
                     let step_id = m["id"].as_str().unwrap_or_default();
-                    let step_summary = defs
-                        .iter()
-                        .find(|d| d["id"] == step_id)
+                    let def = defs.iter().find(|d| d["id"] == step_id);
+                    let step_summary = def
                         .and_then(|d| d["summary"].as_str())
                         .filter(|s| !s.is_empty())
                         .map(str::to_string);
+                    let required_events = def
+                        .and_then(|d| d["suspend"]["required_events"].as_u64())
+                        .unwrap_or(1);
                     approvals.push(NestedApproval {
                         job_id: r.id,
                         subflows: subflows.clone(),
                         step_id: step_id.to_string(),
                         step_summary,
+                        required_events,
                         approvers,
                     });
                 }
             }
-            for d in defs.iter().filter(|d| may_hold_approval(d)) {
-                let Some(step) = d["id"].as_str() else {
+            for d in &defs {
+                let Some(step) = d["id"].as_str().filter(|s| holders.contains(*s)) else {
                     continue;
                 };
                 let Some(status) = statuses.iter().find(|s| s["id"] == step) else {
@@ -5947,7 +5984,7 @@ async fn list_nested_approvals(
                         break;
                     }
                     if seen.insert(child) {
-                        next.insert(child, Some(subflows.clone()));
+                        next.insert(child, (Some(subflows.clone()), Some(holders.clone())));
                     }
                 }
             }
@@ -13965,7 +14002,7 @@ mod approval_view_gate_tests {
 
 #[cfg(test)]
 mod nested_approvals_tests {
-    use super::may_hold_approval;
+    use super::{approval_holders, may_hold_approval};
     use serde_json::json;
 
     fn script(id: &str) -> serde_json::Value {
@@ -14028,5 +14065,18 @@ mod nested_approvals_tests {
         let mut nulled = script("a");
         nulled["suspend"] = serde_json::Value::Null;
         assert!(!may_hold_approval(&lp(json!([nulled]))));
+    }
+
+    #[test]
+    fn holders_reach_into_nested_loop_bodies() {
+        // A loop run's own definition keeps the inner loop as a `modules_node` reference, so
+        // the inner loop is found only from the flow's full definition.
+        let inner = json!({"id": "inner", "value": {"type": "forloopflow",
+            "modules": [approval("s")]}});
+        let outer = json!({"id": "outer", "value": {"type": "forloopflow",
+            "modules": [script("a"), inner]}});
+        let mut holders = std::collections::HashSet::new();
+        approval_holders(&[outer, script("z")], &mut holders);
+        assert_eq!(holders, ["outer", "inner"].map(String::from).into());
     }
 }

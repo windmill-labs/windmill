@@ -13214,6 +13214,7 @@ paths:
                         - job_id
                         - subflows
                         - step_id
+                        - required_events
                         - approvers
                       properties:
                         job_id:
@@ -13233,6 +13234,11 @@ paths:
                           type: string
                         step_summary:
                           type: string
+                        required_events:
+                          type: integer
+                          description: >
+                            approvals the step required; fewer approvers means it timed out
+                            and the flow continued
                         approvers:
                           type: array
                           items:
