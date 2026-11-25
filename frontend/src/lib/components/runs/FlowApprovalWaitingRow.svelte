@@ -46,6 +46,9 @@
 		return ac?.self_approval_disabled ? `${who} · self-approval disabled` : who
 	}
 
+	const namesLabel = (names: string[]) =>
+		names.slice(0, 2).join(', ') + (names.length > 2 ? ` +${names.length - 2}` : '')
+
 	let toggleLabel = $derived(expanded ? 'Hide the approval form' : 'Show the approval form')
 </script>
 
@@ -71,10 +74,13 @@
 		>
 			{#if detail.current}
 				<span><span class="text-hint">Can approve:</span> {canApproveLabel()}</span>
-				{#if detail.current.approvals.length > 0}
-					<span
-						>{detail.current.approvals.length} of {detail.current.required_events} approvals</span
-					>
+				{@const approvals = detail.current.approvals}
+				{#if approvals.length > 0}
+					<!-- Two names keep the row on one line; the rest are on hover. -->
+					<span title={approvals.map((a) => a.approver).join(', ')}>
+						{approvals.length} of {detail.current.required_events} approvals:
+						<span class="text-primary">{namesLabel(approvals.map((a) => a.approver))}</span>
+					</span>
 				{/if}
 			{/if}
 			<!-- The page the Home list and links sent through other channels open, for this run. -->
