@@ -749,10 +749,10 @@ fn extract_nimports_from_content(
     locked_version
 }
 
-// Top-level names of `sys.stdlib_module_names` for every supported Python (3.11 onwards),
-// `_` written as `-` like the inferred package names. Regenerate when a Python version is
-// added; modules a later version removed stay, since older workers still ship them.
-const STDIMPORTS: [&str; 330] = [
+// Union of `sys.stdlib_module_names` over every `PyVAlias` version (3.10 to 3.15), `_`
+// written as `-` like the inferred package names. Regenerate when a version is added;
+// modules a later version removed stay, since older workers still ship them.
+const STDIMPORTS: [&str; 332] = [
     "--future--",
     "-abc",
     "-aix-support",
@@ -805,6 +805,7 @@ const STDIMPORTS: [&str; 330] = [
     "-lsprof",
     "-lzma",
     "-markupbase",
+    "-math-integer",
     "-md5",
     "-msi",
     "-multibytecodec",
@@ -991,6 +992,7 @@ const STDIMPORTS: [&str; 330] = [
     "posixpath",
     "pprint",
     "profile",
+    "profiling",
     "pstats",
     "pty",
     "pwd",
