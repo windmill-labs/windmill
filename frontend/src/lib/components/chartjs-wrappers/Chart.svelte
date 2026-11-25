@@ -22,13 +22,33 @@
 	let canvasElem: HTMLCanvasElement
 	let chart: Chart<T>
 
+	// Options can be $state proxies (app components), so chart.js must get a plain copy.
+	// $state.snapshot would do it but warns in dev for every callback it meets.
+	function cloneOptions(value: unknown, seen = new Map<object, unknown>()): unknown {
+		if (typeof value !== 'object' || value === null) return value
+		if (seen.has(value)) return seen.get(value)
+		if (Array.isArray(value)) {
+			const copy: unknown[] = []
+			seen.set(value, copy)
+			for (const item of value) copy.push(cloneOptions(item, seen))
+			return copy
+		}
+		const proto = Object.getPrototypeOf(value)
+		if (proto !== Object.prototype && proto !== null) return value
+		const source = value as Record<string, unknown>
+		const copy: Record<string, unknown> = {}
+		seen.set(value, copy)
+		for (const key of Object.keys(source)) copy[key] = cloneOptions(source[key], seen)
+		return copy
+	}
+
 	$effect(() => {
 		;[type, data, options]
 		untrack(() => {
 			chart = new Chart(canvasElem, {
 				type,
 				data: $state.snapshot(data) as typeof data,
-				options: $state.snapshot(options) as typeof options
+				options: cloneOptions(options) as typeof options
 			})
 		})
 		return () => {
