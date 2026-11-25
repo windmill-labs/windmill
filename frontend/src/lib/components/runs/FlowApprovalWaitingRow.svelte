@@ -106,6 +106,12 @@
 {#if expanded}
 	<!-- The step's own approval panel, unchanged: its description, form and buttons. -->
 	<div class="px-4 pt-1 pb-3">
-		<FlowStatusWaitingForEvents workspaceId={job.workspace_id} {job} {isOwner} />
+		<!-- A partial approval changes nothing the job's updates carry: refetch the count. -->
+		<FlowStatusWaitingForEvents
+			workspaceId={job.workspace_id}
+			{job}
+			{isOwner}
+			onAction={() => detail.refetch()}
+		/>
 	</div>
 {/if}

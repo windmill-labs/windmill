@@ -5932,19 +5932,23 @@ async fn list_nested_approvals(
             // the caller could read directly, but its approvals are not returned.
             let in_scope = scope_tags.as_ref().map_or(true, |t| t.contains(&r.tag.as_str()));
             if let (Some(subflows), true) = (&at, in_scope) {
-                for m in &statuses {
+                let flow_step = r.flow_status.as_ref().and_then(|f| f["step"].as_u64());
+                for (i, m) in statuses.iter().enumerate() {
                     if m["type"] != "Success" {
                         continue;
                     }
-                    let Some(approvers) =
-                        serde_json::from_value::<Vec<Approval>>(m["approvers"].clone())
-                            .ok()
-                            .filter(|a| !a.is_empty())
-                    else {
-                        continue;
-                    };
                     let step_id = m["id"].as_str().unwrap_or_default();
                     let def = defs.iter().find(|d| d["id"] == step_id);
+                    if !def.is_some_and(|d| !d["suspend"].is_null()) {
+                        continue;
+                    }
+                    let approvers: Vec<Approval> =
+                        serde_json::from_value(m["approvers"].clone()).unwrap_or_default();
+                    // No response and the flow moved past the step after it: it timed out and
+                    // continued. While it waits, `step` is that next step's index.
+                    if approvers.is_empty() && !flow_step.is_some_and(|s| s > i as u64 + 1) {
+                        continue;
+                    }
                     let step_summary = def
                         .and_then(|d| d["summary"].as_str())
                         .filter(|s| !s.is_empty())

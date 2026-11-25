@@ -45,11 +45,14 @@
 
 	let ownDone = $derived.by((): DoneRow[] => {
 		const statuses = job.flow_status?.modules ?? []
+		const flowStep = job.flow_status?.step ?? 0
 		return (job.raw_flow?.modules ?? []).flatMap((module, i): DoneRow[] => {
 			const status = statuses[i]
 			const approvers = status?.approvers ?? []
 			if (!module.suspend || status?.type !== 'Success' || status.skipped) return []
-			if (approvers.length === 0) return []
+			// No response and the flow moved past the step after it: it timed out and continued.
+			// While it waits, `step` is that next step's index.
+			if (approvers.length === 0 && flowStep <= i + 1) return []
 			return [
 				{
 					key: module.id,
