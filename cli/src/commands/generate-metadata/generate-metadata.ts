@@ -413,23 +413,27 @@ export async function rehashOnly(
   return counts;
 }
 
-/** Whether `target` (a file, or any file under a folder) is filtered out by `ignore`. */
-async function hasIgnoredFile(
+/**
+ * Whether `target` (a file, or any file under a folder) is dropped by the
+ * includes/excludes alone: `ignore` also drops every file that is not a
+ * Windmill item, which `unfiltered` (built without those rules) drops too.
+ */
+async function isFilteredByIncludes(
   target: string,
   ignore: (p: string, isD: boolean) => boolean,
+  unfiltered: (p: string, isD: boolean) => boolean,
 ): Promise<boolean> {
   const native = target.replaceAll("/", SEP);
+  const filtered = (p: string) => ignore(p, false) && !unfiltered(p, false);
   let info;
   try {
     info = await stat(native);
   } catch {
     return false;
   }
-  if (!info.isDirectory()) return ignore(native, false);
+  if (!info.isDirectory()) return filtered(native);
   const entries = await readdir(native, { recursive: true, withFileTypes: true });
-  return entries.some(
-    (e) => e.isFile() && ignore(join(e.parentPath, e.name), false),
-  );
+  return entries.some((e) => e.isFile() && filtered(join(e.parentPath, e.name)));
 }
 
 /**
@@ -591,11 +595,22 @@ export async function generateMetadata(
 
   // Tree nodes also cover workspace dependency files, which the walk never lists.
   if (folder && !walkedInFolder && ![...tree.allPaths()].some(isPathInFolder)) {
-    log.warn(colors.yellow(
-      (await hasIgnoredFile(folder, ignore))
-        ? `Nothing under "${folder}" was checked: it is outside the includes/excludes in effect (wmill.yaml or -i/-e). Pass --includes "${folder}/**" to check it.`
-        : `No scripts, flows or apps to check under "${folder}".`
-    ));
+    const unfiltered = await ignoreF({
+      ...opts, includes: undefined, excludes: undefined, extraIncludes: undefined,
+    });
+    if (await isFilteredByIncludes(folder, ignore, unfiltered)) {
+      const pattern = (await stat(folder.replaceAll("/", SEP))).isDirectory()
+        ? `${folder}/**`
+        : folder;
+      log.warn(colors.yellow(
+        `Nothing under "${folder}" was checked: the includes/excludes in effect (wmill.yaml or -i/-e) filter it out. ` +
+        `Pass --includes "${pattern}" to check it, after removing any excludes that match it.`
+      ));
+    } else {
+      log.warn(colors.yellow(`No scripts, flows or apps to check under "${folder}".`));
+    }
+    // Same reason as the up-to-date path below: the conversion still applies.
+    await maybeDedupeLockfiles(opts, workspace, codebases, ignore, rawWorkspaceDependencies, tree, folder);
     return;
   }
 
