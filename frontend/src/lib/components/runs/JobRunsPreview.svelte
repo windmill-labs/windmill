@@ -15,7 +15,7 @@
 	import FlowAssetsHandler, { initFlowGraphAssetsCtx } from '../flows/FlowAssetsHandler.svelte'
 	import JobAssetsViewer from '../assets/JobAssetsViewer.svelte'
 	import JobDetailHeader from './JobDetailHeader.svelte'
-	import FlowExecutionStatus from './FlowExecutionStatus.svelte'
+	import FlowApprovals from './FlowApprovals.svelte'
 
 	interface Props {
 		id: string
@@ -121,6 +121,8 @@
 	// Flow execution status state
 	let suspendStatus: StateStore<Record<string, { job: Job; nb: number }>> = $state({ val: {} })
 	let isOwner: boolean = $state(false)
+	let flowStatusViewer: FlowStatusViewer | undefined = $state(undefined)
+	let flowStatusEl: HTMLElement | undefined = $state(undefined)
 </script>
 
 <JobLoader
@@ -172,11 +174,14 @@
 			{/if}
 			<div class="w-full mt-2">
 				{#if isFlow}
-					<FlowExecutionStatus
+					<FlowApprovals
 						{job}
 						{isOwner}
-						innerModules={job?.flow_status?.modules}
 						{suspendStatus}
+						onSelectStep={(stepId) => {
+							flowStatusViewer?.selectStep(stepId)
+							flowStatusEl?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+						}}
 					/>
 				{/if}
 			</div>
@@ -192,9 +197,10 @@
 			</div>
 
 			<!-- Job execution content -->
-			<div class="w-full mt-6">
+			<div class="w-full mt-6" bind:this={flowStatusEl}>
 				{#if isFlow}
 					<FlowStatusViewer
+						bind:this={flowStatusViewer}
 						jobId={job.id}
 						workspaceId={job.workspace_id}
 						initialJob={job}
