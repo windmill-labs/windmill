@@ -519,6 +519,45 @@
     - returns subtotal, tax, and total from the updated flow logic
     - leaves the result as a draft only
 
+- id: global-code-selection-names-its-item
+  prompt: |-
+    Throw an error here when the subtotal is negative.
+    Keep the change as a draft.
+  initial: ai_evals/fixtures/frontend/global/initial/current_invoice_live_flow.json
+  runtime:
+    maxTurns: 10
+    codeSelections:
+      - source:
+          kind: flow
+          path: f/evals/global/process_refund
+          part: calculate_total
+        lang: bun
+        startLine: 1
+        endLine: 2
+        content: |-
+          export async function main(subtotal: number) {
+            return { subtotal, total: subtotal }
+  validate:
+    # The open flow's own draft, which must stay as it was, and the edited one.
+    draftCountExactly: 2
+    requiredDrafts:
+      - type: flow
+        path: f/evals/global/process_refund
+        valueIncludes:
+          - calculate_total
+          - throw
+    forbiddenDrafts:
+      - type: flow
+        path: f/evals/global/process_invoice
+  toolExpect:
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+  judgeChecklist:
+    - edits the calculate_total step of the process_refund flow, which the selected code belongs to, not the flow open in the editor
+    - throws when the subtotal is negative and keeps the rest of the step as it was
+    - leaves the result as a draft only
+
 - id: global-test14-current-without-live-editor-asks-question
   prompt: |-
     Please update this script so it returns `ok`.

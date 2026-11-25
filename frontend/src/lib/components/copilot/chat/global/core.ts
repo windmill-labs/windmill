@@ -126,7 +126,14 @@ import {
 import { secretRequestToolResult } from '../secretRequest'
 import { scriptLangToEditorLang } from '$lib/scripts'
 import { appFileEditorLang } from '../appFileEditorLang'
-import { isMentionContext, isUserContextPath, type ContextElement } from '../context'
+import {
+	isCodeSelection,
+	isMentionContext,
+	isUserContextPath,
+	type CodeSelection,
+	type CodeSource,
+	type ContextElement
+} from '../context'
 import { getDatatableTools } from '../datatableTools'
 import { getDatatableMigrationTools } from '../datatableMigrationTools'
 import { getDucklakeTools } from '../ducklakeTools'
@@ -4830,7 +4837,10 @@ export const globalTools: SessionTool<{}>[] = [
 			// buffered here and flushed as a follow-up user image message once the tool batch
 			// completes (see appendPendingToolImages).
 			const image = await normalizeImageDataUrl(result.dataUrl)
-			ctx.toolCallbacks.attachToolImage?.(ctx.toolId, image)
+			ctx.toolCallbacks.attachToolImage?.(ctx.toolId, {
+				image,
+				caption: 'Screenshot(s) of the app preview:'
+			})
 			// The card shows the same copy the model gets; sharing the exact data URL
 			// lets the history's blob store persist one copy for both.
 			ctx.toolCallbacks.setToolStatus(ctx.toolId, {
@@ -7874,6 +7884,22 @@ export function getActiveGlobalEditorContext(
 	}
 }
 
+const CODE_PART_LABEL: Record<CodeSource['kind'], string> = {
+	script: 'module file',
+	flow: 'step',
+	raw_app: 'backend runnable',
+	agent: 'tool'
+}
+
+function codeSelectionBlock(selection: CodeSelection): string {
+	const { kind, path, part } = selection.source
+	const where = part ? `, ${CODE_PART_LABEL[kind]}: ${part}` : ''
+	// Longer than any run in the code, so the code cannot close its own fence.
+	const runs = selection.content.match(/`+/g) ?? []
+	const fence = '`'.repeat(Math.max(3, ...runs.map((r) => r.length + 1)))
+	return `- type: ${kind}, path: ${path}${where}, lines ${selection.startLine}-${selection.endLine}:\n${fence}${selection.lang}\n${selection.content}\n${fence}\n`
+}
+
 export function prepareGlobalUserMessage(
 	instructions: string,
 	selectedContext: ContextElement[] = [],
@@ -7941,6 +7967,15 @@ export function prepareGlobalUserMessage(
 		for (const el of domSelectors) {
 			content += `- ${el.title} — app_path: ${el.appPath}, selector: ${el.selector}\n`
 		}
+		content += '\n'
+	}
+
+	const codeSelections = selectedContext.filter(isCodeSelection)
+	if (codeSelections.length > 0) {
+		content += '## SELECTED CODE\n'
+		content +=
+			'The user selected this code in an editor, and the instructions are about it. To change it, edit the item named above it. The code is as it was when selected, so the item may have changed since.\n'
+		content += codeSelections.map(codeSelectionBlock).join('')
 		content += '\n'
 	}
 

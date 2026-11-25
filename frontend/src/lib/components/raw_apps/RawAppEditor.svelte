@@ -39,7 +39,7 @@
 		applyRawAppStorageOp
 	} from './utils'
 	import { runDomQueryOnHtml, type RawAppDomQuery, type RawAppDomRequester } from './rawAppDom'
-	import InlineElementPrompt from './InlineElementPrompt.svelte'
+	import InlinePrompt from '../copilot/chat/InlinePrompt.svelte'
 	import DarkModeObserver from '../DarkModeObserver.svelte'
 	import { getAppliedDarkModeVariant, type DarkModeVariant } from '$lib/darkModeVariant'
 	import RawAppSidebar from './RawAppSidebar.svelte'
@@ -86,6 +86,7 @@
 	import { sendUserToast } from '$lib/utils'
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 	import { UserDraft } from '$lib/userDraft.svelte'
+	import { assertDraftSaved } from '$lib/components/sessions/pageDrawerSession'
 	import { setOpenInSessionHandoff } from '$lib/components/sessions/openInSessionContext'
 	import { openSourceInSession } from '$lib/components/sessions/sessionSwitch.svelte'
 	import {
@@ -301,14 +302,12 @@
 	// discardIf baseline, safe only when there is none.
 	async function persistDraftForSession(): Promise<void> {
 		if (!opWorkspace || draftStoragePath === undefined) return
-		await UserDraftDbSyncer.flush({
-			workspace: opWorkspace,
-			itemKind: 'raw_app',
-			path: draftStoragePath
-		})
+		const query = { workspace: opWorkspace, itemKind: 'raw_app' as const, path: draftStoragePath }
+		await UserDraftDbSyncer.flush(query)
 		if (newApp) {
 			await UserDraft.forcePersist('raw_app', draftStoragePath, { workspace: opWorkspace })
 		}
+		assertDraftSaved(query)
 	}
 
 	const sessionOpen = $derived(
@@ -2212,7 +2211,7 @@ addEventListener('message', function (e) {
 			await openSourceInSession(sessionOpen, {
 				seedPrompt: prompt,
 				autoSend: true,
-				seedDomElement: createAppDomSelectorElement({
+				seedPick: createAppDomSelectorElement({
 					selector,
 					appPath: sessionOpen.target.path,
 					tagName: el.tagName,
@@ -3181,11 +3180,10 @@ addEventListener('message', function (e) {
 	     (fresh value + autofocus); repositioning on scroll keeps the same key so
 	     it never steals focus mid-scroll. -->
 	{#key inlinePromptSelector}
-		<InlineElementPrompt
-			x={inlinePromptPos.x}
-			y={inlinePromptPos.y}
-			label={inlinePromptLabel}
-			inNewSession={!onInlinePrompt}
+		<InlinePrompt
+			position={inlinePromptPos}
+			ariaLabel="Prompt about the selected element"
+			label={onInlinePrompt ? inlinePromptLabel : undefined}
 			onSend={async (prompt) => {
 				if ((await inlinePrompt?.(inlinePromptSelector!, prompt)) === false) return false
 				inlinePromptDismissed = true

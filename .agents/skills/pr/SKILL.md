@@ -135,13 +135,18 @@ sufficient — see "Flip, or ask first" below. The one standing exception is an 
 leave that PR in draft (usually so it can be tested first) — honour it for that PR, and don't
 carry it over to the next one.
 
-1. **Trigger a round and wait for it**: launch the waiter as a background Bash task (a round takes 10–30 min; you are woken when it exits — do not stop the session or poll in the foreground while it runs):
+1. **Trigger a round and wait for it**: launch the waiter as a background Bash task (a round takes about 10 min, 20 at most; you are woken when it exits — do not stop the session or poll in the foreground while it runs):
 
    ```bash
    bash .agents/skills/pr/review-round.sh <PR_NUMBER>
    ```
 
    It comments `/review` on the PR — which runs the Codex, Claude and Pi CI reviewers even on a draft — waits for the spawned `PR Review Commands` workflow run(s) to complete, then prints one verdict line per reviewer and saves the full review comments to files.
+
+   Waiting rules — a session that breaks one sits idle on results the user can already see:
+   - **Use the waiter, not a loop of your own.** It always exits: as soon as the Codex, Claude and Pi verdicts are posted, once the round's run completes (failed jobs included), at a 20-minute deadline with whatever was posted, or non-zero when no run appeared or GitHub kept erroring — treat a non-zero exit as "look yourself", not "no reviews". A hand-written loop waiting for "a comment from each reviewer" never ends when one reviewer dies (capacity errors, cancelled jobs), since a dead job posts nothing.
+   - **If your harness does not wake you when a background command exits, run the waiter in the foreground** with a timeout of at least 25 minutes. Backgrounding it and ending your turn then means nobody ever reads the result.
+   - **Act on a missing reviewer immediately.** Reviewers that never start or hang are common. The waiter names each reviewer with no review and the jobs that did not finish cleanly; re-trigger each missing one at once with a `/codex`, `/claude` or `/pi` PR comment and run the waiter again, rather than waiting longer.
 
    `/review` (and `/codex`) are **idempotent per head SHA**: if a running or successful review already covers the current head, they skip that agent and post nothing new — the waiter reads the existing verdict for that head, so a skipped agent is *not* a missing one. A cancelled/failed head run is re-run in place; a fresh run is launched only when nothing covers the head. So an unchanged-head re-review is a near no-op, not a new round — push a commit to get genuinely fresh reviews.
 

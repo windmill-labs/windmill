@@ -719,6 +719,7 @@
 							cmdEnterAction={() => onRun()}
 							bind:websocketAlive
 							rawAppRunnableKey={id}
+							codeSource={{ kind: 'raw_app', path, part: id }}
 							on:change={async (e) => {
 								if (inlineScript) {
 									if (inlineScript.lock != undefined) {
@@ -770,6 +771,7 @@
 					cmdEnterAction={() => onRun()}
 					bind:websocketAlive
 					rawAppRunnableKey={id}
+					codeSource={{ kind: 'raw_app', path, part: id }}
 					on:change={async (e) => {
 						if (inlineScript) {
 							if (inlineScript.lock != undefined) {

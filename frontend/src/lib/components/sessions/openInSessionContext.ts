@@ -1,4 +1,4 @@
-import { getContext, setContext } from 'svelte'
+import { getContext, setContext, tick } from 'svelte'
 import type { OpenInSessionSource } from './OpenInSessionButton.svelte'
 
 // The "Open in AI session" hand-off, published by the component that owns the
@@ -20,4 +20,22 @@ export function setOpenInSessionHandoff(handoff: OpenInSessionHandoff): void {
 
 export function getOpenInSessionHandoff(): OpenInSessionHandoff | undefined {
 	return getContext<OpenInSessionHandoff | undefined>(KEY)
+}
+
+/** The hand-off with an editor's in-flight keystrokes materialized first: the session loads the
+ * item from its draft, which would otherwise miss the last (sub-second) edits. */
+export function withEditorFlush(
+	source: OpenInSessionSource,
+	flushEditor: () => void
+): OpenInSessionSource {
+	return {
+		...source,
+		beforeOpen: async () => {
+			flushEditor()
+			// The flush lands in the draft store through an effect; let it run
+			// before the hand-off persists that store.
+			await tick()
+			await source.beforeOpen?.()
+		}
+	}
 }

@@ -9,6 +9,7 @@ import type { DisplayMessage } from './shared'
 import type { AttachedImage } from './imageUtils'
 import { AIChatManager, AIMode, AIAutonomyMode, aiChatManager } from './AIChatManager.svelte'
 import { AIWorkMode, USE_MODE_WITHDRAWN } from './workMode'
+import { createAppDomSelectorElement, createCodeSelection } from './context'
 import { makePasteToken } from './pasteTokens'
 import { PLAN_MODE_MESSAGES } from './planModeMessages'
 import { runChatLoop } from './chatLoop'
@@ -1323,6 +1324,17 @@ describe('AIChatManager user questions', () => {
 	})
 })
 
+function pick(content: string, line = 1) {
+	return createCodeSelection(
+		{ kind: 'script', path: 'f/a/b' },
+		{ content, startLine: line, endLine: line, lang: 'bun' }
+	)
+}
+
+function element(selector: string) {
+	return createAppDomSelectorElement({ selector, appPath: 'f/app', tagName: 'div' })
+}
+
 describe('AIChatManager queued messages', () => {
 	const model = { provider: 'openai', model: 'gpt-4o' }
 
@@ -1639,6 +1651,14 @@ describe('AIChatManager queued messages', () => {
 				.filter((c) => c.type === 'app_dom_selector')
 				.map((c) => c.selector)
 		).toEqual(['div.a'])
+
+		// Nor when the message was stored without context.
+		seed()
+		delete (manager.displayMessages[0] as any).contextElements
+		manager.restartGeneration(0)
+		await vi.waitFor(() => expect(manager.displayMessages[0]).toHaveProperty('contextElements'))
+		expect(sentChipSelectors()).toEqual([])
+		expect(cm.getSelectedContext()).toEqual([chipA])
 	})
 
 	// The loop, not the send, owns the vision strip: it re-applies it per iteration
@@ -2528,7 +2548,7 @@ describe('AIChatManager queued messages', () => {
 		const input = createInputMock()
 		const manager = createManager(input)
 		replyWith('done')
-		// cancel before any usable output → the rollback (restoreUnsentTurn) path
+		// cancel before any usable output → the rollback path
 		mocks.runChatLoop.mockImplementationOnce(async ({ abortController }: any) => {
 			abortController.abort('user_cancelled')
 			throw new Error('aborted')
@@ -2627,8 +2647,8 @@ describe('AIChatManager queued messages', () => {
 				{ role: 'tool' as const, tool_call_id: 'shot', content: 'Screenshot attached below' }
 			)
 			config.callbacks.attachToolImage('shot', {
-				dataUrl: 'data:image/png;base64,iVBORw0KGgo=',
-				name: 'shot.png'
+				image: { dataUrl: 'data:image/png;base64,iVBORw0KGgo=', name: 'shot.png' },
+				caption: 'Screenshot(s) of the app preview:'
 			})
 			leavePage.forEach((fn) => fn())
 			return {
@@ -2950,8 +2970,7 @@ describe('AIChatManager queued messages', () => {
 
 		await manager.sendRequest({
 			instructions: 'why does this retry',
-			contextOverride: carried,
-			contextOverrideOrigin: 'pinned'
+			contextOverride: carried
 		})
 
 		expect(cm.getSelectedContext()).toEqual([mention])
@@ -2975,8 +2994,7 @@ describe('AIChatManager queued messages', () => {
 
 		await manager.sendRequest({
 			instructions: 'why does this retry',
-			contextOverride: [mention],
-			contextOverrideOrigin: 'pinned'
+			contextOverride: [mention]
 		})
 
 		expect(cm.getSelectedContext()).toEqual([mention])
@@ -2995,8 +3013,7 @@ describe('AIChatManager queued messages', () => {
 		const pending = manager.sendRequest({
 			instructions: 'describe this image',
 			images: [{ id: 'img-1', dataUrl: 'data:image/png;base64,AAAA' } as any],
-			contextOverride: [mention],
-			contextOverrideOrigin: 'pinned'
+			contextOverride: [mention]
 		})
 		manager.mode = AIMode.SCRIPT
 		await pending
@@ -3035,6 +3052,73 @@ describe('AIChatManager queued messages', () => {
 
 		const chips = cm.getSelectedContext().filter((c) => c.type === 'app_dom_selector')
 		expect(chips.map((c) => c.selector)).toEqual(['div.a'])
+	})
+
+	it('carries code attached in a session on its next message, and only there', async () => {
+		replyWith('done')
+		const manager = createManager(createInputMock())
+		manager.mode = AIMode.GLOBAL
+		manager.isSessionChat = true
+		const selection = pick('return 1', 2)
+		manager.listenForContextChange({}, 'parent')
+		manager.attachCodeSelection(selection)
+		// The composer's context is rebuilt whenever the page's workspace or its schemas change.
+		manager.listenForContextChange({}, 'parent')
+		manager.listenForContextChange({}, 'fork')
+		expect(manager.mode).toBe(AIMode.GLOBAL)
+
+		await manager.sendRequest({ instructions: 'make it 2' })
+
+		const { messages } = mocks.runChatLoop.mock.calls.at(-1)![0] as any
+		expect(messages.at(-1).content).toContain('path: f/a/b, lines 2-2:\n```bun\nreturn 1\n```')
+		expect(manager.contextManager.getSelectedContext()).toEqual([])
+	})
+
+	it('sends a queued message with its own picks and leaves the next one its own', async () => {
+		replyWith('done')
+		const manager = createManager(createInputMock())
+		manager.mode = AIMode.GLOBAL
+		manager.queueMessage('first', [], [pick('before')])
+		// The lines change and are queued again, then picked once more as they were at first.
+		manager.queueMessage('second', [], [pick('after')])
+		manager.attachCodeSelection(pick('before'))
+
+		await manager.sendRequest({ instructions: 'running', contextOverride: [] })
+
+		const { messages } = mocks.runChatLoop.mock.calls.at(-1)![0] as any
+		expect(messages.at(-1).content).toContain('before')
+		expect(messages.at(-1).content).toContain('after')
+		expect(manager.contextManager.getSelectedContext()).toEqual([pick('before')])
+	})
+
+	it('leaves what is attached for the next message out of one queued without it', async () => {
+		replyWith('done')
+		const manager = createManager(createInputMock())
+		manager.mode = AIMode.GLOBAL
+		const selection = pick('return 1', 2)
+		manager.queueMessage('queued')
+		manager.attachCodeSelection(selection)
+
+		await manager.sendRequest({ instructions: 'running', contextOverride: [] })
+
+		const { messages } = mocks.runChatLoop.mock.calls.at(-1)![0] as any
+		expect(messages.at(-1).content).toContain('queued')
+		expect(messages.at(-1).content).not.toContain('SELECTED CODE')
+		expect(manager.contextManager.getSelectedContext()).toEqual([selection])
+	})
+
+	it('leaves code attached in the composer there when a prompt sent past it comes back', () => {
+		const manager = createManager(createInputMock())
+		manager.attachCodeSelection(pick('for the composer'))
+		manager.loading = true
+		manager.sendOrQueue('make it red', [element('div.prompt')])
+
+		manager.dequeueMessage()
+
+		expect(manager.contextManager.getSelectedContext()).toEqual([
+			element('div.prompt'),
+			pick('for the composer')
+		])
 	})
 
 	// Restoration is only coherent when the text it belongs to actually lands in the
@@ -3151,8 +3235,7 @@ describe('AIChatManager queued messages', () => {
 
 		const accepted = await manager.sendRequest({
 			instructions: '@f/etl/sync fix this',
-			contextOverride: [mention],
-			contextOverrideOrigin: 'pinned'
+			contextOverride: [mention]
 		})
 
 		expect(accepted).toBe(false)
@@ -3172,8 +3255,7 @@ describe('AIChatManager queued messages', () => {
 
 		await manager.sendRequest({
 			instructions: '@f/etl/sync fix this',
-			contextOverride: [mention],
-			contextOverrideOrigin: 'pinned'
+			contextOverride: [mention]
 		})
 
 		expect(mocks.runChatLoop).not.toHaveBeenCalled()
@@ -3214,8 +3296,7 @@ describe('AIChatManager queued messages', () => {
 
 		await manager.sendRequest({
 			instructions: '@f/etl/sync fix this',
-			contextOverride: [mention],
-			contextOverrideOrigin: 'pinned'
+			contextOverride: [mention]
 		})
 
 		expect(manager.contextManager.getSelectedContext()).toEqual([])
@@ -3234,8 +3315,7 @@ describe('AIChatManager queued messages', () => {
 
 		await manager.sendRequest({
 			instructions: 'fix this',
-			contextOverride: [mention],
-			contextOverrideOrigin: 'pinned'
+			contextOverride: [mention]
 		})
 
 		expect(manager.contextManager.getSelectedContext()).toEqual([])
@@ -5041,6 +5121,25 @@ describe('AIChatManager cross-tab run seams', () => {
 		// restoreToInput falls back to the queued draft when no composer is
 		// mounted, so the refused text must surface there rather than vanish.
 		expect(manager.queuedMessage).toBe('race loser')
+	})
+
+	it.each([
+		['at the start of the send', () => true],
+		// Announced during the send's own awaits.
+		['once it is under way', (reads: number) => reads > 1]
+	])('keeps the pick of a refused prompt, refused %s', async (_, held) => {
+		const manager = new AIChatManager()
+		manager.isSessionChat = true
+		manager.mode = AIMode.GLOBAL
+		let reads = 0
+		manager.runHeldElsewhereResolver = () => held(++reads)
+		const selection = element('div.prompt')
+
+		manager.sendOrQueue('make it red', [selection])
+
+		await vi.waitFor(() => expect(manager.queuedMessage).toBe('make it red'))
+		expect(mocks.runChatLoop).not.toHaveBeenCalled()
+		expect(manager.queuedContext).toEqual([selection])
 	})
 
 	// A synthetic (auto-resume) prompt is client-authored: a refusal must

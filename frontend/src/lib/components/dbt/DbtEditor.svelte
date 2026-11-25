@@ -65,6 +65,7 @@
 		modules = $bindable(),
 		editor = $bindable(),
 		path,
+		storagePath = undefined,
 		tag,
 		timeout = undefined,
 		customUi = undefined,
@@ -80,6 +81,8 @@
 		modules?: { [key: string]: ScriptModule } | null
 		editor?: Editor | undefined
 		path: string | undefined
+		/** Where the script's draft is stored, which a new or renamed script's `path` is not. */
+		storagePath?: string
 		tag: string | undefined
 		timeout?: number
 		customUi?: ScriptEditorWhitelabelCustomUi | undefined
@@ -509,6 +512,12 @@
 							lineNumbersMinChars={4}
 							folding
 							{path}
+							codeSource={{
+								kind: 'script',
+								path: storagePath || path || '',
+								part: openFile ?? undefined
+							}}
+							codeSourceLang="dbt"
 							bind:code={editorCode}
 							bind:this={editor}
 							on:change={() => {
