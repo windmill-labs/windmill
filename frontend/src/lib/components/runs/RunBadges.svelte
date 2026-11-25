@@ -45,11 +45,20 @@
 		large = false
 	}: Props = $props()
 
-	// From when the limit first held the job to when it let it in; the rest until it started
-	// is queue time. A job let in before the end of the hold was recorded shows nothing.
+	// From when the limit first held the job to when it let it in, counting live while it holds
+	// it; the rest until it started is queue time. A job let in before the end of the hold was
+	// recorded shows nothing.
+	let heldNow = $derived(!!concurrencyDeferredFrom && !concurrencyReleasedAt && !job.started_at)
+	let now = $state(Date.now())
+	$effect(() => {
+		if (!heldNow) return
+		const id = setInterval(() => (now = Date.now()), 1000)
+		return () => clearInterval(id)
+	})
 	let heldMs = $derived(
-		concurrencyDeferredFrom && concurrencyReleasedAt
-			? new Date(concurrencyReleasedAt).getTime() - new Date(concurrencyDeferredFrom).getTime()
+		concurrencyDeferredFrom && (concurrencyReleasedAt || heldNow)
+			? (concurrencyReleasedAt ? new Date(concurrencyReleasedAt).getTime() : now) -
+					new Date(concurrencyDeferredFrom).getTime()
 			: undefined
 	)
 	let queuedAfterMs = $derived(

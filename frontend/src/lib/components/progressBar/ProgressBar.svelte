@@ -187,7 +187,7 @@
 							{waitingText}
 						{:else if showStepId}
 							{stepId
-								? `${isCanceled ? 'Canceled at' : 'Running'} step ${stepId}`
+								? `${isCanceled ? 'Canceled at' : 'Running'} step '${stepId}'`
 								: `${isCanceled ? 'Canceled' : ''}`}
 						{:else if hideStepTitle}
 							{isCanceled ? 'Canceled' : 'Running'}

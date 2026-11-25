@@ -48,7 +48,7 @@
 		if (retrying) {
 			const [key, s] = retrying
 			const n = s.retries ?? 0
-			return `Retrying step ${key.split(':').pop()}, ${n} failed attempt${n === 1 ? '' : 's'}`
+			return `Retrying step '${key.split(':').pop()}', ${n} failed attempt${n === 1 ? '' : 's'}`
 		}
 		const found = Object.entries(stepStates).find(
 			([key, s]) =>
@@ -61,8 +61,8 @@
 		const step = key.split(':').pop()
 		const until = displayDate(s.scheduled_for, true)
 		return s.waiting_reason === 'sleep'
-			? `Sleeping before step ${step} until ${until}`
-			: `Step ${step} held by concurrency limit, next check by ${until}`
+			? `Sleeping before step '${step}' until ${until}`
+			: `Step '${step}' held by concurrency limit, next check by ${until}`
 	})
 
 	let error: number | undefined = $state(undefined)
