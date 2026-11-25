@@ -64,13 +64,11 @@
 	})
 </script>
 
-<!-- What keeps a step from starting sits above it; an approval, which comes once its step is
-     done, sits below it. -->
+<!-- What keeps a step from starting sits above it; finished steps show how long they ran at the
+     other end of that edge. -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
-	class="nodrag nopan absolute -left-1 z-10 {props.reason === 'approval'
-		? 'top-[calc(100%+3px)]'
-		: 'bottom-[calc(100%+3px)]'}"
+	class="nodrag nopan absolute -left-1 bottom-[calc(100%+3px)] z-10"
 	onpointerdown={(e) => e.stopPropagation()}
 >
 	<Button

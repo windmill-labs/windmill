@@ -385,6 +385,15 @@
 				heldSince={state.held_since}
 				onclick={() => data.module && data.eventHandlers.select(data.module.id)}
 			/>
+		{:else if state?.approval_wait}
+			<WaitingMark
+				reason="approval"
+				workspace={state.approval_wait.workspace}
+				jobId={state.approval_wait.job}
+				stepId={state.approval_wait.step}
+				required={state.approval_wait.required}
+				onclick={() => data.module && data.eventHandlers.select(data.module.id)}
+			/>
 		{/if}
 		{#if waitingInside}
 			<!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -421,15 +430,6 @@
 					{waitingInside.label}
 				</Button>
 			</div>
-		{:else if state?.approval_wait}
-			<WaitingMark
-				reason="approval"
-				workspace={state.approval_wait.workspace}
-				jobId={state.approval_wait.job}
-				stepId={data.id.split(':').pop() ?? data.id}
-				required={state.approval_wait.required}
-				onclick={() => data.module && data.eventHandlers.select(data.module.id)}
-			/>
 		{:else}
 			{#await hiddenErrorHandlers}
 				{@render insideBar(retriedInside, undefined)}

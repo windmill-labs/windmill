@@ -50,8 +50,9 @@ export type GraphModuleState = {
 	/** Why a `WaitingForExecutor` step is due later: the previous step's sleep, or its own
 	 * concurrency limit holding it back (`concurrency_key`). */
 	waiting_reason?: 'sleep' | 'concurrency'
-	/** On an approval step its run now waits after: that run, and how many approvals it needs. */
-	approval_wait?: { job: string; workspace?: string; required: number }
+	/** On the step waiting for the approval step `step` before it: their run, and how many
+	 * approvals it needs. */
+	approval_wait?: { job: string; workspace?: string; step: string; required: number }
 	/** When its concurrency limit first held the step back. */
 	held_since?: string
 	concurrency_key?: string
