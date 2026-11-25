@@ -6022,12 +6022,14 @@ async fn list_waiting_approvals(
                COALESCE(rj.runnable_path, j.runnable_path) AS flow_path,
                NULLIF(f.summary, '') AS flow_summary,
                s.flow_status->'approval_conditions' AS approval_conditions,
-               NULLIF(am.m->>'summary', '') AS step_summary,
-               COALESCE((am.m->'suspend'->>'required_events')::bigint, 1) AS "required_approvals!",
-               (SELECT count(*) FROM resume_job r WHERE r.job IN (j.id, step.job))
+               NULLIF(w.m->'home'->>'step_summary', '') AS step_summary,
+               COALESCE((w.m->>'count')::bigint, 1) AS "required_approvals!",
+               -- Counted as the worker counts them: those sent to the approval step's job,
+               -- plus those sent to the flow itself.
+               (SELECT count(*) FROM resume_job r WHERE r.job IN (j.id, (w.m->>'job')::uuid))
                    AS "approvals!",
                EXISTS(SELECT 1 FROM resume_job r
-                      WHERE r.job IN (j.id, step.job) AND r.approver = $2)
+                      WHERE r.job IN (j.id, (w.m->>'job')::uuid) AND r.approver = $2)
                    AS "approved_by_me!"
         FROM v2_job_queue q
         JOIN v2_job j ON j.id = q.id
@@ -6036,25 +6038,16 @@ async fn list_waiting_approvals(
         LEFT JOIN flow f
             ON f.workspace_id = j.workspace_id
            AND f.path = COALESCE(rj.runnable_path, j.runnable_path)
-        LEFT JOIN flow_version fv ON j.kind = 'flow' AND fv.id = j.runnable_id
-        LEFT JOIN flow_node fn ON j.kind = 'flownode' AND fn.id = j.runnable_id
-        LEFT JOIN LATERAL (
-            SELECT COALESCE(j.raw_flow, fv.value, fn.flow)
-                -> 'modules' -> ((s.flow_status->>'step')::int - 1) AS m
-        ) am ON true
-        -- Approvals count per step, as the worker counts them: those sent to the approval
-        -- step's job, plus those sent to the flow itself.
-        LEFT JOIN LATERAL (
-            SELECT (s.flow_status->'modules'->((s.flow_status->>'step')::int - 1)->>'job')::uuid
-                AS job
-        ) step ON true
+        -- The step waiting on the approval, which the worker marks `home` when the approval
+        -- step has `show_on_home`: only those are listed, since many approvals are announced
+        -- elsewhere (a resume link sent to a chat) and every admin and owner could give them.
+        CROSS JOIN LATERAL (
+            SELECT s.flow_status->'modules'->((s.flow_status->>'step')::int) AS m
+        ) w
         WHERE q.workspace_id = $1
           AND q.suspend > 0
-          AND s.flow_status->'modules'->((s.flow_status->>'step')::int)->>'type'
-              = 'WaitingForEvents'
-          -- Only the steps their author put on Home: many are announced elsewhere (a resume
-          -- link sent to a chat), and every admin and owner could approve those too.
-          AND (am.m->'suspend'->>'show_on_home')::boolean IS TRUE
+          AND w.m->>'type' = 'WaitingForEvents'
+          AND w.m->'home' IS NOT NULL
           AND ($4::text[] IS NULL OR j.tag = ANY($4))
         ORDER BY j.created_at DESC
         LIMIT $3
