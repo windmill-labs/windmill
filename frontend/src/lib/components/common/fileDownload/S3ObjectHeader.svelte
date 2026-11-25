@@ -66,7 +66,8 @@
 				{previewOpen ? 'Hide preview' : 'Preview'}
 			</Button>
 		{/if}
-		{#if onExplore}
+		<!-- The file browser has its own Download button, so it would undo disable_download. -->
+		{#if onExplore && !s3object?.disable_download}
 			<Tooltip>
 				<Button
 					variant="subtle"
