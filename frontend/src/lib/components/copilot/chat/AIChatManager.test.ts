@@ -1651,6 +1651,14 @@ describe('AIChatManager queued messages', () => {
 				.filter((c) => c.type === 'app_dom_selector')
 				.map((c) => c.selector)
 		).toEqual(['div.a'])
+
+		// Nor when the message was stored without context.
+		seed()
+		delete (manager.displayMessages[0] as any).contextElements
+		manager.restartGeneration(0)
+		await vi.waitFor(() => expect(manager.displayMessages[0]).toHaveProperty('contextElements'))
+		expect(sentChipSelectors()).toEqual([])
+		expect(cm.getSelectedContext()).toEqual([chipA])
 	})
 
 	// The loop, not the send, owns the vision strip: it re-applies it per iteration

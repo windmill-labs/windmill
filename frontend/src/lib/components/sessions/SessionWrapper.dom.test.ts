@@ -38,7 +38,10 @@ vi.mock('$lib/gen', async (importOriginal) => {
 })
 
 let component: ReturnType<typeof mount> | undefined
-afterEach(() => component && unmount(component))
+afterEach(() => {
+	if (component) unmount(component)
+	vi.restoreAllMocks()
+})
 
 // The page is on `parent`, whose config changes before the session comes on screen.
 async function showSession(workspace: string) {

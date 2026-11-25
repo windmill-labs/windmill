@@ -5308,15 +5308,15 @@ export class AIChatManager implements ChatViewHost {
 		// the element the message was about. An edit passes `editedContext` (the edit
 		// box was seeded from this message's chips and the user may have changed
 		// them); a bare Retry passes nothing and falls back to the original
-		// contextElements. `undefined` for modes that don't attach context leaves the
-		// live-selection behavior. An empty array is a deliberate "no context".
+		// contextElements. A message stored without any gets an empty array, as `undefined`
+		// would send the live selection, which is the composer's.
 		this.instructions = newContent ?? userMessage.content
 		// Prune the truncated messages' file registrations BEFORE the resend
 		// re-registers its own — the other way around would delete the fresh rows.
 		this.#syncMessageFiles()
 		this.sendRequest({
 			pastes: pastes ?? userMessage.pastes,
-			contextOverride: editedContext ?? userMessage.contextElements,
+			contextOverride: editedContext ?? userMessage.contextElements ?? [],
 			images: images ?? sentImages,
 			// The bubble copy is authoritative for files: the API message carries
 			// only a reference (content lives in the store), so nothing ever strips

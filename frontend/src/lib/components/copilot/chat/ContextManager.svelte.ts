@@ -255,11 +255,11 @@ export default class ContextManager {
 
 			// Seed with the (refreshed) code block + everything else previously
 			// selected. The filter further down validates each entry against
-			// newAvailableContext (and the per-type allowlist for code_piece /
-			// workspace_*); types that are auto-derived (diff/error/db) survive
-			// when they're still in availableContext, user-picked workspace refs
-			// survive unconditionally, and `code` is excluded from the carryover
-			// because we just rebuilt it.
+			// newAvailableContext (and the per-type allowlist for workspace_*);
+			// types that are auto-derived (diff/error/db) survive when they're
+			// still in availableContext, user-picked workspace refs survive
+			// unconditionally, and `code` is excluded from the carryover because
+			// we just rebuilt it.
 			let newSelectedContext: ContextElement[] = [
 				{
 					type: 'code',
