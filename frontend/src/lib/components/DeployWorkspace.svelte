@@ -34,9 +34,12 @@
 	} from '$lib/utils_deployable'
 	import {
 		checkItemExists,
+		deployFromWorkspace,
 		deployItem,
 		getItemValue,
-		getOnBehalfOf
+		getOnBehalfOf,
+		serverDeployKind,
+		type DeployResult
 	} from '$lib/utils_workspace_deploy'
 	import type { App } from './apps/types'
 	import { getAllGridItems } from './apps/editor/appUtils'
@@ -382,16 +385,35 @@
 		const target = workspaceToDeployTo
 		deploymentStatus[statusPath] = { status: 'loading' }
 
-		const result = await deployItem({
-			kind,
-			path,
-			workspaceFrom: $operatingWorkspace!,
-			workspaceTo: target!,
-			additionalInformation,
-			onBehalfOf: getOnBehalfOfForDeploy(statusPath, kind),
-			onBehalfOfPrincipal: getOnBehalfOfPermissionedAsForDeploy(statusPath, kind),
-			targetBaseUrl: isRemote ? remoteTarget?.base_url : undefined
-		})
+		const onBehalfOf = getOnBehalfOfForDeploy(statusPath, kind)
+		const onBehalfOfPrincipal = getOnBehalfOfPermissionedAsForDeploy(statusPath, kind)
+		const serverKind = serverDeployKind(kind, additionalInformation)
+		let result: DeployResult
+		if (isRemote) {
+			// The server deploy writes only to this instance; another one is reached through the
+			// remote-deploy proxy, which the client-side deploy calls route by route.
+			result = await deployItem({
+				kind,
+				path,
+				workspaceFrom: $operatingWorkspace!,
+				workspaceTo: target!,
+				additionalInformation,
+				onBehalfOf,
+				onBehalfOfPrincipal,
+				targetBaseUrl: remoteTarget?.base_url
+			})
+		} else if (serverKind) {
+			result = await deployFromWorkspace({
+				kind: serverKind,
+				path,
+				workspaceFrom: $operatingWorkspace!,
+				workspaceTo: target!,
+				onBehalfOf,
+				onBehalfOfPrincipal
+			})
+		} else {
+			result = { success: false, error: `Cannot deploy ${kind} ${path}` }
+		}
 
 		// The statuses on screen are the current destination's; this deploy went to `target`.
 		if (target !== workspaceToDeployTo) return

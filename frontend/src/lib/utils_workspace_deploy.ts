@@ -24,6 +24,7 @@ import type { UserDraftItemKind } from '$lib/gen'
 import { get } from 'svelte/store'
 import { userWorkspaces } from '$lib/stores'
 import { apiBaseUrl } from './apiBaseUrl.svelte'
+import type { TriggerKind } from './components/triggers'
 import { capabilitiesIn } from '$lib/roleCapabilities'
 import { roleCanAuthor } from '$lib/editRights'
 import type { ProtectionRuleset, RoleCapabilities } from '$lib/gen'
@@ -172,6 +173,32 @@ function legacyTriggerKind(kind: TriggerDeployKind) {
 		email_trigger: 'emails'
 	} as const
 	return map[kind]
+}
+
+/** The server deploy's kind for each trigger kind `DeployWorkspace.svelte` names. */
+const SERVER_TRIGGER_KIND: Partial<Record<TriggerKind, Kind>> = {
+	schedules: 'schedule',
+	routes: 'http_trigger',
+	websockets: 'websocket_trigger',
+	kafka: 'kafka_trigger',
+	nats: 'nats_trigger',
+	postgres: 'postgres_trigger',
+	mqtt: 'mqtt_trigger',
+	amqp: 'amqp_trigger',
+	sqs: 'sqs_trigger',
+	gcp: 'gcp_trigger',
+	azure: 'azure_trigger',
+	emails: 'email_trigger'
+}
+
+/**
+ * The kind the server deploy takes, resolving the generic `'trigger'` `DeployWorkspace.svelte`
+ * uses. Undefined for a trigger whose sub-kind is unknown or not deployable.
+ */
+export function serverDeployKind(kind: Kind, info?: AdditionalInformation): Kind | undefined {
+	if (kind !== 'trigger') return kind
+	const legacy = info?.triggers?.kind
+	return legacy && SERVER_TRIGGER_KIND[legacy]
 }
 
 /** An identity in both formats the app policy stores it in. */
