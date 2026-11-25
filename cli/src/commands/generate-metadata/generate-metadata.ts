@@ -1,6 +1,7 @@
 import { Command } from "@cliffy/command";
 import { Confirm } from "@cliffy/prompt/confirm";
 import { colors } from "@cliffy/ansi/colors";
+import { existsSync } from "node:fs";
 import { sep as SEP } from "node:path";
 import { GlobalOptions, isDatatableMigrationPath } from "../../types.ts";
 import { isFileResource, isFilesetResource } from "../../utils/utils.ts";
@@ -473,6 +474,18 @@ export async function generateMetadata(
   if (folder === "") {
     folder = undefined;
   }
+  // Normalize to forward slashes (Windows users may use backslashes) and strip
+  // a trailing slash to match deprecated flow/app handler behavior
+  folder = folder?.replaceAll("\\", "/").replace(/\/$/, "");
+  // Strip file extension if user passed a specific file path (e.g. f/test/script.ts)
+  const folderNoExt = folder?.replace(/\.[^/.]+$/, "");
+  const isPathInFolder = (p: string) =>
+    folder !== undefined &&
+    (p.startsWith(folder + "/") || p === folder || p === folderNoExt);
+  let walkedInFolder = false;
+  const noteWalked = (p: string) => {
+    if (isPathInFolder(p.replaceAll("\\", "/"))) walkedInFolder = true;
+  };
 
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
@@ -506,6 +519,7 @@ export async function generateMetadata(
   // === Collect stale scripts ===
   if (!skipScripts) {
     for (const e of await walkLocalScripts(codebases, ignore)) {
+      noteWalked(scriptPathToRemotePath(e));
       await generateScriptMetadataInternal(
         e,
         workspace,
@@ -523,6 +537,7 @@ export async function generateMetadata(
   // === Collect stale flows ===
   if (!skipFlows) {
     for (const flowFolder of await walkLocalFlowFolders(ignore)) {
+      noteWalked(flowFolder);
       await generateFlowLockInternal(
         flowFolder,
         true, // dryRun - populate tree
@@ -538,6 +553,7 @@ export async function generateMetadata(
   // === Collect stale apps ===
   if (!skipApps) {
     for (const { folder: appFolder, rawApp } of await walkLocalAppItems(ignore)) {
+      noteWalked(appFolder);
       await generateAppLocksInternal(
         appFolder,
         rawApp,
@@ -549,6 +565,15 @@ export async function generateMetadata(
         tree
       );
     }
+  }
+
+  if (folder && !walkedInFolder) {
+    log.warn(colors.yellow(
+      existsSync(folder) || existsSync(folderNoExt!)
+        ? `Nothing under "${folder}" was checked: it is outside the includes/excludes in effect (wmill.yaml or -i/-e). Pass --includes "${folder}/**" to check it.`
+        : `No scripts, flows or apps found under "${folder}".`
+    ));
+    return;
   }
 
   // === Propagate staleness through imports ===
@@ -597,14 +622,6 @@ export async function generateMetadata(
   // === Filter by folder if specified ===
   let filteredItems = staleItems;
   if (folder) {
-    // Normalize to forward slashes (Windows users may use backslashes)
-    folder = folder.replaceAll("\\", "/");
-    // Strip trailing slash to match deprecated flow/app handler behavior
-    if (folder.endsWith("/")) {
-      folder = folder.substring(0, folder.length - 1);
-    }
-    // Strip file extension if user passed a specific file path (e.g. f/test/script.ts)
-    const folderNoExt = folder.replace(/\.[^/.]+$/, "");
     // Check if an item is inside the specified folder
     const isInsideFolder = (item: StaleItem) => {
       const normalizedFolder = item.folder.replaceAll("\\", "/");
@@ -612,7 +629,6 @@ export async function generateMetadata(
       return normalizedFolder === folder || normalizedFolder.startsWith(folder + "/")
         || normalizedPath === folder || normalizedPath === folderNoExt;
     };
-    const isPathInFolder = (p: string) => p.startsWith(folder + "/") || p === folder || p === folderNoExt;
     // Check if a tree path or any of its transitive deps is inside the folder
     const touchesFolder = (treePath: string) => {
       if (isPathInFolder(treePath)) return true;
