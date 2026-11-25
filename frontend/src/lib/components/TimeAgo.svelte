@@ -168,8 +168,11 @@
 
 		// Original mode
 		const nbSecondsAgo = secondsAgo(date)
-		if (nbSecondsAgo < 600) {
+		if (nbSecondsAgo < 60) {
 			return `${nbSecondsAgo}s ago`
+		} else if (nbSecondsAgo < 600) {
+			const mins = Math.floor(nbSecondsAgo / 60)
+			return `${mins} min${mins !== 1 ? 's' : ''} ago`
 		} else if (isToday(date)) {
 			isRecent = false
 			return `today at ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
