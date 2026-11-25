@@ -1455,6 +1455,7 @@
 					textPosition="bottom"
 					slim
 					showStepId
+					waitingNested={Object.keys(suspendStatus?.val ?? {}).length > 0}
 				>
 					{#snippet errorAction()}
 						<!-- A saved agent's run is its one step: naming it adds nothing. -->

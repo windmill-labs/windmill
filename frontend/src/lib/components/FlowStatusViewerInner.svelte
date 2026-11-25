@@ -1655,10 +1655,6 @@
 		)
 	)
 
-	let totalEventsWaiting = $derived(
-		Object.values(suspendStatus?.val ?? {}).reduce((a, b) => a + (b?.nb ?? 0), 0)
-	)
-
 	let continuedOnError = $derived(job?.flow_status?.continued_on_error ?? [])
 </script>
 
@@ -2218,11 +2214,6 @@
 											</span>
 										{/if}
 									{/each}
-									{#if totalEventsWaiting}
-										<span class="text-sm">
-											Flow suspended, waiting for {totalEventsWaiting} events
-										</span>
-									{/if}
 								</div>
 								<FlowGraphV2
 									{selectionManager}

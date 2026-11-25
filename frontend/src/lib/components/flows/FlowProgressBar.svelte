@@ -14,6 +14,8 @@
 		// Prefer step ID over step index when both are available
 		showStepId?: boolean
 		errorAction?: Snippet
+		/** A run nested under this one waits on an approval, which its own steps don't show. */
+		waitingNested?: boolean
 	}
 
 	let {
@@ -23,7 +25,8 @@
 		slim = false,
 		textPosition = 'top',
 		showStepId = false,
-		errorAction
+		errorAction,
+		waitingNested = false
 	}: Props = $props()
 
 	let error: number | undefined = $state(undefined)
@@ -189,7 +192,7 @@
 	{textPosition}
 	stepId={currentStepId}
 	{showStepId}
-	{isWaitingForEvents}
+	isWaitingForEvents={isWaitingForEvents || waitingNested}
 	{isCanceled}
 	{isScheduled}
 	{isSkipped}
