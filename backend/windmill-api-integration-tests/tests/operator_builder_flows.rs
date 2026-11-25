@@ -1,7 +1,10 @@
 use serde_json::json;
+use serial_test::serial;
 use sqlx::{Pool, Postgres};
 use windmill_test_utils::*;
 
+/// Every test here must be `#[serial]`: the rights cache is process-global and keyed by workspace id
+/// alone, so parallel tests under this same id read each other's rights.
 const WS: &str = "test-workspace";
 
 fn operator_client() -> reqwest::Client {
@@ -82,6 +85,7 @@ fn inline_code_flow(path: &str) -> serde_json::Value {
 /// already deployed and nothing more, and the endpoints that author code stay shut whether or not
 /// it is granted.
 #[sqlx::test(migrations = "../migrations", fixtures("base", "permissions_test"))]
+#[serial]
 async fn test_operator_builder_flows_boundary(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
     let server = ApiServer::start(db.clone()).await?;
@@ -481,6 +485,7 @@ async fn check_builder_agents(
 /// Each slot of a flow picks scripts of its own kind. A role without `code` gets the kind it asks
 /// for, preprocessors without a main included, and still no library.
 #[sqlx::test(migrations = "../migrations", fixtures("base", "permissions_test"))]
+#[serial]
 async fn test_operator_lists_scripts_of_the_requested_kind(
     db: Pool<Postgres>,
 ) -> anyhow::Result<()> {
