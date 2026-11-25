@@ -5,6 +5,7 @@
 	import { JobService, type FlowModule, type Job } from '$lib/gen'
 	import FlowStatusWaitingForEvents from '../FlowStatusWaitingForEvents.svelte'
 	import StepIdBadge from '../flows/content/StepIdBadge.svelte'
+	import { displayDate } from '$lib/utils'
 
 	interface Props {
 		/** The run the step belongs to: the page's run, or a subflow, branch or loop run under it. */
@@ -76,8 +77,12 @@
 				<span><span class="text-hint">Can approve:</span> {canApproveLabel()}</span>
 				{@const approvals = detail.current.approvals}
 				{#if approvals.length > 0}
-					<!-- Two names keep the row on one line; the rest are on hover. -->
-					<span title={approvals.map((a) => a.approver).join(', ')}>
+					<!-- Two names keep the row on one line; all of them, with times, are on hover. -->
+					<span
+						title={approvals
+							.map((a) => (a.created_at ? `${a.approver} · ${displayDate(a.created_at)}` : a.approver))
+							.join('\n')}
+					>
 						{approvals.length} of {detail.current.required_events} approvals:
 						<span class="text-primary">{namesLabel(approvals.map((a) => a.approver))}</span>
 					</span>
