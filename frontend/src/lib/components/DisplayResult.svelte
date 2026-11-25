@@ -319,12 +319,15 @@
 		workspace: string,
 		id: string
 	): Promise<{ length: number; imageKind?: string } | undefined> {
-		// The probe walks the job's whole tree, reading every descendant's result: only a job
-		// with no children is cheap to ask.
+		// The probe walks the job's whole tree, reading every descendant's result: flows and
+		// workflow-as-code jobs, whose children are known, are not asked. A script starting jobs
+		// through the SDK still is: nothing on the job says it has children.
 		const job = await fetchViaClient(
 			appendViewToken(`/w/${workspace}/jobs_u/get/${id}?no_logs=true`)
 		)
-		if (!job.ok || !SINGLE_JOB_KINDS.includes((await job.json()).job_kind)) return
+		if (!job.ok) return
+		const { job_kind, workflow_as_code_status } = await job.json()
+		if (!SINGLE_JOB_KINDS.includes(job_kind) || workflow_as_code_status) return
 		const r = await fetchViaClient(
 			appendViewToken(`/w/${workspace}/jobs_u/get_flow_all_results/${id}?max_result_len=16`)
 		)
