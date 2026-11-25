@@ -6019,7 +6019,6 @@ async fn get_approval_step_detail(
         module: Option<serde_json::Value>,
         next_module: Option<serde_json::Value>,
         module_def: Option<serde_json::Value>,
-        is_last_module: bool,
         run_approval_conditions: Option<serde_json::Value>,
         suspend_until: Option<chrono::DateTime<chrono::Utc>>,
         flow_error: Option<serde_json::Value>,
@@ -6038,10 +6037,6 @@ async fn get_approval_step_detail(
                     '$.modules[*] ? (@.id == $id)',
                     jsonb_build_object('id', $3::text)
                 ) AS module_def,
-                COALESCE(
-                    COALESCE(j.raw_flow, fv.value, fn.flow)->'modules'->-1->>'id' = $3,
-                    false
-                ) AS is_last_module,
                 s.flow_status->'approval_conditions' AS run_approval_conditions,
                 q.suspend_until,
                 c.result->'error' AS flow_error,
@@ -6105,12 +6100,13 @@ async fn get_approval_step_detail(
         .module_def
         .and_then(|v| serde_json::from_value(v).ok())
         .ok_or_else(not_found)?;
-    // The worker holds a run only after a step with a positive `required_events` that has a
-    // step after it (`needs_resume`); the last step's suspend settings never stop the run.
+    // The worker holds a run only after a step with a positive `required_events`. A last step
+    // holds it too: the worker appends a virtual step after it (`add_virtual_items_if_necessary`),
+    // which the stored flow does not carry.
     let suspend = module_def
         .suspend
         .as_ref()
-        .filter(|s| s.required_events.unwrap_or(0) > 0 && !row.is_last_module)
+        .filter(|s| s.required_events.unwrap_or(0) > 0)
         .ok_or_else(|| {
             Error::BadRequest(format!("Step {step_id} is not an approval (suspend) step"))
         })?;

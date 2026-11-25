@@ -1,10 +1,10 @@
 <script lang="ts">
-	import { resource } from 'runed'
-	import { ChevronDown, CircleCheck, CircleX, Hourglass } from 'lucide-svelte'
+	import { CircleCheck, CircleX } from 'lucide-svelte'
 	import { Badge, Button } from '$lib/components/common'
-	import { JobService, type FlowModule, type FlowStatusModule, type Job } from '$lib/gen'
+	import type { FlowModule, FlowStatusModule, Job } from '$lib/gen'
 	import { displayDate, type StateStore } from '$lib/utils'
 	import FlowExecutionStatus from './FlowExecutionStatus.svelte'
+	import FlowApprovalWaitingRow from './FlowApprovalWaitingRow.svelte'
 	import { pendingAgentApproval } from '../agentRequest'
 	import StepIdBadge from '../flows/content/StepIdBadge.svelte'
 
@@ -18,92 +18,71 @@
 
 	let { job, isOwner, suspendStatus, onSelectStep }: Props = $props()
 
-	type Row = {
+	type DoneRow = {
 		module: FlowModule
 		status: FlowStatusModule
-		waiting: boolean
 		/** A rejection the flow continued past (`continue_on_disapprove_timeout`). */
 		rejected: boolean
 	}
+	type Wait = { job: Job; module: FlowModule; within?: FlowModule }
 
-	// The run's own approval steps, as far as it reached them: an approved one, and the one it waits
-	// on. A step inside a branch, loop or subflow belongs to that run; while it waits, the panel
-	// below says so.
-	let rows = $derived.by((): Row[] => {
-		const modules = job.raw_flow?.modules ?? []
+	// The run's own approval steps it went past. A subflow, branch or loop iteration keeps the
+	// approvals it went past in its own run.
+	let done = $derived.by((): DoneRow[] => {
 		const statuses = job.flow_status?.modules ?? []
-		const step = job.flow_status?.step ?? 0
-		const waitingIndex = statuses[step]?.type === 'WaitingForEvents' ? step - 1 : -1
-		return modules.flatMap((module, i): Row[] => {
+		return (job.raw_flow?.modules ?? []).flatMap((module, i): DoneRow[] => {
 			const status = statuses[i]
-			if (!module.suspend || !status) return []
-			if (i === waitingIndex) return [{ module, status, waiting: true, rejected: false }]
-			if (status.type === 'Success' && !status.skipped && (status.approvers?.length ?? 0) > 0)
-				return [
-					{
-						module,
-						status,
-						waiting: false,
-						rejected: status.approvers?.some((a) => a.approved === false) ?? false
-					}
-				]
-			return []
+			if (!module.suspend || status?.type !== 'Success' || status.skipped) return []
+			if ((status.approvers?.length ?? 0) === 0) return []
+			return [
+				{ module, status, rejected: status.approvers?.some((a) => a.approved === false) ?? false }
+			]
 		})
 	})
-	let waitingRow = $derived(rows.find((r) => r.waiting))
-	// Waits the rows don't hold, which the panel below shows: a step inside a branch, loop or
-	// subflow, or an agent asking for a tool approval.
+
+	// Every approval the run waits on: its own step, or one in a subflow, branch or loop iteration
+	// under it, which the run's graph shows inside the step holding it.
+	let waits = $derived.by((): Wait[] => {
+		const step = job.flow_status?.step ?? 0
+		const own =
+			job.flow_status?.modules?.[step]?.type === 'WaitingForEvents'
+				? job.raw_flow?.modules?.[step - 1]
+				: undefined
+		if (own?.suspend) return [{ job, module: own }]
+		const holding = job.raw_flow?.modules?.[step]
+		return Object.values(suspendStatus.val ?? {}).flatMap(({ job: waiting }): Wait[] => {
+			const module = waiting.raw_flow?.modules?.[(waiting.flow_status?.step ?? 0) - 1]
+			if (waiting.id === job.id || !module?.suspend) return []
+			return [{ job: waiting, module, within: holding }]
+		})
+	})
+
+	// Waits the rows don't hold: an agent asking for a tool approval, or a run whose steps are not
+	// loaded.
 	let otherWaiting = $derived(
-		!waitingRow &&
-			((!!suspendStatus.val && Object.keys(suspendStatus.val).length > 0) ||
-				!!pendingAgentApproval(job))
+		!!pendingAgentApproval(job) ||
+			(waits.length === 0 && Object.keys(suspendStatus.val ?? {}).length > 0)
 	)
 
-	const detail = resource(
-		() => ({ workspace: job.workspace_id, jobId: job.id, stepId: waitingRow?.module.id }),
-		({ workspace, jobId, stepId }) =>
-			workspace && stepId
-				? JobService.getApprovalStepDetail({ workspace, jobId, stepId })
-				: Promise.resolve(undefined)
-	)
-
-	// Open for whoever can act on it; a long description or form takes room only for them.
-	let expandedFor = $state<string | undefined>(undefined)
-	let canApprove = $derived(detail.current?.can_approve ?? isOwner)
-	let expanded = $derived(
-		expandedFor === undefined ? canApprove : expandedFor === waitingRow?.module.id
-	)
-
-	let approvedCount = $derived(rows.filter((r) => !r.waiting && !r.rejected).length)
-
-	// Worded as the approval page words it. Admins and flow owners can approve any step, so they
-	// are not listed.
-	function canApproveLabel(): string {
-		const ac = detail.current?.approval_conditions
-		const who = !ac?.user_auth_required
-			? 'anyone with the approval link'
-			: ac.user_groups_required.length > 0
-				? `members of ${ac.user_groups_required.join(', ')}`
-				: 'any signed-in member'
-		return ac?.self_approval_disabled ? `${who} · self-approval disabled` : who
-	}
+	let approvedCount = $derived(done.filter((r) => !r.rejected).length)
+	let stepCount = $derived(done.length + waits.length)
 </script>
 
-{#if rows.length > 0}
+{#if stepCount > 0 || otherWaiting}
 	<div class="rounded-md border bg-surface-tertiary">
 		<div class="flex items-center justify-between px-4 py-2 text-xs font-semibold text-emphasis">
 			<span>Approvals</span>
-			<span class="font-normal text-secondary">
-				{approvedCount} of {rows.length} step{rows.length === 1 ? '' : 's'} approved
-			</span>
+			{#if stepCount > 0}
+				<span class="font-normal text-secondary">
+					{approvedCount} of {stepCount} step{stepCount === 1 ? '' : 's'} approved
+				</span>
+			{/if}
 		</div>
-		{#each rows as row (row.module.id)}
+		{#each done as row (row.module.id)}
 			<div
 				class="grid grid-cols-[16px_minmax(140px,1fr)_minmax(0,2fr)_auto] items-center gap-3 px-4 py-2 border-t text-xs"
 			>
-				{#if row.waiting}
-					<Hourglass size={14} class="text-violet-500" />
-				{:else if row.rejected}
+				{#if row.rejected}
 					<CircleX size={14} class="text-red-500" />
 				{:else}
 					<CircleCheck size={14} class="text-green-500" />
@@ -122,51 +101,34 @@
 					{#if row.module.summary}<StepIdBadge id={row.module.id} />{/if}
 				</span>
 				<span class="flex flex-wrap items-center gap-x-3 gap-y-0.5 min-w-0 text-secondary">
-					{#if row.waiting}
-						{#if detail.current}
-							<span><span class="text-hint">Can approve:</span> {canApproveLabel()}</span>
-						{/if}
-						{#if (detail.current?.approvals.length ?? 0) > 0}
-							<span>
-								{detail.current?.approvals.length} of {detail.current?.required_events} approvals
-							</span>
-						{/if}
-					{:else}
-						<!-- Unkeyed: the status stores resume ids truncated to 16 bits, so two can collide. -->
-						{#each row.status.approvers ?? [] as approver}
-							<span>
-								<span class="text-primary">{approver.approver}</span>
-								{#if approver.approved_at}
-									<span class="text-hint">· {displayDate(approver.approved_at)}</span>
-								{/if}
-							</span>
-						{/each}
-					{/if}
+					<!-- Unkeyed: the status stores resume ids truncated to 16 bits, so two can collide. -->
+					{#each row.status.approvers ?? [] as approver}
+						<span>
+							<span class="text-primary">{approver.approver}</span>
+							{#if approver.approved_at}
+								<span class="text-hint">· {displayDate(approver.approved_at)}</span>
+							{/if}
+						</span>
+					{/each}
 				</span>
-				{#if row.waiting}
-					<span class="flex items-center gap-1">
-						<Badge color="violet" small>Waiting</Badge>
-						<Button
-							variant="subtle"
-							unifiedSize="xs"
-							iconOnly
-							startIcon={{ icon: ChevronDown, classes: expanded ? 'rotate-180' : '' }}
-							title={expanded ? 'Hide the approval form' : 'Show the approval form'}
-							aria-label={expanded ? 'Hide the approval form' : 'Show the approval form'}
-							aria-expanded={expanded}
-							onclick={() => (expandedFor = expanded ? '' : row.module.id)}
-						/>
-					</span>
-				{:else if row.rejected}
+				{#if row.rejected}
 					<Badge color="red" small>Rejected, continued</Badge>
 				{:else}
 					<Badge color="green" small>Approved</Badge>
 				{/if}
 			</div>
 		{/each}
-		{#if otherWaiting || (waitingRow && expanded)}
-			<!-- The step's own approval panel, unchanged: its description, form and buttons. -->
-			<div class="px-4 pt-1 pb-3">
+		{#each waits as wait (`${wait.job.id}:${wait.module.id}`)}
+			<FlowApprovalWaitingRow
+				job={wait.job}
+				module={wait.module}
+				within={wait.within}
+				{isOwner}
+				onSelectStep={() => onSelectStep((wait.within ?? wait.module).id)}
+			/>
+		{/each}
+		{#if otherWaiting}
+			<div class="px-4 pt-1 pb-3 border-t">
 				<FlowExecutionStatus
 					{job}
 					{isOwner}
@@ -177,6 +139,4 @@
 			</div>
 		{/if}
 	</div>
-{:else}
-	<FlowExecutionStatus {job} {isOwner} {suspendStatus} innerModules={job.flow_status?.modules} />
 {/if}
