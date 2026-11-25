@@ -41,7 +41,8 @@ use windmill_common::db::Authed;
 use windmill_common::flow_conversations::{add_message_to_conversation_tx, MessageType};
 use windmill_common::flow_status::{
     ApprovalConditions, ContinuedOnError, FlowJobDuration, FlowJobsDuration,
-    FlowStatusModuleWParent, Iterator as FlowIterator, JobResult, MAX_CONTINUED_ON_ERROR,
+    FlowStatusModuleWParent, HomeListing, Iterator as FlowIterator, JobResult,
+    MAX_CONTINUED_ON_ERROR,
 };
 use windmill_common::flows::{add_virtual_items_if_necessary, Branch, FlowNodeId, StopAfterIf};
 use windmill_common::jobs::{
@@ -4402,7 +4403,14 @@ async fn push_next_flow_job(
                     json!(FlowStatusModule::WaitingForEvents {
                         id: status_module.id(),
                         count: required_events,
-                        job: last
+                        job: last,
+                        home: (suspend.show_on_home == Some(true)).then(|| HomeListing {
+                            step_summary: usize::try_from(status.step - 1)
+                                .ok()
+                                .and_then(|i| flow.modules.get(i))
+                                .and_then(|m| m.summary.clone())
+                                .filter(|s| !s.is_empty()),
+                        }),
                     }),
                     (required_events.saturating_sub(resume_messages.len() as u16)) as i32,
                     Duration::from_secs(

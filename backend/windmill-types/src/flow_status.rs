@@ -217,6 +217,7 @@ struct UntaggedFlowStatusModule {
     type_: String,
     id: Option<String>,
     count: Option<u16>,
+    home: Option<HomeListing>,
     progress: Option<u8>,
     job: Option<Uuid>,
     iterator: Option<Iterator>,
@@ -274,6 +275,12 @@ pub enum AgentAction {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct HomeListing {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub step_summary: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ApprovalCall {
     pub function_name: String,
     pub arguments: serde_json::Value,
@@ -289,6 +296,10 @@ pub enum FlowStatusModule {
         id: String,
         count: u16,
         job: Uuid,
+        /// Set while waiting on an approval step with `show_on_home`, so the Home list of
+        /// approvals reads it here rather than in each run's flow definition.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        home: Option<HomeListing>,
     },
     WaitingForExecutor {
         id: String,
@@ -392,6 +403,7 @@ impl<'de> Deserialize<'de> for FlowStatusModule {
                 job: untagged
                     .job
                     .ok_or_else(|| serde::de::Error::missing_field("job"))?,
+                home: untagged.home,
             }),
             "WaitingForExecutor" => Ok(FlowStatusModule::WaitingForExecutor {
                 id: untagged
