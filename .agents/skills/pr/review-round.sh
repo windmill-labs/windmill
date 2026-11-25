@@ -43,10 +43,11 @@ DEADLINE=$(( $(date +%s) + 45 * 60 ))
 NO_RUN_DEADLINE=$(( $(date +%s) + 5 * 60 ))
 MIN_WAIT_UNTIL=$(( $(date +%s) + 3 * 60 ))
 STABLE=0
+SEEN=0
 FAILURES=0
 while :; do
   if RUNS=$(gh run list --repo "$REPO" --workflow=pr-review-commands.yml \
-      --created ">=$TRIGGER_TIME" --limit 100 --json status,displayTitle \
+      --created ">=$TRIGGER_TIME" --limit 500 --json status,displayTitle \
       --jq "[.[] | select(.displayTitle == $(jq -Rn --arg t "$PR_TITLE" '$t'))]"); then
     FAILURES=0
   else
@@ -60,6 +61,9 @@ while :; do
     continue
   fi
   TOTAL=$(jq length <<<"$RUNS")
+  # The limit applies before the title filter, so on a busy repo this PR's run
+  # can age out of the listing: once seen, never report it as missing.
+  if [ "$TOTAL" -gt 0 ]; then SEEN=1; fi
   PENDING=$(jq '[.[] | select(.status != "completed")] | length' <<<"$RUNS")
   NOW=$(date +%s)
   if [ "$TOTAL" -gt 0 ] && [ "$PENDING" -eq 0 ] && [ "$NOW" -gt "$MIN_WAIT_UNTIL" ]; then
@@ -70,7 +74,7 @@ while :; do
   else
     STABLE=0
   fi
-  if [ "$TOTAL" -eq 0 ] && [ "$NOW" -gt "$NO_RUN_DEADLINE" ]; then
+  if [ "$SEEN" -eq 0 ] && [ "$NOW" -gt "$NO_RUN_DEADLINE" ]; then
     echo "ERROR: no 'PR Review Commands' run appeared within 5 minutes of the /review comment; check that the comment author has write access and the workflow is enabled." >&2
     exit 1
   fi
