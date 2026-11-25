@@ -37,6 +37,8 @@
 		isScheduled?: boolean
 		// Whether the job was skipped (early-stop labelled as skipped)
 		isSkipped?: boolean
+		/** Why the next step has not started yet, e.g. a sleep or a concurrency limit. */
+		waitingText?: string
 		/** Rendered after "Error occurred" when the bar is in its error state. */
 		errorAction?: Snippet
 	}
@@ -60,6 +62,7 @@
 		isCanceled = false,
 		isScheduled = false,
 		isSkipped = false,
+		waitingText = undefined,
 		errorAction
 	}: Props = $props()
 	let duration = 200
@@ -166,7 +169,7 @@
 				{:else if status == 'running' && !isCanceled && !isScheduled && !isSkipped}
 					<Loader2 class="animate-spin" size={14} />
 				{/if}
-				{#key status + isWaitingForEvents + stepId + isCanceled + isScheduled + isSkipped}
+				{#key status + isWaitingForEvents + stepId + isCanceled + isScheduled + isSkipped + waitingText}
 					<span in:fade={{ duration: 150 }}>
 						{#if status == 'error'}
 							Error occurred
@@ -180,9 +183,11 @@
 							Waiting to be resumed
 						{:else if isScheduled}
 							(not started)
+						{:else if waitingText}
+							{waitingText}
 						{:else if showStepId}
 							{stepId
-								? `${isCanceled ? 'Canceled at' : 'Running'} step ${stepId}`
+								? `${isCanceled ? 'Canceled at' : 'Running'} step '${stepId}'`
 								: `${isCanceled ? 'Canceled' : ''}`}
 						{:else if hideStepTitle}
 							{isCanceled ? 'Canceled' : 'Running'}

@@ -66,6 +66,8 @@
 		pathHref?: string
 		nodeState?: FlowNodeState
 		retries?: number | undefined
+		/** In a run, while its concurrency limit holds the step back. */
+		held?: { since?: string; nextCheck?: Date | string }
 		/** In a run, the attempts the retry badge picks from. */
 		attempts?: RetryAttempts | undefined
 		warningMessage?: string | undefined
@@ -101,6 +103,7 @@
 		pathHref = undefined,
 		nodeState,
 		retries = undefined,
+		held = undefined,
 		attempts = undefined,
 		warningMessage = undefined,
 		editMode = false,
@@ -311,6 +314,7 @@
 				<StepSettingsBar
 					{settings}
 					{retries}
+					{held}
 					{attempts}
 					onOpenChange={(o) => (settingsMenuOpen = o)}
 					onOpenSetting={editMode && id

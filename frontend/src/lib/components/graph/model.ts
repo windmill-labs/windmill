@@ -29,7 +29,6 @@ export type DurationStatus = {
 
 export type FlowStatusViewerContext = {
 	flowState?: FlowState
-	retryStatus: StateStore<Record<string, number | undefined>>
 	/** `prefix`: the subflow step ids leading to the run, as `buildPrefix` chains them. */
 	suspendStatus: StateStore<Record<string, { nb: number; job: Job; prefix?: string }>>
 	hideDownloadInGraph?: boolean
@@ -48,6 +47,15 @@ export type GraphModuleState = {
 	result?: any
 	tag?: string
 	scheduled_for?: Date
+	/** Why a `WaitingForExecutor` step is due later: the previous step's sleep, or its own
+	 * concurrency limit holding it back (`concurrency_key`). */
+	waiting_reason?: 'sleep' | 'concurrency'
+	/** On the step waiting for the approval step `step` before it: their run, and how many
+	 * approvals it needs. */
+	approval_wait?: { job: string; workspace?: string; step: string; required: number }
+	/** When its concurrency limit first held the step back. */
+	held_since?: string
+	concurrency_key?: string
 	job_id?: string
 	parent_module?: string
 	selectedForloop?: string

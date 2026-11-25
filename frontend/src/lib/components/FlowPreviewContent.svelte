@@ -638,6 +638,7 @@
 					slim
 					textPosition="bottom"
 					showStepId
+					stepStates={localModuleStates}
 					waitingNested={Object.keys(suspendStatus?.val ?? {}).length > 0}
 				/>
 			{/if}

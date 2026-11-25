@@ -6,7 +6,9 @@
 		Calendar,
 		Check,
 		FastForward,
+		Gauge,
 		Hourglass,
+		Moon,
 		Play,
 		ShieldQuestion,
 		Wrench,
@@ -19,9 +21,19 @@
 		job: Job
 		isExternal?: boolean
 		roundedFull?: boolean
+		/** Its concurrency limit holds the job back. */
+		heldByConcurrency?: boolean
+		/** Why the step the flow is at has not started. */
+		stepWaiting?: 'sleep' | 'concurrency'
 	}
 
-	let { job, isExternal = false, roundedFull = false }: Props = $props()
+	let {
+		job,
+		isExternal = false,
+		roundedFull = false,
+		heldByConcurrency = false,
+		stepWaiting
+	}: Props = $props()
 </script>
 
 <div class="flex items-center justify-start">
@@ -65,9 +77,31 @@
 		<Badge color="violet" {roundedFull} baseClass={roundedFull ? '' : '!px-1.5'} title="Suspended">
 			<Hourglass size={14} />
 		</Badge>
+	{:else if 'running' in job && job.running && stepWaiting === 'sleep'}
+		<Badge {roundedFull} baseClass={roundedFull ? '' : '!px-1.5'} title="Sleeping">
+			<Moon size={14} />
+		</Badge>
+	{:else if 'running' in job && job.running && stepWaiting === 'concurrency'}
+		<Badge
+			color="orange"
+			{roundedFull}
+			baseClass={roundedFull ? '' : '!px-1.5'}
+			title="Step held by concurrency limit"
+		>
+			<Gauge size={14} />
+		</Badge>
 	{:else if 'running' in job && job.running}
 		<Badge color="yellow" {roundedFull} baseClass={roundedFull ? '' : '!px-1.5'}>
 			<Play size={14} />
+		</Badge>
+	{:else if 'running' in job && heldByConcurrency}
+		<Badge
+			color="orange"
+			{roundedFull}
+			baseClass={roundedFull ? '' : '!px-1.5'}
+			title="Held by concurrency limit"
+		>
+			<Gauge size={14} />
 		</Badge>
 	{:else if job && 'running' in job && job.scheduled_for && forLater(job.scheduled_for)}
 		<Badge color="blue" {roundedFull} baseClass={roundedFull ? '' : '!px-1.5'}>

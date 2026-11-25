@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE concurrency_key SET released_at = $2 WHERE job_id = $1 AND released_at IS NULL",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "79ad082adcef4e3dd4745bff5f498889cdd0f5365bd43442ac745997f1a4173c"
+}

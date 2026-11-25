@@ -4,6 +4,8 @@
 	import { forLater } from '$lib/forLater'
 	import { waitingRequest } from '../agentRequest'
 	import type { Snippet } from 'svelte'
+	import type { GraphModuleState } from '../graph'
+	import { displayDate } from '$lib/utils'
 
 	interface Props {
 		job?: Job | undefined
@@ -13,6 +15,8 @@
 		textPosition?: 'top' | 'bottom'
 		// Prefer step ID over step index when both are available
 		showStepId?: boolean
+		/** The run graph's step states, which say why a step that has not started is waiting. */
+		stepStates?: Record<string, GraphModuleState>
 		errorAction?: Snippet
 		/** A run nested under this one waits on an approval, which its own steps don't show. */
 		waitingNested?: boolean
@@ -25,9 +29,41 @@
 		slim = false,
 		textPosition = 'top',
 		showStepId = false,
+		stepStates = undefined,
 		errorAction,
 		waitingNested = false
 	}: Props = $props()
+
+	// The current step, or a step waiting inside it when it is a subflow.
+	let waitingText = $derived.by(() => {
+		const current = job?.flow_status?.modules?.[job.flow_status.step]?.id
+		if (!current || !stepStates) return undefined
+		const inside = `subflow:${current}:`
+		const retrying = Object.entries(stepStates).find(
+			([key, s]) =>
+				(key === current || key.startsWith(inside)) &&
+				(s.type === 'WaitingForExecutor' || s.type === 'InProgress') &&
+				(s.retries ?? 0) > 0
+		)
+		if (retrying) {
+			const [key, s] = retrying
+			const n = s.retries ?? 0
+			return `Retrying step '${key.split(':').pop()}', ${n} failed attempt${n === 1 ? '' : 's'}`
+		}
+		const found = Object.entries(stepStates).find(
+			([key, s]) =>
+				(key === current || key.startsWith(inside)) &&
+				s.type === 'WaitingForExecutor' &&
+				s.waiting_reason
+		)
+		if (!found) return undefined
+		const [key, s] = found
+		const step = key.split(':').pop()
+		const until = displayDate(s.scheduled_for, true)
+		return s.waiting_reason === 'sleep'
+			? `Sleeping before step '${step}' until ${until}`
+			: `Step '${step}' held by concurrency limit, next check by ${until}`
+	})
 
 	let error: number | undefined = $state(undefined)
 	let index = $state(0)
@@ -196,5 +232,6 @@
 	{isCanceled}
 	{isScheduled}
 	{isSkipped}
+	{waitingText}
 	{errorAction}
 />
