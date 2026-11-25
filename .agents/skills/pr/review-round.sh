@@ -7,7 +7,7 @@
 # Comments `/review` on the PR (works on drafts), waits for the spawned
 # "PR Review Commands" workflow run(s) to complete, then prints one verdict
 # line per reviewer and saves each full review comment to a file. A round
-# takes 10-30 minutes: run this in the background and act on its output when
+# takes about 10 minutes, 20 at most: run this in the background and act on its output when
 # it exits, per the pr skill ("Review rounds").
 set -euo pipefail
 
@@ -20,7 +20,7 @@ PR_TITLE=$(gh pr view "$PR" --repo "$REPO" --json title --jq .title)
 TRIGGER_TIME=$(gh api "repos/$REPO/issues/$PR/comments" -f body='/review' --jq .created_at)
 echo "Review round triggered on $REPO#$PR at $TRIGGER_TIME"
 
-# Retry wrapper for one-off gh/API hiccups: a 45-minute wait must not die on
+# Retry wrapper for one-off gh/API hiccups: a 20-minute wait must not die on
 # a single transient failure.
 retry() {
   local attempt
@@ -35,7 +35,7 @@ retry() {
 # claude/codex/pi jobs. Runs aren't linked to a PR, but an issue_comment run's
 # display title is the PR's title: match on it, since waiting on every run
 # after the trigger means a stuck reviewer on any other PR holds this round
-# to the 45-minute deadline. Every comment on this PR (the reviewers' own
+# to the deadline. Every comment on this PR (the reviewers' own
 # included) spawns a fast-completing parse run, so the round's own run may
 # briefly lag the listing while those already show completed: require the
 # all-completed state to hold past a floor and across two consecutive polls.
@@ -49,8 +49,8 @@ all_verdicts_in() {
   gh api "repos/$REPO/issues/$PR/comments?per_page=100" --paginate 2>/dev/null \
     | jq -s -e --arg t "$TRIGGER_TIME" --arg re "$VERDICT_RE" '
         [.[][] | select(.updated_at > $t) | select(.body // "" | test($re))] as $c
-        | ($c | any(.body | contains("## Codex Review")))
-          and ($c | any(.body | contains("## Pi Review")))
+        | ($c | any(.user.login == "github-actions[bot]" and (.body | startswith("## Codex Review"))))
+          and ($c | any(.user.login == "github-actions[bot]" and (.body | startswith("## Pi Review"))))
           and ($c | any(.user.login == "claude[bot]"))' >/dev/null
 }
 DEADLINE=$(( $(date +%s) + 20 * 60 ))

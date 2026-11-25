@@ -135,7 +135,7 @@ sufficient — see "Flip, or ask first" below. The one standing exception is an 
 leave that PR in draft (usually so it can be tested first) — honour it for that PR, and don't
 carry it over to the next one.
 
-1. **Trigger a round and wait for it**: launch the waiter as a background Bash task (a round takes 10–30 min; you are woken when it exits — do not stop the session or poll in the foreground while it runs):
+1. **Trigger a round and wait for it**: launch the waiter as a background Bash task (a round takes about 10 min, 20 at most; you are woken when it exits — do not stop the session or poll in the foreground while it runs):
 
    ```bash
    bash .agents/skills/pr/review-round.sh <PR_NUMBER>
