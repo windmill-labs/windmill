@@ -713,6 +713,7 @@ Never put a secret (password, API key, token) inline in a resource value. Store 
 
 - \`$var:<path>\` is a reference, not a value: it resolves to the variable's value at run time. Never invent a value for a variable.
 - A resource that references a variable needs the variable to exist first, so create or deploy the variable before the resource.
+- When the user has not given you the secret, they enter it in Windmill's secure input, never in the conversation.
 
 ## Resource References
 
@@ -1624,7 +1625,7 @@ write a secret you were not given: keep the placeholder.
 | Key | Value |
 |---|---|
 | \`auto_invite\` | \`{ enabled, mode: invite \\| add, operator, instance_groups?, instance_groups_roles? }\`. The instance groups are managed only when \`instance_groups\` is stated; clearing a group removes the members it added. |
-| \`error_handler\` / \`success_handler\` | \`{ path, extra_args?, muted_on_cancel?, muted_on_user_path? }\`, \`path\` being \`script/<path>\` or \`flow/<path>\`. |
+| \`error_handler\` / \`success_handler\` | \`{ path, extra_args?, muted_on_cancel?, muted_on_user_path?, muted_on_ui_runs? }\`, \`path\` being \`script/<path>\` or \`flow/<path>\`. \`muted_on_ui_runs\` (error handler only) skips jobs started from the UI. |
 | \`error_handler_fallback_to_instance_alerts\` | Report failures to the instance critical alert channels when no error handler is set. |
 | \`webhook\` | URL POSTed a JSON event on every change to the workspace's items. |
 | \`ai_config\` | Providers, default and completion models, custom prompts, \`copilot_disabled\`. |
@@ -4485,6 +4486,8 @@ Manage jobs (list, inspect, cancel)
 - \`job restart <id:string>\` - Restart a completed flow at a given top-level step. Prints the new flow job UUID on stdout.
   - \`--step <stepId:string>\` - Top-level step id to restart the flow from
   - \`--iteration <n:number>\` - For a top-level branchall or for-loop step, the iteration to restart at
+  - \`--failed-only\` - For a parallel for-loop or branchall step, rerun only the iterations (branches) that failed, from their first step, keeping the others' results
+  - \`--from-failed-step\` - With --failed-only, resume each failed iteration (branch) at the step where it failed instead of its first step
 
 ### jobs
 
@@ -4936,6 +4939,7 @@ workspace related commands
   - \`--create-workspace-name <workspace_name:string>\` - Specify the workspace name. Ignored if --create is not specified or the workspace already exists. Will default to the workspace id.
   - \`--create-username <username:string>\` - Specify your own username in the newly created workspace. Ignored if --create is not specified, the workspace already exists or automatic username creation is enabled on the instance.
 - \`workspace remove <workspace_name:string>\` - Remove a workspace
+- \`workspace login [workspace_name:string:workspace]\` - Sign in again for a workspace profile (default: the active one) and replace its token, e.g. to extend one about to expire. The previous token is revoked when the CLI's browser login created it.
 - \`workspace whoami\` - Show the currently active user
 - \`workspace list\` - List local workspace profiles
 - \`workspace list-remote\` - List workspaces on the remote server that you have access to

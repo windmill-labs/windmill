@@ -61,7 +61,7 @@
 	import { captureScale, MAX_IMAGE_EDGE } from '../copilot/chat/imageUtils'
 	import { rawAppLintStore } from './lintStore'
 	import { dbSchemas, userStore } from '$lib/stores'
-	import { copilotInfo } from '$lib/aiStore'
+	import { getAiChatManager } from '$lib/components/copilot/chat/aiChatManagerContext'
 	import { useActingUser } from '$lib/actingUser.svelte'
 	import { appPreviewOnBehalfOf } from '$lib/utils/previewOnBehalfOf'
 	import RawAppSdkConsent from './RawAppSdkConsent.svelte'
@@ -279,6 +279,9 @@
 		onTakeLatest = undefined,
 		draftBaseVersion = undefined
 	}: Props = $props()
+
+	const aiChat = getAiChatManager()
+	const aiInfo = $derived(aiChat.aiInfo)
 
 	// Workspace this editor operates on: the session's acting workspace when
 	// embedded in a session preview (autosaveWorkspace), else the navigation
@@ -2990,7 +2993,7 @@ addEventListener('message', function (e) {
 													{bundlerType}
 												</Button>
 											{/if}
-											{#if !$copilotInfo.workspaceDisabled}
+											{#if aiInfo && !aiInfo.workspaceDisabled}
 												<Button
 													variant="subtle"
 													unifiedSize="sm"

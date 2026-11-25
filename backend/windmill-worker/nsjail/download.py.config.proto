@@ -108,8 +108,8 @@ mount {
 }
 
 mount {
-    src: "{TARGET_DIR}"
-    dst: "{TARGET_DIR}"
+    src: {TARGET_DIR}
+    dst: {TARGET_DIR}
     is_bind: true
     rw: true
 }

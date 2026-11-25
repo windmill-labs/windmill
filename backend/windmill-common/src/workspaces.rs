@@ -2146,6 +2146,18 @@ pub async fn resolve_workspace_governing_datatables(
         .collect())
 }
 
+/// Replication connections resolve unqualified names in `pg_catalog` only, never in the
+/// database's `public` schema, whose objects the workspace manages. A startup option outranks
+/// `ALTER ROLE/DATABASE ... SET`, and the last `-c` wins over one already in the options of
+/// `DATABASE_URL`.
+fn pin_replication_search_path(pg_creds: &mut PgDatabase) {
+    const PIN: &str = "-c search_path=pg_catalog";
+    pg_creds.options = Some(match pg_creds.non_empty_options() {
+        Some(options) => format!("{options} {PIN}"),
+        None => PIN.to_string(),
+    });
+}
+
 /// Build the `admin` connection for a governing entry: `custom_instance_user` for an instance
 /// database, on Windmill's cluster or the external one; the user's own resource for a BYO-postgres
 /// one.
@@ -2160,12 +2172,15 @@ async fn resolve_datatable_connection_unchecked(
         .as_ref()
         .expect("a governing entry owns a database");
     if database.resource_type == DataTableCatalogResourceType::ExternalInstance {
-        let pg_creds = crate::external_instance_pg::external_instance_connection_unchecked(
+        let mut pg_creds = crate::external_instance_pg::external_instance_connection_unchecked(
             db,
             &database.resource_path,
             replication,
         )
         .await?;
+        if replication {
+            pin_replication_search_path(&mut pg_creds);
+        }
         serde_json::to_value(&pg_creds)
             .map_err(|e| Error::internal_err(format!("Error serializing pg creds: {}", e)))
     } else if database.resource_type == DataTableCatalogResourceType::Instance {
@@ -2184,6 +2199,7 @@ async fn resolve_datatable_connection_unchecked(
         if replication {
             pg_creds.user = Some("custom_instance_replication_user".to_string());
             pg_creds.password = Some(get_custom_pg_instance_replication_password(&db).await?);
+            pin_replication_search_path(&mut pg_creds);
         } else {
             pg_creds.user = Some(CUSTOM_INSTANCE_USER.to_string());
             pg_creds.password = Some(get_custom_pg_instance_password(&db).await?);
@@ -4015,6 +4031,21 @@ mod tests {
 
     fn tenants(list: &[&str]) -> DataTableRoleTenants {
         DataTableRoleTenants { tenants: list.iter().map(|t| t.to_string()).collect() }
+    }
+
+    #[test]
+    fn replication_search_path_is_pinned_after_the_url_options() {
+        let mut creds = PgDatabase::parse_uri("postgres://u@h/db").unwrap();
+        pin_replication_search_path(&mut creds);
+        assert_eq!(creds.options.as_deref(), Some("-c search_path=pg_catalog"));
+
+        let mut creds =
+            PgDatabase::parse_uri("postgres://u@h/db?options=-c+search_path%3Dpublic").unwrap();
+        pin_replication_search_path(&mut creds);
+        assert_eq!(
+            creds.options.as_deref(),
+            Some("-c search_path=public -c search_path=pg_catalog")
+        );
     }
 
     #[test]

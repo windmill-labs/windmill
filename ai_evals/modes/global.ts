@@ -61,6 +61,7 @@ export function createGlobalModeRunner(
             : (context.evalCase?.validate as GlobalValidationSpec | undefined)?.pipelineRun,
           maxIterations: context.evalCase?.runtime?.maxTurns,
           userAnswers: context.evalCase?.runtime?.userAnswers,
+          secretRequests: context.evalCase?.runtime?.secretRequests,
           provider: modelConfig.provider,
           model: modelConfig.model,
           backend: backendSettings,

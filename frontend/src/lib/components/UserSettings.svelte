@@ -109,10 +109,9 @@
 						<AIUserSettings />
 					</div>
 				</div>
-				<!-- Keyed on the workspace `copilotInfo` reflects, not on `$workspaceStore`:
-				     a session acting on another workspace loads that workspace's AI config
-				     while navigation stays put, and pricing usage from one workspace with
-				     another's rates would silently misstate it. -->
+				<!-- Keyed on the workspace `copilotInfo` reflects, not on `$workspaceStore`,
+				     which is ahead of it while a switch loads: pricing usage from one
+				     workspace with another's rates would silently misstate it. -->
 				{#if $copilotWorkspace}
 					<AiUsagePanel
 						workspace={$copilotWorkspace}

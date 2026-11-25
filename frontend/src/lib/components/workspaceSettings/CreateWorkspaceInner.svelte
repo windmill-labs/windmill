@@ -83,6 +83,8 @@
 	import ForkDucklakeSection from './ForkDucklakeSection.svelte'
 	import ForkStorageSection from './ForkStorageSection.svelte'
 	import { createWorkspaceForkAndWait } from '$lib/utils/forkCreation'
+	import type { StagedFork } from '$lib/components/sessions/sessionForkDefaults'
+	import { untrack } from 'svelte'
 
 	interface Props {
 		isFork?: boolean
@@ -91,19 +93,32 @@
 		// "Back to workspaces" navigation.
 		inModal?: boolean
 		onFinish?: () => void
+		/** A fork a session creates at its first send: the form opens on `fork` and its button
+		 *  hands the choices to `onStage` instead of creating the fork. */
+		stage?: { fork: StagedFork; onStage: (fork: StagedFork) => void }
 	}
 
-	let { isFork = false, inModal = false, onFinish }: Props = $props()
+	let { isFork = false, inModal = false, onFinish, stage }: Props = $props()
+	const stagedAtOpen = untrack(() => stage?.fork)
+	const staged = stagedAtOpen?.settings
 
 	// Dev-workspace mode: create the fork as a persistent, prefix-less dev workspace and (optionally)
 	// lock the parent ("prod") against direct edits.
 	let createAsDevWorkspace = $state(false)
-	let lockProdDeploy = $state(true)
-	let lockProdForking = $state(true)
+	let lockProdDeploy = $state(staged?.lock_prod_deploy ?? true)
+	let lockProdForking = $state(staged?.lock_prod_forking ?? true)
 	// Bring the parent's members into the fork (a shared env). Defaults on for a
-	// dev workspace, off for a throwaway fork; flipping the dev toggle resets it.
+	// dev workspace, off for a throwaway fork; flipping the dev toggle resets it, except for
+	// the flip that restores a staged dev workspace, which keeps what was staged.
 	let copyMembers = $state(false)
+	let restoringStagedDev = !!staged?.is_dev_workspace
 	$effect(() => {
+		if (createAsDevWorkspace && restoringStagedDev) {
+			restoringStagedDev = false
+			copyMembers = staged?.copy_members ?? true
+			devWorkspaceLabel = (staged?.dev_workspace_label as DevWorkspaceLabelKey) ?? 'dev'
+			return
+		}
 		copyMembers = createAsDevWorkspace
 	})
 
@@ -117,8 +132,11 @@
 	})
 	// "Create a new dev workspace" links here with ?dev=true, so the button creates what it names.
 	// Applied once eligibility is confirmed rather than at init, since the effect above would clear a
-	// toggle set while the server check is still in flight.
-	let devRequestedFromUrl = $state(page.url.searchParams.get('dev') === 'true')
+	// toggle set while the server check is still in flight. A staged dev workspace is restored the
+	// same way.
+	let devRequestedFromUrl = $state(
+		page.url.searchParams.get('dev') === 'true' || !!staged?.is_dev_workspace
+	)
 	$effect(() => {
 		if (devRequestedFromUrl && canDesignateDevWorkspace) {
 			devRequestedFromUrl = false
@@ -128,7 +146,7 @@
 
 	// The base workspace to fork from. A fork's git branch is based on its parent's branch, so picking
 	// a fork here (rather than the root) yields a fork of a fork.
-	let baseWorkspaceId = $state<string | undefined>(undefined)
+	let baseWorkspaceId = $state<string | undefined>(stagedAtOpen?.parent_workspace_id)
 
 	// Base list for forking, folding in a superadmin-visited workspace (see useForkableWorkspaces).
 	const forkable = useForkableWorkspaces({
@@ -216,8 +234,12 @@
 	// Offer dev designation only once the server confirms there's no dev yet (returns null); stay
 	// conservative (no offer) while the check is loading (current is undefined). With every label
 	// taken the chain is full and there is nothing left to designate.
+	// A session's staged fork never adds a level to a dev chain: from Home, a dev base gets a fork.
 	let canDesignateDevWorkspace = $derived(
-		baseCanHostDev && availableDevLabels.length > 0 && devWorkspaceResource.current === null
+		baseCanHostDev &&
+			!(stage && baseWorkspaceEntry?.is_dev_workspace) &&
+			availableDevLabels.length > 0 &&
+			devWorkspaceResource.current === null
 	)
 
 	let devWorkspaceLabel = $state<DevWorkspaceLabelKey>('dev')
@@ -270,7 +292,7 @@
 	let effectiveLockProdDeploy = $derived(deployLocked || lockProdDeploy)
 	let effectiveLockProdForking = $derived(forkingLocked || lockProdForking)
 
-	let id = $state('')
+	let id = $state(stagedAtOpen?.id.replace(/^wm-fork-/, '') ?? '')
 	let name = $state('')
 	let username = $state('')
 
@@ -346,8 +368,8 @@
 				(forkingRulesets.length > 0 && !(canBypassForkingRule && forkingBypassConfirmed)))
 	)
 
-	let workspaceColor: string | undefined = $state(undefined)
-	let colorEnabled = $state(false)
+	let workspaceColor: string | undefined = $state(stagedAtOpen?.settings?.color)
+	let colorEnabled = $state(!!stagedAtOpen?.settings?.color)
 	let errorHandlerFallbackToInstanceAlerts = $state(false)
 
 	function generateRandomColor() {
@@ -463,7 +485,7 @@
 	async function forkWorkspace(prefixed_id: string): Promise<void> {
 		if (baseWorkspaceId) {
 			forkCreationLoading = true
-			forkCreationStep = 'Creating branch'
+			forkCreationStep = stage ? 'Saving' : 'Creating branch'
 			errorMsgs = []
 			failedSyncJobs = []
 			forkCreationError = ''
@@ -477,9 +499,37 @@
 				}
 			}
 
-			await completeFork(prefixed_id)
+			await afterCloneConfirmations(prefixed_id)
 		} else {
 			sendUserToast('No workspace selected, cannot fork non-existent workspace', true)
+		}
+	}
+
+	async function afterCloneConfirmations(prefixed_id: string): Promise<void> {
+		if (stage && baseWorkspaceId) {
+			forkCreationLoading = false
+			stage.onStage({
+				parent_workspace_id: baseWorkspaceId,
+				id: prefixed_id,
+				name,
+				settings: {
+					color: colorEnabled && workspaceColor ? workspaceColor : undefined,
+					datatables: Object.fromEntries(
+						(forkDatatableSection?.getConfirmedCloneJobs() ?? []).map((j) => [j.name, j.behavior])
+					),
+					shared_ducklakes: forkDucklakeSection?.getSharedDucklakes() ?? [],
+					shared_storages: forkStorageSection?.getSharedStorages() ?? [],
+					is_dev_workspace: createAsDevWorkspace,
+					dev_workspace_label: createAsDevWorkspace ? devWorkspaceLabel : undefined,
+					// Left unset on a plain fork, so a later dev workspace starts with prod locked.
+					lock_prod_deploy: createAsDevWorkspace ? effectiveLockProdDeploy : undefined,
+					lock_prod_forking: createAsDevWorkspace ? effectiveLockProdForking : undefined,
+					copy_members: copyMembers
+				}
+			})
+			onFinish?.()
+		} else {
+			await completeFork(prefixed_id)
 		}
 	}
 
@@ -732,19 +782,30 @@
 			id = name.toLowerCase().replace(/\s/gi, '-')
 		}
 	})
-	// When creating a dev workspace, prefill the fork name with `<root>-<badge>` (the effect above
-	// slugifies it into the id). Only fill an empty field or one still holding a prior suggestion, so a
-	// user-typed name is never overwritten; changing the label updates the suffix, and turning the dev
-	// toggle back off clears the suggestion.
-	let lastAutoDevName = $state<string | undefined>(undefined)
+	// When creating a dev workspace, prefill the id with `<base>-<badge>` (a fork's name is its id).
+	// Only replace an empty id, a prior suggestion, or the name Home generated for a staged fork, so a
+	// user-typed id is never overwritten; changing the label updates the suffix, and turning the dev
+	// toggle back off restores what was there.
+	const generatedId = untrack(() => (stagedAtOpen && !staged?.is_dev_workspace ? id : ''))
+	// A staged dev workspace Home named `<base>-<badge>` is still that suggestion.
+	let lastAutoId = $state(
+		untrack(() =>
+			stagedAtOpen &&
+			staged?.is_dev_workspace &&
+			id === `${stagedAtOpen.parent_workspace_id}-${devBadgeText(staged.dev_workspace_label)}`
+				? id
+				: generatedId
+		)
+	)
 	$effect(() => {
+		// A requested dev toggle is not on yet: the id would be cleared before it is restored.
+		if (devRequestedFromUrl) return
+		const base = baseWorkspaceId ?? $workspaceStore
 		const target =
-			createAsDevWorkspace && $workspaceStore
-				? `${$workspaceStore}-${devBadgeText(devWorkspaceLabel)}`
-				: ''
-		if (name === '' || name === lastAutoDevName) {
-			name = target
-			lastAutoDevName = target === '' ? undefined : target
+			createAsDevWorkspace && base ? `${base}-${devBadgeText(devWorkspaceLabel)}` : generatedId
+		if (id === lastAutoId || (id === '' && createAsDevWorkspace)) {
+			id = target
+			lastAutoId = target
 		}
 	})
 	run(() => {
@@ -1131,8 +1192,9 @@
 						bind:itemCount={datatableCount}
 						sourceWorkspace={baseWorkspaceId}
 						{requireIsolation}
+						initialBehaviors={stagedAtOpen?.settings?.datatables}
 						onAllDone={() => {
-							completeFork(effectiveForkId)
+							void afterCloneConfirmations(effectiveForkId)
 						}}
 						onCanceled={() => {
 							forkCreationLoading = false
@@ -1143,12 +1205,14 @@
 						bind:itemCount={ducklakeCount}
 						sourceWorkspace={baseWorkspaceId}
 						{requireIsolation}
+						initialShared={stagedAtOpen?.settings?.shared_ducklakes}
 					/>
 					<ForkStorageSection
 						bind:this={forkStorageSection}
 						bind:itemCount={storageCount}
 						sourceWorkspace={baseWorkspaceId}
 						{requireIsolation}
+						initialShared={stagedAtOpen?.settings?.shared_storages}
 					/>
 				</div>
 			{/if}
@@ -1275,8 +1339,14 @@
 			{/if}
 		</div>
 	</div>
-	<div class="flex flex-wrap flex-row {inModal ? 'justify-end' : 'justify-between'} gap-4 pt-4">
-		{#if !inModal}
+	<div
+		class="flex flex-wrap flex-row items-center {inModal && !stage
+			? 'justify-end'
+			: 'justify-between'} gap-4 pt-4"
+	>
+		{#if stage}
+			<span class="text-xs text-hint">Fork is created when the first message is sent</span>
+		{:else if !inModal}
 			<Button disabled={forkCreationLoading} variant="default" size="sm" href="/user/workspaces"
 				>&leftarrow; Back to workspaces</Button
 			>
@@ -1292,7 +1362,9 @@
 					!id}
 				on:click={createOrForkWorkspace}
 			>
-				{#if isFork}
+				{#if stage}
+					Save
+				{:else if isFork}
 					Fork workspace
 				{:else}
 					Create workspace

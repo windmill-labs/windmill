@@ -899,9 +899,10 @@ export function modelSupportsWebSearch(provider: AIProvider | undefined, model: 
 	return providerSupportsWebSearch(provider)
 }
 
-/** The model a request sends: for `info`'s workspace when given, else the tab's. */
+/** The model a request that names none sends: `info`'s workspace's default when given, else the
+ * tab's. */
 function modelFor(info: CopilotInfo | undefined): AIProviderModel {
-	return info ? resolveModelFor(info) : getCurrentModel()
+	return info ? resolveModelFor(info, undefined) : getCurrentModel()
 }
 
 export function getProviderAndCompletionConfig<K extends boolean>({
@@ -1223,9 +1224,9 @@ export async function getStreamedCompletionText(
 	messages: ChatCompletionMessageParam[],
 	abortController: AbortController,
 	// `workspace` and `info` send it for that workspace, with its AI config, rather than the tab's.
-	options?: { maxTokensCap?: number; workspace?: string; info?: CopilotInfo }
+	options?: Partial<AiTarget> & { maxTokensCap?: number; forceModelProvider?: AIProviderModel }
 ): Promise<string> {
-	const modelProvider = modelFor(options?.info)
+	const modelProvider = options?.forceModelProvider ?? modelFor(options?.info)
 	const drain = async (forceCompletions: boolean) => {
 		const stream = await getCompletion(messages, abortController, undefined, {
 			forceCompletions,

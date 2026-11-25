@@ -512,6 +512,8 @@ pub struct WindmillCompositeResult {
     result: Option<Box<RawValue>>,
 }
 
+const DEADLOCK_CHECK_INTERVAL: std::time::Duration = std::time::Duration::from_secs(5);
+
 pub async fn run_wait_result_internal(
     db: &DB,
     uuid: Uuid,
@@ -542,6 +544,7 @@ pub async fn run_wait_result_internal(
     // Once we observe the early_return node failed with a failure_module configured,
     // its result is final — no need to re-query it on every poll.
     let mut early_return_failed_and_suppressed = false;
+    let mut last_deadlock_check = std::time::Instant::now();
 
     loop {
         if let Some(node_id_for_empty_return) = node_id_for_empty_return
@@ -601,6 +604,15 @@ pub async fn run_wait_result_internal(
 
         if result.is_some() {
             break;
+        }
+
+        if last_deadlock_check.elapsed() >= DEADLOCK_CHECK_INTERVAL {
+            last_deadlock_check = std::time::Instant::now();
+            match windmill_common::tag_deadlock::fail_fast_waiting_parent(db, uuid, None).await {
+                Ok(Some(e)) => return Err(e),
+                Ok(None) => (),
+                Err(e) => tracing::warn!("same-tag deadlock check for job {uuid} failed: {e}"),
+            }
         }
 
         let delay = if accumulated_delay <= fast_poll_duration {

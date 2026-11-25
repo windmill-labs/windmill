@@ -38,6 +38,8 @@ const mocks = vi.hoisted(() => ({
 	getJob: vi.fn(),
 	getJobUpdates: vi.fn(),
 	whoami: vi.fn(),
+	saveSecretRequest: vi.fn(),
+	checkSubmission: vi.fn(),
 	workspace: 'test_workspace' as string | undefined,
 	// The workspace being browsed, which a session chat's own workspace need not be.
 	navWorkspace: undefined as string | undefined,
@@ -165,6 +167,17 @@ vi.mock('../lib', () => ({
 
 vi.mock('./api/apiTools', () => ({
 	loadApiTools: vi.fn()
+}))
+
+vi.mock('./secretRequest', async (importOriginal) => ({
+	...(await importOriginal<typeof import('./secretRequest')>()),
+	saveSecretRequest: mocks.saveSecretRequest,
+	checkSubmission: mocks.checkSubmission
+}))
+
+vi.mock('$lib/components/resourceConnectionTest', () => ({
+	canTestUnsaved: vi.fn(),
+	testUnsavedResource: vi.fn()
 }))
 
 // Mock only runChatLoop; keep the real truncateToToolPairedPrefix (pure) that
@@ -529,6 +542,112 @@ describe('AIChatManager run form', () => {
 		const settled = manager.displayMessages[0]
 		expect(settled.runForm?.canceled).toBe(true)
 		expect(settled.content).toBe('Run f/a/b — Canceled')
+	})
+})
+
+// Stop cannot withdraw a save already sent, so the card must end on what the save did.
+describe('AIChatManager secret request', () => {
+	it('ends the turn at stop, and settles the card on a save that lands after it', async () => {
+		const manager = new AIChatManager()
+		const request = { workspace: 'test_workspace', path: 'u/a/key', label: 'API key' }
+		manager.displayMessages = [
+			{ role: 'tool', tool_call_id: 'call_s', content: '', isLoading: true, secretRequest: request }
+		]
+		let land!: (outcome: { path: string; replaced: boolean; variables: string[] }) => void
+		mocks.saveSecretRequest.mockReturnValueOnce(new Promise((resolve) => (land = resolve)))
+
+		const toolResult = manager.requestSecret('call_s', request)
+		const saved = manager.saveSecret('call_s', {
+			path: 'u/a/key',
+			replace: false,
+			secrets: { '': 'sk-1' }
+		})
+		manager.cancel()
+		expect(await toolResult).toBeUndefined()
+
+		// Opening another chat first would settle this card in that one, so it waits.
+		const loadPast = vi.spyOn(manager.historyManager, 'loadPastChat').mockResolvedValue(undefined)
+		const switched = manager.loadPastChat('other')
+		await Promise.resolve()
+		expect(loadPast).not.toHaveBeenCalled()
+
+		// A follow-up sent while it waits keeps its conversation.
+		manager.loading = true
+		land({ path: 'u/a/key', replaced: false, variables: ['u/a/key'] })
+		await saved
+		await switched
+		expect(loadPast).not.toHaveBeenCalled()
+		const card = manager.displayMessages[0]
+		expect(card.role === 'tool' && card.secretRequest).toMatchObject({
+			saved: { path: 'u/a/key' },
+			saving: false
+		})
+	})
+
+	it('records the drafts and tells the model of a failed check when the save lands after stop', async () => {
+		const manager = new AIChatManager()
+		manager.initModifiedItemsTracking()
+		const note = vi.spyOn(manager, 'queueModelNote').mockResolvedValue(undefined)
+		const request = {
+			workspace: 'test_workspace',
+			path: 'u/a/s3',
+			label: 'S3',
+			resource: { type: 's3', value: {}, secretFields: [{ field: 'secretKey', label: 'Secret key' }] }
+		}
+		manager.displayMessages = [
+			{ role: 'tool', tool_call_id: 'call_l', content: '', isLoading: true, secretRequest: request }
+		]
+		let land!: (outcome: { path: string; replaced: boolean; variables: string[] }) => void
+		mocks.saveSecretRequest.mockReturnValueOnce(new Promise((resolve) => (land = resolve)))
+		mocks.checkSubmission.mockResolvedValueOnce({ ok: false, error: 'InvalidAccessKeyId' })
+
+		void manager.requestSecret('call_l', request)
+		const saved = manager.saveSecret('call_l', { path: 'u/a/s3', replace: false, secrets: {} })
+		manager.cancel()
+		land({ path: 'u/a/s3', replaced: false, variables: ['u/a/s3'] })
+		await saved
+
+		expect([...(manager.modifiedItems ?? [])].sort()).toEqual(['resource:u/a/s3', 'variable:u/a/s3'])
+		expect(note).toHaveBeenCalledWith(expect.stringContaining('InvalidAccessKeyId'))
+	})
+})
+
+// The resource exists once saved, so a failed check must never read as dismissed.
+describe('AIChatManager secret connection check', () => {
+	it('keeps the card open on a failed check, and settles it as saved when the user keeps it', async () => {
+		const manager = new AIChatManager()
+		const request = {
+			workspace: 'test_workspace',
+			path: 'u/a/db',
+			label: 'Postgres',
+			resource: {
+				type: 'postgresql',
+				value: {},
+				secretFields: [{ field: 'password', label: 'Password' }]
+			}
+		}
+		manager.displayMessages = [
+			{ role: 'tool', tool_call_id: 'call_c', content: '', isLoading: true, secretRequest: request }
+		]
+		mocks.saveSecretRequest.mockResolvedValueOnce({
+			path: 'u/a/db',
+			replaced: false,
+			variables: ['u/a/db']
+		})
+		mocks.checkSubmission.mockResolvedValueOnce({ ok: false, error: 'Network is unreachable' })
+
+		const toolResult = manager.requestSecret('call_c', request)
+		await expect(
+			manager.saveSecret('call_c', { path: 'u/a/db', replace: false, secrets: { password: 'x' } })
+		).rejects.toThrow('Network is unreachable')
+		const open = manager.displayMessages[0]
+		expect(open.role === 'tool' && open.secretRequest?.saved).toBeFalsy()
+
+		manager.dismissSecret('call_c')
+		expect(await toolResult).toMatchObject({
+			path: 'u/a/db',
+			check: { ok: false, error: 'Network is unreachable' }
+		})
 	})
 })
 

@@ -10,7 +10,7 @@ use crate::db::{Authable, UserDB};
 use crate::error::{self, Error};
 use crate::scripts::ScriptHash;
 use crate::secret_backend::{get_secret_value, resolves_externally};
-use crate::utils::{strip_json_nul, WarnAfterExt};
+use crate::utils::{strip_json_nul, PlainValue, WarnAfterExt};
 use crate::worker::{to_raw_value, Connection};
 use crate::workspace_crypt::CipherFormat;
 pub use crate::workspace_crypt::WorkspaceCrypt;
@@ -43,12 +43,15 @@ pub fn untrusted_arg_interpolates(arg: &str) -> bool {
 }
 
 /// `args`, which an untrusted user controls on a job that runs as someone else, with every one the
-/// worker would interpolate rewritten so it no longer is. The others keep their exact text.
+/// worker would interpolate rewritten so it no longer is. The others keep their exact text, but
+/// one named like serde_json's raw value key is dropped: a flow reading `flow_input` as a `Value`
+/// would get the JSON text in it in place of the args.
 pub fn omit_untrusted_interpolation(
     args: HashMap<String, Box<RawValue>>,
     resource_omitted: &str,
 ) -> HashMap<String, Box<RawValue>> {
     args.into_iter()
+        .filter(|(k, _)| decoded(&serde_json::json!({ k: 0 }).to_string()).is_some())
         .map(|(k, v)| {
             if !may_reference(v.get()) {
                 return (k, v);
@@ -68,6 +71,15 @@ pub fn omit_untrusted_interpolation(
         .collect()
 }
 
+/// `text`, handed as a string to jobs that run under another identity than its writer's, with
+/// every reference rewritten as [`omit_untrusted_interpolation`] would.
+pub fn omit_untrusted_text(text: &str) -> String {
+    omitted(
+        text,
+        "The following resource has been omitted for security reasons: ",
+    )
+}
+
 /// Without a `$`, spelled out or escaped, an argument holds no reference however jsonb rewrites
 /// it, so it needs no decoding, even one serde_json cannot read.
 fn may_reference(arg: &str) -> bool {
@@ -76,9 +88,11 @@ fn may_reference(arg: &str) -> bool {
 
 /// `arg` as its jsonb column will hold it: the NUL stripped as `push` strips it, escapes decoded,
 /// the last copy of a duplicate key kept. `None` for what serde_json cannot read, which jsonb may
-/// still store (`1e400`).
+/// still store (`1e400`), and for what a later read as a `Value` would replace ([`PlainValue`]).
 fn decoded(arg: &str) -> Option<serde_json::Value> {
-    serde_json::from_str(&strip_json_nul(arg)).ok()
+    serde_json::from_str::<PlainValue>(&strip_json_nul(arg))
+        .ok()
+        .map(|v| v.0)
 }
 
 /// The worker's own test on the whole argument, plus a reserved `WM_*` key or value at any depth,
@@ -965,7 +979,7 @@ pub async fn get_reserved_variables(
 })).collect()
 }
 
-async fn get_cached_workspace_envs(conn: &Connection, w_id: &str) -> Vec<(String, String)> {
+pub async fn get_cached_workspace_envs(conn: &Connection, w_id: &str) -> Vec<(String, String)> {
     let cached_envs_o = CUSTOM_ENVS_CACHE.get(w_id).and_then(|(ts, envs)| {
         if ts > chrono::Utc::now().timestamp() - (60 * 15) {
             Some(envs)
@@ -1141,6 +1155,34 @@ mod tests {
         }
         assert!(omit(r#"{"n": 1e400, "r": "$var:x"}"#).contains("could not be checked"));
         assert_eq!(omit(r#"{"n": 1e400}"#), r#"{"n": 1e400}"#);
+        // serde_json reads this as the array in the string, NUL still to be stripped.
+        for raw_value in [
+            r#"{"$serde_json::private::RawValue": "[\"$va\\u0000r:x\", \"$var:\"]"}"#,
+            r#"[{"a": 1, "$serde_json::private::Raw\u0000Value": "1"}]"#,
+        ] {
+            assert!(
+                omit(raw_value).contains("could not be checked"),
+                "{raw_value}"
+            );
+        }
+        let args = r#"{"$serde_json::private::Raw\u0000Value": 1, "a": 2}"#;
+        let args = omit_untrusted_interpolation(serde_json::from_str(args).unwrap(), "");
+        assert_eq!(args.keys().collect::<Vec<_>>(), ["a"]);
+    }
+
+    #[test]
+    fn plain_value_refuses_texts_nested_in_texts() {
+        use crate::utils::PlainValue;
+        let mut nested = "1".to_string();
+        for _ in 0..100 {
+            let text = format!("{}{nested}{}", "[".repeat(120), "]".repeat(120))
+                .replace('\\', "\\u005c")
+                .replace('"', "\\u0022");
+            nested = format!(r#"{{"$serde_json::private::RawValue":"{text}"}}"#);
+        }
+        assert!(serde_json::from_str::<PlainValue>(&nested).is_err());
+        let v: PlainValue = serde_json::from_str(r#"{"a": [1, 2.5, null, "$x"]}"#).unwrap();
+        assert_eq!(v.0, serde_json::json!({"a": [1, 2.5, null, "$x"]}));
     }
     use crate::error::Error;
     use crate::workspace_crypt::WorkspaceCrypt;

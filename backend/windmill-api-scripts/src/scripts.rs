@@ -194,7 +194,7 @@ async fn list_scripts(
     Query(pagination): Query<Pagination>,
     Query(lq): Query<ListScriptQuery>,
 ) -> JsonResult<Vec<ListableScript>> {
-    // A role that cannot write code lists only what it can run: no libraries, no drafts.
+    // A role that cannot write code lists only what it can run or compose: no libraries, no drafts.
     let cannot_code = !windmill_common::roles::caller_capabilities(&db, &w_id, &authed)
         .await?
         .code;
@@ -259,16 +259,19 @@ async fn list_scripts(
         .limit(per_page)
         .clone();
 
-    let lowercased_kinds: Option<Vec<String>> = lq
+    let mut lowercased_kinds: Option<Vec<String>> = lq
         .kinds
         .map(|x| x.split(",").map(&str::to_lowercase).collect());
 
-    if (!lq.include_without_main.unwrap_or(false)
+    if cannot_code {
+        lowercased_kinds.get_or_insert_with(|| vec!["script".to_string()]);
+        // A preprocessor has no main, so it is a 'lib' that a composed flow can still use.
+        sqlb.and_where("(o.auto_kind IS NULL OR o.auto_kind <> 'lib' OR o.kind = 'preprocessor')");
+    } else if !lq.include_without_main.unwrap_or(false)
         && lowercased_kinds
             .as_ref()
             .map(|x| !x.contains(&"preprocessor".to_string()))
-            .unwrap_or(true))
-        || cannot_code
+            .unwrap_or(true)
     {
         // only include scripts that have a runnable entrypoint. Use a
         // deny-list: anything that isn't a 'lib' (library script without
@@ -325,9 +328,7 @@ async fn list_scripts(
             );
         }
     }
-    if cannot_code {
-        sqlb.and_where_eq("kind", quote("script"));
-    } else if let Some(lowercased_kinds) = lowercased_kinds {
+    if let Some(lowercased_kinds) = lowercased_kinds {
         let safe_kinds = lowercased_kinds
             .into_iter()
             .map(sql_builder::quote)

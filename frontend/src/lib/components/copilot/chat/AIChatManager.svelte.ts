@@ -1,4 +1,5 @@
 import type { AttachedBlob } from './blobUtils'
+import { SecretCheckFailed, checkSubmission, checkText, saveSecretRequest } from './secretRequest'
 import type { ChatViewHost } from './chatViewHost'
 import type { ScriptLang } from '$lib/gen/types.gen'
 import { JobService, type CompletedJob } from '$lib/gen'
@@ -25,6 +26,9 @@ import {
 	type ToolCallbacks,
 	type ToolDisplayMessage,
 	type UserQuestionDisplay,
+	type SecretRequest,
+	type SecretSubmission,
+	type SecretRequestOutcome,
 	type RunFormAnswer,
 	type RunFormDisplay,
 	type RunFormDraft,
@@ -105,13 +109,13 @@ import {
 	getWorkspaceCopilotInfo,
 	loadWorkspaceCopilotInfo,
 	resolveModelFor,
+	setLastModelPick,
 	tryResolveModelFor,
 	workspaceCopilotInfoFailed,
 	type AiTarget,
 	type CopilotInfo
 } from '$lib/aiStore'
 import type { ReasoningProviderModel } from '../reasoningRegistry'
-import { copilotWorkspaceRequested, loadCopilot } from '$lib/components/copilot/loadCopilot'
 import { askTools, prepareAskSystemMessage, prepareAskUserMessage } from './ask/core'
 import { readDocsPageTool, searchDocsTool } from './docs/core'
 import { withWebSearchFallback } from './web/core'
@@ -203,6 +207,8 @@ import {
 	assembleGlobalTools,
 	type GlobalAssemblyOpts
 } from './global/globalAssembly'
+import type { GroupingTools } from './toolGroups'
+import { chatGroupingTools } from './groupingTools'
 import { formatChatJobCompletion } from './datatableTools'
 import { loadMcpServers, type McpServer } from './global/mcpTools'
 import type { PipelineAIChatHelpers } from './pipeline/core'
@@ -448,23 +454,16 @@ function getSendRequestErrorMessage(
 	return appendWebSearchErrorHint(message, webSearchUnavailable)
 }
 
-/** Re-fetch copilotInfo after a free-tier turn so the usage banner tracks spend live and the
- * exhausting turn flips `freeTier.exhausted`; otherwise these update only on the next workspace
+/** Re-fetch the chat workspace's config after a free-tier turn so the usage banner tracks spend
+ * live and the exhausting turn flips `freeTier.exhausted`; otherwise these update only on the next
  * load. Scoped to a live (non-exhausted) free tier so configured-key users pay no extra request. */
-async function refreshFreeTierUsage(workspace: string | undefined) {
+function refreshFreeTierUsage(workspace: string | undefined) {
 	if (!workspace) return
-	// copilotInfo is a singleton shared across sessions: a warm session finishing after a
-	// workspace switch must not loadCopilot for its now-background workspace. Gate on the
-	// most-recently-*requested* workspace (set synchronously) so a refresh can't win the
-	// monotonic token over a newer load still in flight.
-	if (get(copilotWorkspaceRequested) !== workspace) return
-	const info = get(copilotInfo)
-	if (!info.freeTier || info.freeTier.exhausted) return
-	try {
-		await loadCopilot(workspace)
-	} catch (err) {
+	const info = getWorkspaceCopilotInfo(workspace)
+	if (!info?.freeTier || info.freeTier.exhausted) return
+	loadWorkspaceCopilotInfo(workspace, true).catch((err) =>
 		console.error('Failed to refresh free-tier usage', err)
-	}
+	)
 }
 
 /** A message queued while a turn streams: the draft lanes and the pinned
@@ -847,6 +846,18 @@ export class AIChatManager implements ChatViewHost {
 	 * Set before `moving`, which waits for the editors to hand over their pending edits. */
 	moveStarted = $state(false)
 	onWorkModeChanged: ((mode: AIWorkMode) => void) | undefined = undefined
+	/** The model and effort the session record holds. Unset outside sessions. */
+	modelPickResolver: (() => ReasoningProviderModel | undefined) | undefined = undefined
+	onModelPicked: ((model: ReasoningProviderModel) => void) | undefined = undefined
+	/** `replaced`: the pick `model` stands in for, when the workspace does not offer it. */
+	onModelSettled:
+		| ((model: ReasoningProviderModel, replaced: ReasoningProviderModel | undefined) => void)
+		| undefined = undefined
+	/** The protected workspace the session was opted into working in directly (`direct_in`). */
+	directInResolver: (() => string | undefined) | undefined = undefined
+	get directIn(): string | undefined {
+		return this.directInResolver?.()
+	}
 	workModesAvailable = $derived(this.isSessionChat && supportsPlanMode(this.mode))
 	/** Use is the only mode: the workspace is protected, or the user's role builds nothing in it. */
 	#useOnly = $derived(this.workModesAvailable && !canBuild(this.sessionAccess))
@@ -927,6 +938,10 @@ export class AIChatManager implements ChatViewHost {
 			...(this.workModesAvailable && !this.#useOnly ? Object.values(this.#workModeSwitches) : [])
 		])
 	)
+	// A getter: the manager is built while the tool modules that groupingTools.ts imports still load.
+	get groupingTools(): GroupingTools {
+		return chatGroupingTools()
+	}
 	/** Whether a tool the call was made with is no longer shipped: a switch to Use withdraws
 	 * every write while its card waits. The mode transitions are not assembled, so never are. */
 	isToolWithdrawn = (toolName: string): boolean => {
@@ -989,6 +1004,22 @@ export class AIChatManager implements ChatViewHost {
 		{ resolve: (value: boolean) => void; toolName?: string }
 	>()
 	private userQuestionCallbacks = new Map<string, (choices: string[] | undefined) => void>()
+	// An open secret card. The manager runs its save, so it alone settles it: the card is a
+	// form, and Stop cannot withdraw a save already sent.
+	#secretRequests = new Map<
+		string,
+		{
+			request: SecretRequest
+			resolve: (outcome: SecretRequestOutcome | undefined) => void
+			save?: Promise<void>
+			/** What a refused or failed try already wrote, which a retry updates. */
+			own: Set<string>
+			/** Saved, but its connection check failed: the card stays open to retry or keep it. */
+			saved?: SecretRequestOutcome
+			/** The turn stopped while the save was in flight. */
+			stopped?: boolean
+		}
+	>()
 	// Kept apart from confirmationCallbacks: YOLO answers those, and never answers these.
 	// Resolved undefined when the turn stops first.
 	private scopeCallbacks = new Map<string, (decision: ScopeDecision | undefined) => void>()
@@ -1158,10 +1189,28 @@ export class AIChatManager implements ChatViewHost {
 	}
 
 	get currentModel(): ReasoningProviderModel | undefined {
-		// Subscribes only: the model helpers read through `get()`, which tracks nothing.
-		void this.#sessionModel.current
 		const info = this.aiInfo
-		return info && tryResolveModelFor(info)
+		return info && tryResolveModelFor(info, this.#modelPick)
+	}
+
+	/** A session's own once it has one, so that a pick in another chat never moves it. */
+	get #modelPick(): ReasoningProviderModel | undefined {
+		return this.modelPickResolver?.() ?? this.#sessionModel.current
+	}
+
+	/** The user picks `model` for this chat. It is also the one new sessions start on. */
+	pickModel = (model: ReasoningProviderModel) => {
+		this.onModelPicked?.(model)
+		setLastModelPick(model)
+	}
+
+	/** Pins a session to the model it sends with, so that nothing but a pick moves it from here on.
+	 * A pick its workspace does not offer is replaced for good: offered again, it stays replaced. */
+	#settleModel() {
+		const own = this.modelPickResolver?.()
+		const model = this.currentModel
+		if (!model || (own?.model === model.model && own.provider === model.provider)) return
+		this.onModelSettled?.(model, own)
 	}
 
 	/** Resolved at each request, after any fork commit. Undefined for other chats, whose requests
@@ -1932,7 +1981,11 @@ export class AIChatManager implements ChatViewHost {
 					{ role: 'user', content: getCompactionSummaryPrompt() }
 				],
 				abortController,
-				{ maxTokensCap: SUMMARY_OUTPUT_RESERVE_TOKENS, ...target }
+				{
+					maxTokensCap: SUMMARY_OUTPUT_RESERVE_TOKENS,
+					...target,
+					forceModelProvider: target && resolveModelFor(target.info, this.#modelPick)
+				}
 			)
 			const formatted = formatCompactSummary(raw)
 			if (!formatted) {
@@ -2187,6 +2240,9 @@ export class AIChatManager implements ChatViewHost {
 		this.loading = true
 		let result: 'ok' | 'empty' | 'aborted' | 'error' = 'error'
 		try {
+			// A failed load is reported by the summary request, which needs it too.
+			await this.sessionAiTarget().catch(() => {})
+			this.#settleModel()
 			// Everything is the prefix, nothing is kept verbatim: keepFrom and
 			// displayKeepFrom point past the end so the kept tail is empty.
 			result = await this.runSummarization(
@@ -2446,6 +2502,113 @@ export class AIChatManager implements ChatViewHost {
 		callback(choices)
 		this.userQuestionCallbacks.delete(toolId)
 		return true
+	}
+
+	requestSecret = (
+		toolId: string,
+		request: SecretRequest
+	): Promise<SecretRequestOutcome | undefined> => {
+		return new Promise((resolve) => {
+			this.#secretRequests.set(toolId, { request, resolve, own: new Set() })
+			// The tool checks the path before it asks, so a stop during that check has already
+			// settled every open request: this one would park the turn for good.
+			if (this.abortController?.signal.aborted) void this.#settleSecretRequest(toolId, undefined)
+		})
+	}
+
+	/** Saves the value the user typed on the card. Rejects with the server's refusal, which the
+	 * card shows; the request stays open for another try. */
+	saveSecret = (toolId: string, submission: SecretSubmission): Promise<void> => {
+		const entry = this.#secretRequests.get(toolId)
+		if (!entry) return Promise.reject(new Error('This request is no longer open.'))
+		if (entry.save) return entry.save
+		const { request } = entry
+		const save = (async () => {
+			const saved = await saveSecretRequest(request, submission, entry.own)
+			const check = await checkSubmission(request, submission)
+			const outcome = check ? { ...saved, check } : saved
+			if (check && !check.ok && !entry.stopped) {
+				entry.saved = outcome
+				throw new SecretCheckFailed(check.error)
+			}
+			return this.#settleSecretRequest(toolId, outcome)
+		})().catch((e) => {
+			entry.save = undefined
+			if (entry.stopped) void this.#settleSecretRequest(toolId, entry.saved)
+			throw e
+		})
+		entry.save = save
+		return save
+	}
+
+	dismissSecret = (toolId: string): void => {
+		const entry = this.#secretRequests.get(toolId)
+		// After a failed check the resource exists: dismissing keeps it, as the card says.
+		if (entry && !entry.save) void this.#settleSecretRequest(toolId, entry.saved)
+	}
+
+	/** The one writer of a settled secret card. In a live turn the tool then returns the outcome
+	 * to the model. After a stop the turn is gone, so a save that lands then is told on the
+	 * model's next turn, as a detached job's result is, and written to this chat's history. */
+	#settleSecretRequest(toolId: string, outcome: SecretRequestOutcome | undefined): Promise<void> {
+		const entry = this.#secretRequests.get(toolId)
+		if (!entry) return Promise.resolve()
+		this.#secretRequests.delete(toolId)
+		const { label } = entry.request
+		this.displayMessages = this.displayMessages.map((m) =>
+			m.role === 'tool' && m.tool_call_id === toolId && m.secretRequest
+				? {
+						...m,
+						error: undefined,
+						isLoading: false,
+						content: outcome
+							? entry.request.resource
+								? `Saved ${label} as a draft of ${outcome.path}${outcome.check ? (outcome.check.ok ? ' · test passed' : ' · test failed') : ''}`
+								: `Saved ${label} as a draft of ${outcome.path}`
+							: `Asked for ${label} — dismissed`,
+						secretRequest: outcome
+							? { ...m.secretRequest, saving: false, saved: outcome }
+							: { ...m.secretRequest, saving: false, canceled: true }
+					}
+				: m
+		)
+		// The drafts the card saved are this session's changes, deployed from its panel, whether
+		// they landed during the turn or after it stopped.
+		if (outcome) {
+			for (const variable of outcome.variables) this.recordModifiedItem('variable', variable)
+			if (entry.request.resource) this.recordModifiedItem('resource', outcome.path)
+		}
+		if (!entry.stopped) {
+			entry.resolve(outcome)
+			return Promise.resolve()
+		}
+		const note = outcome
+			? this.queueModelNote(
+					entry.request.resource
+						? `The user saved ${label} after the turn stopped: it is a draft of the resource ${outcome.path}, referenced as "$res:${outcome.path}", with its secrets in drafts of ${outcome.variables.join(', ')}.${checkText(outcome)} Nothing is deployed, so no run can read it until it is.`
+						: `The user's ${label} was saved after the turn stopped: it is a draft of the secret variable ${outcome.path}, referenced as "$var:${outcome.path}". Nothing is deployed, so no run can read it until it is.`
+				)
+			: Promise.resolve()
+		// The variable is saved whatever happens here, so a failed write must not reach the card.
+		const written = note
+			.then(async () => {
+				await Promise.all([this.#persistBackgroundJobs(), this.#persistModifiedItems()])
+			})
+			.catch((e) => console.error('Failed to persist a secret saved after stop', e))
+		this.#lateSecretWrites.add(written)
+		void written.finally(() => this.#lateSecretWrites.delete(written))
+		return written
+	}
+
+	// Written into the conversation on screen, so a chat switch waits for them.
+	#lateSecretWrites = new Set<Promise<void>>()
+
+	/** Lets every in-flight secret save land and be written to this chat. */
+	#secretSavesLanded(): Promise<unknown> {
+		return Promise.allSettled([
+			...[...this.#secretRequests.values()].flatMap((entry) => (entry.save ? [entry.save] : [])),
+			...this.#lateSecretWrites
+		])
 	}
 
 	requestRunArgs = (
@@ -3228,7 +3391,9 @@ export class AIChatManager implements ChatViewHost {
 			return
 		}
 		const generation = ++this.sessionAccessGeneration
-		const access = await resolveSessionAccess(workspace)
+		const access = await resolveSessionAccess(workspace, {
+			direct: this.directIn === workspace
+		})
 		if (generation !== this.sessionAccessGeneration) return
 		this.sessionAccess = workspace === (this.operatingWorkspace ?? '') ? access : undefined
 		if (this.mode === AIMode.GLOBAL) {
@@ -3659,7 +3824,7 @@ export class AIChatManager implements ChatViewHost {
 				abortController,
 				callbacks,
 				get modelProvider() {
-					return info ? resolveModelFor(info) : getCurrentModel()
+					return info ? resolveModelFor(info, self.#modelPick) : getCurrentModel()
 				},
 				get webSearch() {
 					return isWebSearchEnabledForProvider(this.modelProvider.provider, info)
@@ -3845,6 +4010,8 @@ export class AIChatManager implements ChatViewHost {
 	 * Counted, not boolean: a send recursively flushes queued messages, and the
 	 * inner one finishing doesn't mean the outer is done. */
 	#sendsInFlight = $state(0)
+	/** Every send ever started, for telling whether one began during an await. */
+	#sendsStarted = 0
 	get sendInFlight(): boolean {
 		return this.#sendsInFlight > 0
 	}
@@ -3992,6 +4159,10 @@ export class AIChatManager implements ChatViewHost {
 	}
 
 	sendRequest = async (options: Parameters<typeof this.sendRequestImpl>[0] = {}) => {
+		// Before any await, during which a pick in another session would move this one. Again once
+		// the workspace is committed, which may not offer this model. Not while another tab runs the
+		// session: storing the record here would overwrite what that tab stored.
+		if (!this.runHeldElsewhere) this.#settleModel()
 		if (this.#ready) {
 			this.#sendsAwaitingReady++
 			try {
@@ -4053,6 +4224,7 @@ export class AIChatManager implements ChatViewHost {
 			return false
 		}
 		this.#sendsInFlight++
+		this.#sendsStarted++
 		try {
 			return await this.sendRequestImpl(options)
 		} finally {
@@ -4547,6 +4719,7 @@ export class AIChatManager implements ChatViewHost {
 			// loading + abortController were set optimistically before beforeSend, above.
 			this.#automaticScroll = true
 
+			this.#settleModel()
 			const model = this.currentModel
 			if (model) {
 				const chatId = this.historyManager.getCurrentChatId()
@@ -4817,6 +4990,7 @@ export class AIChatManager implements ChatViewHost {
 					onToolBlockedByPlanMode: this.planMode.noteBlockedTool,
 					isToolWithdrawn: this.isToolWithdrawn,
 					requestUserQuestion: this.requestUserQuestion,
+					requestSecret: this.requestSecret,
 					requestRunArgs: this.requestRunArgs,
 					markRunFormStarted: this.markRunFormStarted,
 					markRunFormEnded: this.markRunFormEnded,
@@ -5071,7 +5245,7 @@ export class AIChatManager implements ChatViewHost {
 			this.reasoningReveal.reset()
 			// Refresh the free-tier usage meter after every turn (success or error), and
 			// let the turn that exhausts the grant flip to the exhausted state live.
-			void refreshFreeTierUsage(this.operatingWorkspace)
+			refreshFreeTierUsage(this.operatingWorkspace)
 		}
 		// Flush the queued message. Send it after a cleanly committed turn OR a
 		// deliberate user cancel (Esc / Stop) — in both cases the user is ready
@@ -5124,6 +5298,14 @@ export class AIChatManager implements ChatViewHost {
 			resolveQuestion(undefined)
 		}
 		this.userQuestionCallbacks.clear()
+		for (const [toolId, entry] of this.#secretRequests) {
+			// The turn ends now, but the save cannot be withdrawn: settledToolDisplay shows the card
+			// as saving, and the save settles it when it lands.
+			if (entry.save) {
+				entry.stopped = true
+				entry.resolve(undefined)
+			} else void this.#settleSecretRequest(toolId, entry.saved)
+		}
 		for (const [toolId, entry] of this.#runForms) {
 			entry.resolve?.(undefined)
 			// Stopping the turn is the form's other way out, and the draft dies with this loop:
@@ -5294,6 +5476,11 @@ export class AIChatManager implements ChatViewHost {
 
 	saveAndClear = async () => {
 		this.cancel('saveAndClear')
+		const sends = this.#sendsStarted
+		await this.#secretSavesLanded()
+		// The composer stays open meanwhile, so a turn may have started: it keeps its chat.
+		// Not `sendInFlight`, which `/clear` itself is.
+		if (this.#sendsStarted !== sends) return
 		// Drop any message queued in this conversation so it can't auto-send into
 		// the fresh chat or linger as a card across the switch.
 		this.#clearQueue()
@@ -5330,6 +5517,10 @@ export class AIChatManager implements ChatViewHost {
 		// one in underneath it misfiles the turn — or duplicates it, when the loaded
 		// chat already carries the turn's own checkpoint. Gated on `sendInFlight`
 		// too, for the pre-`loading` window `sendOrQueue` documents.
+		if (this.loading || this.sendInFlight) return
+		// A save settles its card in whatever conversation is on screen when it lands.
+		await this.#secretSavesLanded()
+		// The composer stays open meanwhile, so a turn may have started.
 		if (this.loading || this.sendInFlight) return
 		const chat = await this.historyManager.loadPastChat(id)
 		if (chat) {
@@ -5749,6 +5940,12 @@ export class AIChatManager implements ChatViewHost {
 					userQuestion: message.userQuestion
 						? { ...message.userQuestion, canceled: true }
 						: undefined,
+					secretRequest:
+						message.secretRequest && !message.secretRequest.saved
+							? this.#secretRequests.get(message.tool_call_id)?.save
+								? { ...message.secretRequest, saving: true }
+								: { ...message.secretRequest, canceled: true }
+							: message.secretRequest,
 					runForm: message.runForm
 						? settledRunForm({ ...message.runForm, canceled: runState === 'idle' })
 						: undefined
