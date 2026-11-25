@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Gauge, Hourglass, Moon } from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
-	import { JobService } from '$lib/gen'
+	import { useApprovalCount } from '../../approvalCount.svelte'
 	import { displayDate, msToCompactDuration } from '$lib/utils'
 	import type { GraphModuleState } from '../../model'
 
@@ -14,11 +14,7 @@
 		  }
 		| {
 				reason: 'approval'
-				/** The approval step's run and its id. */
-				workspace: string | undefined
-				jobId: string
-				stepId: string
-				required: number
+				approvalWait: NonNullable<GraphModuleState['approval_wait']>
 		  }
 	)
 
@@ -31,24 +27,12 @@
 		return () => clearInterval(id)
 	})
 
-	// Approvals coming in do not change the run until the last one, so the count is read on its
-	// own, and only when there is more than one to count.
-	let approvals = $state<number | undefined>(undefined)
-	$effect(() => {
-		if (props.reason !== 'approval' || props.required <= 1 || !props.workspace) return
-		const args = { workspace: props.workspace, jobId: props.jobId, stepId: props.stepId }
-		const read = () =>
-			JobService.getApprovalStepDetail(args)
-				.then((d) => (approvals = d.approvals.length))
-				.catch(() => {})
-		read()
-		const id = setInterval(read, 10000)
-		return () => clearInterval(id)
-	})
+	const approval = useApprovalCount(() =>
+		props.reason === 'approval' ? props.approvalWait : undefined
+	)
 
 	let label = $derived.by(() => {
-		if (props.reason === 'approval')
-			return `Waiting for approval${approvals ? ` · ${approvals} of ${props.required}` : ''}`
+		if (props.reason === 'approval') return approval.label
 		if (props.reason === 'sleep')
 			return `Sleeping · ${msToCompactDuration(Math.max(new Date(props.until ?? now).getTime() - now, 0), 0)}`
 		const held = props.heldSince
@@ -83,9 +67,7 @@
 						? 'text-orange-500'
 						: ''
 		}}
-		btnClasses="text-2xs gap-1 {props.reason === 'approval'
-			? 'text-violet-600 dark:text-violet-400'
-			: 'text-secondary'}"
+		btnClasses="text-2xs text-secondary gap-1"
 		{title}
 		onClick={(e) => {
 			e?.stopPropagation()

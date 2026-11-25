@@ -2230,6 +2230,7 @@
 									waiting_reason={localModuleStates?.[mod.id ?? '']?.waiting_reason}
 									concurrency_key={localModuleStates?.[mod.id ?? '']?.concurrency_key}
 									held_since={localModuleStates?.[mod.id ?? '']?.held_since}
+									approval_wait={localModuleStates?.[mod.id ?? '']?.approval_wait}
 								/>
 							{/if}
 						</li>
@@ -2532,6 +2533,7 @@
 																			waiting_reason={node.waiting_reason}
 																			concurrency_key={node.concurrency_key}
 																			held_since={node.held_since}
+																			approval_wait={node.approval_wait}
 																			skipped={node.skipped}
 																		/>
 																		{#if node.duration_ms}
