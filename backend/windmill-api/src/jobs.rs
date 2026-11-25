@@ -5689,21 +5689,20 @@ async fn get_approval_info(
     }
 
     // Get existing approvers
-    let approvers: Vec<Approval> =
-        sqlx::query_as::<_, (i32, Option<String>, chrono::DateTime<chrono::Utc>, bool)>(
-            "SELECT resume_id, approver, created_at, approved FROM resume_job WHERE flow = $1",
-        )
-        .bind(&job_id)
-        .fetch_all(&db)
-        .await?
-        .into_iter()
-        .map(|(rid, approver, created_at, approved)| Approval {
-            resume_id: rid as u16,
-            approver: approver.unwrap_or_else(|| "anonymous".to_string()),
-            approved_at: Some(created_at),
-            approved: Some(approved),
-        })
-        .collect();
+    let approvers: Vec<Approval> = sqlx::query!(
+        "SELECT resume_id, approver, created_at, approved FROM resume_job WHERE flow = $1",
+        job_id
+    )
+    .fetch_all(&db)
+    .await?
+    .into_iter()
+    .map(|r| Approval {
+        resume_id: r.resume_id as u16,
+        approver: r.approver.unwrap_or_else(|| "anonymous".to_string()),
+        approved_at: Some(r.created_at),
+        approved: Some(r.approved),
+    })
+    .collect();
 
     // Possession of view rights over this approval is sufficient to mint a
     // share-read-link token for the flow: it only grants read (no resume), and only to
