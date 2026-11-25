@@ -279,10 +279,34 @@ export type RawAppRunSummary = {
 }
 export type RawAppRunsProvider = () => RawAppRunSummary[] | undefined
 
-/** Capture the live raw-app preview as a PNG data URL. Rejects when the preview
- * isn't ready. Registered by the editor, dispatched by the session runtime for the
+/** What to capture, in the preview page's CSS px; the visible viewport when empty. */
+export type RawAppScreenshotTarget = {
+	selector?: string
+	/** [x0, y0, x1, y1] from the top-left of the whole page. */
+	region?: [number, number, number, number]
+	fullPage?: boolean
+}
+
+export type CssRect = { x: number; y: number; width: number; height: number }
+
+export type RawAppScreenshot = {
+	dataUrl: string
+	/** The page area the image shows, clamped to the page. */
+	rect?: CssRect
+	/** The whole scrollable page's size. */
+	page?: { width: number; height: number }
+	/** Image px per CSS px, before any later downscale. */
+	scale?: number
+	/** Elements the selector matched; the first one is captured. */
+	matchCount?: number
+}
+
+/** Capture the live raw-app preview as a PNG. Rejects when the preview isn't
+ * ready. Registered by the editor, dispatched by the session runtime for the
  * global `take_screenshot` tool. */
-export type RawAppScreenshotRequester = () => Promise<string>
+export type RawAppScreenshotRequester = (
+	target?: RawAppScreenshotTarget
+) => Promise<RawAppScreenshot>
 
 export function formatAppRunsForChat(runs: RawAppRunSummary[]): string {
 	return JSON.stringify(runs, null, 2)

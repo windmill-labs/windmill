@@ -61,6 +61,7 @@ import { withoutSharedPolicySettings } from '$lib/components/apps/editor/appDraf
 import { capabilitiesIn, withoutBuilding } from '$lib/roleCapabilities'
 import type { RoleCapabilities } from '$lib/gen'
 import type { RawAppDomQuery } from '$lib/components/raw_apps/rawAppDom'
+import type { RawAppScreenshot, RawAppScreenshotTarget } from '$lib/components/raw_apps/utils'
 import { dataUrlToImagePart, normalizeImageDataUrl, type AttachedImage } from '../imageUtils'
 import { sanitizeAttachmentName, textLineCount, type AttachedTextFile } from '../textFileUtils'
 import { modelSupportsVision } from '../../modelConfig'
@@ -1372,7 +1373,40 @@ const readDomSchema = z.object({
 		.describe('1-based last line to read. The window is capped at 200 lines.')
 })
 
-const takeScreenshotSchema = z.object({})
+const takeScreenshotSchema = z.object({
+	selector: z
+		.string()
+		.optional()
+		.describe(
+			'CSS selector of one element to capture (the first match), e.g. "#root header". Find it with search_dom.'
+		),
+	region: z
+		.array(z.number())
+		.length(4)
+		.optional()
+		.describe(
+			'Area to capture as [x0, y0, x1, y1]: top-left and bottom-right corners in CSS px from the top-left of the whole page, not of the visible part. Aim with the area a previous screenshot reports, e.g. to zoom in on part of it.'
+		),
+	full_page: z
+		.boolean()
+		.optional()
+		.describe('Capture the whole scrollable page. Tall pages come out downscaled.')
+})
+
+/** What the screenshot result tells the model about the area it shows. */
+export function describeScreenshotArea(shot: RawAppScreenshot): string {
+	const { rect, page, scale, matchCount } = shot
+	if (!rect) return ''
+	const lines = [
+		`It shows x ${rect.x}–${rect.x + rect.width}, y ${rect.y}–${rect.y + rect.height} in CSS px` +
+			(page ? ` of a ${page.width}×${page.height} page` : '') +
+			(scale ? `, at ${Number(scale.toFixed(3))} image px per CSS px.` : '.')
+	]
+	if (matchCount && matchCount > 1) {
+		lines.push(`The selector matched ${matchCount} elements; this is the first.`)
+	}
+	return lines.join(' ')
+}
 
 const FRAMEWORK_KEYS = ['react19', 'react18', 'svelte5'] as const satisfies readonly FrameworkKey[]
 
@@ -4798,7 +4832,7 @@ export const globalTools: SessionTool<{}>[] = [
 			'take_screenshot',
 			// Keep this short: every global session iteration re-sends it. How to read
 			// the result belongs on the result, where only a real capture pays for it.
-			'Capture a screenshot of the raw app preview currently open in this AI session and attach it as an image so you can see the rendered UI. Use it when the user raises how the app looks, whether reporting a problem or asking for the design improved, rather than to check your own edits. The image is attached in the following message. Requires the raw app preview open (open_preview kind="raw_app").'
+			'Capture a screenshot of the raw app preview currently open in this AI session and attach it as an image so you can see the rendered UI. By default it captures the part the user currently sees; pass at most one of `selector` (one element), `region` (an area of the page) or `full_page`. Use it when the user raises how the app looks, whether reporting a problem or asking for the design improved, rather than to check your own edits. The image is attached in the following message. Requires the raw app preview open (open_preview kind="raw_app").'
 		),
 		planModeSafe: true,
 		lookup: true,
@@ -4817,9 +4851,26 @@ export const globalTools: SessionTool<{}>[] = [
 				})
 				return cannotSee
 			}
+			const parsed = takeScreenshotSchema.parse(ctx.args ?? {})
+			const picked = [parsed.selector?.trim(), parsed.region, parsed.full_page].filter(
+				(v) => v !== undefined && v !== false && v !== ''
+			)
+			if (picked.length > 1) {
+				const tooMany = 'Pass at most one of selector, region and full_page.'
+				ctx.toolCallbacks.setToolStatus(ctx.toolId, {
+					content: 'Screenshot failed',
+					error: tooMany
+				})
+				return tooMany
+			}
+			const target: RawAppScreenshotTarget = {
+				selector: parsed.selector?.trim() || undefined,
+				region: parsed.region as RawAppScreenshotTarget['region'],
+				fullPage: parsed.full_page
+			}
 			ctx.toolCallbacks.setToolStatus(ctx.toolId, { content: 'Capturing screenshot...' })
-			const result = await getSessionScreenshot(sessionIdFromCtx(ctx))
-			if (!result.dataUrl) {
+			const result = await getSessionScreenshot(sessionIdFromCtx(ctx), target)
+			if (!result.shot) {
 				ctx.toolCallbacks.setToolStatus(ctx.toolId, {
 					content: result.uiMessage ?? 'Screenshot unavailable',
 					error: result.error
@@ -4829,7 +4880,7 @@ export const globalTools: SessionTool<{}>[] = [
 			// Normalize (downscale + png/jpeg) so history/context never carry a full-res blob;
 			// buffered here and flushed as a follow-up user image message once the tool batch
 			// completes (see appendPendingToolImages).
-			const image = await normalizeImageDataUrl(result.dataUrl)
+			const image = await normalizeImageDataUrl(result.shot.dataUrl)
 			ctx.toolCallbacks.attachToolImage?.(ctx.toolId, image)
 			// The card shows the same copy the model gets; sharing the exact data URL
 			// lets the history's blob store persist one copy for both.
@@ -4837,8 +4888,11 @@ export const globalTools: SessionTool<{}>[] = [
 				content: 'Screenshot captured',
 				imageUrl: image.dataUrl
 			})
+			const area = describeScreenshotArea(result.shot)
 			return (
-				'Screenshot captured; the image is attached in the following message.\n\n' +
+				'Screenshot captured; the image is attached in the following message.' +
+				(area ? ` ${area}` : '') +
+				'\n\n' +
 				'It is rebuilt from the DOM rather than captured from the screen, so it can differ from what the user sees, and it differs by browser. Treat what you see as real and fix it. Before dismissing anything as a capture artifact, read the source for that element and name the specific cause; if you cannot, it is a real bug. If you are still unsure, say what looks wrong and ask the user to screenshot it themselves and drag the image into the chat rather than guessing.'
 			)
 		}
@@ -5238,9 +5292,14 @@ function getSessionDom(
 	return getDomHandler({ sessionId, query })
 }
 
-export type SessionScreenshotResult = { dataUrl?: string; error?: string; uiMessage?: string }
+export type SessionScreenshotResult = {
+	shot?: RawAppScreenshot
+	error?: string
+	uiMessage?: string
+}
 export type ScreenshotHandler = (req: {
 	sessionId: string | undefined
+	target?: RawAppScreenshotTarget
 }) => Promise<SessionScreenshotResult>
 
 let screenshotHandler: ScreenshotHandler | undefined
@@ -5249,7 +5308,10 @@ export function setScreenshotHandler(handler: ScreenshotHandler | undefined): vo
 	screenshotHandler = handler
 }
 
-function getSessionScreenshot(sessionId: string | undefined): Promise<SessionScreenshotResult> {
+function getSessionScreenshot(
+	sessionId: string | undefined,
+	target?: RawAppScreenshotTarget
+): Promise<SessionScreenshotResult> {
 	if (!screenshotHandler) {
 		return Promise.resolve({
 			error:
@@ -5257,7 +5319,7 @@ function getSessionScreenshot(sessionId: string | undefined): Promise<SessionScr
 			uiMessage: 'Screenshot unavailable'
 		})
 	}
-	return screenshotHandler({ sessionId })
+	return screenshotHandler({ sessionId, target })
 }
 
 // Registered by the session runtime to reload the open preview after a chat

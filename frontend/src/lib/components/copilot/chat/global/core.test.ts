@@ -376,6 +376,7 @@ import { quickjsReady } from '$lib/utils/quickjsEval.svelte'
 import { buildRunsFilterSearchbarSchema } from '$lib/components/runs/runsFilter'
 import {
 	buildOpenPageUrl,
+	describeScreenshotArea,
 	globalTools,
 	globalToolsFor,
 	prepareGlobalSystemMessage,
@@ -387,7 +388,8 @@ import {
 	setGetRuntimeLogsHandler,
 	setGetDomHandler,
 	setListAppRunsHandler,
-	setOpenPreviewHandler
+	setOpenPreviewHandler,
+	setScreenshotHandler
 } from './core'
 import { UserDraft, __resetUserDraftForTesting } from '$lib/userDraft.svelte'
 import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
@@ -4258,5 +4260,52 @@ describe('global prompt identity', () => {
 			folders: ['team_etl', 'analytics']
 		})
 		expect(get(userStore)?.folders).toEqual(['alice_stuff'])
+	})
+})
+
+describe('take_screenshot targets', () => {
+	afterEach(() => setScreenshotHandler(undefined))
+
+	it('rejects more than one of selector, region and full_page before capturing', async () => {
+		const handler = vi.fn()
+		setScreenshotHandler(handler)
+		const result = await callGlobalTool('take_screenshot', { selector: 'header', full_page: true })
+		expect(result).toBe('Pass at most one of selector, region and full_page.')
+		expect(handler).not.toHaveBeenCalled()
+	})
+
+	it('forwards the chosen target to the preview', async () => {
+		const handler = vi.fn(async () => ({ error: 'stop here' }))
+		setScreenshotHandler(handler)
+		await callGlobalTool('take_screenshot', { region: [0, 100, 300, 400] })
+		expect(handler).toHaveBeenCalledWith({
+			sessionId: undefined,
+			target: { selector: undefined, region: [0, 100, 300, 400], fullPage: undefined }
+		})
+	})
+
+	it('treats an empty selector as no target', async () => {
+		const handler = vi.fn(async () => ({ error: 'stop here' }))
+		setScreenshotHandler(handler)
+		await callGlobalTool('take_screenshot', { selector: ' ', full_page: true })
+		expect(handler).toHaveBeenCalledWith({
+			sessionId: undefined,
+			target: { selector: undefined, region: undefined, fullPage: true }
+		})
+	})
+
+	it('describes the captured area in page CSS px', () => {
+		expect(
+			describeScreenshotArea({
+				dataUrl: 'data:,',
+				rect: { x: 0, y: 700, width: 681, height: 881 },
+				page: { width: 681, height: 2154 },
+				scale: 1.7797956,
+				matchCount: 3
+			})
+		).toBe(
+			'It shows x 0–681, y 700–1581 in CSS px of a 681×2154 page, at 1.78 image px per CSS px. The selector matched 3 elements; this is the first.'
+		)
+		expect(describeScreenshotArea({ dataUrl: 'data:,' })).toBe('')
 	})
 })
