@@ -28,6 +28,7 @@ vi.mock('$lib/stores', () => ({
 }))
 
 import { clearMcpToolsCache, createMcpTools, loadMcpServers, type McpServer } from './mcpTools'
+import { mcpUnavailableMessage } from './mcpUnavailable'
 import { setMcpEnabled } from '$lib/components/mcp/enabledServers'
 
 const SERVERS: McpServer[] = [{ path: 'u/hugo/github_mcp' }]
@@ -455,6 +456,15 @@ describe('loadMcpServers', () => {
 	it('advertises only the enabled server', async () => {
 		setMcpEnabled('test-ws', 'u/hugo/github_mcp', true)
 		expect(await loadMcpServers('test-ws')).toEqual([{ path: 'u/hugo/github_mcp' }])
+	})
+
+	it('tells a turned-off server apart from one that is not connected', async () => {
+		expect(await mcpUnavailableMessage('test-ws', 'f/team/shared_mcp')).toContain(
+			'"f/team/shared_mcp" is connected but turned off'
+		)
+		expect(await mcpUnavailableMessage('test-ws', 'f/team/gone_mcp')).toContain(
+			'No MCP server "f/team/gone_mcp" is connected'
+		)
 	})
 
 	it('does not carry an enabled server into another workspace', async () => {

@@ -3,7 +3,8 @@ import { ResourceService, type GetMcpToolsResponse } from '$lib/gen'
 import { createToolDef } from '../shared'
 import { NONE, type SessionTool } from '../sessionCapabilities'
 import { enabledMcpPaths } from '$lib/components/mcp/enabledServers'
-import { isOwnOrSharedMcpPath, MCP_LIST_PER_PAGE, mcpViewer } from '$lib/components/mcp/ownServers'
+import { listVisibleMcpServers } from '$lib/components/mcp/ownServers'
+import { mcpUnavailableMessage } from './mcpUnavailable'
 
 /**
  * Access to the MCP servers the user has connected (resources of type `mcp`)
@@ -93,19 +94,7 @@ export async function loadMcpServers(workspace: string): Promise<McpServer[]> {
 	const enabled = enabledMcpPaths(workspace)
 	if (enabled.length === 0) return []
 	try {
-		const [resources, viewer] = await Promise.all([
-			ResourceService.listResource({
-				workspace,
-				resourceType: 'mcp',
-				perPage: MCP_LIST_PER_PAGE
-			}),
-			mcpViewer(workspace)
-		])
-		return resources
-			.filter(
-				(r) => enabled.includes(r.path) && isOwnOrSharedMcpPath(r.path, r.extra_perms, viewer)
-			)
-			.map((r) => ({ path: r.path, editedAt: r.edited_at }))
+		return (await listVisibleMcpServers(workspace)).filter((s) => enabled.includes(s.path))
 	} catch (e) {
 		console.error('Failed to load MCP servers', e)
 		return []
@@ -171,11 +160,7 @@ async function resolveTool(
 ): Promise<{ server: McpServer; tool: McpToolDef } | { error: string }> {
 	const server = servers.find((s) => s.path === serverPath)
 	if (!server) {
-		return {
-			// Says nothing about whether the path exists, so it cannot reveal a server
-			// the user cannot see.
-			error: `MCP server "${serverPath}" is not turned on for this chat. Turned on: ${servers.map((s) => s.path).join(', ')}. The user turns servers on in the chat settings, under MCP connections.`
-		}
+		return { error: await mcpUnavailableMessage(workspace, serverPath) }
 	}
 	const tools = await loadServerTools(workspace, server.path, server.editedAt)
 	const tool = tools.find((t) => t.name === toolName)

@@ -79,6 +79,7 @@ import type { editor as meditor } from 'monaco-editor'
 import { pendingFolderInstructions, type FolderInstructionsContext } from './folderInstructions'
 import type { WebSearchSource } from './webSearchResult'
 import { runOnServer } from './global/backendSessionTools'
+import { mcpUnavailableMessage } from './global/mcpUnavailable'
 import { isAgentStream } from '../../aiAgentResult'
 
 // Prettify function for code arguments - extracts and formats code from JSON
@@ -999,9 +1000,8 @@ async function callTool<T>({
 		// The MCP tools exist only in global mode and only while the user has a server
 		// turned on, a per-browser setting change_mode cannot reach.
 		if (/^(search_mcp_tools|call_mcp_(read|write)_tool)$/.test(functionName)) {
-			throw new Error(
-				'MCP tools need global mode and an MCP server turned on for this chat. Outside global mode, use change_mode; otherwise tell the user to turn one on in the chat settings, under MCP connections.'
-			)
+			const server = typeof args?.server === 'string' ? args.server : undefined
+			throw new Error(await mcpUnavailableMessage(workspace, server))
 		}
 		throw new Error(
 			`Unknown tool call: ${functionName}. Probably not in the correct mode, use the change_mode tool to switch to the correct mode.`
