@@ -109,14 +109,20 @@
 
 	// The infinite row model cannot size itself to its rows, so the height is computed from
 	// the explicit row and header heights passed to createGrid, plus room for a horizontal
-	// scrollbar when the columns overflow.
+	// scrollbar when the columns overflow. The floor keeps the column filter menu inside the
+	// grid: ag-grid clips its popups to the grid, and moving them to <body> would put them
+	// under the drawers this table is shown in.
 	const ROW_HEIGHT = 42
 	const HEADER_HEIGHT = 48
+	const MIN_GRID_HEIGHT = 180
 	const MAX_GRID_HEIGHT = 600
 	let gridHeight = $derived(
 		totalRows === undefined
 			? 240
-			: Math.min(MAX_GRID_HEIGHT, HEADER_HEIGHT + Math.max(totalRows, 1) * ROW_HEIGHT + 18)
+			: Math.min(
+					MAX_GRID_HEIGHT,
+					Math.max(MIN_GRID_HEIGHT, HEADER_HEIGHT + totalRows * ROW_HEIGHT + 18)
+				)
 	)
 	let csvSeparatorChar: string = $state(',')
 	let datasource: IDatasource = {
@@ -198,8 +204,6 @@
 						datasource,
 						rowHeight: ROW_HEIGHT,
 						headerHeight: HEADER_HEIGHT,
-						// A short grid would clip the column filter menu.
-						popupParent: document.body,
 						// @ts-ignore
 						columnDefs: res.columns.map((c) => {
 							return {
