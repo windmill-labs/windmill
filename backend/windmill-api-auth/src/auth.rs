@@ -41,6 +41,8 @@ lazy_static::lazy_static! {
     pub static ref AUTH_CACHE: Cache<(String, String), ExpiringAuthCache> = Cache::new(300);
     // Cache for token -> email lookups (for non-workspace-member authenticated users)
     static ref TOKEN_EMAIL_CACHE: Cache<String, (Option<String>, std::time::Instant)> = Cache::new(500);
+    // Joined hashes of a request's duplicate `token` cookies -> index of the live one.
+    static ref PICKED_SESSION_CACHE: Cache<String, (Option<usize>, std::time::Instant)> = Cache::new(500);
 }
 
 /// A token keeps its identity when a superadmin moves the account to another address, so entries
@@ -956,7 +958,11 @@ async fn admit_and_record_guest_jwt(db: &DB, w_id: &str, email: &str, app_path: 
     true
 }
 
-/// Every `token` cookie value, parsed the way `Cookies` parses them, in the order sent.
+/// Browsers send one or two; checking more would let one request try many guessed tokens
+/// while `BRUTE_FORCE_COUNTER` counts a single failure.
+const MAX_SESSION_COOKIES: usize = 4;
+
+/// The first `token` cookie values, parsed the way `Cookies` parses them, in the order sent.
 fn session_cookie_values(parts: &Parts) -> Vec<String> {
     parts
         .headers
@@ -967,6 +973,7 @@ fn session_cookie_values(parts: &Parts) -> Vec<String> {
         .filter_map(|c| tower_cookies::Cookie::parse_encoded(c).ok())
         .filter(|c| c.name() == COOKIE_NAME)
         .map(|c| c.value_trimmed().to_owned())
+        .take(MAX_SESSION_COOKIES)
         .collect()
 }
 
@@ -986,6 +993,14 @@ async fn pick_live_session_token<S: Send + Sync>(
         return fallback;
     };
     let hashes: Vec<String> = candidates.iter().map(|t| hash_token(t)).collect();
+    // A browser keeps sending the same pair on every request, so the pick is cached. A token
+    // revoked within the TTL can still be picked, and then fails authentication as revoked.
+    let key = hashes.join(",");
+    if let Some((picked, at)) = PICKED_SESSION_CACHE.get(&key) {
+        if at.elapsed().as_secs() < TOKEN_EMAIL_CACHE_TTL_SECS {
+            return picked.map(|i| candidates[i].clone()).or(fallback);
+        }
+    }
     let live: Vec<String> = match sqlx::query_scalar(
         "SELECT h FROM unnest($1::text[]) AS h \
          WHERE EXISTS (SELECT 1 FROM token WHERE token_hash = h \
@@ -1001,12 +1016,9 @@ async fn pick_live_session_token<S: Send + Sync>(
             return fallback;
         }
     };
-    candidates
-        .into_iter()
-        .zip(hashes)
-        .find(|(_, h)| live.contains(h))
-        .map(|(t, _)| t)
-        .or(fallback)
+    let picked = hashes.iter().position(|h| live.contains(h));
+    PICKED_SESSION_CACHE.insert(key, (picked, std::time::Instant::now()));
+    picked.map(|i| candidates[i].clone()).or(fallback)
 }
 
 pub(crate) async fn extract_token<S: Send + Sync>(parts: &mut Parts, state: &S) -> Option<String> {
