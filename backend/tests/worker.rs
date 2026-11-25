@@ -1240,9 +1240,16 @@ fn main(world: String) -> Result<String, String> {
     Ok(())
 }
 
+/// The C# tests share the worker's C# cache as `DOTNET_CLI_HOME`, and .NET's first-run setup
+/// there is not safe to run twice at once: on a fresh machine one of two concurrent first
+/// builds can crash in it.
+#[cfg(feature = "csharp")]
+static CSHARP_FIRST_RUN: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 #[cfg(feature = "csharp")]
 #[sqlx::test(fixtures("base"))]
 async fn test_csharp_job(db: Pool<Postgres>) -> anyhow::Result<()> {
+    let _first_run = CSHARP_FIRST_RUN.lock().await;
     initialize_tracing().await;
     let server = ApiServer::start(db.clone()).await?;
     let port = server.addr.port();
@@ -1292,6 +1299,7 @@ class Script
 async fn test_csharp_job_omitted_args_take_declared_defaults(
     db: Pool<Postgres>,
 ) -> anyhow::Result<()> {
+    let _first_run = CSHARP_FIRST_RUN.lock().await;
     initialize_tracing().await;
     let server = ApiServer::start(db.clone()).await?;
     let port = server.addr.port();

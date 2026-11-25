@@ -62,6 +62,8 @@
 		id?: string | undefined
 		label: string
 		path?: string
+		/** Page of the script or flow `path` names, linked from the label's tooltip. */
+		pathHref?: string
 		nodeState?: FlowNodeState
 		retries?: number | undefined
 		/** In a run, while its concurrency limit holds the step back. */
@@ -98,6 +100,7 @@
 		id = undefined,
 		label,
 		path = '',
+		pathHref = undefined,
 		nodeState,
 		retries = undefined,
 		held = undefined,
@@ -351,6 +354,7 @@
 			<FlowModuleSchemaItemViewer
 				{label}
 				{path}
+				{pathHref}
 				{id}
 				{bold}
 				bind:editId

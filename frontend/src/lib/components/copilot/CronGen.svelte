@@ -6,8 +6,11 @@
 	import { sendUserToast } from '$lib/toast'
 
 	import type { ChatCompletionMessageParam } from 'openai/resources/index.mjs'
-	import { copilotInfo } from '$lib/aiStore'
 	import { untrack } from 'svelte'
+	import { getAiChatManager } from './chat/aiChatManagerContext'
+
+	const aiChat = getAiChatManager()
+	const aiInfo = $derived(aiChat.aiInfo)
 
 	interface Props {
 		schedule: string
@@ -53,7 +56,11 @@
 				}
 			]
 
-			const response = await getNonStreamingMetadataCompletion(messages, abortController)
+			const response = await getNonStreamingMetadataCompletion(
+				messages,
+				abortController,
+				aiChat.loadedSessionAiTarget
+			)
 
 			if (response.startsWith('ERROR:')) {
 				throw response.replace('ERROR:', '').trim()
@@ -78,7 +85,7 @@
 	})
 </script>
 
-{#if !$copilotInfo.workspaceDisabled}
+{#if aiInfo && !aiInfo.workspaceDisabled}
 	<Popover floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}>
 		{#snippet trigger()}
 			<Button
@@ -95,7 +102,7 @@
 		{/snippet}
 		{#snippet content({ close })}
 			<div class="border rounded-lg shadow-lg p-4 bg-surface">
-				{#if $copilotInfo.enabled}
+				{#if aiInfo?.enabled}
 					<div class="flex w-96">
 						<input
 							bind:this={instructionsField}

@@ -32,7 +32,13 @@
 	import { getChatViewHost } from './chatViewHost'
 
 	const chatHost = getChatViewHost()
-	import { isActiveUserQuestion, webSearchResultOf, type ToolDisplayMessage } from './shared'
+	import {
+		isActiveSecretRequest,
+		isActiveUserQuestion,
+		webSearchResultOf,
+		type ToolDisplayMessage
+	} from './shared'
+	import SecretRequestCard from './SecretRequestCard.svelte'
 	import ChatCollapsibleCard from './ChatCollapsibleCard.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { slide } from 'svelte/transition'
@@ -208,7 +214,15 @@
 	)
 </script>
 
-{#if activeUserQuestion}
+{#if message.secretRequest && (!message.error || message.secretRequest.canceled)}
+	{@const { saveSecret, dismissSecret } = chatHost}
+	<SecretRequestCard
+		request={message.secretRequest}
+		interactive={isActiveSecretRequest(message) && saveSecret !== undefined}
+		save={saveSecret ? (submission) => saveSecret(message.tool_call_id, submission) : undefined}
+		onDismiss={() => dismissSecret?.(message.tool_call_id)}
+	/>
+{:else if activeUserQuestion}
 	<AskUserQuestionDisplay toolCallId={message.tool_call_id} userQuestion={activeUserQuestion} />
 {:else if message.blockedByPlanMode}
 	<!-- Not an error card: the call did what plan mode says it should. One flat row

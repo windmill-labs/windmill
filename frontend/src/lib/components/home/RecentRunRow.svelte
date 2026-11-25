@@ -1,7 +1,15 @@
 <script lang="ts">
 	import { goto } from '$app/navigation'
 	import { workspaceStore } from '$lib/stores'
-	import { CircleCheck, CircleSlash, CircleX, EyeOff, Loader2, Wrench } from 'lucide-svelte'
+	import {
+		CircleCheck,
+		CircleSlash,
+		CircleX,
+		EyeOff,
+		Hourglass,
+		Loader2,
+		Wrench
+	} from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import { useRoleCapabilities } from '$lib/operatorWriteRights'
@@ -55,14 +63,18 @@
 		failure: 'Failed',
 		resolved: 'Failed, resolved',
 		canceled: 'Canceled',
-		running: 'Running'
+		running: 'Running',
+		suspended: 'Awaiting approval'
 	}
+	// Waiting for a person is neither progress nor trouble: violet, as a suspended job is
+	// everywhere else, not running's yellow.
 	const barClass = {
 		success: 'bg-green-500 dark:bg-green-600',
 		failure: 'bg-red-500 dark:bg-red-600',
 		resolved: 'bg-orange-300 dark:bg-orange-700',
 		canceled: 'bg-gray-400 dark:bg-gray-500',
-		running: 'bg-yellow-500'
+		running: 'bg-yellow-500',
+		suspended: 'bg-violet-400 dark:bg-violet-500'
 	}
 
 	function runTooltip(run: RecentRun) {
@@ -103,6 +115,10 @@
 	<span class="flex w-3.5 shrink-0 justify-center">
 		{#if item.status === 'running'}
 			<Loader2 size={14} class="animate-spin text-yellow-500" />
+		{:else if item.status === 'suspended'}
+			<span class="text-violet-500" title="Awaiting approval"
+				><Hourglass size={14} /></span
+			>
 		{:else if failing}
 			<CircleX size={14} class="text-red-500" />
 		{:else if item.status === 'resolved'}
@@ -219,6 +235,8 @@
 		{#if latest}
 			<a
 				href={runHref(latest.id, $workspaceStore)}
+				target="_blank"
+				rel="noopener"
 				class="absolute inset-0 text-right font-medium text-accent opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 hover:underline"
 				aria-label="Open the latest run of {title}"
 				onclick={(e) => e.stopPropagation()}

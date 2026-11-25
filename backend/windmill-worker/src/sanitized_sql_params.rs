@@ -33,10 +33,30 @@ fn sanitize_identifier(arg: &Arg, input: &str) -> Result<(), error::Error> {
     }
 }
 
+/// Contextual variables are pasted as raw text, usually inside a string literal, a quoted
+/// identifier or a comment, and some values come from the job's inputs (an email, the
+/// `_FLOW_PATH` argument). A value must not end any of those, in any dialect.
+fn sanitize_contextual_variable(name: &str, value: &str) -> Result<(), error::Error> {
+    if value
+        .chars()
+        .any(|c| matches!(c, '\'' | '"' | '`' | ']' | '\\' | '$') || c.is_control())
+        || value.contains("/*")
+        || value.contains("*/")
+    {
+        Err(error::Error::BadRequest(format!(
+            "Contextual variable `{name}` contains characters that cannot be safely interpolated \
+             in a SQL query (quotes, backticks, `]`, `\\`, `$`, comment delimiters or control \
+             characters)"
+        )))
+    } else {
+        Ok(())
+    }
+}
+
 fn replace_contextual_variables(
     code: &mut String,
     contextual_variables: &HashMap<String, String>,
-) -> () {
+) -> Result<(), error::Error> {
     let vars = RE_SQL_CONTEXTUAL_VAR
         .find_iter(&code)
         .map(|m| m.as_str().to_string())
@@ -50,9 +70,11 @@ fn replace_contextual_variables(
             .unwrap();
         let var_value = contextual_variables.get(var_name);
         if let Some(var_value) = var_value {
+            sanitize_contextual_variable(var_name, var_value)?;
             *code = code.replace(&var_pattern, var_value);
         }
     }
+    Ok(())
 }
 
 pub fn sanitize_and_interpolate_unsafe_sql_args(
@@ -64,7 +86,7 @@ pub fn sanitize_and_interpolate_unsafe_sql_args(
     let mut ret = code.to_string();
     let mut args_to_skip = vec![];
 
-    replace_contextual_variables(&mut ret, contextual_variables);
+    replace_contextual_variables(&mut ret, contextual_variables)?;
 
     for arg in args {
         if let Some(typ) = &arg.otyp {
@@ -127,4 +149,44 @@ pub fn sanitize_and_interpolate_unsafe_sql_args(
     }
 
     Ok((ret, args_to_skip))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn interpolate(code: &str, var: &str, value: &str) -> Result<String, error::Error> {
+        let vars = HashMap::from([(var.to_string(), value.to_string())]);
+        sanitize_and_interpolate_unsafe_sql_args(code, &vec![], &HashMap::new(), &vars)
+            .map(|(code, _)| code)
+    }
+
+    #[test]
+    fn contextual_variables_with_quoting_characters_are_refused() {
+        assert_eq!(
+            interpolate(
+                "SELECT '%%WM_EMAIL%%'",
+                "WM_EMAIL",
+                "first.last+tag@windmill.dev"
+            )
+            .unwrap(),
+            "SELECT 'first.last+tag@windmill.dev'"
+        );
+        for value in [
+            "o'brien@example.com",
+            "f/a/b', 'c",
+            "x\\",
+            "say \"hi\"",
+            "a`b",
+            "a]b",
+            "a$$b",
+            "a\nb",
+            "a*/b",
+            "a/*b",
+        ] {
+            let err =
+                interpolate("SELECT '%%WM_FLOW_PATH%%'", "WM_FLOW_PATH", value).expect_err(value);
+            assert!(matches!(err, error::Error::BadRequest(_)), "{value}");
+        }
+    }
 }

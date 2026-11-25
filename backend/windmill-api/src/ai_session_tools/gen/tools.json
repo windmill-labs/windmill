@@ -79,7 +79,7 @@
 					"type": "string"
 				},
 				"job_trigger_kind": {
-					"description": "Runs: filter by how the job was triggered — one of webhook, default_email, http, websocket, kafka, email, nats, mqtt, amqp, sqs, postgres, schedule, gcp, azure, google, github, asset, freshness, app. comma-separate to match several values, or prefix each with ! to exclude them instead (never mix included and excluded values in one filter). (e.g. '!schedule' to hide scheduled runs)",
+					"description": "Runs: filter by how the job was triggered — one of webhook, default_email, http, websocket, kafka, email, nats, mqtt, amqp, sqs, postgres, schedule, gcp, azure, google, github, asset, freshness, app, ui. comma-separate to match several values, or prefix each with ! to exclude them instead (never mix included and excluded values in one filter). (e.g. '!schedule' to hide scheduled runs)",
 					"type": "string"
 				},
 				"label": {
@@ -397,6 +397,82 @@
 			"additionalProperties": false
 		},
 		"read_only": true
+	},
+	{
+		"name": "request_secret",
+		"description": "Ask the user for secrets (API key, token, password) through a secure input card in Windmill (in an external client, a link to it). The values are saved as drafts of secret variables, encrypted, and never reach you. With resource_type it connects a service: the card shows the fields you prepared and asks for all its secrets, one confirmation saves them and a draft of the resource, and you get back \"$res:<path>\", with a connection test result for the types tested without a deploy. Runs read only deployed items, so the drafts must be deployed before anything uses them. Without resource_type it asks for one secret and you get back \"$var:<path>\". Never ask in the conversation for a value the card takes, secret or not: leave a field you do not know as an empty string in resource_value. Use it for every secret the user has not given you, rather than a placeholder variable for them to fill. A secret the user gave you goes in a secret variable with write_variable, referenced as \"$var:<path>\", never inline in a resource.",
+		"parameters": {
+			"type": "object",
+			"properties": {
+				"path": {
+					"description": "With resource_type, the resource's path; otherwise the secret variable's. Refused if taken, unless replace is set.",
+					"type": "string",
+					"minLength": 1
+				},
+				"replace": {
+					"description": "Set only when the user asked to replace what is at path.",
+					"type": "boolean"
+				},
+				"label": {
+					"description": "What the user is giving or connecting, as they would name it: \"OpenAI API key\" for a bare secret, \"OpenAI\" for a resource.",
+					"type": "string",
+					"minLength": 1
+				},
+				"description": {
+					"description": "One short sentence on what it is used for. Becomes the description of what is saved.",
+					"type": "string"
+				},
+				"help_text": {
+					"description": "Markdown shown on the card: two or three numbered steps to get the values at the user's provider, linking its page when you know it. Include what Windmill needs that the provider's default does not give, e.g. for Supabase the Session pooler string, since the direct host is IPv6-only.",
+					"type": "string"
+				},
+				"resource_type": {
+					"description": "To connect a service: its resource type.",
+					"type": "string"
+				},
+				"resource_value": {
+					"description": "With resource_type: the resource's non-secret fields, matching the type's schema. The user can correct them on the card.",
+					"type": "object",
+					"propertyNames": {
+						"type": "string"
+					},
+					"additionalProperties": {}
+				},
+				"secret_fields": {
+					"description": "With resource_type: every secret field of the resource (passwords, keys, tokens; not usernames or hosts).",
+					"minItems": 1,
+					"type": "array",
+					"items": {
+						"type": "object",
+						"properties": {
+							"field": {
+								"description": "The secret field, e.g. \"api_key\".",
+								"type": "string",
+								"minLength": 1
+							},
+							"label": {
+								"description": "Its label on the card; defaults to the key in words.",
+								"type": "string"
+							}
+						},
+						"required": [
+							"field"
+						],
+						"additionalProperties": false
+					}
+				},
+				"connection_string": {
+					"description": "With resource_type \"postgresql\": open the card on a connection string rather than the fields, as for Supabase or Neon. The user can switch.",
+					"type": "boolean"
+				}
+			},
+			"required": [
+				"path",
+				"label"
+			],
+			"additionalProperties": false
+		},
+		"read_only": false
 	},
 	{
 		"name": "update_user_instructions",
@@ -1787,7 +1863,7 @@
 	},
 	{
 		"name": "write_variable",
-		"description": "Create or edit a draft variable. Editing is a partial update: pass only the fields you are changing. You can never read the value of a variable, so to edit a secret variable you MUST omit value — any value you pass replaces the stored secret. FAILS if you pass a \"$var:\" self-reference as the value, or un-secret a variable without giving its new value.",
+		"description": "Create or edit a draft variable. Editing is a partial update: pass only the fields you are changing. You can never read the value of a variable, so to edit a secret variable you MUST omit value — any value you pass replaces the stored secret. FAILS if you pass a \"$var:\" self-reference as the value, or un-secret a variable without giving its new value. For a secret the user has not given you, call request_secret instead.",
 		"parameters": {
 			"type": "object",
 			"properties": {

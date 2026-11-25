@@ -234,6 +234,7 @@ export const artifactTools: SessionTool<{}>[] = [
 			"List the current session's artifacts (id, name, kind, version, role, approvedVersion). `version` is the latest one saved, which is not necessarily the one the user is reading — get_preview_status reports the version they have pinned. `role` is `plan` on the session's one plan document and on nothing else. On that one, `approvedVersion` is the version the user signed off: below `version` means the current text is a proposal they have not agreed to, and absent means nothing here was ever approved."
 		),
 		planModeSafe: true,
+		lookup: true,
 		fn: async ({ toolId, toolCallbacks, helpers }) => {
 			const h = helpers as ArtifactToolHelpers
 			const sessionId = h.sessionId
@@ -269,6 +270,7 @@ export const artifactTools: SessionTool<{}>[] = [
 			"Read an artifact's full markdown content by id, at its current or an earlier version."
 		),
 		planModeSafe: true,
+		lookup: true,
 		fn: async ({ args, toolId, toolCallbacks, helpers }) => {
 			const parsed = readArtifactSchema.parse(args)
 			const h = helpers as ArtifactToolHelpers
@@ -337,6 +339,7 @@ export const artifactTools: SessionTool<{}>[] = [
 		// How the model recovers the approved plan once a refused draft stands in front of it;
 		// the fail-closed gate would otherwise block that in the posture that needs it.
 		planModeSafe: true,
+		lookup: true,
 		fn: async ({ args, toolId, toolCallbacks, helpers }) => {
 			const parsed = listArtifactVersionsSchema.parse(args)
 			const h = helpers as ArtifactToolHelpers

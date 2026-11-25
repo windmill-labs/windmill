@@ -1512,6 +1512,21 @@ describe('pendingUserAction', () => {
 		).toBe('confirmation')
 	})
 
+	// The composer's text reaches the model, so it must never be taken as the answer to a
+	// secret card: a 'question' here would let the user type the secret into the chat.
+	it('reports an open secret card as a confirmation, never a question', async () => {
+		const { pendingUserAction } = await import('./shared')
+		const secretRequest = { workspace: 'w', path: 'u/a/key', label: 'API key' }
+		expect(pendingUserAction([toolMessage({ secretRequest })])).toBe('confirmation')
+		expect(
+			pendingUserAction([
+				toolMessage({
+					secretRequest: { ...secretRequest, saved: { path: 'u/a/key', replaced: false } }
+				})
+			])
+		).toBe(undefined)
+	})
+
 	it('is undefined for a tool the AI is running on its own', async () => {
 		const { pendingUserAction } = await import('./shared')
 		expect(pendingUserAction([toolMessage()])).toBe(undefined)

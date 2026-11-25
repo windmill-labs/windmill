@@ -149,10 +149,17 @@
 
 	let storedToolCallJobs: Record<string, Job> = $state({})
 	let toolCallIndicesToLoad: string[] = $state([])
+
+	let inner: FlowStatusViewerInner | undefined = $state(undefined)
+	/** Selects a step in the graph, as a click on its node does. */
+	export function selectStep(id: string) {
+		inner?.selectStep(id)
+	}
 </script>
 
 {#key jobId}
 	<FlowStatusViewerInner
+		bind:this={inner}
 		onJobsLoaded={({ job, force }) => {
 			if (job.script_path != lastScriptPath && job.script_path) {
 				lastScriptPath = job.script_path

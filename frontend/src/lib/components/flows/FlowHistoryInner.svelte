@@ -95,6 +95,10 @@
 	let availableVersions = $derived(
 		selectedVersionIndex !== undefined ? versions.slice(selectedVersionIndex + 1) : []
 	)
+
+	function versionMeta(version: FlowVersion): string {
+		return [version.created_by, displayDate(version.created_at)].filter(Boolean).join(' · ')
+	}
 </script>
 
 <Splitpanes class="!overflow-visible">
@@ -120,9 +124,14 @@
 									deploymentMsgUpdateMode = false
 								}}
 							>
-								<span class="text-xs truncate">
-									{#if emptyString(version.deployment_msg)}Version {version.id}{:else}{version.deployment_msg}{/if}
-								</span>
+								<div class="flex flex-col gap-0.5 truncate">
+									<span class="text-xs truncate">
+										{#if emptyString(version.deployment_msg)}Version {version.id}{:else}{version.deployment_msg}{/if}
+									</span>
+									<span class="text-2xs text-tertiary truncate" title={versionMeta(version)}>
+										{versionMeta(version)}
+									</span>
+								</div>
 							</div>
 						{/each}
 					</div>

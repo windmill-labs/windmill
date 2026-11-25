@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE v2_job_queue q SET suspend = 0\n                             FROM v2_job j, v2_job_status f\n                             WHERE q.workspace_id = $1 AND q.suspend = $3 AND j.parent_job = $2\n                                 AND f.id = j.id AND q.id = j.id\n                                 AND ((f.flow_status->'step')::int = 0\n                                     OR f.flow_status->'modules'->((f.flow_status->'step')::int)->>'id'\n                                         = f.flow_status->'restarted_from'->>'step_id')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Uuid",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "8e7ab89afc10b5552cc25c00385b3b58f6b28edcfcb8b382580282acea0e9e4d"
+}

@@ -18,6 +18,8 @@
 		/** The run graph's step states, which say why a step that has not started is waiting. */
 		stepStates?: Record<string, GraphModuleState>
 		errorAction?: Snippet
+		/** A run nested under this one waits on an approval, which its own steps don't show. */
+		waitingNested?: boolean
 	}
 
 	let {
@@ -28,7 +30,8 @@
 		textPosition = 'top',
 		showStepId = false,
 		stepStates = undefined,
-		errorAction
+		errorAction,
+		waitingNested = false
 	}: Props = $props()
 
 	// The current step, or a step waiting inside it when it is a subflow.
@@ -225,7 +228,7 @@
 	{textPosition}
 	stepId={currentStepId}
 	{showStepId}
-	{isWaitingForEvents}
+	isWaitingForEvents={isWaitingForEvents || waitingNested}
 	{isCanceled}
 	{isScheduled}
 	{isSkipped}

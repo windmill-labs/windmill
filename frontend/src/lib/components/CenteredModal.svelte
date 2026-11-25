@@ -19,6 +19,8 @@
 		/** Set on the pages that render inside the app shell, under the page header: there the
 		 * window is not the card's box, and taking the whole of it pushes 44px past the bottom. */
 		inPage?: boolean
+		/** Off for content that is a card of its own, which the box would frame a second time. */
+		box?: boolean
 		children?: import('svelte').Snippet
 	}
 
@@ -32,6 +34,7 @@
 		containOverflow = false,
 		showVersion = true,
 		inPage = false,
+		box = true,
 		children
 	}: Props = $props()
 
@@ -80,11 +83,9 @@
 
 		{#if children}
 			<div
-				class="rounded-md bg-surface w-full {large
-					? 'max-w-5xl'
-					: 'max-w-[640px]'} p-4 sm:py-8 sm:px-10 z-10 {containOverflow
-					? 'flex-1 min-h-0 flex flex-col'
-					: ''}"
+				class="w-full {large ? 'max-w-5xl' : 'max-w-[640px]'} z-10 {box
+					? 'rounded-md bg-surface p-4 sm:py-8 sm:px-10'
+					: ''} {containOverflow ? 'flex-1 min-h-0 flex flex-col' : ''}"
 			>
 				{@render children()}
 			</div>
