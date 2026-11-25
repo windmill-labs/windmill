@@ -103,3 +103,79 @@ async fn a_hub_step_follows_the_code_capability(db: Pool<Postgres>) -> anyhow::R
     );
     Ok(())
 }
+
+/// An agent save checks its Hub tools inside its transaction, so the check must not need a second
+/// connection: on a one-connection pool, with the member's role never read before, the save is
+/// refused rather than left waiting, from a job's token (sent first, while nothing is cached) as from
+/// a personal one. Its own operator, so no other test has warmed the role cache for it; the
+/// overrides match the other test's, since the workspace's roles are cached across tests.
+#[sqlx::test(fixtures("base"))]
+async fn a_hub_step_is_refused_on_a_one_connection_pool(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    sqlx::raw_sql(
+        r#"UPDATE workspace_settings SET role_overrides = '{
+             "operator": {"capabilities": {"flows": "compose", "apps": "compose"}},
+             "developer": {"capabilities": {"flows": "compose", "apps": "compose"}}
+           }' WHERE workspace_id = 'test-workspace';
+           INSERT INTO password(email, password_hash, login_type, super_admin, verified, name)
+             VALUES ('solo@windmill.dev', 'x', 'password', false, true, 'Solo');
+           INSERT INTO usr(workspace_id, email, username, is_admin, operator, role)
+             VALUES ('test-workspace', 'solo@windmill.dev', 'solo', false, true, 'Operator');
+           INSERT INTO token(token_hash, token_prefix, token, email, label, super_admin)
+             VALUES (encode(sha256('SOLO_TOKEN'::bytea), 'hex'), 'SOLO_TOKEN', 'SOLO_TOKEN',
+                     'solo@windmill.dev', 'solo', false);"#,
+    )
+    .execute(&db)
+    .await?;
+    let one = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(1)
+        .acquire_timeout(std::time::Duration::from_secs(5))
+        .connect_with((*db.connect_options()).clone())
+        .await?;
+    let server = ApiServer::start(one).await?;
+    set_jwt_secret().await;
+    let job_token = windmill_common::auth::create_jwt_token(
+        windmill_common::db::Authed {
+            email: "solo@windmill.dev".to_string(),
+            username: "solo".to_string(),
+            is_admin: false,
+            is_operator: true,
+            groups: vec![],
+            folders: vec![],
+            scopes: None,
+            token_prefix: None,
+            mcp_client: None,
+            capabilities: None,
+        },
+        "test-workspace",
+        3600,
+        None,
+        None,
+        None,
+        None,
+    )
+    .await?;
+    for token in [job_token, "SOLO_TOKEN".to_string()] {
+        let resp = reqwest::Client::new()
+            .post(format!(
+                "http://localhost:{}/api/w/test-workspace/resources/create",
+                server.addr.port()
+            ))
+            .bearer_auth(&token)
+            .json(&json!({
+                "path": "u/solo/agent", "resource_type": "ai_agent",
+                "value": {"tools": [{"id": "t", "value": {"tool_type": "flowmodule",
+                    "type": "script", "path": HUB_PATH, "input_transforms": {}}}]},
+            }))
+            .send()
+            .await?;
+        let (status, body) = (resp.status(), resp.text().await?);
+        assert!(
+            status == 403 && body.contains(&format!("{HUB_PATH}: {REFUSAL}")),
+            "{status} {body}"
+        );
+    }
+    Ok(())
+}

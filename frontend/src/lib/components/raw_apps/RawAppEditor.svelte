@@ -1,4 +1,6 @@
 <script lang="ts">
+	import HostWindow from '$lib/components/common/HostWindow.svelte'
+	import { overlayHostActive } from '$lib/components/common/overlayHost.svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { paneMinPercent } from '$lib/utils/splitpaneSizing'
 	import RawAppInlineScriptsPanel from './RawAppInlineScriptsPanel.svelte'
@@ -59,7 +61,7 @@
 	import { captureScale, MAX_IMAGE_EDGE } from '../copilot/chat/imageUtils'
 	import { rawAppLintStore } from './lintStore'
 	import { dbSchemas, userStore } from '$lib/stores'
-	import { copilotInfo } from '$lib/aiStore'
+	import { getAiChatManager } from '$lib/components/copilot/chat/aiChatManagerContext'
 	import { useActingUser } from '$lib/actingUser.svelte'
 	import { appPreviewOnBehalfOf } from '$lib/utils/previewOnBehalfOf'
 	import RawAppSdkConsent from './RawAppSdkConsent.svelte'
@@ -277,6 +279,9 @@
 		onTakeLatest = undefined,
 		draftBaseVersion = undefined
 	}: Props = $props()
+
+	const aiChat = getAiChatManager()
+	const aiInfo = $derived(aiChat.aiInfo)
 
 	// Workspace this editor operates on: the session's acting workspace when
 	// embedded in a session preview (autosaveWorkspace), else the navigation
@@ -2601,9 +2606,11 @@ addEventListener('message', function (e) {
 	// Escape exits inspect mode. We listen in the capture phase because a global
 	// handler swallows Escape before it bubbles to <svelte:window>. The preview
 	// iframe (separate document) is covered by its own listener on load.
+	const hostActive = overlayHostActive()
 	$effect(() => {
 		const onEscapeCapture = (e: KeyboardEvent) => {
 			if (
+				hostActive() &&
 				e.key === 'Escape' &&
 				(inspectorEnabled || inspectorElement || previewSelectors.length > 0)
 			) {
@@ -2665,8 +2672,9 @@ addEventListener('message', function (e) {
 	// Monaco swallows Ctrl/Cmd+S in inline editors; Editor/SimpleEditor
 	// re-broadcast it as `wm-monaco-save-shortcut` (untyped, hence manual listener).
 	$effect(() => {
-		window.addEventListener('wm-monaco-save-shortcut', flushDraft)
-		return () => window.removeEventListener('wm-monaco-save-shortcut', flushDraft)
+		const onSaveShortcut = () => hostActive() && flushDraft()
+		window.addEventListener('wm-monaco-save-shortcut', onSaveShortcut)
+		return () => window.removeEventListener('wm-monaco-save-shortcut', onSaveShortcut)
 	})
 
 	function handleKeydown(e: KeyboardEvent) {
@@ -2702,7 +2710,8 @@ addEventListener('message', function (e) {
 	}
 </script>
 
-<svelte:window onmessage={listener} onkeydown={handleKeydown} onpagehide={closeExternalPreview} />
+<svelte:window onmessage={listener} onpagehide={closeExternalPreview} />
+<HostWindow onkeydown={handleKeydown} />
 <DarkModeObserver
 	bind:darkMode
 	on:change={() => {
@@ -2984,7 +2993,7 @@ addEventListener('message', function (e) {
 													{bundlerType}
 												</Button>
 											{/if}
-											{#if !$copilotInfo.workspaceDisabled}
+											{#if aiInfo && !aiInfo.workspaceDisabled}
 												<Button
 													variant="subtle"
 													unifiedSize="sm"

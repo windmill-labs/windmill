@@ -230,7 +230,10 @@
 							? 'opacity-50 cursor-not-allowed'
 							: ''}"
 						disabled={!canPreserve}
-						onclick={() => onSelect('target')}
+						onclick={() => {
+							onSelect('target')
+							closePopover()
+						}}
 					>
 						<Check class="w-3 h-3 {selected === 'target' ? 'opacity-100' : 'opacity-0'}" />
 						<span class="truncate max-w-40">{targetDisplayName}</span>
@@ -240,7 +243,10 @@
 				<!-- Me option -->
 				<button
 					class="flex items-center gap-2 px-2 py-1.5 rounded text-left text-xs hover:bg-surface-hover"
-					onclick={() => onSelect('me')}
+					onclick={() => {
+						onSelect('me')
+						closePopover()
+					}}
 				>
 					<Check class="w-3 h-3 {selected === 'me' ? 'opacity-100' : 'opacity-0'}" />
 					<span class="truncate max-w-40">{myDisplayName}</span>

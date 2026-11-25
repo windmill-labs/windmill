@@ -29,6 +29,7 @@ pub mod freshness_watchdog_oss;
 pub use freshness_watchdog_ee as freshness_watchdog;
 #[cfg(not(feature = "private"))]
 pub use freshness_watchdog_oss as freshness_watchdog;
+mod failed_only_restart;
 pub mod jobs;
 #[cfg(feature = "private")]
 pub mod jobs_ee;

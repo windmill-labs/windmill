@@ -6,7 +6,7 @@
  * dialog behave as when the browser wrote the draft itself.
  */
 import { AiService } from '$lib/gen'
-import type { ToolCallbacks, ToolDisplayMessage } from '../shared'
+import type { SecretRequest, ToolCallbacks, ToolDisplayMessage } from '../shared'
 import { UserDraft, type UserDraftItemKind } from '$lib/userDraft.svelte'
 import {
 	deleteDraftAt,
@@ -43,6 +43,7 @@ export type SessionToolEffect =
 			before_file_path?: string | null
 	  }
 	| { type: 'needs_ai_provider_catalog'; resource_refs: string[] }
+	| { type: 'secret_request'; request: SecretRequest }
 
 export type SessionToolResponse = {
 	text: string

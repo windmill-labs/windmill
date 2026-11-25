@@ -497,9 +497,22 @@ export async function deployDraft(
 	kind: DraftKind,
 	path: string,
 	workspace: string,
-	opts: { draftOnly?: boolean; rawApp?: boolean; deploymentMessage?: string } = {}
+	opts: {
+		draftOnly?: boolean
+		rawApp?: boolean
+		deploymentMessage?: string
+		/** Scripts and flows: deploy with this user instead of the draft's; both unset runs the
+		 *  item as whoever starts each run. */
+		onBehalfOf?: { email: string | undefined; permissionedAs: string | undefined }
+		/** Scripts and flows never deployed: create at this path instead of the draft's. */
+		deployPath?: string
+	} = {}
 ): Promise<DeployResult & { noop?: boolean }> {
-	const { draftOnly = false, rawApp = false, deploymentMessage } = opts
+	const { draftOnly = false, rawApp = false, deploymentMessage, onBehalfOf, deployPath } = opts
+	const identityOf = (d: { on_behalf_of_email?: string; on_behalf_of?: string }) =>
+		onBehalfOf
+			? { on_behalf_of_email: onBehalfOf.email, on_behalf_of: onBehalfOf.permissionedAs }
+			: { on_behalf_of_email: d.on_behalf_of_email, on_behalf_of: d.on_behalf_of }
 	// Set when the branch found nothing to promote and wrote nothing. Success, because the item is
 	// already at the value a deploy would have left it at and its stale draft state still wants
 	// clearing — but a caller deploying one specific draft it showed the user has to be able to tell
@@ -526,13 +539,14 @@ export async function deployDraft(
 				lock_error_logs: _lockErrorLogs,
 				...rest
 			} = d
-			const scriptPath = d.path ?? path
+			const scriptPath = deployPath ?? d.path ?? path
 			// Deploy at the draft's path so a rename in the draft is honored (same as
 			// the editor: createScript at the new path with parent_hash links lineage).
 			await ScriptService.createScript({
 				workspace,
 				requestBody: {
 					...rest,
+					...identityOf(rest),
 					path: scriptPath,
 					parent_hash: r.hash,
 					// The deployed script's: muting applies to it at once, so a draft's copy is stale.
@@ -542,7 +556,7 @@ export async function deployDraft(
 					deployment_message: deploymentMessage,
 					// Deploy the draft's on-behalf-of as-is; the backend resets it to the
 					// deploying user without this flag, gated by can_preserve_on_behalf_of.
-					preserve_on_behalf_of: rest.on_behalf_of_email ? true : undefined
+					preserve_on_behalf_of: identityOf(rest).on_behalf_of_email ? true : undefined
 				}
 			})
 			// Then deploy any draft trigger edits, so they aren't dropped with the draft.
@@ -558,7 +572,7 @@ export async function deployDraft(
 				// user-typed path in `draft_path` (a never-deployed item is parked at a
 				// synthetic `u/{user}/draft_{uuid}` storage key). The URL `path` stays
 				// that storage key.
-				path: d.draft_path ?? d.path ?? path,
+				path: deployPath ?? d.draft_path ?? d.path ?? path,
 				summary: d.summary ?? '',
 				description: d.description ?? '',
 				value,
@@ -570,11 +584,10 @@ export async function deployDraft(
 				ws_error_handler_muted:
 					draftOnly || r.no_deployed ? d.ws_error_handler_muted : r.ws_error_handler_muted,
 				visible_to_runner_only: d.visible_to_runner_only,
-				on_behalf_of_email: d.on_behalf_of_email,
-				on_behalf_of: d.on_behalf_of,
+				...identityOf(d),
 				// Same as scripts and apps: the backend resets on_behalf_of_email to the
 				// deploying user without this flag, gated by can_preserve_on_behalf_of.
-				preserve_on_behalf_of: d.on_behalf_of_email ? true : undefined,
+				preserve_on_behalf_of: identityOf(d).on_behalf_of_email ? true : undefined,
 				labels: d.labels,
 				job_token_scopes: d.job_token_scopes,
 				deployment_message: deploymentMessage
@@ -591,7 +604,7 @@ export async function deployDraft(
 			await deployDraftTriggers(
 				d.draft_triggers,
 				workspace,
-				d.draft_path ?? d.path ?? path,
+				deployPath ?? d.draft_path ?? d.path ?? path,
 				draftOnly
 			)
 		} else if (kind === 'app') {

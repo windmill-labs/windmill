@@ -7,7 +7,13 @@ import * as log from "../../core/log.ts";
 import * as wmill from "../../../gen/services.gen.ts";
 import fs from "node:fs";
 import { workspaceDependenciesPathToLanguageAndFilename } from "../../utils/metadata.ts";
-import { readTextFileSync } from "../../utils/utils.ts";
+import {
+  apiErrorMessage,
+  isNoResponseError,
+  networkErrorMessage,
+  readTextFileSync,
+  sleep,
+} from "../../utils/utils.ts";
 
 async function push(
   opts: GlobalOptions,
@@ -38,11 +44,52 @@ const command = new Command()
   .arguments("<file_path:string>")
   .action(push as any);
 
+export interface WaitOptions {
+  intervalMs: number;
+  timeoutMs: number;
+}
+
+const DEFAULT_WAIT: WaitOptions = { intervalMs: 10_000, timeoutMs: 30 * 60_000 };
+
+async function waitForWorkspaceDependencies(
+  workspace: string,
+  language: Parameters<typeof wmill.getLatestWorkspaceDependencies>[0]["language"],
+  name: string | undefined,
+  content: string,
+  pushError: unknown,
+  { intervalMs, timeoutMs }: WaitOptions,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    await sleep(intervalMs);
+    try {
+      const latest = await wmill.getLatestWorkspaceDependencies({
+        workspace,
+        language,
+        name,
+      });
+      if (latest?.content === content) {
+        return;
+      }
+    } catch (e) {
+      log.debug(`Still waiting for workspace dependencies: ${e}`);
+    }
+  }
+  throw new Error(
+    `The server never applied the pushed ${language} workspace dependencies within ` +
+      `${Math.round(timeoutMs / 60_000)} min of the request getting no response. ` +
+      `A server older than this CLI cancels the request when the connection drops: ` +
+      `retry the push once the server is idle.`,
+    { cause: pushError },
+  );
+}
+
 export async function pushWorkspaceDependencies(
   workspace: string,
   path: string,
   _befObj: any,
   newDependenciesContent: string,
+  waitOptions: WaitOptions = DEFAULT_WAIT,
 ): Promise<void> {
   const res = workspaceDependenciesPathToLanguageAndFilename(path);
   if (!res) {
@@ -89,17 +136,41 @@ export async function pushWorkspaceDependencies(
     ),
   );
 
-  await wmill.createWorkspaceDependencies({
-    workspace,
-    requestBody: {
-      name,
-      content: newDependenciesContent,
+  try {
+    await wmill.createWorkspaceDependencies({
+      workspace,
+      requestBody: {
+        name,
+        content: newDependenciesContent,
+        language,
+        workspace_id: workspace,
+        // Description is not supported in cli, it will use old description
+        description: undefined,
+      },
+    });
+  } catch (e) {
+    if (!isNoResponseError(e)) {
+      throw e;
+    }
+    // The first default dependencies of a workspace rebuild its whole dependency map before
+    // the server answers, which can outlast this client's or a proxy's timeout. The server
+    // finishes regardless, so wait for the pushed content to become the latest version.
+    log.info(
+      colors.yellow(
+        `No response from the server while pushing ${displayName} for ${language} (${
+          networkErrorMessage(e) ?? apiErrorMessage(e)
+        }). Waiting for the server to apply them...`,
+      ),
+    );
+    await waitForWorkspaceDependencies(
+      workspace,
       language,
-      workspace_id: workspace,
-      // Description is not supported in cli, it will use old description
-      description: undefined,
-    },
-  });
+      name,
+      newDependenciesContent,
+      e,
+      waitOptions,
+    );
+  }
 
   log.info(
     colors.green(`Successfully pushed ${displayName} for ${language}`),

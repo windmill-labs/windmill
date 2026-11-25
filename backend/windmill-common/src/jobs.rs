@@ -188,26 +188,12 @@ pub async fn check_can_name_runnable(
     let RunOrigin::NamedBy(authed) = origin else {
         return Ok(());
     };
-    if !naming_needs_code(runnable) {
-        return Ok(());
-    }
-    check_can_name_with(
-        runnable,
-        crate::roles::caller_capabilities(db, w_id, authed)
+    if !runnable.path().starts_with("hub/")
+        || runnable.preset_handler().is_some()
+        || crate::roles::caller_capabilities(db, w_id, authed)
             .await?
-            .code,
-    )
-}
-
-/// A Hub path that is not a preset handler.
-pub fn naming_needs_code(runnable: &RunnableRef) -> bool {
-    runnable.path().starts_with("hub/") && runnable.preset_handler().is_none()
-}
-
-/// `check_can_name_runnable` for a caller whose `code` capability is already resolved, so a check
-/// inside a transaction does not take a second pooled connection.
-pub fn check_can_name_with(runnable: &RunnableRef, code: bool) -> error::Result<()> {
-    if code || !naming_needs_code(runnable) {
+            .code
+    {
         return Ok(());
     }
     Err(Error::PermissionDenied(
@@ -855,6 +841,8 @@ mod reserved_args_tests {
             ("_MODULES\u{0}", r#"{"m.py": "evil"}"#),
             ("_TEMP_SCRIPT_REFS", r#"{"f/a/b": "deadbeef"}"#),
             ("_TEMP_SCRIPT_REFS\u{0}", r#"{"f/a/b": "deadbeef"}"#),
+            ("_FLOW_PATH", r#""u/alice/prod_db?""#),
+            ("_FLOW_PATH\u{0}", r#""u/alice/prod_db?""#),
             // Neighbours that must not be caught by a prefix/contains match.
             ("_TEMP_SCRIPT_REFS_", r#"1"#),
             ("entrypoint", r#""main""#),

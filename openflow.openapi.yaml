@@ -1,7 +1,7 @@
 openapi: '3.0.3'
 
 info:
-  version: 1.876.1
+  version: 1.884.1
   title: OpenFlow Spec
   contact:
     name: Ruben Fiszel
@@ -876,6 +876,9 @@ components:
         path:
           type: string
           description: Path to the flow in the workspace (e.g., 'f/flows/process_user')
+        tag_override:
+          type: string
+          description: Override the subflow's worker group tag. Its steps run on this tag unless the subflow sets preserve_step_tags
         type:
           type: string
           enum:
@@ -912,6 +915,9 @@ components:
           $ref: '#/components/schemas/InputTransform'
         squash:
           type: boolean
+        iteration_label:
+          description: Optional expression evaluated once per iteration into the label the run viewers show for it, e.g. 'flow_input.iter.value.name'. It can reference 'flow_input.iter' and 'results'. Purely informational, a failing expression leaves the iteration unlabelled and never fails it. Labels are capped at 100 characters
+          $ref: '#/components/schemas/InputTransform'
       required:
         - modules
         - iterator
@@ -1409,6 +1415,28 @@ components:
               items:
                 type: string
                 format: uuid
+        continued_on_error:
+          type: array
+          description: On a root flow, the steps at any depth that failed and that the flow went past because of continue_on_error (at most 100).
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+              job:
+                type: string
+                format: uuid
+            required:
+              - id
+              - job
+        test_subflows:
+          type: object
+          description: In a flow test run, deployed subflow path -> the flow value with the test's step overrides applied, run in place of the deployed subflow.
+          # A FlowValue, left untyped: FlowStatus is inlined into every job schema, and the
+          # python client generator (which dereferences the whole spec) runs out of memory
+          # when each copy also carries a full FlowValue.
+          additionalProperties:
+            type: object
       required:
         - step
         - modules
@@ -1454,6 +1482,12 @@ components:
           type: array
           items:
             type: boolean
+        flow_jobs_labels:
+          type: array
+          description: For a for-loop step whose iteration_label is set, each iteration's label, aligned with flow_jobs. An entry is null when its label evaluated to nothing
+          items:
+            type: string
+            nullable: true
         flow_jobs_duration:
           type: object
           properties:

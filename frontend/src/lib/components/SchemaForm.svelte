@@ -79,6 +79,8 @@
 			| undefined
 		workspace?: string | undefined
 		chatInputEnabled?: boolean
+		/** See ArgInput's `fillNullableDefault`; nested forms inherit their parent input's value. */
+		fillNullableDefault?: boolean
 		actions?: import('svelte').Snippet<[{ item: { id: string; value: string } }]> | undefined
 	}
 
@@ -123,6 +125,7 @@
 		computeS3ForceViewerPolicies = undefined,
 		workspace = undefined,
 		chatInputEnabled = false,
+		fillNullableDefault = true,
 		actions: actions_render = undefined
 	}: Props = $props()
 
@@ -363,6 +366,7 @@
 								simpleTooltip={schemaFieldTooltip[argName]}
 								{onlyMaskPassword}
 								nullable={formerProperty?.nullable}
+								{fillNullableDefault}
 								title={formerProperty?.title}
 								placeholder={formerProperty?.placeholder}
 								orderEditable={dndConfig != undefined}
@@ -444,6 +448,7 @@
 								simpleTooltipWarning={argName in schemaFieldWarnings}
 								{onlyMaskPassword}
 								nullable={prop?.nullable}
+								{fillNullableDefault}
 								title={prop?.title}
 								placeholder={prop?.placeholder}
 								orderEditable={dndConfig != undefined}

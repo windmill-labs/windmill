@@ -1,29 +1,22 @@
 <script lang="ts">
 	/**
 	 * The session chat's model button: a fixed ChatModelSettings config over the copilot's
-	 * own state — the workspace's configured models, the session's model/effort selection
-	 * and its localStorage pins, the custom-prompt editors, and the free-tier grant.
+	 * own state — the workspace's configured models, the session's model/effort selection,
+	 * the custom-prompt editors, and the free-tier grant.
 	 */
 	import { User, Building2, Settings, ExternalLink } from 'lucide-svelte'
 	import ChatModelSettings from '../ChatModelSettings.svelte'
 	import { carriedReasoning, type ChatModelSettingsConfig } from '../chatModelSettings'
+	import type { Item } from '$lib/utils'
 	import {
-		COPILOT_SESSION_MODEL_SETTING_NAME,
-		COPILOT_SESSION_PROVIDER_SETTING_NAME,
-		COPILOT_SESSION_REASONING_SETTING_NAME
-	} from '$lib/stores'
-	import { storeLocalSetting, type Item } from '$lib/utils'
-	import {
-		copilotInfo,
-		copilotSessionModel,
+		applySavedWorkspaceCopilotInfo,
 		getUserCustomPrompts,
-		invalidateWorkspaceCopilotInfo,
-		setCopilotInfo,
 		setUserCustomPrompts
 	} from '$lib/aiStore'
 	import { WorkspaceService, type AIProvider, type AIProviderModel } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import { getAiChatManager } from './aiChatManagerContext'
+	import { getChatViewHost } from './chatViewHost'
 	import { thinkingPreferences } from './thinkingPreferences.svelte'
 	import {
 		getReasoningCapability,
@@ -47,22 +40,22 @@
 	}: { promptSettings?: boolean } = $props()
 
 	const aiChatManager = getAiChatManager()
+	const chatHost = getChatViewHost()
 	const AI_SETTINGS_HREF = '/workspace_settings?tab=ai'
 
+	// The model the next turn sends, so the label never names one the workspace does not offer.
 	let providerModel = $derived(
-		($copilotSessionModel ??
-			$copilotInfo.defaultModel ??
-			$copilotInfo.aiModels[0] ?? {
-				model: 'No model',
-				provider: 'No provider'
-			}) as ReasoningProviderModel
+		(chatHost.currentModel ?? {
+			model: 'No model',
+			provider: 'No provider'
+		}) as ReasoningProviderModel
 	)
-	let models = $derived($copilotInfo.aiModels)
+	let models = $derived(chatHost.aiInfo?.aiModels ?? [])
 
 	// Free tier: the workspace has no key of its own and is spending Windmill's one-time
 	// grant. Label it so the user knows whose budget this is, and warn before it runs out
 	// rather than letting the grant die mid-task.
-	let freeTier = $derived($copilotInfo.freeTier)
+	let freeTier = $derived(chatHost.aiInfo?.freeTier)
 	let freeUsedPct = $derived(Math.min(100, Math.round((freeTier?.used_ratio ?? 0) * 100)))
 	let freeRunningLow = $derived(!!freeTier && !freeTier.exhausted && freeUsedPct >= 80)
 
@@ -72,23 +65,16 @@
 			REASONING_OFF,
 			getReasoningCapability(m.provider, m.model)
 		)
-		$copilotSessionModel = { ...m, ...(keep !== undefined ? { reasoning: keep } : {}) }
-		storeLocalSetting(COPILOT_SESSION_MODEL_SETTING_NAME, m.model)
-		storeLocalSetting(COPILOT_SESSION_PROVIDER_SETTING_NAME, m.provider)
-		storeLocalSetting(COPILOT_SESSION_REASONING_SETTING_NAME, keep)
+		aiChatManager.pickModel({ ...m, ...(keep !== undefined ? { reasoning: keep } : {}) })
 	}
 
 	function selectReasoning(value: string) {
-		const reasoning = value === REASONING_OFF ? REASONING_OFF : value
-		$copilotSessionModel = {
+		// With the model, so the reasoning choice persists with it.
+		aiChatManager.pickModel({
 			...providerModel,
 			provider: providerModel.provider as AIProvider,
-			reasoning
-		}
-		// Pin the current model selection so the reasoning choice persists with it.
-		storeLocalSetting(COPILOT_SESSION_MODEL_SETTING_NAME, providerModel.model)
-		storeLocalSetting(COPILOT_SESSION_PROVIDER_SETTING_NAME, providerModel.provider)
-		storeLocalSetting(COPILOT_SESSION_REASONING_SETTING_NAME, reasoning)
+			reasoning: value
+		})
 	}
 
 	// ---- prompt parameters (User / Workspace custom prompts) ----
@@ -132,13 +118,13 @@
 
 	// Seed from the same source save() writes to (the raw workspace ai_config) and detect
 	// whether the workspace has its own providers in the same fetch. Non-admins can't read
-	// raw settings, so they see the effective prompt from copilotInfo (read-only).
+	// raw settings, so they see the effective prompt (read-only).
 	async function openWorkspacePrompt() {
 		activeMode = mode
 		modalScope = 'workspace'
 		workspaceMissingProviders = false
 		if (!isAdmin) {
-			initialPrompt = $copilotInfo.customPrompts?.[activeMode] ?? ''
+			initialPrompt = chatHost.aiInfo?.customPrompts?.[activeMode] ?? ''
 		} else {
 			const workspace = $operatingWorkspace
 			try {
@@ -148,7 +134,7 @@
 				initialPrompt = settings?.ai_config?.custom_prompts?.[activeMode] ?? ''
 			} catch (err) {
 				sendUserToast(`Failed to load workspace AI prompt: ${err}`, true)
-				initialPrompt = $copilotInfo.customPrompts?.[activeMode] ?? ''
+				initialPrompt = chatHost.aiInfo?.customPrompts?.[activeMode] ?? ''
 			}
 		}
 		customPrompts = { [activeMode]: initialPrompt }
@@ -192,8 +178,7 @@
 				workspace,
 				requestBody: { ...config, custom_prompts }
 			})
-			setCopilotInfo(response.effective_ai_config)
-			invalidateWorkspaceCopilotInfo(workspace)
+			applySavedWorkspaceCopilotInfo(workspace, response.effective_ai_config)
 			initialPrompt = value
 			customPrompts = { [activeMode]: value }
 			sendUserToast('Workspace AI prompt saved')

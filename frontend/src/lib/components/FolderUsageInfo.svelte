@@ -11,7 +11,7 @@
 		order?: any;
 	}
 
-	let { name, tabular = false, order = ['scripts', 'flows', 'apps', 'schedules', 'variables', 'resources'] }: Props = $props();
+	let { name, tabular = false, order = ['scripts', 'flows', 'apps', 'agents', 'schedules', 'variables', 'resources'] }: Props = $props();
 
 
 	let usage: Record<string, number> = $state({})

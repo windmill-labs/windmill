@@ -51,9 +51,9 @@ export function makeUpdateQuery(
 		}
 		case 'ms_sql_server': {
 			const conditions = columns
-				.map((c, i) => `(@p${i + 2} IS NULL AND ${c.field} IS NULL OR ${c.field} = @p${i + 2})`)
+				.map((c, i) => `(@P${i + 2} IS NULL AND ${c.field} IS NULL OR ${c.field} = @P${i + 2})`)
 				.join('\n    AND ')
-			query += `\nUPDATE ${table} SET ${column.field} = @p1 \nWHERE ${conditions}`
+			query += `\nUPDATE ${table} SET ${column.field} = @P1 \nWHERE ${conditions}`
 			return query
 		}
 		case 'snowflake': {

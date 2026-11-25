@@ -201,7 +201,7 @@
 					{#if rawApps && !onlyFlow}
 						<Tab value="workspaceagents" label="AI agents" icon={Bot} />
 					{/if}
-					{#if $roleCaps.apps !== 'compose'}
+					{#if $roleCaps.code}
 						{#if !onlyFlow}
 							<Tab value="hubscripts" label="Hub scripts" icon={Globe2} />
 						{/if}

@@ -739,6 +739,7 @@
 																	id={module.id}
 																	{onSelectedIteration}
 																	flowJobsSuccess={localModuleStates[module.id]?.flow_jobs_success}
+																	flowJobsLabels={localModuleStates[module.id]?.flow_jobs_labels}
 																	flowJobs={localModuleStates[module.id]?.flow_jobs}
 																	selected={localModuleStates[module.id]?.selectedForloopIndex ?? 0}
 																	selectedManually={localModuleStates[module.id]
@@ -748,6 +749,16 @@
 															</button>
 															{#if module.value.type === 'forloopflow'}
 																{`/${localModuleStates[module.id]?.iteration_total ?? 0}`}
+																{@const selectedLabel =
+																	localModuleStates[module.id]?.flow_jobs_labels?.[
+																		localModuleStates[module.id]?.selectedForloopIndex ?? 0
+																	]}
+																{#if selectedLabel}
+																	<span
+																		class="ml-2 font-sans font-normal text-secondary truncate max-w-60"
+																		title={selectedLabel}>{selectedLabel}</span
+																	>
+																{/if}
 															{/if}
 														</span>
 													{/if}

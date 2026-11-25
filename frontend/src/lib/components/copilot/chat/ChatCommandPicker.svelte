@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { overlayHostActive } from '$lib/components/common/overlayHost.svelte'
+	const hostActive = overlayHostActive()
 	import DrillPicker from '$lib/components/DrillPicker.svelte'
 	import type { DrillLeaf, DrillNode } from '$lib/components/drillPicker'
 	import type { ChatCommandItem } from './global/core'
@@ -55,7 +57,7 @@
 	}
 
 	function onDocumentKeydown(e: KeyboardEvent) {
-		if (e.key === 'Escape' && !e.defaultPrevented) {
+		if (hostActive() && e.key === 'Escape' && !e.defaultPrevented) {
 			setShowing?.(false)
 		}
 	}

@@ -680,6 +680,9 @@ pub struct EditErrorHandlerNew {
     pub muted_on_cancel: bool,
     #[serde(default)]
     pub muted_on_user_path: bool,
+    /// Skip runs whose `trigger_kind` is `ui`. `None` keeps the stored value, for the same
+    /// reason as `fallback_to_instance_alerts`.
+    pub muted_on_ui_runs: Option<bool>,
     /// Left as `None` by clients that predate the setting (the CLI among them), which must
     /// keep the stored value rather than silently reset it on every settings push.
     pub fallback_to_instance_alerts: Option<bool>,
@@ -711,6 +714,7 @@ impl EditErrorHandler {
                 extra_args: legacy.error_handler_extra_args,
                 muted_on_cancel: legacy.error_handler_muted_on_cancel,
                 muted_on_user_path: false, // Old format doesn't have this field
+                muted_on_ui_runs: None,
                 fallback_to_instance_alerts: None,
             },
         }
@@ -1022,6 +1026,7 @@ fn sanitize_client_auto_pull(
     auto_pull.webhook_secret = None;
     auto_pull.webhook_url = None;
     auto_pull.webhook_error = None;
+    auto_pull.webhook_verified_id = None;
     auto_pull.last_synced_sha = std::collections::HashMap::new();
     auto_pull.last_pull_status = None;
     auto_pull.enabled_by = auto_pull.enabled.then(|| saver_email.to_string());
@@ -5456,6 +5461,7 @@ async fn edit_git_sync_config(
                     new_ap.webhook_id = old_ap.webhook_id;
                     new_ap.webhook_secret = old_ap.webhook_secret.clone();
                     new_ap.webhook_url = old_ap.webhook_url.clone();
+                    new_ap.webhook_verified_id = old_ap.webhook_verified_id;
                     new_ap.last_synced_sha = old_ap.last_synced_sha.clone();
                     new_ap.last_pull_status = old_ap.last_pull_status.clone();
                 }
@@ -5714,6 +5720,7 @@ async fn edit_git_sync_repository(
                 new_ap.webhook_id = old_ap.webhook_id;
                 new_ap.webhook_secret = old_ap.webhook_secret.clone();
                 new_ap.webhook_url = old_ap.webhook_url.clone();
+                new_ap.webhook_verified_id = old_ap.webhook_verified_id;
             }
             // UI omitted auto_pull (e.g. older client): keep existing config.
             (None, Some(_)) => {
@@ -6363,6 +6370,22 @@ async fn edit_error_handler(
         });
         if let Some(extra_args) = &ee.extra_args {
             error_handler["extra_args"] = extra_args.clone();
+        }
+        // Written only when set, so the blob of every workspace that never turns it on, and
+        // its `settings.yaml`, stays as it was before the flag existed.
+        let muted_on_ui_runs = match ee.muted_on_ui_runs {
+            Some(muted) => muted,
+            None => sqlx::query_scalar!(
+                "SELECT COALESCE((error_handler->>'muted_on_ui_runs')::boolean, false) AS \"muted!\"
+                 FROM workspace_settings WHERE workspace_id = $1",
+                &w_id
+            )
+            .fetch_optional(&mut *tx)
+            .await?
+            .unwrap_or(false),
+        };
+        if muted_on_ui_runs {
+            error_handler["muted_on_ui_runs"] = serde_json::Value::Bool(true);
         }
 
         sqlx::query!(
@@ -14407,6 +14430,7 @@ async fn load_workspace_authed(
             job_id: base_authed.job_id,
             credential_expiry: base_authed.credential_expiry,
             mcp_client: base_authed.mcp_client.clone(),
+            capabilities: None,
         });
     };
 
@@ -14448,6 +14472,7 @@ async fn load_workspace_authed(
         job_id: base_authed.job_id,
         credential_expiry: base_authed.credential_expiry,
         mcp_client: base_authed.mcp_client.clone(),
+        capabilities: None,
     })
 }
 

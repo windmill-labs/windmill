@@ -133,6 +133,11 @@ interface SqlProvider {
   providerName: string;
 }
 
+// Tells the executor that the args are bound values, to pass on as they are, so a value
+// that reads like `$var:u/alice/key` reaches the database as that text. A server that
+// predates the annotation ignores it.
+const LITERAL_ARGS_ANNOTATION = "-- literal_args\n";
+
 // Interpolated into a `-- role <name>` line, so a value carrying a newline could append
 // statements of its own. Mirrors the server's own role-name rule.
 const ROLE_NAME_RE = /^[A-Za-z0-9_-]{1,63}$/;
@@ -151,7 +156,8 @@ function datatableProvider(
     providerName: "datatable",
     language: "postgresql",
     extraArgs: { database: `datatable://${name}` },
-    annotations: () => (role !== undefined ? `-- role ${role}\n` : ""),
+    annotations: () =>
+      LITERAL_ARGS_ANNOTATION + (role !== undefined ? `-- role ${role}\n` : ""),
     formatArgDecl: (argNum) => `-- $${argNum} arg${argNum}`,
     formatArgUsage: (argNum, explicitType, inferredType) =>
       explicitType !== undefined
@@ -166,7 +172,7 @@ function ducklakeProvider(name: string, schema?: string): SqlProvider {
     providerName: "ducklake",
     language: "duckdb",
     extraArgs: {},
-    annotations: () => "",
+    annotations: () => LITERAL_ARGS_ANNOTATION,
     formatArgDecl: (argNum, argType) => `-- $arg${argNum} (${argType})`,
     formatArgUsage: (argNum) => `$arg${argNum}`,
     // `USE dl."schema"` sets the active schema so unqualified tables resolve there.
@@ -256,8 +262,12 @@ function buildSqlStatement(
 //                            silently became NULL in the database. The
 //                            executor accepts these literals via
 //                            `Value::String → FLOAT8` (`f64::from_str`).
+//   - array                → each element serialized as above. `TYPE[]`
+//                            slots parse string elements the same way; a
+//                            JSON-typed array stores them as strings.
 //   - everything else      → passed through unchanged.
 function serializeArgValue(v: any): any {
+  if (Array.isArray(v)) return v.map(serializeArgValue);
   if (typeof v === "bigint") return v.toString();
   if (v instanceof Date) return v.toISOString();
   if (typeof v === "number" && !Number.isFinite(v)) {

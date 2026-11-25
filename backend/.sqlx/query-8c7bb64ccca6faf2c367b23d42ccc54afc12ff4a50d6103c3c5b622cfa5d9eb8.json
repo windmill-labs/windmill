@@ -1,0 +1,34 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH ranked AS (\n            SELECT av.id, av.app_id,\n                row_number() OVER newest_first AS rn,\n                GREATEST(av.created_at, lag(av.created_at) OVER newest_first) AS superseded_at\n            FROM app_version av\n            LEFT JOIN (\n                SELECT app.id AS app_id, v.id, v.ord\n                FROM app, unnest(app.versions) WITH ORDINALITY AS v(id, ord)\n            ) pos ON pos.app_id = av.app_id AND pos.id = av.id\n            WHERE av.raw_app\n            WINDOW newest_first AS (\n                PARTITION BY av.app_id ORDER BY COALESCE(pos.ord, 0) DESC, av.id DESC\n            )\n        )\n        SELECT a.id AS app_id, a.workspace_id, array_agg(r.id) AS \"versions!\"\n        FROM ranked r\n        JOIN app a ON a.id = r.app_id\n        WHERE r.rn > $1\n            AND r.superseded_at < now() - interval '1 hour'\n        GROUP BY a.id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "app_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "workspace_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "versions!",
+        "type_info": "Int8Array"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      null
+    ]
+  },
+  "hash": "8c7bb64ccca6faf2c367b23d42ccc54afc12ff4a50d6103c3c5b622cfa5d9eb8"
+}

@@ -224,8 +224,8 @@ CASE WHEN :order_by = '${column.field}' AND :is_desc IS true THEN \`${column.fie
 				.filter((column) => !unsortableTypes.includes(column.datatype.toLowerCase()))
 				.map((column) => {
 					return `
-(CASE WHEN @p4 = '${column.field}' AND @p5 = 0 THEN ${column.field} END) ASC,
-(CASE WHEN @p4 = '${column.field}' AND @p5 = 1 THEN ${column.field} END) DESC`
+(CASE WHEN @P4 = '${column.field}' AND @P5 = 0 THEN ${column.field} END) ASC,
+(CASE WHEN @P4 = '${column.field}' AND @P5 = 1 THEN ${column.field} END) DESC`
 				})
 				.join(',\n')
 
@@ -239,13 +239,13 @@ CASE WHEN :order_by = '${column.field}' AND :is_desc IS true THEN \`${column.fie
 				.join(', ')
 
 			quicksearchCondition = searchClause
-				? ` (@p3 = '' OR CONCAT(${searchClause}) LIKE '%' + @p3 + '%')`
-				: ` (@p3 = '')`
+				? ` (@P3 = '' OR CONCAT(${searchClause}) LIKE '%' + @P3 + '%')`
+				: ` (@P3 = '')`
 
 			query += `SELECT ${selectClause} FROM ${table}`
 			query += ` WHERE ${whereClause ? `${whereClause} AND` : ''} ${quicksearchCondition}`
 			query += ` ORDER BY ${orderBy}`
-			query += ` OFFSET @p2 ROWS FETCH NEXT @p1 ROWS ONLY`
+			query += ` OFFSET @P2 ROWS FETCH NEXT @P1 ROWS ONLY`
 			break
 		}
 		case 'snowflake': {

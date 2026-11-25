@@ -9,6 +9,7 @@ import { runsTimeframes } from '$lib/components/runs/timeframes'
 
 export type RecentRuns = ListRecentRunsResponse
 export type RecentRunItem = RecentRuns['items'][number]
+export type HiddenRunItem = RecentRuns['hidden_items'][number]
 export type RecentRun = RecentRunItem['runs'][number]
 export type RecentRunStatus = RecentRun['status']
 
@@ -32,11 +33,26 @@ export function useRecentRuns(
 			workspace && enabled ? await JobService.listRecentRuns({ workspace, folder }) : undefined,
 		{
 			name: 'recent_runs',
-			version: 2,
+			version: 3,
 			scope: ({ workspace, folder, enabled }) =>
 				workspace && enabled ? { workspace, args: { folder } } : undefined
 		}
 	)
+	/** Hides or brings back `items` for the caller, then rereads: the counts without them can
+	 * only come from the server, which drops hidden runs before counting. */
+	async function setHidden(hidden: boolean, items: HiddenRunItem[]) {
+		const workspace = args().workspace
+		if (!workspace || items.length === 0) return
+		const requestBody = { items: items.map(({ kind, path }) => ({ kind, path })) }
+		try {
+			if (hidden) await JobService.hideRecentRunItems({ workspace, requestBody })
+			else await JobService.unhideRecentRunItems({ workspace, requestBody })
+		} catch (e) {
+			sendUserToast(`Could not ${hidden ? 'hide' : 'unhide'} the item: ${e}`, true)
+			return
+		}
+		await runs.refetch()
+	}
 	// The rows' ages ("3m") are read against this, so they move on with each refresh.
 	let now = $state(Date.now())
 	const visible = new IsDocumentVisible()
@@ -48,8 +64,20 @@ export function useRecentRuns(
 		}
 	})
 	return {
+		/** The latest read, without the items the user hid. */
 		get current() {
 			return runs.current
+		},
+		/** The items the user hid in this workspace, within the folder filter, whether or not
+		 * they ran in the window. */
+		get hiddenItems(): HiddenRunItem[] {
+			return runs.current?.hidden_items ?? []
+		},
+		hide(item: HiddenRunItem) {
+			return setHidden(true, [item])
+		},
+		unhide(items: HiddenRunItem[]) {
+			return setHidden(false, items)
 		},
 		/** A read is in flight; with no `current` yet, nothing is known about the window. */
 		get loading() {

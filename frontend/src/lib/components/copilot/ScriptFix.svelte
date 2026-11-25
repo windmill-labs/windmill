@@ -5,7 +5,7 @@
 	import type { SupportedLanguage } from '$lib/common'
 	import { WandSparkles } from 'lucide-svelte'
 	import type { AIChatManager } from './chat/AIChatManager.svelte'
-	import { copilotInfo } from '$lib/aiStore'
+	import { getAiChatManager } from '$lib/components/copilot/chat/aiChatManagerContext'
 	import OpenInSessionButton from '$lib/components/sessions/OpenInSessionButton.svelte'
 	import { getOpenInSessionHandoff } from '$lib/components/sessions/openInSessionContext'
 	import { AIBtnClasses } from './chat/AIButtonStyle'
@@ -29,6 +29,9 @@
 		 * that step rather than the flow root. */
 		moduleId?: string
 	} = $props()
+
+	const aiChat = getAiChatManager()
+	const aiInfo = $derived(aiChat.aiInfo)
 
 	// The enclosing editor's "Open in AI session" hand-off (ScriptEditor for a
 	// standalone script, FlowBuilder for a step).
@@ -74,7 +77,7 @@
 	const sessionScopedManager = getContext<AIChatManager | undefined>('aiChatManager')
 </script>
 
-{#if SUPPORTED_LANGUAGES.has(lang) && !$copilotInfo.workspaceDisabled}
+{#if SUPPORTED_LANGUAGES.has(lang) && aiInfo && !aiInfo.workspaceDisabled}
 	{#if sessionScopedManager}
 		<Button
 			title="Fix the failing run in this chat"

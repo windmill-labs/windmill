@@ -39,6 +39,11 @@ pub fn workspaced_service() -> Router {
         )
         .route("/resource_types", post(publish_resource_type))
         .route("/resources", post(publish_resources))
+        .route("/agents", post(publish_agents))
+        .route(
+            "/projects/{slug}/agent_recording",
+            post(publish_agent_recording),
+        )
         .route("/triggers", post(publish_triggers))
         .route("/migrations", post(publish_migrations))
         .route("/projects/{slug}/export", get(get_project_export))
@@ -384,10 +389,10 @@ struct ProjectLogoBody {
     logo: Option<Option<ProjectLogoInner>>,
 }
 
-fn deserialize_explicit<'de, D: Deserializer<'de>>(
+fn deserialize_explicit<'de, T: Deserialize<'de>, D: Deserializer<'de>>(
     d: D,
-) -> Result<Option<Option<ProjectLogoInner>>, D::Error> {
-    Option::<ProjectLogoInner>::deserialize(d).map(Some)
+) -> Result<Option<Option<T>>, D::Error> {
+    Option::<T>::deserialize(d).map(Some)
 }
 
 // Mirrors the Hub's own limits so an oversized/invalid payload is rejected
@@ -483,6 +488,63 @@ async fn publish_resources(
 ) -> Result<impl IntoResponse, Error> {
     ctx.post(&format!("/projects/{}/resources", body.project_slug), &body)
         .await
+}
+
+// A saved agent is an `ai_agent` resource whose value is the product: its prompt, model and
+// tools. Unlike the stubs above it ships whole, since it holds no credential, only `$res:`
+// references to the provider and to what its tools take, which travel as stubs.
+#[derive(Deserialize, Serialize)]
+struct PublishAgentBody {
+    path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    source_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    summary: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    description: Option<String>,
+    value: serde_json::Value,
+}
+
+// Full-set sync, as for triggers: the agents the folder holds now, absent ones removed.
+#[derive(Deserialize, Serialize)]
+struct PublishAgentsBody {
+    agents: Vec<PublishAgentBody>,
+    project_slug: ProjectSlug,
+}
+
+async fn publish_agents(
+    ctx: HubPublishCtx,
+    Json(body): Json<PublishAgentsBody>,
+) -> Result<impl IntoResponse, Error> {
+    ctx.post(&format!("/projects/{}/agents", body.project_slug), &body)
+        .await
+}
+
+// The demo of an agent is a recorded conversation, kept on the agent's row of the draft.
+// Double-Option, as for the logo: `recording: null` clears it, and a body without the key
+// is refused rather than read as that.
+#[derive(Deserialize, Serialize)]
+struct AgentRecordingBody {
+    path: String,
+    #[serde(default, deserialize_with = "deserialize_explicit")]
+    recording: Option<Option<serde_json::Value>>,
+}
+
+async fn publish_agent_recording(
+    ctx: HubPublishCtx,
+    Path((_workspace, slug)): Path<(String, ProjectSlug)>,
+    Json(body): Json<AgentRecordingBody>,
+) -> Result<impl IntoResponse, Error> {
+    let Some(recording) = body.recording else {
+        return Err(Error::BadRequest(
+            "recording field is required: an object to set it, or null to clear it".to_string(),
+        ));
+    };
+    ctx.post(
+        &format!("/projects/{}/agent_recording", slug),
+        &serde_json::json!({ "path": body.path, "recording": recording }),
+    )
+    .await
 }
 
 #[derive(Deserialize, Serialize)]

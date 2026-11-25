@@ -28,7 +28,7 @@ lazy_static::lazy_static! {
 use crate::{
     common::{
         build_args_map, build_command_with_isolation, get_reserved_variables, read_file,
-        read_file_content, resolve_nsjail_timeout, resolve_nsjail_tmp_mount_block,
+        read_file_content, resolve_nsjail_timeout, resolve_nsjail_tmp_mount_block, script_envars,
         start_child_process, MaybeLock, OccupancyMetrics,
     },
     handle_child::handle_child,
@@ -696,20 +696,6 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
     let child = if nsjail {
         let nsjail_timeout =
             resolve_nsjail_timeout(db, &job.workspace_id, job.id, job.timeout).await;
-        let _ = write_file(
-            job_dir,
-            "run.config.proto",
-            &NSJAIL_CONFIG_RUN_POWERSHELL_CONTENT
-                .replace("{JOB_DIR}", job_dir)
-                .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
-                .replace("{SHARED_MOUNT}", shared_mount)
-                .replace("{CACHE_DIR}", &*POWERSHELL_CACHE_DIR)
-                .replace(
-                    "{TMP_MOUNT_BLOCK}",
-                    &resolve_nsjail_tmp_mount_block(job_dir).await,
-                )
-                .replace("{TIMEOUT}", &nsjail_timeout),
-        )?;
         let cmd_args = vec![
             "--config",
             "run.config.proto",
@@ -728,6 +714,21 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
             .args(cmd_args)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
+        let _ = write_file(
+            job_dir,
+            "run.config.proto",
+            &NSJAIL_CONFIG_RUN_POWERSHELL_CONTENT
+                .replace("{JOB_DIR}", job_dir)
+                .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
+                .replace("{SHARED_MOUNT}", shared_mount)
+                .replace("{CACHE_DIR}", &*POWERSHELL_CACHE_DIR)
+                .replace(
+                    "{TMP_MOUNT_BLOCK}",
+                    &resolve_nsjail_tmp_mount_block(job_dir).await,
+                )
+                .replace("{TIMEOUT}", &nsjail_timeout)
+                .replace("{ENVARS}", &script_envars(&envs, &cmd, &[])),
+        )?;
 
         start_child_process(cmd, NSJAIL_PATH.as_str(), false).await?
     } else {

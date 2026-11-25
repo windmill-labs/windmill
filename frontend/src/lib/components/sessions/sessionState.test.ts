@@ -5,6 +5,7 @@ import {
 	createSession,
 	decideSessionLifecycle,
 	getSessionDraftAttachments,
+	getSessionDraftPrompt,
 	holdHomeDraft,
 	holdSessionUntilStarted,
 	homeDraft,
@@ -49,7 +50,11 @@ vi.mock('$lib/gen', async (orig) => {
 			...actual.WorkspaceService,
 			createWorkspaceFork: vi.fn().mockRejectedValue(new Error('fork creation failed')),
 			getForkCreationStatus: vi.fn().mockResolvedValue({ status: 'completed' }),
-			listUserWorkspaces: vi.fn().mockResolvedValue([])
+			listUserWorkspaces: vi.fn().mockResolvedValue([]),
+			// What a staged fork's request is checked against before it is sent.
+			listDataTables: vi.fn().mockResolvedValue([]),
+			listDucklakes: vi.fn().mockResolvedValue([]),
+			listProtectionRules: vi.fn().mockResolvedValue([])
 		}
 	}
 })
@@ -686,6 +691,34 @@ describe('createSession — reuses an untouched draft, family-scoped', () => {
 			)
 			sessionState.currentSessionId = prevCurrent
 			restore()
+		}
+	})
+})
+
+describe('composer draft of a sent session', () => {
+	it('reads back the follow-up, never the first message, and empties with the composer', () => {
+		sessionState.sessions.push(session({ id: 'sent-draft', draftPrompt: 'first message' }))
+		const pastes = [{} as PasteAttachment]
+		try {
+			setSessionDraftAttachments('sent-draft', { ...NO_ATTACHMENTS, pastes })
+			sessionState.sessions.find((x) => x.id === 'sent-draft')!.workspace_id = 'ws'
+			// The record's draft prompt and the staged attachments are the first message: read
+			// back after the send, they would put it in the composer a second time.
+			expect(getSessionDraftPrompt('sent-draft')).toBeUndefined()
+			expect(getSessionDraftAttachments('sent-draft')).toBeUndefined()
+
+			setSessionDraftPrompt('sent-draft', 'follow-up')
+			setSessionDraftAttachments('sent-draft', { ...NO_ATTACHMENTS, pastes })
+			expect(getSessionDraftPrompt('sent-draft')).toBe('follow-up')
+			expect(getSessionDraftAttachments('sent-draft')).toEqual({ ...NO_ATTACHMENTS, pastes })
+
+			setSessionDraftPrompt('sent-draft', '')
+			setSessionDraftAttachments('sent-draft', NO_ATTACHMENTS)
+			expect(getSessionDraftPrompt('sent-draft')).toBeUndefined()
+			expect(getSessionDraftAttachments('sent-draft')).toBeUndefined()
+		} finally {
+			setSessionDraftAttachments('sent-draft', NO_ATTACHMENTS)
+			sessionState.sessions = sessionState.sessions.filter((s) => s.id !== 'sent-draft')
 		}
 	})
 })

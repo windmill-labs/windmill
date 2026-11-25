@@ -142,6 +142,22 @@ pub async fn build_args_values(
     }
 }
 
+/// The job's args exactly as submitted, for a query annotated `-- literal_args`: unlike
+/// [`build_args_values`], no `$var:`/`$res:`/`$encrypted:` reference and no `$`-prefixed
+/// reserved variable in them is resolved.
+pub fn build_literal_args_values(job: &MiniPulledJob) -> HashMap<String, serde_json::Value> {
+    job.args
+        .iter()
+        .flat_map(|args| args.0.iter())
+        .map(|(k, v)| {
+            (
+                k.to_string(),
+                serde_json::from_str(v.get()).unwrap_or_else(|_| serde_json::Value::Null),
+            )
+        })
+        .collect()
+}
+
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn create_args_and_out_file(
     client: &AuthedClient,
@@ -379,7 +395,8 @@ pub async fn transform_json_value(
             // let path = y.strip_prefix("$res:").unwrap();
         }
         Value::String(y) if y.starts_with("$") => {
-            let variables = get_reserved_variables(job, &client.token, conn, None).await?;
+            let variables =
+                get_reserved_and_workspace_variables(job, &client.token, conn, None).await?;
 
             let name = y.strip_prefix("$").unwrap();
 
@@ -543,12 +560,40 @@ pub async fn parent_flow_path(
     }
 }
 
+/// The variables an executor sets on the process it starts for a job.
+///
+/// With sandboxing on, that process (nsjail, or deno and javac, which are never jailed)
+/// starts outside the jail, so the workspace's env vars are left out:
+/// `run_language_executor` adds them to the script's env, which reaches the jailed child
+/// only, through [`script_envars`].
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn get_reserved_variables(
     job: &MiniPulledJob,
     token: &str,
     db: &Connection,
     parent_runnable_path: Option<String>,
+) -> Result<HashMap<String, String>, Error> {
+    let workspace_envs = !crate::is_sandboxing_enabled();
+    get_job_variables(job, token, db, parent_runnable_path, workspace_envs).await
+}
+
+/// [`get_reserved_variables`] with the workspace's env vars whatever the isolation, for
+/// what the worker evaluates itself and never sets on a process it starts.
+pub async fn get_reserved_and_workspace_variables(
+    job: &MiniPulledJob,
+    token: &str,
+    db: &Connection,
+    parent_runnable_path: Option<String>,
+) -> Result<HashMap<String, String>, Error> {
+    get_job_variables(job, token, db, parent_runnable_path, true).await
+}
+
+async fn get_job_variables(
+    job: &MiniPulledJob,
+    token: &str,
+    db: &Connection,
+    parent_runnable_path: Option<String>,
+    workspace_envs: bool,
 ) -> Result<HashMap<String, String>, Error> {
     let flow_path = if parent_runnable_path.is_some() {
         parent_runnable_path
@@ -586,6 +631,9 @@ pub async fn get_reserved_variables(
     .await
     .to_vec();
     let mut variables = variables;
+    if !workspace_envs {
+        variables.retain(|v| !v.is_custom);
+    }
     if let Some(client) = &job.mcp_client {
         variables.push(variables::ContextualVariable {
             name: "WM_MCP_CLIENT".to_string(),
@@ -693,6 +741,119 @@ pub struct OccupancyMetrics {
     pub total_duration_of_running_jobs: f32,
     pub worker_occupancy_rate_history: Vec<(f32, f32)>,
     pub start_time: Instant,
+    /// Set when the worker runs dedicated subprocesses. Its busy time then replaces the main
+    /// loop's timers, which never see the jobs the loop only hands over.
+    pub dedicated: Option<Arc<DedicatedWorkerState>>,
+}
+
+/// Shared by a worker's main loop and its dedicated subprocesses, which find it by worker name.
+#[derive(Default)]
+pub struct DedicatedWorkerState {
+    busy: std::sync::Mutex<Busy>,
+    /// Jobs handed to a dedicated subprocess and not yet done with. Nothing else pings them
+    /// while they wait in its channel or run in it, or they are restarted as zombies and run
+    /// twice.
+    in_flight: std::sync::Mutex<HashSet<uuid::Uuid>>,
+}
+
+#[derive(Default)]
+struct Busy {
+    running: usize,
+    since: Option<Instant>,
+    total_secs: f32,
+}
+
+lazy_static! {
+    static ref DEDICATED_WORKER_STATES: std::sync::Mutex<HashMap<String, std::sync::Weak<DedicatedWorkerState>>> =
+        std::sync::Mutex::new(HashMap::new());
+}
+
+impl DedicatedWorkerState {
+    /// Keyed by worker name, which keeps the native mode's several workers per process apart.
+    pub fn for_worker(worker_name: &str) -> Arc<Self> {
+        let mut states = DEDICATED_WORKER_STATES
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        if let Some(state) = states.get(worker_name).and_then(|s| s.upgrade()) {
+            return state;
+        }
+        let state = Arc::new(Self::default());
+        states.insert(worker_name.to_string(), Arc::downgrade(&state));
+        state
+    }
+
+    /// Taken by a dedicated subprocess on receiving a job. Dropping it ends the job's in-flight
+    /// pings, so a job dropped unfinished is left to the zombie recovery.
+    pub fn received(self: &Arc<Self>, job_id: uuid::Uuid) -> HandedOver {
+        HandedOver { state: self.clone(), job_id }
+    }
+
+    /// Counts the worker as busy until the guard drops, overlapping jobs once.
+    pub fn start_busy(self: &Arc<Self>, job: Option<HandedOver>) -> BusyGuard {
+        let mut s = self.busy.lock().unwrap_or_else(|e| e.into_inner());
+        if s.running == 0 {
+            s.since = Some(Instant::now());
+        }
+        s.running += 1;
+        BusyGuard { state: self.clone(), _job: job }
+    }
+
+    fn busy_secs(&self) -> f32 {
+        let s = self.busy.lock().unwrap_or_else(|e| e.into_inner());
+        s.total_secs + s.since.map(|x| x.elapsed().as_secs_f32()).unwrap_or(0.0)
+    }
+
+    pub fn hand_over(&self, job_id: uuid::Uuid) {
+        self.in_flight_set().insert(job_id);
+    }
+
+    pub fn take_back(&self, job_id: &uuid::Uuid) {
+        self.in_flight_set().remove(job_id);
+    }
+
+    pub(crate) fn in_flight(&self) -> Vec<uuid::Uuid> {
+        self.in_flight_set().iter().copied().collect()
+    }
+
+    /// Drops the jobs of `pinged` that `still_running` lacks; those handed over meanwhile stay.
+    pub(crate) fn prune_in_flight(&self, pinged: &[uuid::Uuid], still_running: &[uuid::Uuid]) {
+        let pinged: HashSet<_> = pinged.iter().collect();
+        let still_running: HashSet<_> = still_running.iter().collect();
+        self.in_flight_set()
+            .retain(|id| still_running.contains(id) || !pinged.contains(id));
+    }
+
+    fn in_flight_set(&self) -> std::sync::MutexGuard<'_, HashSet<uuid::Uuid>> {
+        self.in_flight.lock().unwrap_or_else(|e| e.into_inner())
+    }
+}
+
+pub struct HandedOver {
+    state: Arc<DedicatedWorkerState>,
+    job_id: uuid::Uuid,
+}
+
+impl Drop for HandedOver {
+    fn drop(&mut self) {
+        self.state.take_back(&self.job_id);
+    }
+}
+
+pub struct BusyGuard {
+    state: Arc<DedicatedWorkerState>,
+    _job: Option<HandedOver>,
+}
+
+impl Drop for BusyGuard {
+    fn drop(&mut self) {
+        let mut s = self.state.busy.lock().unwrap_or_else(|e| e.into_inner());
+        s.running = s.running.saturating_sub(1);
+        if s.running == 0 {
+            if let Some(since) = s.since.take() {
+                s.total_secs += since.elapsed().as_secs_f32();
+            }
+        }
+    }
 }
 
 pub struct OccupancyResult {
@@ -709,6 +870,7 @@ impl OccupancyMetrics {
             total_duration_of_running_jobs: 0.0,
             worker_occupancy_rate_history: Vec::new(),
             start_time,
+            dedicated: None,
         }
     }
 
@@ -718,7 +880,12 @@ impl OccupancyMetrics {
             .running_job_started_at
             .map(|started_at| started_at.elapsed().as_secs_f32())
             .unwrap_or(0.0);
-        let total_occupation = metrics.total_duration_of_running_jobs + current_occupied_duration;
+        // A worker with dedicated subprocesses also counts the jobs its main loop runs in the
+        // busy time, so that one overlapping the other is counted once.
+        let total_occupation = match metrics.dedicated.as_ref() {
+            Some(dedicated) => dedicated.busy_secs(),
+            None => metrics.total_duration_of_running_jobs + current_occupied_duration,
+        };
 
         let elapsed = metrics.start_time.elapsed().as_secs_f32();
 
@@ -1338,23 +1505,37 @@ pub async fn resolve_nsjail_timeout(
 /// - `unlimited`/`none`/`inf`/`0` -> `rlimit_as_type: INF` (address space uncapped)
 /// - a positive integer (MiB) -> `rlimit_as: {n}`
 pub fn render_nsjail_rlimit_as(env_override: Option<&str>, default_mb: u32) -> String {
+    render_nsjail_rlimit("rlimit_as", env_override, default_mb)
+}
+
+/// Render the `rlimit_fsize` line (largest single file a jailed job may write, in
+/// MiB) for the nsjail run configs that set one (python3, ansible, dbt), honoring
+/// the `NSJAIL_RLIMIT_FSIZE_MB` env var. Same value grammar as
+/// [`render_nsjail_rlimit_as`]. The total space a job can fill is bounded
+/// separately by its `/tmp` (tmpfs size or, when disk-backed, the worker's disk),
+/// so operators who move `/tmp` to disk usually want to raise or lift this too.
+pub fn render_nsjail_rlimit_fsize(env_override: Option<&str>, default_mb: u32) -> String {
+    render_nsjail_rlimit("rlimit_fsize", env_override, default_mb)
+}
+
+fn render_nsjail_rlimit(field: &str, env_override: Option<&str>, default_mb: u32) -> String {
     match env_override.map(str::trim) {
-        None | Some("") => format!("rlimit_as: {default_mb}"),
+        None | Some("") => format!("{field}: {default_mb}"),
         Some(v)
             if v.eq_ignore_ascii_case("unlimited")
                 || v.eq_ignore_ascii_case("none")
                 || v.eq_ignore_ascii_case("inf")
                 || v == "0" =>
         {
-            "rlimit_as_type: INF".to_string()
+            format!("{field}_type: INF")
         }
         Some(v) => match v.parse::<u32>() {
-            Ok(mb) => format!("rlimit_as: {mb}"),
+            Ok(mb) => format!("{field}: {mb}"),
             Err(_) => {
                 tracing::warn!(
-                    "Invalid nsjail rlimit_as override {v:?}, using default {default_mb}MiB"
+                    "Invalid nsjail {field} override {v:?}, using default {default_mb}MiB"
                 );
-                format!("rlimit_as: {default_mb}")
+                format!("{field}: {default_mb}")
             }
         },
     }
@@ -1549,7 +1730,7 @@ pub(crate) async fn resolve_nsjail_tmp_mount_block(job_dir: &str) -> String {
 
 #[cfg(test)]
 mod nsjail_rlimit_as_tests {
-    use super::render_nsjail_rlimit_as;
+    use super::{render_nsjail_rlimit_as, render_nsjail_rlimit_fsize};
 
     #[test]
     fn unset_uses_default() {
@@ -1587,6 +1768,23 @@ mod nsjail_rlimit_as_tests {
             "rlimit_as: 4096"
         );
         assert_eq!(render_nsjail_rlimit_as(Some("-1"), 4096), "rlimit_as: 4096");
+    }
+
+    #[test]
+    fn fsize_uses_its_own_field() {
+        assert_eq!(render_nsjail_rlimit_fsize(None, 1000), "rlimit_fsize: 1000");
+        assert_eq!(
+            render_nsjail_rlimit_fsize(Some("20000"), 1000),
+            "rlimit_fsize: 20000"
+        );
+        assert_eq!(
+            render_nsjail_rlimit_fsize(Some("unlimited"), 1000),
+            "rlimit_fsize_type: INF"
+        );
+        assert_eq!(
+            render_nsjail_rlimit_fsize(Some("abc"), 1000),
+            "rlimit_fsize: 1000"
+        );
     }
 }
 
@@ -2622,6 +2820,31 @@ mod tests {
     use serde_json::json;
     use windmill_common::client::AuthedClient;
 
+    #[test]
+    fn dedicated_worker_counts_overlapping_jobs_once() {
+        let step = std::time::Duration::from_millis(50);
+        let state = Arc::new(DedicatedWorkerState::default());
+        let handed_over = uuid::Uuid::new_v4();
+        state.hand_over(handed_over);
+        let started = Instant::now();
+        let dedicated = state.start_busy(Some(state.received(handed_over)));
+        std::thread::sleep(step);
+        let inline = state.start_busy(None);
+        std::thread::sleep(step);
+        drop(dedicated);
+        assert!(state.in_flight().is_empty());
+        std::thread::sleep(step);
+        drop(inline);
+        let busy_for = started.elapsed().as_secs_f32();
+        let busy = state.busy_secs();
+        assert!(
+            (busy - busy_for).abs() < 0.01,
+            "busy {busy}s over {busy_for}s"
+        );
+        std::thread::sleep(step);
+        assert_eq!(state.busy_secs(), busy);
+    }
+
     fn test_client() -> AuthedClient {
         AuthedClient::new(
             "http://localhost:0".to_string(),
@@ -2827,6 +3050,16 @@ mod tests {
             ("java", include_str!("../nsjail/run.java.config.proto")),
             ("ruby", include_str!("../nsjail/run.ruby.config.proto")),
             ("r", include_str!("../nsjail/run.r.config.proto")),
+            ("bash", include_str!("../nsjail/run.bash.config.proto")),
+            ("python", include_str!("../nsjail/run.python3.config.proto")),
+            (
+                "powershell",
+                include_str!("../nsjail/run.powershell.config.proto"),
+            ),
+            (
+                "ansible",
+                include_str!("../nsjail/run.ansible.config.proto"),
+            ),
             (
                 "gem install",
                 include_str!("../nsjail/download.ruby.config.proto"),

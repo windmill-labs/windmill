@@ -450,45 +450,25 @@ pub async fn generate_cargo_lockfile(
     Ok(req_content)
 }
 
+/// The build dir of this build, and whether it is shared with other builds.
 async fn get_build_dir(
     job: &MiniPulledJob,
     conn: &Connection,
     worker_name: &str,
     is_preview: bool,
-) -> anyhow::Result<String> {
-    let (bd, run_sweep) = job
-        .runnable_path
-        .as_ref()
-        .and_then(|p| {
-            if !is_preview || *NO_SHARED_BUILD_DIR {
-                None
-            } else {
-                if !is_sandboxing_enabled() {
-                    // If nsjail is disabled then entire worker has shared build directory
-                    // It drastically improves cache hit-rate.
-                    Some((format!("{}/build/{worker_name}", *RUST_CACHE_DIR), true))
-                } else {
-                    // If nsjail is enabled, having global shared directory is vulnerability and target for an attack
-                    // Instead we either:
-                    // 1. Create different build directory for workspace script and user. Balanced caching while mainining high degree of security.
-                    // 2. If user is not known or something else goes wrong - use random build dir. This is equivalent to no cache at all.
-                    Some((
-                        format!(
-                            "{}/build/{}@{}@{}",
-                            *RUST_CACHE_DIR,
-                            &job.workspace_id,
-                            p.replace('/', "."),
-                            &job.created_by
-                        ),
-                        true,
-                    ))
-                }
-            }
-        })
-        .unwrap_or((
-            format!("{}/build/{}", *RUST_CACHE_DIR, Uuid::new_v4()),
-            false,
-        ));
+) -> anyhow::Result<(String, bool)> {
+    // Under nsjail every build gets a fresh dir, removed afterwards: the build jail writes
+    // to it, and a reused one would carry a previous build's `registry`, `git` and
+    // `target/` into the next one.
+    let run_sweep = job.runnable_path.is_some()
+        && is_preview
+        && !*NO_SHARED_BUILD_DIR
+        && !is_sandboxing_enabled();
+    let bd = if run_sweep {
+        format!("{}/build/{worker_name}", *RUST_CACHE_DIR)
+    } else {
+        format!("{}/build/{}", *RUST_CACHE_DIR, Uuid::new_v4())
+    };
 
     {
         let (t, r, g) = (
@@ -557,7 +537,33 @@ async fn get_build_dir(
             }
         });
     }
-    Ok(bd)
+    Ok((bd, run_sweep))
+}
+
+/// Where the crate is generated and built, inside the job dir. The build jail mounts only
+/// this dir, never the job dir, whose entries (`main`, `args.json`, `result.json`,
+/// `shared`, ...) the worker and the run jail open by name after the build.
+fn rust_crate_dir(job_dir: &str) -> String {
+    format!("{job_dir}/crate")
+}
+
+/// Generate the crate of `code`, with its companion modules, in [`rust_crate_dir`].
+async fn write_rust_crate(
+    job_dir: &str,
+    code: &str,
+    job_id: &Uuid,
+    w_id: &str,
+    conn: &Connection,
+    modules: Option<&HashMap<String, windmill_common::scripts::ScriptModule>>,
+) -> error::Result<String> {
+    let crate_dir = rust_crate_dir(job_dir);
+    create_dir_all(&crate_dir).await?;
+    gen_cargo_crate(code, &crate_dir)?;
+    write_cargo_config(&crate_dir, job_id, w_id, conn).await?;
+    if let Some(modules) = modules {
+        crate::worker::write_module_files(&crate_dir, modules, None).await?;
+    }
+    Ok(crate_dir)
 }
 
 pub async fn build_rust_crate(
@@ -575,14 +581,64 @@ pub async fn build_rust_crate(
     ensure_rust_runtime_dirs();
     let bin_path = format!("{}/{hash}", *RUST_CACHE_DIR);
 
-    let build_dir = get_build_dir(job, conn, worker_name, is_preview).await?;
+    let (build_dir, shared_build_dir) = get_build_dir(job, conn, worker_name, is_preview).await?;
+    let built = cargo_build(
+        job,
+        mem_peak,
+        canceled_by,
+        job_dir,
+        conn,
+        worker_name,
+        base_internal_url,
+        occupancy_metrics,
+        is_preview,
+        &build_dir,
+    )
+    .await;
+    if !shared_build_dir {
+        let _ = tokio::fs::remove_dir_all(&build_dir).await;
+    }
+    built?;
 
+    match save_cache(
+        &bin_path,
+        &format!("{RUST_OBJECT_STORE_PREFIX}{hash}"),
+        &format!("{job_dir}/{RUST_BIN_NAME}"),
+        false,
+    )
+    .await
+    {
+        Err(e) => {
+            let em = format!(
+                "could not save {bin_path} to {job_dir}/{RUST_BIN_NAME} to rust cache: {e:?}",
+            );
+            tracing::error!(em);
+            Ok(em)
+        }
+        Ok(logs) => Ok(logs),
+    }
+}
+
+/// `cargo build` the crate in [`rust_crate_dir`] and copy the binary to `{job_dir}/main`.
+async fn cargo_build(
+    job: &MiniPulledJob,
+    mem_peak: &mut i32,
+    canceled_by: &mut Option<CanceledBy>,
+    job_dir: &str,
+    conn: &Connection,
+    worker_name: &str,
+    base_internal_url: &str,
+    occupancy_metrics: &mut OccupancyMetrics,
+    is_preview: bool,
+    build_dir: &str,
+) -> error::Result<()> {
+    let crate_dir = rust_crate_dir(job_dir);
     let child = if is_sandboxing_enabled() {
         let _ = write_file(
             job_dir,
             "download.config.proto",
             &NSJAIL_CONFIG_COMPILE_RUST_CONTENT
-                .replace("{JOB_DIR}", job_dir)
+                .replace("{CRATE_DIR}", &crate_dir)
                 .replace("{CACHE_DIR}", &*RUST_CACHE_DIR)
                 .replace("{CARGO_HOME}", CARGO_HOME.as_str())
                 .replace("{RUSTUP_HOME}", RUSTUP_HOME.as_str())
@@ -592,7 +648,7 @@ pub async fn build_rust_crate(
                     "{TMP_MOUNT_BLOCK}",
                     &resolve_nsjail_tmp_mount_block(job_dir).await,
                 )
-                .replace("{BUILD}", &build_dir),
+                .replace("{BUILD}", build_dir),
         )?;
         let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
         nsjail_cmd
@@ -605,7 +661,7 @@ pub async fn build_rust_crate(
             .env("HOME", HOME_ENV.as_str())
             .env("CARGO_HOME", CARGO_HOME.as_str())
             .env("RUSTUP_HOME", RUSTUP_HOME.as_str())
-            .env("CARGO_TARGET_DIR", &(build_dir.clone() + "/target"))
+            .env("CARGO_TARGET_DIR", format!("{build_dir}/target"))
             .args(vec![
                 "--config",
                 "download.config.proto",
@@ -622,7 +678,7 @@ pub async fn build_rust_crate(
     } else {
         let mut build_rust_cmd = Command::new(CARGO_PATH.as_str());
         build_rust_cmd
-            .current_dir(job_dir)
+            .current_dir(&crate_dir)
             .env_clear()
             .envs(PROXY_ENVS.clone())
             .env("PATH", PATH_ENV.as_str())
@@ -630,7 +686,7 @@ pub async fn build_rust_crate(
             .env("HOME", HOME_ENV.as_str())
             .env("CARGO_HOME", CARGO_HOME.as_str())
             .env("RUSTUP_HOME", RUSTUP_HOME.as_str())
-            .env("CARGO_TARGET_DIR", &(build_dir.clone() + "/target"))
+            .env("CARGO_TARGET_DIR", format!("{build_dir}/target"))
             .args(vec!["build"])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
@@ -675,37 +731,30 @@ pub async fn build_rust_crate(
     .await?;
     append_logs(&job.id, &job.workspace_id, "\n\n", conn).await;
 
-    tokio::fs::copy(
-        &format!(
-            "{build_dir}/target/{}/{RUST_BIN_NAME}",
-            if is_preview { "debug" } else { "release" },
-        ),
-        format!("{job_dir}/{RUST_BIN_NAME}"),
-    )
-    .await
-    .map_err(|e| {
+    let copy_err = |e: std::io::Error| {
         Error::ExecutionErr(format!(
             "could not copy built binary from [...]/target/.../{RUST_BIN_NAME} to {job_dir}/{RUST_BIN_NAME}: {e:?}"
         ))
-    })?;
-
-    match save_cache(
-        &bin_path,
-        &format!("{RUST_OBJECT_STORE_PREFIX}{hash}"),
-        &format!("{job_dir}/{RUST_BIN_NAME}"),
-        false,
-    )
-    .await
-    {
-        Err(e) => {
-            let em = format!(
-                "could not save {bin_path} to {job_dir}/{RUST_BIN_NAME} to rust cache: {e:?}",
-            );
-            tracing::error!(em);
-            Ok(em)
+    };
+    let mut built = std::path::PathBuf::from(format!(
+        "{build_dir}/target/{}/{RUST_BIN_NAME}",
+        if is_preview { "debug" } else { "release" },
+    ));
+    if is_sandboxing_enabled() {
+        // `build_dir` is written by the jailed build and this copy runs outside the jail:
+        // take the binary only if it resolves inside `build_dir`.
+        built = tokio::fs::canonicalize(&built).await.map_err(copy_err)?;
+        let root = tokio::fs::canonicalize(build_dir).await.map_err(copy_err)?;
+        if !built.starts_with(&root) {
+            return Err(Error::ExecutionErr(format!(
+                "rust build left {RUST_BIN_NAME} pointing outside its build dir"
+            )));
         }
-        Ok(logs) => Ok(logs),
     }
+    tokio::fs::copy(&built, format!("{job_dir}/{RUST_BIN_NAME}"))
+        .await
+        .map_err(copy_err)?;
+    Ok(())
 }
 
 /// Cache key of a Rust build. The run path and the deploy-time prebuild must derive it
@@ -745,9 +794,9 @@ pub async fn prebuild_rust_binary(
         return Ok(None);
     }
 
-    gen_cargo_crate(code, job_dir)?;
-    write_cargo_config(job_dir, &job.id, &job.workspace_id, conn).await?;
-    write_file(job_dir, "Cargo.lock", lock)?;
+    let crate_dir =
+        write_rust_crate(job_dir, code, &job.id, &job.workspace_id, conn, modules).await?;
+    write_file(&crate_dir, "Cargo.lock", lock)?;
 
     let logs = build_rust_crate(
         job,
@@ -834,12 +883,19 @@ pub async fn handle_rust_job(
         let logs1 = format!("{cache_logs}\n\n--- CARGO BUILD ---\n");
         append_logs(&job.id, &job.workspace_id, logs1, conn).await;
 
-        gen_cargo_crate(inner_content, job_dir)?;
-        write_cargo_config(job_dir, &job.id, &job.workspace_id, conn).await?;
+        let crate_dir = write_rust_crate(
+            job_dir,
+            inner_content,
+            &job.id,
+            &job.workspace_id,
+            conn,
+            modules,
+        )
+        .await?;
 
         if let Some(reqs) = requirements_o {
             if !reqs.is_empty() {
-                write_file(job_dir, "Cargo.lock", &reqs)?;
+                write_file(&crate_dir, "Cargo.lock", &reqs)?;
             }
         }
 
@@ -1022,6 +1078,14 @@ mod host_cargo_cwd_tests {
                 format!("{JOB_DIR}/Cargo.toml"),
             ]
         );
+    }
+
+    /// Build scripts run in the build jail; the job dir's entries are opened by name
+    /// after it exits, so the jail only ever sees the crate dir.
+    #[test]
+    fn build_jail_mounts_the_crate_dir_not_the_job_dir() {
+        assert!(!NSJAIL_CONFIG_COMPILE_RUST_CONTENT.contains("{JOB_DIR}"));
+        assert!(NSJAIL_CONFIG_COMPILE_RUST_CONTENT.contains("src: \"{CRATE_DIR}\""));
     }
 
     #[test]

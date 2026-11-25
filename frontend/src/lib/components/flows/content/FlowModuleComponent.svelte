@@ -1,4 +1,5 @@
 <script lang="ts">
+	import HostWindow from '$lib/components/common/HostWindow.svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
 	import Tab from '$lib/components/common/tabs/Tab.svelte'
@@ -82,7 +83,6 @@
 
 	const operatingWorkspace = useOperatingWorkspace()
 	const roleCaps = useRoleCapabilities()
-	const composeOnlyFlows = $derived($roleCaps.flows === 'compose')
 
 	const {
 		selectionManager,
@@ -232,7 +232,6 @@
 			Boolean(flowStore.val.value?.chat_input_enabled) &&
 			flowModule.value.type === 'aiagent'
 	)
-	let visibleSelected = $derived(selected === 'chat' && !canShowChatTab ? 'inputs' : selected)
 	let runSettings: FlowRunSettings | undefined = $state()
 	let agentLinked = $derived(flowModule.value.type === 'aiagent' && Boolean(flowModule.value.agent))
 	// A tool row drills in by selecting that tool's graph node, and the graph draws tool nodes only
@@ -260,20 +259,34 @@
 		() => (flowModule.value.type === 'script' ? flowModule.value.hash : undefined),
 		() => opWs
 	)
-	// Hub scripts, hash-pinned steps, and embeddings that disable script editing
-	// can't have their settings edited from here. The drawer must also be mounted:
-	// local-dev editors (Dev.svelte / flows/dev) provide the context store but never
-	// render the drawer, so editing there would be a no-op — keep values read-only.
+	// Not for hub scripts, hash-pinned steps, embeddings that disable script editing, or roles
+	// without code (why: FlowCardHeader's edit item). The drawer must also be mounted: local-dev
+	// editors (Dev.svelte / flows/dev) provide the context store but never render the drawer.
 	let canEditWorkspaceScriptSettings = $derived(
 		flowModule.value.type === 'script' &&
 			!flowModule.value.path?.startsWith('hub/') &&
 			flowModule.value.hash == undefined &&
 			customUi?.scriptEdit != false &&
-			!composeOnlyFlows &&
+			$roleCaps.code &&
 			$workspaceScriptSettingsDrawer != undefined
 	)
 	// Same rule as the graph node's Run button (FlowModuleSchemaItem).
-	let builderCannotTestStep = $derived(composeOnlyFlows && flowModule.value.type === 'script')
+	let builderCannotTestStep = $derived(
+		(flowModule.value.type === 'script' || flowModule.value.type === 'rawscript') &&
+			!($roleCaps.code && $roleCaps.run)
+	)
+	// Several paths ask for a tab that may be hidden (the editor's Ctrl+Enter, the forced test
+	// tab of an input edit or an agent tool); fall back to inputs here rather than guarding each
+	// of them. A preprocessor has no inputs tab, so it says why instead.
+	let visibleSelected = $derived(
+		selected === 'test' && builderCannotTestStep
+			? preprocessorModule
+				? 'cannot_test'
+				: 'inputs'
+			: selected === 'chat' && !canShowChatTab
+				? 'inputs'
+				: selected
+	)
 	let workspaceScriptNoEditReason = $derived(
 		flowModule.value.type !== 'script' || canEditWorkspaceScriptSettings
 			? undefined
@@ -281,7 +294,9 @@
 				? 'Hub scripts cannot be edited from here.'
 				: flowModule.value.hash != undefined
 					? 'Steps pinned to a specific version cannot be edited from here.'
-					: 'Editing script settings is not available in this editor.'
+					: !$roleCaps.code
+						? 'Your role cannot edit scripts.'
+						: 'Editing script settings is not available in this editor.'
 	)
 	// Non-positive concurrent_limit / cache_ttl are treated as unset by the runtime (legacy rows).
 	let referencedConcurrentLimit = $derived(
@@ -469,7 +484,7 @@
 		flowStore.val && flowModule ? checkIfParentLoop(flowStore.val, flowModule.id) : undefined
 	)
 	$effect(() => {
-		if (selected === 'test') {
+		if (visibleSelected === 'test') {
 			leftPanelSize = 50
 		} else {
 			leftPanelSize = 100
@@ -872,7 +887,7 @@
 	})
 </script>
 
-<svelte:window onkeydown={onKeyDown} />
+<HostWindow onkeydown={onKeyDown} />
 
 {#if flowModule.value}
 	<div class="h-full bg-surface" bind:clientWidth={width}>
@@ -901,7 +916,7 @@
 					module={flowModule}
 					on:tagChange={(e) => {
 						console.log('tagChange', e.detail)
-						if (flowModule.value.type == 'script') {
+						if (flowModule.value.type == 'script' || flowModule.value.type == 'flow') {
 							flowModule.value.tag_override = e.detail
 						} else if (
 							flowModule.value.type == 'rawscript' ||
@@ -966,7 +981,7 @@
 										{#if assets?.length}
 											<AssetsDropdownButton {assets} />
 										{/if}
-										{#if isDebuggableScript && customUi?.editorBar?.debug != false}
+										{#if isDebuggableScript && customUi?.editorBar?.debug != false && !builderCannotTestStep}
 											<Button
 												variant={debugMode ? 'accent' : 'default'}
 												size="xs"
@@ -1393,7 +1408,7 @@
 												{/if}
 											</PropPickerWrapper>
 										</div>
-									{:else if visibleSelected === 'test' && !builderCannotTestStep}
+									{:else if visibleSelected === 'test'}
 										{#if debugMode && isDebuggableScript}
 											<div transition:slide={{ duration: 200 }}>
 												<DebugToolbar
@@ -1525,10 +1540,14 @@
 											{workspaceScriptNoEditReason}
 											onEditWorkspaceScript={openWorkspaceScriptSettings}
 										/>
+									{:else if visibleSelected === 'cannot_test'}
+										<div class="h-full flex items-center justify-center text-sm text-tertiary">
+											Your role cannot test this step.
+										</div>
 									{/if}
 								</div>
 							</Pane>
-							{#if selected === 'test'}
+							{#if visibleSelected === 'test'}
 								<Pane minSize={20} class="relative">
 									{#if stepHistoryLoader?.stepStates[flowModule.id]?.initial && !flowModule.mock?.enabled}
 										<!-- svelte-ignore a11y_no_static_element_interactions -->

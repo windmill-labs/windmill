@@ -232,7 +232,7 @@
 			{#if error.includes('logged in') || error.includes('sign in') || error.includes('Not authorized')}
 				<div class="flex flex-row gap-4 justify-center">
 					<AlertTriangle />
-					<p class="text-lg">Not Authorized</p>
+					<p class="text-lg">Not authorized</p>
 				</div>
 				<p class="text-sm">{error}</p>
 				<Login {rd} />
@@ -315,7 +315,7 @@
 
 		<div class="mt-8"></div>
 
-		<div class="p-4 rounded-md bg-surface-tertiary shadow-md">
+		<div class="flex flex-col gap-4 p-4 rounded-md bg-surface-tertiary border border-border-light">
 			{#if completed}
 				<Alert type="info" title="Flow completed">
 					The flow is not running anymore. You cannot cancel or resume it.
@@ -351,7 +351,13 @@
 					{#if approvalInfo.hide_cancel !== true}
 						<DenyReason confirmLabel="Deny" disabled={loading} onDeny={cancel}>
 							{#snippet button()}
-								<Button variant="accent" destructive size="lg" disabled={loading} nonCaptureEvent>
+								<Button
+									variant="default"
+									destructive
+									unifiedSize="lg"
+									disabled={loading}
+									nonCaptureEvent
+								>
 									Deny
 								</Button>
 							{/snippet}
@@ -359,7 +365,7 @@
 					{:else}
 						<div></div>
 					{/if}
-					<Button variant="accent" onclick={resume} size="lg" disabled={!valid || loading}>
+					<Button variant="accent" onclick={resume} unifiedSize="lg" disabled={!valid || loading}>
 						Approve
 					</Button>
 				</div>
@@ -386,12 +392,10 @@
 			{/if}
 
 			{#if !completed && isSelfApprovalBypass}
-				<div class="mt-2">
-					<Alert type="warning" title="Warning">
-						As an administrator, by resuming or cancelling this stage of the flow, you bypass the
-						self-approval interdiction.
-					</Alert>
-				</div>
+				<Alert type="warning" title="Warning">
+					As an administrator, by resuming or cancelling this stage of the flow, you bypass the
+					self-approval interdiction.
+				</Alert>
 			{/if}
 		</div>
 
@@ -399,8 +403,8 @@
 			<div class="mt-4 flex flex-row flex-wrap justify-between">
 				{#if isWorkspaceMember}
 					<Button
-						size="xs"
-						variant="accent-secondary"
+						unifiedSize="sm"
+						variant="default"
 						href={runDetailsHref}
 						target="_blank"
 						endIcon={{ icon: ExternalLink }}

@@ -1,3 +1,4 @@
+#![recursion_limit = "256"]
 #[cfg(feature = "bigquery")]
 mod bigquery_executor;
 #[cfg(all(feature = "enterprise", feature = "mssql"))]
@@ -99,6 +100,7 @@ mod volume_ee;
 mod volume_oss;
 pub mod wac_executor;
 mod worker;
+mod failed_only_restart;
 mod worker_flow;
 mod worker_lockfiles;
 mod worker_utils;

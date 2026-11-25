@@ -2,8 +2,9 @@
 // client (`components/copilot/lib`) or anything under `components/copilot/chat` — those
 // import aiStore back, and such a cycle crashes the app once the bundler splits it across
 // chunks (docs/frontend-import-cycles.md; the build fails on the chunk cycle, not on this).
+import { untrack } from 'svelte'
 import { writable, get } from 'svelte/store'
-import { SvelteMap } from 'svelte/reactivity'
+import { SvelteMap, SvelteSet } from 'svelte/reactivity'
 import {
 	type AIProviderModel,
 	type AIProvider,
@@ -83,9 +84,11 @@ export const copilotInfo = writable<CopilotInfo>({
 })
 
 // Each workspace's AI config, read by AI sessions, which send with their own workspace's config
-// rather than the tab's. Only `loadWorkspaceCopilotInfo` fills it: a save invalidates instead.
+// rather than the tab's. Filled by `loadWorkspaceCopilotInfo`, and by a save with what it returned.
 const workspaceCopilotInfos = new SvelteMap<string, CopilotInfo>()
 const workspaceLoads = new Map<string, Promise<CopilotInfo>>()
+// Workspaces whose last load failed, so what waits on their config can stop waiting.
+const failedWorkspaceCopilotInfos = new SvelteSet<string>()
 // Bumped by invalidation: a load started before it refetches instead of keeping its answer.
 let allWorkspacesVersion = 0
 const workspaceVersions = new Map<string, number>()
@@ -123,9 +126,8 @@ function dedupeModels(models: AIProviderModel[]): AIProviderModel[] {
 	})
 }
 
-// The workspace copilotInfo currently reflects. A session send awaits this
-// matching its committed workspace so getCurrentModel() can't read the previous
-// workspace's provider/model while the scoped load is still in flight.
+// The workspace copilotInfo currently reflects: the page's, which an AI session's may not be.
+// Session code must not point them at its own workspace.
 export const copilotWorkspace = writable<string | undefined>(undefined)
 
 function buildCopilotInfo(aiConfig: AIConfig, userDisabled: boolean): CopilotInfo {
@@ -196,11 +198,14 @@ export function isWebSearchEnabledForProvider(
 }
 
 export function getCurrentModel(): ReasoningProviderModel {
-	return resolveModelFor(get(copilotInfo))
+	return resolveModelFor(get(copilotInfo), get(copilotSessionModel))
 }
 
-export function resolveModelFor(info: CopilotInfo): ReasoningProviderModel {
-	const model = tryResolveModelFor(info)
+export function resolveModelFor(
+	info: CopilotInfo,
+	pick: ReasoningProviderModel | undefined
+): ReasoningProviderModel {
+	const model = tryResolveModelFor(info, pick)
 	if (!model) {
 		throw new Error('No model selected')
 	}
@@ -220,7 +225,7 @@ export function resolveMetadataModelFor(info: CopilotInfo): AIProviderModel {
 }
 
 export function tryGetCurrentModel(): ReasoningProviderModel | undefined {
-	return tryResolveModelFor(get(copilotInfo))
+	return tryResolveModelFor(get(copilotInfo), get(copilotSessionModel))
 }
 
 /** `workspace`'s AI config if loaded; otherwise starts loading it and returns undefined. */
@@ -234,12 +239,24 @@ export function getWorkspaceCopilotInfo(workspace: string): CopilotInfo | undefi
 	return info
 }
 
-/** `workspace`'s AI config for a request made on its behalf, without touching the tab's.
+export function workspaceCopilotInfoFailed(workspace: string): boolean {
+	return failedWorkspaceCopilotInfos.has(workspace)
+}
+
+// The tab's copy follows only when it describes this workspace: a session's may be another.
+function keepWorkspaceCopilotInfo(workspace: string, info: CopilotInfo) {
+	workspaceCopilotInfos.set(workspace, info)
+	failedWorkspaceCopilotInfos.delete(workspace)
+	if (get(copilotWorkspace) === workspace) copilotInfo.set(info)
+}
+
+/** `workspace`'s AI config for a request made on its behalf, whatever workspace the tab's is.
  * Fetched once and kept until invalidated. `fresh` refetches a config that may have changed
  * elsewhere: unlike after a save, the one held stays readable until the new one lands, so what
  * shows it does not blank meanwhile, and a load already in flight is as fresh and is shared. */
 export function loadWorkspaceCopilotInfo(workspace: string, fresh = false): Promise<CopilotInfo> {
-	const known = workspaceCopilotInfos.get(workspace)
+	// Untracked: an effect that refreshes would otherwise rerun on its own refresh, forever.
+	const known = untrack(() => workspaceCopilotInfos.get(workspace))
 	if (known && !fresh) return Promise.resolve(known)
 	let load = workspaceLoads.get(workspace)
 	if (!load) {
@@ -250,12 +267,25 @@ export function loadWorkspaceCopilotInfo(workspace: string, fresh = false): Prom
 			.then((config) => {
 				if (version !== versionOf(workspace)) return loadWorkspaceCopilotInfo(workspace)
 				const info = buildCopilotInfo(config, get(aiUserDisabled))
-				workspaceCopilotInfos.set(workspace, info)
+				keepWorkspaceCopilotInfo(workspace, info)
 				return info
+			})
+			.catch((e) => {
+				failedWorkspaceCopilotInfos.add(workspace)
+				throw e
 			})
 		workspaceLoads.set(workspace, load)
 	}
 	return load
+}
+
+/** After a save of `workspace`'s AI config, with the effective config the save returned: what
+ * shows it keeps a config throughout, where invalidating would blank it until the refetch. A load
+ * started before the save still refetches. */
+export function applySavedWorkspaceCopilotInfo(workspace: string, aiConfig: AIConfig) {
+	const info = buildCopilotInfo(aiConfig, get(aiUserDisabled))
+	workspaceVersions.set(workspace, (workspaceVersions.get(workspace) ?? 0) + 1)
+	keepWorkspaceCopilotInfo(workspace, info)
 }
 
 /** After a save of `workspace`'s AI config, or with none of a config every workspace inherits
@@ -270,24 +300,33 @@ export function invalidateWorkspaceCopilotInfo(workspace?: string) {
 	}
 }
 
-export function setCopilotInfo(aiConfig: AIConfig) {
-	applyCopilotInfo(buildCopilotInfo(aiConfig, get(aiUserDisabled)))
+/** Sets the last pick, which everything without a pick of its own follows, a session included
+ * until it has one. */
+export function setLastModelPick(model: ReasoningProviderModel) {
+	copilotSessionModel.set(model)
+	storeLocalSetting(COPILOT_SESSION_MODEL_SETTING_NAME, model.model)
+	storeLocalSetting(COPILOT_SESSION_PROVIDER_SETTING_NAME, model.provider)
+	storeLocalSetting(COPILOT_SESSION_REASONING_SETTING_NAME, model.reasoning)
 }
 
-export function applyCopilotInfo(info: CopilotInfo) {
-	copilotSessionModel.update((model) => (model && isOffered(info, model) ? model : undefined))
-	copilotInfo.set(info)
+// Leaves copilotSessionModel alone: the pick is shared with sessions in other workspaces, which may
+// offer a model this one does not.
+export function setCopilotInfo(aiConfig: AIConfig) {
+	copilotInfo.set(buildCopilotInfo(aiConfig, get(aiUserDisabled)))
 }
 
 function isOffered(info: CopilotInfo, model: AIProviderModel): boolean {
 	return info.aiModels.some((m) => m.model === model.model && m.provider === model.provider)
 }
 
-/** The model a request for `info`'s workspace sends: the shared pick when that workspace offers
- * it, else its default, else its first model. Never one the workspace does not offer. */
-export function tryResolveModelFor(info: CopilotInfo): ReasoningProviderModel | undefined {
-	const picked = get(copilotSessionModel)
-	if (picked && isOffered(info, picked)) return picked
+/** The model a request for `info`'s workspace sends: `pick` when that workspace offers it, else
+ * its default, else its first model. Never a pick the workspace does not offer. `pick` is required
+ * so that a session passes its own rather than silently following the shared one. */
+export function tryResolveModelFor(
+	info: CopilotInfo,
+	pick: ReasoningProviderModel | undefined
+): ReasoningProviderModel | undefined {
+	if (pick && isOffered(info, pick)) return pick
 	return info.defaultModel ?? info.aiModels[0]
 }
 

@@ -32,7 +32,13 @@
 	import { getChatViewHost } from './chatViewHost'
 
 	const chatHost = getChatViewHost()
-	import { isActiveUserQuestion, webSearchResultOf, type ToolDisplayMessage } from './shared'
+	import {
+		isActiveSecretRequest,
+		isActiveUserQuestion,
+		webSearchResultOf,
+		type ToolDisplayMessage
+	} from './shared'
+	import SecretRequestCard from './SecretRequestCard.svelte'
 	import ChatCollapsibleCard from './ChatCollapsibleCard.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { slide } from 'svelte/transition'
@@ -40,6 +46,7 @@
 	import { gfmPlugin } from 'svelte-exmarkdown/gfm'
 	import CodeDisplay from './script/CodeDisplay.svelte'
 	import LinkRenderer from './LinkRenderer.svelte'
+	import MarkdownImage from './MarkdownImage.svelte'
 	import ToolContentDisplay from './ToolContentDisplay.svelte'
 	import ToolConfirmationFooter from './ToolConfirmationFooter.svelte'
 	import ToolMessageActions from './ToolMessageActions.svelte'
@@ -47,6 +54,7 @@
 	import AskUserQuestionDisplay from './AskUserQuestionDisplay.svelte'
 	import RunScriptCard from './RunScriptCard.svelte'
 	import ToolDiffCard from './ToolDiffCard.svelte'
+	import DeployCard from './DeployCard.svelte'
 	import { hasToolCodeDiff } from './toolCodeDiff'
 	import { TOOL_CONFIRM_ACTIONS } from './toolConfirmAction'
 	import WebSearchSourcesDisplay from './WebSearchSourcesDisplay.svelte'
@@ -105,7 +113,10 @@
 	)
 
 	// The preview pane's renderers, so a model-written link opens in a new tab either way.
-	const planPlugins = [gfmPlugin(), { renderer: { pre: CodeDisplay, a: LinkRenderer } }]
+	const planPlugins = [
+		gfmPlugin(),
+		{ renderer: { pre: CodeDisplay, a: LinkRenderer, img: MarkdownImage } }
+	]
 
 	const confirmAction = $derived(TOOL_CONFIRM_ACTIONS[message.confirmAction ?? 'confirm'])
 
@@ -172,6 +183,11 @@
 	// the job it named — what happened in a run reads the same either way.
 	const isRunCard = $derived(Boolean(message.runForm || message.inspectedRun))
 	const isDiffCard = $derived(hasToolCodeDiff(message))
+	// Only while it waits on the user: once answered, a deploy reads as any other settled call.
+	const isDeployCard = $derived(
+		message.toolName === 'deploy_workspace_item' &&
+			Boolean(message.isLoading && message.needsConfirmation)
+	)
 
 	// The preview chip sits on the header row (to the right of the tool-call text);
 	// shown once the tool settled, never while loading/erroring/awaiting confirmation.
@@ -198,7 +214,15 @@
 	)
 </script>
 
-{#if activeUserQuestion}
+{#if message.secretRequest && (!message.error || message.secretRequest.canceled)}
+	{@const { saveSecret, dismissSecret } = chatHost}
+	<SecretRequestCard
+		request={message.secretRequest}
+		interactive={isActiveSecretRequest(message) && saveSecret !== undefined}
+		save={saveSecret ? (submission) => saveSecret(message.tool_call_id, submission) : undefined}
+		onDismiss={() => dismissSecret?.(message.tool_call_id)}
+	/>
+{:else if activeUserQuestion}
 	<AskUserQuestionDisplay toolCallId={message.tool_call_id} userQuestion={activeUserQuestion} />
 {:else if message.blockedByPlanMode}
 	<!-- Not an error card: the call did what plan mode says it should. One flat row
@@ -224,6 +248,8 @@
 			<span class="text-2xs text-tertiary truncate">{message.toolName} held until read</span>
 		{/if}
 	</div>
+{:else if isDeployCard}
+	<DeployCard {message} />
 {:else if isRunCard}
 	<RunScriptCard {message} />
 {:else if isDiffCard}

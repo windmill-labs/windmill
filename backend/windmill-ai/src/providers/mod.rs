@@ -30,6 +30,36 @@ pub fn effective_reasoning_effort<'a>(model: &str, effort: Option<&'a str>) -> O
     }
 }
 
+/// Providers ignore the limit field they don't read, so a wrong pick silently lifts the
+/// limit: DeepSeek reads only `max_tokens`, OpenAI's reasoning models refuse it, and
+/// Azure deployment and Custom AI model names don't reveal the model behind them.
+pub fn reads_max_completion_tokens(provider: &AIProvider) -> bool {
+    matches!(
+        provider,
+        AIProvider::OpenAI
+            | AIProvider::AzureOpenAI
+            | AIProvider::AzureFoundry
+            | AIProvider::CustomAI
+            | AIProvider::Groq
+            | AIProvider::OpenRouter
+    )
+}
+
+/// Whether this is one of OpenAI's reasoning models (gpt-5 and later, the o-series),
+/// which think by default and refuse `max_tokens`. Mirrors `requiresMaxCompletionTokens`
+/// in the frontend's `modelConfig.ts`.
+pub fn is_openai_reasoning_model(model: &str) -> bool {
+    let model = model.to_lowercase();
+    let model = model.strip_prefix('~').unwrap_or(&model);
+    gpt_version(model).is_some_and(|(major, _)| major >= 5) || is_o_series(model)
+}
+
+/// o1, o3, o4-mini… The digit keeps out ids such as `open-mistral-*` and `optimus-*`.
+fn is_o_series(model: &str) -> bool {
+    let base = base_id(model);
+    base.starts_with('o') && base[1..].starts_with(|c: char| c.is_ascii_digit())
+}
+
 /// Whether Chat Completions refuses function tools while this model reasons.
 pub(crate) fn completions_rejects_tools_with_reasoning(model: &str) -> bool {
     reasoning_rule(model).is_some_and(|rule| rule.completions_tools_need_off)
@@ -98,14 +128,7 @@ const REASONING_RULES: &[ReasoningRule] = &[
         can_disable: false,
         completions_tools_need_off: false,
     },
-    ReasoningRule {
-        matches: |m| {
-            let base = base_id(m);
-            base.starts_with('o') && base[1..].starts_with(|c: char| c.is_ascii_digit())
-        },
-        can_disable: false,
-        completions_tools_need_off: false,
-    },
+    ReasoningRule { matches: is_o_series, can_disable: false, completions_tools_need_off: false },
 ];
 
 fn reasoning_rule(model: &str) -> Option<&'static ReasoningRule> {
@@ -352,6 +375,41 @@ mod reasoning_rule_tests {
         assert_eq!(gpt_version("gpt-35-turbo"), None);
         assert!(completions_tools_need_reasoning_off("openai/gpt-6-sol"));
         assert_eq!(effective_reasoning_effort("openai/o3", Some("none")), None);
+    }
+
+    /// The frontend's `requiresMaxCompletionTokens` cases in `lib.test.ts`, plus the id
+    /// forms its `parseModelId` handles and the version edges: `~`, `:tag`, gpt-6, gpt-50.
+    #[test]
+    fn is_openai_reasoning_model_matches_the_frontend() {
+        for model in [
+            "gpt-5",
+            "gpt-5.5",
+            "gpt-5-mini",
+            "o1",
+            "o3",
+            "o4-mini",
+            "openai/gpt-5",
+            "openai/o3",
+            "~openai/gpt-5",
+            "gpt-5:free",
+            "GPT-6-astra",
+        ] {
+            assert!(is_openai_reasoning_model(model), "{model}");
+        }
+        for model in [
+            "gpt-4o",
+            "gpt-4o-mini",
+            "openai/gpt-4o",
+            "open-mistral-7b",
+            "open-mixtral-8x7b",
+            "open-mistral-nemo-2407",
+            "optimus-alpha",
+            "openchat/openchat-7b",
+            "gpt-50",
+            "gpt-10",
+        ] {
+            assert!(!is_openai_reasoning_model(model), "{model}");
+        }
     }
 }
 

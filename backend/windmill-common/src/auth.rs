@@ -413,6 +413,7 @@ impl From<JobPerms> for Authed {
             scopes: None,
             token_prefix: None,
             mcp_client: value.mcp_client,
+            capabilities: None,
         }
     }
 }
@@ -606,6 +607,7 @@ async fn fetch_authed_from_permissioned_as_inner(
                 scopes: None,
                 token_prefix: None,
                 mcp_client: None,
+                capabilities: None,
             })
         } else {
             let groups = vec![name.to_string()];
@@ -620,6 +622,7 @@ async fn fetch_authed_from_permissioned_as_inner(
                 scopes: None,
                 token_prefix: None,
                 mcp_client: None,
+                capabilities: None,
             })
         }
     } else {
@@ -642,6 +645,7 @@ async fn fetch_authed_from_permissioned_as_inner(
             scopes: None,
             token_prefix: None,
             mcp_client: None,
+            capabilities: None,
         })
     }
 }

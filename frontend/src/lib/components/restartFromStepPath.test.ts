@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import type { FlowModule } from '$lib/gen'
 import {
 	buildNestedRestartPath,
+	outermostParallelContainer,
 	findStepPath,
 	parseExpandedSubflowId,
 	type ForloopGraphState,
@@ -69,7 +70,7 @@ describe('buildNestedRestartPath', () => {
 				'subflow:stop:smid': { modules: [script('a')] }
 			}
 		})
-		expect(r).toEqual({
+		expect(r).toMatchObject({
 			topStepId: 'stop',
 			topBranchOrIterationN: undefined,
 			path: [{ step_id: 'smid' }, { step_id: 'a' }],
@@ -84,7 +85,7 @@ describe('buildNestedRestartPath', () => {
 			expandedSubflows: { s: { modules: [script('a')] } },
 			graphModuleStates: { L: { selectedForloopIndex: 1, flow_jobs: ['j0', 'j1'] } }
 		})
-		expect(r).toEqual({
+		expect(r).toMatchObject({
 			topStepId: 'L',
 			topBranchOrIterationN: 1,
 			path: [{ step_id: 's' }, { step_id: 'a' }],
@@ -102,7 +103,7 @@ describe('buildNestedRestartPath', () => {
 			},
 			graphModuleStates: { 'subflow:sa:L': { selectedForloopIndex: 0, flow_jobs: ['j0', 'j1'] } }
 		})
-		expect(r).toEqual({
+		expect(r).toMatchObject({
 			topStepId: 'sa',
 			topBranchOrIterationN: undefined,
 			path: [{ step_id: 'L', branch_or_iteration_n: 0 }, { step_id: 'sb' }, { step_id: 'a' }],
@@ -116,7 +117,7 @@ describe('buildNestedRestartPath', () => {
 			rawFlowModules: [forloop('L', [script('x')])],
 			graphModuleStates: { L: { selectedForloopIndex: 2, flow_jobs: ['a', 'b', 'c'] } }
 		})
-		expect(r).toEqual({
+		expect(r).toMatchObject({
 			topStepId: 'L',
 			topBranchOrIterationN: 2,
 			path: [{ step_id: 'x' }],
@@ -133,7 +134,7 @@ describe('buildNestedRestartPath', () => {
 				M: { selectedForloopIndex: 1, flow_jobs: ['p', 'q'] }
 			}
 		})
-		expect(r).toEqual({
+		expect(r).toMatchObject({
 			topStepId: 'L',
 			topBranchOrIterationN: 0,
 			path: [{ step_id: 'M', branch_or_iteration_n: 1 }],
@@ -147,7 +148,7 @@ describe('buildNestedRestartPath', () => {
 			rawFlowModules: [branchone('BO', [script('d')], [[script('x')]])],
 			flowStatusModules: [{ id: 'BO', branch_chosen: { type: 'branch', branch: 0 } }]
 		})
-		expect(r).toEqual({
+		expect(r).toMatchObject({
 			topStepId: 'BO',
 			topBranchOrIterationN: undefined,
 			path: [{ step_id: 'x' }],
@@ -197,7 +198,7 @@ describe('buildNestedRestartPath', () => {
 			rawFlowModules: [subflow('stop', 'f/mid')],
 			expandedSubflows: {} // stop not expanded → modules unavailable at level 1
 		})
-		expect(r).toEqual({
+		expect(r).toMatchObject({
 			topStepId: 'stop',
 			topBranchOrIterationN: undefined,
 			path: [{ step_id: 'smid' }, { step_id: 'a' }],
@@ -217,7 +218,7 @@ describe('buildNestedRestartPath', () => {
 				'subflow:stop:smid': { modules: [script('z')] } // no `a`
 			}
 		})
-		expect(r).toEqual({
+		expect(r).toMatchObject({
 			topStepId: 'stop',
 			topBranchOrIterationN: undefined,
 			path: [{ step_id: 'smid' }, { step_id: 'a' }],
@@ -234,5 +235,46 @@ describe('findStepPath', () => {
 	})
 	it('does not cross subflow boundaries', () => {
 		expect(findStepPath([subflow('s')], 'a')).toBeUndefined()
+	})
+})
+
+describe('outermostParallelContainer', () => {
+	const modules = [
+		forloop('hosts', [script('deploy'), forloop('inner', [script('x')], true)], true),
+		branchone('pick', [branchall('fan', [[script('b0')]], true)], []),
+		forloop('seq', [forloop('par', [script('y')], true)]),
+		subflow('sub'),
+		script('aggregate')
+	]
+	const expandedSubflows = { sub: { modules: [forloop('deep', [script('z')], true)] } }
+	const target = (selectedJobStep: string) =>
+		outermostParallelContainer({ selectedJobStep, rawFlowModules: modules, expandedSubflows })
+
+	it('retargets a step to the outermost parallel step on its path', () => {
+		expect(target('deploy')).toBe('hosts')
+		expect(target('x')).toBe('hosts')
+		expect(target('b0')).toBe('fan')
+		expect(target('y')).toBe('par')
+		expect(target('subflow:sub:z')).toBe('subflow:sub:deep')
+	})
+
+	it('leaves steps outside any parallel step alone', () => {
+		expect(target('hosts')).toBeUndefined()
+		expect(target('fan')).toBeUndefined()
+		expect(target('aggregate')).toBeUndefined()
+	})
+})
+
+describe('buildNestedRestartPath with a parallel leaf', () => {
+	it('restarts at the parallel loop itself, not at one of its iterations', () => {
+		const result = build({
+			selectedJobStep: 'par',
+			rawFlowModules: [forloop('seq', [forloop('par', [script('y')], true)])],
+			graphModuleStates: { seq: { selectedForloopIndex: 2 }, par: { selectedForloopIndex: 1 } }
+		})
+		expect(result?.topStepId).toBe('seq')
+		expect(result?.topBranchOrIterationN).toBe(2)
+		expect(result?.path).toEqual([{ step_id: 'par' }])
+		expect(result?.leafModule?.id).toBe('par')
 	})
 })

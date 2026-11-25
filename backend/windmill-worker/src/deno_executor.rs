@@ -65,6 +65,28 @@ lazy_static::lazy_static! {
 
 }
 
+/// The module the deno wrapper imports first, so `envs` are set before the script's
+/// own modules evaluate.
+fn deno_env_module(envs: &HashMap<String, String>) -> error::Result<String> {
+    let json = serde_json::to_string(envs)
+        .map_err(|e| error::Error::internal_err(format!("could not serialize envs: {e}")))?;
+    Ok(format!(
+        "for (const [k, v] of Object.entries({json})) Deno.env.set(k, v as string);\n"
+    ))
+}
+
+/// Deno stores what a job's imports resolve to in `DENO_DIR` and serves it, without a
+/// download, to every later job importing the same specifier, while that resolution
+/// depends on the job's own settings (`$HOME/.npmrc`, registry and proxy env). With
+/// sandboxing on, each workspace therefore gets a cache of its own.
+fn deno_cache_dir(w_id: &str) -> String {
+    if is_sandboxing_enabled() {
+        format!("{}/w/{w_id}", *DENO_CACHE_DIR)
+    } else {
+        DENO_CACHE_DIR.to_string()
+    }
+}
+
 async fn get_common_deno_proc_envs(
     token: &str,
     base_internal_url: &str,
@@ -85,7 +107,7 @@ async fn get_common_deno_proc_envs(
         (String::from("HOME"), HOME_ENV.clone()),
         (String::from("TZ"), TZ_ENV.clone()),
         (String::from("RUST_LOG"), "info".to_string()),
-        (String::from("DENO_DIR"), DENO_CACHE_DIR.to_string()),
+        (String::from("DENO_DIR"), deno_cache_dir(w_id)),
         (String::from("DENO_AUTH_TOKENS"), deno_auth_tokens),
         (
             String::from("BASE_INTERNAL_URL"),
@@ -389,6 +411,7 @@ pub async fn handle_deno_job(
 
         let wrapper_content: String = format!(
             r#"
+import "./wm_envs.ts";
 import {{ {main_name} }} from "./main.ts";
 {preprocessor_import}
 
@@ -554,7 +577,7 @@ try {{
 
         let allow_read = format!(
             "--allow-read=./,{}/,{}",
-            *DENO_CACHE_DIR,
+            deno_cache_dir(&job.workspace_id),
             DENO_PATH.as_str()
         );
         if let Some(deno_flags) = DENO_FLAGS.as_ref() {
@@ -582,6 +605,29 @@ try {{
         }
         args.push(&script_path);
 
+        // Deno is never jailed, and env set on its process also configures the runtime
+        // itself. With sandboxing on, the script's and the workspace's env are set by the
+        // job's first module instead; a key the worker sets keeps the worker's value.
+        let (process_envs, module_envs): (HashMap<_, _>, HashMap<_, _>) = if is_sandboxing_enabled()
+        {
+            let process_envs: HashMap<String, String> = crate::job_proxy_envs()
+                .into_iter()
+                .map(|(k, v)| (k.to_string(), v))
+                .collect();
+            let module_envs = envs
+                .into_iter()
+                .filter(|(k, _)| {
+                    !process_envs.contains_key(k)
+                        && !reserved_variables.contains_key(k)
+                        && !common_deno_proc_envs.contains_key(k)
+                })
+                .collect();
+            (process_envs, module_envs)
+        } else {
+            (envs, HashMap::new())
+        };
+        write_file(job_dir, "wm_envs.ts", &deno_env_module(&module_envs)?)?;
+
         let mut deno_cmd = build_command_with_isolation(
             DENO_PATH.as_str(),
             &args.iter().map(|s| s.as_ref()).collect::<Vec<&str>>(),
@@ -589,7 +635,7 @@ try {{
         deno_cmd
             .current_dir(job_dir)
             .env_clear()
-            .envs(envs)
+            .envs(process_envs)
             .envs(reserved_variables)
             .envs(common_deno_proc_envs)
             .stdin(Stdio::null())
@@ -623,8 +669,11 @@ try {{
     *has_stream = handle_result.result_stream.is_some();
 
     // logs.push_str(format!("execute: {:?}\n", start.elapsed().as_millis()).as_str());
-    if let Err(e) =
-        tokio::fs::remove_dir_all(format!("{}/gen/file/{job_dir}", *DENO_CACHE_DIR)).await
+    if let Err(e) = tokio::fs::remove_dir_all(format!(
+        "{}/gen/file/{job_dir}",
+        deno_cache_dir(&job.workspace_id)
+    ))
+    .await
     {
         tracing::error!("failed to remove deno gen tmp cache dir: {}", e);
     }
@@ -659,9 +708,8 @@ pub(crate) async fn build_import_map(
     let mut relative_mounts = "".to_string();
     for c in 0..script_path_parts_len {
         relative_mounts += ",\n          ";
-        relative_mounts += &format!(
-            "\"./{}\": \"{base_internal_url}/api/w/{w_id}/scripts/raw/p/{}{}\"",
-            (0..c).map(|_| "../").join(""),
+        let mount = format!(
+            "{base_internal_url}/api/w/{w_id}/scripts/raw/p/{}{}",
             &script_path_split
                 .clone()
                 .take(script_path_parts_len - c - 1)
@@ -672,6 +720,14 @@ pub(crate) async fn build_import_map(
                 "/"
             },
         );
+        // A Hub path keeps whatever follows its id and a preview path is request-supplied:
+        // encoded, the path cannot add entries to the map.
+        relative_mounts += &format!(
+            "\"./{}\": {}",
+            (0..c).map(|_| "../").join(""),
+            serde_json::to_string(&mount)
+                .map_err(|e| error::Error::internal_err(format!("encoding job path: {e}")))?,
+        );
     }
     let extra_import_map = DENO_EXTRA_IMPORT_MAP.as_str();
     let import_map = format!(
@@ -681,6 +737,7 @@ pub(crate) async fn build_import_map(
               "{base_internal_url}": "{base_internal_url}/api/w/{w_id}/scripts/raw/p/",
               "/": "{base_internal_url}/api/w/{w_id}/scripts/raw/p/",
               "./wrapper.ts": "./wrapper.ts",
+              "./wm_envs.ts": "./wm_envs.ts",
               "./main.ts": "./main.ts"{relative_mounts}
               {extra_import_map}
             }}
@@ -925,5 +982,22 @@ mod tests {
             assert!(deno_flags_choose_config(&flags(f)), "{f}");
         }
         assert!(!deno_flags_choose_config(&flags("-A --cached-only")));
+    }
+
+    /// The wrapper imports `./main.ts` through the import map: a Hub path's tail or a
+    /// preview path must not add or replace entries.
+    #[tokio::test]
+    async fn import_map_path_cannot_add_entries() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = r#"hub/1/x","./main.ts":"data:text/javascript,0","y":"/z"#;
+        super::build_import_map("w", path, "http://h", dir.path().to_str().unwrap())
+            .await
+            .unwrap();
+        let map = std::fs::read_to_string(dir.path().join("import_map.json")).unwrap();
+        let map: serde_json::Value = serde_json::from_str(&map).unwrap();
+        let imports = map["imports"].as_object().unwrap();
+        assert_eq!(imports.len(), 6 + path.split('/').count());
+        assert_eq!(imports["./main.ts"], "./main.ts");
+        assert_eq!(imports["./wm_envs.ts"], "./wm_envs.ts");
     }
 }

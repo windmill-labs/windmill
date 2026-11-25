@@ -33,6 +33,9 @@ export interface EvalCaseRuntimeSpec {
   // past the last one is dismissed, so `[]` dismisses them all. Unset, the question tool
   // reports that it cannot ask.
   userAnswers?: string[];
+  // Global mode: the user's side of each request_secret card, in the order the cards open; a
+  // card past the last one is dismissed. Unset, the tool reports that it cannot show the card.
+  secretRequests?: EvalSecretRequestAnswer[];
   backendPreview?: EvalCaseRuntimeBackendPreview;
   appContext?: EvalCaseRuntimeAppContextSpec;
   // Global mode: run as a session chat (preview tools + session prompt) vs the standalone chat.
@@ -44,6 +47,17 @@ export interface EvalCaseRuntimeSpec {
   // a session from a non-admin role. Unset means full access. A role that builds nothing holds
   // the session in Use, with the read-only toolset and the session section that says why.
   profile?: EvalCaseProfile;
+}
+
+/** What the user does on a request_secret card. `save` goes through the card's own save, so
+ * the secret variables and the resource land in the workspace as production writes them, with
+ * placeholder secret values. */
+export interface EvalSecretRequestAnswer {
+  action: "save" | "dismiss";
+  /** Non-secret fields the user fills or corrects on the card, over what the model prepared. */
+  fields?: Record<string, unknown>;
+  /** The saved resource's connection test as the card reports it; unset for a type with none. */
+  check?: { ok: true } | { ok: false; error: string };
 }
 
 export interface EvalCaseProfile {

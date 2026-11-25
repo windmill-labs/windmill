@@ -188,6 +188,7 @@ export function main() {
                     skip_failures: false,
                     parallel: false,
                     squash: None,
+                    iteration_label: None,
                     parallelism: None,
                     modules: vec![flow_module(
                         "c",
@@ -531,6 +532,7 @@ export function main() {
                 skip_failures: false,
                 parallel: false,
                 squash: None,
+                iteration_label: None,
                 parallelism: None,
                 modules: vec![
                     // For each category, compute results using base_values
@@ -980,6 +982,7 @@ export function main() {
                     skip_failures: false,
                     parallel: true,
                     squash: None,
+                    iteration_label: None,
                     parallelism: None,
                     modules: vec![flow_module(
                         "process",
@@ -1897,6 +1900,7 @@ export function main() {
                     skip_failures: false,
                     parallel: false,
                     squash: None,
+                    iteration_label: None,
                     parallelism: None,
                     modules: vec![
                         // Step b: generate inner items based on category
@@ -2539,6 +2543,7 @@ export function main() {
                 parallel: true,
                 parallelism: None,
                 squash: None,
+                iteration_label: None,
             },
         )],
         flow_env: Some(flow_env),
@@ -2635,6 +2640,7 @@ async fn test_flow_env_imported_flow_uses_own_env(db: Pool<Postgres>) -> anyhow:
             FlowModuleValue::Flow {
                 input_transforms: Default::default(),
                 path: imported_path.to_string(),
+                tag_override: None,
                 pass_flow_input_directly: None,
             },
         )],
@@ -2728,6 +2734,7 @@ async fn test_flow_env_imported_flow_inherits_when_unset(db: Pool<Postgres>) -> 
             FlowModuleValue::Flow {
                 input_transforms: Default::default(),
                 path: imported_path.to_string(),
+                tag_override: None,
                 pass_flow_input_directly: None,
             },
         )],
@@ -2847,6 +2854,7 @@ async fn test_flow_env_imported_flow_with_nested_branch(db: Pool<Postgres>) -> a
             FlowModuleValue::Flow {
                 input_transforms: Default::default(),
                 path: imported_path.to_string(),
+                tag_override: None,
                 pass_flow_input_directly: None,
             },
         )],
@@ -3301,6 +3309,7 @@ export function main(i: number) {
                 parallel: false,
                 parallelism: None,
                 squash: None,
+                iteration_label: None,
             },
         );
         m.stop_after_all_iters_if = Some(windmill_common::flows::StopAfterIf {
@@ -3402,6 +3411,7 @@ export function main(i: number) {
                 parallel: false,
                 parallelism: None,
                 squash: None,
+                iteration_label: None,
             },
         );
         m.stop_after_all_iters_if = Some(windmill_common::flows::StopAfterIf {

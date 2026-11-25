@@ -29,6 +29,7 @@ use windmill_common::{
     db::{Authable, Authed, AuthedRef},
     error::{self, Error, Result},
     jobs::JobTriggerKind,
+    roles::RoleCapabilities,
     triggers::TriggerMetadata,
     users::username_to_permissioned_as,
     workspaces::{check_operator_can_manage, ManageKind},
@@ -93,6 +94,9 @@ pub struct ApiAuthed {
     /// The OAuth client of an external issuer acting for this user (`mcp_external_idp`).
     /// Recorded on the runs it starts and handed to their steps as `WM_MCP_CLIENT`.
     pub mcp_client: Option<String>,
+    /// The role's capabilities in the request's workspace (`AuthCache::get_opt_job_authed`); `None`
+    /// outside a request.
+    pub capabilities: Option<RoleCapabilities>,
 }
 
 impl ApiAuthed {
@@ -106,6 +110,7 @@ impl ApiAuthed {
             folders: &self.folders,
             scopes: &self.scopes,
             token_prefix: &self.token_prefix,
+            capabilities: self.capabilities,
         }
     }
 
@@ -135,15 +140,16 @@ impl ApiAuthed {
     /// reports for these routes. Derived from the token, never from the request, because the
     /// column is authority-bearing for other kinds (`app` marks a file as app-produced).
     ///
-    /// A browser session is left unstamped rather than marked [`JobTriggerKind::Ui`]: that label
-    /// is one a worker built before this release cannot decode, and it would strand the jobs
-    /// carrying it. `webhook` has always been decodable, so it is safe to write today.
+    /// A browser session is [`JobTriggerKind::Ui`], left unstamped until every worker can decode
+    /// that label: an older one would strand the jobs carrying it.
     pub fn trigger_or_fallback(&self, trigger: Option<TriggerMetadata>) -> Option<TriggerMetadata> {
         if trigger.is_some() {
             return trigger;
         }
         if self.is_session_token {
-            return None;
+            return windmill_common::min_version::MIN_VERSION_SUPPORTS_UI_TRIGGER_KIND
+                .met_conservatively()
+                .then(|| TriggerMetadata::new(None, JobTriggerKind::Ui));
         }
         Some(TriggerMetadata::new(None, JobTriggerKind::Webhook))
     }
@@ -161,6 +167,7 @@ impl From<ApiAuthed> for Authed {
             scopes: value.scopes,
             token_prefix: value.token_prefix,
             mcp_client: value.mcp_client,
+            capabilities: value.capabilities,
         }
     }
 }
@@ -183,6 +190,7 @@ impl From<Authed> for ApiAuthed {
             job_id: None,
             credential_expiry: None,
             mcp_client: value.mcp_client,
+            capabilities: value.capabilities,
         }
     }
 }
@@ -209,6 +217,10 @@ impl Authable for ApiAuthed {
 
     fn is_operator(&self) -> bool {
         self.is_operator
+    }
+
+    fn capabilities(&self) -> Option<RoleCapabilities> {
+        self.capabilities
     }
 
     fn groups(&self) -> &[String] {
@@ -1166,6 +1178,7 @@ pub async fn fetch_api_authed_from_permissioned_as(
                 job_id: None,
                 credential_expiry: None,
                 mcp_client: None,
+                capabilities: None,
             };
 
             API_AUTHED_CACHE.insert(
@@ -1588,11 +1601,11 @@ mod tests {
         );
     }
 
-    /// A browser session is the one shape left unstamped, so the Runs page can say "a token
-    /// started this" without claiming the converse. Every other label — every shape a member
-    /// can pass to `create_token` — is `webhook`.
+    /// A browser session is the one shape stamped `ui`, and only once every worker can decode
+    /// it. Every other label — every shape a member can pass to `create_token` — is `webhook`.
     #[test]
-    fn only_a_browser_session_is_left_unstamped() {
+    fn only_a_browser_session_is_stamped_ui() {
+        use windmill_common::min_version::MIN_VERSION;
         let kind_of = |label: Option<&str>| {
             ApiAuthed {
                 is_session_token: windmill_common::auth::is_session_label(label),
@@ -1602,7 +1615,14 @@ mod tests {
             .map(|t| t.trigger_kind.to_string())
         };
 
-        assert_eq!(kind_of(Some("session")), None);
+        let before = MIN_VERSION.load_full();
+        MIN_VERSION.store(std::sync::Arc::new(semver::Version::new(0, 0, 0)));
+        assert_eq!(kind_of(Some("session")), None, "unknown fleet");
+        MIN_VERSION.store(std::sync::Arc::new(semver::Version::new(1, 775, 0)));
+        assert_eq!(kind_of(Some("session")), None, "a worker predates ui");
+        MIN_VERSION.store(std::sync::Arc::new(semver::Version::new(1, 776, 0)));
+        assert_eq!(kind_of(Some("session")).as_deref(), Some("ui"));
+        MIN_VERSION.store(before);
 
         for label in [
             Some("my-personal-token"),

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import HostWindow from '$lib/components/common/HostWindow.svelte'
 	// The editor for a dbt script, which is a PROJECT rather than a body of code:
 	// a file tree, a descriptor, run arguments and a model graph.
 	//
@@ -353,7 +354,7 @@
 	bind:job={testJob}
 />
 
-<svelte:window onkeydown={onKeyDown} />
+<HostWindow onkeydown={onKeyDown} />
 
 <div class="border-b shadow-sm px-2 py-1 flex items-center gap-3 text-2xs">
 	<span class="font-mono text-secondary truncate">{path ?? ''}__dbt/</span>

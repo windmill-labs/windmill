@@ -561,6 +561,12 @@ pub struct AutoPullSettings {
     /// webhook is live or the repo is polling-only.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub webhook_error: Option<String>,
+    /// The `webhook_id` a delivery from the host last arrived for. Creating a hook
+    /// only proves Windmill reaches the host, not the reverse, so polling relaxes
+    /// only once this matches `webhook_id`; a poll finding a head no delivery
+    /// brought clears it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub webhook_verified_id: Option<i64>,
     /// Last synced commit sha per tracked git ref (e.g. `refs/heads/main`).
     #[serde(default, skip_serializing_if = "std::collections::HashMap::is_empty")]
     pub last_synced_sha: std::collections::HashMap<String, String>,
@@ -589,6 +595,7 @@ impl std::fmt::Debug for AutoPullSettings {
             )
             .field("webhook_url", &self.webhook_url)
             .field("webhook_error", &self.webhook_error)
+            .field("webhook_verified_id", &self.webhook_verified_id)
             .field("last_synced_sha", &self.last_synced_sha)
             .field("last_pull_status", &self.last_pull_status)
             .finish()
@@ -602,11 +609,16 @@ pub const DEFAULT_AUTO_PULL_POLL_INTERVAL_S: u32 = 60;
 pub const WEBHOOK_AUTO_PULL_POLL_INTERVAL_S: u32 = 600;
 
 impl AutoPullSettings {
+    /// Whether the registered hook has been seen delivering to this instance.
+    pub fn webhook_verified(&self) -> bool {
+        self.webhook_id.is_some() && self.webhook_verified_id == self.webhook_id
+    }
+
     /// Effective polling interval in seconds, honouring the explicit override and
-    /// relaxing to `WEBHOOK_AUTO_PULL_POLL_INTERVAL_S` when a webhook is live.
+    /// relaxing to `WEBHOOK_AUTO_PULL_POLL_INTERVAL_S` once the webhook delivers.
     pub fn effective_poll_interval_s(&self) -> u32 {
         self.poll_interval_s.unwrap_or_else(|| {
-            if self.webhook_id.is_some() {
+            if self.webhook_verified() {
                 WEBHOOK_AUTO_PULL_POLL_INTERVAL_S
             } else {
                 DEFAULT_AUTO_PULL_POLL_INTERVAL_S
@@ -625,6 +637,44 @@ impl AutoPullSettings {
     pub fn should_pull(&self, git_ref: &str, head_sha: &str) -> bool {
         self.enabled && self.last_synced_sha.get(git_ref).map(String::as_str) != Some(head_sha)
     }
+}
+
+/// Record the hook a delivery arrived for (`Some`), or that a poll found a head no
+/// delivery brought (`None`), on one repository of `workspace_settings.git_sync`
+/// without touching the rest of it. Authorizes nothing: callers pass a workspace
+/// and repository they resolved themselves, the receiver only after verifying the
+/// delivery against that repository's own secret, never ids taken from a request.
+pub async fn set_auto_pull_webhook_verified_id(
+    db: &crate::DB,
+    w_id: &str,
+    repo_resource_path: &str,
+    hook_id: Option<i64>,
+) -> Result<()> {
+    // COALESCE: `jsonb_set` with a NULL value returns NULL, which would wipe git_sync.
+    sqlx::query!(
+        r#"
+        UPDATE workspace_settings
+        SET git_sync = jsonb_set(
+            git_sync,
+            '{repositories}',
+            (SELECT jsonb_agg(
+                CASE WHEN elem->>'git_repo_resource_path' = $2 AND elem ? 'auto_pull'
+                    THEN jsonb_set(elem, '{auto_pull,webhook_verified_id}',
+                                   COALESCE(to_jsonb($3::bigint), 'null'::jsonb), true)
+                    ELSE elem END)
+             FROM jsonb_array_elements(git_sync->'repositories') AS elem)
+        )
+        WHERE workspace_id = $1
+          AND jsonb_typeof(git_sync->'repositories') = 'array'
+          AND jsonb_array_length(git_sync->'repositories') > 0
+        "#,
+        w_id,
+        repo_resource_path,
+        hook_id,
+    )
+    .execute(db)
+    .await?;
+    Ok(())
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -2096,6 +2146,18 @@ pub async fn resolve_workspace_governing_datatables(
         .collect())
 }
 
+/// Replication connections resolve unqualified names in `pg_catalog` only, never in the
+/// database's `public` schema, whose objects the workspace manages. A startup option outranks
+/// `ALTER ROLE/DATABASE ... SET`, and the last `-c` wins over one already in the options of
+/// `DATABASE_URL`.
+fn pin_replication_search_path(pg_creds: &mut PgDatabase) {
+    const PIN: &str = "-c search_path=pg_catalog";
+    pg_creds.options = Some(match pg_creds.non_empty_options() {
+        Some(options) => format!("{options} {PIN}"),
+        None => PIN.to_string(),
+    });
+}
+
 /// Build the `admin` connection for a governing entry: `custom_instance_user` for an instance
 /// database, on Windmill's cluster or the external one; the user's own resource for a BYO-postgres
 /// one.
@@ -2110,12 +2172,15 @@ async fn resolve_datatable_connection_unchecked(
         .as_ref()
         .expect("a governing entry owns a database");
     if database.resource_type == DataTableCatalogResourceType::ExternalInstance {
-        let pg_creds = crate::external_instance_pg::external_instance_connection_unchecked(
+        let mut pg_creds = crate::external_instance_pg::external_instance_connection_unchecked(
             db,
             &database.resource_path,
             replication,
         )
         .await?;
+        if replication {
+            pin_replication_search_path(&mut pg_creds);
+        }
         serde_json::to_value(&pg_creds)
             .map_err(|e| Error::internal_err(format!("Error serializing pg creds: {}", e)))
     } else if database.resource_type == DataTableCatalogResourceType::Instance {
@@ -2134,6 +2199,7 @@ async fn resolve_datatable_connection_unchecked(
         if replication {
             pg_creds.user = Some("custom_instance_replication_user".to_string());
             pg_creds.password = Some(get_custom_pg_instance_replication_password(&db).await?);
+            pin_replication_search_path(&mut pg_creds);
         } else {
             pg_creds.user = Some(CUSTOM_INSTANCE_USER.to_string());
             pg_creds.password = Some(get_custom_pg_instance_password(&db).await?);
@@ -3968,6 +4034,21 @@ mod tests {
     }
 
     #[test]
+    fn replication_search_path_is_pinned_after_the_url_options() {
+        let mut creds = PgDatabase::parse_uri("postgres://u@h/db").unwrap();
+        pin_replication_search_path(&mut creds);
+        assert_eq!(creds.options.as_deref(), Some("-c search_path=pg_catalog"));
+
+        let mut creds =
+            PgDatabase::parse_uri("postgres://u@h/db?options=-c+search_path%3Dpublic").unwrap();
+        pin_replication_search_path(&mut creds);
+        assert_eq!(
+            creds.options.as_deref(),
+            Some("-c search_path=public -c search_path=pg_catalog")
+        );
+    }
+
+    #[test]
     fn sync_script_version_is_the_second_segment_of_the_queued_path() {
         let meets = |p, min| sync_script_meets_min_version(&sync_callback_path(p), min);
         assert!(meets(None, 28956));
@@ -4006,6 +4087,7 @@ mod tests {
             folders: &folders,
             scopes: &scopes,
             token_prefix: &token_prefix,
+            capabilities: Some(crate::roles::RoleCapabilities::FULL),
         };
 
         assert!(can_use_datatable_role(&tenants(&["u/alice"]), &authed));
@@ -4044,6 +4126,7 @@ mod tests {
             folders: &folders,
             scopes: &scopes,
             token_prefix: &token_prefix,
+            capabilities: Some(crate::roles::RoleCapabilities::FULL),
         };
         assert!(!can_use_datatable_role(&tenants(&["*"]), &admin));
         assert!(!can_use_datatable_role(&tenants(&["u/alice"]), &admin));
@@ -4224,6 +4307,7 @@ mod tests {
             webhook_secret: None,
             webhook_url: None,
             webhook_error: None,
+            webhook_verified_id: None,
             enabled_by: None,
             last_synced_sha: synced
                 .iter()
@@ -4260,9 +4344,21 @@ mod tests {
         // explicit override wins
         s.poll_interval_s = Some(15);
         assert_eq!(s.effective_poll_interval_s(), 15);
-        // with a live webhook and no override, relax to the webhook interval
+        // a registered hook nothing has delivered from keeps polling every minute
         s.poll_interval_s = None;
         s.webhook_id = Some(42);
+        assert_eq!(
+            s.effective_poll_interval_s(),
+            DEFAULT_AUTO_PULL_POLL_INTERVAL_S
+        );
+        // a delivery for an older hook does not count for its replacement
+        s.webhook_verified_id = Some(41);
+        assert_eq!(
+            s.effective_poll_interval_s(),
+            DEFAULT_AUTO_PULL_POLL_INTERVAL_S
+        );
+        // once it delivers, relax to the webhook interval
+        s.webhook_verified_id = Some(42);
         assert_eq!(
             s.effective_poll_interval_s(),
             WEBHOOK_AUTO_PULL_POLL_INTERVAL_S

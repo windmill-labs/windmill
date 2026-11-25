@@ -166,6 +166,69 @@ async fn test_iteration_parallel(db: Pool<Postgres>) -> anyhow::Result<()> {
 
 #[cfg(feature = "deno_core")]
 #[sqlx::test(fixtures("base"))]
+async fn test_iteration_labels(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+
+    let label_loop = |id: &str, parallel: bool, label: &str| {
+        json!({
+            "id": id,
+            "value": {
+                "type": "forloopflow",
+                "iterator": { "type": "javascript", "expr": "flow_input.items" },
+                "skip_failures": false,
+                "parallel": parallel,
+                "iteration_label": { "type": "javascript", "expr": label },
+                "modules": [
+                    { "id": format!("{id}_a"), "value": { "type": "identity" } },
+                    { "id": format!("{id}_b"), "value": { "type": "identity" } },
+                ],
+            },
+        })
+    };
+    let flow: FlowValue = serde_json::from_value(json!({
+        "modules": [
+            label_loop("seq", false, "flow_input.iter.value.name"),
+            label_loop("par", true, "`${flow_input.iter.index}:${flow_input.iter.value.name}`"),
+            label_loop("bad", false, "flow_input.iter.value.missing.name"),
+        ],
+    }))
+    .unwrap();
+
+    let job = RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
+        .arg(
+            "items",
+            json!([{ "name": "acme" }, { "name": null }, { "name": "globex" }]),
+        )
+        .run_until_complete(&db, false, server.addr.port())
+        .await;
+    assert!(job.success, "{:?}", job.json_result());
+
+    let labels = |id: &str| get_module(&job, id).and_then(|m| m.flow_jobs_labels());
+    assert_eq!(
+        labels("seq"),
+        Some(vec![
+            Some("acme".to_string()),
+            None,
+            Some("globex".to_string())
+        ])
+    );
+    assert_eq!(
+        labels("par"),
+        Some(vec![
+            Some("0:acme".to_string()),
+            Some("1:null".to_string()),
+            Some("2:globex".to_string())
+        ])
+    );
+    // A label that fails to evaluate leaves the iteration unlabelled and the loop running.
+    assert_eq!(labels("bad"), Some(vec![None, None, None]));
+    Ok(())
+}
+
+#[cfg(feature = "deno_core")]
+#[sqlx::test(fixtures("base"))]
 async fn test_bun_flow(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
 
@@ -221,6 +284,7 @@ async fn test_bun_flow(db: Pool<Postgres>) -> anyhow::Result<()> {
                         skip_failures: false,
                         parallel: false,
                         squash: None,
+                        iteration_label: None,
                         parallelism: None,
                         modules: vec![FlowModule {
                             id: "c".to_string(),
@@ -577,6 +641,7 @@ async fn test_bun_flow_same_worker(db: Pool<Postgres>) -> anyhow::Result<()> {
                         skip_failures: false,
                         parallel: false,
                         squash: None,
+                        iteration_label: None,
                         parallelism: None,
                         modules: vec![
                             FlowModule {
@@ -1175,9 +1240,16 @@ fn main(world: String) -> Result<String, String> {
     Ok(())
 }
 
+/// The C# tests share the worker's C# cache as `DOTNET_CLI_HOME`, and .NET's first-run setup
+/// there is not safe to run twice at once: on a fresh machine one of two concurrent first
+/// builds can crash in it.
+#[cfg(feature = "csharp")]
+static CSHARP_FIRST_RUN: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 #[cfg(feature = "csharp")]
 #[sqlx::test(fixtures("base"))]
 async fn test_csharp_job(db: Pool<Postgres>) -> anyhow::Result<()> {
+    let _first_run = CSHARP_FIRST_RUN.lock().await;
     initialize_tracing().await;
     let server = ApiServer::start(db.clone()).await?;
     let port = server.addr.port();
@@ -1219,6 +1291,65 @@ class Script
     .unwrap();
 
     assert_eq!(result, serde_json::json!("Hello Arakis - 3"));
+    Ok(())
+}
+
+#[cfg(feature = "csharp")]
+#[sqlx::test(fixtures("base"))]
+async fn test_csharp_job_omitted_args_take_declared_defaults(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    let _first_run = CSHARP_FIRST_RUN.lock().await;
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let job = || {
+        RunJob::from(JobPayload::Code(RawCode {
+            hash: None,
+            content: r#"
+class Script
+{
+    const int Answer = 42;
+    // `params` is not in the parsed signature, so the wrapper never passes it.
+    public static string Main(string s = "World", int n = Answer, string @class = "c", params string[] rest)
+    {
+        return $"{s ?? "<null>"} {n} {@class} {rest.Length}";
+    }
+}
+"#
+            .to_owned(),
+            path: None,
+            lock: None,
+            language: ScriptLang::CSharp,
+            cache_ttl: None,
+            cache_ignore_s3_path: None,
+            dedicated_worker: None,
+            concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default(
+            )
+            .into(),
+            debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+            modules: None,
+            tag: None,
+        }))
+    };
+
+    let omitted = job()
+        .run_until_complete(&db, false, port)
+        .await
+        .json_result()
+        .unwrap();
+    assert_eq!(omitted, json!("World 42 c 0"));
+
+    let explicit = job()
+        .arg("s", json!(null))
+        .arg("n", json!(1))
+        .arg("@class", json!("k"))
+        .run_until_complete(&db, false, port)
+        .await
+        .json_result()
+        .unwrap();
+    assert_eq!(explicit, json!("<null> 1 k 0"));
     Ok(())
 }
 
@@ -4787,6 +4918,61 @@ async fn test_unrecoverable_failure_on_continue_on_error_runs_failure_module(
     Ok(())
 }
 
+/// A failure the flow goes past because of `continue_on_error` is recorded on the root flow's
+/// status, including one inside a loop iteration's subflow.
+#[cfg(feature = "deno_core")]
+#[sqlx::test(fixtures("base"))]
+async fn test_continue_on_error_recorded_on_root(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let failing = |id: &str| {
+        json!({"id": id, "continue_on_error": true, "value": {
+            "type": "rawscript", "language": "bun", "input_transforms": {},
+            "content": "export function main() { throw new Error('boom'); }",
+        }})
+    };
+    let flow: FlowValue = serde_json::from_value(json!({
+        "modules": [
+            failing("a"),
+            {"id": "loop", "value": {
+                "type": "forloopflow", "parallel": true, "skip_failures": false,
+                "iterator": {"type": "static", "value": [1, 2]},
+                "modules": [failing("b"), {"id": "c", "value": {"type": "identity"}}],
+            }},
+        ],
+    }))
+    .unwrap();
+
+    let job = RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
+        .run_until_complete(&db, false, port)
+        .await;
+    server.close().await.unwrap();
+
+    assert!(job.success, "{:?}", job.json_result());
+    let mut recorded: Vec<(String, Uuid, Option<Uuid>)> = sqlx::query_as(
+        "SELECT e->>'id', (e->>'job')::uuid, j.parent_job
+         FROM v2_job_completed c, JSONB_ARRAY_ELEMENTS(c.flow_status->'continued_on_error') e
+         JOIN v2_job j ON j.id = (e->>'job')::uuid
+         WHERE c.id = $1",
+    )
+    .bind(job.id)
+    .fetch_all(&db)
+    .await?;
+    recorded.sort();
+    let ids: Vec<&str> = recorded.iter().map(|(id, ..)| id.as_str()).collect();
+    assert_eq!(ids, vec!["a", "b", "b"]);
+    assert_eq!(recorded[0].2, Some(job.id));
+    assert_ne!(recorded[1].1, recorded[2].1);
+    assert_ne!(
+        recorded[1].2,
+        Some(job.id),
+        "b runs in an iteration's subflow"
+    );
+    Ok(())
+}
+
 #[cfg(feature = "deno_core")]
 #[sqlx::test(fixtures("base"))]
 async fn test_run_wait_result_early_return_with_failure_module(
@@ -5611,6 +5797,111 @@ async fn test_subflow_steps_follow_caller_preserve_step_tags(
         .map(|(step, tag)| (step.to_owned(), tag.to_owned()))
         .to_vec()
     );
+    Ok(())
+}
+
+/// A subflow step's `tag_override` is the subflow's tag, which its untagged steps inherit; a
+/// dynamic one left `null` falls back to the subflow's default.
+#[sqlx::test(fixtures("base"))]
+async fn test_subflow_step_tag_override(db: Pool<Postgres>) -> anyhow::Result<()> {
+    use futures::StreamExt;
+
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let client = reqwest::Client::new();
+    let subflow = json!({
+        "path": "g/all/overridden_subflow", "summary": "", "description": "",
+        "schema": { "type": "object", "properties": {}, "required": [] },
+        "value": {
+            "modules": [{
+                "id": "inner",
+                "value": {
+                    "type": "rawscript", "language": "bun", "lock": "",
+                    "content": "export function main() { return 1; }",
+                    "input_transforms": {}
+                }
+            }]
+        }
+    });
+    let caller = json!({
+        "path": "g/all/overriding_caller", "summary": "", "description": "",
+        "schema": { "type": "object", "properties": {}, "required": [] },
+        "value": {
+            "modules": [{
+                "id": "sub",
+                "value": {
+                    "type": "flow", "path": "g/all/overridden_subflow", "input_transforms": {},
+                    "tag_override": "$flow_expr[flow_input.wt]"
+                }
+            }]
+        }
+    });
+    // The flow cache is process-wide and keyed by version and node ids, which every test database
+    // numbers from the same start: move ours out of the way of flows deployed by concurrent tests.
+    for table in ["flow_version", "flow_node"] {
+        sqlx::query(&format!(
+            "SELECT setval(pg_get_serial_sequence('{table}', 'id'), 7317000)"
+        ))
+        .execute(&db)
+        .await?;
+    }
+    let mut completed = listen_for_completed_jobs(&db).await;
+    for flow in [subflow, caller] {
+        client
+            .post(format!(
+                "http://localhost:{port}/api/w/test-workspace/flows/create"
+            ))
+            .bearer_auth("SECRET_TOKEN")
+            .json(&flow)
+            .send()
+            .await?
+            .error_for_status()?;
+        let deployment = in_test_worker(&db, completed.next(), port).await.unwrap();
+        let deployed = completed_job(deployment, &db).await;
+        assert!(deployed.success, "{:?}", deployed.result);
+    }
+
+    for (wt, sub_tag, inner_tag) in [
+        (json!("python3"), "python3", "python3"),
+        (json!(null), "flow", "bun"),
+    ] {
+        let job_id = client
+            .post(format!(
+                "http://localhost:{port}/api/w/test-workspace/jobs/run/f/g/all/overriding_caller"
+            ))
+            .bearer_auth("SECRET_TOKEN")
+            .json(&json!({ "wt": wt }))
+            .send()
+            .await?
+            .error_for_status()?
+            .text()
+            .await?
+            .parse::<Uuid>()?;
+        in_test_worker(&db, completed.by_ref().find(&job_id), port).await;
+        let job = completed_job(job_id, &db).await;
+        assert!(job.success, "{:?}", job.result);
+        let tags = sqlx::query_as::<_, (String, String)>(
+            "WITH RECURSIVE descendants AS (
+                SELECT id FROM v2_job WHERE id = $1
+                UNION ALL
+                SELECT child.id FROM v2_job child JOIN descendants ON child.parent_job = descendants.id
+            )
+            SELECT flow_step_id, tag FROM v2_job
+            WHERE id IN (SELECT id FROM descendants) AND flow_step_id <> ''
+            ORDER BY flow_step_id",
+        )
+        .bind(job_id)
+        .fetch_all(&db)
+        .await?;
+        assert_eq!(
+            tags,
+            [("inner", inner_tag), ("sub", sub_tag)]
+                .map(|(step, tag)| (step.to_owned(), tag.to_owned()))
+                .to_vec(),
+            "wt = {wt}"
+        );
+    }
     Ok(())
 }
 
