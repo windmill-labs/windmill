@@ -2647,8 +2647,8 @@ describe('AIChatManager queued messages', () => {
 				{ role: 'tool' as const, tool_call_id: 'shot', content: 'Screenshot attached below' }
 			)
 			config.callbacks.attachToolImage('shot', {
-				dataUrl: 'data:image/png;base64,iVBORw0KGgo=',
-				name: 'shot.png'
+				image: { dataUrl: 'data:image/png;base64,iVBORw0KGgo=', name: 'shot.png' },
+				caption: 'Screenshot(s) of the app preview:'
 			})
 			leavePage.forEach((fn) => fn())
 			return {

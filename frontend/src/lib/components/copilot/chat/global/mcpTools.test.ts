@@ -22,12 +22,20 @@ vi.mock('$lib/gen', () => ({
 	}
 }))
 
+vi.mock('$lib/aiStore', () => ({ tryGetCurrentModel: () => undefined }))
+
 vi.mock('$lib/stores', () => ({
 	// Read at call time, so a test can switch accounts the way a logout does.
 	userStore: { subscribe: (run: (v: unknown) => void) => (run({ ...session }), () => {}) }
 }))
 
-import { clearMcpToolsCache, createMcpTools, loadMcpServers, type McpServer } from './mcpTools'
+import {
+	clearMcpToolsCache,
+	createMcpTools,
+	loadMcpServers,
+	splitMcpResult,
+	type McpServer
+} from './mcpTools'
 import { setMcpEnabled } from '$lib/components/mcp/enabledServers'
 
 const SERVERS: McpServer[] = [{ path: 'u/hugo/github_mcp' }]
@@ -220,6 +228,32 @@ describe('call results', () => {
 		})
 		expect(result.success).toBe(false)
 		expect(result.error).toBe('issue not found')
+	})
+
+	it('takes image blocks out of the text, and drops an oversized one whole', () => {
+		const small = 'iVBORw0KGgo='
+		const huge = 'A'.repeat(11_000_000)
+		const { data, images, omitted } = splitMcpResult({
+			content: [
+				{ type: 'text', text: 'Viewport of Blender' },
+				{ type: 'image', mimeType: 'image/png', data: small },
+				{ type: 'image', mimeType: 'image/png', data: huge }
+			]
+		})
+		expect(data).toBe('Viewport of Blender')
+		expect(images).toEqual([{ index: 0, mimeType: 'image/png', data: small }])
+		expect(omitted).toEqual(['image 2 (image/png): larger than 8 MB'])
+	})
+
+	it('keeps structured content when images are taken out', () => {
+		const { data } = splitMcpResult({
+			content: [
+				{ type: 'text', text: 'Rendered' },
+				{ type: 'image', mimeType: 'image/png', data: 'iVBORw0KGgo=' }
+			],
+			structuredContent: { object_id: 'cube-17' }
+		})
+		expect(data).toEqual({ object_id: 'cube-17' })
 	})
 
 	it('flattens text content on success', async () => {
