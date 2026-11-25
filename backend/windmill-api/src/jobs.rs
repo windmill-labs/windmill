@@ -5353,6 +5353,8 @@ struct ApprovalInfo {
     step_summary: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     flow_summary: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    required_events: Option<u32>,
     approvers: Vec<Approval>,
     /// Share-read-link token for the flow, minted only for callers allowed to view this
     /// approval. Lets an authenticated workspace-member approver open the run details of
@@ -5446,6 +5448,7 @@ fn approval_conditions_from_settings(suspend: &Suspend) -> Option<ApprovalCondit
 struct ApprovalStepView {
     skin: ApprovalSkin,
     summary: Option<String>,
+    required_events: Option<u32>,
 }
 
 async fn get_approval_info(
@@ -5534,7 +5537,7 @@ async fn get_approval_info(
                 .and_then(|m| m.get("skin"))
                 .and_then(|v| serde_json::from_value::<ApprovalSkin>(v.clone()).ok())
                 .unwrap_or_default();
-            let step = Some(ApprovalStepView { skin, summary: None });
+            let step = Some(ApprovalStepView { skin, summary: None, required_events: None });
             (form, description, default_args, enums, run_ac, None, step)
         } else {
             let fs = row
@@ -5621,6 +5624,7 @@ async fn get_approval_info(
                     .and_then(|s| s.skin)
                     .unwrap_or_default(),
                 summary: module.summary.clone().filter(|s| !s.trim().is_empty()),
+                required_events: module.suspend.as_ref().and_then(|s| s.required_events),
             });
 
             // Fetch description, default_args, and enums from the step's completed job result
@@ -5649,6 +5653,7 @@ async fn get_approval_info(
         };
 
     let skin = step.as_ref().map(|s| s.skin).unwrap_or_default();
+    let required_events = step.as_ref().and_then(|s| s.required_events);
     let step_summary = step.and_then(|s| s.summary);
 
     let user_auth_required = approval_conditions
@@ -5683,6 +5688,7 @@ async fn get_approval_info(
             skin,
             step_summary: None,
             flow_summary: None,
+            required_events: None,
             approvers: vec![],
             view_token: None,
         }));
@@ -5732,6 +5738,7 @@ async fn get_approval_info(
         skin,
         step_summary,
         flow_summary: row.flow_summary,
+        required_events,
         approvers,
         view_token,
     }))
