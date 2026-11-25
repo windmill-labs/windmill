@@ -116,6 +116,10 @@
 	const aiChat = getAiChatManager()
 	// The session workspace's config in a session pane, so new loops match the IteratorGen shown.
 	const aiOff = $derived(disableAi || !aiChat.aiInfo?.enabled)
+	// A step's description goes to the session's chat or to a new session: with neither, it
+	// would be dropped.
+	const inSession = !!getContext('aiChatManager')
+	const stepGenOff = $derived(disableAi || (!inSession && !sessionOpen))
 
 	const { customUi, selectionManager, history, flowStateStore, flowStore, pathStore, opWorkspace } =
 		getContext<FlowEditorContext>('FlowEditorContext')
@@ -494,7 +498,7 @@
 	>
 		<FlowStickyNode
 			compact={compactTopbar}
-			{disableAi}
+			disableAi={stepGenOff}
 			{showFlowAiButton}
 			{disableSettings}
 			{disableStaticInputs}
@@ -515,7 +519,7 @@
 			triggerNode={customUi?.triggers != false}
 			path={$pathStore}
 			{newFlow}
-			{disableAi}
+			disableAi={stepGenOff}
 			insertable
 			scroll
 			{minHeight}

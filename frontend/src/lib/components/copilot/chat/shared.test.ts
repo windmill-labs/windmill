@@ -1910,7 +1910,12 @@ describe('appendPendingToolImages', () => {
 	// same screenshots again would duplicate them in history.
 	it('appends one user message to both arrays and drains the buffer once', async () => {
 		const { appendPendingToolImages } = await import('./shared')
-		let pending = [{ dataUrl: 'data:image/png;base64,SHOT', mediaType: 'image/png' as const }]
+		let pending = [
+			{
+				image: { dataUrl: 'data:image/png;base64,SHOT', mediaType: 'image/png' as const },
+				caption: 'Screenshot(s) of the app preview:'
+			}
+		]
 		const toolCallbacks = {
 			setToolStatus: vi.fn(),
 			takePendingToolImages: () => {

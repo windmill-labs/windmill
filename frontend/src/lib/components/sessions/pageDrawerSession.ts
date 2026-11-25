@@ -50,6 +50,12 @@ async function flushOrRefuse(query: Parameters<typeof UserDraftDbSyncer.flush>[0
 		throw new Error('This page has changes that are not valid JSON. Fix them first.')
 	}
 	await UserDraftDbSyncer.flush(query)
+	assertDraftSaved(query)
+}
+
+/** Throws when the last save of this draft did not land: a save reports a failed or conflicting
+ * POST through its state. */
+export function assertDraftSaved(query: Parameters<typeof UserDraftDbSyncer.flush>[0]): void {
 	if (UserDraftDbSyncer.getConflict(query).conflict) {
 		throw new Error(
 			'This draft has a newer conflicting version on the server. Resolve it here before opening a session.'

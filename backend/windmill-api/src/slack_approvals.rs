@@ -8,7 +8,6 @@ use http::HeaderMap;
 use hyper::StatusCode;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use sha2::Sha256;
 use sqlx::types::Uuid;
 use std::collections::HashMap;
@@ -906,9 +905,9 @@ fn process_non_datetime_inputs(
         }
 
         // Plain text input: Extracts the text value
-        ValueInput::PlainTextInput { value } => value
-            .as_ref()
-            .map(|v| (action_id.to_string(), v.0.clone())),
+        ValueInput::PlainTextInput { value } => {
+            value.as_ref().map(|v| (action_id.to_string(), v.0.clone()))
+        }
 
         // Static select: Extracts the selected option's value
         ValueInput::StaticSelect { selected_option } => selected_option

@@ -4,6 +4,10 @@ import { createToolDef } from '../shared'
 import { NONE, type SessionTool } from '../sessionCapabilities'
 import { enabledMcpPaths } from '$lib/components/mcp/enabledServers'
 import { isOwnOrSharedMcpPath, MCP_LIST_PER_PAGE, mcpViewer } from '$lib/components/mcp/ownServers'
+import { MAX_ATTACHED_IMAGES, normalizeImageDataUrl, type AttachedImage } from '../imageUtils'
+import { modelSupportsVision } from '../../modelConfig'
+import { tryGetCurrentModel } from '$lib/aiStore'
+import type { GlobalToolHelpers } from './core'
 
 /**
  * Access to the MCP servers the user has connected (resources of type `mcp`)
@@ -20,6 +24,9 @@ export type McpServer = { path: string; editedAt?: string }
 const MAX_SEARCH_RESULTS = 10
 const MAX_DESCRIPTION_CHARS = 1_000
 const MAX_RESULT_CHARS = 20_000
+// Checked on the server's raw image, before it is decoded and downscaled: decoding
+// allocates the full bitmap, so the cap has to bite first.
+const MAX_IMAGE_BYTES = 8_000_000
 // A server writes its own error text, and every enabled server can contribute
 // one, so search results are capped the same way call results are.
 const MAX_SERVER_ERROR_CHARS = 500
@@ -185,17 +192,72 @@ async function resolveTool(
 	return { server, tool }
 }
 
-/** Flatten the MCP content blocks into the text the model can act on. */
-function extractResultData(result: unknown): unknown {
+/** `index` counts the result's image blocks, so a note names the one the server sent. */
+export type McpImage = { index: number; mimeType: string; data: string }
+
+/** Decoded bytes of base64 text, without decoding it. */
+function base64Size(b64: string): number {
+	const padding = b64.endsWith('==') ? 2 : b64.endsWith('=') ? 1 : 0
+	return Math.max(0, Math.floor((b64.length * 3) / 4) - padding)
+}
+
+function describeImage(index: number, mimeType: string): string {
+	return `image ${index + 1} (${truncate(mimeType, 40)})`
+}
+
+/**
+ * Split an MCP result into the data the model reads as text and the image blocks it
+ * is shown as images. Images never go into the text: base64 cut at the text cap is
+ * unreadable, so an image over the limits is dropped whole and named in `omitted`.
+ */
+export function splitMcpResult(result: unknown): {
+	data: unknown
+	images: McpImage[]
+	omitted: string[]
+} {
 	const content = (result as { content?: unknown })?.content
-	if (Array.isArray(content)) {
-		const texts = content
-			.filter((c) => (c as { type?: string })?.type === 'text')
-			.map((c) => (c as { text?: string }).text ?? '')
-		if (texts.length === content.length) return texts.join('\n')
+	const images: McpImage[] = []
+	const omitted: string[] = []
+	if (!Array.isArray(content)) {
+		const structured = (result as { structuredContent?: unknown })?.structuredContent
+		return { data: structured ?? content ?? result, images, omitted }
 	}
+	let imageIndex = 0
+	const rest = content.filter((c) => {
+		const block = c as { type?: string; data?: unknown; mimeType?: unknown }
+		if (block?.type !== 'image') return true
+		const index = imageIndex++
+		const mimeType = typeof block.mimeType === 'string' ? block.mimeType : 'unknown type'
+		if (typeof block.data !== 'string' || !mimeType.startsWith('image/')) {
+			omitted.push(`${describeImage(index, mimeType)}: not a base64 image`)
+		} else if (base64Size(block.data) > MAX_IMAGE_BYTES) {
+			omitted.push(
+				`${describeImage(index, mimeType)}: larger than ${MAX_IMAGE_BYTES / 1_000_000} MB`
+			)
+		} else if (images.length >= MAX_ATTACHED_IMAGES) {
+			omitted.push(`${describeImage(index, mimeType)}: over ${MAX_ATTACHED_IMAGES} images`)
+		} else {
+			images.push({ index, mimeType, data: block.data })
+		}
+		return false
+	})
+	const texts = rest
+		.filter((c) => (c as { type?: string })?.type === 'text')
+		.map((c) => (c as { text?: string }).text ?? '')
 	const structured = (result as { structuredContent?: unknown })?.structuredContent
-	return structured ?? content ?? result
+	// A result that mixed in images was never read as text alone: its structured
+	// content is what carried the fields, so taking the images out must not drop it.
+	const textOnly = rest.length === content.length || structured === undefined
+	if (texts.length === rest.length && textOnly) return { data: texts.join('\n'), images, omitted }
+	return { data: structured ?? rest, images, omitted }
+}
+
+/** What the model is told about the images a call returned, or undefined for none. */
+function imagesNote(attached: number, omitted: string[]): string | undefined {
+	const parts: string[] = []
+	if (attached > 0) parts.push(`${attached} image(s) attached in the following message.`)
+	if (omitted.length > 0) parts.push(`Not shown: ${omitted.join('; ')}.`)
+	return parts.length > 0 ? truncate(parts.join(' '), MAX_SERVER_ERROR_CHARS) : undefined
 }
 
 async function executeTool(
@@ -203,8 +265,9 @@ async function executeTool(
 	server: McpServer,
 	tool: McpToolDef,
 	args: Record<string, unknown>,
-	skippedConfirmation: boolean
-): Promise<string> {
+	skippedConfirmation: boolean,
+	canSeeImages: boolean
+): Promise<{ result: string; images: AttachedImage[] }> {
 	let raw: unknown
 	try {
 		raw = await ResourceService.callMcpTool({
@@ -228,7 +291,7 @@ async function executeTool(
 		if (skippedConfirmation && status === 400 && /read-only/i.test(error)) {
 			forgetServerTools(workspace, server.path)
 		}
-		return bounded({
+		const result = bounded({
 			success: false,
 			...(status ? { status } : {}),
 			error,
@@ -236,19 +299,36 @@ async function executeTool(
 			// can self-correct on the next call without a separate schema tool.
 			...(status >= 400 && status < 500 ? { schema: tool.inputSchema } : {})
 		})
+		return { result, images: [] }
 	}
 
-	const data = extractResultData(raw)
+	const { data, images: rawImages, omitted } = splitMcpResult(raw)
 	// A tool that ran but reported failure comes back as a success with isError set.
 	if ((raw as { isError?: boolean })?.isError) {
-		return bounded({
+		const result = bounded({
 			success: false,
 			error: typeof data === 'string' ? data : JSON.stringify(data),
 			schema: tool.inputSchema
 		})
+		return { result, images: [] }
 	}
 
-	return bounded({ success: true, data })
+	const images: AttachedImage[] = []
+	for (const image of rawImages) {
+		const name = describeImage(image.index, image.mimeType)
+		// A text-only model would reject the follow-up image message and fail the turn.
+		if (!canSeeImages) {
+			omitted.push(`${name}: the current model cannot read images`)
+			continue
+		}
+		try {
+			images.push(await normalizeImageDataUrl(`data:${image.mimeType};base64,${image.data}`))
+		} catch {
+			omitted.push(`${name}: could not be decoded`)
+		}
+	}
+	const note = imagesNote(images.length, omitted)
+	return { result: bounded({ success: true, data, ...(note ? { images: note } : {}) }), images }
 }
 
 /**
@@ -260,6 +340,8 @@ function bounded(payload: {
 	success: boolean
 	data?: unknown
 	error?: string
+	/** Already bounded; kept through truncation, since it says what the next message holds. */
+	images?: string
 	[k: string]: unknown
 }) {
 	const full = JSON.stringify(payload)
@@ -276,6 +358,7 @@ function bounded(payload: {
 			success: payload.success,
 			truncated: true,
 			[payload.success ? 'data' : 'error']: text.slice(0, take),
+			...(payload.images ? { images: payload.images } : {}),
 			note: `Truncated to fit ${MAX_RESULT_CHARS} characters. Use filter or pagination parameters to narrow it.`
 		})
 		take = Math.floor(take / 2)
@@ -371,7 +454,7 @@ function createCallTool(servers: McpServer[], mode: 'read' | 'write'): SessionTo
 					confirmAction: 'run',
 					confirmationMessage: (args: any) => `Call ${args?.tool ?? ''} on ${args?.server ?? ''}`
 				}),
-		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
+		fn: async ({ args, workspace, toolId, toolCallbacks, helpers }) => {
 			const parsed = callMcpToolSchema.parse(args)
 			// Marks the row with the provider it reaches. Recorded before the listing is
 			// awaited, so an unreachable server still marks its own failure row, and taken
@@ -401,17 +484,25 @@ function createCallTool(servers: McpServer[], mode: 'read' | 'write'): SessionTo
 				return bounded({ success: false, error })
 			}
 			toolCallbacks.setToolStatus(toolId, { content: `Calling ${parsed.tool}...` })
-			const result = await executeTool(
+			// Re-read per call: the session's model can change between turns.
+			const sessionAi = (helpers as GlobalToolHelpers | undefined)?.sessionAi
+			const model = sessionAi ? sessionAi().model : tryGetCurrentModel()
+			const { result, images } = await executeTool(
 				workspace,
 				resolved.server,
 				resolved.tool,
 				parsed.arguments ?? {},
-				isRead
+				isRead,
+				!model || modelSupportsVision(model.provider, model.model)
 			)
+			const caption = `Image(s) returned by ${parsed.tool} on ${resolved.server.path}:`
+			for (const image of images) toolCallbacks.attachToolImage?.(toolId, { image, caption })
 			const ok = JSON.parse(result).success === true
 			toolCallbacks.setToolStatus(toolId, {
 				content: ok ? `Called ${parsed.tool}` : `Call to ${parsed.tool} failed`,
 				result,
+				// The card has room for one image; the model gets all of them.
+				...(images.length > 0 ? { imageUrl: images[0].dataUrl } : {}),
 				...(ok ? {} : { error: `Call to ${parsed.tool} failed` })
 			})
 			return result
