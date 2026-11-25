@@ -13166,6 +13166,73 @@ paths:
             application/json:
               schema: {}
 
+  /w/{workspace}/jobs/flow/nested_approvals/{job_id}:
+    get:
+      summary: list the approvals given in runs nested under a flow run
+      description: >
+        List the approval steps that runs nested under a flow run (subflows, branch and
+        loop runs, at any depth) went past, with who approved or rejected each and when.
+        The flow run's own approval steps are not listed: they are in its flow status.
+      operationId: listNestedApprovals
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: job_id
+          in: path
+          required: true
+          description: id of the flow run
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: the nested approval steps, oldest first
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  required:
+                    - job_id
+                    - path
+                    - step_id
+                    - approvers
+                  properties:
+                    job_id:
+                      type: string
+                      format: uuid
+                      description: the nested run the step belongs to
+                    path:
+                      type: array
+                      items:
+                        type: string
+                      description: >
+                        ids of the steps that started the nested runs, from the flow run's
+                        own step down to the run holding the approval step
+                    step_id:
+                      type: string
+                    step_summary:
+                      type: string
+                    approvers:
+                      type: array
+                      items:
+                        type: object
+                        required:
+                          - resume_id
+                          - approver
+                        properties:
+                          resume_id:
+                            type: integer
+                          approver:
+                            type: string
+                          approved_at:
+                            type: string
+                            format: date-time
+                          approved:
+                            type: boolean
+
   /w/{workspace}/jobs/flow/approval_step_detail/{job_id}/{step_id}:
     get:
       summary: get the approval detail of one step of a flow run

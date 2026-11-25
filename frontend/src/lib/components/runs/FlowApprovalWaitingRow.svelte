@@ -5,18 +5,19 @@
 	import { JobService, type FlowModule, type Job } from '$lib/gen'
 	import FlowStatusWaitingForEvents from '../FlowStatusWaitingForEvents.svelte'
 	import StepIdBadge from '../flows/content/StepIdBadge.svelte'
+	import NestedStepPath from './NestedStepPath.svelte'
 
 	interface Props {
 		/** The run the step belongs to: the page's run, or a subflow, branch or loop run under it. */
 		job: Job
 		module: FlowModule
 		isOwner: boolean
-		/** The page run's step that holds a nested wait. */
-		within?: FlowModule
+		/** For a nested wait: the step ids from the page's run down to `job`. */
+		path?: string[]
 		onSelectStep: () => void
 	}
 
-	let { job, module, isOwner, within, onSelectStep }: Props = $props()
+	let { job, module, isOwner, path, onSelectStep }: Props = $props()
 
 	const detail = resource(
 		() => ({ workspace: job.workspace_id, jobId: job.id, stepId: module.id }),
@@ -43,36 +44,38 @@
 	let toggleLabel = $derived(expanded ? 'Hide the approval form' : 'Show the approval form')
 </script>
 
-<div
-	class="grid grid-cols-[16px_minmax(140px,1fr)_minmax(0,2fr)_auto] items-center gap-3 px-4 py-2 border-t text-xs"
->
-	<Hourglass size={14} class="text-violet-500" />
-	<span class="flex flex-wrap items-center gap-1 min-w-0">
-		<Button
-			variant="subtle"
-			unifiedSize="xs"
-			btnClasses="justify-start min-w-0 truncate"
-			title="Show {(within ?? module).summary || (within ?? module).id} in the graph"
-			onclick={onSelectStep}
-		>
-			{module.summary || module.id}
-		</Button>
-		{#if module.summary}<StepIdBadge id={module.id} />{/if}
-		{#if within}
-			<span class="text-hint">in</span>
-			<span class="truncate text-secondary">{within.summary || within.id}</span>
-			{#if within.summary}<StepIdBadge id={within.id} />{/if}
-		{/if}
-	</span>
-	<span class="flex flex-wrap items-center gap-x-3 gap-y-0.5 min-w-0 text-secondary">
-		{#if detail.current}
-			<span><span class="text-hint">Can approve:</span> {canApproveLabel()}</span>
-			{#if detail.current.approvals.length > 0}
-				<span>{detail.current.approvals.length} of {detail.current.required_events} approvals</span>
+<div class="flex items-start gap-3 px-4 py-2 border-t text-xs">
+	<Hourglass size={14} class="shrink-0 mt-[3px] text-violet-500" />
+	<div class="flex flex-1 min-w-0 flex-wrap items-center gap-x-3 gap-y-0.5">
+		<span class="flex flex-wrap items-center gap-1 min-w-0 w-64 max-w-full -ml-2">
+			<Button
+				variant="subtle"
+				unifiedSize="xs"
+				btnClasses="justify-start min-w-0 gap-1"
+				title="Show {path?.[0] ?? (module.summary || module.id)} in the graph"
+				onclick={onSelectStep}
+			>
+				<span class="truncate">{module.summary || module.id}</span>
+				{#if module.summary}<StepIdBadge id={module.id} />{/if}
+			</Button>
+			{#if path?.length}
+				<NestedStepPath {path} runId={job.id} workspace={job.workspace_id} />
 			{/if}
-		{/if}
-	</span>
-	<span class="flex items-center gap-1">
+		</span>
+		<span
+			class="flex flex-1 basis-48 flex-wrap items-center gap-x-3 gap-y-0.5 min-w-0 text-secondary"
+		>
+			{#if detail.current}
+				<span><span class="text-hint">Can approve:</span> {canApproveLabel()}</span>
+				{#if detail.current.approvals.length > 0}
+					<span
+						>{detail.current.approvals.length} of {detail.current.required_events} approvals</span
+					>
+				{/if}
+			{/if}
+		</span>
+	</div>
+	<span class="flex shrink-0 items-center gap-1">
 		<Badge color="violet" small>Waiting</Badge>
 		<Button
 			variant="subtle"

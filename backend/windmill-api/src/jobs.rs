@@ -409,6 +409,10 @@ pub fn workspaced_service() -> Router {
             "/flow/approval_step_detail/{job_id}/{step_id}",
             get(get_approval_step_detail),
         )
+        .route(
+            "/flow/nested_approvals/{job_id}",
+            get(list_nested_approvals),
+        )
         .route("/approvals/waiting", get(list_waiting_approvals))
         .route(
             "/job_view_token/{id}",
@@ -5776,6 +5780,140 @@ struct WaitingApprovals {
 // approvals needs the approver check in SQL rather than in `can_approve_step`.
 const WAITING_APPROVALS_SCAN: i64 = 1000;
 const WAITING_APPROVALS_RETURNED: usize = 100;
+
+#[derive(Serialize)]
+struct NestedApproval {
+    job_id: Uuid,
+    path: Vec<String>,
+    step_id: String,
+    step_summary: Option<String>,
+    approvers: Vec<Approval>,
+}
+
+/// The approval steps that runs nested under a flow run (subflows, branch and loop runs, at any
+/// depth) went past. Who approved them is kept on those runs, not on the flow run.
+async fn list_nested_approvals(
+    OptViewToken(view_token): OptViewToken,
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, flow_id)): Path<(String, Uuid)>,
+) -> error::Result<Json<Vec<NestedApproval>>> {
+    let created_by = sqlx::query_scalar!(
+        "SELECT created_by FROM v2_job WHERE id = $1 AND workspace_id = $2",
+        flow_id,
+        w_id
+    )
+    .fetch_optional(&db)
+    .await?
+    .ok_or_else(|| Error::NotFound(format!("Job {flow_id} not found")))?;
+    require_job_read_access(
+        &db,
+        &user_db,
+        &authed,
+        &w_id,
+        &flow_id,
+        &created_by,
+        view_token.as_deref(),
+    )
+    .await?;
+
+    // ponytail: reads every flow run under the run, each loop iteration included; a run with
+    // thousands of iterations would want the approvals indexed on their own.
+    let rows = sqlx::query!(
+        r#"WITH RECURSIVE tree AS (
+               SELECT id FROM v2_job WHERE id = $1 AND workspace_id = $2
+               UNION ALL
+               SELECT j.id FROM v2_job j JOIN tree t ON j.parent_job = t.id
+               WHERE j.kind IN ('flow', 'flownode')
+           )
+           SELECT j.id AS "id!",
+                  COALESCE(s.flow_status, c.flow_status) AS flow_status,
+                  COALESCE(j.raw_flow, fv.value, fn.flow) AS flow
+           FROM tree t
+           JOIN v2_job j ON j.id = t.id
+           LEFT JOIN v2_job_status s ON s.id = j.id
+           LEFT JOIN v2_job_completed c ON c.id = j.id
+           LEFT JOIN flow_version fv
+               ON j.raw_flow IS NULL AND j.kind = 'flow' AND fv.id = j.runnable_id
+           LEFT JOIN flow_node fn
+               ON j.raw_flow IS NULL AND j.kind = 'flownode' AND fn.id = j.runnable_id"#,
+        flow_id,
+        w_id
+    )
+    .fetch_all(&db)
+    .await?;
+
+    let modules = |v: &Option<serde_json::Value>| -> Vec<serde_json::Value> {
+        v.as_ref()
+            .and_then(|v| v.get("modules"))
+            .and_then(|m| m.as_array())
+            .cloned()
+            .unwrap_or_default()
+    };
+    // The run and step that started each nested run: a subflow's `job`, a loop's or branch's
+    // `flow_jobs`.
+    let mut started_by: HashMap<Uuid, (Uuid, String)> = HashMap::new();
+    for r in &rows {
+        for m in modules(&r.flow_status) {
+            let Some(step) = m.get("id").and_then(|v| v.as_str()) else {
+                continue;
+            };
+            let jobs = m.get("job").into_iter().chain(
+                m.get("flow_jobs")
+                    .and_then(|v| v.as_array())
+                    .into_iter()
+                    .flatten(),
+            );
+            for job in jobs.filter_map(|v| v.as_str()?.parse::<Uuid>().ok()) {
+                started_by.insert(job, (r.id, step.to_string()));
+            }
+        }
+    }
+
+    let mut out = vec![];
+    for r in rows.iter().filter(|r| r.id != flow_id) {
+        let mut path = vec![];
+        let mut cur = r.id;
+        while let Some((parent, step)) = started_by.get(&cur) {
+            path.push(step.clone());
+            if *parent == flow_id || path.len() > rows.len() {
+                break;
+            }
+            cur = *parent;
+        }
+        path.reverse();
+        let defs = modules(&r.flow);
+        for m in modules(&r.flow_status) {
+            if m.get("type").and_then(|v| v.as_str()) != Some("Success") {
+                continue;
+            }
+            let Some(approvers) = m
+                .get("approvers")
+                .and_then(|v| serde_json::from_value::<Vec<Approval>>(v.clone()).ok())
+                .filter(|a| !a.is_empty())
+            else {
+                continue;
+            };
+            let step_id = m.get("id").and_then(|v| v.as_str()).unwrap_or_default();
+            let step_summary = defs
+                .iter()
+                .find(|d| d.get("id").and_then(|v| v.as_str()) == Some(step_id))
+                .and_then(|d| d.get("summary")?.as_str())
+                .filter(|s| !s.is_empty())
+                .map(str::to_string);
+            out.push(NestedApproval {
+                job_id: r.id,
+                path: path.clone(),
+                step_id: step_id.to_string(),
+                step_summary,
+                approvers,
+            });
+        }
+    }
+    out.sort_by_key(|a| a.approvers.first().and_then(|a| a.approved_at));
+    Ok(Json(out))
+}
 
 /// The runs waiting on an approval step set to show on Home that the caller can approve, by the
 /// same check the resume boundary runs. A step anyone holding its link can approve is listed

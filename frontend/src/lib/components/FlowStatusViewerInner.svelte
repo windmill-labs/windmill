@@ -637,7 +637,7 @@
 		let jobStatus = job?.flow_status?.modules?.[job?.flow_status.step]
 
 		if (jobStatus && jobStatus.count != undefined) {
-			suspendStatus.val[jobId ?? ''] = { nb: jobStatus.count, job: job! }
+			suspendStatus.val[jobId ?? ''] = { nb: jobStatus.count, job: job!, prefix }
 		} else if (suspendStatus.val[jobId ?? ''] != undefined) {
 			delete suspendStatus.val[jobId ?? '']
 		}
