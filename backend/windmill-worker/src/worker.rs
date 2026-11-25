@@ -7072,7 +7072,7 @@ mount {{
         states: Vec::new(),
         writable: Vec::new(),
         client: None,
-        lease_renewal: crate::volume_oss::LeaseRenewalGuard(None),
+        lease_renewal: Default::default(),
     };
 
     #[cfg(feature = "parquet")]
@@ -7617,11 +7617,9 @@ mount {{
     // Volume sync-back and lease release
     #[cfg(feature = "parquet")]
     if !volume_setup.states.is_empty() {
-        // Stop lease renewal before sync-back
-        volume_setup.lease_renewal.0.take().map(|h| h.abort());
-
-        if let Some(ref vol_client) = volume_setup.client {
-            if let Connection::Sql(db) = conn {
+        let lease_renewal = std::mem::take(&mut volume_setup.lease_renewal);
+        match (conn, volume_setup.client.as_ref()) {
+            (Connection::Sql(db), Some(vol_client)) => {
                 Box::pin(crate::volume_oss::sync_volumes_sql_worker(
                     &volume_setup.states,
                     &volume_setup.writable,
@@ -7632,23 +7630,25 @@ mount {{
                     worker_name,
                     conn,
                     result.is_ok(),
+                    lease_renewal,
                 ))
                 .await;
             }
-        }
-
-        if let Connection::Http(http) = conn {
-            Box::pin(crate::volume_oss::sync_volumes_http_worker(
-                &volume_setup.states,
-                &volume_setup.writable,
-                http,
-                &job.workspace_id,
-                job.id,
-                worker_name,
-                conn,
-                result.is_ok(),
-            ))
-            .await;
+            (Connection::Http(http), _) => {
+                Box::pin(crate::volume_oss::sync_volumes_http_worker(
+                    &volume_setup.states,
+                    &volume_setup.writable,
+                    http,
+                    &job.workspace_id,
+                    job.id,
+                    worker_name,
+                    conn,
+                    result.is_ok(),
+                    lease_renewal,
+                ))
+                .await;
+            }
+            (Connection::Sql(_), None) => {}
         }
 
         // Clean up absolute-path symlinks created by setup_volume_mount_paths
