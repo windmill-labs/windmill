@@ -213,6 +213,7 @@ pub mod volumes_ee;
 mod volumes_oss;
 pub mod webhook_util;
 mod workspace_settings_document;
+mod workspace_deploy;
 mod workspaces;
 #[cfg(feature = "private")]
 pub mod workspaces_ee;
@@ -842,7 +843,13 @@ pub async fn run_server(
                         )
                         .nest("/volumes", volumes_oss::workspaced_service())
                         .nest("/workers", windmill_api_workers::workspaced_service())
-                        .nest("/workspaces", workspaces::workspaced_service())
+                        .nest(
+                            "/workspaces",
+                            workspaces::workspaced_service().route(
+                                "/deploy_from_workspace",
+                                post(workspace_deploy::deploy_from_workspace),
+                            ),
+                        )
                         .nest("/hub", hub_publish::workspaced_service())
                         .nest(
                             "/data_metrics",

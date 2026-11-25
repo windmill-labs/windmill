@@ -4275,6 +4275,72 @@ paths:
             application/json:
               schema: {}
 
+  /w/{workspace}/workspaces/deploy_from_workspace:
+    post:
+      operationId: deployFromWorkspace
+      summary: deploy an item from another workspace into this one
+      description: |
+        Copies one item from another workspace of this instance into this workspace, or removes it
+        here, through the item's own create, update and delete endpoints, with the caller's own
+        permissions in each workspace. Used to merge a fork into its parent and to update a fork
+        from it. Scripts and flows are archived rather than deleted.
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                kind:
+                  type: string
+                  description: the item kind, as the workspace comparison names it (script, flow, app, raw_app, variable, resource, resource_type, folder, schedule, datatable_migration, or a trigger kind such as http_trigger)
+                path:
+                  type: string
+                  description: the item's path; `f/<name>` for a folder, `<datatable>/<timestamp>_<name>` for a datatable migration
+                source_workspace:
+                  type: string
+                  description: the workspace to read the item from; required unless `delete` is set
+                delete:
+                  type: boolean
+                  description: remove the item from this workspace instead of copying it
+                on_behalf_of:
+                  type: string
+                  description: who the item runs as here, as the kind stores it (an email for scripts, flows, apps and agents, a u/ or g/ principal for schedules and triggers); unset makes it the caller
+                on_behalf_of_principal:
+                  type: string
+                  description: the u/ or g/ principal naming the same identity as on_behalf_of, when a specific user was picked
+                create_only:
+                  type: boolean
+                  description: answer 409 rather than overwrite when this workspace already has the item. A folder is instead created with its owners, ACL and identity rules translated to this workspace's users, and one that exists is left as is.
+                skip_ci_tests:
+                  type: boolean
+                  description: hold back the CI tests the write would queue
+                push_base_url:
+                  type: string
+                  description: root URL a GCP or Azure push subscription posts to; defaults to this instance's base URL
+              required:
+                - kind
+                - path
+      responses:
+        "200":
+          description: the item was deployed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  dropped_access:
+                    type: array
+                    items:
+                      type: string
+                    description: folder owners and ACL entries left out because they have no account in this workspace
+        "409":
+          description: create_only was set and this workspace already has the item
+
   /users/exists/{email}:
     get:
       summary: exists email

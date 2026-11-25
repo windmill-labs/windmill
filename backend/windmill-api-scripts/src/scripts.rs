@@ -671,7 +671,7 @@ async fn list_paths_from_workspace_runnable(
 }
 
 #[derive(Deserialize, Default, Clone, Copy)]
-struct CreateScriptQuery {
+pub struct CreateScriptQuery {
     /// When set by the caller (currently only the CLI), the backend
     /// short-circuits deploys whose content, lockfile, and metadata are
     /// identical to the parent: no new version is inserted and the git
@@ -683,7 +683,7 @@ struct CreateScriptQuery {
     skip_ci_tests: bool,
 }
 
-async fn create_script(
+pub async fn create_script(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
@@ -3367,14 +3367,14 @@ pub async fn pick_hub_script_by_path(
 // drops type info through flatten, so `?get_draft=true` arrives as a String and
 // fails the inner bool deserializer. Inlining lets the bool adapter see it directly.
 #[derive(Deserialize)]
-struct GetScriptByPathQuery {
+pub struct GetScriptByPathQuery {
     with_starred_info: Option<bool>,
     #[serde(default)]
     get_draft: bool,
 }
 
 #[axum::debug_handler]
-async fn get_script_by_path(
+pub async fn get_script_by_path(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
@@ -4009,7 +4009,7 @@ async fn raw_script_by_path_internal(
     Ok(content)
 }
 
-async fn exists_script_by_path(
+pub async fn exists_script_by_path(
     Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> JsonResult<bool> {
@@ -4153,7 +4153,7 @@ async fn get_deployment_status(
     Ok(Json(deployment_status))
 }
 
-async fn archive_script_by_path(
+pub async fn archive_script_by_path(
     authed: ApiAuthed,
     Extension(webhook): Extension<WebhookShared>,
     Extension(user_db): Extension<UserDB>,

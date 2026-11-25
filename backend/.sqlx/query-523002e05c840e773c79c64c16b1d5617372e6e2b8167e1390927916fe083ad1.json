@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT name FROM group_ WHERE workspace_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "name",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "523002e05c840e773c79c64c16b1d5617372e6e2b8167e1390927916fe083ad1"
+}

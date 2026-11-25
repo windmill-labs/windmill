@@ -972,7 +972,7 @@ pub struct DatatableMigration {
     pub code_down: Option<String>,
 }
 
-async fn list_datatable_migrations(
+pub async fn list_datatable_migrations(
     _authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
@@ -1552,7 +1552,7 @@ async fn create_datatable_migration(
 }
 
 /// Delete a single migration definition from a data table.
-async fn delete_datatable_migration(
+pub async fn delete_datatable_migration(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path((w_id, datatable_name, timestamp)): Path<(String, String, i64)>,
@@ -1688,7 +1688,7 @@ pub struct UpsertDatatableMigration {
 /// Insert or update a single migration at an explicit version. Used by
 /// `wmill sync` to push a `migrations/datatable/<dt>/<version>_<name>.up.sql`
 /// (and `.down.sql`) file as the source of truth.
-async fn upsert_datatable_migration(
+pub async fn upsert_datatable_migration(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path((w_id, datatable_name)): Path<(String, String)>,

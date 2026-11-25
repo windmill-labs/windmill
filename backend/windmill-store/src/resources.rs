@@ -252,7 +252,7 @@ pub struct CreateResource {
     pub preserve_on_behalf_of: Option<bool>,
 }
 #[derive(Deserialize)]
-struct EditResource {
+pub struct EditResource {
     path: Option<String>,
     description: Option<String>,
     value: Option<Box<RawValue>>,
@@ -597,7 +597,7 @@ async fn list_resources(
     Ok(Json(rows))
 }
 
-async fn get_resource(
+pub async fn get_resource(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
@@ -660,7 +660,7 @@ async fn get_resource(
     Ok(Json(overlay))
 }
 
-async fn exists_resource(
+pub async fn exists_resource(
     Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> JsonResult<bool> {
@@ -1259,12 +1259,12 @@ fn note_resource_write(w_id: &str, path: &str, resource_type: &str) {
 }
 
 #[derive(Deserialize)]
-struct CreateResourceQuery {
+pub struct CreateResourceQuery {
     update_if_exists: Option<bool>,
     #[serde(default)]
     skip_ci_tests: bool,
 }
-async fn create_resource(
+pub async fn create_resource(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
@@ -1492,7 +1492,7 @@ async fn create_resource(
     ))
 }
 
-async fn delete_resource(
+pub async fn delete_resource(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
@@ -2140,7 +2140,7 @@ async fn delete_resources_bulk(
     Ok(Json(deleted_paths))
 }
 
-async fn update_resource(
+pub async fn update_resource(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
@@ -3450,7 +3450,7 @@ async fn list_hub_resource_type_info(
     Ok(Json(info))
 }
 
-async fn get_resource_type(
+pub async fn get_resource_type(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, name)): Path<(String, String)>,
@@ -3471,7 +3471,7 @@ async fn get_resource_type(
     Ok(Json(resource_type))
 }
 
-async fn exists_resource_type(
+pub async fn exists_resource_type(
     Extension(db): Extension<DB>,
     Path((w_id, name)): Path<(String, String)>,
 ) -> JsonResult<bool> {
@@ -3501,7 +3501,7 @@ fn normalize_display_name(name: Option<&str>) -> Result<Option<String>> {
     Ok(Some(name.to_string()))
 }
 
-async fn create_resource_type(
+pub async fn create_resource_type(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
@@ -3612,7 +3612,7 @@ async fn check_rt_path_conflict<'c>(
     return Ok(());
 }
 
-async fn delete_resource_type(
+pub async fn delete_resource_type(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
@@ -3676,7 +3676,7 @@ async fn delete_resource_type(
     Ok(format!("resource_type {} deleted", name))
 }
 
-async fn update_resource_type(
+pub async fn update_resource_type(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,

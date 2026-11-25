@@ -261,7 +261,7 @@ lazy_static! {
     static ref VALID_FOLDER_NAME: Regex = Regex::new(r#"^[a-zA-Z_0-9-]+$"#).unwrap();
 }
 
-async fn create_folder(
+pub async fn create_folder(
     authed: ApiAuthed,
     Tokened { token }: Tokened,
     Extension(db): Extension<DB>,
@@ -425,7 +425,7 @@ pub async fn is_owner_api(
 use windmill_api_auth::is_owner;
 pub use windmill_api_auth::require_is_owner;
 
-async fn update_folder(
+pub async fn update_folder(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
@@ -657,7 +657,7 @@ pub async fn get_folderopt<'c>(
     Ok(folderopt)
 }
 
-async fn get_folder(
+pub async fn get_folder(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, name)): Path<(String, String)>,
@@ -671,7 +671,7 @@ async fn get_folder(
     Ok(Json(folder))
 }
 
-async fn exists_folder(
+pub async fn exists_folder(
     Extension(db): Extension<DB>,
     Path((w_id, name)): Path<(String, String)>,
 ) -> JsonResult<bool> {
@@ -791,7 +791,7 @@ async fn get_folder_usage(
     }))
 }
 
-async fn delete_folder(
+pub async fn delete_folder(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
