@@ -10,6 +10,7 @@
 		Bug,
 		RefreshCw,
 		Gauge,
+		Hourglass,
 		Moon
 	} from 'lucide-svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
@@ -225,7 +226,12 @@
 	// Live, so it takes the slot of the retried and error handler counts while it lasts.
 	let waitingInside = $derived.by(() => {
 		if (!flowRunStatus?.showsRun || data.editMode || data.module?.value?.type !== 'flow') return
-		const { sleep, concurrency } = flowRunStatus.waitingStepsInside(data.id)
+		const { approval, sleep, concurrency } = flowRunStatus.waitingStepsInside(data.id)
+		if (approval > 0)
+			return {
+				reason: 'approval' as const,
+				label: `${approval === 1 ? 'Approval' : `${approval} approvals`} waiting inside`
+			}
 		if (concurrency > 0)
 			return {
 				reason: 'concurrency' as const,
@@ -390,10 +396,22 @@
 					variant="subtle"
 					unifiedSize="2xs"
 					startIcon={{
-						icon: waitingInside.reason === 'sleep' ? Moon : Gauge,
-						classes: waitingInside.reason === 'sleep' ? '' : 'text-orange-500'
+						icon:
+							waitingInside.reason === 'approval'
+								? Hourglass
+								: waitingInside.reason === 'sleep'
+									? Moon
+									: Gauge,
+						classes:
+							waitingInside.reason === 'approval'
+								? 'text-violet-500'
+								: waitingInside.reason === 'sleep'
+									? ''
+									: 'text-orange-500'
 					}}
-					btnClasses="text-2xs text-secondary gap-1"
+					btnClasses="text-2xs gap-1 {waitingInside.reason === 'approval'
+						? 'text-violet-600 dark:text-violet-400'
+						: 'text-secondary'}"
 					title="Expand to see the waiting steps"
 					onClick={(e) => {
 						e?.stopPropagation()
@@ -403,7 +421,16 @@
 					{waitingInside.label}
 				</Button>
 			</div>
-		{:else if !(type === 'WaitingForExecutor' && state?.waiting_reason === 'concurrency')}
+		{:else if state?.approval_wait}
+			<WaitingMark
+				reason="approval"
+				workspace={state.approval_wait.workspace}
+				jobId={state.approval_wait.job}
+				stepId={data.id.split(':').pop() ?? data.id}
+				required={state.approval_wait.required}
+				onclick={() => data.module && data.eventHandlers.select(data.module.id)}
+			/>
+		{:else}
 			{#await hiddenErrorHandlers}
 				{@render insideBar(retriedInside, undefined)}
 			{:then handlers}

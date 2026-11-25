@@ -44,13 +44,15 @@ export class FlowRunStatus {
 		return count
 	}
 
-	/** Steps inside the subflow step `id`, at any depth, waiting out a sleep or held by their
-	 * concurrency limit. */
-	waitingStepsInside(id: string): { sleep: number; concurrency: number } {
+	/** Steps inside the subflow step `id`, at any depth, waiting for an approval, waiting out a
+	 * sleep or held by their concurrency limit. */
+	waitingStepsInside(id: string): { approval: number; sleep: number; concurrency: number } {
 		const prefix = (id.startsWith('subflow:') ? id : 'subflow:' + id) + ':'
-		const count = { sleep: 0, concurrency: 0 }
+		const count = { approval: 0, sleep: 0, concurrency: 0 }
 		for (const [key, state] of this.#moduleStates) {
-			if (key.startsWith(prefix) && state.type === 'WaitingForExecutor' && state.waiting_reason)
+			if (!key.startsWith(prefix)) continue
+			if (state.approval_wait) count.approval++
+			else if (state.type === 'WaitingForExecutor' && state.waiting_reason)
 				count[state.waiting_reason]++
 		}
 		return count

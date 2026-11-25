@@ -828,6 +828,15 @@
 				if (mod.type === 'Failure' && localModuleStates[mod.id ?? '']?.type === 'Success') {
 					setModuleState(mod.id ?? '', { type: 'Failure' })
 				}
+				// The run waits for an approval in the status of the step after the approval step.
+				const next = innerModules?.[i + 1]
+				const approvalWait =
+					mod.id && job?.id && mod.type === 'Success' && next?.type === 'WaitingForEvents'
+						? { job: job.id, workspace: job.workspace_id, required: next.count ?? 1 }
+						: undefined
+				if (mod.id && !deepEqual(approvalWait, localModuleStates[mod.id]?.approval_wait)) {
+					setModuleState(mod.id, { approval_wait: approvalWait })
+				}
 				if (mod.type === 'WaitingForEvents' && innerModules?.[i - 1]?.type === 'Success') {
 					setModuleState(mod.id ?? '', {
 						type: mod.type,
