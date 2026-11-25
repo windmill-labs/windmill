@@ -996,11 +996,11 @@ async function callTool<T>({
 				`${functionName} is not available yet: no pipeline editor is open for this chat. Call open_preview(kind="pipeline", path="<folder>") first and wait for its result; once it reports the editor open, the pipeline tools are callable. Do not fall back to write_script.`
 			)
 		}
-		// The MCP tools exist only while the user has a server turned on, a per-browser
-		// setting change_mode cannot reach.
+		// The MCP tools exist only in global mode and only while the user has a server
+		// turned on, a per-browser setting change_mode cannot reach.
 		if (/^(search_mcp_tools|call_mcp_(read|write)_tool)$/.test(functionName)) {
 			throw new Error(
-				'No MCP server is turned on for this chat. Tell the user to turn one on in the chat settings, under MCP connections.'
+				'MCP tools need global mode and an MCP server turned on for this chat. Outside global mode, use change_mode; otherwise tell the user to turn one on in the chat settings, under MCP connections.'
 			)
 		}
 		throw new Error(

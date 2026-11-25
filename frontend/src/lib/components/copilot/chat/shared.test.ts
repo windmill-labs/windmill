@@ -1268,7 +1268,7 @@ describe('processToolCall plan-mode gate', () => {
 		expect(result.content).toContain('Unknown tool call')
 	})
 
-	it('points an MCP call with no server turned on at MCP connections, not change_mode', async () => {
+	it('points an unregistered MCP call at MCP connections', async () => {
 		const { processToolCall } = await import('./shared')
 		const result = await processToolCall({
 			tools: [],
@@ -1283,7 +1283,7 @@ describe('processToolCall plan-mode gate', () => {
 		})
 
 		expect(result.content).toContain('MCP connections')
-		expect(result.content).not.toContain('change_mode')
+		expect(result.content).not.toContain('Unknown tool call')
 	})
 
 	it('returns the tool cancellationMessage when the user rejects the confirmation', async () => {
