@@ -495,7 +495,8 @@ function createCallTool(servers: McpServer[], mode: 'read' | 'write'): SessionTo
 				isRead,
 				!model || modelSupportsVision(model.provider, model.model)
 			)
-			for (const image of images) toolCallbacks.attachToolImage?.(toolId, image)
+			const caption = `Image(s) returned by ${parsed.tool} on ${resolved.server.path}:`
+			for (const image of images) toolCallbacks.attachToolImage?.(toolId, { image, caption })
 			const ok = JSON.parse(result).success === true
 			toolCallbacks.setToolStatus(toolId, {
 				content: ok ? `Called ${parsed.tool}` : `Call to ${parsed.tool} failed`,

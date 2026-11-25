@@ -1,5 +1,6 @@
 import { AI_DECISION_SCHEMA } from '../../flows/flowInfers'
 import type {
+	ChatCompletionContentPart,
 	ChatCompletionFunctionTool,
 	ChatCompletionMessageFunctionToolCall,
 	ChatCompletionMessageParam
@@ -1363,20 +1364,25 @@ export async function processToolCall<T>({
  * id is already answered by its tool result before this non-tool message. The image
  * parts ride the same `image_url` carrier that the provider converters translate.
  */
+/** An image a tool produced, with the line that tells the model what it shows. */
+export type ToolImage = { image: AttachedImage; caption: string }
+
 /** The message that hands tool-produced images to the model, or undefined when
  *  there are none. Split out so a snapshot of a turn still buffering them can
  *  build the same message without draining the buffer the live turn still owns. */
 export function pendingToolImagesMessage(
-	images: AttachedImage[]
+	images: ToolImage[]
 ): ChatCompletionMessageParam | undefined {
 	if (images.length === 0) return undefined
-	return {
-		role: 'user',
-		content: [
-			{ type: 'text', text: 'Image(s) returned by the tool calls above:' },
-			...images.map((img) => dataUrlToImagePart(img.dataUrl))
-		]
+	// One batch can mix tools, so each run of images is introduced by its own tool's caption.
+	const content: ChatCompletionContentPart[] = []
+	let caption: string | undefined
+	for (const { image, caption: next } of images) {
+		if (next !== caption) content.push({ type: 'text', text: next })
+		caption = next
+		content.push(dataUrlToImagePart(image.dataUrl))
 	}
+	return { role: 'user', content }
 }
 
 export function appendPendingToolImages(
@@ -1644,9 +1650,9 @@ export interface ToolCallbacks {
 	 * appendPendingToolImages) — appending mid-batch would leave sibling tool_call ids
 	 * unanswered before a non-tool message.
 	 */
-	attachToolImage?: (toolId: string, image: AttachedImage) => void
+	attachToolImage?: (toolId: string, image: ToolImage) => void
 	/** Drain every image buffered this batch (insertion order), clearing the buffer. */
-	takePendingToolImages?: () => AttachedImage[]
+	takePendingToolImages?: () => ToolImage[]
 	/** Wired only by the global/sessions chat: delivers the folder instructions
 	 * covering the paths a tool call names, once per conversation. */
 	folderInstructions?: FolderInstructionsContext

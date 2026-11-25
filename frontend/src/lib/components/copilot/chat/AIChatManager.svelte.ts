@@ -36,6 +36,7 @@ import {
 	createJobUpdateReader,
 	deriveChatJobStatus,
 	pendingToolImagesMessage,
+	type ToolImage,
 	trimJob
 } from './shared'
 import type {
@@ -790,7 +791,7 @@ export class AIChatManager implements ChatViewHost {
 	/** Images buffered by tools (e.g. take_screenshot) during the current tool batch,
 	 * keyed by toolId. Drained by appendPendingToolImages into a follow-up user message
 	 * after the batch. Cleared at each turn start so an aborted batch can't leak. */
-	private pendingToolImages = new Map<string, AttachedImage[]>()
+	private pendingToolImages = new Map<string, ToolImage[]>()
 	/** Model of the most recent loop iteration, recorded via onBeforeIteration.
 	 * The selector stays switchable mid-flight, so when a request fails neither
 	 * the send-time nor the currently-selected model necessarily names the one

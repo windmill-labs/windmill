@@ -2508,8 +2508,8 @@ describe('AIChatManager queued messages', () => {
 				{ role: 'tool' as const, tool_call_id: 'shot', content: 'Screenshot attached below' }
 			)
 			config.callbacks.attachToolImage('shot', {
-				dataUrl: 'data:image/png;base64,iVBORw0KGgo=',
-				name: 'shot.png'
+				image: { dataUrl: 'data:image/png;base64,iVBORw0KGgo=', name: 'shot.png' },
+				caption: 'Screenshot(s) of the app preview:'
 			})
 			leavePage.forEach((fn) => fn())
 			return {
@@ -3861,7 +3861,7 @@ describe('AIChatManager context compaction', () => {
 			{
 				role: 'user',
 				content: [
-					{ type: 'text', text: 'Image(s) returned by the tool calls above:' },
+					{ type: 'text', text: 'Screenshot(s) of the app preview:' },
 					{ type: 'image_url', image_url: { url: 'data:image/png;base64,AAAA' } }
 				] as any
 			},
