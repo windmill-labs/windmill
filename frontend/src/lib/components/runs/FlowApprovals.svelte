@@ -108,20 +108,25 @@
 			nests && workspace ? JobService.listNestedApprovals({ workspace, jobId }) : undefined
 	)
 
-	let done = $derived([
-		...ownDone,
-		...(nested.current?.approvals ?? []).map(
-			(a): DoneRow => ({
-				key: `${a.job_id}:${a.step_id}`,
-				stepId: a.step_id,
-				chainedId: [...a.subflows, a.step_id].join(':'),
-				graphStep: a.subflows[0] ?? a.step_id,
-				summary: a.step_summary,
-				approvers: a.approvers,
-				rejected: isRejected(a.approvers)
-			})
-		)
-	])
+	// In the order they were decided: own and nested steps interleave in a flow's run.
+	const decidedAt = (r: DoneRow) =>
+		r.approvers.reduce((t, a) => (a.approved_at && a.approved_at > t ? a.approved_at : t), '')
+	let done = $derived(
+		[
+			...ownDone,
+			...(nested.current?.approvals ?? []).map(
+				(a): DoneRow => ({
+					key: `${a.job_id}:${a.step_id}`,
+					stepId: a.step_id,
+					chainedId: [...a.subflows, a.step_id].join(':'),
+					graphStep: a.subflows[0] ?? a.step_id,
+					summary: a.step_summary,
+					approvers: a.approvers,
+					rejected: isRejected(a.approvers)
+				})
+			)
+		].sort((a, b) => decidedAt(a).localeCompare(decidedAt(b)))
+	)
 
 	// Waits the rows don't hold: an agent asking for a tool approval, or a run whose steps are not
 	// loaded.
@@ -130,7 +135,18 @@
 			(waits.length === 0 && Object.keys(suspendStatus.val ?? {}).length > 0)
 	)
 
-	let approvedCount = $derived(done.filter((r) => !r.rejected).length)
+	// Counts, not "N of M": a loop's step counts once per iteration, and the total is unknown
+	// until the loop ends.
+	let counts = $derived(
+		[
+			[done.filter((r) => !r.rejected).length, 'approved'],
+			[done.filter((r) => r.rejected).length, 'rejected'],
+			[waits.length, 'waiting']
+		]
+			.filter(([n]) => n)
+			.map(([n, label]) => `${n} ${label}`)
+			.join(' · ')
+	)
 	let stepCount = $derived(done.length + waits.length)
 </script>
 
@@ -139,9 +155,7 @@
 		<div class="flex items-center justify-between px-4 py-2 text-xs font-semibold text-emphasis">
 			<span>Approvals</span>
 			{#if stepCount > 0}
-				<span class="font-normal text-secondary">
-					{approvedCount} of {stepCount} step{stepCount === 1 ? '' : 's'} approved
-				</span>
+				<span class="font-normal text-secondary">{counts}</span>
 			{/if}
 		</div>
 		{#each done as row (row.key)}
