@@ -5,19 +5,20 @@
 	import { JobService, type FlowModule, type Job } from '$lib/gen'
 	import FlowStatusWaitingForEvents from '../FlowStatusWaitingForEvents.svelte'
 	import StepIdBadge from '../flows/content/StepIdBadge.svelte'
-	import NestedStepPath from './NestedStepPath.svelte'
 
 	interface Props {
 		/** The run the step belongs to: the page's run, or a subflow, branch or loop run under it. */
 		job: Job
 		module: FlowModule
 		isOwner: boolean
-		/** For a nested wait: the step ids from the page's run down to `job`. */
-		path?: string[]
+		/** The step's id, chained after the subflow steps leading to it (`outer:r:s`). */
+		chainedId: string
+		/** The page run's step the graph selects: the step itself, or the one holding its run. */
+		graphStep: string
 		onSelectStep: () => void
 	}
 
-	let { job, module, isOwner, path, onSelectStep }: Props = $props()
+	let { job, module, isOwner, chainedId, graphStep, onSelectStep }: Props = $props()
 
 	const detail = resource(
 		() => ({ workspace: job.workspace_id, jobId: job.id, stepId: module.id }),
@@ -52,15 +53,14 @@
 				variant="subtle"
 				unifiedSize="xs"
 				btnClasses="justify-start min-w-0 gap-1"
-				title="Show {path?.[0] ?? (module.summary || module.id)} in the graph"
+				title="Show {graphStep} in the graph"
 				onclick={onSelectStep}
 			>
 				<span class="truncate">{module.summary || module.id}</span>
-				{#if module.summary}<StepIdBadge id={module.id} />{/if}
+				{#if module.summary || chainedId !== module.id}
+					<StepIdBadge id={chainedId} maxLength={24} />
+				{/if}
 			</Button>
-			{#if path?.length}
-				<NestedStepPath {path} runId={job.id} workspace={job.workspace_id} />
-			{/if}
 		</span>
 		<span
 			class="flex flex-1 basis-48 flex-wrap items-center gap-x-3 gap-y-0.5 min-w-0 text-secondary"

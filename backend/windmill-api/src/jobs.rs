@@ -5784,21 +5784,60 @@ const WAITING_APPROVALS_RETURNED: usize = 100;
 #[derive(Serialize)]
 struct NestedApproval {
     job_id: Uuid,
-    path: Vec<String>,
+    root_step: String,
+    subflows: Vec<String>,
     step_id: String,
     step_summary: Option<String>,
     approvers: Vec<Approval>,
 }
 
+#[derive(Serialize)]
+struct NestedApprovals {
+    approvals: Vec<NestedApproval>,
+    more: bool,
+}
+
+/// Whether a step can start a run holding an approval step: a subflow, whose steps its caller
+/// does not carry, or a loop or branch whose own steps hold one.
+fn may_hold_approval(step: &serde_json::Value) -> bool {
+    let holds = |modules: &serde_json::Value| {
+        modules
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|m| m.get("suspend").is_some_and(|s| !s.is_null()) || may_hold_approval(m))
+    };
+    let branches = |v: &serde_json::Value| {
+        v["branches"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|b| holds(&b["modules"]))
+    };
+    let v = &step["value"];
+    match v["type"].as_str() {
+        Some("flow") => true,
+        Some("forloopflow" | "whileloopflow") => holds(&v["modules"]),
+        Some("branchone") => holds(&v["default"]) || branches(v),
+        Some("branchall") => branches(v),
+        _ => false,
+    }
+}
+
+// ponytail: a loop whose steps hold an approval has one per iteration; past this many nested
+// runs read, the rest stay on their own runs' pages.
+const NESTED_RUNS_READ: usize = 200;
+
 /// The approval steps that runs nested under a flow run (subflows, branch and loop runs, at any
-/// depth) went past. Who approved them is kept on those runs, not on the flow run.
+/// depth) went past. Who approved them is kept on those runs, not on the flow run. Only the
+/// runs started by a step that can hold an approval step are read, one level at a time.
 async fn list_nested_approvals(
     OptViewToken(view_token): OptViewToken,
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, flow_id)): Path<(String, Uuid)>,
-) -> error::Result<Json<Vec<NestedApproval>>> {
+) -> error::Result<Json<NestedApprovals>> {
     let created_by = sqlx::query_scalar!(
         "SELECT created_by FROM v2_job WHERE id = $1 AND workspace_id = $2",
         flow_id,
@@ -5818,32 +5857,6 @@ async fn list_nested_approvals(
     )
     .await?;
 
-    // ponytail: reads every flow run under the run, each loop iteration included; a run with
-    // thousands of iterations would want the approvals indexed on their own.
-    let rows = sqlx::query!(
-        r#"WITH RECURSIVE tree AS (
-               SELECT id FROM v2_job WHERE id = $1 AND workspace_id = $2
-               UNION ALL
-               SELECT j.id FROM v2_job j JOIN tree t ON j.parent_job = t.id
-               WHERE j.kind IN ('flow', 'flownode')
-           )
-           SELECT j.id AS "id!",
-                  COALESCE(s.flow_status, c.flow_status) AS flow_status,
-                  COALESCE(j.raw_flow, fv.value, fn.flow) AS flow
-           FROM tree t
-           JOIN v2_job j ON j.id = t.id
-           LEFT JOIN v2_job_status s ON s.id = j.id
-           LEFT JOIN v2_job_completed c ON c.id = j.id
-           LEFT JOIN flow_version fv
-               ON j.raw_flow IS NULL AND j.kind = 'flow' AND fv.id = j.runnable_id
-           LEFT JOIN flow_node fn
-               ON j.raw_flow IS NULL AND j.kind = 'flownode' AND fn.id = j.runnable_id"#,
-        flow_id,
-        w_id
-    )
-    .fetch_all(&db)
-    .await?;
-
     let modules = |v: &Option<serde_json::Value>| -> Vec<serde_json::Value> {
         v.as_ref()
             .and_then(|v| v.get("modules"))
@@ -5851,68 +5864,95 @@ async fn list_nested_approvals(
             .cloned()
             .unwrap_or_default()
     };
-    // The run and step that started each nested run: a subflow's `job`, a loop's or branch's
-    // `flow_jobs`.
-    let mut started_by: HashMap<Uuid, (Uuid, String)> = HashMap::new();
-    for r in &rows {
-        for m in modules(&r.flow_status) {
-            let Some(step) = m.get("id").and_then(|v| v.as_str()) else {
-                continue;
-            };
-            let jobs = m.get("job").into_iter().chain(
-                m.get("flow_jobs")
-                    .and_then(|v| v.as_array())
-                    .into_iter()
-                    .flatten(),
-            );
-            for job in jobs.filter_map(|v| v.as_str()?.parse::<Uuid>().ok()) {
-                started_by.insert(job, (r.id, step.to_string()));
+    // Each run to read, with the flow run's step holding it and the subflow steps leading to it.
+    let mut level: HashMap<Uuid, Option<(String, Vec<String>)>> = HashMap::from([(flow_id, None)]);
+    let mut seen: HashSet<Uuid> = HashSet::from([flow_id]);
+    let mut approvals = vec![];
+    let mut more = false;
+    while !level.is_empty() {
+        let ids: Vec<Uuid> = level.keys().copied().collect();
+        let rows = sqlx::query!(
+            r#"SELECT j.id,
+                      COALESCE(s.flow_status, c.flow_status) AS flow_status,
+                      COALESCE(j.raw_flow, fv.value, fn.flow) AS flow
+               FROM v2_job j
+               LEFT JOIN v2_job_status s ON s.id = j.id
+               LEFT JOIN v2_job_completed c ON c.id = j.id
+               LEFT JOIN flow_version fv
+                   ON j.raw_flow IS NULL AND j.kind = 'flow' AND fv.id = j.runnable_id
+               LEFT JOIN flow_node fn
+                   ON j.raw_flow IS NULL AND j.kind = 'flownode' AND fn.id = j.runnable_id
+               WHERE j.id = ANY($1) AND j.workspace_id = $2"#,
+            &ids,
+            w_id
+        )
+        .fetch_all(&db)
+        .await?;
+        let mut next = HashMap::new();
+        for r in rows {
+            let at = level.get(&r.id).cloned().flatten();
+            let defs = modules(&r.flow);
+            let statuses = modules(&r.flow_status);
+            if let Some((root_step, subflows)) = &at {
+                for m in &statuses {
+                    if m["type"] != "Success" {
+                        continue;
+                    }
+                    let Some(approvers) =
+                        serde_json::from_value::<Vec<Approval>>(m["approvers"].clone())
+                            .ok()
+                            .filter(|a| !a.is_empty())
+                    else {
+                        continue;
+                    };
+                    let step_id = m["id"].as_str().unwrap_or_default();
+                    let step_summary = defs
+                        .iter()
+                        .find(|d| d["id"] == step_id)
+                        .and_then(|d| d["summary"].as_str())
+                        .filter(|s| !s.is_empty())
+                        .map(str::to_string);
+                    approvals.push(NestedApproval {
+                        job_id: r.id,
+                        root_step: root_step.clone(),
+                        subflows: subflows.clone(),
+                        step_id: step_id.to_string(),
+                        step_summary,
+                        approvers,
+                    });
+                }
+            }
+            for d in defs.iter().filter(|d| may_hold_approval(d)) {
+                let Some(step) = d["id"].as_str() else {
+                    continue;
+                };
+                let Some(status) = statuses.iter().find(|s| s["id"] == step) else {
+                    continue;
+                };
+                let (root_step, mut subflows) = at.clone().unwrap_or((step.to_string(), vec![]));
+                if d["value"]["type"] == "flow" {
+                    subflows.push(step.to_string());
+                }
+                // A subflow or branch run is the step's `job`, a loop's or a branch's runs its
+                // `flow_jobs`.
+                let started = std::iter::once(&status["job"])
+                    .chain(status["flow_jobs"].as_array().into_iter().flatten())
+                    .filter_map(|v| v.as_str()?.parse::<Uuid>().ok());
+                for child in started {
+                    if seen.len() > NESTED_RUNS_READ {
+                        more = true;
+                        break;
+                    }
+                    if seen.insert(child) {
+                        next.insert(child, Some((root_step.clone(), subflows.clone())));
+                    }
+                }
             }
         }
+        level = next;
     }
-
-    let mut out = vec![];
-    for r in rows.iter().filter(|r| r.id != flow_id) {
-        let mut path = vec![];
-        let mut cur = r.id;
-        while let Some((parent, step)) = started_by.get(&cur) {
-            path.push(step.clone());
-            if *parent == flow_id || path.len() > rows.len() {
-                break;
-            }
-            cur = *parent;
-        }
-        path.reverse();
-        let defs = modules(&r.flow);
-        for m in modules(&r.flow_status) {
-            if m.get("type").and_then(|v| v.as_str()) != Some("Success") {
-                continue;
-            }
-            let Some(approvers) = m
-                .get("approvers")
-                .and_then(|v| serde_json::from_value::<Vec<Approval>>(v.clone()).ok())
-                .filter(|a| !a.is_empty())
-            else {
-                continue;
-            };
-            let step_id = m.get("id").and_then(|v| v.as_str()).unwrap_or_default();
-            let step_summary = defs
-                .iter()
-                .find(|d| d.get("id").and_then(|v| v.as_str()) == Some(step_id))
-                .and_then(|d| d.get("summary")?.as_str())
-                .filter(|s| !s.is_empty())
-                .map(str::to_string);
-            out.push(NestedApproval {
-                job_id: r.id,
-                path: path.clone(),
-                step_id: step_id.to_string(),
-                step_summary,
-                approvers,
-            });
-        }
-    }
-    out.sort_by_key(|a| a.approvers.first().and_then(|a| a.approved_at));
-    Ok(Json(out))
+    approvals.sort_by_key(|a| a.approvers.first().and_then(|a| a.approved_at));
+    Ok(Json(NestedApprovals { approvals, more }))
 }
 
 /// The runs waiting on an approval step set to show on Home that the caller can approve, by the

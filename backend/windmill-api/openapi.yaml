@@ -13173,6 +13173,8 @@ paths:
         List the approval steps that runs nested under a flow run (subflows, branch and
         loop runs, at any depth) went past, with who approved or rejected each and when.
         The flow run's own approval steps are not listed: they are in its flow status.
+        Only the runs started by a step that can hold an approval step are read: a
+        subflow, or a loop or branch whose steps hold one.
       operationId: listNestedApprovals
       tags:
         - job
@@ -13191,47 +13193,62 @@ paths:
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  type: object
-                  required:
-                    - job_id
-                    - path
-                    - step_id
-                    - approvers
-                  properties:
-                    job_id:
-                      type: string
-                      format: uuid
-                      description: the nested run the step belongs to
-                    path:
-                      type: array
-                      items:
-                        type: string
-                      description: >
-                        ids of the steps that started the nested runs, from the flow run's
-                        own step down to the run holding the approval step
-                    step_id:
-                      type: string
-                    step_summary:
-                      type: string
-                    approvers:
-                      type: array
-                      items:
-                        type: object
-                        required:
-                          - resume_id
-                          - approver
-                        properties:
-                          resume_id:
-                            type: integer
-                          approver:
+                type: object
+                required:
+                  - approvals
+                  - more
+                properties:
+                  approvals:
+                    type: array
+                    items:
+                      type: object
+                      required:
+                        - job_id
+                        - root_step
+                        - subflows
+                        - step_id
+                        - approvers
+                      properties:
+                        job_id:
+                          type: string
+                          format: uuid
+                          description: the nested run the step belongs to
+                        root_step:
+                          type: string
+                          description: id of the flow run's own step the nested run is under
+                        subflows:
+                          type: array
+                          items:
                             type: string
-                          approved_at:
-                            type: string
-                            format: date-time
-                          approved:
-                            type: boolean
+                          description: >
+                            ids of the subflow steps leading to the nested run, outermost
+                            first; loops and branches are not listed
+                        step_id:
+                          type: string
+                        step_summary:
+                          type: string
+                        approvers:
+                          type: array
+                          items:
+                            type: object
+                            required:
+                              - resume_id
+                              - approver
+                            properties:
+                              resume_id:
+                                type: integer
+                              approver:
+                                type: string
+                              approved_at:
+                                type: string
+                                format: date-time
+                              approved:
+                                type: boolean
+                  more:
+                    type: boolean
+                    description: >
+                      more nested runs than are read, typically a loop with an approval in
+                      every iteration: their approvals are on those runs' own pages
 
   /w/{workspace}/jobs/flow/approval_step_detail/{job_id}/{step_id}:
     get:

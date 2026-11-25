@@ -6,7 +6,6 @@
 	import { displayDate, type StateStore } from '$lib/utils'
 	import FlowExecutionStatus from './FlowExecutionStatus.svelte'
 	import FlowApprovalWaitingRow from './FlowApprovalWaitingRow.svelte'
-	import NestedStepPath from './NestedStepPath.svelte'
 	import { pendingAgentApproval } from '../agentRequest'
 	import StepIdBadge from '../flows/content/StepIdBadge.svelte'
 
@@ -21,17 +20,18 @@
 	let { job, isOwner, suspendStatus, onSelectStep }: Props = $props()
 
 	type Approver = { approver: string; approved_at?: string; approved?: boolean }
-	type DoneRow = {
+	/** `chainedId`: the step's id after the subflow steps leading to it (`outer:r:s`).
+	 * `graphStep`: the run's own step the graph selects, the step itself or the one holding it. */
+	type Located = { chainedId: string; graphStep: string }
+	type DoneRow = Located & {
 		key: string
 		stepId: string
 		summary?: string
 		approvers: Approver[]
 		/** A rejection the flow continued past (`continue_on_disapprove_timeout`). */
 		rejected: boolean
-		/** For a step of a run nested under this one: that run, and the steps leading to it. */
-		nested?: { runId: string; path: string[] }
 	}
-	type Wait = { job: Job; module: FlowModule; path?: string[] }
+	type Wait = Located & { job: Job; module: FlowModule }
 
 	const isRejected = (approvers: Approver[]) => approvers.some((a) => a.approved === false)
 
@@ -42,9 +42,16 @@
 			const approvers = status?.approvers ?? []
 			if (!module.suspend || status?.type !== 'Success' || status.skipped) return []
 			if (approvers.length === 0) return []
-			const summary = module.summary || undefined
 			return [
-				{ key: module.id, stepId: module.id, summary, approvers, rejected: isRejected(approvers) }
+				{
+					key: module.id,
+					stepId: module.id,
+					chainedId: module.id,
+					graphStep: module.id,
+					summary: module.summary || undefined,
+					approvers,
+					rejected: isRejected(approvers)
+				}
 			]
 		})
 	})
@@ -57,26 +64,41 @@
 			job.flow_status?.modules?.[step]?.type === 'WaitingForEvents'
 				? job.raw_flow?.modules?.[step - 1]
 				: undefined
-		if (own?.suspend) return [{ job, module: own }]
+		if (own?.suspend) return [{ job, module: own, chainedId: own.id, graphStep: own.id }]
 		const holding = job.raw_flow?.modules?.[step]?.id
 		return Object.values(suspendStatus.val ?? {}).flatMap(({ job: waiting, prefix }): Wait[] => {
 			const module = waiting.raw_flow?.modules?.[(waiting.flow_status?.step ?? 0) - 1]
 			if (waiting.id === job.id || !module?.suspend) return []
-			// The prefix chains subflow steps only: a branch or loop run adds none.
-			const subflows = prefix?.split(':').filter(Boolean) ?? []
-			const path = holding && subflows[0] !== holding ? [holding, ...subflows] : subflows
-			return [{ job: waiting, module, path }]
+			// The prefix chains the subflow steps leading to the run, not loops or branches.
+			const chainedId = [...(prefix?.split(':').filter(Boolean) ?? []), module.id].join(':')
+			return [{ job: waiting, module, chainedId, graphStep: holding ?? module.id }]
 		})
 	})
 
-	// Who approved a nested run's steps is kept on that run: read once the run has steps that
-	// nest one, again as its waits move on.
-	let nests = $derived(
-		(job.raw_flow?.modules ?? []).some((m) =>
-			['flow', 'forloopflow', 'whileloopflow', 'branchone', 'branchall'].includes(m.value.type)
-		)
-	)
-	const nestedDone = resource(
+	// Mirrors `may_hold_approval` on the server: a subflow, or a loop or branch holding one.
+	function mayHoldApproval(m: FlowModule): boolean {
+		const holds = (modules: FlowModule[] | undefined) =>
+			(modules ?? []).some((x) => !!x.suspend || mayHoldApproval(x))
+		const v = m.value
+		switch (v.type) {
+			case 'flow':
+				return true
+			case 'forloopflow':
+			case 'whileloopflow':
+				return holds(v.modules)
+			case 'branchone':
+				return holds(v.default) || v.branches.some((b) => holds(b.modules))
+			case 'branchall':
+				return v.branches.some((b) => holds(b.modules))
+			default:
+				return false
+		}
+	}
+
+	// Who approved a nested run's steps is kept on that run: read when the run has a step that
+	// can hold one, again as its waits move on.
+	let nests = $derived((job.raw_flow?.modules ?? []).some(mayHoldApproval))
+	const nested = resource(
 		() => ({
 			nests,
 			workspace: job.workspace_id,
@@ -84,19 +106,20 @@
 			moved: `${job.type}:${job.flow_status?.step}:${waits.map((w) => w.job.id + w.module.id)}`
 		}),
 		async ({ nests, workspace, jobId }) =>
-			nests && workspace ? JobService.listNestedApprovals({ workspace, jobId }) : []
+			nests && workspace ? JobService.listNestedApprovals({ workspace, jobId }) : undefined
 	)
 
 	let done = $derived([
 		...ownDone,
-		...(nestedDone.current ?? []).map(
+		...(nested.current?.approvals ?? []).map(
 			(a): DoneRow => ({
 				key: `${a.job_id}:${a.step_id}`,
 				stepId: a.step_id,
+				chainedId: [...a.subflows, a.step_id].join(':'),
+				graphStep: a.root_step,
 				summary: a.step_summary,
 				approvers: a.approvers,
-				rejected: isRejected(a.approvers),
-				nested: { runId: a.job_id, path: a.path }
+				rejected: isRejected(a.approvers)
 			})
 		)
 	])
@@ -130,27 +153,20 @@
 					<CircleCheck size={14} class="shrink-0 mt-[3px] text-green-500" />
 				{/if}
 				<div class="flex flex-1 min-w-0 flex-wrap items-center gap-x-3 gap-y-0.5">
-					<span class="flex flex-wrap items-center gap-1 min-w-0 w-64 max-w-full -ml-2">
+					<span class="flex items-center gap-1 min-w-0 w-64 max-w-full -ml-2">
 						<!-- Into the graph below, where the step's own status, logs and result are. -->
 						<Button
 							variant="subtle"
 							unifiedSize="xs"
 							btnClasses="justify-start min-w-0 gap-1"
-							title="Show {row.nested
-								? row.nested.path[0]
-								: row.summary || row.stepId} in the graph"
-							onclick={() => onSelectStep(row.nested?.path[0] ?? row.stepId)}
+							title="Show {row.graphStep} in the graph"
+							onclick={() => onSelectStep(row.graphStep)}
 						>
 							<span class="truncate">{row.summary || row.stepId}</span>
-							{#if row.summary}<StepIdBadge id={row.stepId} />{/if}
+							{#if row.summary || row.chainedId !== row.stepId}
+								<StepIdBadge id={row.chainedId} maxLength={24} />
+							{/if}
 						</Button>
-						{#if row.nested}
-							<NestedStepPath
-								path={row.nested.path}
-								runId={row.nested.runId}
-								workspace={job.workspace_id}
-							/>
-						{/if}
 					</span>
 					<span
 						class="flex flex-1 basis-48 flex-wrap items-center gap-x-3 gap-y-0.5 min-w-0 text-secondary"
@@ -175,13 +191,19 @@
 				</span>
 			</div>
 		{/each}
+		{#if nested.current?.more}
+			<p class="px-4 py-2 border-t text-xs text-hint">
+				More approvals in nested runs than shown here: they are on those runs' own pages.
+			</p>
+		{/if}
 		{#each waits as wait (`${wait.job.id}:${wait.module.id}`)}
 			<FlowApprovalWaitingRow
 				job={wait.job}
 				module={wait.module}
-				path={wait.path}
+				chainedId={wait.chainedId}
+				graphStep={wait.graphStep}
 				{isOwner}
-				onSelectStep={() => onSelectStep(wait.path?.[0] ?? wait.module.id)}
+				onSelectStep={() => onSelectStep(wait.graphStep)}
 			/>
 		{/each}
 		{#if otherWaiting}
