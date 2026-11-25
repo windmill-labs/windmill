@@ -1268,6 +1268,24 @@ describe('processToolCall plan-mode gate', () => {
 		expect(result.content).toContain('Unknown tool call')
 	})
 
+	it('points an MCP call with no server turned on at MCP connections, not change_mode', async () => {
+		const { processToolCall } = await import('./shared')
+		const result = await processToolCall({
+			tools: [],
+			toolCall: {
+				id: 'call_mcp',
+				type: 'function',
+				function: { name: 'call_mcp_read_tool', arguments: '{}' }
+			},
+			helpers: {},
+			workspace: 'test-workspace',
+			toolCallbacks: { setToolStatus: vi.fn(), removeToolStatus: vi.fn() }
+		})
+
+		expect(result.content).toContain('MCP connections')
+		expect(result.content).not.toContain('change_mode')
+	})
+
 	it('returns the tool cancellationMessage when the user rejects the confirmation', async () => {
 		const { createToolDef } = await import('./shared')
 		const fn = vi.fn()

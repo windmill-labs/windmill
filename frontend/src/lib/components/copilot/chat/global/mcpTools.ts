@@ -172,7 +172,9 @@ async function resolveTool(
 	const server = servers.find((s) => s.path === serverPath)
 	if (!server) {
 		return {
-			error: `Unknown MCP server "${serverPath}". Connected servers: ${servers.map((s) => s.path).join(', ')}`
+			// Says nothing about whether the path exists, so it cannot reveal a server
+			// the user cannot see.
+			error: `MCP server "${serverPath}" is not turned on for this chat. Turned on: ${servers.map((s) => s.path).join(', ')}. The user turns servers on in the chat settings, under MCP connections.`
 		}
 	}
 	const tools = await loadServerTools(workspace, server.path, server.editedAt)
