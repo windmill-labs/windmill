@@ -30,7 +30,8 @@ export type DurationStatus = {
 export type FlowStatusViewerContext = {
 	flowState?: FlowState
 	retryStatus: StateStore<Record<string, number | undefined>>
-	suspendStatus: StateStore<Record<string, { nb: number; job: Job }>>
+	/** `prefix`: the subflow step ids leading to the run, as `buildPrefix` chains them. */
+	suspendStatus: StateStore<Record<string, { nb: number; job: Job; prefix?: string }>>
 	hideDownloadInGraph?: boolean
 	hideTimeline?: boolean
 	hideNodeDefinition?: boolean

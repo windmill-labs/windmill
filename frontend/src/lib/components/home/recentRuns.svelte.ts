@@ -128,10 +128,9 @@ export function useRecentRuns(
 
 export type RecentRunsState = ReturnType<typeof useRecentRuns>
 
-const PANEL_OPEN_SETTING = 'wm-home-runs-open'
-
-export function usePanelOpen() {
-	let open = $state(getLocalSetting(PANEL_OPEN_SETTING) !== 'false')
+/** Whether a Home side-column section is shown; on until the user hides it. */
+export function usePanelOpen(setting: string = 'wm-home-runs-open') {
+	let open = $state(getLocalSetting(setting) !== 'false')
 	return {
 		get val() {
 			return open
@@ -139,7 +138,7 @@ export function usePanelOpen() {
 		set val(v: boolean) {
 			open = v
 			try {
-				storeLocalSetting(PANEL_OPEN_SETTING, v ? undefined : 'false')
+				storeLocalSetting(setting, v ? undefined : 'false')
 			} catch {}
 		}
 	}
@@ -176,7 +175,7 @@ export function windowLabel(hours: number) {
 	return hours > 24 && hours % 24 === 0 ? `last ${hours / 24}d` : `last ${hours}h`
 }
 
-/** `now`, `3m`, `2h`, `4d`; `running` while the newest run has not finished. */
+/** `now`, `3m`, `2h`, `4d` since the newest run started; `running` while it is running. */
 export function shortAge(run: RecentRun, now: number) {
 	if (run.status === 'running') return 'running'
 	const s = Math.max(0, (now - new Date(run.ran_at).getTime()) / 1000)

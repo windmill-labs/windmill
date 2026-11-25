@@ -11,9 +11,11 @@
 		isOwner: boolean
 		innerModules: FlowStatusModule[] | undefined
 		suspendStatus: StateStore<Record<string, { job: Job; nb: number }>>
+		/** Inside a card of its own (the run's approvals): no frame of its own. */
+		embedded?: boolean
 	}
 
-	let { job, isOwner, suspendStatus }: Props = $props()
+	let { job, isOwner, suspendStatus, embedded = false }: Props = $props()
 
 	const isWaitingForEvents = $derived(
 		job?.flow_status?.modules?.[job?.flow_status?.step]?.type === 'WaitingForEvents'
@@ -27,7 +29,9 @@
 
 {#if job && anyStatusActive}
 	<div
-		class="rounded-md border shadow-md p-4 bg-surface-tertiary flex flex-col justify-center"
+		class="{embedded
+			? ''
+			: 'rounded-md border shadow-md p-4 bg-surface-tertiary'} flex flex-col justify-center"
 		transition:slide={{ duration: 150 }}
 	>
 		{#if isWaitingForEvents}
