@@ -44,9 +44,11 @@
 		onPost?: (finding: AiReviewFinding) => Promise<void>
 		/** The reviewed workspace's AI config, when it is not the tab's (an AI session's). */
 		info?: CopilotInfo
+		/** The model to start on instead of the last pick (an AI session's own). */
+		defaultModel?: AIProviderModel
 	}
 
-	let { scope, source, onPost, info }: Props = $props()
+	let { scope, source, onPost, info, defaultModel }: Props = $props()
 
 	let items = $derived(scopeItems(scope))
 	let workspaceId = $derived(scopeWorkspace(scope))
@@ -73,10 +75,9 @@
 	// which is only the default until something is picked.
 	let pickedModelKey = $state<string | undefined>(undefined)
 	let aiModels = $derived((info ?? $copilotInfo).aiModels)
-	let chatModel = $derived.by(() => {
-		void $copilotSessionModel
-		return tryResolveModelFor(info ?? $copilotInfo)
-	})
+	let chatModel = $derived(
+		defaultModel ?? tryResolveModelFor(info ?? $copilotInfo, $copilotSessionModel)
+	)
 	let selectedModelKey = $derived(pickedModelKey ?? (chatModel && modelKey(chatModel)))
 
 	async function run() {

@@ -145,6 +145,7 @@ pub mod ssrf;
 pub mod stats_ee;
 pub mod stats_oss;
 pub mod stream;
+pub mod tag_deadlock;
 #[cfg(feature = "private")]
 pub mod teams_ee;
 pub mod teams_oss;

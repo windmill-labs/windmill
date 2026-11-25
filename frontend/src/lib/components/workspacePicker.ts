@@ -51,6 +51,11 @@ export const KIND_LABEL_LOWER: Record<WorkspaceItemKind, string> = {
  * (leaves always belong to a real kind). */
 export const kindKey = (k: WorkspaceItemKind | 'all') => `kind:${k}`
 export const dirKey = (k: WorkspaceItemKind | 'all', fullPath: string) => `dir:${k}:${fullPath}`
+/** The folder path a `dirKey` names, or `undefined` for any other key. */
+export function dirPathFromKey(key: string): string | undefined {
+	if (!key.startsWith('dir:')) return undefined
+	return key.slice(key.indexOf(':', 4) + 1)
+}
 export const leafKeyFor = (k: WorkspaceItemKind, path: string) => `leaf:${k}:${path}`
 
 export function editPathFor(item: WorkspaceItem): string {

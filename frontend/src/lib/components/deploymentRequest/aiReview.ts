@@ -186,7 +186,7 @@ export async function reviewChanges(
 	scope: ReviewScope,
 	abortController: AbortController,
 	options?: {
-		/** Defaults to the chat's current model. */
+		/** Defaults to the workspace default of `info`, or without it to the last pick. */
 		model?: AIProviderModel
 		/** The reviewed workspace's AI config, when it is not the tab's. */
 		info?: CopilotInfo

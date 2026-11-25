@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT q.tag, j.parent_job AS \"parent!\"\n        FROM v2_job_queue q JOIN v2_job j ON j.id = q.id\n        WHERE q.id = $1 AND j.parent_job = COALESCE($2, j.parent_job)\n            AND NOT q.running AND q.suspend = 0\n            AND q.scheduled_for <= now() - make_interval(secs => $3::bigint::double precision)",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "tag",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "parent!",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      true
+    ]
+  },
+  "hash": "4c7e47928b56f337a937013e512f24a1c2a22987d0dbd598ddc0560a140e0bef"
+}

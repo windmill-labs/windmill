@@ -13,6 +13,8 @@
 	import { UserService, WorkspaceService } from '$lib/gen'
 	import { listEveryWorkspace } from '$lib/mcpAuth'
 	import { sendUserToast } from '$lib/toast'
+	import { copyToClipboard } from '$lib/utils'
+	import Copy from 'lucide-svelte/icons/copy'
 	import Check from 'lucide-svelte/icons/check'
 
 	// Get OAuth params from URL
@@ -52,9 +54,33 @@
 	}
 	let redirectUriValid = isSafeRedirectUri(redirectUri)
 
+	// A loopback callback is served by the client on the browser's own machine. When the
+	// client runs elsewhere (over SSH, in a remote session), the redirect hits a closed port
+	// and the code is only usable if the user pastes the callback URL back into the client,
+	// so the page must keep it on screen instead of navigating away from it.
+	function isLoopbackUri(uri: string): boolean {
+		try {
+			const host = new URL(uri).hostname.toLowerCase()
+			return (
+				host === 'localhost' ||
+				host.endsWith('.localhost') ||
+				host === '[::1]' ||
+				/^127(\.\d{1,3}){3}$/.test(host)
+			)
+		} catch {
+			return false
+		}
+	}
+	const loopbackRedirect = redirectUriValid && isLoopbackUri(redirectUri)
+	const redirectOrigin = redirectUriValid ? new URL(redirectUri).origin : ''
+
 	let loading = $state(false)
 	let success = $state(false)
 	let successRedirectUrl = $state('')
+	let copied = $state(false)
+	async function copyRedirectUrl() {
+		copied = await copyToClipboard(successRedirectUrl, false)
+	}
 
 	// Gateway mode: fetch user's workspaces for the picker. One picked workspace binds the
 	// token to it; several, or all of them, leave it unbound and its tools name their workspace.
@@ -179,7 +205,7 @@
 				success = true
 				successRedirectUrl = url
 				loading = false
-				window.location.href = url
+				if (!loopbackRedirect) window.location.href = url
 			} else {
 				const errorData = await response.json().catch(() => null)
 				const errorMsg = errorData?.message || `Server returned ${response.status}`
@@ -211,12 +237,43 @@
 				<p class="text-sm text-primary mb-4">
 					Authorization granted to <span class="font-semibold text-accent">{clientName}</span>.
 				</p>
-				<p class="text-xs text-secondary mb-4">
-					You should be redirected automatically. If not, click the link below:
-				</p>
-				<a href={successRedirectUrl} class="text-xs text-accent hover:underline break-all">
-					{successRedirectUrl}
-				</a>
+				{#if loopbackRedirect}
+					<div class="flex flex-col gap-2 text-left mb-6">
+						<p class="text-xs font-semibold text-emphasis">
+							{clientName} runs on another machine?
+						</p>
+						<p class="text-xs text-secondary">
+							Copy this and paste it where {clientName} asks for the redirect URL.
+						</p>
+						<div class="flex flex-row gap-2 items-center">
+							<div
+								class="grow min-w-0 truncate rounded-md border bg-surface-secondary px-2 h-8 leading-8 text-xs text-primary font-mono"
+								title={successRedirectUrl}
+							>
+								{successRedirectUrl}
+							</div>
+							<Button
+								variant="default"
+								unifiedSize="md"
+								startIcon={{ icon: copied ? Check : Copy }}
+								onClick={copyRedirectUrl}
+							>
+								{copied ? 'Copied' : 'Copy'}
+							</Button>
+						</div>
+					</div>
+					<div class="flex flex-row gap-2 items-center justify-center">
+						<p class="text-xs text-secondary">Runs on this computer?</p>
+						<Button variant="accent" unifiedSize="md" href={successRedirectUrl}>Continue</Button>
+					</div>
+				{:else}
+					<p class="text-xs text-secondary mb-4">
+						You should be redirected automatically. If not, click the link below:
+					</p>
+					<a href={successRedirectUrl} class="text-xs text-accent hover:underline break-all">
+						{successRedirectUrl}
+					</a>
+				{/if}
 			</div>
 		{:else}
 			<p class="text-center text-sm text-primary mb-6">
@@ -230,6 +287,12 @@
 					workspace.
 				{/if}
 			</p>
+			{#if loopbackRedirect}
+				<p class="text-center text-xs text-secondary -mt-4 mb-6">
+					After you approve, {clientName} receives the sign-in at
+					<span class="font-mono">{redirectOrigin}</span>, an address on this computer.
+				</p>
+			{/if}
 
 			{#if isGateway}
 				<div class="mb-6 flex flex-col gap-2">
@@ -307,10 +370,10 @@
 			</div>
 
 			<div class="flex flex-row justify-around gap-x-4">
-				<Button variant="border" size="lg" disabled={loading} onClick={onDeny}>Deny</Button>
+				<Button variant="default" unifiedSize="lg" disabled={loading} onClick={onDeny}>Deny</Button>
 				<Button
 					variant="accent"
-					size="lg"
+					unifiedSize="lg"
 					disabled={loading || !grantsWorkspace || scopes.length === 0}
 					{loading}
 					onClick={onApprove}>Approve</Button

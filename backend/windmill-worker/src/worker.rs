@@ -137,8 +137,8 @@ use crate::{
     bun_executor::handle_bun_job,
     common::{
         build_args_map, cached_result_path, get_cached_resource_value_if_valid,
-        get_reserved_variables, get_root_job_id, update_worker_ping_for_failed_init_script,
-        OccupancyMetrics,
+        get_reserved_and_workspace_variables, get_root_job_id,
+        update_worker_ping_for_failed_init_script, OccupancyMetrics,
     },
     csharp_executor::handle_csharp_job,
     deno_executor::handle_deno_job,
@@ -396,6 +396,12 @@ lazy_static::lazy_static! {
         std::env::var("NSJAIL_ANSIBLE_RLIMIT_AS_MB").ok();
     pub static ref NSJAIL_DBT_RLIMIT_AS_MB: Option<String> =
         std::env::var("NSJAIL_DBT_RLIMIT_AS_MB").ok();
+
+    /// Override for the nsjail `rlimit_fsize` cap (largest single file a jailed
+    /// python3/ansible/dbt job may write). MiB, or `unlimited`/`none`/`inf`/`0` to
+    /// uncap. Unset keeps the historical 1000 MiB. See `render_nsjail_rlimit_fsize`.
+    pub static ref NSJAIL_RLIMIT_FSIZE_MB: Option<String> =
+        std::env::var("NSJAIL_RLIMIT_FSIZE_MB").ok();
 
     // pub static ref DISABLE_NSJAIL: bool = false;
     pub static ref DISABLE_NSJAIL: bool = std::env::var("DISABLE_NSJAIL")
@@ -6891,7 +6897,8 @@ pub async fn run_language_executor(
         .await;
 
         let mut reserved_variables =
-            get_reserved_variables(job, &client.token, conn, parent_runnable_path).await?;
+            get_reserved_and_workspace_variables(job, &client.token, conn, parent_runnable_path)
+                .await?;
         // Same reason as in `build_nativets_env_code`.
         if windmill_common::worker::TypeScriptAnnotations::parse(&code).no_network {
             reserved_variables.remove("WM_TOKEN");
@@ -6972,6 +6979,13 @@ mount {{
 
     #[allow(unused_mut)]
     let mut envs = build_envs(envs.as_ref())?;
+    // `get_reserved_variables` keeps the workspace's env vars off the process that execs
+    // nsjail: they go, overriding the script's own, to the jailed child only.
+    if is_sandboxing_enabled() {
+        envs.extend(
+            windmill_common::variables::get_cached_workspace_envs(conn, &job.workspace_id).await,
+        );
+    }
     // Signal pipeline context to the script so the wmll.ducklake SDK helpers
     // record materialization state (the grid/backfill) and skip it otherwise.
     if in_pipeline {

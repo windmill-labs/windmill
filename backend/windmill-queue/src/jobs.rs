@@ -43,7 +43,7 @@ use windmill_common::bench::BenchmarkIter;
 use windmill_common::jobs::{
     args_contain_nul, normalize_nul_in_args, sanitize_untrusted_args, script_path_to_payload,
     JobTriggerKind, TriggerKindLabel, EMAIL_ERROR_HANDLER_USER_EMAIL, FLOW_TIMEOUT_CANCELER,
-    MODULES_ARG,
+    MODULES_ARG, TEMP_SCRIPT_REFS_ARG,
 };
 use windmill_common::min_version::{
     MIN_VERSION_SUPPORTS_DEBOUNCING, MIN_VERSION_SUPPORTS_DEBOUNCING_V2,
@@ -54,7 +54,7 @@ use windmill_common::runnable_settings::{
 };
 use windmill_common::triggers::TriggerMetadata;
 use windmill_common::utils::{calculate_hash, configure_client, now_from_db, strip_json_nul};
-use windmill_common::variables::omit_untrusted_interpolation;
+use windmill_common::variables::{omit_untrusted_interpolation, omit_untrusted_text};
 use windmill_common::worker::Connection;
 
 use windmill_common::otel_oss::{
@@ -94,6 +94,9 @@ use windmill_common::{
 use backon::ConstantBuilder;
 use backon::{BackoffBuilder, Retryable};
 
+use crate::failed_only_restart::{
+    create_failed_only_module, refuse_failed_only_on_outdated_workers,
+};
 use crate::flow_status::{update_flow_status_in_progress, update_workflow_as_code_status};
 use crate::schedule::{get_schedule_opt, push_scheduled_job};
 use crate::tags::per_workspace_tag;
@@ -238,7 +241,7 @@ pub async fn cancel_single_job<'c>(
             let reason: String = reason
                 .clone()
                 .unwrap_or_else(|| "unexplicited reasons".to_string());
-            let e = serde_json::json!({"message": format!("Job canceled: {reason} by {username}"), "name": "Canceled", "reason": reason, "canceler": username});
+            let e = canceled_result(Some(&reason), Some(&username));
 
             append_logs(
                 &job_running.id,
@@ -1426,8 +1429,8 @@ lazy_static::lazy_static! {
     static ref RESTART_UNLESS_CANCELLED_CACHE: Cache<(i64, String), (bool, Option<i32>, Option<Vec<String>>)> = Cache::new(10000);
 
     // Cache for workspace error handler settings with 60s TTL
-    // Key: workspace_id, Value: (error_handler, error_handler_extra_args, error_handler_muted_on_cancel, error_handler_muted_on_user_path, report_to_instance_alerts, expiry_timestamp)
-    static ref WORKSPACE_ERROR_HANDLER_CACHE: Cache<String, (Option<String>, Option<Json<Box<RawValue>>>, bool, bool, bool, i64)> = Cache::new(1000);
+    // Key: workspace_id, Value: (settings, expiry_timestamp)
+    static ref WORKSPACE_ERROR_HANDLER_CACHE: Cache<String, (WorkspaceErrorHandler, i64)> = Cache::new(1000);
 
     // Best-effort per-worker throttle for the instance-channel fallback: a flapping runnable
     // would otherwise turn every failure into outbound Slack/SMTP traffic on channels shared by
@@ -2989,24 +2992,26 @@ pub async fn report_error_to_workspace_handler_or_critical_side_channel(
     }
 }
 
+#[derive(Clone)]
+struct WorkspaceErrorHandler {
+    path: Option<String>,
+    extra_args: Option<Json<Box<RawValue>>>,
+    muted_on_cancel: bool,
+    muted_on_user_path: bool,
+    muted_on_ui_runs: bool,
+    report_to_instance_alerts: bool,
+}
+
 async fn fetch_error_handler_from_db(
     db: &Pool<Postgres>,
     w_id: &str,
-) -> Result<
-    (
-        Option<String>,
-        Option<Json<Box<RawValue>>>,
-        bool,
-        bool,
-        bool,
-    ),
-    Error,
-> {
+) -> Result<WorkspaceErrorHandler, Error> {
     sqlx::query_as::<
         _,
         (
             Option<String>,
             Option<Json<Box<RawValue>>>,
+            Option<bool>,
             Option<bool>,
             Option<bool>,
             bool,
@@ -3018,6 +3023,7 @@ async fn fetch_error_handler_from_db(
             (error_handler->'extra_args')::text::json,
             (error_handler->>'muted_on_cancel')::boolean,
             (error_handler->>'muted_on_user_path')::boolean,
+            (error_handler->>'muted_on_ui_runs')::boolean,
             ws.error_handler_fallback_to_instance_alerts AND w.parent_workspace_id IS NULL
         FROM workspace_settings ws
         JOIN workspace w ON w.id = ws.workspace_id
@@ -3029,14 +3035,20 @@ async fn fetch_error_handler_from_db(
     .await
     .context("fetching error handler info from workspace_settings")?
     .map(
-        |(path, extra_args, muted_on_cancel, muted_on_user_path, report_to_instance_alerts)| {
-            (
-                path,
-                extra_args,
-                muted_on_cancel.unwrap_or(false),
-                muted_on_user_path.unwrap_or(false),
-                report_to_instance_alerts,
-            )
+        |(
+            path,
+            extra_args,
+            muted_on_cancel,
+            muted_on_user_path,
+            muted_on_ui_runs,
+            report_to_instance_alerts,
+        )| WorkspaceErrorHandler {
+            path,
+            extra_args,
+            muted_on_cancel: muted_on_cancel.unwrap_or(false),
+            muted_on_user_path: muted_on_user_path.unwrap_or(false),
+            muted_on_ui_runs: muted_on_ui_runs.unwrap_or(false),
+            report_to_instance_alerts,
         },
     )
     .ok_or_else(|| Error::internal_err(format!("no workspace settings for id {w_id}")))
@@ -3051,39 +3063,25 @@ pub async fn send_error_to_workspace_handler<'a, 'c, T: Serialize + Send + Sync>
     let w_id = &queued_job.workspace_id;
 
     let now = chrono::Utc::now().timestamp();
-    let (
-        error_handler,
-        error_handler_extra_args,
-        error_handler_muted_on_cancel,
-        error_handler_muted_on_user_path,
-        report_to_instance_alerts,
-    ) = if let Some(cached) = WORKSPACE_ERROR_HANDLER_CACHE.get(w_id) {
-        if cached.5 > now {
-            (
-                cached.0.clone(),
-                cached.1.clone(),
-                cached.2,
-                cached.3,
-                cached.4,
-            )
-        } else {
-            let row = fetch_error_handler_from_db(db, w_id).await?;
-            let expiry = now + WORKSPACE_HANDLER_CACHE_TTL_SECONDS;
+    let handler = match WORKSPACE_ERROR_HANDLER_CACHE.get(w_id) {
+        Some((handler, expiry)) if expiry > now => handler,
+        _ => {
+            let handler = fetch_error_handler_from_db(db, w_id).await?;
             WORKSPACE_ERROR_HANDLER_CACHE.insert(
                 w_id.clone(),
-                (row.0.clone(), row.1.clone(), row.2, row.3, row.4, expiry),
+                (handler.clone(), now + WORKSPACE_HANDLER_CACHE_TTL_SECONDS),
             );
-            row
+            handler
         }
-    } else {
-        let row = fetch_error_handler_from_db(db, w_id).await?;
-        let expiry = now + WORKSPACE_HANDLER_CACHE_TTL_SECONDS;
-        WORKSPACE_ERROR_HANDLER_CACHE.insert(
-            w_id.clone(),
-            (row.0.clone(), row.1.clone(), row.2, row.3, row.4, expiry),
-        );
-        row
     };
+    let WorkspaceErrorHandler {
+        path: error_handler,
+        extra_args: error_handler_extra_args,
+        muted_on_cancel,
+        muted_on_user_path,
+        muted_on_ui_runs,
+        report_to_instance_alerts,
+    } = handler;
 
     // Nothing to do for the vast majority of workspaces, and returning here keeps the
     // per-runnable mute lookup below off the path of every failed job.
@@ -3091,17 +3089,26 @@ pub async fn send_error_to_workspace_handler<'a, 'c, T: Serialize + Send + Sync>
         return Ok(());
     }
 
-    if is_canceled && error_handler_muted_on_cancel {
+    if is_canceled && muted_on_cancel {
         return Ok(());
     }
 
     // Skip error handler for scripts/flows starting with u/
-    if error_handler_muted_on_user_path {
+    if muted_on_user_path {
         if let Some(ref path) = queued_job.runnable_path {
             if path.starts_with("u/") {
                 return Ok(());
             }
         }
+    }
+
+    if muted_on_ui_runs
+        && queued_job
+            .trigger_kind
+            .as_ref()
+            .is_some_and(|k| k.is(JobTriggerKind::Ui))
+    {
+        return Ok(());
     }
 
     let ws_error_handler_muted: Option<bool> = match queued_job.kind {
@@ -6806,6 +6813,23 @@ async fn inherited_low_priority(
     Ok(priority.flatten())
 }
 
+/// Whether the topmost ancestor of `job_id` (or the job itself) is a flow preview pushed
+/// by its author.
+async fn is_in_flow_preview(db: &Pool<Postgres>, job_id: Uuid) -> Result<bool, Error> {
+    let root_kind = sqlx::query_scalar::<_, JobKind>(
+        "WITH RECURSIVE a(id, parent_job, kind, depth) AS (
+            SELECT id, parent_job, kind, 0 FROM v2_job WHERE id = $1
+            UNION ALL
+            SELECT j.id, j.parent_job, j.kind, a.depth + 1
+            FROM v2_job j JOIN a ON j.id = a.parent_job WHERE a.depth < 100
+        ) SELECT kind FROM a WHERE parent_job IS NULL LIMIT 1",
+    )
+    .bind(job_id)
+    .fetch_optional(db)
+    .await?;
+    Ok(matches!(root_kind, Some(JobKind::FlowPreview)))
+}
+
 // #[instrument(level = "trace", skip_all)]
 async fn push_inner<'c, 'd>(
     db: &Pool<Postgres>,
@@ -6872,6 +6896,30 @@ async fn push_inner<'c, 'd>(
         };
         PushArgs { extra, args }
     };
+
+    // `_TEMP_SCRIPT_REFS` points a preview's workspace imports at the temporary script store,
+    // for its author to test undeployed code. A worker pushes a child with args the running
+    // job computed or forwarded (a workflow task, a flow's preprocessor or failure module, an
+    // agent's tool): only the jobs of a flow preview, given its author's refs, keep them.
+    let refs_stripped_args;
+    if let Some(parent_job) = parent_job {
+        let in_args = args.args.contains_key(TEMP_SCRIPT_REFS_ARG);
+        let in_extra = args
+            .extra
+            .as_ref()
+            .is_some_and(|e| e.contains_key(TEMP_SCRIPT_REFS_ARG));
+        if (in_args || in_extra) && !is_in_flow_preview(db, parent_job).await? {
+            if let Some(extra) = args.extra.as_mut() {
+                extra.remove(TEMP_SCRIPT_REFS_ARG);
+            }
+            if in_args {
+                let mut stripped = args.args.clone();
+                stripped.remove(TEMP_SCRIPT_REFS_ARG);
+                refs_stripped_args = stripped;
+                args.args = &refs_stripped_args;
+            }
+        }
+    }
 
     #[cfg(feature = "cloud")]
     if *CLOUD_HOSTED {
@@ -7381,6 +7429,11 @@ async fn push_inner<'c, 'd>(
 
             let flow_status: FlowStatus = match restarted_from {
                 Some(restarted_from_val) => {
+                    refuse_failed_only_on_outdated_workers(
+                        restarted_from_val.failed_only,
+                        restarted_from_val.nested.as_deref(),
+                    )
+                    .await?;
                     let (_, _, _, step_n, truncated_modules, user_states, cleanup_module, _) =
                         restarted_flows_resolution(
                             db,
@@ -7390,6 +7443,7 @@ async fn push_inner<'c, 'd>(
                             restarted_from_val.branch_or_iteration_n,
                             restarted_from_val.flow_version,
                             restarted_from_val.nested.is_some(),
+                            restarted_from_val.failed_only,
                             Some(&value),
                         )
                         .await?;
@@ -7415,6 +7469,8 @@ async fn push_inner<'c, 'd>(
                             flow_version: restarted_from_val.flow_version,
                             branch_chosen: restarted_from_val.branch_chosen,
                             nested: restarted_from_val.nested,
+                            failed_only: restarted_from_val.failed_only,
+                            from_failed_step: restarted_from_val.from_failed_step,
                         }),
                         user_states,
                         preprocessor_module: None,
@@ -7772,7 +7828,10 @@ async fn push_inner<'c, 'd>(
             flow_version,
             branch_chosen,
             nested,
+            failed_only,
+            from_failed_step,
         } => {
+            refuse_failed_only_on_outdated_workers(failed_only, nested.as_deref()).await?;
             let (
                 version,
                 flow_path,
@@ -7790,6 +7849,7 @@ async fn push_inner<'c, 'd>(
                 branch_or_iteration_n,
                 flow_version,
                 nested.is_some(),
+                failed_only,
                 // RestartedFlow resolves and queues the completed job's stored definition, so the
                 // step validated for reuse is the one that will run.
                 None,
@@ -7818,6 +7878,8 @@ async fn push_inner<'c, 'd>(
                     flow_version,
                     branch_chosen,
                     nested,
+                    failed_only,
+                    from_failed_step,
                 }),
                 user_states,
                 preprocessor_module: None,
@@ -8817,7 +8879,9 @@ async fn check_workspace_queue_cap<'c>(
 /// outside a `MiniPulledJob` — a row read after the pull, say — go through this rather
 /// than rebuilding the shape.
 pub fn canceled_result(reason: Option<&str>, canceler: Option<&str>) -> serde_json::Value {
-    let reason = reason.unwrap_or("no reason given");
+    // The reason is the canceler's free text, and the steps after a canceled step receive this
+    // error as an argument, which the worker interpolates.
+    let reason = omit_untrusted_text(reason.unwrap_or("no reason given"));
     let canceler = canceler.unwrap_or("unknown");
     serde_json::json!({"message": format!("Job canceled: {reason} by {canceler}"), "name": "Canceled", "reason": reason, "canceler": canceler})
 }
@@ -9071,6 +9135,8 @@ async fn restarted_flows_resolution(
     // A nested restart chain (RestartedFrom.nested) descends into the restart step's child to
     // re-run an inner step; zombie reuse would skip the whole container and ignore it.
     nested_restart: bool,
+    // Keep a parallel restart step's successful iterations/branches and rerun only the rest.
+    failed_only: bool,
     // The definition the restart queues when it is not the completed job's stored one
     // (JobPayload::RawFlow queues the editor's, possibly EDITED, definition). Approval gates are
     // read from it. Zombie reuse validates the restart step against the STORED definition and
@@ -9163,8 +9229,28 @@ async fn restarted_flows_resolution(
 
             if module_id == restart_step_id {
                 refuse_restart_past_unopened_suspend_gate(gate_flow, &truncated_modules)?;
+                if failed_only {
+                    let old_module = flow_status
+                        .modules
+                        .iter()
+                        .find(|m| &m.id() == module_id)
+                        .ok_or_else(|| {
+                            Error::BadRequest(format!(
+                                "Step {restart_step_id} did not run in the original flow, it has no failed iterations to rerun"
+                            ))
+                        })?;
+                    truncated_modules.push(
+                        create_failed_only_module(
+                            db,
+                            workspace_id,
+                            old_module,
+                            module_definition,
+                            restart_step_id,
+                        )
+                        .await?,
+                    );
                 // Mark this and all following modules as WaitingForPriorSteps
-                if branch_or_iteration_n.is_none() || branch_or_iteration_n.unwrap() == 0 {
+                } else if branch_or_iteration_n.is_none() || branch_or_iteration_n.unwrap() == 0 {
                     truncated_modules
                         .push(FlowStatusModule::WaitingForPriorSteps { id: module_id.clone() });
                 } else {
@@ -9227,7 +9313,18 @@ async fn restarted_flows_resolution(
                 // (the run page's "Re-start from" button always sends 0); both mean "redo this step",
                 // which for a monitor-reaped zombie means reuse it. `Some(n>=1)` is an explicit
                 // partial container restart and keeps its existing reuse-0..n-1 / rerun-from-n path.
-                if allow_zombie_reuse
+                if failed_only {
+                    truncated_modules.push(
+                        create_failed_only_module(
+                            db,
+                            workspace_id,
+                            &module,
+                            module_definition,
+                            restart_step_id,
+                        )
+                        .await?,
+                    );
+                } else if allow_zombie_reuse
                     && reaped_by_monitor
                     && branch_or_iteration_n.unwrap_or(0) == 0
                     && !nested_restart
@@ -9432,7 +9529,7 @@ pub async fn get_same_worker_job(
                     v2_job.raw_code,
                     v2_job.raw_lock,
                     v2_job.raw_flow,
-                    COALESCE(pj.runnable_path, v2_job.args->>'_FLOW_PATH') as parent_runnable_path,
+                    COALESCE(pj.runnable_path, CASE WHEN v2_job.kind = 'preview' THEN v2_job.args->>'_FLOW_PATH' END) as parent_runnable_path,
                     p.email as permissioned_as_email, p.username as permissioned_as_username, p.is_admin as permissioned_as_is_admin,
                     p.is_operator as permissioned_as_is_operator, p.groups as permissioned_as_groups, p.folders as permissioned_as_folders, p.end_user_email as permissioned_as_end_user_email,
                     p.viewer_data_access, p.mcp_client
@@ -9453,6 +9550,20 @@ pub async fn get_same_worker_job(
             same_worker_job.job_id, e
         ))
     })
+}
+
+#[cfg(test)]
+mod canceled_result_tests {
+    #[test]
+    fn reason_is_kept_as_plain_text() {
+        for reason in ["$var:u/a/s", "$WM_TOKEN", "see $res:u/a/r"] {
+            let e = super::canceled_result(Some(reason), Some("anonymous")).to_string();
+            assert!(
+                !windmill_common::variables::untrusted_arg_interpolates(&e),
+                "{reason}: {e}"
+            );
+        }
+    }
 }
 
 #[cfg(test)]

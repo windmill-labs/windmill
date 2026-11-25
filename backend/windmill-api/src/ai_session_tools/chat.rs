@@ -16,6 +16,10 @@ struct BaseInternalUrl(String);
 pub(crate) fn workspaced_service(base_internal_url: String) -> Router {
     Router::new()
         .route("/{name}", post(call_tool))
+        .route(
+            "/secret_request/open",
+            post(super::secrets::open_secret_request),
+        )
         .layer(Extension(BaseInternalUrl(base_internal_url)))
 }
 
@@ -162,6 +166,8 @@ pub(crate) enum Effect {
     /// The call wrote nothing: it needs the AI provider catalog, which the chat builds, and
     /// is to be made again with it. `resource_refs` are the ones the flow references.
     NeedsAiProviderCatalog { resource_refs: Vec<String> },
+    /// `request_secret`'s card, which the chat draws and settles: what it asks for.
+    SecretRequest { request: Value },
     /// The code a write changed, for the card's diff: of a script in `language`, or of an
     /// app file at `file_path` (`before_file_path` when its language changed).
     CodeDiff {

@@ -64,6 +64,9 @@ Never put a secret (password, API key, token) inline in a resource value. Store 
 
 - `$var:<path>` is a reference, not a value: it resolves to the variable's value at run time. Never invent a value for a variable.
 - A resource that references a variable needs the variable to exist first, so create or deploy the variable before the resource.
+<!-- chat-only -->
+- When the user has not given you the secret, they enter it in Windmill's secure input, never in the conversation.
+<!-- /chat-only -->
 <!-- cli-only -->
 - A secret's plaintext never goes in a file of the repo: a `.variable.yaml` holding it would be committed. Ask the user to create the secret on the workspace instead, e.g. `wmill variable add '<value>' <path>` (a secret by default), then reference it by path.
 <!-- /cli-only -->

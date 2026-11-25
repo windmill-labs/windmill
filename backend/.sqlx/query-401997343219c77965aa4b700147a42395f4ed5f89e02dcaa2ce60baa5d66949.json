@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id FROM v2_job_completed\n         WHERE workspace_id = $1 AND id = ANY($2) AND (status = 'success' OR status = 'skipped')",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "UuidArray"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "401997343219c77965aa4b700147a42395f4ed5f89e02dcaa2ce60baa5d66949"
+}

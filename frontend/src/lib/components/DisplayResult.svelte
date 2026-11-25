@@ -1063,7 +1063,7 @@
 						/>
 					</div>
 				{:else if !forceJson && resultKind === 'png'}
-					<div class="h-full">
+					<div class="h-full pt-2">
 						<ExpandableImage
 							alt="png rendered"
 							class="w-auto h-full"
@@ -1071,7 +1071,7 @@
 						/>
 					</div>
 				{:else if !forceJson && resultKind === 'jpeg'}
-					<div class="h-full">
+					<div class="h-full pt-2">
 						<ExpandableImage
 							alt="jpeg rendered"
 							class="w-auto h-full"
@@ -1100,7 +1100,7 @@
 						{/if}
 					</div>
 				{:else if !forceJson && resultKind === 'gif'}
-					<div class="h-full">
+					<div class="h-full pt-2">
 						<ExpandableImage
 							alt="gif rendered"
 							class="w-auto h-full"

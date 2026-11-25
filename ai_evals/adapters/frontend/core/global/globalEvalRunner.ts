@@ -23,7 +23,14 @@ import { filterSessionTools } from "../../../../../frontend/src/lib/components/c
 import { usersWorkspaceStore } from "../../../../../frontend/src/lib/stores";
 import { resolveResourceTypeSync } from "../../../../../frontend/src/lib/components/copilot/chat/script/core";
 import { appendPlanModeInstructions } from "../../../../../frontend/src/lib/components/copilot/chat/planMode";
-import type { Tool as ProductionTool } from "../../../../../frontend/src/lib/components/copilot/chat/shared";
+import type {
+  Tool as ProductionTool,
+  ToolCallbacks,
+} from "../../../../../frontend/src/lib/components/copilot/chat/shared";
+import {
+  saveSecretRequest,
+  secretFieldsOf,
+} from "../../../../../frontend/src/lib/components/copilot/chat/secretRequest";
 import { createEvalPlanTools } from "./planModeTools";
 import { createEvalPipelineEditors } from "./evalPipelineEditors";
 import { pipelineTools } from "../../../../../frontend/src/lib/components/copilot/chat/pipeline/core";
@@ -40,6 +47,7 @@ import {
 } from "./evalPreviewTabs";
 import type {
   EvalCaseProfile,
+  EvalSecretRequestAnswer,
   ModeRunContext,
   PipelineRunSpec,
 } from "../../../../core/types";
@@ -144,6 +152,7 @@ export interface GlobalEvalOptions {
   model?: string;
   maxIterations?: number;
   userAnswers?: string[];
+  secretRequests?: EvalSecretRequestAnswer[];
   provider?: AIProvider;
   backend: WindmillBackendSettings;
   // Artifacts the session already holds when the run starts.
@@ -151,6 +160,37 @@ export interface GlobalEvalOptions {
   /** Tabs already open in the side panel, including any artifact version the reader pinned. */
   previewTabs?: EvalPreviewTabFixture[];
   runContext?: ModeRunContext;
+}
+
+/** The user's side of the secret card: an answer saves through the card's own save, with a
+ * placeholder for each secret, or dismisses it; a card past the last answer is dismissed. */
+function scriptedSecretCard(
+  answers: EvalSecretRequestAnswer[],
+): NonNullable<ToolCallbacks["requestSecret"]> {
+  const pending = [...answers];
+  return async (_toolId, request) => {
+    const answer = pending.shift();
+    if (!answer || answer.action === "dismiss") return undefined;
+    const outcome = await saveSecretRequest(
+      request,
+      {
+        path: request.path,
+        replace: request.replace ?? false,
+        secrets: Object.fromEntries(
+          secretFieldsOf(request).map((f) => [
+            f.field,
+            `eval-secret-${f.field || "value"}`,
+          ]),
+        ),
+        fields: request.resource && {
+          ...request.resource.value,
+          ...answer.fields,
+        },
+      },
+      new Set(),
+    );
+    return answer.check ? { ...outcome, check: answer.check } : outcome;
+  };
 }
 
 export async function runGlobalEval(
@@ -272,6 +312,8 @@ export async function runGlobalEval(
             }
           : undefined,
       isPlanModeActive: planMode?.isPlanModeActive,
+      requestSecret:
+        options.secretRequests && scriptedSecretCard(options.secretRequests),
       isToolAvailable: (name) =>
         (!pipelineToolNames.has(name) || (pipelineEditors?.folders().length ?? 0) > 0) &&
         (planMode?.isToolAvailable?.(name) ?? true),

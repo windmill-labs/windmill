@@ -56,10 +56,9 @@ pub enum JobTriggerKind {
     // produced from files a viewer forged by running a declared runnable directly.
     App,
     // A run started from the browser (the `/jobs/run*` request carried the session token
-    // minted at login). Nothing writes this yet — it exists so every binary from this release
-    // can decode it, which is what a later release needs before it can start stamping it.
-    // When that happens: attribution, not authority, unlike `App` — a member can have a
-    // session token minted for a script (`/users/refresh_token`), so nothing may gate on it.
+    // minted at login), stamped only once every worker decodes it (`trigger_or_fallback`).
+    // Attribution, not authority, unlike `App` — a member can have a session token minted for
+    // a script (`/users/refresh_token`), so no access decision may gate on it.
     Ui,
 }
 
@@ -604,6 +603,10 @@ pub enum JobPayload {
         /// upon reaching `step_id`, should spawn the inner child as a `RestartedFlow`
         /// using this chain rather than fresh-launching it.
         nested: Option<Box<crate::flow_status::RestartedFrom>>,
+        /// See `RestartedFrom::failed_only`.
+        failed_only: bool,
+        /// See `RestartedFrom::from_failed_step`.
+        from_failed_step: bool,
     },
     RawFlow {
         value: FlowValue,
@@ -744,10 +747,15 @@ pub const MODULES_ARG: &str = "_MODULES";
 /// honor it on every `JobKind::Preview` job.
 pub const TEMP_SCRIPT_REFS_ARG: &str = "_TEMP_SCRIPT_REFS";
 
+/// Job-arg key the preview route sets server-side from its `flow_path` field, so a step
+/// tested from the flow editor sees its flow's path. `WM_FLOW_PATH`, `WM_STATE_PATH` and
+/// `WM_OBJECT_PATH` derive from it; the worker honors it only on `JobKind::Preview` jobs.
+pub const FLOW_PATH_ARG: &str = "_FLOW_PATH";
+
 /// Job-arg keys that steer *how* a runnable runs rather than what it is given: which
 /// function the worker calls instead of `main` ([`ENTRYPOINT_OVERRIDE`]), what module files
-/// are written into the job directory ([`MODULES_ARG`]) and where its workspace imports
-/// resolve from ([`TEMP_SCRIPT_REFS_ARG`]).
+/// are written into the job directory ([`MODULES_ARG`]), where its workspace imports
+/// resolve from ([`TEMP_SCRIPT_REFS_ARG`]) and where its state lives ([`FLOW_PATH_ARG`]).
 ///
 /// Each is legitimate for a caller that runs code it authored under its own identity (the
 /// script editor's preprocessor test, dynamic-select helpers, the CLI, workflow-as-code), so
@@ -755,8 +763,12 @@ pub const TEMP_SCRIPT_REFS_ARG: &str = "_TEMP_SCRIPT_REFS";
 /// payload runs under somebody else's identity — an HTTP route body, a native trigger
 /// message, a public app viewer's inputs — which is what `sanitize_untrusted_args` in
 /// `windmill_common::jobs` drops.
-pub const RESERVED_CONTROL_ARGS: [&str; 3] =
-    [ENTRYPOINT_OVERRIDE, MODULES_ARG, TEMP_SCRIPT_REFS_ARG];
+pub const RESERVED_CONTROL_ARGS: [&str; 4] = [
+    ENTRYPOINT_OVERRIDE,
+    MODULES_ARG,
+    TEMP_SCRIPT_REFS_ARG,
+    FLOW_PATH_ARG,
+];
 
 /// Reserved job-arg key holding the inbound W3C `traceparent` captured from the
 /// request that enqueued the job (run endpoints). It rides the `args` jsonb like

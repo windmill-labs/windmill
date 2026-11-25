@@ -50,7 +50,7 @@ use windmill_common::runnable_settings::{
 use windmill_common::runtime_assets::{register_runtime_asset, InsertRuntimeAssetParams};
 use windmill_common::scripts::{ScriptModule, ScriptRunnableSettingsInline};
 use windmill_common::triggers::TriggerMetadata;
-use windmill_common::utils::{RunnableKind, WarnAfterExt};
+use windmill_common::utils::{PlainValue, RunnableKind, WarnAfterExt};
 use windmill_common::worker::{Connection, CLOUD_HOSTED, WINDMILL_DIR};
 use windmill_common::workspace_dependencies::{
     RawWorkspaceDependencies, MIN_VERSION_WORKSPACE_DEPENDENCIES,
@@ -5165,7 +5165,7 @@ async fn validate_approval_token(
 
 #[derive(Deserialize)]
 struct ResumeSuspendedBody {
-    payload: Option<serde_json::Value>,
+    payload: Option<PlainValue>,
     approval_token: Option<String>,
     approved: Option<bool>,
 }
@@ -5177,7 +5177,7 @@ async fn resume_suspended(
     Json(body): Json<ResumeSuspendedBody>,
 ) -> error::Result<StatusCode> {
     let approved = body.approved.unwrap_or(true);
-    let value = body.payload.unwrap_or(serde_json::Value::Null);
+    let value = body.payload.map_or(serde_json::Value::Null, |v| v.0);
 
     // Determine if we have a valid authed user or token
     let has_token = if let Some(ref token) = body.approval_token {
@@ -6057,10 +6057,10 @@ pub async fn resume_suspended_job(
     Extension(db): Extension<DB>,
     Path((w_id, job_id, resume_id, secret)): Path<(String, Uuid, u32, String)>,
     Query(approver): Query<QueryApprover>,
-    QueryOrBody(value): QueryOrBody<serde_json::Value>,
+    QueryOrBody(value): QueryOrBody<PlainValue>,
 ) -> error::Result<StatusCode> {
     resume_suspended_job_internal(
-        value,
+        value.map(|v| v.0),
         db,
         w_id,
         job_id,
@@ -6489,10 +6489,10 @@ pub async fn cancel_suspended_job(
     Extension(db): Extension<DB>,
     Path((w_id, job_id, resume_id, secret)): Path<(String, Uuid, u32, String)>,
     Query(approver): Query<QueryApprover>,
-    QueryOrBody(value): QueryOrBody<serde_json::Value>,
+    QueryOrBody(value): QueryOrBody<PlainValue>,
 ) -> error::Result<StatusCode> {
     resume_suspended_job_internal(
-        value,
+        value.map(|v| v.0),
         db,
         w_id,
         job_id,
@@ -7732,6 +7732,14 @@ pub struct RestartFlowRequestBody {
     /// containers along the way.
     #[serde(default)]
     nested_path: Vec<NestedRestartStep>,
+    /// For a parallel ForLoop / BranchAll at `step_id`: rerun only the iterations
+    /// (branches) that did not succeed, keeping the others' results in their slots.
+    #[serde(default)]
+    failed_only: bool,
+    /// With `failed_only`: resume each failed iteration (branch) at the step where it failed
+    /// rather than rerunning it from its first step.
+    #[serde(default)]
+    from_failed_step: bool,
 }
 
 #[cfg(feature = "enterprise")]
@@ -7936,6 +7944,8 @@ async fn resolve_nested_restart(
         flow_version: None,
         branch_chosen: child_branch_chosen,
         nested: deeper_nested,
+        failed_only: false,
+        from_failed_step: false,
     };
 
     Ok((parent_branch_chosen, Some(Box::new(nested_chain))))
@@ -7953,9 +7963,25 @@ pub async fn restart_flow(
         branch_or_iteration_n,
         flow_version,
         nested_path,
+        failed_only,
+        from_failed_step,
     }): Json<RestartFlowRequestBody>,
 ) -> error::Result<(StatusCode, String)> {
     check_license_key_valid().await?;
+    // `failed_only` applies to the restart point: `step_id`, or the last `nested_path` entry.
+    let restart_point_n = nested_path
+        .last()
+        .map_or(branch_or_iteration_n, |s| s.branch_or_iteration_n);
+    if from_failed_step && !failed_only {
+        return Err(Error::BadRequest(
+            "from_failed_step only applies with failed_only".to_string(),
+        ));
+    }
+    if failed_only && restart_point_n.unwrap_or(0) != 0 {
+        return Err(Error::BadRequest(
+            "failed_only reruns a whole parallel step; it cannot be combined with an iteration to restart at".to_string(),
+        ));
+    }
 
     let mut tx = user_db.clone().begin(&authed).await?;
     let completed_job = sqlx::query!(
@@ -7995,7 +8021,8 @@ pub async fn restart_flow(
 
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
 
-    let (top_branch_chosen, nested_chain) = resolve_nested_restart(
+    let nested = !nested_path.is_empty();
+    let (top_branch_chosen, mut nested_chain) = resolve_nested_restart(
         &db,
         &w_id,
         job_id,
@@ -8005,6 +8032,15 @@ pub async fn restart_flow(
         flow_version.map(|v| (flow_path.as_str(), v)),
     )
     .await?;
+    let mut innermost = nested_chain.as_deref_mut();
+    while let Some(level) = innermost {
+        if level.nested.is_none() {
+            level.failed_only = failed_only;
+            level.from_failed_step = from_failed_step;
+            break;
+        }
+        innermost = level.nested.as_deref_mut();
+    }
 
     let tx = PushIsolationLevel::Isolated(user_db, authed.clone().into());
 
@@ -8020,6 +8056,8 @@ pub async fn restart_flow(
             flow_version,
             branch_chosen: top_branch_chosen,
             nested: nested_chain,
+            failed_only: failed_only && !nested,
+            from_failed_step: from_failed_step && !nested,
         },
         push_args,
         &authed.username,
@@ -12650,6 +12688,28 @@ struct CompletedJobResult {
 #[derive(Deserialize)]
 struct GetCompletedJobQuery {
     get_started: Option<bool>,
+    /// The caller is blocked until this job completes (the SDK wait helpers). Only such polls
+    /// may be failed for a same-tag deadlock; a plain status read never is.
+    wait_for_child: Option<bool>,
+}
+
+/// Why a job blocked on its own child's result should stop waiting: the child is stuck behind a
+/// same-tag deadlock. A failed check answers `None`, so the poll carries on.
+async fn waiting_parent_deadlock(
+    db: &DB,
+    child: Uuid,
+    authed: Option<&ApiAuthed>,
+    wait_for_child: Option<bool>,
+) -> Option<Error> {
+    if wait_for_child != Some(true) {
+        return None;
+    }
+    let caller = authed?.job_id?;
+    windmill_common::tag_deadlock::fail_fast_waiting_parent(db, child, Some(caller))
+        .await
+        .inspect_err(|e| tracing::warn!("same-tag deadlock check for job {child} failed: {e}"))
+        .ok()
+        .flatten()
 }
 
 async fn get_completed_job_result_maybe(
@@ -12659,7 +12719,7 @@ async fn get_completed_job_result_maybe(
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, id)): Path<(String, Uuid)>,
-    Query(GetCompletedJobQuery { get_started }): Query<GetCompletedJobQuery>,
+    Query(GetCompletedJobQuery { get_started, wait_for_child }): Query<GetCompletedJobQuery>,
 ) -> error::Result<Response> {
     let tags = opt_authed
         .as_ref()
@@ -12712,6 +12772,10 @@ async fn get_completed_job_result_maybe(
             is_skipped: Some(res.is_skipped),
         })
         .into_response())
+    } else if let Some(e) =
+        waiting_parent_deadlock(&db, id, opt_authed.as_ref(), wait_for_child).await
+    {
+        Err(e)
     } else if get_started.is_some_and(|x| x) {
         // No completed row yet — the job may be queued/running. Returning its
         // running-state still discloses information about a (possibly private) job, so

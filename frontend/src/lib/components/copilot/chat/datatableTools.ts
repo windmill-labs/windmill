@@ -216,6 +216,7 @@ export function getDatatableTools(): SessionTool<{}>[] {
 			requires: NONE,
 			def: getListDatatablesToolDef(),
 			planModeSafe: true,
+			lookup: true,
 			fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 				toolCallbacks.setToolStatus(toolId, { content: 'Listing datatables...' })
 				getListDatatablesSchema().parse(args ?? {})
@@ -245,6 +246,7 @@ export function getDatatableTools(): SessionTool<{}>[] {
 			requires: NONE,
 			def: getGetDatatableTableSchemaToolDef(),
 			planModeSafe: true,
+			lookup: true,
 			fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 				const parsedArgs = getGetDatatableTableSchemaSchema().parse(args)
 				toolCallbacks.setToolStatus(toolId, {

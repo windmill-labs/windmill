@@ -140,15 +140,16 @@ impl ApiAuthed {
     /// reports for these routes. Derived from the token, never from the request, because the
     /// column is authority-bearing for other kinds (`app` marks a file as app-produced).
     ///
-    /// A browser session is left unstamped rather than marked [`JobTriggerKind::Ui`]: that label
-    /// is one a worker built before this release cannot decode, and it would strand the jobs
-    /// carrying it. `webhook` has always been decodable, so it is safe to write today.
+    /// A browser session is [`JobTriggerKind::Ui`], left unstamped until every worker can decode
+    /// that label: an older one would strand the jobs carrying it.
     pub fn trigger_or_fallback(&self, trigger: Option<TriggerMetadata>) -> Option<TriggerMetadata> {
         if trigger.is_some() {
             return trigger;
         }
         if self.is_session_token {
-            return None;
+            return windmill_common::min_version::MIN_VERSION_SUPPORTS_UI_TRIGGER_KIND
+                .met_conservatively()
+                .then(|| TriggerMetadata::new(None, JobTriggerKind::Ui));
         }
         Some(TriggerMetadata::new(None, JobTriggerKind::Webhook))
     }
@@ -1600,11 +1601,11 @@ mod tests {
         );
     }
 
-    /// A browser session is the one shape left unstamped, so the Runs page can say "a token
-    /// started this" without claiming the converse. Every other label — every shape a member
-    /// can pass to `create_token` — is `webhook`.
+    /// A browser session is the one shape stamped `ui`, and only once every worker can decode
+    /// it. Every other label — every shape a member can pass to `create_token` — is `webhook`.
     #[test]
-    fn only_a_browser_session_is_left_unstamped() {
+    fn only_a_browser_session_is_stamped_ui() {
+        use windmill_common::min_version::MIN_VERSION;
         let kind_of = |label: Option<&str>| {
             ApiAuthed {
                 is_session_token: windmill_common::auth::is_session_label(label),
@@ -1614,7 +1615,14 @@ mod tests {
             .map(|t| t.trigger_kind.to_string())
         };
 
-        assert_eq!(kind_of(Some("session")), None);
+        let before = MIN_VERSION.load_full();
+        MIN_VERSION.store(std::sync::Arc::new(semver::Version::new(0, 0, 0)));
+        assert_eq!(kind_of(Some("session")), None, "unknown fleet");
+        MIN_VERSION.store(std::sync::Arc::new(semver::Version::new(1, 775, 0)));
+        assert_eq!(kind_of(Some("session")), None, "a worker predates ui");
+        MIN_VERSION.store(std::sync::Arc::new(semver::Version::new(1, 776, 0)));
+        assert_eq!(kind_of(Some("session")).as_deref(), Some("ui"));
+        MIN_VERSION.store(before);
 
         for label in [
             Some("my-personal-token"),

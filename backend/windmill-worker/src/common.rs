@@ -142,6 +142,22 @@ pub async fn build_args_values(
     }
 }
 
+/// The job's args exactly as submitted, for a query annotated `-- literal_args`: unlike
+/// [`build_args_values`], no `$var:`/`$res:`/`$encrypted:` reference and no `$`-prefixed
+/// reserved variable in them is resolved.
+pub fn build_literal_args_values(job: &MiniPulledJob) -> HashMap<String, serde_json::Value> {
+    job.args
+        .iter()
+        .flat_map(|args| args.0.iter())
+        .map(|(k, v)| {
+            (
+                k.to_string(),
+                serde_json::from_str(v.get()).unwrap_or_else(|_| serde_json::Value::Null),
+            )
+        })
+        .collect()
+}
+
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn create_args_and_out_file(
     client: &AuthedClient,
@@ -379,7 +395,8 @@ pub async fn transform_json_value(
             // let path = y.strip_prefix("$res:").unwrap();
         }
         Value::String(y) if y.starts_with("$") => {
-            let variables = get_reserved_variables(job, &client.token, conn, None).await?;
+            let variables =
+                get_reserved_and_workspace_variables(job, &client.token, conn, None).await?;
 
             let name = y.strip_prefix("$").unwrap();
 
@@ -543,12 +560,40 @@ pub async fn parent_flow_path(
     }
 }
 
+/// The variables an executor sets on the process it starts for a job.
+///
+/// With sandboxing on, that process (nsjail, or deno and javac, which are never jailed)
+/// starts outside the jail, so the workspace's env vars are left out:
+/// `run_language_executor` adds them to the script's env, which reaches the jailed child
+/// only, through [`script_envars`].
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn get_reserved_variables(
     job: &MiniPulledJob,
     token: &str,
     db: &Connection,
     parent_runnable_path: Option<String>,
+) -> Result<HashMap<String, String>, Error> {
+    let workspace_envs = !crate::is_sandboxing_enabled();
+    get_job_variables(job, token, db, parent_runnable_path, workspace_envs).await
+}
+
+/// [`get_reserved_variables`] with the workspace's env vars whatever the isolation, for
+/// what the worker evaluates itself and never sets on a process it starts.
+pub async fn get_reserved_and_workspace_variables(
+    job: &MiniPulledJob,
+    token: &str,
+    db: &Connection,
+    parent_runnable_path: Option<String>,
+) -> Result<HashMap<String, String>, Error> {
+    get_job_variables(job, token, db, parent_runnable_path, true).await
+}
+
+async fn get_job_variables(
+    job: &MiniPulledJob,
+    token: &str,
+    db: &Connection,
+    parent_runnable_path: Option<String>,
+    workspace_envs: bool,
 ) -> Result<HashMap<String, String>, Error> {
     let flow_path = if parent_runnable_path.is_some() {
         parent_runnable_path
@@ -586,6 +631,9 @@ pub async fn get_reserved_variables(
     .await
     .to_vec();
     let mut variables = variables;
+    if !workspace_envs {
+        variables.retain(|v| !v.is_custom);
+    }
     if let Some(client) = &job.mcp_client {
         variables.push(variables::ContextualVariable {
             name: "WM_MCP_CLIENT".to_string(),
@@ -1457,23 +1505,37 @@ pub async fn resolve_nsjail_timeout(
 /// - `unlimited`/`none`/`inf`/`0` -> `rlimit_as_type: INF` (address space uncapped)
 /// - a positive integer (MiB) -> `rlimit_as: {n}`
 pub fn render_nsjail_rlimit_as(env_override: Option<&str>, default_mb: u32) -> String {
+    render_nsjail_rlimit("rlimit_as", env_override, default_mb)
+}
+
+/// Render the `rlimit_fsize` line (largest single file a jailed job may write, in
+/// MiB) for the nsjail run configs that set one (python3, ansible, dbt), honoring
+/// the `NSJAIL_RLIMIT_FSIZE_MB` env var. Same value grammar as
+/// [`render_nsjail_rlimit_as`]. The total space a job can fill is bounded
+/// separately by its `/tmp` (tmpfs size or, when disk-backed, the worker's disk),
+/// so operators who move `/tmp` to disk usually want to raise or lift this too.
+pub fn render_nsjail_rlimit_fsize(env_override: Option<&str>, default_mb: u32) -> String {
+    render_nsjail_rlimit("rlimit_fsize", env_override, default_mb)
+}
+
+fn render_nsjail_rlimit(field: &str, env_override: Option<&str>, default_mb: u32) -> String {
     match env_override.map(str::trim) {
-        None | Some("") => format!("rlimit_as: {default_mb}"),
+        None | Some("") => format!("{field}: {default_mb}"),
         Some(v)
             if v.eq_ignore_ascii_case("unlimited")
                 || v.eq_ignore_ascii_case("none")
                 || v.eq_ignore_ascii_case("inf")
                 || v == "0" =>
         {
-            "rlimit_as_type: INF".to_string()
+            format!("{field}_type: INF")
         }
         Some(v) => match v.parse::<u32>() {
-            Ok(mb) => format!("rlimit_as: {mb}"),
+            Ok(mb) => format!("{field}: {mb}"),
             Err(_) => {
                 tracing::warn!(
-                    "Invalid nsjail rlimit_as override {v:?}, using default {default_mb}MiB"
+                    "Invalid nsjail {field} override {v:?}, using default {default_mb}MiB"
                 );
-                format!("rlimit_as: {default_mb}")
+                format!("{field}: {default_mb}")
             }
         },
     }
@@ -1668,7 +1730,7 @@ pub(crate) async fn resolve_nsjail_tmp_mount_block(job_dir: &str) -> String {
 
 #[cfg(test)]
 mod nsjail_rlimit_as_tests {
-    use super::render_nsjail_rlimit_as;
+    use super::{render_nsjail_rlimit_as, render_nsjail_rlimit_fsize};
 
     #[test]
     fn unset_uses_default() {
@@ -1706,6 +1768,23 @@ mod nsjail_rlimit_as_tests {
             "rlimit_as: 4096"
         );
         assert_eq!(render_nsjail_rlimit_as(Some("-1"), 4096), "rlimit_as: 4096");
+    }
+
+    #[test]
+    fn fsize_uses_its_own_field() {
+        assert_eq!(render_nsjail_rlimit_fsize(None, 1000), "rlimit_fsize: 1000");
+        assert_eq!(
+            render_nsjail_rlimit_fsize(Some("20000"), 1000),
+            "rlimit_fsize: 20000"
+        );
+        assert_eq!(
+            render_nsjail_rlimit_fsize(Some("unlimited"), 1000),
+            "rlimit_fsize_type: INF"
+        );
+        assert_eq!(
+            render_nsjail_rlimit_fsize(Some("abc"), 1000),
+            "rlimit_fsize: 1000"
+        );
     }
 }
 
@@ -2971,6 +3050,16 @@ mod tests {
             ("java", include_str!("../nsjail/run.java.config.proto")),
             ("ruby", include_str!("../nsjail/run.ruby.config.proto")),
             ("r", include_str!("../nsjail/run.r.config.proto")),
+            ("bash", include_str!("../nsjail/run.bash.config.proto")),
+            ("python", include_str!("../nsjail/run.python3.config.proto")),
+            (
+                "powershell",
+                include_str!("../nsjail/run.powershell.config.proto"),
+            ),
+            (
+                "ansible",
+                include_str!("../nsjail/run.ansible.config.proto"),
+            ),
             (
                 "gem install",
                 include_str!("../nsjail/download.ruby.config.proto"),
