@@ -48,7 +48,13 @@
 	// From when the limit first held the job to when it let it in, counting live while it holds
 	// it; the rest until it started is queue time. A job let in before the end of the hold was
 	// recorded shows nothing.
-	let heldNow = $derived(!!concurrencyDeferredFrom && !concurrencyReleasedAt && !job.started_at)
+	// A job canceled while held completes without ever being let in: it is not held any more.
+	let heldNow = $derived(
+		job.type === 'QueuedJob' &&
+			!!concurrencyDeferredFrom &&
+			!concurrencyReleasedAt &&
+			!job.started_at
+	)
 	let now = $state(Date.now())
 	$effect(() => {
 		if (!heldNow) return
