@@ -12,9 +12,12 @@ use std::path::PathBuf;
 
 pub const MAX_VOLUMES_PER_JOB: usize = 10;
 
-/// Object requests a pull or a sync-back keeps in flight for one volume. Each holds one whole
-/// file in memory.
+/// Object requests a pull or a sync-back keeps in flight for one volume.
 pub const VOLUME_TRANSFER_CONCURRENCY: usize = 16;
+
+/// An upload holds its whole file in memory, so a sync-back bounds the bytes of the uploads in
+/// flight as well as their count: a file at least this large is uploaded alone.
+pub const VOLUME_UPLOAD_BYTES_IN_FLIGHT: u64 = 256 * 1024 * 1024;
 
 /// Deletes `paths` concurrently, an object already gone counting as deleted. Returns how many
 /// were deleted, or the first failure and how many failed: a delete is never assumed to succeed.
@@ -57,7 +60,10 @@ pub struct FileEntry {
 
 pub fn compute_md5_hex(data: &[u8]) -> String {
     use md5::{Digest, Md5};
-    let result = Md5::digest(data);
+    md5_digest_hex(&Md5::digest(data))
+}
+
+pub fn md5_digest_hex(result: &[u8]) -> String {
     const HEX: &[u8; 16] = b"0123456789abcdef";
     let mut hex = String::with_capacity(32);
     for &b in result.iter() {
