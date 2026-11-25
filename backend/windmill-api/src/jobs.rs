@@ -5940,7 +5940,8 @@ async fn list_nested_approvals(
             if let (Some(subflows), true) = (&at, in_scope) {
                 let flow_step = r.flow_status.as_ref().and_then(|f| f["step"].as_u64());
                 for (i, m) in statuses.iter().enumerate() {
-                    if m["type"] != "Success" {
+                    // A step `skip_if` skipped never asked for approval.
+                    if m["type"] != "Success" || m["skipped"].as_bool() == Some(true) {
                         continue;
                     }
                     let step_id = m["id"].as_str().unwrap_or_default();
