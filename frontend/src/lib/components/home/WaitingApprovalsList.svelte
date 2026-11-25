@@ -25,6 +25,8 @@
 	{#each approvals.approvals as a (a.job_id)}
 		<a
 			href={approvalHref(a, $workspaceStore)}
+			target="_blank"
+			rel="noopener"
 			onclick={onOpen}
 			class="flex items-center gap-2.5 min-h-[42px] px-2.5 py-[5px] rounded-md hover:bg-surface-hover focus-visible:bg-surface-hover outline-none"
 		>

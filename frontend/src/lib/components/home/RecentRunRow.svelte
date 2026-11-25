@@ -235,6 +235,8 @@
 		{#if latest}
 			<a
 				href={runHref(latest.id, $workspaceStore)}
+				target="_blank"
+				rel="noopener"
 				class="absolute inset-0 text-right font-medium text-accent opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 hover:underline"
 				aria-label="Open the latest run of {title}"
 				onclick={(e) => e.stopPropagation()}
