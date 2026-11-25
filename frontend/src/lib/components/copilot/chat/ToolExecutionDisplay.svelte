@@ -403,7 +403,7 @@
 				<div class="my-1">
 					<ExpandableImage
 						src={message.imageUrl}
-						alt="App preview screenshot"
+						alt="Image returned by the tool"
 						class="max-h-48 max-w-full rounded border border-border-light"
 					/>
 				</div>

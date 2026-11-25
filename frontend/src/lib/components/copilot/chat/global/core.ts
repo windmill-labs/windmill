@@ -4830,7 +4830,10 @@ export const globalTools: SessionTool<{}>[] = [
 			// buffered here and flushed as a follow-up user image message once the tool batch
 			// completes (see appendPendingToolImages).
 			const image = await normalizeImageDataUrl(result.dataUrl)
-			ctx.toolCallbacks.attachToolImage?.(ctx.toolId, image)
+			ctx.toolCallbacks.attachToolImage?.(ctx.toolId, {
+				image,
+				caption: 'Screenshot(s) of the app preview:'
+			})
 			// The card shows the same copy the model gets; sharing the exact data URL
 			// lets the history's blob store persist one copy for both.
 			ctx.toolCallbacks.setToolStatus(ctx.toolId, {
