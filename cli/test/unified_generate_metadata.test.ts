@@ -610,7 +610,7 @@ describe("generate-metadata folder argument", () => {
 
       expect(result.code).toEqual(0);
       const output = result.stdout + result.stderr;
-      expect(output).toContain('No scripts, flows or apps found under "f/does_not_exist"');
+      expect(output).toContain('No scripts, flows or apps to check under "f/does_not_exist"');
       expect(output).not.toContain("up-to-date");
     });
   });

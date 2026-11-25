@@ -1,8 +1,8 @@
 import { Command } from "@cliffy/command";
 import { Confirm } from "@cliffy/prompt/confirm";
 import { colors } from "@cliffy/ansi/colors";
-import { existsSync } from "node:fs";
-import { sep as SEP } from "node:path";
+import { readdir, stat } from "node:fs/promises";
+import { join, sep as SEP } from "node:path";
 import { GlobalOptions, isDatatableMigrationPath } from "../../types.ts";
 import { isFileResource, isFilesetResource } from "../../utils/utils.ts";
 import { SyncOptions, mergeConfigWithConfigFile } from "../../core/conf.ts";
@@ -413,6 +413,25 @@ export async function rehashOnly(
   return counts;
 }
 
+/** Whether `target` (a file, or any file under a folder) is filtered out by `ignore`. */
+async function hasIgnoredFile(
+  target: string,
+  ignore: (p: string, isD: boolean) => boolean,
+): Promise<boolean> {
+  const native = target.replaceAll("/", SEP);
+  let info;
+  try {
+    info = await stat(native);
+  } catch {
+    return false;
+  }
+  if (!info.isDirectory()) return ignore(native, false);
+  const entries = await readdir(native, { recursive: true, withFileTypes: true });
+  return entries.some(
+    (e) => e.isFile() && ignore(join(e.parentPath, e.name), false),
+  );
+}
+
 /**
  * Normalize the tree's shared lockfiles, unless the run asked to stay inside one
  * folder: shared lockfiles are workspace-wide, so the pass reads and rewrites
@@ -519,6 +538,9 @@ export async function generateMetadata(
   // === Collect stale scripts ===
   if (!skipScripts) {
     for (const e of await walkLocalScripts(codebases, ignore)) {
+      // A file target (`f/x/task.deno.ts`, `f/x/task__mod/script.ts`) matches the
+      // local path, a folder target the remote one.
+      noteWalked(e);
       noteWalked(scriptPathToRemotePath(e));
       await generateScriptMetadataInternal(
         e,
@@ -567,11 +589,12 @@ export async function generateMetadata(
     }
   }
 
-  if (folder && !walkedInFolder) {
+  // Tree nodes also cover workspace dependency files, which the walk never lists.
+  if (folder && !walkedInFolder && ![...tree.allPaths()].some(isPathInFolder)) {
     log.warn(colors.yellow(
-      existsSync(folder) || existsSync(folderNoExt!)
+      (await hasIgnoredFile(folder, ignore))
         ? `Nothing under "${folder}" was checked: it is outside the includes/excludes in effect (wmill.yaml or -i/-e). Pass --includes "${folder}/**" to check it.`
-        : `No scripts, flows or apps found under "${folder}".`
+        : `No scripts, flows or apps to check under "${folder}".`
     ));
     return;
   }
