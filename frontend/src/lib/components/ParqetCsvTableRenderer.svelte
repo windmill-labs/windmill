@@ -5,8 +5,8 @@
 
 	import 'ag-grid-community/styles/ag-grid.css'
 	import 'ag-grid-community/styles/ag-theme-alpine.css'
-	import { twMerge } from 'tailwind-merge'
 	import DarkModeObserver from './DarkModeObserver.svelte'
+	import { Button } from './common'
 	import { AppService, HelpersService } from '$lib/gen'
 	import { downloadViaClient, shouldDownloadViaClient } from '$lib/utils/downloadFile'
 	import { enterpriseLicense } from '$lib/stores'
@@ -104,6 +104,20 @@
 	let lastSearch: string | undefined = undefined
 
 	let nbRows: number | undefined = $state(undefined)
+	// Unfiltered count: the grid keeps its height while a filter narrows the rows.
+	let totalRows: number | undefined = $state(undefined)
+
+	// The infinite row model cannot size itself to its rows, so the height is computed from
+	// the explicit row and header heights passed to createGrid, plus room for a horizontal
+	// scrollbar when the columns overflow.
+	const ROW_HEIGHT = 42
+	const HEADER_HEIGHT = 48
+	const MAX_GRID_HEIGHT = 600
+	let gridHeight = $derived(
+		totalRows === undefined
+			? 240
+			: Math.min(MAX_GRID_HEIGHT, HEADER_HEIGHT + Math.max(totalRows, 1) * ROW_HEIGHT + 18)
+	)
 	let csvSeparatorChar: string = $state(',')
 	let datasource: IDatasource = {
 		rowCount: 0,
@@ -117,6 +131,7 @@
 					nbRows = undefined
 					const res = await loadRowCount(searchCol, searchTerm)
 					nbRows = res.count
+					if (newSearch === undefined) totalRows = res.count
 					lastSearch = newSearch
 				}
 
@@ -181,6 +196,10 @@
 					{
 						rowModelType: 'infinite',
 						datasource,
+						rowHeight: ROW_HEIGHT,
+						headerHeight: HEADER_HEIGHT,
+						// A short grid would clip the column filter menu.
+						popupParent: document.body,
 						// @ts-ignore
 						columnDefs: res.columns.map((c) => {
 							return {
@@ -234,14 +253,23 @@
 
 <DarkModeObserver bind:darkMode />
 
-<div class={twMerge('mt-2  flex flex-col h-full min-h-[600px]')}>
-	{#if s3resource.endsWith('.csv')}
-		<div class="flex flex-row-reverse w-full">
-			<div class="flex items-baseline">
+<div class="flex flex-col gap-1">
+	<div class="flex flex-row items-center justify-between gap-2 min-h-7">
+		{#if nbRows != undefined}
+			<div class="text-secondary text-2xs">{nbRows} rows</div>
+		{:else}
+			<Loader2 class="animate-spin" size={12} />
+		{/if}
+		{#if s3resource.endsWith('.csv')}
+			<div class="flex items-center gap-2">
 				<label for="csvSeparatorChar" class="text-2xs text-secondary">Separator</label>
-
-				<div class="w-12 ml-2 mr-2">
-					<select class="h-8" bind:value={csvSeparatorChar} onchange={(e) => mountGrid()}>
+				<div class="w-12">
+					<select
+						id="csvSeparatorChar"
+						class="h-7"
+						bind:value={csvSeparatorChar}
+						onchange={(e) => mountGrid()}
+					>
 						<option value=",">,</option>
 						<option value=";">;</option>
 						<option value="\t">\t</option>
@@ -249,39 +277,37 @@
 					</select>
 				</div>
 			</div>
-		</div>
-	{/if}
-	{#if !disable_download && !s3resource.endsWith('.csv')}
-		{@const csvApiPath = appPath
-			? `/w/${workspaceId}/apps_u/download_s3_parquet_file_as_csv/${appPath}?file_key=${encodeURIComponent(s3resource)}${storage ? `&storage=${storage}` : ''}${presigned ? `&${presigned}` : ''}`
-			: `/w/${workspaceId}/job_helpers/download_s3_parquet_file_as_csv?file_key=${encodeURIComponent(s3resource)}${storage ? `&storage=${storage}` : ''}`}
-		{@const csvName = (s3resource.split('/').pop() ?? 'download') + '.csv'}
-		{#if shouldDownloadViaClient()}
-			<button
-				class="text-secondary w-full text-right underline text-2xs whitespace-nowrap"
-				onclick={() => downloadViaClient(csvApiPath, csvName)}
-				><div class="flex flex-row-reverse gap-2 items-center"><Download size={12} /> CSV</div
-				></button
-			>
-		{:else}
-			<a
-				target="_blank"
-				href="/api{csvApiPath}"
-				class="text-secondary w-full text-right underline text-2xs whitespace-nowrap"
-				><div class="flex flex-row-reverse gap-2 items-center"><Download size={12} /> CSV</div></a
-			>
+		{:else if !disable_download}
+			{@const csvApiPath = appPath
+				? `/w/${workspaceId}/apps_u/download_s3_parquet_file_as_csv/${appPath}?file_key=${encodeURIComponent(s3resource)}${storage ? `&storage=${storage}` : ''}${presigned ? `&${presigned}` : ''}`
+				: `/w/${workspaceId}/job_helpers/download_s3_parquet_file_as_csv?file_key=${encodeURIComponent(s3resource)}${storage ? `&storage=${storage}` : ''}`}
+			{@const csvName = (s3resource.split('/').pop() ?? 'download') + '.csv'}
+			{#if shouldDownloadViaClient()}
+				<Button
+					variant="subtle"
+					unifiedSize="sm"
+					startIcon={{ icon: Download }}
+					onClick={() => downloadViaClient(csvApiPath, csvName)}
+				>
+					Download as CSV
+				</Button>
+			{:else}
+				<Button
+					variant="subtle"
+					unifiedSize="sm"
+					startIcon={{ icon: Download }}
+					href="/api{csvApiPath}"
+					download={csvName}
+				>
+					Download as CSV
+				</Button>
+			{/if}
 		{/if}
-	{/if}
-
-	{#if nbRows != undefined}
-		<div class="text-secondary ml-0.5 text-2xs">{nbRows} rows</div>
-	{:else}
-		<Loader2 class="animate-spin ml-0.5" size={12} />
-	{/if}
+	</div>
 	<div
-		class="ag-theme-alpine shadow-sm h-full"
+		class="ag-theme-alpine shadow-sm"
 		class:ag-theme-alpine-dark={darkMode}
-		style="height: 600px;"
+		style="height: {gridHeight}px;"
 	>
 		{#if error}
 			<div class="text-red-500">{error}</div>
