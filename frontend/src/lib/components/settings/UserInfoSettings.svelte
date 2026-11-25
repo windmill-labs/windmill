@@ -2,7 +2,7 @@
 	import { accountSetup } from '$lib/components/sidebar/accountSetup.svelte'
 	import { usersWorkspaceStore } from '$lib/stores'
 	import { UserService } from '$lib/gen'
-	import { Button } from '$lib/components/common'
+	import { Alert, Button } from '$lib/components/common'
 	import { sendUserToast } from '$lib/toast'
 	import TextInput from '../text_input/TextInput.svelte'
 	import CopyButton from '../common/button/CopyButton.svelte'
@@ -121,9 +121,9 @@
 			<div class="flex flex-col gap-1 w-120">
 				<span class="text-xs text-emphasis font-semibold">Two-factor authentication</span>
 				{#if totpEnabled}
-					<span class="text-xs text-primary font-normal">
-						Enabled. Logging in with your password also asks for a code from your authenticator app.
-						Enter a current code or a recovery code to turn it off or to get new recovery codes.
+					<span class="text-xs text-secondary font-normal">
+						Logging in with your password also asks for a code from your authenticator app. Enter a
+						current code or a recovery code to turn it off or to get new recovery codes.
 					</span>
 					{#if recoveryCodes}
 						<div class="flex flex-col gap-1 p-2 rounded-md border bg-surface-secondary">
@@ -131,30 +131,35 @@
 								Recovery codes
 								<CopyButton value={recoveryCodes.join('\n')} />
 							</div>
-							<span class="text-2xs text-secondary">
-								Each code logs you in once if you lose your authenticator. Save them somewhere safe,
-								they are only shown now.
-							</span>
-							<div class="grid grid-cols-2 gap-x-4 font-mono text-xs text-primary">
+							<div class="grid grid-cols-2 gap-x-4 text-2xs font-mono font-normal text-emphasis">
 								{#each recoveryCodes as code (code)}
 									<span>{code}</span>
 								{/each}
 							</div>
+							<Alert type="warning" title="Save these codes now" size="xs">
+								Each one logs you in once if you lose your authenticator. They are shown only once.
+							</Alert>
 						</div>
 					{/if}
 				{:else if totpSetup}
-					<span class="text-xs text-primary font-normal">
-						Scan this QR code with an authenticator app, then enter the 6-digit code it shows.
+					<span class="text-xs text-secondary font-normal">
+						Scan this QR code with an authenticator app, or open it on this device, then enter the
+						6-digit code it shows.
 					</span>
-					<div class="w-40 h-40 bg-white p-1 rounded-md">
+					<a
+						href={totpSetup.otpauth_url}
+						aria-label="Add to an authenticator app"
+						class="w-40 h-40 bg-white p-1 rounded-md"
+					>
 						{@html renderSVG(totpSetup.otpauth_url)}
-					</div>
-					<div class="flex flex-row gap-1 items-center text-2xs text-secondary">
-						Or enter this key manually: <code class="font-mono">{totpSetup.secret}</code>
+					</a>
+					<div class="flex flex-row gap-1 items-center text-2xs text-secondary font-normal">
+						Or enter this key manually:
+						<span class="font-mono text-emphasis">{totpSetup.secret}</span>
 						<CopyButton value={totpSetup.secret} />
 					</div>
 				{:else}
-					<span class="text-xs text-primary font-normal">
+					<span class="text-xs text-secondary font-normal">
 						Ask for a code from an authenticator app each time you log in with your password.
 					</span>
 					<div>

@@ -889,6 +889,7 @@
 								error={errorField === 'totp'}
 								inputProps={{
 									id: totpId,
+									name: 'totp',
 									'aria-invalid': errorField === 'totp' ? 'true' : undefined,
 									'aria-describedby': errorField === 'totp' ? errorId : undefined,
 									autocomplete: 'one-time-code',

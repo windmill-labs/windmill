@@ -32,7 +32,8 @@ Symbols, not line numbers, are cited: they drift less.
   SAML (the provider owns the second factor), login links (minted by a superadmin, who can reset
   the second factor anyway, and never for a superadmin or devops account), and `GET /users/refresh_token` (a session already exists).
   Authenticator codes are single-use (`totp_last_step`), and so are the ten recovery codes, stored
-  hashed and accepted wherever a code is. Wrong codes are capped per account at 5 a minute on the
+  as salted argon2 hashes (a code carries about 52 bits, too few for a plain digest) and are
+  accepted wherever a code is. Wrong codes are capped per account at 5 a minute on the
   `password` row, so the cap holds across servers; the caller commits the count even when it
   refuses the code. Without that cap, a known password leaves a 6-digit code as the only barrier.
   A superadmin removes a lost second factor with `POST /users/totp/reset/{user}`. The secret is
