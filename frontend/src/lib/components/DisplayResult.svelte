@@ -364,10 +364,13 @@
 				>[0]
 			)
 			if (!field) throw new Error(`the result has no ${image.kind} content`)
-			// Drawn by an <img>, which runs no script an SVG carries.
+			// Sanitized whatever `markupTrust` says: the image viewer's "Open in new tab"
+			// loads the data as a document on Windmill's origin, where an SVG's scripts run.
 			const src =
 				image.kind === 'svg'
-					? `data:image/svg+xml;charset=utf-8,${encodeURIComponent(field)}`
+					? `data:image/svg+xml;charset=utf-8,${encodeURIComponent(
+							DOMPurify.sanitize(field, { USE_PROFILES: { svg: true, svgFilters: true } })
+						)}`
 					: `data:image/${image.kind};base64,${field}`
 			shownTooBigImage = { apiPath: image.apiPath, src }
 		} catch (e) {
