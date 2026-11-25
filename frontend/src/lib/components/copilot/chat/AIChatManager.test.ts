@@ -3861,7 +3861,7 @@ describe('AIChatManager context compaction', () => {
 			{
 				role: 'user',
 				content: [
-					{ type: 'text', text: 'Screenshot(s) of the app preview:' },
+					{ type: 'text', text: 'Image(s) returned by the tool calls above:' },
 					{ type: 'image_url', image_url: { url: 'data:image/png;base64,AAAA' } }
 				] as any
 			},

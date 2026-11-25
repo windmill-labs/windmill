@@ -1373,7 +1373,7 @@ export function pendingToolImagesMessage(
 	return {
 		role: 'user',
 		content: [
-			{ type: 'text', text: 'Screenshot(s) of the app preview:' },
+			{ type: 'text', text: 'Image(s) returned by the tool calls above:' },
 			...images.map((img) => dataUrlToImagePart(img.dataUrl))
 		]
 	}
