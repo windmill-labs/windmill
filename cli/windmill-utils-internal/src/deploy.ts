@@ -848,6 +848,59 @@ export async function deployItem(
 }
 
 // ---------------------------------------------------------------------------
+// deleteItemInWorkspace
+// ---------------------------------------------------------------------------
+
+/**
+ * Delete/archive an item in a workspace.
+ * Scripts and flows are archived (reversible). Other types are deleted.
+ */
+export async function deleteItemInWorkspace(
+  provider: DeployProvider,
+  kind: DeployKind,
+  path: string,
+  workspace: string
+): Promise<DeployResult> {
+  try {
+    if (kind === "script") {
+      await provider.archiveScriptByPath({ workspace, path });
+    } else if (kind === "flow") {
+      await provider.archiveFlowByPath({
+        workspace,
+        path,
+        requestBody: { archived: true },
+      });
+    } else if (kind === "app" || kind === "raw_app") {
+      await provider.deleteApp({ workspace, path });
+    } else if (kind === "variable") {
+      await provider.deleteVariable({ workspace, path });
+    } else if (kind === "resource") {
+      await provider.deleteResource({ workspace, path });
+    } else if (kind === "resource_type") {
+      await provider.deleteResourceType({ workspace, path });
+    } else if (kind === "folder") {
+      await provider.deleteFolder({ workspace, name: folderName(path) });
+    } else if (kind === "schedule") {
+      await provider.deleteSchedule({ workspace, path });
+    } else if (kind === "datatable_migration") {
+      const { datatable, timestamp } = parseDatatableMigrationDeployPath(path);
+      await provider.deleteDatatableMigration({
+        workspace,
+        datatableName: datatable,
+        timestamp,
+      });
+    } else if (isTriggerKind(kind)) {
+      await provider.deleteTriggerByKind(kind, { workspace, path });
+    } else {
+      throw new Error(`Deletion not supported for kind: ${kind}`);
+    }
+    return { success: true };
+  } catch (e: unknown) {
+    return { success: false, error: toError(e) };
+  }
+}
+
+// ---------------------------------------------------------------------------
 // getOnBehalfOf
 // ---------------------------------------------------------------------------
 

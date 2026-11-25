@@ -13,6 +13,7 @@ import {
   type TriggerDeployKind,
 } from "../../../windmill-utils-internal/src/deploy.ts";
 import { offerToRunNewMigrations } from "../datatable_migrations.ts";
+import { legacyDelete, legacyDeploy } from "./merge_legacy.ts";
 
 const triggerGetters: Record<
   TriggerDeployKind,
@@ -60,11 +61,23 @@ async function getOnBehalfOf(
   return undefined;
 }
 
-/** Deploy one item into `workspaceTo` on the server, or remove it there. */
+/** Set once the server turns out to have no `deploy_from_workspace`. */
+let serverLacksDeploy = false;
+
+/**
+ * Deploy one item into `workspaceTo` on the server, or remove it there. A server that predates
+ * the server-side deploy gets the client-side one instead.
+ */
 async function deployFromWorkspace(
   body: Parameters<typeof wmill.deployFromWorkspace>[0]["requestBody"],
   workspaceTo: string
 ): Promise<{ success: boolean; error?: string }> {
+  const kind = body.kind as DeployKind;
+  const legacy = () =>
+    body.delete
+      ? legacyDelete(kind, body.path, workspaceTo)
+      : legacyDeploy(kind, body.path, body.source_workspace!, workspaceTo, body.on_behalf_of);
+  if (serverLacksDeploy) return legacy();
   try {
     await wmill.deployFromWorkspace({
       workspace: workspaceTo,
@@ -80,9 +93,8 @@ async function deployFromWorkspace(
     const err = e as { status?: number; body?: string; message?: string };
     // An unknown route answers 404 with no body; a missing item says what is missing.
     if (err.status === 404 && !err.body) {
-      throw new Error(
-        "This Windmill server predates server-side merges. Upgrade the server, or use a wmill CLI released with it."
-      );
+      serverLacksDeploy = true;
+      return legacy();
     }
     return { success: false, error: err.body || err.message || String(e) };
   }
