@@ -6,6 +6,7 @@
 	import FlowStatusWaitingForEvents from '../FlowStatusWaitingForEvents.svelte'
 	import StepIdBadge from '../flows/content/StepIdBadge.svelte'
 	import { displayDate } from '$lib/utils'
+	import Tooltip from '$lib/components/meltComponents/Tooltip.svelte'
 
 	interface Props {
 		/** The run the step belongs to: the page's run, or a subflow, branch or loop run under it. */
@@ -78,14 +79,21 @@
 				{@const approvals = detail.current.approvals}
 				{#if approvals.length > 0}
 					<!-- Two names keep the row on one line; all of them, with times, are on hover. -->
-					<span
-						title={approvals
-							.map((a) => (a.created_at ? `${a.approver} · ${displayDate(a.created_at)}` : a.approver))
-							.join('\n')}
-					>
-						{approvals.length} of {detail.current.required_events} approvals:
-						<span class="text-primary">{namesLabel(approvals.map((a) => a.approver))}</span>
-					</span>
+					<Tooltip small>
+						{#snippet text()}
+							{#each approvals as a}
+								<div>
+									{a.approver}{#if a.created_at}<span class="opacity-70"
+											>{` · ${displayDate(a.created_at)}`}</span
+										>{/if}
+								</div>
+							{/each}
+						{/snippet}
+						<span>
+							{approvals.length} of {detail.current.required_events} approvals:
+							<span class="text-primary">{namesLabel(approvals.map((a) => a.approver))}</span>
+						</span>
+					</Tooltip>
 				{/if}
 			{/if}
 			<!-- The page the Home list and links sent through other channels open, for this run. -->
