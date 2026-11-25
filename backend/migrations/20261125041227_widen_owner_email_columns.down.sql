@@ -1,0 +1,1 @@
+-- No-op: narrowing back to VARCHAR(50) would fail on, or require truncating, owners longer than 50 characters.
