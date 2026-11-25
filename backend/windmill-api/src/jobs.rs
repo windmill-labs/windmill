@@ -5863,6 +5863,7 @@ async fn list_nested_approvals(
             .cloned()
             .unwrap_or_default()
     };
+    let scope_tags = get_scope_tags(&authed);
     // Each run to read, with the subflow steps leading to it (none for the flow run itself).
     let mut level: HashMap<Uuid, Option<Vec<String>>> = HashMap::from([(flow_id, None)]);
     let mut seen: HashSet<Uuid> = HashSet::from([flow_id]);
@@ -5871,7 +5872,7 @@ async fn list_nested_approvals(
     while !level.is_empty() {
         let ids: Vec<Uuid> = level.keys().copied().collect();
         let rows = sqlx::query!(
-            r#"SELECT j.id,
+            r#"SELECT j.id, j.tag,
                       COALESCE(s.flow_status, c.flow_status) AS flow_status,
                       COALESCE(j.raw_flow, fv.value, fn.flow) AS flow
                FROM v2_job j
@@ -5892,7 +5893,11 @@ async fn list_nested_approvals(
             let at = level.get(&r.id).cloned().flatten();
             let defs = modules(&r.flow);
             let statuses = modules(&r.flow_status);
-            if let Some(subflows) = &at {
+            // The read check admitted the flow run on its own tag only. A nested run outside
+            // the caller's tag scope is still walked through, so it cannot hide a descendant
+            // the caller could read directly, but its approvals are not returned.
+            let in_scope = scope_tags.as_ref().map_or(true, |t| t.contains(&r.tag.as_str()));
+            if let (Some(subflows), true) = (&at, in_scope) {
                 for m in &statuses {
                     if m["type"] != "Success" {
                         continue;
@@ -13955,5 +13960,73 @@ mod approval_view_gate_tests {
         ));
         assert_eq!(login.unwrap().user_groups_required, ["approvers"]);
         assert!(from_settings(serde_json::json!({})).is_none());
+    }
+}
+
+#[cfg(test)]
+mod nested_approvals_tests {
+    use super::may_hold_approval;
+    use serde_json::json;
+
+    fn script(id: &str) -> serde_json::Value {
+        json!({"id": id, "value": {"type": "rawscript", "content": "", "language": "bun"}})
+    }
+
+    fn approval(id: &str) -> serde_json::Value {
+        let mut s = script(id);
+        s["suspend"] = json!({"required_events": 1});
+        s
+    }
+
+    #[test]
+    fn reads_only_steps_that_can_hold_an_approval() {
+        // A subflow's steps are not in its caller's definition: always followed.
+        assert!(may_hold_approval(
+            &json!({"id": "sub", "value": {"type": "flow", "path": "f/a/b"}})
+        ));
+        let lp = |modules| json!({"id": "l", "value": {"type": "forloopflow", "modules": modules}});
+        assert!(!may_hold_approval(&lp(json!([script("a")]))));
+        assert!(may_hold_approval(&lp(json!([script("a"), approval("b")]))));
+        // At any depth of inline loops.
+        assert!(may_hold_approval(&lp(json!([lp(json!([approval("b")]))]))));
+        assert!(may_hold_approval(
+            &json!({"id": "w", "value": {"type": "whileloopflow",
+            "modules": [{"id": "sub", "value": {"type": "flow", "path": "f/a/b"}}]}})
+        ));
+        let branches = |kind, default, branch| {
+            json!({"id": "br", "value": {"type": kind, "default": default,
+                "branches": [{"modules": branch}]}})
+        };
+        assert!(!may_hold_approval(&branches(
+            "branchone",
+            json!([script("a")]),
+            json!([script("b")])
+        )));
+        assert!(may_hold_approval(&branches(
+            "branchone",
+            json!([approval("a")]),
+            json!([])
+        )));
+        assert!(may_hold_approval(&branches(
+            "branchone",
+            json!([]),
+            json!([approval("b")])
+        )));
+        assert!(may_hold_approval(&branches(
+            "branchall",
+            json!(null),
+            json!([approval("b")])
+        )));
+        assert!(!may_hold_approval(&branches(
+            "branchall",
+            json!(null),
+            json!([script("b")])
+        )));
+        // A step's own suspend is the caller's own approval, not a nested one.
+        assert!(!may_hold_approval(&approval("a")));
+        // `"suspend": null` is not an approval step.
+        let mut nulled = script("a");
+        nulled["suspend"] = serde_json::Value::Null;
+        assert!(!may_hold_approval(&lp(json!([nulled]))));
     }
 }
