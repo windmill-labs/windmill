@@ -57,7 +57,7 @@ jobs:
           # and the build_windows_worker_ release build, not this test job.
           rustflags: ""
 
-      - uses: actions/setup-dotnet@v4.3.1
+      - uses: actions/setup-dotnet@v6.1.0
         with:
           dotnet-version: "9.0.x"
 
