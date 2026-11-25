@@ -319,6 +319,12 @@
 		workspace: string,
 		id: string
 	): Promise<{ length: number; imageKind?: string } | undefined> {
+		// The probe walks the job's whole tree, reading every descendant's result: only a job
+		// with no children is cheap to ask.
+		const job = await fetchViaClient(
+			appendViewToken(`/w/${workspace}/jobs_u/get/${id}?no_logs=true`)
+		)
+		if (!job.ok || !SINGLE_JOB_KINDS.includes((await job.json()).job_kind)) return
 		const r = await fetchViaClient(
 			appendViewToken(`/w/${workspace}/jobs_u/get_flow_all_results/${id}?max_result_len=16`)
 		)
@@ -333,6 +339,14 @@
 			imageKind: kind && IMG_KINDS.includes(kind) ? kind : undefined
 		}
 	}
+	const SINGLE_JOB_KINDS = [
+		'script',
+		'preview',
+		'script_hub',
+		'flowscript',
+		'appscript',
+		'unassigned_script'
+	]
 	function formatSize(chars: number): string {
 		return chars >= 1_000_000
 			? `${(chars / 1_000_000).toFixed(1)} MB`
@@ -404,6 +418,8 @@
 
 	let showMaterializedPreview = $state(true)
 	let is_render_all = $state(false)
+	/** `roughSizeOfObject` of the result: UTF-16 bytes, two per character. */
+	let loadedResultBytes = $state(0)
 	let download_as_csv = $state(false)
 	function inferResultKind(result: any) {
 		if (typeof result === 'string' && result.match(/s3:\/\/[^/]*\/.+/)) {
@@ -443,7 +459,8 @@
 				// same too-big handling as any other oversized result.
 				if (parseAgentResult(result)) {
 					is_render_all = false
-					largeObject = roughSizeOfObject(result) > DISPLAY_MAX_SIZE
+					loadedResultBytes = roughSizeOfObject(result)
+					largeObject = loadedResultBytes > DISPLAY_MAX_SIZE
 					return 'aiagent'
 				}
 
@@ -451,6 +468,7 @@
 					keys.length == 1 && keys.includes('render_all') && Array.isArray(result['render_all'])
 
 				let size = roughSizeOfObject(result)
+				loadedResultBytes = size
 				console.debug('size of object', size)
 				// Otherwise, check if the result is too large (10kb) for json
 
@@ -1449,7 +1467,7 @@
 							{@const imageKind = info?.imageKind}
 							{@const shownImage =
 								shownTooBigImage?.apiPath === resultApiPath ? shownTooBigImage : undefined}
-							{@const size = notSent ? info?.length : roughSizeOfObject(result)}
+							{@const size = notSent ? info?.length : loadedResultBytes / 2}
 							{@const hasOtherAction = !!imageKind || !!tooBigFilename || download_as_csv}
 							<div
 								class="mb-2 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md bg-surface-secondary px-2 py-1 [container-type:inline-size]"
