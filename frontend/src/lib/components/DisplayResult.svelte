@@ -25,6 +25,8 @@
 		Highlighter,
 		ArrowDownFromLine,
 		Database,
+		FileText,
+		Image,
 		Loader2
 	} from 'lucide-svelte'
 	import DataTestsResult from './DataTestsResult.svelte'
@@ -46,7 +48,6 @@
 	import MapResult from './MapResult.svelte'
 	import ChartResult from './display/ChartResult.svelte'
 	import { isChartResult } from './display/displayCatalog'
-	import DownloadCsv from './table/DownloadCsv.svelte'
 	import { convertJsonToCsv } from './table/tableUtils'
 	import Tooltip from './Tooltip.svelte'
 	import HighlightTheme from './HighlightTheme.svelte'
@@ -282,6 +283,7 @@
 	}
 	$effect(() => {
 		tooBigFilename = undefined
+		tooBigInfo = undefined
 		const apiPath = result === 'WINDMILL_TOO_BIG' ? resultApiPath : undefined
 		if (!apiPath) return
 		let stale = false
@@ -291,8 +293,72 @@
 			},
 			() => {}
 		)
+		// `nodeId` reads a flow step's collected results, which are never one image.
+		if (workspaceId && jobId && !nodeId) {
+			probeTooBigResult(workspaceId, jobId).then(
+				(probe) => {
+					if (!stale && probe) tooBigInfo = { apiPath, ...probe }
+				},
+				() => {}
+			)
+		}
 		return () => (stale = true)
 	})
+	// An image is read only on a click: a view is mounted for every loop iteration stepped
+	// through and every run card of a chat, and each would download it.
+	let tooBigInfo = $state<{ apiPath: string; length: number; imageKind?: string } | undefined>(
+		undefined
+	)
+	/** The image read on request, keyed by the path it was read from so a new result never
+	 *  shows the previous one's. */
+	let shownTooBigImage = $state<{ apiPath: string; src: string } | undefined>(undefined)
+	let loadingTooBigImage = $state(false)
+	/** The length of a result's JSON, and its image kind if its first key is one, read from
+	 *  its head alone. */
+	async function probeTooBigResult(
+		workspace: string,
+		id: string
+	): Promise<{ length: number; imageKind?: string } | undefined> {
+		const r = await fetchViaClient(
+			appendViewToken(`/w/${workspace}/jobs_u/get_flow_all_results/${id}?max_result_len=16`)
+		)
+		if (!r.ok) return
+		const entries: { job_id: string; result_prefix?: string; result_length?: number }[] =
+			(await r.json()).entries ?? []
+		const root = entries.find((e) => e.job_id === id)
+		if (!root?.result_length) return
+		const kind = root.result_prefix?.match(/^\{"(\w+)"/)?.[1]
+		return {
+			length: root.result_length,
+			imageKind: kind && IMG_KINDS.includes(kind) ? kind : undefined
+		}
+	}
+	function formatSize(chars: number): string {
+		return chars >= 1_000_000
+			? `${(chars / 1_000_000).toFixed(1)} MB`
+			: `${Math.max(1, Math.round(chars / 1000))} KB`
+	}
+	async function showTooBigImage(image: { apiPath: string; kind: string }) {
+		loadingTooBigImage = true
+		try {
+			const field = contentOrRootString(
+				(await fetchResultAt(image.apiPath, image.kind)) as Parameters<
+					typeof contentOrRootString
+				>[0]
+			)
+			if (!field) throw new Error(`the result has no ${image.kind} content`)
+			// Drawn by an <img>, which runs no script an SVG carries.
+			const src =
+				image.kind === 'svg'
+					? `data:image/svg+xml;charset=utf-8,${encodeURIComponent(field)}`
+					: `data:image/${image.kind};base64,${field}`
+			shownTooBigImage = { apiPath: image.apiPath, src }
+		} catch (e) {
+			sendUserToast(`Could not show the image: ${e instanceof Error ? e.message : e}`, true)
+		} finally {
+			loadingTooBigImage = false
+		}
+	}
 	async function downloadTooBigFile(apiPath: string, name: string) {
 		downloadingTooBigFile = true
 		try {
@@ -1377,47 +1443,109 @@
 							>
 						</div>
 					{:else}
-						{#if tooBigFilename && resultApiPath}
-							<div class="flex">
-								<Button
-									onclick={() => downloadTooBigFile(resultApiPath!, tooBigFilename!)}
-									disabled={downloadingTooBigFile}
-									startIcon={{ icon: Download }}
-									variant="subtle"
-									unifiedSize="sm"
-								>
-									Download {tooBigFilename}
-								</Button>
-							</div>
-						{/if}
 						{#if largeObject}
-							<div class="text-xs text-emphasis"
-								>{#if resultApiPath && shouldDownloadViaClient()}
-									<button onclick={() => downloadViaClient(resultApiPath!, resultDownloadName)}>
-										Download {filename ? '' : 'as JSON'}
-									</button>
-								{:else}
-									<a download={resultDownloadName} href={resultDownloadHref}>
-										Download {filename ? '' : 'as JSON'}
-									</a>
+							{@const notSent = result === 'WINDMILL_TOO_BIG'}
+							{@const info = tooBigInfo?.apiPath === resultApiPath ? tooBigInfo : undefined}
+							{@const imageKind = info?.imageKind}
+							{@const shownImage =
+								shownTooBigImage?.apiPath === resultApiPath ? shownTooBigImage : undefined}
+							{@const size = notSent ? info?.length : roughSizeOfObject(result)}
+							{@const hasOtherAction = !!imageKind || !!tooBigFilename || download_as_csv}
+							<div
+								class="mb-2 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md bg-surface-secondary px-2 py-1 [container-type:inline-size]"
+							>
+								<span class="text-secondary">
+									{#if imageKind}<Image size={14} />{:else if tooBigFilename}<FileText
+											size={14}
+										/>{:else}<Braces size={14} />{/if}
+								</span>
+								<span class="text-xs text-emphasis">
+									{#if imageKind}{imageKind.toUpperCase()} image{:else if tooBigFilename}{tooBigFilename}{:else if download_as_csv}Table{:else}JSON
+										result{/if}
+								</span>
+								{#if size}
+									<span class="text-2xs text-secondary">{formatSize(size)}</span>
 								{/if}
-								{#if download_as_csv}
-									<DownloadCsv
-										getContent={() => convertJsonToCsv(result)}
-										customText="Download as CSV"
-									/>
+								{#if notSent && !shownImage}
+									<span class="hidden text-2xs text-secondary [@container(min-width:480px)]:inline"
+										>Too large to load automatically</span
+									>
 								{/if}
-							</div>
-
-							<div class="mt-1 mb-2">
-								<Alert
-									size="xs"
-									title="Large result detected"
-									type="warning"
-									tooltip="We recommend using persistent object storage for large result. See docs for setting up an object storage service integration using s3 or any other s3 compatible services."
+								<Tooltip
+									small
 									documentationLink="https://www.windmill.dev/docs/core_concepts/persistent_storage#object-storage-for-large-data-s3-r2-minio-azure-blob"
-								/>
+								>
+									Large results are slow to load and display. Write them to object storage and
+									return <code>{'{ "s3": "path/to/key" }'}</code> to have them previewed by type.
+								</Tooltip>
+								<div class="ml-auto flex flex-wrap items-center gap-1">
+									{#if imageKind && !shownImage && info}
+										<Button
+											onclick={() => showTooBigImage({ apiPath: info.apiPath, kind: imageKind })}
+											disabled={loadingTooBigImage}
+											startIcon={{ icon: loadingTooBigImage ? Loader2 : Image }}
+											variant="default"
+											unifiedSize="xs"
+										>
+											Show image
+										</Button>
+									{/if}
+									{#if tooBigFilename && resultApiPath}
+										<Button
+											onclick={() => downloadTooBigFile(resultApiPath!, tooBigFilename!)}
+											disabled={downloadingTooBigFile}
+											startIcon={{ icon: Download }}
+											variant="default"
+											unifiedSize="xs"
+										>
+											Download
+										</Button>
+									{/if}
+									{#if download_as_csv}
+										<Button
+											onclick={() =>
+												downloadBlob(
+													new Blob([convertJsonToCsv(result)], { type: 'text/csv;charset=utf-8;' }),
+													'data.csv'
+												)}
+											startIcon={{ icon: Download }}
+											variant="default"
+											unifiedSize="xs"
+										>
+											Download CSV
+										</Button>
+									{/if}
+									{#if resultApiPath && shouldDownloadViaClient()}
+										<Button
+											onclick={() => downloadViaClient(resultApiPath!, resultDownloadName)}
+											startIcon={{ icon: Download }}
+											variant={hasOtherAction ? 'subtle' : 'default'}
+											unifiedSize="xs"
+										>
+											Download JSON
+										</Button>
+									{:else}
+										<Button
+											href={resultDownloadHref}
+											download={resultDownloadName}
+											startIcon={{ icon: Download }}
+											variant={hasOtherAction ? 'subtle' : 'default'}
+											unifiedSize="xs"
+										>
+											Download JSON
+										</Button>
+									{/if}
+								</div>
 							</div>
+							{#if shownImage}
+								<div class="h-full mb-2">
+									<ExpandableImage
+										alt="{imageKind ?? 'image'} rendered"
+										class="w-auto h-full"
+										src={shownImage.src}
+									/>
+								</div>
+							{/if}
 						{/if}
 						{#if result && result != 'WINDMILL_TOO_BIG'}
 							<ObjectViewer json={result} />

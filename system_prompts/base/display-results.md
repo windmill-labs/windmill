@@ -25,6 +25,15 @@ of the shapes below is shown as JSON.
 Each shape is an object with that one key (plus `filename` for a file, and an optional `storage` for
 `s3`). A result carrying any other key beside it is shown as JSON.
 
+## Large results
+
+A result stored above about 90 KB is not sent with the run: the run page and the editors show only
+its type and size with a "Download JSON" button, plus a "Show image" button for an image result
+(`png`, `jpeg`, `gif`, `svg`). To have a large result previewed without a click, write the
+content to the workspace storage and return `{ "s3": "path/to/key" }`, which is previewed by type;
+for a generated image, also keep it small (a JPEG, or fewer pixels) when it only needs to be looked
+at.
+
 ## Choosing one
 
 A chart answers a question at a glance: a trend over time (line), a comparison across categories
