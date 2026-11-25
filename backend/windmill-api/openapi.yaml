@@ -13204,7 +13204,6 @@ paths:
                       type: object
                       required:
                         - job_id
-                        - root_step
                         - subflows
                         - step_id
                         - approvers
@@ -13213,16 +13212,15 @@ paths:
                           type: string
                           format: uuid
                           description: the nested run the step belongs to
-                        root_step:
-                          type: string
-                          description: id of the flow run's own step the nested run is under
                         subflows:
                           type: array
                           items:
                             type: string
                           description: >
                             ids of the subflow steps leading to the nested run, outermost
-                            first; loops and branches are not listed
+                            first. Step ids are unique across a flow, loop and branch steps
+                            included, so the first one (or the step itself) is a step of
+                            the flow run's own graph
                         step_id:
                           type: string
                         step_summary:

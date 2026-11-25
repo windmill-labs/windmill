@@ -5784,7 +5784,6 @@ const WAITING_APPROVALS_RETURNED: usize = 100;
 #[derive(Serialize)]
 struct NestedApproval {
     job_id: Uuid,
-    root_step: String,
     subflows: Vec<String>,
     step_id: String,
     step_summary: Option<String>,
@@ -5864,8 +5863,8 @@ async fn list_nested_approvals(
             .cloned()
             .unwrap_or_default()
     };
-    // Each run to read, with the flow run's step holding it and the subflow steps leading to it.
-    let mut level: HashMap<Uuid, Option<(String, Vec<String>)>> = HashMap::from([(flow_id, None)]);
+    // Each run to read, with the subflow steps leading to it (none for the flow run itself).
+    let mut level: HashMap<Uuid, Option<Vec<String>>> = HashMap::from([(flow_id, None)]);
     let mut seen: HashSet<Uuid> = HashSet::from([flow_id]);
     let mut approvals = vec![];
     let mut more = false;
@@ -5893,7 +5892,7 @@ async fn list_nested_approvals(
             let at = level.get(&r.id).cloned().flatten();
             let defs = modules(&r.flow);
             let statuses = modules(&r.flow_status);
-            if let Some((root_step, subflows)) = &at {
+            if let Some(subflows) = &at {
                 for m in &statuses {
                     if m["type"] != "Success" {
                         continue;
@@ -5914,7 +5913,6 @@ async fn list_nested_approvals(
                         .map(str::to_string);
                     approvals.push(NestedApproval {
                         job_id: r.id,
-                        root_step: root_step.clone(),
                         subflows: subflows.clone(),
                         step_id: step_id.to_string(),
                         step_summary,
@@ -5929,7 +5927,7 @@ async fn list_nested_approvals(
                 let Some(status) = statuses.iter().find(|s| s["id"] == step) else {
                     continue;
                 };
-                let (root_step, mut subflows) = at.clone().unwrap_or((step.to_string(), vec![]));
+                let mut subflows = at.clone().unwrap_or_default();
                 if d["value"]["type"] == "flow" {
                     subflows.push(step.to_string());
                 }
@@ -5944,7 +5942,7 @@ async fn list_nested_approvals(
                         break;
                     }
                     if seen.insert(child) {
-                        next.insert(child, Some((root_step.clone(), subflows.clone())));
+                        next.insert(child, Some(subflows.clone()));
                     }
                 }
             }

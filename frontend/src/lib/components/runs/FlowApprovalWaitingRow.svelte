@@ -20,8 +20,12 @@
 
 	let { job, module, isOwner, chainedId, graphStep, onSelectStep }: Props = $props()
 
+	// Primitives: each poll brings a new `job` object, which would refetch on every poll.
+	let workspace = $derived(job.workspace_id)
+	let jobId = $derived(job.id)
+	let stepId = $derived(module.id)
 	const detail = resource(
-		() => ({ workspace: job.workspace_id, jobId: job.id, stepId: module.id }),
+		() => ({ workspace, jobId, stepId }),
 		async ({ workspace, jobId, stepId }) =>
 			workspace ? JobService.getApprovalStepDetail({ workspace, jobId, stepId }) : undefined
 	)

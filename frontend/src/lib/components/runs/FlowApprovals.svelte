@@ -21,7 +21,8 @@
 
 	type Approver = { approver: string; approved_at?: string; approved?: boolean }
 	/** `chainedId`: the step's id after the subflow steps leading to it (`outer:r:s`).
-	 * `graphStep`: the run's own step the graph selects, the step itself or the one holding it. */
+	 * `graphStep`: its first id. Step ids are unique across a flow, loop and branch steps
+	 * included, so that one is a node of this run's graph. */
 	type Located = { chainedId: string; graphStep: string }
 	type DoneRow = Located & {
 		key: string
@@ -65,13 +66,12 @@
 				? job.raw_flow?.modules?.[step - 1]
 				: undefined
 		if (own?.suspend) return [{ job, module: own, chainedId: own.id, graphStep: own.id }]
-		const holding = job.raw_flow?.modules?.[step]?.id
 		return Object.values(suspendStatus.val ?? {}).flatMap(({ job: waiting, prefix }): Wait[] => {
 			const module = waiting.raw_flow?.modules?.[(waiting.flow_status?.step ?? 0) - 1]
 			if (waiting.id === job.id || !module?.suspend) return []
 			// The prefix chains the subflow steps leading to the run, not loops or branches.
-			const chainedId = [...(prefix?.split(':').filter(Boolean) ?? []), module.id].join(':')
-			return [{ job: waiting, module, chainedId, graphStep: holding ?? module.id }]
+			const chain = [...(prefix?.split(':').filter(Boolean) ?? []), module.id]
+			return [{ job: waiting, module, chainedId: chain.join(':'), graphStep: chain[0] }]
 		})
 	})
 
@@ -96,15 +96,14 @@
 	}
 
 	// Who approved a nested run's steps is kept on that run: read when the run has a step that
-	// can hold one, again as its waits move on.
+	// can hold one, then again only when its waits change or it finishes, not at every step.
+	// Primitives: each poll brings a new `job` object, which would refetch on every poll.
 	let nests = $derived((job.raw_flow?.modules ?? []).some(mayHoldApproval))
+	let workspace = $derived(job.workspace_id)
+	let jobId = $derived(job.id)
+	let moved = $derived(`${job.type}:${waits.map((w) => w.job.id + w.module.id)}`)
 	const nested = resource(
-		() => ({
-			nests,
-			workspace: job.workspace_id,
-			jobId: job.id,
-			moved: `${job.type}:${job.flow_status?.step}:${waits.map((w) => w.job.id + w.module.id)}`
-		}),
+		() => ({ nests, workspace, jobId, moved }),
 		async ({ nests, workspace, jobId }) =>
 			nests && workspace ? JobService.listNestedApprovals({ workspace, jobId }) : undefined
 	)
@@ -116,7 +115,7 @@
 				key: `${a.job_id}:${a.step_id}`,
 				stepId: a.step_id,
 				chainedId: [...a.subflows, a.step_id].join(':'),
-				graphStep: a.root_step,
+				graphStep: a.subflows[0] ?? a.step_id,
 				summary: a.step_summary,
 				approvers: a.approvers,
 				rejected: isRejected(a.approvers)
