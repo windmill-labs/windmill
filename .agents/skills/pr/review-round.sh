@@ -13,10 +13,10 @@ set -euo pipefail
 
 REPO=${REPO:-$(gh repo view --json nameWithOwner --jq .nameWithOwner)}
 PR=${1:-$(gh pr view --json number --jq .number)}
+PR_TITLE=$(gh pr view "$PR" --repo "$REPO" --json title --jq .title)
 
 # Timestamp of the trigger comment, straight from GitHub, so local clock skew
 # can't make the run/comment filters below miss part of the round.
-PR_TITLE=$(gh pr view "$PR" --repo "$REPO" --json title --jq .title)
 TRIGGER_TIME=$(gh api "repos/$REPO/issues/$PR/comments" -f body='/review' --jq .created_at)
 echo "Review round triggered on $REPO#$PR at $TRIGGER_TIME"
 
