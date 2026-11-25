@@ -4,7 +4,9 @@ use std::sync::LazyLock;
 
 use serde_json::{json, Map, Value};
 
-use super::workspace::{finish_draft_write, persist_draft, write_base, Persist};
+use super::workspace::{
+    finish_draft_write, get_draft, item_exists, persist_draft, write_base, Persist,
+};
 use super::{non_null, put, tool_parameters, Ctx, ToolResult, SCHEMAS};
 
 pub(super) const TOOLS: &[&str] = &[
@@ -369,6 +371,10 @@ fn variable_to_draft_state(variable: &Value) -> Value {
     Value::Object(state)
 }
 
+/// Where a write that lacks a secret's value sends the model: it can only get a value the
+/// user has not typed through the secure input.
+const ASK_FOR_SECRET: &str = " If it is a secret the user has not given you, call request_secret instead: they type it in a secure card and you get back only its path.";
+
 /// The draft a `write_variable` call leaves. A variable's value is never read back, so
 /// an omitted `value` keeps whatever the base holds: `""` for "nothing staged", or the
 /// `$encrypted:` marker the draft store turned a staged secret into.
@@ -382,7 +388,8 @@ fn variable_draft(args: &Value, base: Option<Value>) -> Result<Value, String> {
     };
     let value = arg("value");
     if base.is_none() && (value.is_none() || arg("is_secret").is_none()) {
-        return Err(format!("Variable \"{path}\" does not exist yet, so creating it requires both value and is_secret."));
+        let ask = if value.is_none() { ASK_FOR_SECRET } else { "" };
+        return Err(format!("Variable \"{path}\" does not exist yet, so creating it requires both value and is_secret.{ask}"));
     }
     let was_secret = stored("is_secret").and_then(|s| s.as_bool());
     let is_secret = arg("is_secret")
@@ -393,6 +400,11 @@ fn variable_draft(args: &Value, base: Option<Value>) -> Result<Value, String> {
     // "" is how a secret draft says "nothing staged", so it cannot also mean "set the
     // secret to empty".
     if is_secret && value.as_ref() == Some(&empty) {
+        if base.is_none() {
+            return Err(format!(
+                "An empty string is not a valid value for new secret variable \"{path}\".{ASK_FOR_SECRET}"
+            ));
+        }
         return Err(format!("An empty string is not a valid value for secret variable \"{path}\". Omit value to keep the stored secret, or pass the real new one."));
     }
     let next_value = value.clone().or_else(|| stored("value"));
@@ -562,6 +574,11 @@ async fn write_resource(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
     let mut parsed = parse_args("write_resource", args)?;
     let force = take_override(&mut parsed);
     let path = parsed["path"].as_str().unwrap_or_default().to_string();
+    if let Some(missing) = missing_variable(ctx, &parsed["value"]).await? {
+        return Err(format!(
+            "\"$var:{missing}\" names no variable, deployed or drafted. If the user gave you its value, write that variable first. If it is a secret the user has not given you, call request_secret instead: they type it in a secure card that saves it and this resource as drafts, and you get back only its path."
+        ));
+    }
     write_draft(
         ctx,
         "resource",
@@ -572,6 +589,35 @@ async fn write_resource(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
         |base| Ok(resource_draft(&parsed, base)),
     )
     .await
+}
+
+/// The first `$var:` reference in a resource value that names neither a deployed variable
+/// nor a draft of one, which every run using the resource would fail on.
+async fn missing_variable(ctx: &Ctx<'_>, value: &Value) -> Result<Option<String>, String> {
+    fn references<'a>(value: &'a Value, found: &mut Vec<&'a str>) {
+        match value {
+            Value::String(s) => {
+                if let Some(path) = s.strip_prefix("$var:") {
+                    if !found.contains(&path) {
+                        found.push(path);
+                    }
+                }
+            }
+            Value::Array(items) => items.iter().for_each(|v| references(v, found)),
+            Value::Object(fields) => fields.values().for_each(|v| references(v, found)),
+            _ => {}
+        }
+    }
+    let mut found = Vec::new();
+    references(value, &mut found);
+    for path in found {
+        if get_draft(ctx, "variable", path).await?.is_none()
+            && !item_exists(ctx, "variable", None, path).await?
+        {
+            return Ok(Some(path.to_string()));
+        }
+    }
+    Ok(None)
 }
 
 async fn write_variable(ctx: &Ctx<'_>, args: &Value) -> ToolResult {

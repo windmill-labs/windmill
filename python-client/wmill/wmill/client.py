@@ -535,6 +535,9 @@ class Windmill:
             result_res = self.get(
                 f"/w/{self.workspace}/jobs_u/completed/get_result_maybe/{job_id}",
                 True,
+                # this job is blocked on `job_id`: a child that can never start (every worker of
+                # its tag held by such a waiting job) fails the wait instead of hanging
+                params={"wait_for_child": "true"},
                 retry_budget=(timeout - (time.time() - start_time)) if timeout else None,
             ).json()
 
@@ -2720,6 +2723,11 @@ def stream_result(stream) -> None:
     for text in stream:
         append_to_result_stream(text)
 
+# Tells the executor that the args are bound values, to pass on as they are, so a value
+# that reads like `$var:u/alice/key` reaches the database as that text. A server that
+# predates the annotation ignores it.
+_LITERAL_ARGS_ANNOTATION = "-- literal_args\n"
+
 # Interpolated into a `-- role <name>` line, so a value carrying a newline could append
 # statements of its own. Mirrors the server's own role-name rule.
 _ROLE_NAME_RE = re.compile(r"^[A-Za-z0-9_-]{1,63}$")
@@ -2765,6 +2773,7 @@ class DataTableClient:
         # Must lead: the executor's annotation parser stops at the first non-comment line.
         if self.role is not None:
             sql = f"-- role {self.role}\n" + sql
+        sql = _LITERAL_ARGS_ANNOTATION + sql
         return SqlQuery(
             sql,
             lambda sql: self.client.run_inline_script_preview(
@@ -2803,7 +2812,7 @@ class DucklakeClient:
             args_dict[key] = value
             args_def += f"-- ${key} ({infer_sql_type(value)})\n"
         attach = f"ATTACH 'ducklake://{self.name}' AS dl;USE dl;\n"
-        sql = args_def + attach + sql
+        sql = _LITERAL_ARGS_ANNOTATION + args_def + attach + sql
         return SqlQuery(
             sql,
             lambda sql: self.client.run_inline_script_preview(

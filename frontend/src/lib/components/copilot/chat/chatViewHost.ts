@@ -4,13 +4,14 @@ import type { AIWorkMode } from './workMode'
 import type { ReasoningProviderModel } from '../reasoningRegistry'
 import type { CopilotInfo } from '$lib/aiStore'
 import { getAiChatManager } from './aiChatManagerContext'
-import type { DisplayMessage, Tool } from './shared'
+import type { DisplayMessage, SecretSubmission, Tool } from './shared'
 import type { ContextElement } from './context'
 import type { AttachedBlob } from './blobUtils'
 import type { AttachedImage } from './imageUtils'
 import type { AttachedTextFile } from './textFileUtils'
 import type { PasteAttachment } from './pasteTokens'
 import type { ScopeDecision } from './workingScope'
+import type { GroupingTools } from './toolGroups'
 import type { AttachedFilesStore } from './files/attachedFiles.svelte'
 import type { SessionArtifactsStore } from './artifacts/artifactsState.svelte'
 import type { ArtifactVersionTarget, ImageSource } from '$lib/components/sessions/previewRouter'
@@ -126,6 +127,10 @@ export interface ChatViewHost {
 		files?: AttachedTextFile[]
 	) => void | Promise<void>
 	handleUserQuestionAnswer: (toolId: string, choices: string[]) => boolean
+	/** Only a host whose loop can call `request_secret` serves these; the card is inert
+	 * elsewhere. `saveSecret` rejects with the server's refusal, leaving the request open. */
+	saveSecret?: (toolId: string, submission: SecretSubmission) => Promise<void>
+	dismissSecret?: (toolId: string) => void
 	handleToolConfirmation: (toolId: string, confirmed: boolean) => void
 	handleScopeDecision: (toolId: string, decision: ScopeDecision) => void
 	/** A tool is waiting on a run form the user is filling in. Escape belongs to that form
@@ -183,6 +188,10 @@ export interface ChatViewHost {
 	 * included. A consumer narrows it by tool metadata; assembling its own list from the
 	 * sources behind it is how the advertised set and the sent set drift apart. */
 	readonly tools: readonly Tool<any>[]
+	/** Tools whose rows may fold into a run of lookups, of test runs or of draft writes. Every
+	 * tool the transcript's chat could have called, not only `tools`: a row outlives the request
+	 * that carried its tool. */
+	readonly groupingTools: GroupingTools
 	autonomyMode: AIAutonomyMode
 	setAutonomyMode: (mode: AIAutonomyMode) => void
 	/** Use, Plan or Build: offered by a session chat only. */

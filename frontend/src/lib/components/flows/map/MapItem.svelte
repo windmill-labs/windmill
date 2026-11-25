@@ -17,6 +17,8 @@
 	import { getGraphContext } from '$lib/components/graph/graphContext'
 	import { nextMock } from '../flowMock'
 	import { Bug } from 'lucide-svelte'
+	import { flowPathToHref, scriptPathToHref } from '$lib/scripts'
+	import { hubBaseUrlStore } from '$lib/stores'
 
 	interface Props {
 		moduleId: string
@@ -315,6 +317,11 @@
 							? `Inline ${prettyLanguage(mod.value.language)}`
 							: 'To be defined')}
 					path={`path` in mod.value ? mod.value.path : ''}
+					pathHref={mod.value.type === 'script' && mod.value.path
+						? scriptPathToHref(mod.value.path, $hubBaseUrlStore)
+						: mod.value.type === 'flow' && mod.value.path
+							? flowPathToHref(mod.value.path)
+							: undefined}
 					alwaysShowOutputPicker={!mod.id.startsWith('subflow:') && mod.id !== 'preprocessor'}
 					loopStatus={parentLoop ? { type: 'inside', flow: parentLoop.type } : undefined}
 					inputTransform={mod.value.type !== 'identity' ? mod.value.input_transforms : undefined}

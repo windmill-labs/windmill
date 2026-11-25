@@ -400,6 +400,7 @@ export const pipelineTools: SessionTool<PipelineToolHelpers>[] = [
 		requires: NONE,
 		def: getPipelineGraphToolDef,
 		planModeSafe: true,
+		lookup: true,
 		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
 			const { folder } = getPipelineGraphSchema.parse(args ?? {})
 			const pipeline = await pipelineForFolder(helpers, folder)
@@ -416,6 +417,7 @@ export const pipelineTools: SessionTool<PipelineToolHelpers>[] = [
 		requires: NONE,
 		def: readPipelineNodeToolDef,
 		planModeSafe: true,
+		lookup: true,
 		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
 			const { path } = readPipelineNodeSchema.parse(args)
 			const pipeline = await pipelineForPath(helpers, path)

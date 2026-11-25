@@ -368,8 +368,8 @@
 		(activeSession ? getEffectiveWorkspaceId(activeSession) : undefined) ?? $workspaceStore
 	)
 
-	// Whether that workspace hid the AI assistant. The gate below unmounts the session wrapper
-	// that would refresh `copilotInfo`, so the verdict is read for the workspace itself.
+	// Whether that workspace hid the AI assistant, read for the workspace itself: `copilotInfo` is
+	// the page's workspace's.
 	const workspaceAiHidden = useWorkspaceAiHidden(() => previewWorkspace)
 	const aiHiddenVerdict = $derived(workspaceAiHidden.hidden)
 	// The AI setting and the protection rules are changed on other pages, so coming back reads

@@ -115,6 +115,7 @@
 			const r = formatDate(value, resolvedConfig.outputFormat)
 			outputs?.result.set(r)
 			const valueDate = new Date(value)
+			let isValid = true
 
 			if (resolvedConfig.minDateTime) {
 				const minDate = new Date(resolvedConfig.minDateTime)
@@ -123,11 +124,11 @@
 					minDate.getMonth() === valueDate.getMonth() &&
 					minDate.getFullYear() === valueDate.getFullYear()
 				) {
-					outputs?.validity.set(minDate.getTime() < valueDate.getTime())
+					isValid &&= minDate.getTime() < valueDate.getTime()
 				}
 
 				if (minDate.getTime() > valueDate.getTime()) {
-					outputs?.validity.set(false)
+					isValid = false
 				}
 			}
 
@@ -139,13 +140,14 @@
 					maxDate.getMonth() === valueDate.getMonth() &&
 					maxDate.getFullYear() === valueDate.getFullYear()
 				) {
-					outputs?.validity.set(maxDate.getTime() > valueDate.getTime())
+					isValid &&= maxDate.getTime() > valueDate.getTime()
 				}
 
 				if (maxDate.getTime() < valueDate.getTime()) {
-					outputs?.validity.set(false)
+					isValid = false
 				}
 			}
+			outputs?.validity.set(isValid)
 			untrack(() => setIterValue(value))
 		} else {
 			outputs?.result.set(undefined)

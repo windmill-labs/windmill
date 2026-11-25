@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
-	import ImageViewer from '$lib/components/common/image/ImageViewer.svelte'
+	import ImagePanelViewer from '$lib/components/common/image/ImagePanelViewer.svelte'
 	import type { AIChatManager } from '../copilot/chat/AIChatManager.svelte'
 	import { asImageBlob, imageContentKey } from '../copilot/chat/files/imageFiles'
 	import type { ImageSource } from './previewRouter'
@@ -111,7 +111,7 @@
 </script>
 
 {#if src}
-	<ImageViewer {src} {name} bytes={file?.size} />
+	<ImagePanelViewer {src} {name} bytes={file?.size} />
 {:else if folderLocked}
 	<div class="flex flex-col items-start gap-2 p-4 text-xs text-secondary">
 		<span>Your browser needs permission again to read this folder.</span>

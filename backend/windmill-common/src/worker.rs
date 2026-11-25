@@ -868,7 +868,7 @@ fn format_pull_query(peek: String) -> String {
             j.same_worker, j.pre_run_error, j.visible_to_owner,
             j.tag, j.concurrent_limit, j.concurrency_time_window_s, j.flow_innermost_root_job, j.root_job,
             j.timeout, j.flow_step_id, j.cache_ttl, q.cache_ignore_s3_path, q.runnable_settings_handle, j.priority, j.raw_code, j.raw_lock, j.raw_flow,
-            j.script_entrypoint_override, j.preprocessed, p.job_token_scopes, COALESCE(pj.runnable_path, j.args->>'_FLOW_PATH') as parent_runnable_path,
+            j.script_entrypoint_override, j.preprocessed, p.job_token_scopes, COALESCE(pj.runnable_path, CASE WHEN j.kind = 'preview' THEN j.args->>'_FLOW_PATH' END) as parent_runnable_path,
             COALESCE(p.email, j.permissioned_as_email) as permissioned_as_email, p.username as permissioned_as_username, p.is_admin as permissioned_as_is_admin,
             p.is_operator as permissioned_as_is_operator, p.groups as permissioned_as_groups, p.folders as permissioned_as_folders, p.end_user_email as permissioned_as_end_user_email,
             p.viewer_data_access, p.mcp_client
@@ -1236,18 +1236,8 @@ pub fn apply_custom_tags_setting(q: Option<serde_json::Value>) {
 
 #[cfg(not(windows))]
 fn parse_file<T: FromStr>(path: &str) -> Option<T> {
-    std::process::Command::new("cat")
-        .args([path])
-        .output()
-        .ok()
-        .map(|o| {
-            String::from_utf8_lossy(&o.stdout)
-                .to_string()
-                .trim()
-                .parse::<T>()
-                .ok()
-        })
-        .flatten()
+    let bytes = fs::read(path).ok()?;
+    String::from_utf8_lossy(&bytes).trim().parse::<T>().ok()
 }
 
 #[annotations("#")]
@@ -1304,6 +1294,10 @@ pub struct SqlAnnotations {
     // `wmill datatable serve` to map Postgres results onto the wire protocol
     // without re-stringifying every JSON value.
     pub raw_output: bool,
+    // The job's args are values bound to the query's parameters, passed on as they are:
+    // `$var:`/`$res:` strings and `$`-prefixed reserved variable names in them stay text.
+    // Emitted by the SDKs' `datatable()`/`ducklake()` helpers, whose args are run-time data.
+    pub literal_args: bool,
 }
 
 impl SqlAnnotations {
@@ -1635,7 +1629,18 @@ pub fn pad_string(value: &str, total_length: usize) -> String {
         format!("{value}{}", " ".repeat(padding_needed)) // Pad with spaces
     }
 }
+/// Copies only directories and regular files, never following a symlink: the
+/// trees copied here are written by jailed steps (dependency installs, a job's
+/// `vendor/`) and this runs outside the jail, so a link must not resolve
+/// against the worker's filesystem. Links are skipped, not recreated, since
+/// several trees may be merged into one `dst` and `fs::copy` would write the
+/// next tree's files through a recreated link.
 pub fn copy_dir_recursively(src: &Path, dst: &Path) -> error::Result<()> {
+    if fs::symlink_metadata(src)?.file_type().is_symlink() {
+        return Err(error::Error::InternalErr(format!(
+            "refusing to copy {src:?}: it is a symlink"
+        )));
+    }
     if !dst.exists() {
         fs::create_dir_all(dst)?;
     }
@@ -1647,10 +1652,13 @@ pub fn copy_dir_recursively(src: &Path, dst: &Path) -> error::Result<()> {
         let src_path = entry.path();
         let dst_path = dst.join(entry.file_name());
 
-        if src_path.is_dir() && !src_path.is_symlink() {
+        let file_type = entry.file_type()?;
+        if file_type.is_dir() {
             copy_dir_recursively(&src_path, &dst_path)?;
-        } else {
+        } else if file_type.is_file() {
             fs::copy(&src_path, &dst_path)?;
+        } else {
+            tracing::warn!("not copying {src_path:?}: neither a directory nor a regular file");
         }
     }
 
@@ -1989,27 +1997,43 @@ fn get_memory_from_meminfo() -> Option<i64> {
 }
 
 #[cfg(not(windows))]
+fn cgroup_v2_memory_limit(cgroup_root: &Path, cgroup_path: &Path) -> Option<i64> {
+    let mut min_limit: Option<i64> = None;
+    for dir in cgroup_path.ancestors() {
+        if !dir.starts_with(cgroup_root) {
+            break;
+        }
+        if let Ok(contents) = fs::read_to_string(dir.join("memory.max")) {
+            if let Ok(limit) = contents.trim().parse::<i64>() {
+                if limit >= 0 {
+                    min_limit = Some(min_limit.map_or(limit, |m| m.min(limit)));
+                }
+            }
+        }
+        if dir == cgroup_root {
+            break;
+        }
+    }
+    min_limit
+}
+
+#[cfg(not(windows))]
 pub fn get_memory() -> Option<i64> {
     let memory_limit: Option<i64> =
         if Path::new("/sys/fs/cgroup/memory/memory.limit_in_bytes").exists() {
             // cgroup v1
             parse_file("/sys/fs/cgroup/memory/memory.limit_in_bytes")
         } else {
-            // cgroup v2
-            let cgroup_path = get_cgroupv2_path()?;
-            let memory_max_path = format!("{cgroup_path}/memory.max");
-
-            parse_file(&memory_max_path)
+            // cgroup v2: walk up to the cgroup root for the tightest numeric limit;
+            // "max" means uncapped at that level
+            get_cgroupv2_path()
+                .and_then(|p| cgroup_v2_memory_limit(Path::new("/sys/fs/cgroup"), Path::new(&p)))
         };
 
-    // if memory_max is super high, read machine total memory (meminfo)
-    if memory_limit
-        .as_ref()
-        .is_some_and(|x| x > &(1024 * 1024 * 1024 * 1024 * 1024))
-    {
-        get_memory_from_meminfo()
-    } else {
-        memory_limit
+    // if uncapped ("max" on cgroup v2) or super high (cgroup v1), fall back to host RAM
+    match memory_limit {
+        Some(limit) if limit >= 0 && limit <= 1024 * 1024 * 1024 * 1024 * 1024 => Some(limit),
+        _ => get_memory_from_meminfo(),
     }
 }
 
@@ -3449,6 +3473,27 @@ mod tests {
     use super::*;
     use std::collections::HashMap;
 
+    #[cfg(unix)]
+    #[test]
+    fn copy_dir_recursively_does_not_follow_symlinks() {
+        let outside = tempfile::tempdir().unwrap();
+        std::fs::write(outside.path().join("other"), "s").unwrap();
+        let src = tempfile::tempdir().unwrap();
+        std::fs::create_dir(src.path().join("pkg")).unwrap();
+        std::fs::write(src.path().join("pkg/a.py"), "a").unwrap();
+        std::os::unix::fs::symlink(outside.path().join("other"), src.path().join("pkg/link"))
+            .unwrap();
+        let dst = tempfile::tempdir().unwrap();
+
+        copy_dir_recursively(src.path(), dst.path()).unwrap();
+        assert!(dst.path().join("pkg/a.py").is_file());
+        assert!(std::fs::symlink_metadata(dst.path().join("pkg/link")).is_err());
+
+        let link = src.path().join("link");
+        std::os::unix::fs::symlink(outside.path(), &link).unwrap();
+        assert!(copy_dir_recursively(&link, dst.path()).is_err());
+    }
+
     #[test]
     fn dedicated_path_is_read_like_a_job_path() {
         let path = |p: &str| WorkspacedPath::dedicated("ws", p).path;
@@ -4114,6 +4159,19 @@ mod tests {
     }
 
     #[test]
+    fn test_sql_literal_args_annotation() {
+        // As the SDK helpers emit it, among the other leading annotations.
+        let sdk = SqlAnnotations::parse(
+            "-- result_collection=last_statement_first_row\n-- literal_args\n-- role analytics\n-- $1 arg1\nSELECT $1::TEXT",
+        );
+        assert!(sdk.literal_args);
+
+        assert!(!SqlAnnotations::parse("-- $1 arg1\nSELECT $1::TEXT").literal_args);
+        // Only the leading comment block is read: a value cannot switch it on or off.
+        assert!(!SqlAnnotations::parse("SELECT 1;\n-- literal_args").literal_args);
+    }
+
+    #[test]
     fn test_no_network_annotation() {
         assert!(PythonAnnotations::parse("# sandbox\n# no_network\ndef main(): pass").no_network);
         assert!(!PythonAnnotations::parse("# sandbox\ndef main(): pass").no_network);
@@ -4441,5 +4499,46 @@ mod tests {
         assert!(is_allowed_file_location(job_dir_str, "dangling/payload").is_err());
 
         let _ = std::fs::remove_dir_all(&base);
+    }
+
+    // Tests for cgroup v2 memory limit
+    #[cfg(not(windows))]
+    #[test]
+    fn test_cgroup_v2_memory_limit_walks_ancestors_and_handles_max() {
+        let root = std::env::temp_dir().join(format!("wm_cgv2_mem_{}", uuid::Uuid::new_v4()));
+        let slice = root.join("kubepods.slice/pod1");
+        let leaf = slice.join("container1");
+        std::fs::create_dir_all(&leaf).unwrap();
+
+        // All "max" -> None (caller falls back to /proc/meminfo)
+        std::fs::write(slice.join("memory.max"), "max\n").unwrap();
+        std::fs::write(leaf.join("memory.max"), "max\n").unwrap();
+        assert_eq!(cgroup_v2_memory_limit(&root, &leaf), None);
+
+        // Leaf is "max" but parent slice has a 4 GiB limit -> inherits 4 GiB
+        std::fs::write(slice.join("memory.max"), "4294967296\n").unwrap();
+        assert_eq!(cgroup_v2_memory_limit(&root, &leaf), Some(4_294_967_296));
+
+        // Leaf has 8 GiB, parent has 4 GiB -> minimum effective limit (4 GiB)
+        std::fs::write(leaf.join("memory.max"), "8589934592\n").unwrap();
+        assert_eq!(cgroup_v2_memory_limit(&root, &leaf), Some(4_294_967_296));
+
+        // Leaf has 2 GiB, parent has 4 GiB -> leaf's tighter limit (2 GiB)
+        std::fs::write(leaf.join("memory.max"), "2147483648\n").unwrap();
+        assert_eq!(cgroup_v2_memory_limit(&root, &leaf), Some(2_147_483_648));
+
+        // Container cgroup namespace (`0::/` -> "/sys/fs/cgroup/") reads root/memory.max
+        std::fs::write(root.join("memory.max"), "1073741824\n").unwrap();
+        let root_with_slash = PathBuf::from(format!("{}/", root.display()));
+        assert_eq!(
+            cgroup_v2_memory_limit(&root, &root_with_slash),
+            Some(1_073_741_824)
+        );
+
+        // An explicit limit of 0 is preserved (not treated as uncapped); downstream consumers currently treat 0 as no cap.
+        std::fs::write(leaf.join("memory.max"), "0\n").unwrap();
+        assert_eq!(cgroup_v2_memory_limit(&root, &leaf), Some(0));
+
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

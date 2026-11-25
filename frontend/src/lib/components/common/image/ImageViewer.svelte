@@ -1,297 +1,434 @@
 <script lang="ts">
-	import { Download, Maximize, Minus, Plus } from 'lucide-svelte'
-	import { Button } from '$lib/components/common'
-	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
-	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
-	import { twMerge } from 'tailwind-merge'
-	import { useIsDarkMode } from '$lib/components/DarkModeObserver.svelte'
+	import Portal from '$lib/components/Portal.svelte'
+	import { Copy, Download, ExternalLink, PanelRight, X, ZoomIn, ZoomOut } from 'lucide-svelte'
+	import { fade } from 'svelte/transition'
+	import { on } from 'svelte/events'
+	import { sendUserToast } from '$lib/toast'
+	import Button from '../button/Button.svelte'
+	import Disposable from '../drawer/Disposable.svelte'
+	import { overlayHostActive, overlayShown, setTopmostSurface } from '../overlayHost.svelte'
 
 	interface Props {
 		src: string
-		/** Shown in the header and used as the download's file name. */
-		name: string
-		/** Byte size, shown beside the dimensions when known. */
-		bytes?: number
+		alt?: string
+		/** Caption in the header; defaults to `alt`. Also names the downloaded file when it
+		 *  ends in an extension (an S3 key, an attachment's file name). */
+		title?: string
+		isOpen: boolean
+		/** Shows the image in a viewer elsewhere (a session's preview panel), closing this one. */
+		onOpenInPreview?: () => void
 	}
 
-	let { src, name, bytes }: Props = $props()
+	let { src, alt = '', title, isOpen = $bindable(), onOpenInPreview }: Props = $props()
 
-	type Backdrop = 'checker' | 'light' | 'dark'
+	const caption = $derived(title || alt || 'Image')
 
-	const MIN_ZOOM = 0.02
-	const MAX_ZOOM = 32
-	const ZOOM_STEPS = [
-		0.05, 0.1, 0.25, 0.33, 0.5, 0.67, 0.75, 1, 1.25, 1.5, 2, 3, 4, 6, 8, 12, 16, 24, 32
-	]
-	// Room kept around a fitted image so its edges stay visible against the backdrop.
-	const FIT_PADDING = 16
-	// From this scale up, pixels are drawn as hard squares: smoothing an upscaled
-	// screenshot or icon blurs exactly the detail the user zoomed in to look at.
-	const PIXELATED_FROM = 2
+	const ZOOM_STEPS = [0.1, 0.25, 0.5, 0.75, 1, 1.5, 2, 3, 4, 6, 8]
+	const MAX_SCALE = 8
+	// Room kept around a fitted image: the top bar overlays the stage, so the image clears it.
+	const FIT_MARGIN_X = 48
+	const FIT_MARGIN_Y = 128
 
 	let natural = $state<{ w: number; h: number } | undefined>(undefined)
-	// The source that failed, not a flag: a new `src` (the file fixed and re-read) must mount
-	// the image again, and only the image's own load event could clear a flag.
-	let failedSrc = $state<string>()
-	const failed = $derived(failedSrc === src)
-	let viewportW = $state(0)
-	let viewportH = $state(0)
-	// `undefined` is "fit": the scale follows the panel's size. A number is a zoom the
-	// user chose, kept as the panel resizes.
-	let zoom = $state<number | undefined>(undefined)
-	let offset = $state({ x: 0, y: 0 })
-	// Until the viewer picks one, the backdrop is Windmill's own theme, and follows it.
-	const isDark = useIsDarkMode()
-	let chosenBackdrop = $state<Backdrop | undefined>(undefined)
-	const backdrop = $derived<Backdrop>(chosenBackdrop ?? (isDark.val ? 'dark' : 'light'))
-	let drag: { pointerId: number; x: number; y: number; ox: number; oy: number } | undefined =
-		$state(undefined)
+	let stageW = $state(0)
+	let stageH = $state(0)
+	let stage: HTMLDivElement | undefined = $state(undefined)
+	let imgEl: HTMLImageElement | undefined = $state(undefined)
 
-	// Fit never enlarges: a small image is shown at its real size rather than blown up.
+	/** `fit` follows the viewport as it resizes; a number is a fixed scale of the natural size. */
+	let zoom: number | 'fit' = $state('fit')
+	let pan = $state({ x: 0, y: 0 })
+	/** Eases button and keyboard zooms; wheel and drag must track the pointer without lag. */
+	let animate = $state(false)
+
 	const fitScale = $derived(
-		natural && viewportW > 0 && viewportH > 0
-			? Math.min(
-					1,
-					Math.max(viewportW - FIT_PADDING * 2, 1) / natural.w,
-					Math.max(viewportH - FIT_PADDING * 2, 1) / natural.h
-				)
+		natural && stageW && stageH
+			? Math.min(1, (stageW - FIT_MARGIN_X) / natural.w, (stageH - FIT_MARGIN_Y) / natural.h)
 			: 1
 	)
-	const scale = $derived(zoom ?? fitScale)
-	const shownW = $derived(natural ? natural.w * scale : 0)
-	const shownH = $derived(natural ? natural.h * scale : 0)
-	// A fitted image is centred and stays put; once zoomed it can be dragged anywhere the
-	// clamp allows.
-	const pannable = $derived(zoom !== undefined)
-	const percent = $derived(`${Math.round(scale * 100)}%`)
+	const scale = $derived(zoom === 'fit' ? fitScale : zoom)
+	const minScale = $derived(Math.min(fitScale, ZOOM_STEPS[0]))
+	const pannable = $derived(
+		!!natural && (natural.w * scale > stageW + 1 || natural.h * scale > stageH + 1)
+	)
 
-	function onLoad(e: Event) {
-		const img = e.currentTarget as HTMLImageElement
-		natural = { w: img.naturalWidth || 1, h: img.naturalHeight || 1 }
+	let disposable: Disposable | undefined = $state(undefined)
+	const hostActive = overlayHostActive()
+	const shown = overlayShown()
+	setTopmostSurface(() => disposable?.isTopmost() ?? true)
+
+	function onOpen() {
+		// A bound `open` alone does not put the viewer on the disposable stack, and the stack
+		// lifts it above the drawer or dialog it was opened from and gives Escape to the topmost.
+		disposable?.openDrawer()
+		zoom = 'fit'
+		pan = { x: 0, y: 0 }
+		animate = false
 	}
 
-	function clampOffset(x: number, y: number, s: number): { x: number; y: number } {
+	function close() {
+		isOpen = false
+	}
+
+	function clampPan(p: { x: number; y: number }, s: number) {
 		if (!natural) return { x: 0, y: 0 }
-		// The image never leaves the panel: an image larger than it may move until its edge
-		// reaches the panel's centre, a smaller one until its centre reaches the panel's edge.
-		// Re-centring a side that fits instead would throw away the point the cursor zooms on.
-		const maxX = Math.max(natural.w * s, viewportW) / 2
-		const maxY = Math.max(natural.h * s, viewportH) / 2
+		const maxX = Math.max(0, (natural.w * s - stageW) / 2)
+		const maxY = Math.max(0, (natural.h * s - stageH) / 2)
 		return {
-			x: Math.min(maxX, Math.max(-maxX, x)),
-			y: Math.min(maxY, Math.max(-maxY, y))
+			x: Math.min(maxX, Math.max(-maxX, p.x)),
+			y: Math.min(maxY, Math.max(-maxY, p.y))
 		}
 	}
 
-	/** Zoom to `next`, keeping the image point under (`px`, `py`) — viewport coordinates,
-	 * the centre when omitted — where it is. */
-	function zoomTo(next: number, px = viewportW / 2, py = viewportH / 2) {
-		const s = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, next))
-		const cx = viewportW / 2 + offset.x
-		const cy = viewportH / 2 + offset.y
-		const ux = (px - cx) / scale
-		const uy = (py - cy) / scale
-		offset = clampOffset(px - ux * s - viewportW / 2, py - uy * s - viewportH / 2, s)
+	/** `at` is relative to the stage centre; that point stays under the pointer while zooming. */
+	function zoomTo(next: number, at = { x: 0, y: 0 }) {
+		const s = Math.min(MAX_SCALE, Math.max(minScale, next))
+		const k = s / scale
+		pan = clampPan({ x: at.x - (at.x - pan.x) * k, y: at.y - (at.y - pan.y) * k }, s)
 		zoom = s
 	}
 
-	function stepZoom(direction: 1 | -1) {
-		const next =
-			direction > 0
-				? (ZOOM_STEPS.find((z) => z > scale + 1e-6) ?? MAX_ZOOM)
-				: ([...ZOOM_STEPS].reverse().find((z) => z < scale - 1e-6) ?? MIN_ZOOM)
-		zoomTo(next)
-	}
-
 	function fit() {
-		zoom = undefined
-		offset = { x: 0, y: 0 }
+		animate = true
+		zoom = 'fit'
+		pan = { x: 0, y: 0 }
 	}
 
-	function actualSize(px?: number, py?: number) {
-		zoomTo(1, px, py)
+	function zoomIn() {
+		animate = true
+		zoomTo(ZOOM_STEPS.find((z) => z > scale * 1.01) ?? MAX_SCALE)
 	}
 
-	function onWheel(e: WheelEvent) {
-		if (!natural) return
-		e.preventDefault()
-		const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
-		// Pixel deltas from a trackpad are small and many, line deltas from a mouse wheel
-		// few and large; normalising both keeps one notch near a 10% step.
-		const delta = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY
-		zoomTo(scale * Math.exp(-delta * 0.0025), e.clientX - rect.left, e.clientY - rect.top)
+	function zoomOut() {
+		animate = true
+		zoomTo(ZOOM_STEPS.findLast((z) => z < scale / 1.01) ?? minScale)
 	}
+
+	function stagePoint(e: { clientX: number; clientY: number }) {
+		const r = stage!.getBoundingClientRect()
+		return { x: e.clientX - r.left - r.width / 2, y: e.clientY - r.top - r.height / 2 }
+	}
+
+	function toggleZoom(e: MouseEvent) {
+		// The stage captures the pointer, so the double click targets the stage, not the image.
+		const r = imgEl?.getBoundingClientRect()
+		if (
+			!r ||
+			e.clientX < r.left ||
+			e.clientX > r.right ||
+			e.clientY < r.top ||
+			e.clientY > r.bottom
+		)
+			return
+		animate = true
+		if (zoom === 'fit' || Math.abs(scale - fitScale) < 0.001) {
+			zoomTo(fitScale < 1 ? 1 : 2, stagePoint(e))
+		} else {
+			fit()
+		}
+	}
+
+	function wheelZoom(node: HTMLElement) {
+		// Registered by hand: the default must be prevented, so the listener cannot be passive.
+		return on(
+			node,
+			'wheel',
+			(e: WheelEvent) => {
+				e.preventDefault()
+				animate = false
+				const lines = e.deltaMode === 1 ? 33 : 1
+				// Pinch on a trackpad arrives as ctrl+wheel with small deltas.
+				const speed = e.ctrlKey ? 0.01 : 0.0015
+				zoomTo(scale * Math.exp(-e.deltaY * lines * speed), stagePoint(e))
+			},
+			{ passive: false }
+		)
+	}
+
+	let panning = $state(false)
+	let drag:
+		| { x: number; y: number; pan: { x: number; y: number }; moved: boolean; onImage: boolean }
+		| undefined
 
 	function onPointerDown(e: PointerEvent) {
-		if (e.button !== 0 || !pannable) return
-		;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
-		drag = { pointerId: e.pointerId, x: e.clientX, y: e.clientY, ox: offset.x, oy: offset.y }
+		if (e.button !== 0) return
+		drag = { x: e.clientX, y: e.clientY, pan, moved: false, onImage: e.target === imgEl }
+		stage?.setPointerCapture(e.pointerId)
 	}
 
 	function onPointerMove(e: PointerEvent) {
-		if (!drag || drag.pointerId !== e.pointerId) return
-		offset = clampOffset(drag.ox + e.clientX - drag.x, drag.oy + e.clientY - drag.y, scale)
+		if (!drag) return
+		const dx = e.clientX - drag.x
+		const dy = e.clientY - drag.y
+		if (!drag.moved && Math.hypot(dx, dy) < 4) return
+		drag.moved = true
+		if (pannable) {
+			panning = true
+			animate = false
+			pan = clampPan({ x: drag.pan.x + dx, y: drag.pan.y + dy }, scale)
+		}
 	}
 
-	function onPointerUp(e: PointerEvent) {
-		if (drag?.pointerId === e.pointerId) drag = undefined
+	/** A plain click beside the image dismisses; one that ends a pan does not. */
+	let dismissOnClick = false
+
+	function onPointerUp() {
+		dismissOnClick = !!drag && !drag.moved && !drag.onImage
+		drag = undefined
+		panning = false
 	}
 
-	function onDoubleClick(e: MouseEvent) {
-		const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
-		if (zoom === undefined && fitScale < 1) actualSize(e.clientX - rect.left, e.clientY - rect.top)
-		else fit()
+	function onStageClick() {
+		// Closed on `click`, not `pointerup`: outside-click guards elsewhere (the chat composer)
+		// listen for this click and must still see the viewer open when it arrives.
+		if (dismissOnClick) close()
+		dismissOnClick = false
 	}
 
 	function onKeyDown(e: KeyboardEvent) {
+		if (!isOpen || !hostActive() || !(disposable?.isTopmost() ?? true)) return
 		if (e.metaKey || e.ctrlKey || e.altKey) return
-		if (e.key === '+' || e.key === '=') stepZoom(1)
-		else if (e.key === '-' || e.key === '_') stepZoom(-1)
-		else if (e.key === '0') fit()
-		else if (e.key === '1') actualSize()
-		else return
+		const action = {
+			'+': zoomIn,
+			'=': zoomIn,
+			'-': zoomOut,
+			'0': fit,
+			'1': () => {
+				animate = true
+				zoomTo(1)
+			}
+		}[e.key]
+		if (!action) return
 		e.preventDefault()
+		action()
 	}
 
-	function humanSize(n: number): string {
-		if (n < 1024) return `${n} B`
-		if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
-		return `${(n / (1024 * 1024)).toFixed(1)} MB`
+	const MIME_EXT: Record<string, string> = {
+		'image/png': 'png',
+		'image/jpeg': 'jpg',
+		'image/gif': 'gif',
+		'image/webp': 'webp',
+		'image/svg+xml': 'svg',
+		'image/avif': 'avif',
+		'image/bmp': 'bmp'
 	}
 
-	// A 16px checkerboard, the usual stand-in for "transparent".
-	const CHECKER_STYLE =
-		'background-color:#ffffff;background-image:linear-gradient(45deg,#e5e7eb 25%,transparent 25%,transparent 75%,#e5e7eb 75%),linear-gradient(45deg,#e5e7eb 25%,transparent 25%,transparent 75%,#e5e7eb 75%);background-size:16px 16px;background-position:0 0,8px 8px'
+	/** The caption names the file, but the bytes decide its extension: chat attachments keep
+	 *  their original name after being re-encoded (`diagram.svg` holding PNG bytes). */
+	function fileName(mime: string) {
+		const base = caption.split(/[/\\]/).pop() ?? ''
+		const named = base.match(/^(.+)\.([a-z0-9]{2,5})$/i)
+		const ext = MIME_EXT[mime] ?? named?.[2] ?? 'png'
+		return `${named?.[1] ?? 'image'}.${ext}`
+	}
+
+	async function fetchBlob() {
+		const res = await fetch(src)
+		if (!res.ok) throw new Error(`HTTP ${res.status}`)
+		return res.blob()
+	}
+
+	async function download() {
+		try {
+			const blob = await fetchBlob()
+			const url = URL.createObjectURL(blob)
+			const a = document.createElement('a')
+			a.href = url
+			a.download = fileName(blob.type)
+			a.click()
+			setTimeout(() => URL.revokeObjectURL(url), 1000)
+		} catch (e) {
+			sendUserToast(`Could not download the image: ${e}`, true)
+		}
+	}
+
+	async function openInNewTab() {
+		if (!src.startsWith('data:')) {
+			window.open(src, '_blank', 'noopener')
+			return
+		}
+		// Browsers refuse to open a data: URL as a page; a blob URL of the same bytes opens.
+		try {
+			const url = URL.createObjectURL(await fetchBlob())
+			window.open(url, '_blank', 'noopener')
+			setTimeout(() => URL.revokeObjectURL(url), 60_000)
+		} catch (e) {
+			sendUserToast(`Could not open the image: ${e}`, true)
+		}
+	}
+
+	async function copyImage() {
+		try {
+			// The clipboard takes PNG in every browser, other types in few: re-encode through a canvas.
+			const canvas = document.createElement('canvas')
+			canvas.width = imgEl!.naturalWidth
+			canvas.height = imgEl!.naturalHeight
+			canvas.getContext('2d')!.drawImage(imgEl!, 0, 0)
+			const blob = new Promise<Blob>((resolve, reject) =>
+				canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('encoding failed'))), 'image/png')
+			)
+			// Handed over as a promise so `write` runs within the click: Safari refuses it once
+			// the user gesture has expired, which an awaited encode would let happen.
+			await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })])
+			sendUserToast('Image copied to clipboard')
+		} catch (e) {
+			sendUserToast(`Could not copy the image: ${e}`, true)
+		}
+	}
 </script>
 
-<div class="flex flex-col h-full min-h-0 bg-surface">
-	<!-- The file name is the tab's label already; this bar carries what the tab cannot. -->
-	<div
-		class="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 px-4 py-2 border-b border-border-light"
-	>
-		<span class="text-xs text-secondary whitespace-nowrap tabular-nums" title={name}>
-			{#if natural}
-				{natural.w} × {natural.h}{bytes !== undefined ? ` · ${humanSize(bytes)}` : ''}
-			{/if}
-		</span>
-		<div class="flex flex-wrap items-center gap-1">
-			<Button
-				unifiedSize="sm"
-				variant="subtle"
-				iconOnly
-				startIcon={{ icon: Minus }}
-				title="Zoom out (-)"
-				disabled={!natural || scale <= MIN_ZOOM}
-				onClick={() => stepZoom(-1)}
-			/>
-			<span class="w-11 text-center text-2xs tabular-nums text-secondary" aria-live="polite">
-				{natural ? percent : ''}
-			</span>
-			<Button
-				unifiedSize="sm"
-				variant="subtle"
-				iconOnly
-				startIcon={{ icon: Plus }}
-				title="Zoom in (+)"
-				disabled={!natural || scale >= MAX_ZOOM}
-				onClick={() => stepZoom(1)}
-			/>
-			<Button
-				unifiedSize="sm"
-				variant={zoom === undefined ? 'default' : 'subtle'}
-				startIcon={{ icon: Maximize }}
-				title="Fit to panel (0)"
-				disabled={!natural}
-				onClick={fit}
-			>
-				Fit
-			</Button>
-			<Button
-				unifiedSize="sm"
-				variant={zoom === 1 ? 'default' : 'subtle'}
-				title="Actual size (1)"
-				disabled={!natural}
-				onClick={() => actualSize()}
-			>
-				1:1
-			</Button>
-			<ToggleButtonGroup
-				noWFull
-				selected={backdrop}
-				onSelected={(v) => {
-					// The group also reports a programmatic change of `selected`; only a different
-					// value is the viewer's pick, else a theme switch would pin the backdrop.
-					if (v !== backdrop) chosenBackdrop = v as Backdrop
-				}}
-			>
-				{#snippet children({ item })}
-					<ToggleButton {item} value="checker" label="Grid" tooltip="Checkerboard" size="sm" />
-					<ToggleButton {item} value="light" label="Light" tooltip="Light background" size="sm" />
-					<ToggleButton {item} value="dark" label="Dark" tooltip="Dark background" size="sm" />
-				{/snippet}
-			</ToggleButtonGroup>
-			<Button
-				unifiedSize="sm"
-				variant="subtle"
-				iconOnly
-				startIcon={{ icon: Download }}
-				title="Download"
-				href={src}
-				download={name}
-			/>
-		</div>
-	</div>
+<svelte:window onkeydown={onKeyDown} />
 
-	<!-- The viewport takes keys and the wheel itself: zoom follows the cursor, so it has to
-	     be the element under it. ARIA's `application` role is the one for a surface that
-	     handles its own pointer and keys, but Svelte does not count it as interactive. -->
-	<!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
-	<div
-		class={twMerge(
-			'relative flex-1 min-h-0 overflow-hidden outline-none select-none touch-none',
-			backdrop === 'light' && 'bg-white',
-			// The dark theme's surface-secondary in either theme: the light theme holds it as `-inverse`.
-			backdrop === 'dark' && (isDark.val ? 'bg-surface-secondary' : 'bg-surface-secondary-inverse'),
-			pannable ? (drag ? 'cursor-grabbing' : 'cursor-grab') : 'cursor-default'
-		)}
-		style={backdrop === 'checker' ? CHECKER_STYLE : undefined}
-		bind:clientWidth={viewportW}
-		bind:clientHeight={viewportH}
-		tabindex="0"
-		role="application"
-		aria-roledescription="image viewer"
-		aria-label={`${name}. Plus and minus zoom, 0 fits, 1 shows actual size.`}
-		onwheel={onWheel}
-		onpointerdown={onPointerDown}
-		onpointermove={onPointerMove}
-		onpointerup={onPointerUp}
-		onpointercancel={onPointerUp}
-		ondblclick={onDoubleClick}
-		onkeydown={onKeyDown}
+{#if shown()}
+	<Disposable
+		bind:open={isOpen}
+		bind:this={disposable}
+		{onOpen}
+		onClose={() => disposable?.closeDrawer()}
 	>
-		{#if failed}
-			<div class="absolute inset-0 flex items-center justify-center p-4">
-				<span class="rounded-md bg-surface px-3 py-2 text-xs text-secondary shadow-sm">
-					This file could not be displayed as an image.
-				</span>
-			</div>
-		{:else}
-			<img
-				{src}
-				alt={name}
-				draggable="false"
-				onload={onLoad}
-				onerror={() => (failedSrc = src)}
-				class={twMerge(
-					'absolute max-w-none pointer-events-none',
-					!natural && 'invisible',
-					scale >= PIXELATED_FROM && '[image-rendering:pixelated]'
-				)}
-				style:width="{shownW}px"
-				style:height="{shownH}px"
-				style:left="{viewportW / 2 + offset.x - shownW / 2}px"
-				style:top="{viewportH / 2 + offset.y - shownH / 2}px"
-			/>
-		{/if}
-	</div>
-</div>
+		{#snippet children({ zIndex })}
+			{#if isOpen}
+				<Portal name="always-mounted">
+					<div
+						role="dialog"
+						aria-modal="true"
+						aria-label={caption}
+						class="fixed inset-0 bg-black/85"
+						style="z-index: {zIndex}"
+						transition:fade|local={{ duration: 150 }}
+					>
+						<div
+							bind:this={stage}
+							bind:clientWidth={stageW}
+							bind:clientHeight={stageH}
+							{@attach wheelZoom}
+							class="absolute inset-0 overflow-hidden touch-none select-none"
+							class:cursor-grab={pannable && !panning}
+							class:cursor-grabbing={panning}
+							role="presentation"
+							onpointerdown={onPointerDown}
+							onpointermove={onPointerMove}
+							onpointerup={onPointerUp}
+							onclick={onStageClick}
+							onpointercancel={() => {
+								drag = undefined
+								panning = false
+							}}
+							ondblclick={toggleZoom}
+						>
+							<img
+								bind:this={imgEl}
+								{src}
+								{alt}
+								draggable="false"
+								class="absolute left-1/2 top-1/2 max-w-none {natural ? '' : 'opacity-0'} {animate
+									? 'transition-transform duration-150 ease-out'
+									: ''}"
+								style="width: {natural?.w ?? 0}px; height: {natural?.h ??
+									0}px; transform: translate(-50%, -50%) translate({pan.x}px, {pan.y}px) scale({scale});"
+								onload={(e) => {
+									const el = e.currentTarget as HTMLImageElement
+									// An SVG without width/height has no intrinsic size.
+									natural = { w: el.naturalWidth || 1024, h: el.naturalHeight || 768 }
+								}}
+							/>
+						</div>
+
+						<div
+							class="absolute inset-x-0 top-0 flex items-center justify-between gap-3 p-3 pointer-events-none"
+						>
+							<div
+								class="flex items-baseline gap-2 min-w-0 h-9 px-3 leading-9 rounded-md bg-surface-tertiary shadow-lg pointer-events-auto"
+							>
+								<span class="truncate text-xs font-semibold text-emphasis">{caption}</span>
+								{#if natural}
+									<span class="shrink-0 text-2xs text-secondary tabular-nums">
+										{natural.w} × {natural.h}
+									</span>
+								{/if}
+							</div>
+							<div
+								class="flex shrink-0 items-center gap-0.5 h-9 px-1 rounded-md bg-surface-tertiary shadow-lg pointer-events-auto"
+							>
+								<Button
+									variant="subtle"
+									unifiedSize="sm"
+									iconOnly
+									startIcon={{ icon: ZoomOut }}
+									title="Zoom out (−)"
+									disabled={scale <= minScale + 0.001}
+									onclick={zoomOut}
+								/>
+								<Button
+									variant="subtle"
+									unifiedSize="sm"
+									btnClasses="w-14 justify-center tabular-nums"
+									title="Fit to screen (0)"
+									onclick={fit}
+								>
+									{Math.round(scale * 100)}%
+								</Button>
+								<Button
+									variant="subtle"
+									unifiedSize="sm"
+									iconOnly
+									startIcon={{ icon: ZoomIn }}
+									title="Zoom in (+)"
+									disabled={scale >= MAX_SCALE - 0.001}
+									onclick={zoomIn}
+								/>
+								<div class="w-px h-4 mx-1 bg-border-light"></div>
+								<Button
+									variant="subtle"
+									unifiedSize="sm"
+									iconOnly
+									startIcon={{ icon: Copy }}
+									title="Copy image"
+									onclick={copyImage}
+								/>
+								<Button
+									variant="subtle"
+									unifiedSize="sm"
+									iconOnly
+									startIcon={{ icon: Download }}
+									title="Download"
+									onclick={download}
+								/>
+								<Button
+									variant="subtle"
+									unifiedSize="sm"
+									iconOnly
+									startIcon={{ icon: ExternalLink }}
+									title="Open in new tab"
+									onclick={openInNewTab}
+								/>
+								{#if onOpenInPreview}
+									<Button
+										variant="subtle"
+										unifiedSize="sm"
+										iconOnly
+										startIcon={{ icon: PanelRight }}
+										title="Open in preview"
+										onclick={() => {
+											close()
+											onOpenInPreview?.()
+										}}
+									/>
+								{/if}
+								<div class="w-px h-4 mx-1 bg-border-light"></div>
+								<Button
+									variant="subtle"
+									unifiedSize="sm"
+									iconOnly
+									startIcon={{ icon: X }}
+									title="Close (Esc)"
+									onclick={close}
+								/>
+							</div>
+						</div>
+					</div>
+				</Portal>
+			{/if}
+		{/snippet}
+	</Disposable>
+{/if}

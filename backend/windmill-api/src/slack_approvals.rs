@@ -8,13 +8,12 @@ use http::HeaderMap;
 use hyper::StatusCode;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use sha2::Sha256;
 use sqlx::types::Uuid;
 use std::collections::HashMap;
 use windmill_common::error::{to_anyhow, Error};
 use windmill_common::flows::ApprovalSkin;
-use windmill_common::utils::truncate_with_ellipsis;
+use windmill_common::utils::{truncate_with_ellipsis, PlainValue};
 use windmill_common::variables::{get_secret_value_as_admin, get_workspace_key};
 
 use crate::db::{ApiAuthed, DB};
@@ -84,7 +83,7 @@ struct State {
 #[derive(Deserialize, Debug)]
 #[serde(tag = "type", rename_all = "snake_case")]
 enum ValueInput {
-    PlainTextInput { value: Option<Value> },
+    PlainTextInput { value: Option<PlainValue> },
     Datepicker { selected_date: Option<String> },
     Timepicker { selected_time: Option<String> },
     StaticSelect { selected_option: Option<SelectedOption> },
@@ -888,7 +887,7 @@ fn process_non_datetime_inputs(
             value
                 .as_ref()
                 .and_then(|v| {
-                    v.as_str().and_then(|s| s.parse::<f64>().ok()).map(|num| {
+                    v.0.as_str().and_then(|s| s.parse::<f64>().ok()).map(|num| {
                         if action_id.ends_with("_type_integer") {
                             (
                                 base_action_id.to_string(),
@@ -906,9 +905,9 @@ fn process_non_datetime_inputs(
         }
 
         // Plain text input: Extracts the text value
-        ValueInput::PlainTextInput { value } => value
-            .as_ref()
-            .map(|v| (action_id.to_string(), v.clone().into())),
+        ValueInput::PlainTextInput { value } => {
+            value.as_ref().map(|v| (action_id.to_string(), v.0.clone()))
+        }
 
         // Static select: Extracts the selected option's value
         ValueInput::StaticSelect { selected_option } => selected_option

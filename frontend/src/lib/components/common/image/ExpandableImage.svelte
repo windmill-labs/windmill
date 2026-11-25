@@ -14,9 +14,7 @@
 
 <script lang="ts">
 	import { twMerge } from 'tailwind-merge'
-	import { PanelRight } from 'lucide-svelte'
-	import Modal2 from '../modal/Modal2.svelte'
-	import Button from '../button/Button.svelte'
+	import ImageViewer from './ImageViewer.svelte'
 
 	interface Props {
 		/** Source of both the inline thumbnail and the expanded view. */
@@ -74,28 +72,4 @@
 	}}
 />
 
-<Modal2
-	bind:isOpen
-	title={title || alt || 'Image'}
-	fixedHeight="adaptive"
-	css={{ popup: { style: 'width: auto;' } }}
->
-	{#snippet headerRight()}
-		{#if onOpen}
-			<Button
-				unifiedSize="sm"
-				variant="default"
-				startIcon={{ icon: PanelRight }}
-				onClick={() => {
-					isOpen = false
-					onOpen?.()
-				}}
-			>
-				Open in preview
-			</Button>
-		{/if}
-	{/snippet}
-	<!-- Capped, never stretched: the image keeps its natural size up to the
-	     viewport bound, so a small source gains room without turning blurry. -->
-	<img {src} {alt} class="max-h-[75vh] max-w-[80vw] object-contain mx-auto" />
-</Modal2>
+<ImageViewer bind:isOpen {src} {alt} {title} onOpenInPreview={onOpen} />

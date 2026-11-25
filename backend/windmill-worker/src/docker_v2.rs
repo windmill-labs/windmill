@@ -15,6 +15,7 @@
 //! `# docker` keeps the v1 daemon path). The script body runs inside the image via
 //! `/bin/sh`; an empty body runs the image's ENTRYPOINT/CMD.
 
+use std::collections::HashMap;
 use std::process::Stdio;
 
 use serde::Deserialize;
@@ -33,8 +34,8 @@ use windmill_queue::{append_logs, CanceledBy, MiniPulledJob};
 use crate::{
     common::{
         build_args_map, get_reserved_variables, proto_str, raw_to_string, read_and_check_file,
-        render_envars, resolve_nsjail_timeout, resolve_nsjail_tmp_mount_block, start_child_process,
-        OccupancyMetrics, DEV_CONF_NSJAIL,
+        render_envars, resolve_nsjail_timeout, resolve_nsjail_tmp_mount_block, script_envars,
+        start_child_process, OccupancyMetrics, DEV_CONF_NSJAIL,
     },
     get_run_proxy_envs,
     handle_child::handle_child,
@@ -654,6 +655,7 @@ pub async fn handle_docker_v2_job(
     shared_mount: &str,
     base_internal_url: &str,
     worker_name: &str,
+    envs: &HashMap<String, String>,
     occupancy_metrics: &mut OccupancyMetrics,
 ) -> Result<Box<RawValue>, Error> {
     // The sandboxed container runtime *is* nsjail, so it requires nsjail. (`# docker`
@@ -779,36 +781,6 @@ pub async fn handle_docker_v2_job(
         )
         .await;
     }
-    write_file(
-        job_dir,
-        "run.docker.config.proto",
-        &NSJAIL_CONFIG_RUN_DOCKER_CONTENT
-            .replace("{TIMEOUT}", &nsjail_timeout)
-            .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
-            .replace("{CLONE_NEWNET}", nsjail_clone_newnet(no_network))
-            // proto_str-quoted: WorkingDir is image-controlled, must not break out
-            // of the `cwd:` string and inject nsjail directives.
-            .replace("{WORKDIR}", &proto_str(working_dir))
-            .replace("{ROOTFS_MOUNTS}", &rootfs_mounts)
-            .replace(
-                "{TMP_MOUNT_BLOCK}",
-                &resolve_nsjail_tmp_mount_block(job_dir).await,
-            )
-            // `# volume` mounts + same-worker shared folder (empty if none).
-            .replace("{SHARED_MOUNT}", shared_mount)
-            .replace(
-                "{RESULT_MOUNT}",
-                &result_dst
-                    .as_deref()
-                    .map(|dst| render_result_mount(job_dir, dst))
-                    .unwrap_or_default(),
-            )
-            // Image env as `envar:` directives (child-only), so it never touches
-            // nsjail's process env.
-            .replace("{ENVARS}", &envars)
-            .replace("#{DEV}", DEV_CONF_NSJAIL),
-    )?;
-
     // nsjail's OWN process env: only windmill-trusted keys (reserved vars so
     // `wmill`/API calls work, + proxy). `keep_env: true` forwards these to the
     // child. The image env is NOT here — see container_env above.
@@ -844,6 +816,50 @@ pub async fn handle_docker_v2_job(
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    write_file(
+        job_dir,
+        "run.docker.config.proto",
+        &NSJAIL_CONFIG_RUN_DOCKER_CONTENT
+            .replace("{TIMEOUT}", &nsjail_timeout)
+            .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
+            .replace("{CLONE_NEWNET}", nsjail_clone_newnet(no_network))
+            // proto_str-quoted: WorkingDir comes from the image and must stay inside
+            // the `cwd:` string.
+            .replace("{WORKDIR}", &proto_str(working_dir))
+            .replace("{ROOTFS_MOUNTS}", &rootfs_mounts)
+            .replace(
+                "{TMP_MOUNT_BLOCK}",
+                &resolve_nsjail_tmp_mount_block(job_dir).await,
+            )
+            // `# volume` mounts + same-worker shared folder (empty if none).
+            .replace("{SHARED_MOUNT}", shared_mount)
+            .replace(
+                "{RESULT_MOUNT}",
+                &result_dst
+                    .as_deref()
+                    .map(|dst| render_result_mount(job_dir, dst))
+                    .unwrap_or_default(),
+            )
+            // Script env, less the keys the image sets, then the image env, as `envar:`
+            // directives (child-only), so neither touches nsjail's process env.
+            .replace(
+                "{ENVARS}",
+                &[
+                    script_envars(
+                        &envs
+                            .iter()
+                            .filter(|(k, _)| !container_env.iter().any(|(ck, _)| ck == *k))
+                            .map(|(k, v)| (k.clone(), v.clone()))
+                            .collect(),
+                        &nsjail_cmd,
+                        &[],
+                    ),
+                    envars,
+                ]
+                .join("\n"),
+            )
+            .replace("#{DEV}", DEV_CONF_NSJAIL),
+    )?;
     let child = start_child_process(nsjail_cmd, NSJAIL_PATH.as_str(), false).await?;
 
     let child_result = handle_child(

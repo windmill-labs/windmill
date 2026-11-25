@@ -6,7 +6,7 @@ import { buildsAnything } from '$lib/editRights'
 import { findCanonicalDevWorkspace } from '$lib/utils/workspaceHierarchy'
 import { setAiClientWorkspace } from '$lib/components/copilot/aiClientWorkspace'
 import { fixupUrlAfterWorkspaceSwitch } from '$lib/components/sidebar/workspaceSwitchUrl'
-import type { WorkModeLock } from '../copilot/chat/workMode'
+import type { AIWorkMode, WorkModeLock } from '../copilot/chat/workMode'
 import { useSessionReadOnly } from './sessionPermissions.svelte'
 import {
 	getEffectiveWorkspaceId,
@@ -31,12 +31,21 @@ function moveUnsentSession(sessionId: string, id: string, switchesWorkspace: boo
  * Home: moving its draft to the dev workspace moves the page too. Reads context and registers
  * an effect: call during component initialisation.
  */
-export function useWorkModeLock(session: () => Session | undefined, switchesWorkspace = false) {
+export function useWorkModeLock(
+	session: () => Session | undefined,
+	switchesWorkspace = false,
+	/** On an unsent draft in a protected workspace, picking a held mode calls this rather than
+	 *  being refused: Home asks whether to work in a fork or, for a bypasser, directly. */
+	onProtectedPick?: () => ((mode: AIWorkMode) => void) | undefined
+) {
 	const workspace = () => {
 		const s = session()
 		return s ? getEffectiveWorkspaceId(s) : undefined
 	}
-	const protectedWorkspace = useSessionReadOnly(workspace)
+	const protectedWorkspace = useSessionReadOnly(workspace, () => {
+		const s = session()
+		return !!s?.direct_in && s.direct_in === workspace()
+	})
 	const rights = useEditRights(workspace)
 	const workspaces = fromStore(userWorkspaces)
 	const lock = $derived.by((): WorkModeLock | undefined => {
@@ -48,16 +57,19 @@ export function useWorkModeLock(session: () => Session | undefined, switchesWork
 		// A role that cannot run is held to reading, as its chat access is (`capabilitiesForRole`).
 		const readsOnly = !rights.capabilities.run
 		if (protectedWorkspace.known) {
+			const onPick = !s.workspace_id && !readsOnly ? onProtectedPick?.() : undefined
 			const dev = findCanonicalDevWorkspace(ws, workspaces.current)
 			if (!dev)
 				return {
 					reason: 'This workspace is protected against direct changes. Build in a fork.',
-					readsOnly
+					readsOnly,
+					onPick
 				}
 			const label = `${dev.name} (dev)`
 			return {
 				reason: `This workspace is protected against direct changes. Build in ${label}.`,
 				readsOnly,
+				onPick,
 				// Until its first message a session can still change workspace; after it, only a new
 				// one can act elsewhere: Home's composer, on the dev workspace.
 				escape: s.workspace_id

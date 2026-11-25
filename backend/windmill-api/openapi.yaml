@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.882.0
+  version: 1.884.1
   title: Windmill API
 
   contact:
@@ -9182,13 +9182,21 @@ paths:
                       type: string
                     supports_client_credentials:
                       type: boolean
+                    supports_authorization_code:
+                      type: boolean
+                      description: The instance entry declares the authorization-code grant, so users can sign in with their own account when has_shared_credentials is also true.
                     has_shared_credentials:
                       type: boolean
-                      description: The instance entry holds a client id and secret users can connect with, for sign-in or as a shared service account. Whether client credentials are shared is get_connect's client_credentials_configured.
+                      description: The instance entry holds a client id and secret users can connect with, for sign-in or as a shared service account.
+                    shares_client_credentials:
+                      type: boolean
+                      description: Users may connect as the instance entry's own app with its shared client credentials, with no sign-in.
                   required:
                     - name
                     - supports_client_credentials
+                    - supports_authorization_code
                     - has_shared_credentials
+                    - shares_client_credentials
 
   /oauth/get_connect/{client}:
     get:
@@ -15324,6 +15332,35 @@ paths:
                       type: object
                       additionalProperties: true
 
+  /w/{workspace}/ai_session_tools/secret_request/open:
+    post:
+      summary: read the secret request a request_secret link carries
+      description: The page an MCP client's request_secret link opens reads the card to draw from the link's signed token. Refused when the token is invalid, expired, or made for another user or workspace.
+      operationId: openSecretRequest
+      tags:
+        - ai
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - token
+              properties:
+                token:
+                  type: string
+      responses:
+        "200":
+          description: the card's request
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+
   /w/{workspace}/ai/sessions/list:
     get:
       summary: list the calling user's AI session backups in the workspace object storage
@@ -17406,6 +17443,12 @@ paths:
                 flow_version:
                   type: integer
                   description: specific flow version to use for restart (optional, uses current version if not specified)
+                failed_only:
+                  type: boolean
+                  description: for a parallel for-loop or branch-all at the restart point (`step_id`, or the last `nested_path` entry), keep the iterations (branches) that succeeded and rerun only the others from their first step, each in its original position. Cannot be combined with an iteration to restart at on that same step.
+                from_failed_step:
+                  type: boolean
+                  description: with `failed_only`, resume each failed iteration (branch) at the step where it failed, keeping the steps before it, rather than rerunning it from its first step.
                 nested_path:
                   type: array
                   description: path of additional steps to descend into AFTER `step_id`. Each entry represents one level of nesting inside the spawned child of the previous level's container (BranchOne / sequential ForLoop iteration / Subflow). When non-empty, the actual restart point is the LAST entry's step_id.
@@ -19479,6 +19522,15 @@ paths:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/JobId"
         - $ref: "#/components/parameters/GetStarted"
+        - name: wait_for_child
+          description: |
+            Set by a job's SDK wait helpers when the calling job is blocked until this job, its
+            child, completes. If every worker of the child's tag is held by such a waiting parent,
+            the child can never start, and the request fails with 409 instead of the wait hanging.
+            Leave unset for a plain status read.
+          in: query
+          schema:
+            type: boolean
 
       responses:
         "200":
@@ -30843,6 +30895,10 @@ components:
         muted_on_user_path:
           type: boolean
           default: false
+        muted_on_ui_runs:
+          type: boolean
+          default: false
+          description: Skip jobs started from the UI, whose trigger kind is `ui`. Stored only when true.
 
     SuccessHandlerConfig:
       type: object
@@ -30875,6 +30931,9 @@ components:
         muted_on_user_path:
           type: boolean
           default: false
+        muted_on_ui_runs:
+          type: boolean
+          description: Skip jobs started from the UI, whose trigger kind is `ui`. Omit to leave the stored value untouched.
         fallback_to_instance_alerts:
           type: boolean
           description: Report failed jobs to the instance critical alert channels when no workspace error handler is set. Omit to leave the stored value untouched.
@@ -39081,6 +39140,12 @@ components:
         nested:
           $ref: "#/components/schemas/RestartedFrom"
           description: When set, the worker spawns the child for `step_id` as a `RestartedFlow` against `nested.flow_job_id` instead of fresh-launching it.
+        failed_only:
+          type: boolean
+          description: For a parallel for-loop or branch-all at `step_id`, keep the iterations (branches) that succeeded and rerun only the others.
+        from_failed_step:
+          type: boolean
+          description: With `failed_only`, resume each failed iteration (branch) at the step where it failed rather than rerunning it from its first step.
 
     Policy:
       type: object

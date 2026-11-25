@@ -498,7 +498,8 @@
 					.filter((o) => {
 						if (selectedValues.includes(o.value)) return false
 						if (!searchSuffix) return true
-						return o.value.includes(searchSuffix)
+						const q = searchSuffix.toLowerCase()
+						return [o.value, o.label].some((t) => t?.toLowerCase().includes(q))
 					})
 					.map((option) => ({
 						type: 'option' as const,

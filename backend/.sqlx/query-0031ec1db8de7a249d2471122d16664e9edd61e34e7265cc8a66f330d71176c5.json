@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT app_id, value, raw_app FROM app_version WHERE id = $1",
+  "query": "SELECT av.app_id, av.value, av.raw_app FROM app_version av JOIN app a ON a.id = av.app_id\n         WHERE av.id = $1 AND a.workspace_id = $2",
   "describe": {
     "columns": [
       {
@@ -21,7 +21,8 @@
     ],
     "parameters": {
       "Left": [
-        "Int8"
+        "Int8",
+        "Text"
       ]
     },
     "nullable": [
@@ -30,5 +31,5 @@
       false
     ]
   },
-  "hash": "19cca1d42f37e860dc54470fea8dd9a35c412d82d27ce369ccb0ba38b9791669"
+  "hash": "0031ec1db8de7a249d2471122d16664e9edd61e34e7265cc8a66f330d71176c5"
 }
