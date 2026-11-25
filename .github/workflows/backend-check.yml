@@ -13,7 +13,7 @@ jobs:
   check_oss:
     runs-on: ubicloud-standard-8
     steps:
-      - uses: actions/checkout@v4.4.0
+      - uses: actions/checkout@v7.0.1
         with:
           fetch-depth: 0
 
@@ -32,7 +32,7 @@ jobs:
   check_oss_full:
     runs-on: ubicloud-standard-8
     steps:
-      - uses: actions/checkout@v4.4.0
+      - uses: actions/checkout@v7.0.1
         with:
           fetch-depth: 0
 
@@ -55,7 +55,7 @@ jobs:
   check_ee:
     runs-on: ubicloud-standard-8
     steps:
-      - uses: actions/checkout@v4.4.0
+      - uses: actions/checkout@v7.0.1
         with:
           fetch-depth: 0
 
@@ -63,7 +63,7 @@ jobs:
         run: |
           echo "ee_repo_ref=$(cat ./backend/ee-repo-ref.txt)" >> "$GITHUB_ENV"
 
-      - uses: actions/checkout@v4.4.0
+      - uses: actions/checkout@v7.0.1
         with:
           repository: windmill-labs/windmill-ee-private
           path: ./windmill-ee-private
@@ -90,7 +90,7 @@ jobs:
   check_ee_full:
     runs-on: ubicloud-standard-8
     steps:
-      - uses: actions/checkout@v4.4.0
+      - uses: actions/checkout@v7.0.1
         with:
           fetch-depth: 0
 
@@ -98,7 +98,7 @@ jobs:
         run: |
           echo "ee_repo_ref=$(cat ./backend/ee-repo-ref.txt)" >> "$GITHUB_ENV"
 
-      - uses: actions/checkout@v4.4.0
+      - uses: actions/checkout@v7.0.1
         with:
           repository: windmill-labs/windmill-ee-private
           path: ./windmill-ee-private

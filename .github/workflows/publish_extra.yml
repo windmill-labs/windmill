@@ -62,7 +62,7 @@ jobs:
     needs: [base_image]
     runs-on: ubicloud-standard-8
     steps:
-      - uses: actions/checkout@v4.4.0
+      - uses: actions/checkout@v7.0.1
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2.2.0
@@ -144,7 +144,7 @@ jobs:
     if: github.event_name == 'push' || !startsWith(github.ref, 'refs/tags/')
     runs-on: ubicloud-standard-8
     steps:
-      - uses: actions/checkout@v4.4.0
+      - uses: actions/checkout@v7.0.1
 
       - uses: depot/setup-action@v1.7.2
 
