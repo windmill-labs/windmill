@@ -245,6 +245,17 @@ describe('call results', () => {
 		expect(omitted).toEqual(['image 2 (image/png): larger than 8 MB'])
 	})
 
+	it('keeps structured content when images are taken out', () => {
+		const { data } = splitMcpResult({
+			content: [
+				{ type: 'text', text: 'Rendered' },
+				{ type: 'image', mimeType: 'image/png', data: 'iVBORw0KGgo=' }
+			],
+			structuredContent: { object_id: 'cube-17' }
+		})
+		expect(data).toEqual({ object_id: 'cube-17' })
+	})
+
 	it('flattens text content on success', async () => {
 		callMcpToolMock.mockResolvedValue({ content: [{ type: 'text', text: '{"number":42}' }] })
 		const result = await run('call_mcp_read_tool', {

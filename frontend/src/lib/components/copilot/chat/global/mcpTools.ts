@@ -244,8 +244,11 @@ export function splitMcpResult(result: unknown): {
 	const texts = rest
 		.filter((c) => (c as { type?: string })?.type === 'text')
 		.map((c) => (c as { text?: string }).text ?? '')
-	if (texts.length === rest.length) return { data: texts.join('\n'), images, omitted }
 	const structured = (result as { structuredContent?: unknown })?.structuredContent
+	// A result that mixed in images was never read as text alone: its structured
+	// content is what carried the fields, so taking the images out must not drop it.
+	const textOnly = rest.length === content.length || structured === undefined
+	if (texts.length === rest.length && textOnly) return { data: texts.join('\n'), images, omitted }
 	return { data: structured ?? rest, images, omitted }
 }
 
