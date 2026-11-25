@@ -20445,6 +20445,9 @@ paths:
                   flow_summary:
                     type: string
                     description: summary of the flow or workflow the approval belongs to
+                  required_events:
+                    type: integer
+                    description: approvals the step requires; absent for a workflow as code
                   approvers:
                     type: array
                     items:

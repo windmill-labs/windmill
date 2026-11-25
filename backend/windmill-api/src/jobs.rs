@@ -5353,6 +5353,8 @@ struct ApprovalInfo {
     step_summary: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     flow_summary: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    required_events: Option<u32>,
     approvers: Vec<Approval>,
     /// Share-read-link token for the flow, minted only for callers allowed to view this
     /// approval. Lets an authenticated workspace-member approver open the run details of
@@ -5446,6 +5448,10 @@ fn approval_conditions_from_settings(suspend: &Suspend) -> Option<ApprovalCondit
 struct ApprovalStepView {
     skin: ApprovalSkin,
     summary: Option<String>,
+    required_events: Option<u32>,
+    /// The approval step's job: approvals sent to it count for this step, with those sent to
+    /// the flow itself. Rows for the flow's earlier steps stay until the run finishes.
+    job: Option<Uuid>,
 }
 
 async fn get_approval_info(
@@ -5534,7 +5540,8 @@ async fn get_approval_info(
                 .and_then(|m| m.get("skin"))
                 .and_then(|v| serde_json::from_value::<ApprovalSkin>(v.clone()).ok())
                 .unwrap_or_default();
-            let step = Some(ApprovalStepView { skin, summary: None });
+            let step =
+                Some(ApprovalStepView { skin, summary: None, required_events: None, job: None });
             (form, description, default_args, enums, run_ac, None, step)
         } else {
             let fs = row
@@ -5614,6 +5621,10 @@ async fn get_approval_info(
                     .and_then(|module| module.suspend.as_ref())
                     .and_then(approval_conditions_from_settings)
             });
+            let step_job_id = fs
+                .as_ref()
+                .and_then(|s| approval_step.and_then(|step| s.modules.get(step)))
+                .and_then(|m| m.job());
             let step = approval_module.map(|module| ApprovalStepView {
                 skin: module
                     .suspend
@@ -5621,13 +5632,11 @@ async fn get_approval_info(
                     .and_then(|s| s.skin)
                     .unwrap_or_default(),
                 summary: module.summary.clone().filter(|s| !s.trim().is_empty()),
+                required_events: module.suspend.as_ref().and_then(|s| s.required_events),
+                job: step_job_id,
             });
 
             // Fetch description, default_args, and enums from the step's completed job result
-            let step_job_id = fs
-                .as_ref()
-                .and_then(|s| approval_step.and_then(|step| s.modules.get(step)))
-                .and_then(|m| m.job());
             let (desc, default_args, enums) = if let Some(sjid) = step_job_id {
                 let result: Option<serde_json::Value> = sqlx::query_scalar(
                     "SELECT result FROM v2_job_completed WHERE id = $1 AND workspace_id = $2",
@@ -5649,6 +5658,8 @@ async fn get_approval_info(
         };
 
     let skin = step.as_ref().map(|s| s.skin).unwrap_or_default();
+    let required_events = step.as_ref().and_then(|s| s.required_events);
+    let step_job = step.as_ref().and_then(|s| s.job);
     let step_summary = step.and_then(|s| s.summary);
 
     let user_auth_required = approval_conditions
@@ -5683,6 +5694,7 @@ async fn get_approval_info(
             skin,
             step_summary: None,
             flow_summary: None,
+            required_events: None,
             approvers: vec![],
             view_token: None,
         }));
@@ -5690,8 +5702,10 @@ async fn get_approval_info(
 
     // Get existing approvers
     let approvers: Vec<Approval> = sqlx::query!(
-        "SELECT resume_id, approver, created_at, approved FROM resume_job WHERE flow = $1",
-        job_id
+        "SELECT resume_id, approver, created_at, approved FROM resume_job
+         WHERE flow = $1 AND ($2::uuid IS NULL OR job IN ($1, $2))",
+        job_id,
+        step_job
     )
     .fetch_all(&db)
     .await?
@@ -5732,6 +5746,7 @@ async fn get_approval_info(
         skin,
         step_summary,
         flow_summary: row.flow_summary,
+        required_events,
         approvers,
         view_token,
     }))
@@ -5933,7 +5948,8 @@ async fn list_nested_approvals(
             if let (Some(subflows), true) = (&at, in_scope) {
                 let flow_step = r.flow_status.as_ref().and_then(|f| f["step"].as_u64());
                 for (i, m) in statuses.iter().enumerate() {
-                    if m["type"] != "Success" {
+                    // A step `skip_if` skipped never asked for approval.
+                    if m["type"] != "Success" || m["skipped"].as_bool() == Some(true) {
                         continue;
                     }
                     let step_id = m["id"].as_str().unwrap_or_default();

@@ -205,7 +205,10 @@
 		>
 			<span class="text-2xs font-normal text-secondary">
 				{#if status === 'pending' && approvalInfo.approvers.length > 0}
-					Already approved by {approvalInfo.approvers.map((a) => a.approver).join(', ')}
+					{approvalInfo.required_events
+						? `${approvalInfo.approvers.length} of ${approvalInfo.required_events} approvals:`
+						: 'Already approved by'}
+					{approvalInfo.approvers.map((a) => a.approver).join(', ')}
 				{/if}
 			</span>
 			{#if isWorkspaceMember}
