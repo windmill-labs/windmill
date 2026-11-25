@@ -36,6 +36,17 @@
 		const current = job?.flow_status?.modules?.[job.flow_status.step]?.id
 		if (!current || !stepStates) return undefined
 		const inside = `subflow:${current}:`
+		const retrying = Object.entries(stepStates).find(
+			([key, s]) =>
+				(key === current || key.startsWith(inside)) &&
+				(s.type === 'WaitingForExecutor' || s.type === 'InProgress') &&
+				(s.retries ?? 0) > 0
+		)
+		if (retrying) {
+			const [key, s] = retrying
+			const n = s.retries ?? 0
+			return `Retrying step ${key.split(':').pop()}, ${n} failed attempt${n === 1 ? '' : 's'}`
+		}
 		const found = Object.entries(stepStates).find(
 			([key, s]) =>
 				(key === current || key.startsWith(inside)) &&

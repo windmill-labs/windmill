@@ -85,7 +85,6 @@
 
 	let {
 		flowState: flowStateStore,
-		retryStatus,
 		suspendStatus,
 		hideDownloadInGraph,
 		hideTimeline,
@@ -589,17 +588,6 @@
 		}
 		updateInnerModules(status)
 
-		// The preprocessor (step -1) and the error handler (past the steps) retry outside `modules`.
-		const outsideSteps = status.step < 0 || status.step >= status.modules.length
-		let count =
-			job?.type === 'CompletedJob' || (retryingStepId == undefined && !outsideSteps)
-				? undefined
-				: status.retry?.fail_count
-		if (count) {
-			retryStatus.val[jobId ?? ''] = count
-		} else if (retryStatus.val[jobId ?? ''] != undefined) {
-			delete retryStatus.val[jobId ?? '']
-		}
 		let jobStatus = job?.flow_status?.modules?.[job?.flow_status.step]
 
 		if (jobStatus && jobStatus.count != undefined) {
@@ -1436,7 +1424,7 @@
 
 	let wrapperHeight: number = $state(0)
 
-	let retryStatusHeight: number = $state(0)
+	let statusLinesHeight: number = $state(0)
 
 	function removeFailureNode(id: string, parent_module: any) {
 		if (id?.startsWith('failure-') && parent_module) {
@@ -2258,14 +2246,7 @@
 					<Splitpanes>
 						<Pane bind:size={graphPaneSize} minSize={30}>
 							<div class="bg-surface-secondary h-full {fillHeight ? '' : 'max-h-[1200px]'}">
-								<div class="flex flex-col" bind:clientHeight={retryStatusHeight}>
-									{#each Object.values(retryStatus?.val ?? {}) as count}
-										{#if count}
-											<span class="text-sm">
-												Retry in progress, # of failed attempts: {count}
-											</span>
-										{/if}
-									{/each}
+								<div class="flex flex-col" bind:clientHeight={statusLinesHeight}>
 									{#if totalEventsWaiting}
 										<span class="text-sm">
 											Flow suspended, waiting for {totalEventsWaiting} events
@@ -2276,8 +2257,8 @@
 									{selectionManager}
 									triggerNode={true}
 									download={!hideDownloadInGraph}
-									minHeight={wrapperHeight - retryStatusHeight}
-									maxHeight={fillHeight ? wrapperHeight - retryStatusHeight : undefined}
+									minHeight={wrapperHeight - statusLinesHeight}
+									maxHeight={fillHeight ? wrapperHeight - statusLinesHeight : undefined}
 									fitOnLoad={fillHeight}
 									outerDivClass={fillHeight ? '' : 'max-h-[1200px]'}
 									success={jobId != undefined && isSuccess(job?.['success'])}

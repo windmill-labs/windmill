@@ -628,7 +628,14 @@
 			</div>
 
 			{#if jobId}
-				<FlowProgressBar {job} bind:this={flowProgressBar} slim textPosition="bottom" showStepId />
+				<FlowProgressBar
+					{job}
+					bind:this={flowProgressBar}
+					slim
+					textPosition="bottom"
+					showStepId
+					stepStates={localModuleStates}
+				/>
 			{/if}
 
 			{#if job}
