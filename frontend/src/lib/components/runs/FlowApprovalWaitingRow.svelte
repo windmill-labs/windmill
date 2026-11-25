@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { resource } from 'runed'
-	import { ChevronDown, Hourglass } from 'lucide-svelte'
+	import { ChevronDown, ExternalLink, Hourglass } from 'lucide-svelte'
 	import { Badge, Button } from '$lib/components/common'
 	import { JobService, type FlowModule, type Job } from '$lib/gen'
 	import FlowStatusWaitingForEvents from '../FlowStatusWaitingForEvents.svelte'
@@ -77,6 +77,16 @@
 					>
 				{/if}
 			{/if}
+			<!-- The page the Home list and links sent through other channels open, for this run. -->
+			<Button
+				variant="subtle"
+				unifiedSize="xs"
+				href="/approve/{workspace ?? ''}/{jobId}"
+				target="_blank"
+				endIcon={{ icon: ExternalLink }}
+			>
+				Approval page
+			</Button>
 		</span>
 	</div>
 	<span class="flex shrink-0 items-center gap-1">
