@@ -143,6 +143,11 @@ carry it over to the next one.
 
    It comments `/review` on the PR — which runs the Codex, Claude and Pi CI reviewers even on a draft — waits for the spawned `PR Review Commands` workflow run(s) to complete, then prints one verdict line per reviewer and saves the full review comments to files.
 
+   Waiting rules — a session that breaks one sits idle on results the user can already see:
+   - **Use the waiter, not a loop of your own.** It always exits: on a terminal run state, or at its 45-minute deadline with whatever was posted. A hand-written loop waiting for "a comment from each reviewer" never ends when one reviewer dies (capacity errors, cancelled jobs), since a dead job posts nothing.
+   - **If your harness does not wake you when a background command exits, run the waiter in the foreground** with a timeout of at least 50 minutes. Backgrounding it and ending your turn then means nobody ever reads the result.
+   - **Don't trust the notification alone.** Reviews usually land 6–10 minutes after the trigger. If nothing has arrived by ~15 minutes, look yourself: `gh pr view <PR_NUMBER> --comments` for the verdicts, and `gh run list --workflow=pr-review-commands.yml --limit 5` for a failed or stuck job. Act on a failed job (re-trigger it, see step 2) right away instead of waiting out the deadline.
+
    `/review` (and `/codex`) are **idempotent per head SHA**: if a running or successful review already covers the current head, they skip that agent and post nothing new — the waiter reads the existing verdict for that head, so a skipped agent is *not* a missing one. A cancelled/failed head run is re-run in place; a fresh run is launched only when nothing covers the head. So an unchanged-head re-review is a near no-op, not a new round — push a commit to get genuinely fresh reviews.
 
 2. **Judge the round.** Codex is mandatory; Claude, Pi and cubic count whenever they posted. Every review starts with one of the three `REVIEW.md` verdicts:

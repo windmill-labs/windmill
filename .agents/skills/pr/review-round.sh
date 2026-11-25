@@ -16,6 +16,7 @@ PR=${1:-$(gh pr view --json number --jq .number)}
 
 # Timestamp of the trigger comment, straight from GitHub, so local clock skew
 # can't make the run/comment filters below miss part of the round.
+PR_TITLE=$(gh pr view "$PR" --repo "$REPO" --json title --jq .title)
 TRIGGER_TIME=$(gh api "repos/$REPO/issues/$PR/comments" -f body='/review' --jq .created_at)
 echo "Review round triggered on $REPO#$PR at $TRIGGER_TIME"
 
@@ -31,13 +32,13 @@ retry() {
 }
 
 # The /review comment spawns one "PR Review Commands" run holding the
-# claude/codex/pi jobs. Runs aren't linked to a PR, so wait on every run of
-# that workflow created after the trigger: a concurrent round on another PR
-# can only delay the answer, never truncate it. Every issue comment on any PR
-# spawns a fast-completing parse run of the same workflow, so the round's own
-# run may briefly lag the listing while unrelated runs already show completed:
-# require the all-completed state to hold past a floor and across two
-# consecutive polls before trusting it.
+# claude/codex/pi jobs. Runs aren't linked to a PR, but an issue_comment run's
+# display title is the PR's title: match on it, since waiting on every run
+# after the trigger means a stuck reviewer on any other PR holds this round
+# to the 45-minute deadline. Every comment on this PR (the reviewers' own
+# included) spawns a fast-completing parse run, so the round's own run may
+# briefly lag the listing while those already show completed: require the
+# all-completed state to hold past a floor and across two consecutive polls.
 DEADLINE=$(( $(date +%s) + 45 * 60 ))
 NO_RUN_DEADLINE=$(( $(date +%s) + 5 * 60 ))
 MIN_WAIT_UNTIL=$(( $(date +%s) + 3 * 60 ))
@@ -45,7 +46,8 @@ STABLE=0
 FAILURES=0
 while :; do
   if RUNS=$(gh run list --repo "$REPO" --workflow=pr-review-commands.yml \
-      --created ">=$TRIGGER_TIME" --limit 100 --json status); then
+      --created ">=$TRIGGER_TIME" --limit 100 --json status,displayTitle \
+      --jq "[.[] | select(.displayTitle == $(jq -Rn --arg t "$PR_TITLE" '$t'))]"); then
     FAILURES=0
   else
     FAILURES=$(( FAILURES + 1 ))
