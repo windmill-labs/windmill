@@ -2,12 +2,14 @@
 	import { Alert, Badge, Button } from '$lib/components/common'
 	import type { AIProviderModel } from '$lib/gen'
 	import {
+		aiReviewModel,
 		copilotInfo,
-		copilotSessionModel,
+		setAiReviewModelPick,
 		tryResolveModelFor,
 		type CopilotInfo
 	} from '$lib/aiStore'
-	import Select from '$lib/components/select/Select.svelte'
+	import ProviderModelSelector from '$lib/components/copilot/chat/ProviderModelSelector.svelte'
+	import type { ReasoningProviderModel } from '$lib/components/copilot/reasoningRegistry'
 	import { sendUserToast } from '$lib/toast'
 	import { logFeatureUsage } from '$lib/utils/featureUsage'
 	import { Loader2, MessageSquarePlus, Sparkles, WandSparkles, X } from 'lucide-svelte'
@@ -44,8 +46,8 @@
 		onPost?: (finding: AiReviewFinding) => Promise<void>
 		/** The reviewed workspace's AI config, when it is not the tab's (an AI session's). */
 		info?: CopilotInfo
-		/** The model to start on instead of the last pick (an AI session's own). */
-		defaultModel?: AIProviderModel
+		/** The model to start on instead of the review's own pick or the workspace default (an AI session's own). */
+		defaultModel?: ReasoningProviderModel
 	}
 
 	let { scope, source, onPost, info, defaultModel }: Props = $props()
@@ -71,14 +73,23 @@
 	let stale = $derived(reviewed != undefined && reviewed.key !== itemsKey(items))
 
 	const modelKey = (m: AIProviderModel) => `${m.provider}:${m.model}`
-	// Local to this review: picking a model here must not change the chat's own selection,
-	// which is only the default until something is picked.
-	let pickedModelKey = $state<string | undefined>(undefined)
+	// Neither follows nor sets the sessions' last pick. Outside a session the pick is remembered for
+	// the next review; inside one it stays local to this review.
+	let picked = $state<ReasoningProviderModel | undefined>(undefined)
 	let aiModels = $derived((info ?? $copilotInfo).aiModels)
-	let chatModel = $derived(
-		defaultModel ?? tryResolveModelFor(info ?? $copilotInfo, $copilotSessionModel)
+	let startModel = $derived(
+		defaultModel ?? tryResolveModelFor(info ?? $copilotInfo, $aiReviewModel)
 	)
-	let selectedModelKey = $derived(pickedModelKey ?? (chatModel && modelKey(chatModel)))
+	// A pick the reviewed workspace no longer offers gives way to the model the review started on.
+	let model = $derived.by(() => {
+		const pick = picked
+		return pick && aiModels.some((m) => modelKey(m) === modelKey(pick)) ? pick : startModel
+	})
+
+	function pickModel(pick: ReasoningProviderModel) {
+		picked = pick
+		if (!defaultModel) setAiReviewModelPick(pick)
+	}
 
 	async function run() {
 		abortController?.abort()
@@ -91,7 +102,7 @@
 		logFeatureUsage('deployment_request', 'ai_review', { key: source })
 		try {
 			const review = await reviewChanges(scope, controller, {
-				model: aiModels.find((m) => modelKey(m) === selectedModelKey),
+				model,
 				info
 			})
 			if (!controller.signal.aborted) result = review
@@ -217,14 +228,8 @@
 			>
 				{result ? 'Review again with AI' : 'Review with AI'}
 			</Button>
-			{#if aiModels.length > 1}
-				<div class="w-56">
-					<Select
-						size="sm"
-						items={aiModels.map((m) => ({ label: m.model, value: modelKey(m) }))}
-						bind:value={() => selectedModelKey, (v) => (pickedModelKey = v)}
-					/>
-				</div>
+			{#if model}
+				<ProviderModelSelector {model} onPick={pickModel} models={aiModels} />
 			{/if}
 			{#if items.length === 0}
 				<span class="text-xs text-secondary">
