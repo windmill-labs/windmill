@@ -8,8 +8,7 @@
 	import {
 		checkItemDeployAccess,
 		checkItemExists,
-		createFolderIfAbsent,
-		deployItem,
+		deployFromWorkspace,
 		getOnBehalfOfOrThrow,
 		type DeployResult,
 		type DeployTargetAccess
@@ -151,8 +150,14 @@
 			return { success: false, error: `could not check whether ${folderPath} exists (${e})` }
 		}
 		// Create-only: nobody asked for this folder to be deployed, so it must never overwrite one
-		// that appeared meanwhile. See `createFolderIfAbsent`.
-		const result = await createFolderIfAbsent(folder, req.prodWorkspaceId, req.devWorkspaceId)
+		// that appeared meanwhile, and its principals are translated to the dev workspace's users.
+		const result = await deployFromWorkspace({
+			kind: 'folder',
+			path: folderPath,
+			workspaceFrom: req.prodWorkspaceId,
+			workspaceTo: req.devWorkspaceId,
+			createOnly: true
+		})
 		if (result.droppedAccess?.length) {
 			// Narrower than the source rather than wider, so it doesn't block the deploy — but it is
 			// still not what the folder looked like where it came from.
@@ -229,7 +234,7 @@
 				)
 				return
 			}
-			const deployed = await deployItem({
+			const deployed = await deployFromWorkspace({
 				kind: req.itemType,
 				path: req.itemPath,
 				workspaceFrom: req.prodWorkspaceId,

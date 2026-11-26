@@ -863,7 +863,7 @@ async fn list_apps(
     Ok(Json(rows))
 }
 
-async fn get_raw_app_data(
+pub(crate) async fn get_raw_app_data(
     Path((w_id, secret_with_ext)): Path<(String, String)>,
     Query(query): Query<std::collections::HashMap<String, String>>,
     Extension(db): Extension<DB>,
@@ -1179,7 +1179,7 @@ fn raw_app_wrapper_html(secret: &str) -> String {
 
 // Fields inlined rather than flattened (axum query bool quirk); see GetScriptByPathQuery in scripts.rs.
 #[derive(Deserialize)]
-struct GetAppQuery {
+pub(crate) struct GetAppQuery {
     with_starred_info: Option<bool>,
     #[serde(default)]
     get_draft: bool,
@@ -1189,7 +1189,7 @@ struct GetAppQuery {
     raw_app: Option<bool>,
 }
 
-async fn get_app(
+pub(crate) async fn get_app(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
@@ -2246,7 +2246,7 @@ pub async fn compute_bundle_secret(db: &DB, w_id: &str, versions: &[i64]) -> Res
     Ok(hx)
 }
 
-async fn get_latest_version_secret_id(
+pub(crate) async fn get_latest_version_secret_id(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
@@ -2661,7 +2661,7 @@ macro_rules! process_app_multipart {
     };
 }
 
-async fn create_app_raw<'a>(
+pub(crate) async fn create_app_raw<'a>(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
@@ -2725,7 +2725,7 @@ async fn list_paths_from_workspace_runnable(
     Ok(Json(runnables))
 }
 
-async fn create_app(
+pub(crate) async fn create_app(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
@@ -3159,7 +3159,7 @@ pub async fn get_hub_raw_app_by_id(
     Ok(Json(value))
 }
 
-async fn delete_app(
+pub(crate) async fn delete_app(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
@@ -3357,7 +3357,7 @@ async fn tally_app_rename(db: &DB, w_id: &str, opath: &str, npath: &str, v_id: i
     }
 }
 
-async fn update_app(
+pub(crate) async fn update_app(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
@@ -3741,7 +3741,7 @@ async fn deployed_app_kind(
     Ok(deployed_raw_app)
 }
 
-async fn update_app_raw<'a>(
+pub(crate) async fn update_app_raw<'a>(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
@@ -6629,7 +6629,7 @@ async fn get_on_behalf_of(policy: &Policy, w_id: &str, db: &DB) -> Result<(Strin
     Ok((permissioned_as, email))
 }
 
-async fn exists_app(
+pub(crate) async fn exists_app(
     Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> JsonResult<bool> {

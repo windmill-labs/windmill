@@ -287,7 +287,7 @@ fn handler_runnables(handlers: [Option<&str>; 3]) -> Vec<RunnableRef> {
         .collect()
 }
 
-async fn create_schedule(
+pub async fn create_schedule(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
@@ -582,7 +582,7 @@ async fn create_schedule(
     Ok(ns.path.to_string())
 }
 
-async fn edit_schedule(
+pub async fn edit_schedule(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
@@ -1156,7 +1156,7 @@ async fn list_schedule_with_jobs(
 //       ) AS tag_array
 //    ) t;
 
-async fn get_schedule(
+pub async fn get_schedule(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
@@ -1183,7 +1183,7 @@ async fn get_schedule(
     Ok(Json(overlay))
 }
 
-async fn exists_schedule(
+pub async fn exists_schedule(
     Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> JsonResult<bool> {
@@ -1400,7 +1400,7 @@ pub async fn set_enabled(
 //     ))
 // }
 
-async fn delete_schedule(
+pub async fn delete_schedule(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,

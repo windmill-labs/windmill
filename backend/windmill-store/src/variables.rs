@@ -332,14 +332,14 @@ async fn list_variables(
 
 // `get_draft` inlined rather than flattened (axum query bool quirk); see GetScriptByPathQuery in scripts.rs.
 #[derive(Deserialize)]
-struct GetVariableQuery {
+pub struct GetVariableQuery {
     decrypt_secret: Option<bool>,
     include_encrypted: Option<bool>,
     #[serde(default)]
     get_draft: bool,
 }
 
-async fn get_variable(
+pub async fn get_variable(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
@@ -558,7 +558,7 @@ async fn explain_variable_perm_error(
     }
 }
 
-async fn exists_variable(
+pub async fn exists_variable(
     Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> JsonResult<bool> {
@@ -689,7 +689,7 @@ async fn secret_value_to_store(
     }
 }
 
-async fn create_variable(
+pub async fn create_variable(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
@@ -896,7 +896,7 @@ async fn encrypt_value(
     Ok(value)
 }
 
-async fn delete_variable(
+pub async fn delete_variable(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
@@ -1229,7 +1229,7 @@ async fn delete_variables_bulk(
 }
 
 #[derive(Deserialize)]
-struct EditVariable {
+pub struct EditVariable {
     path: Option<String>,
     value: Option<String>,
     is_secret: Option<bool>,
@@ -1246,11 +1246,11 @@ struct EditVariable {
 }
 
 #[derive(Deserialize)]
-struct AlreadyEncrypted {
+pub struct AlreadyEncrypted {
     already_encrypted: Option<bool>,
 }
 
-async fn update_variable(
+pub async fn update_variable(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,

@@ -565,7 +565,7 @@ pub fn trigger_routes<T: TriggerCrud + 'static>() -> Router {
     router
 }
 
-async fn create_trigger<T: TriggerCrud>(
+pub async fn create_trigger<T: TriggerCrud>(
     Extension(handler): Extension<Arc<T>>,
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -798,7 +798,7 @@ async fn list_triggers<T: TriggerCrud>(
     Ok(Json(triggers))
 }
 
-async fn get_trigger<T: TriggerCrud>(
+pub async fn get_trigger<T: TriggerCrud>(
     Extension(handler): Extension<Arc<T>>,
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
@@ -839,7 +839,7 @@ async fn get_trigger<T: TriggerCrud>(
     Ok(Json(overlay))
 }
 
-async fn update_trigger<T: TriggerCrud>(
+pub async fn update_trigger<T: TriggerCrud>(
     Extension(handler): Extension<Arc<T>>,
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -1022,7 +1022,7 @@ async fn update_trigger<T: TriggerCrud>(
     Ok(format!("Trigger '{}' updated", path))
 }
 
-async fn delete_trigger<T: TriggerCrud>(
+pub async fn delete_trigger<T: TriggerCrud>(
     Extension(handler): Extension<Arc<T>>,
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
@@ -1138,7 +1138,7 @@ async fn delete_trigger<T: TriggerCrud>(
     Ok(format!("Trigger '{}' deleted", path))
 }
 
-async fn exists_trigger<T: TriggerCrud>(
+pub async fn exists_trigger<T: TriggerCrud>(
     Extension(handler): Extension<Arc<T>>,
     authed: ApiAuthed,
     Extension(db): Extension<DB>,

@@ -44,16 +44,14 @@
 	import {
 		checkDeployPermission,
 		deployPermissionForKinds,
-		deployItem,
-		deleteItemInWorkspace,
+		deployFromWorkspace,
 		diffActionableInDirection,
 		diffCreatesInTarget,
 		diffRemovesInTarget,
 		getItemValue,
 		getOnBehalfOf,
 		triggerCiTestsForBatch,
-		type DeployPermission,
-		type DeployResult
+		type DeployPermission
 	} from '$lib/utils_workspace_deploy'
 	import { asSyncDeploy } from '$lib/deployOrigin'
 	import { isTriggerOrScheduleKind } from 'windmill-utils-internal'
@@ -839,20 +837,19 @@
 		const diff = comparison?.diffs.find((d) => getItemKey(d) === statusKey)
 		const removes = diff ? removesInTarget(diff) : false
 
-		let result: DeployResult
-		if (removes) {
-			result = await deleteItemInWorkspace(kind, path, workspaceToDeployTo)
-		} else {
-			result = await deployItem({
-				kind,
-				path,
-				workspaceFrom,
-				workspaceTo: workspaceToDeployTo,
-				onBehalfOf: getOnBehalfOfForDeploy(statusKey, kind),
-				onBehalfOfPrincipal: getOnBehalfOfPermissionedAsForDeploy(statusKey, kind),
-				skipCiTests: true
-			})
-		}
+		const result = await deployFromWorkspace(
+			removes
+				? { kind, path, workspaceTo: workspaceToDeployTo, remove: true }
+				: {
+						kind,
+						path,
+						workspaceFrom,
+						workspaceTo: workspaceToDeployTo,
+						onBehalfOf: getOnBehalfOfForDeploy(statusKey, kind),
+						onBehalfOfPrincipal: getOnBehalfOfPermissionedAsForDeploy(statusKey, kind),
+						skipCiTests: true
+					}
+		)
 
 		if (result.success) {
 			deploymentStatus[statusKey] = { status: 'deployed' }

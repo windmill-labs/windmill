@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT s.username AS \"from!\", t.username AS \"to!\" FROM usr s\n               JOIN usr t ON t.email = s.email AND t.workspace_id = $2\n               WHERE s.workspace_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "from!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "to!",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "a68cb084945c0f767e17b0a27bb8b300bf63681eb6422cfdf69d4c8da7a257fe"
+}

@@ -15,6 +15,17 @@ pub fn check_route_access(
     route_path: &str,
     http_method: &str,
 ) -> Result<()> {
+    // The workspace deploy checks the token against the route of every read and write it
+    // makes, so a token holds there exactly the rights it holds making those calls itself.
+    if http_method == "POST"
+        && matches!(
+            route_path.split('/').collect::<Vec<_>>()[..],
+            ["", "api", "w", _, "workspaces", "deploy_from_workspace"]
+        )
+    {
+        return Ok(());
+    }
+
     // Map HTTP method to scope action (considering route context)
     let required_action = map_http_method_to_action(http_method, route_path);
 
@@ -1112,6 +1123,15 @@ pub fn check_scopes_for_route(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn workspace_deploy_route_defers_to_the_item_routes() {
+        let scopes = vec!["scripts:write".to_string()];
+        let ok = |path: &str, method: &str| check_route_access(&scopes, path, method).is_ok();
+        assert!(ok("/api/w/ws/workspaces/deploy_from_workspace", "POST"));
+        assert!(!ok("/api/w/ws/workspaces/deploy_from_workspace/x", "POST"));
+        assert!(!ok("/api/w/ws/workspaces/edit_deploy_to", "POST"));
+    }
 
     #[test]
     fn own_job_runtime_routes_admit_only_the_tokens_job() {

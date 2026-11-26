@@ -659,7 +659,7 @@ pub async fn validate_operator_composed_flow(
     Ok(())
 }
 
-async fn create_flow(
+pub async fn create_flow(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
@@ -1276,7 +1276,7 @@ fn reregister_moved_native_triggers(
     let _ = (db, authed, w_id, moved);
 }
 
-async fn update_flow(
+pub async fn update_flow(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
@@ -1856,13 +1856,13 @@ async fn get_deployment_status(
 
 // Fields inlined rather than flattened (axum query bool quirk); see GetScriptByPathQuery in scripts.rs.
 #[derive(Deserialize)]
-struct GetFlowByPathQuery {
+pub struct GetFlowByPathQuery {
     with_starred_info: Option<bool>,
     #[serde(default)]
     get_draft: bool,
 }
 
-async fn get_flow_by_path(
+pub async fn get_flow_by_path(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
@@ -1976,7 +1976,7 @@ async fn get_flow_by_path(
     Ok(Json(overlay))
 }
 
-async fn exists_flow_by_path(
+pub async fn exists_flow_by_path(
     Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> JsonResult<bool> {
@@ -1995,11 +1995,11 @@ async fn exists_flow_by_path(
 }
 
 #[derive(Deserialize)]
-struct Archived {
+pub struct Archived {
     archived: Option<bool>,
 }
 
-async fn archive_flow_by_path(
+pub async fn archive_flow_by_path(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
