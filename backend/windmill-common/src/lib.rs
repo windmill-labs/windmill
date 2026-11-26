@@ -483,6 +483,10 @@ lazy_static::lazy_static! {
     pub static ref OTEL_TRACING_ENABLED: AtomicBool = AtomicBool::new(std::env::var("OTEL_TRACING").is_ok());
     pub static ref OTEL_LOGS_ENABLED: AtomicBool = AtomicBool::new(std::env::var("OTEL_LOGS").is_ok());
     /// Export only audit events through the OTel logs bridge, not the service logs.
+    /// When set, the audit events exported through the OTel logs bridge are only those of
+    /// these workspaces.
+    pub static ref OTEL_LOGS_AUDIT_WORKSPACES: std::sync::RwLock<Option<Vec<String>>> =
+        std::sync::RwLock::new(std::env::var("OTEL_LOGS_AUDIT_WORKSPACES").ok().and_then(|v| parse_workspace_list(&v)));
     pub static ref OTEL_LOGS_AUDIT_ONLY: AtomicBool = AtomicBool::new(std::env::var("OTEL_LOGS_AUDIT_ONLY").is_ok_and(|x| x.parse::<bool>().unwrap_or(false)));
 
     pub static ref METRICS_DEBUG_ENABLED: AtomicBool = AtomicBool::new(false);
@@ -3468,4 +3472,15 @@ impl KillpillSender {
     // fn is_sent(&self) -> bool {
     //     self.already_sent.load(Ordering::SeqCst)
     // }
+}
+
+/// A comma-separated list of workspace ids, `None` when it names none.
+pub fn parse_workspace_list(v: &str) -> Option<Vec<String>> {
+    let list: Vec<String> = v
+        .split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .collect();
+    (!list.is_empty()).then_some(list)
 }

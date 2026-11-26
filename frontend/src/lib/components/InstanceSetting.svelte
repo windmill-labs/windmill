@@ -23,6 +23,7 @@
 	import RetentionPeriodOverrides from './instanceSettings/RetentionPeriodOverrides.svelte'
 	import AgentWorkloadIdentityIssuers from './instanceSettings/AgentWorkloadIdentityIssuers.svelte'
 	import McpExternalIdp from './instanceSettings/McpExternalIdp.svelte'
+	import OtelAuditWorkspaces from './instanceSettings/OtelAuditWorkspaces.svelte'
 	import WorkspaceRolesSetting from './instanceSettings/WorkspaceRolesSetting.svelte'
 	import SmtpSettings from './instanceSettings/SmtpSettings.svelte'
 	import SecretBackendConfig from './instanceSettings/SecretBackendConfig.svelte'
@@ -682,6 +683,19 @@
 											'Send only audit events through the logs exporter, not the service logs. Audit events are then exported whatever RUST_LOG is set to.'
 									}}
 								/>
+								<div class="flex flex-col gap-1">
+									<span class="block text-xs font-semibold text-emphasis">
+										Audit logs of workspaces
+									</span>
+									<span class="text-2xs text-secondary">
+										Export the audit events of these workspaces only. Instance-level entries are
+										always exported. Leave empty for all workspaces.
+									</span>
+									<OtelAuditWorkspaces
+										bind:value={$values[setting.key].logs_audit_workspaces}
+										disabled={!$enterpriseLicense}
+									/>
+								</div>
 							{/if}
 
 							<div class="flex flex-col gap-1">

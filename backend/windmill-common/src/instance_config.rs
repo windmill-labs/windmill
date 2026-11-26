@@ -652,6 +652,9 @@ pub struct OtelSettings {
     /// With logs enabled, export audit events only.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub logs_audit_only: Option<bool>,
+    /// When set, only the audit events of these workspaces are exported.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub logs_audit_workspaces: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tracing_enabled: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]

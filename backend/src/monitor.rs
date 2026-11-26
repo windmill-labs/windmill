@@ -803,6 +803,7 @@ struct OtelSetting {
     metrics_enabled: Option<bool>,
     logs_enabled: Option<bool>,
     logs_audit_only: Option<bool>,
+    logs_audit_workspaces: Option<Vec<String>>,
     tracing_enabled: Option<bool>,
     #[serde(default, deserialize_with = "empty_as_none")]
     otel_exporter_otlp_endpoint: Option<String>,
@@ -844,6 +845,15 @@ pub async fn load_otel(db: &DB) {
                 OTEL_METRICS_ENABLED.store(metrics_enabled, Ordering::Relaxed);
                 OTEL_LOGS_ENABLED.store(logs_enabled, Ordering::Relaxed);
                 OTEL_LOGS_AUDIT_ONLY.store(logs_audit_only, Ordering::Relaxed);
+                let audit_workspaces = match o.logs_audit_workspaces {
+                    Some(list) => windmill_common::parse_workspace_list(&list.join(",")),
+                    None => std::env::var("OTEL_LOGS_AUDIT_WORKSPACES")
+                        .ok()
+                        .and_then(|v| windmill_common::parse_workspace_list(&v)),
+                };
+                if let Ok(mut w) = windmill_common::OTEL_LOGS_AUDIT_WORKSPACES.write() {
+                    *w = audit_workspaces.clone();
+                }
                 OTEL_TRACING_ENABLED.store(tracing_enabled, Ordering::Relaxed);
 
                 let endpoint = if let Some(endpoint) = o.otel_exporter_otlp_endpoint {
@@ -874,7 +884,7 @@ pub async fn load_otel(db: &DB) {
                         std::env::set_var("OTEL_EXPORTER_OTLP_COMPRESSION", compression);
                     }
                 }
-                println!("OTEL settings loaded: tracing ({tracing_enabled}), logs ({logs_enabled}, audit only: {logs_audit_only}), metrics ({metrics_enabled}), endpoint ({:?}), headers defined: ({})",
+                println!("OTEL settings loaded: tracing ({tracing_enabled}), logs ({logs_enabled}, audit only: {logs_audit_only}, audit workspaces: {audit_workspaces:?}), metrics ({metrics_enabled}), endpoint ({:?}), headers defined: ({})",
                 endpoint, headers.is_some());
             } else {
                 tracing::error!("Error deserializing otel settings");

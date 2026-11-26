@@ -172,6 +172,11 @@ pub fn initialize_tracing(
     let otel_logs_filter = (!audit_only).then(|| file_env_filter.clone());
     let otel_audit_filter =
         audit_only.then(|| Targets::new().with_target(AUDIT_TARGET, LevelFilter::INFO));
+    let otel_audit_workspaces = crate::OTEL_LOGS_AUDIT_WORKSPACES
+        .read()
+        .ok()
+        .and_then(|w| w.clone())
+        .map(AuditWorkspaceFilter::new);
 
     // Apply filter to the opentelemetry tracing layer to prevent debug events from being attached to spans
     #[cfg(all(feature = "otel", feature = "enterprise"))]
@@ -187,7 +192,8 @@ pub fn initialize_tracing(
         .with(
             logs_bridge
                 .with_filter(otel_logs_filter)
-                .with_filter(otel_audit_filter),
+                .with_filter(otel_audit_filter)
+                .with_filter(otel_audit_workspaces),
         )
         .with(opentelemetry_filtered);
 
@@ -250,6 +256,41 @@ pub fn initialize_subcommand_tracing(service: &str, hostname: &str, environment:
         .init();
 }
 
+/// Keeps the audit events of the listed workspaces and lets every other event through.
+/// Entries about the instance itself are recorded under workspace `global` and always kept:
+/// no workspace stands behind them, and dropping them would hide settings changes.
+struct AuditWorkspaceFilter(std::collections::HashSet<String>);
+
+impl AuditWorkspaceFilter {
+    fn new(workspaces: Vec<String>) -> Self {
+        Self(workspaces.into_iter().collect())
+    }
+}
+
+impl<S> tracing_subscriber::layer::Filter<S> for AuditWorkspaceFilter {
+    fn enabled(&self, _: &tracing::Metadata<'_>, _: &Context<'_, S>) -> bool {
+        true
+    }
+
+    fn event_enabled(&self, event: &Event<'_>, _: &Context<'_, S>) -> bool {
+        if event.metadata().target() != AUDIT_TARGET {
+            return true;
+        }
+        struct Workspace<'a>(&'a std::collections::HashSet<String>, Option<bool>);
+        impl tracing::field::Visit for Workspace<'_> {
+            fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
+                if field.name() == "workspace_id" {
+                    self.1 = Some(value == "global" || self.0.contains(value));
+                }
+            }
+            fn record_debug(&mut self, _: &tracing::field::Field, _: &dyn std::fmt::Debug) {}
+        }
+        let mut ws = Workspace(&self.0, None);
+        event.record(&mut ws);
+        ws.1.unwrap_or(true)
+    }
+}
+
 lazy_static::lazy_static! {
     pub static ref LOG_COUNTING_BY_MIN: Arc<RwLock<HashMap<String, LogCounter>>> = Arc::new(RwLock::new(HashMap::new()));
 }
@@ -296,5 +337,46 @@ where
         } else {
             println!("Error getting lock for log counting");
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Mutex;
+
+    #[derive(Clone, Default)]
+    struct Seen(Arc<Mutex<Vec<String>>>);
+
+    impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for Seen {
+        fn on_event(&self, event: &Event<'_>, _: Context<'_, S>) {
+            struct Msg(String);
+            impl tracing::field::Visit for Msg {
+                fn record_debug(&mut self, f: &tracing::field::Field, v: &dyn std::fmt::Debug) {
+                    if f.name() == "message" {
+                        self.0 = format!("{v:?}");
+                    }
+                }
+            }
+            let mut m = Msg(String::new());
+            event.record(&mut m);
+            self.0.lock().unwrap().push(m.0);
+        }
+    }
+
+    #[test]
+    fn audit_workspace_filter_keeps_listed_and_instance_entries() {
+        let seen = Seen::default();
+        let filter = AuditWorkspaceFilter::new(vec!["kept".to_string()]);
+        tracing::subscriber::with_default(
+            tracing_subscriber::registry().with(seen.clone().with_filter(filter)),
+            || {
+                tracing::info!(target: AUDIT_TARGET, workspace_id = "kept", "a");
+                tracing::info!(target: AUDIT_TARGET, workspace_id = "dropped", "b");
+                tracing::info!(target: AUDIT_TARGET, workspace_id = "global", "c");
+                tracing::info!(workspace_id = "dropped", "d");
+            },
+        );
+        assert_eq!(*seen.0.lock().unwrap(), ["a", "c", "d"]);
     }
 }
