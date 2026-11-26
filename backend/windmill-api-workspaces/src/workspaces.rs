@@ -983,7 +983,7 @@ async fn list_workspaces(
     let mut tx = user_db.begin(&authed).await?;
     let workspaces = sqlx::query_as!(
         Workspace,
-        "SELECT workspace.id, workspace.name, workspace.owner, workspace.deleted, workspace.premium, workspace_settings.color, workspace.parent_workspace_id, workspace.is_dev_workspace, workspace.dev_workspace_label
+        "SELECT workspace.id, workspace.name, workspace.owner::text AS \"owner!\", workspace.deleted, workspace.premium, workspace_settings.color, workspace.parent_workspace_id, workspace.is_dev_workspace, workspace.dev_workspace_label
          FROM workspace
          LEFT JOIN workspace_settings ON workspace.id = workspace_settings.workspace_id
          JOIN usr ON usr.workspace_id = workspace.id
@@ -7066,7 +7066,7 @@ async fn get_workspace_as_superadmin(
         "SELECT
             workspace.id AS \"id!\",
             workspace.name AS \"name!\",
-            workspace.owner AS \"owner!\",
+            workspace.owner::text AS \"owner!\",
             workspace.deleted AS \"deleted!\",
             workspace.premium AS \"premium!\",
             workspace_settings.color AS \"color\",
@@ -7101,7 +7101,7 @@ async fn list_workspaces_as_super_admin(
         "SELECT
             workspace.id AS \"id!\",
             workspace.name AS \"name!\",
-            workspace.owner AS \"owner!\",
+            workspace.owner::text AS \"owner!\",
             workspace.deleted AS \"deleted!\",
             workspace.premium AS \"premium!\",
             workspace_settings.color AS \"color\",
@@ -7127,7 +7127,7 @@ async fn user_workspaces(
     let rows = sqlx::query!(
         "SELECT workspace.id, workspace.name, usr.username, workspace_settings.color, workspace.parent_workspace_id,
                 workspace.is_dev_workspace, workspace.dev_workspace_label,
-                workspace.owner AS \"created_by?\",
+                workspace.owner::text AS \"created_by?\",
                 usr.is_admin, usr.operator, usr.workspace_role,
                 usr.disabled, usr.is_service_account
          FROM workspace

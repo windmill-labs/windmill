@@ -30,7 +30,7 @@ pub async fn get_active_capture_owner_and_email(
         ActiveCaptureOwner,
         r#"
         SELECT
-            owner,
+            owner::text AS "owner!",
             email
         FROM
             capture_config

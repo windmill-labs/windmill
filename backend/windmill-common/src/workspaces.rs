@@ -4025,6 +4025,61 @@ async fn transform_json_unchecked(
     Ok(value)
 }
 
+/// `workspace.owner` holds the creator's email, which every email column allows 255 chars of.
+const OWNER_WIDTH: i32 = 255;
+static OWNER_COLUMNS_WIDENED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+/// Whether `workspace.owner` and `capture_config.owner` may still have to be widened.
+pub fn owner_columns_widen_pending() -> bool {
+    !OWNER_COLUMNS_WIDENED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Widen `workspace.owner` and `capture_config.owner` to [`OWNER_WIDTH`] once no live process
+/// returns them uncast. Not a migration: changing a column's length fails every statement a live
+/// process prepared returning it, until its connection closes. Any new query returning either
+/// column must select `owner::text`.
+pub async fn widen_owner_columns(db: &DB) -> Result<()> {
+    if !owner_columns_widen_pending()
+        || !crate::min_version::MIN_VERSION_SUPPORTS_OWNER_WIDENING.met_conservatively()
+        || crate::db::process_uptime() < crate::db::PREVIOUS_RELEASE_ROLLOUT_UPTIME
+    {
+        return Ok(());
+    }
+    let mut narrow = vec![];
+    for table in ["workspace", "capture_config"] {
+        // varchar's typmod is its length + 4, -1 when unbounded.
+        let typmod: i32 = sqlx::query_scalar(
+            "SELECT atttypmod FROM pg_attribute WHERE attrelid = $1::regclass AND attname = 'owner'",
+        )
+        .bind(table)
+        .fetch_one(db)
+        .await?;
+        if typmod >= 0 && typmod - 4 < OWNER_WIDTH {
+            narrow.push(table);
+        }
+    }
+    if !narrow.is_empty() {
+        tracing::info!("widening the owner column of {narrow:?} to VARCHAR({OWNER_WIDTH})");
+        let mut tx = db.begin().await?;
+        // Queued behind a long transaction, the ALTER would block every read of the table meanwhile.
+        sqlx::query("SET LOCAL lock_timeout = '3s'")
+            .execute(&mut *tx)
+            .await?;
+        for table in narrow {
+            sqlx::query(&format!(
+                "ALTER TABLE {table} ALTER COLUMN owner TYPE VARCHAR({OWNER_WIDTH})"
+            ))
+            .execute(&mut *tx)
+            .await?;
+        }
+        tx.commit().await?;
+        crate::db::retire_connections_opened_before_now();
+    }
+    OWNER_COLUMNS_WIDENED.store(true, std::sync::atomic::Ordering::Relaxed);
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT workspace.id, workspace.name, workspace.owner, workspace.deleted, workspace.premium, workspace_settings.color, workspace.parent_workspace_id, workspace.is_dev_workspace, workspace.dev_workspace_label\n         FROM workspace\n         LEFT JOIN workspace_settings ON workspace.id = workspace_settings.workspace_id\n         JOIN usr ON usr.workspace_id = workspace.id\n         WHERE usr.email = $1 AND workspace.deleted = false",
+  "query": "SELECT workspace.id, workspace.name, workspace.owner::text AS \"owner!\", workspace.deleted, workspace.premium, workspace_settings.color, workspace.parent_workspace_id, workspace.is_dev_workspace, workspace.dev_workspace_label\n         FROM workspace\n         LEFT JOIN workspace_settings ON workspace.id = workspace_settings.workspace_id\n         JOIN usr ON usr.workspace_id = workspace.id\n         WHERE usr.email = $1 AND workspace.deleted = false",
   "describe": {
     "columns": [
       {
@@ -15,8 +15,8 @@
       },
       {
         "ordinal": 2,
-        "name": "owner",
-        "type_info": "Varchar"
+        "name": "owner!",
+        "type_info": "Text"
       },
       {
         "ordinal": 3,
@@ -57,7 +57,7 @@
     "nullable": [
       false,
       false,
-      false,
+      null,
       false,
       false,
       true,
@@ -66,5 +66,5 @@
       true
     ]
   },
-  "hash": "4f266373d5acdbcedc81e8ed3eb1fb95861ef17ca5570ef06b9903f04e9adb5e"
+  "hash": "5e614e236ebc473c140e1a74fab44991e97cddfe3da972768f8d469bcd683171"
 }

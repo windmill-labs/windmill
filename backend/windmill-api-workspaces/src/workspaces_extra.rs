@@ -2552,9 +2552,12 @@ async fn is_workspace_owner(
     w_id: &str,
     tx: &mut Transaction<'_, Postgres>,
 ) -> Result<bool> {
-    let owner = sqlx::query_scalar!("SELECT owner FROM workspace WHERE id = $1", w_id)
-        .fetch_optional(&mut **tx)
-        .await?;
+    let owner = sqlx::query_scalar!(
+        "SELECT owner::text AS \"owner!\" FROM workspace WHERE id = $1",
+        w_id
+    )
+    .fetch_optional(&mut **tx)
+    .await?;
     Ok(owner.map(|o| o == authed.email).unwrap_or(false))
 }
 

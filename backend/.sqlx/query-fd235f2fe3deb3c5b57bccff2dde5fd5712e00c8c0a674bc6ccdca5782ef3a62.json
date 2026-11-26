@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT workspace.id, workspace.name, usr.username, workspace_settings.color, workspace.parent_workspace_id,\n                workspace.is_dev_workspace, workspace.dev_workspace_label,\n                workspace.owner AS \"created_by?\",\n                usr.is_admin, usr.operator, usr.workspace_role,\n                usr.disabled, usr.is_service_account\n         FROM workspace\n         JOIN usr ON usr.workspace_id = workspace.id\n         JOIN workspace_settings ON workspace_settings.workspace_id = workspace.id\n         WHERE usr.email = $1 AND workspace.deleted = false",
+  "query": "SELECT workspace.id, workspace.name, usr.username, workspace_settings.color, workspace.parent_workspace_id,\n                workspace.is_dev_workspace, workspace.dev_workspace_label,\n                workspace.owner::text AS \"created_by?\",\n                usr.is_admin, usr.operator, usr.workspace_role,\n                usr.disabled, usr.is_service_account\n         FROM workspace\n         JOIN usr ON usr.workspace_id = workspace.id\n         JOIN workspace_settings ON workspace_settings.workspace_id = workspace.id\n         WHERE usr.email = $1 AND workspace.deleted = false",
   "describe": {
     "columns": [
       {
@@ -41,7 +41,7 @@
       {
         "ordinal": 7,
         "name": "created_by?",
-        "type_info": "Varchar"
+        "type_info": "Text"
       },
       {
         "ordinal": 8,
@@ -82,7 +82,7 @@
       true,
       false,
       true,
-      false,
+      null,
       false,
       false,
       true,
@@ -90,5 +90,5 @@
       false
     ]
   },
-  "hash": "2e8a53e73c3b5c2662efd0e2876f168c2f79258fb900199e8575973d5b3d32bb"
+  "hash": "fd235f2fe3deb3c5b57bccff2dde5fd5712e00c8c0a674bc6ccdca5782ef3a62"
 }

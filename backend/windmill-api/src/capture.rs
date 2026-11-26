@@ -894,7 +894,7 @@ pub async fn get_active_capture_owner_and_email(
         ActiveCaptureOwner,
         r#"
         SELECT 
-            owner, 
+            owner::text AS "owner!",
             email
         FROM 
             capture_config
@@ -944,7 +944,7 @@ async fn get_capture_trigger_config_and_owner<T: DeserializeOwned>(
         r#"
         SELECT 
             trigger_config AS "trigger_config: _", 
-            owner, 
+            owner::text AS "owner!",
             email
         FROM 
             capture_config

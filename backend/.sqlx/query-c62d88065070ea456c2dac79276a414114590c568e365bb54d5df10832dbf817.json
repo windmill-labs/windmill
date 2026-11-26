@@ -1,20 +1,15 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT \n            trigger_config AS \"trigger_config: _\", \n            owner, \n            email\n        FROM \n            capture_config\n        WHERE \n            workspace_id = $1\n            AND path = $2\n            AND is_flow = $3\n            AND trigger_kind = $4\n            AND last_client_ping > NOW() - INTERVAL '10 seconds'\n            AND (\n                $5::bool IS FALSE\n                OR (\n                    trigger_config IS NOT NULL\n                    AND trigger_config ->> 'delivery_type' = 'push'\n                )\n            )\n        ",
+  "query": "\n        SELECT \n            owner::text AS \"owner!\",\n            email\n        FROM \n            capture_config\n        WHERE \n            workspace_id = $1 \n            AND path = $2 \n            AND is_flow = $3 \n            AND trigger_kind = $4 \n            AND last_client_ping > NOW() - INTERVAL '10 seconds'\n        ",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "trigger_config: _",
-        "type_info": "Jsonb"
+        "name": "owner!",
+        "type_info": "Text"
       },
       {
         "ordinal": 1,
-        "name": "owner",
-        "type_info": "Varchar"
-      },
-      {
-        "ordinal": 2,
         "name": "email",
         "type_info": "Varchar"
       }
@@ -48,15 +43,13 @@
               ]
             }
           }
-        },
-        "Bool"
+        }
       ]
     },
     "nullable": [
-      true,
-      false,
+      null,
       false
     ]
   },
-  "hash": "23419adcd74c326d716527293eff518b42f4cdb33e034441015494bd26c172d2"
+  "hash": "c62d88065070ea456c2dac79276a414114590c568e365bb54d5df10832dbf817"
 }
