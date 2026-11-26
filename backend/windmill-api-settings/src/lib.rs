@@ -878,8 +878,18 @@ async fn audit_instance_action(
 pub async fn set_global_setting_internal(
     db: &DB,
     key: String,
-    value: serde_json::Value,
+    mut value: serde_json::Value,
 ) -> error::Result<()> {
+    if instance_config::contains_redacted_secret(&value) {
+        let current = sqlx::query_scalar::<_, serde_json::Value>(
+            "SELECT value FROM global_settings WHERE name = $1",
+        )
+        .bind(&key)
+        .fetch_optional(db)
+        .await?;
+        instance_config::restore_redacted_secrets(&key, &mut value, current.as_ref())
+            .map_err(error::Error::BadRequest)?;
+    }
     let should_bump_instance_ai_revision = key == AI_CONFIG_SETTING;
     let value = if key == "retention_period_secs" {
         instance_config::clamp_retention_period(value)
@@ -1348,12 +1358,22 @@ async fn run_setting_pre_write_hook(
 // Bulk instance config endpoints
 // ---------------------------------------------------------------------------
 
+/// Secrets are redacted on every settings read unless asked for by name, so that a superadmin
+/// token used to inspect the configuration (by a script, a CLI run or an AI assistant) does not
+/// copy every instance credential into its output.
+#[derive(Deserialize)]
+pub struct RevealSecrets {
+    #[serde(default)]
+    pub dangerously_reveal_secrets: bool,
+}
+
 async fn get_instance_config(
     Extension(db): Extension<DB>,
     authed: ApiAuthed,
+    Query(reveal): Query<RevealSecrets>,
 ) -> JsonResult<InstanceConfig> {
     require_super_admin(&db, &authed).await?;
-    let config = InstanceConfig::from_db_for_api(&db)
+    let config = InstanceConfig::from_db_for_api(&db, reveal.dangerously_reveal_secrets)
         .await
         .map_err(|e| error::Error::internal_err(e.to_string()))?;
     Ok(Json(config))
@@ -1362,9 +1382,10 @@ async fn get_instance_config(
 async fn get_instance_config_yaml(
     Extension(db): Extension<DB>,
     authed: ApiAuthed,
+    Query(reveal): Query<RevealSecrets>,
 ) -> error::Result<Response> {
     require_super_admin(&db, &authed).await?;
-    let config = InstanceConfig::from_db_for_api(&db)
+    let config = InstanceConfig::from_db_for_api(&db, reveal.dangerously_reveal_secrets)
         .await
         .map_err(|e| error::Error::internal_err(e.to_string()))?;
     let yaml = config
@@ -1387,9 +1408,13 @@ async fn set_instance_config(
         .await
         .map_err(|e| error::Error::internal_err(e.to_string()))?;
 
-    let desired_map = desired.global_settings.to_settings_map();
+    let mut desired_map = desired.global_settings.to_settings_map();
     if !desired_map.is_empty() {
         let current_map = current.global_settings.to_settings_map();
+        for (key, value) in desired_map.iter_mut() {
+            instance_config::restore_redacted_secrets(key, value, current_map.get(key))
+                .map_err(error::Error::BadRequest)?;
+        }
         let mut settings_diff =
             instance_config::diff_global_settings(&current_map, &desired_map, ApplyMode::Merge);
         let ai_config_changed = settings_diff
@@ -1495,6 +1520,7 @@ pub async fn get_global_setting(
     Extension(db): Extension<DB>,
     authed: ApiAuthed,
     Path(key): Path<String>,
+    Query(reveal): Query<RevealSecrets>,
 ) -> JsonResult<serde_json::Value> {
     if !key.starts_with("default_error_handler_")
         && !key.starts_with("default_recovery_handler_")
@@ -1539,7 +1565,11 @@ pub async fn get_global_setting(
         .await?
         .map(|x| x.value);
 
-    Ok(Json(value.unwrap_or_else(|| serde_json::Value::Null)))
+    let mut value = value.unwrap_or(serde_json::Value::Null);
+    if !reveal.dangerously_reveal_secrets {
+        instance_config::redact_setting_secrets(&key, &mut value);
+    }
+    Ok(Json(value))
 }
 
 #[cfg(feature = "enterprise")]
@@ -1572,6 +1602,7 @@ async fn github_app_stale_webhooks(
 async fn list_global_settings(
     Extension(db): Extension<DB>,
     authed: ApiAuthed,
+    Query(reveal): Query<RevealSecrets>,
 ) -> JsonResult<Vec<GlobalSetting>> {
     require_super_admin(&db, &authed).await?;
     let settings = sqlx::query_as!(GlobalSetting, "SELECT name, value FROM global_settings")
@@ -1579,6 +1610,12 @@ async fn list_global_settings(
         .await?
         .into_iter()
         .filter(|s| !instance_config::is_withheld_server_secret(&s.name))
+        .map(|mut s| {
+            if !reveal.dangerously_reveal_secrets {
+                instance_config::redact_setting_secrets(&s.name, &mut s.value);
+            }
+            s
+        })
         .collect();
 
     Ok(Json(settings))

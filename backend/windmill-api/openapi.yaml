@@ -1903,6 +1903,7 @@ paths:
         - setting
       parameters:
         - $ref: "#/components/parameters/Key"
+        - $ref: "#/components/parameters/DangerouslyRevealSecrets"
       responses:
         "200":
           description: status
@@ -2717,6 +2718,8 @@ paths:
       operationId: listGlobalSettings
       tags:
         - setting
+      parameters:
+        - $ref: "#/components/parameters/DangerouslyRevealSecrets"
       responses:
         "200":
           description: list of settings
@@ -2760,6 +2763,8 @@ paths:
       operationId: getInstanceConfig
       tags:
         - setting
+      parameters:
+        - $ref: "#/components/parameters/DangerouslyRevealSecrets"
       responses:
         "200":
           description: full instance configuration
@@ -29911,6 +29916,15 @@ components:
       required: true
       schema:
         type: string
+    DangerouslyRevealSecrets:
+      name: dangerously_reveal_secrets
+      description: >
+        Return stored secrets in clear. Without it, every secret is replaced by a
+        placeholder, which a write sending it back unchanged keeps as the stored value.
+      in: query
+      required: false
+      schema:
+        type: boolean
     WorkspaceId:
       name: workspace
       in: path

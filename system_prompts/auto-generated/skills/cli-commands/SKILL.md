@@ -330,6 +330,7 @@ sync local with a remote instance or the opposite (push or pull)
   - `--dry-run` - Perform a dry run without making changes
   - `--skip-users` - Skip pulling users
   - `--skip-settings` - Skip pulling settings
+  - `--show-secrets` - Pull secrets (license key, passwords, tokens) in clear instead of redacted
   - `--skip-configs` - Skip pulling configs (worker groups)
   - `--skip-groups` - Skip pulling instance groups
   - `--include-workspaces` - Also pull workspaces
@@ -352,7 +353,7 @@ sync local with a remote instance or the opposite (push or pull)
 - `instance whoami` - Display information about the currently logged-in user
 - `instance get-config` - Dump the current instance config (global settings + worker configs) as YAML
   - `-o, --output-file <file:string>` - Write YAML to a file instead of stdout
-  - `--show-secrets` - Include sensitive fields (license key, JWT secret) without prompting
+  - `--show-secrets` - Include secrets (license key, passwords, tokens) in clear without prompting
   - `--instance <instance:string>` - Name of the instance, override the active instance
 - `instance connect-slack` - Non-interactively connect Slack at the instance level using a pre-minted bot token (xoxb-...). Produces the same artifacts as the UI OAuth flow: global_settings 'slack' row + encrypted f/slack_bot/global_bot_token variable and resource in the admins workspace.
   - `--bot-token <bot_token:string>` - Slack bot token (xoxb-...)
