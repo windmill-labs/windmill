@@ -104,22 +104,6 @@
 		return { short, detail: detail.join(' · ') }
 	})
 
-	// A loop with a failure threshold fails only on it once iterations ran, so a failed
-	// state with that many failed iterations is the threshold stopping it.
-	let failureThresholdStop = $derived.by(() => {
-		const value = data.module?.value
-		if (data.editMode || value?.type !== 'forloopflow' || state?.type !== 'Failure') return undefined
-		const threshold = value.skip_failures ? value.failure_threshold : undefined
-		const failed = state.flow_jobs_success?.filter((s) => s === false).length ?? 0
-		if (!threshold || failed < threshold) return undefined
-		return {
-			short: 'Stopped: failure threshold reached',
-			detail:
-				`${threshold} iteration${threshold > 1 ? 's' : ''} failed, the loop's failure threshold.` +
-				(value.parallel ? ' Iterations not started yet were canceled.' : '')
-		}
-	})
-
 	let flowJobs = $derived(
 		state?.flow_jobs
 			? {
@@ -343,8 +327,8 @@
 					: !data.module?.mock?.preview_only}
 			moduleAction={data.moduleAction}
 			{menuItems}
-			sideAnnotation={agentToolSummary?.short ?? failureThresholdStop?.short}
-			sideAnnotationTitle={agentToolSummary?.detail ?? failureThresholdStop?.detail}
+			sideAnnotation={agentToolSummary?.short}
+			sideAnnotationTitle={agentToolSummary?.detail}
 			annotation={flowJobs &&
 			(data.module?.value?.type === 'forloopflow' || data.module?.value?.type === 'whileloopflow')
 				? 'Iteration: ' +

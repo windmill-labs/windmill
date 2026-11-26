@@ -5422,7 +5422,7 @@ async fn test_failure_module_recover_inside_loop(db: Pool<Postgres>) -> anyhow::
 /// handler recovering the failed iterations does not lift the threshold.
 #[cfg(feature = "deno_core")]
 #[sqlx::test(fixtures("base"))]
-async fn test_forloop_failure_threshold(db: Pool<Postgres>) -> anyhow::Result<()> {
+async fn test_loop_failure_threshold(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
     let server = ApiServer::start(db.clone()).await?;
     let port = server.addr.port();
@@ -5494,9 +5494,35 @@ async fn test_forloop_failure_threshold(db: Pool<Postgres>) -> anyhow::Result<()
     let parallel = run(true, false).await;
     let parallel_iterations = iteration_statuses(parallel.id).await?;
     let recovered = run(true, true).await;
+    // A while loop with no stop condition ends only on its threshold, here an expression.
+    let while_flow: FlowValue = serde_json::from_value(json!({
+        "modules": [{
+            "id": "loop",
+            "value": {
+                "type": "whileloopflow",
+                "skip_failures": true,
+                "failure_threshold": { "type": "javascript", "expr": "1 + 2" },
+                "modules": [{
+                    "id": "a",
+                    "value": {
+                        "input_transforms": {},
+                        "type": "rawscript",
+                        "language": "bun",
+                        "content": "export function main() { throw new Error('boom'); }",
+                    },
+                }],
+            },
+        }],
+    }))
+    .unwrap();
+    let while_loop =
+        RunJob::from(JobPayload::RawFlow { value: while_flow, path: None, restarted_from: None })
+            .run_until_complete(&db, false, port)
+            .await;
+    let while_iterations = iteration_statuses(while_loop.id).await?;
     server.close().await.unwrap();
 
-    for job in [&sequential, &parallel] {
+    for job in [&sequential, &parallel, &while_loop] {
         assert!(!job.success, "reaching the threshold must fail the flow");
         assert_eq!(
             job.json_result().unwrap()["error"]["name"],
@@ -5504,6 +5530,7 @@ async fn test_forloop_failure_threshold(db: Pool<Postgres>) -> anyhow::Result<()
         );
     }
     assert_eq!(sequential_iterations, ["failure", "failure"]);
+    assert_eq!(while_iterations, ["failure", "failure", "failure"]);
     assert_eq!(
         parallel_iterations,
         ["canceled", "canceled", "canceled", "failure", "failure"]

@@ -19,7 +19,7 @@
 	import { logIterationLabel } from '../iterationLabelTelemetry'
 
 	import InputTransformForm from '$lib/components/InputTransformForm.svelte'
-	import TextInput from '$lib/components/text_input/TextInput.svelte'
+	import FailureThresholdSetting from './FailureThresholdSetting.svelte'
 	import PropPickerWrapper from '../propPicker/PropPickerWrapper.svelte'
 	import type { PropPickerContext } from '$lib/components/prop_picker'
 	import { useUiIntent } from '$lib/components/copilot/chat/flow/useUiIntent'
@@ -179,6 +179,8 @@
 		'The JavaScript expression that will be evaluated to get the list of items to iterate over. Example: ["banana", "apple", flow_input.my_fruit].'
 	const ITERATION_LABEL_TOOLTIP =
 		'Evaluated for each iteration to name it in the run viewer and the iteration picker, e.g. flow_input.iter.value.name. A failing expression only leaves the iteration unnamed.'
+	const FAILURE_THRESHOLD_TOOLTIP =
+		'Fail the loop, and the flow with it, once this many iterations have failed. A number, or an expression evaluated when the loop starts, e.g. Math.ceil(flow_input.targets.length * 0.1). A parallel loop cancels the iterations not started yet, including those held back by the concurrency limit, and lets the running ones finish: limit concurrent iterations to bound how many are running at that point.'
 	const DEFAULT_PARALLELISM = 4
 	const PARALLELISM_LABEL = 'Limit concurrent iterations'
 	const SQUASH_PARALLEL_CONFLICT =
@@ -338,29 +340,14 @@
 								}}
 							/>
 							{#if mod.value.skip_failures}
-								<div class="pl-9 flex items-center gap-2 text-xs text-secondary" transition:slideDynamic>
-									<span>Fail the loop after</span>
-									<TextInput
-										class="w-20"
-										size="sm"
-										bind:value={
-											() => (mod.value as ForloopFlow).failure_threshold,
-											(v) => {
-												const n = Number(v)
-												;(mod.value as ForloopFlow).failure_threshold =
-													Number.isInteger(n) && n >= 1 ? n : undefined
-											}
-										}
-										inputProps={{ type: 'number', min: 1, step: 1, placeholder: 'No limit' }}
+								<div class="pl-9" transition:slideDynamic>
+									<FailureThresholdSetting
+										bind:mod
+										{parentModule}
+										{previousModule}
+										tooltip={FAILURE_THRESHOLD_TOOLTIP}
+										documentationLink="https://www.windmill.dev/docs/flows/flow_loops"
 									/>
-									<span>failed iterations</span>
-									<Tooltip>
-										Once this many iterations have failed, the loop fails and the flow with it.
-										A parallel loop cancels the iterations not started yet, including those held
-										back by the concurrency limit, and lets the running ones finish: limit
-										concurrent iterations to bound how many are running at that point. Leave
-										empty to never stop on failures.
-									</Tooltip>
 								</div>
 							{/if}
 						</div>
