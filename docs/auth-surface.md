@@ -171,8 +171,10 @@ Symbols, not line numbers, are cited: they drift less.
   transitions, never sign-in: password members already in the workspace keep logging in, which only
   the instance's `disable_password_login` stops. A new path that seats a member or writes
   `login_type = 'password'` (or a password on a `pending_oauth` account) must call the matching
-  check in the transaction that writes, since both take one per-email advisory lock; the automatic
-  joins (domain auto-add and auto-invite, instance groups) skip the user instead of failing. The
+  check in the transaction that writes, since both lock the account's `password` row (shared to
+  join, exclusive to change the credential); the automatic joins (domain auto-add and auto-invite,
+  instance groups) skip the user instead of failing, and a git sync pull into a fork fails rather
+  than seat a held sync identity. The
   superadmin instance import (`POST /users/overwrite`) restores accounts as given, unchecked.
 - **Login links** (`login_link` table, `POST /users/login_links` superadmin-only,
   `GET /auth/login_link/{token}` unauthenticated): single-use, ≤15 min, a session cookie and a

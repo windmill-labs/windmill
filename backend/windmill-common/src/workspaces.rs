@@ -1586,16 +1586,10 @@ async fn sso_ruleset_holding(
         .map(|r| r.name))
 }
 
-/// Serializes, per email, seating a member against giving the account a password: each side checks
-/// what the other writes, so without it both can commit past each other's check. Held until the
-/// caller's transaction ends, which must also be the one making the write.
-async fn lock_sso_transition(conn: &mut sqlx::PgConnection, email: &str) -> Result<()> {
-    sqlx::query("SELECT pg_advisory_xact_lock(hashtext('sso_transition:' || $1))")
-        .bind(email)
-        .execute(&mut *conn)
-        .await?;
-    Ok(())
-}
+// Seating a member and giving the account a password each check what the other writes, so both
+// lock the account's `password` row (shared to join, exclusive to change the credential) until
+// the writing transaction ends. The row, not a separate lock: role updates already lock it first,
+// and a second lock taken in another order would deadlock with them.
 
 /// Refuses seating `email` in `workspace_id` while a `RequireSso` rule there holds them and their
 /// account signs in with a password. `pending_oauth` passes: it can only become a password
@@ -1608,9 +1602,8 @@ pub async fn check_new_member_sso(
     email: &str,
     username: Option<&str>,
 ) -> Result<()> {
-    lock_sso_transition(conn, email).await?;
     let account = sqlx::query!(
-        "SELECT login_type, username FROM password WHERE email = $1",
+        "SELECT login_type, username FROM password WHERE email = $1 FOR SHARE",
         email
     )
     .fetch_optional(&mut *conn)
@@ -1635,7 +1628,10 @@ pub async fn check_password_login_allowed(
     conn: &mut sqlx::PgConnection,
     email: &str,
 ) -> Result<()> {
-    lock_sso_transition(conn, email).await?;
+    sqlx::query("SELECT 1 FROM password WHERE email = $1 FOR NO KEY UPDATE")
+        .bind(email)
+        .execute(&mut *conn)
+        .await?;
     let memberships = sqlx::query!(
         r#"SELECT u.workspace_id, u.username,
                   COALESCE(array_agg(g.group_) FILTER (WHERE g.group_ IS NOT NULL), '{}') AS "groups!"
