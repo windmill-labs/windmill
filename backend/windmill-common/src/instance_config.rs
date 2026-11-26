@@ -649,6 +649,21 @@ pub struct OtelSettings {
     pub metrics_enabled: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub logs_enabled: Option<bool>,
+    /// Leave audit events out of the logs export.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub logs_exclude_audit: Option<bool>,
+    /// A second logs exporter that receives audit events only.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub audit_logs_enabled: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub audit_logs_endpoint: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub audit_logs_headers: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub audit_logs_protocol: Option<String>,
+    /// Restrict the audit export to these workspaces; instance-level entries are always kept.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub audit_logs_workspaces: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tracing_enabled: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
