@@ -41,6 +41,26 @@ paths:
               schema:
                 type: string
 
+  /client_ip:
+    get:
+      summary: get the caller's IP address
+      description: |
+        The address of the client making the request, as Windmill resolves it for per-IP checks such
+        as token IP allowlists: forwarding headers are believed only from the proxies in
+        TRUSTED_PROXIES. Behind a proxy that is not listed, this is the proxy's address. Empty when
+        the server cannot tell.
+      operationId: getClientIp
+      tags:
+        - settings
+      security: []
+      responses:
+        "200":
+          description: the caller's IP address
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /health/status:
     get:
       summary: health status

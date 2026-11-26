@@ -4,7 +4,7 @@
 	import { Button, Skeleton } from '../common'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 	import Toggle from '../Toggle.svelte'
-	import { SettingService, UserService, type NewToken } from '$lib/gen'
+	import { SettingService, SettingsService, UserService, type NewToken } from '$lib/gen'
 	import { listEveryWorkspace, mcpTokenUrlDisabled } from '$lib/mcpAuth'
 	import { apiBaseUrl } from '$lib/apiBaseUrl.svelte'
 	import TokenDisplay from './TokenDisplay.svelte'
@@ -77,6 +77,13 @@
 			.map((s) => s.trim())
 			.filter((s) => s.length > 0)
 	)
+	// The address this browser calls from, as the server's IP checks resolve it.
+	let clientIp = $state<string | undefined>(undefined)
+	function addClientIp() {
+		if (clientIp && !allowedIps.includes(clientIp)) {
+			allowedIpsText = [...allowedIps, clientIp].join(', ')
+		}
+	}
 	// How this instance lets an MCP client in. `oauth` means it refuses `?token=`, so a
 	// generated token would not get a client in and the URL is handed over bare instead.
 	// A failed read lands on `oauth`: the bare URL works whichever way the setting is,
@@ -112,6 +119,9 @@
 	let maxExpirationDays = $state<number | undefined>(undefined)
 
 	onMount(async () => {
+		SettingsService.getClientIp()
+			.then((ip) => (clientIp = ip.trim() || undefined))
+			.catch(() => {})
 		let value: unknown
 		try {
 			value = await SettingService.getGlobal({ key: 'max_token_expiration_days' })
@@ -564,6 +574,14 @@
 					IP addresses or CIDR ranges, separated by commas. Requests from any other address are
 					refused. Leave empty to allow any.
 				</p>
+				{#if clientIp}
+					<div class="flex items-center gap-2 text-2xs text-secondary">
+						<span>Windmill sees this browser's IP as <code>{clientIp}</code></span>
+						{#if !allowedIps.includes(clientIp)}
+							<Button variant="subtle" unifiedSize="2xs" onclick={addClientIp}>Add</Button>
+						{/if}
+					</div>
+				{/if}
 			</div>
 
 			{#if !scopes || scopes.length === 0}
