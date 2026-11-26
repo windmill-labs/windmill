@@ -2,8 +2,8 @@
 	import Portal from '$lib/components/Portal.svelte'
 	import { Copy, Download, ExternalLink, Maximize, PanelRight, X } from 'lucide-svelte'
 	import ZoomControl from './ZoomControl.svelte'
+	import { useZoomPan } from './zoomPan.svelte'
 	import { fade } from 'svelte/transition'
-	import { on } from 'svelte/events'
 	import { sendUserToast } from '$lib/toast'
 	import Button from '../button/Button.svelte'
 	import Disposable from '../drawer/Disposable.svelte'
@@ -24,35 +24,15 @@
 
 	const caption = $derived(title || alt || 'Image')
 
-	const ZOOM_STEPS = [0.1, 0.25, 0.5, 0.75, 1, 1.5, 2, 3, 4, 6, 8]
-	const MAX_SCALE = 8
-	// Room kept around a fitted image: the top bar overlays the stage, so the image clears it.
-	const FIT_MARGIN_X = 48
-	const FIT_MARGIN_Y = 128
+	/** A plain click beside the image dismisses; one that ends a pan does not. */
+	let dismissOnClick = false
+	const view = useZoomPan({
+		// The top bar overlays the stage, so a fitted image keeps clear of it.
+		margin: { x: 48, y: 128 },
+		onTap: (onImage) => (dismissOnClick = !onImage)
+	})
 
-	let natural = $state<{ w: number; h: number } | undefined>(undefined)
-	let stageW = $state(0)
-	let stageH = $state(0)
-	let stage: HTMLDivElement | undefined = $state(undefined)
 	let imgEl: HTMLImageElement | undefined = $state(undefined)
-
-	/** `fit` follows the viewport as it resizes; a number is a fixed scale of the natural size. */
-	let zoom: number | 'fit' = $state('fit')
-	let pan = $state({ x: 0, y: 0 })
-	/** Eases button and keyboard zooms; wheel and drag must track the pointer without lag. */
-	let animate = $state(false)
-
-	const fitScale = $derived(
-		natural && stageW && stageH
-			? Math.min(1, (stageW - FIT_MARGIN_X) / natural.w, (stageH - FIT_MARGIN_Y) / natural.h)
-			: 1
-	)
-	const scale = $derived(zoom === 'fit' ? fitScale : zoom)
-	const minScale = $derived(Math.min(fitScale, ZOOM_STEPS[0]))
-	const pannable = $derived(
-		!!natural && (natural.w * scale > stageW + 1 || natural.h * scale > stageH + 1)
-	)
-
 	let disposable: Disposable | undefined = $state(undefined)
 	const hostActive = overlayHostActive()
 	const shown = overlayShown()
@@ -62,121 +42,11 @@
 		// A bound `open` alone does not put the viewer on the disposable stack, and the stack
 		// lifts it above the drawer or dialog it was opened from and gives Escape to the topmost.
 		disposable?.openDrawer()
-		zoom = 'fit'
-		pan = { x: 0, y: 0 }
-		animate = false
+		view.reset()
 	}
 
 	function close() {
 		isOpen = false
-	}
-
-	function clampPan(p: { x: number; y: number }, s: number) {
-		if (!natural) return { x: 0, y: 0 }
-		const maxX = Math.max(0, (natural.w * s - stageW) / 2)
-		const maxY = Math.max(0, (natural.h * s - stageH) / 2)
-		return {
-			x: Math.min(maxX, Math.max(-maxX, p.x)),
-			y: Math.min(maxY, Math.max(-maxY, p.y))
-		}
-	}
-
-	/** `at` is relative to the stage centre; that point stays under the pointer while zooming. */
-	function zoomTo(next: number, at = { x: 0, y: 0 }) {
-		const s = Math.min(MAX_SCALE, Math.max(minScale, next))
-		const k = s / scale
-		pan = clampPan({ x: at.x - (at.x - pan.x) * k, y: at.y - (at.y - pan.y) * k }, s)
-		zoom = s
-	}
-
-	function fit() {
-		animate = true
-		zoom = 'fit'
-		pan = { x: 0, y: 0 }
-	}
-
-	function zoomIn() {
-		animate = true
-		zoomTo(ZOOM_STEPS.find((z) => z > scale * 1.01) ?? MAX_SCALE)
-	}
-
-	function zoomOut() {
-		animate = true
-		zoomTo(ZOOM_STEPS.findLast((z) => z < scale / 1.01) ?? minScale)
-	}
-
-	function stagePoint(e: { clientX: number; clientY: number }) {
-		const r = stage!.getBoundingClientRect()
-		return { x: e.clientX - r.left - r.width / 2, y: e.clientY - r.top - r.height / 2 }
-	}
-
-	function toggleZoom(e: MouseEvent) {
-		// The stage captures the pointer, so the double click targets the stage, not the image.
-		const r = imgEl?.getBoundingClientRect()
-		if (
-			!r ||
-			e.clientX < r.left ||
-			e.clientX > r.right ||
-			e.clientY < r.top ||
-			e.clientY > r.bottom
-		)
-			return
-		animate = true
-		if (zoom === 'fit' || Math.abs(scale - fitScale) < 0.001) {
-			zoomTo(fitScale < 1 ? 1 : 2, stagePoint(e))
-		} else {
-			fit()
-		}
-	}
-
-	function wheelZoom(node: HTMLElement) {
-		// Registered by hand: the default must be prevented, so the listener cannot be passive.
-		return on(
-			node,
-			'wheel',
-			(e: WheelEvent) => {
-				e.preventDefault()
-				animate = false
-				const lines = e.deltaMode === 1 ? 33 : 1
-				// Pinch on a trackpad arrives as ctrl+wheel with small deltas.
-				const speed = e.ctrlKey ? 0.01 : 0.0015
-				zoomTo(scale * Math.exp(-e.deltaY * lines * speed), stagePoint(e))
-			},
-			{ passive: false }
-		)
-	}
-
-	let panning = $state(false)
-	let drag:
-		| { x: number; y: number; pan: { x: number; y: number }; moved: boolean; onImage: boolean }
-		| undefined
-
-	function onPointerDown(e: PointerEvent) {
-		if (e.button !== 0) return
-		drag = { x: e.clientX, y: e.clientY, pan, moved: false, onImage: e.target === imgEl }
-		stage?.setPointerCapture(e.pointerId)
-	}
-
-	function onPointerMove(e: PointerEvent) {
-		if (!drag) return
-		const dx = e.clientX - drag.x
-		const dy = e.clientY - drag.y
-		if (!drag.moved && Math.hypot(dx, dy) < 4) return
-		drag.moved = true
-		if (pannable) {
-			panning = true
-			animate = false
-			pan = clampPan({ x: drag.pan.x + dx, y: drag.pan.y + dy }, scale)
-		}
-	}
-
-	/** A plain click beside the image dismisses; one that ends a pan does not. */
-	let dismissOnClick = false
-
-	function onPointerUp() {
-		dismissOnClick = !!drag && !drag.moved && !drag.onImage
-		drag = undefined
-		panning = false
 	}
 
 	function onStageClick() {
@@ -188,20 +58,7 @@
 
 	function onKeyDown(e: KeyboardEvent) {
 		if (!isOpen || !hostActive() || !(disposable?.isTopmost() ?? true)) return
-		if (e.metaKey || e.ctrlKey || e.altKey) return
-		const action = {
-			'+': zoomIn,
-			'=': zoomIn,
-			'-': zoomOut,
-			'0': fit,
-			'1': () => {
-				animate = true
-				zoomTo(1)
-			}
-		}[e.key]
-		if (!action) return
-		e.preventDefault()
-		action()
+		if (view.handleKey(e)) e.preventDefault()
 	}
 
 	const MIME_EXT: Record<string, string> = {
@@ -299,39 +156,21 @@
 						transition:fade|local={{ duration: 150 }}
 					>
 						<div
-							bind:this={stage}
-							bind:clientWidth={stageW}
-							bind:clientHeight={stageH}
-							{@attach wheelZoom}
+							{@attach view.surface}
 							class="absolute inset-0 overflow-hidden touch-none select-none"
-							class:cursor-grab={pannable && !panning}
-							class:cursor-grabbing={panning}
+							class:cursor-grab={view.pannable && !view.panning}
+							class:cursor-grabbing={view.panning}
 							role="presentation"
-							onpointerdown={onPointerDown}
-							onpointermove={onPointerMove}
-							onpointerup={onPointerUp}
 							onclick={onStageClick}
-							onpointercancel={() => {
-								drag = undefined
-								panning = false
-							}}
-							ondblclick={toggleZoom}
 						>
 							<img
 								bind:this={imgEl}
+								{@attach view.image}
 								{src}
 								{alt}
 								draggable="false"
-								class="absolute left-1/2 top-1/2 max-w-none {natural ? '' : 'opacity-0'} {animate
-									? 'transition-transform duration-150 ease-out'
-									: ''}"
-								style="width: {natural?.w ?? 0}px; height: {natural?.h ??
-									0}px; transform: translate(-50%, -50%) translate({pan.x}px, {pan.y}px) scale({scale});"
-								onload={(e) => {
-									const el = e.currentTarget as HTMLImageElement
-									// An SVG without width/height has no intrinsic size.
-									natural = { w: el.naturalWidth || 1024, h: el.naturalHeight || 768 }
-								}}
+								class={view.imageClass}
+								style={view.imageStyle}
 							/>
 						</div>
 
@@ -344,9 +183,9 @@
 								<!-- The overlay is black in both themes, and a zoomed image can pass under the
 								caption, hence fixed white text with a shadow rather than theme tokens. -->
 								<span class="truncate text-xs font-medium text-white/90">{caption}</span>
-								{#if natural}
+								{#if view.natural}
 									<span class="shrink-0 text-2xs text-white/60 tabular-nums">
-										{natural.w} × {natural.h}
+										{view.natural.w} × {view.natural.h}
 									</span>
 								{/if}
 							</div>
@@ -354,15 +193,12 @@
 								class="flex shrink-0 items-center gap-0.5 h-9 px-1 rounded-md bg-surface-tertiary shadow-lg pointer-events-auto"
 							>
 								<ZoomControl
-									{scale}
-									min={minScale}
-									max={MAX_SCALE}
-									onZoomOut={zoomOut}
-									onZoomIn={zoomIn}
-									onZoomTo={(s) => {
-										animate = true
-										zoomTo(s)
-									}}
+									scale={view.scale}
+									min={view.minScale}
+									max={view.maxScale}
+									onZoomOut={view.zoomOut}
+									onZoomIn={view.zoomIn}
+									onZoomTo={view.zoomToAnimated}
 								/>
 								<Button
 									variant="subtle"
@@ -370,7 +206,7 @@
 									iconOnly
 									startIcon={{ icon: Maximize }}
 									title="Fit to screen (0)"
-									onclick={fit}
+									onclick={view.fit}
 								/>
 								<div class="w-px h-4 mx-1 bg-border-light"></div>
 								<Button
