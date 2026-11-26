@@ -10,7 +10,9 @@ use super::chat::{Effect, RunPhase};
 use super::workspace::{
     api_message, get_draft, infer_script_schema, load_flow, load_script_to_run, path_enc,
 };
-use super::{enc, js_head, js_len, js_tail, opt_str_arg, pretty, str_arg, truthy, Ctx, ToolResult};
+use super::{
+    enc, js_head, js_len, js_tail, opt_str_arg, pretty, str_arg, truthy, Ctx, ToolImage, ToolResult,
+};
 
 pub(super) const TOOLS: &[&str] = &[
     "test_run_script",
@@ -215,6 +217,9 @@ pub(super) async fn finish_run(
         summary.push_str(&format!(
             "\n\nFor per-step statuses and results (subflow steps included), call get_run with id=\"{id}\"."
         ));
+    }
+    if ctx.reads_images() {
+        summary.push_str(&image_hint(&id, job.get("result")).unwrap_or_default());
     }
     summary.push_str(&run_page);
     Ok(summary)
@@ -2311,10 +2316,15 @@ async fn read_run(ctx: &Ctx<'_>, args: &Value, card: bool) -> ToolResult {
             enc(step)
         );
         let response = ctx.get(&route).await?;
-        if let Some(job_id) = finished_step_job(&response) {
+        let finished = finished_step_job(&response);
+        if let Some(job_id) = finished {
             ctx.effect(Effect::InspectedRun { job_id: job_id.to_string() });
         }
-        return Ok(step_result(&response, step));
+        let images = match finished.filter(|_| ctx.reads_images() && !card) {
+            Some(job_id) => step_images(ctx, job_id, &response["entries"][0]).await,
+            None => None,
+        };
+        return Ok(step_result(&response, step, images.as_ref()));
     }
 
     // Only the job read is load-bearing: logs and the step tree each answer part of
@@ -2388,12 +2398,35 @@ async fn read_run(ctx: &Ctx<'_>, args: &Value, card: bool) -> ToolResult {
             None => report_run(ctx, id, Some(job), details),
         }
     }
-    let run = shape_run(id, &job?, logs, &results);
+    let job = job?;
+    let images = match ctx.reads_images() && !card {
+        true => attach_result_images(ctx, id, job.get("result"), results["entries"].get(0)).await,
+        false => None,
+    };
+    let run = shape_run(id, &job, logs, &results, images.as_ref());
     ctx.effect(Effect::InspectedRun { job_id: id.to_string() });
     Ok(match ctx.link(&format!("/run/{}", enc(id))) {
         Some(url) => format!("{run}\n\nRun page: {url}"),
         None => run,
     })
+}
+
+/// The kind of image a result the job read swapped for a marker looks like (`png`, `jpeg`,
+/// `gif` or `svg`), from the head of it the step tree carries, and the result's length in
+/// characters.
+fn too_big_image<'a>(result: Option<&Value>, root: Option<&'a Value>) -> Option<(&'a str, u64)> {
+    if result? != TOO_BIG {
+        return None;
+    }
+    let root = root?;
+    let kind = root["result_prefix"]
+        .as_str()?
+        .strip_prefix("{\"")?
+        .split('"')
+        .next()?;
+    ["png", "jpeg", "gif", "svg"]
+        .contains(&kind)
+        .then_some((kind, root["result_length"].as_u64()?))
 }
 
 /// The job read swaps a result past ~90 KB for a marker, so an image under the card's cap
@@ -2404,29 +2437,30 @@ async fn big_image_result(
     job: &Value,
     root: Option<&Value>,
 ) -> Option<Value> {
-    if job.get("result")? != TOO_BIG {
+    let (kind, length) = too_big_image(job.get("result"), root)?;
+    if length > CARD_IMAGE_CHARS as u64 + 64 {
         return None;
     }
-    let root = root?;
-    let kind = root["result_prefix"]
-        .as_str()?
-        .strip_prefix("{\"")?
-        .split('"')
-        .next()?;
-    if !["png", "jpeg", "gif", "svg"].contains(&kind)
-        || root["result_length"].as_u64()? > CARD_IMAGE_CHARS as u64 + 64
-    {
-        return None;
-    }
+    read_whole_image(ctx, id, kind, length).await.ok().flatten()
+}
+
+/// A swapped result read again by its one field `kind`, `length` being the result's text in
+/// characters: `None` when the result holds more than that field.
+async fn read_whole_image(
+    ctx: &Ctx<'_>,
+    id: &str,
+    kind: &str,
+    length: u64,
+) -> Result<Option<Value>, String> {
     let route = ctx.ws(&format!(
         "jobs/completed/get_result/{}?json_path={kind}",
         enc(id)
     ));
-    let field = ctx.get(&route).await.ok()?;
+    let field = ctx.get(&route).await?;
     // The field alone must be the whole result, as `card_image` requires: a result with more
     // keys is no image, and keeps its marker. The length is the result's text, in characters.
     let whole = json!({ kind: field });
-    (jsonb_text_len(&whole) == root["result_length"].as_u64()?).then_some(whole)
+    Ok((jsonb_text_len(&whole) == length).then_some(whole))
 }
 
 /// The length in characters of a value as PostgreSQL prints a jsonb: `", "` between items
@@ -2447,6 +2481,362 @@ fn jsonb_text_len(value: &Value) -> u64 {
         }
         _ => text(value),
     }
+}
+
+// ============================================================================
+// Images the model reads: a result Windmill draws as an image, attached to
+// `get_run`'s answer for an MCP client.
+// ============================================================================
+
+/// The largest image handed to the model, in bytes: its base64 stays under the 5 MiB that
+/// Claude clients accept per image.
+const MAX_IMAGE_BYTES: usize = 3_750_000;
+/// The base64 of the largest image, in characters.
+const MAX_IMAGE_CHARS: usize = MAX_IMAGE_BYTES / 3 * 4;
+/// The images one answer carries at most, and their bytes together.
+const MAX_IMAGES: usize = 4;
+const MAX_IMAGES_BYTES: usize = 2 * MAX_IMAGE_BYTES;
+/// The object storage files the run page draws as an image, and GIFs, which models read.
+const IMAGE_EXTENSIONS: [&str; 5] = [".png", ".jpg", ".jpeg", ".gif", ".webp"];
+
+/// Where an image result's bytes are.
+#[derive(Debug, PartialEq)]
+enum ImageRef<'a> {
+    /// Base64 in the result itself, under the kind its key names.
+    Inline { kind: &'a str, data: &'a str },
+    /// A file in the workspace's object storage.
+    S3 { key: &'a str, storage: Option<&'a str> },
+}
+
+/// The images a result is, in the shapes the run page draws as one: `{png|jpeg|gif}` of
+/// base64, a file in object storage with an image extension, or a list of such files.
+fn image_refs(result: &Value) -> Vec<ImageRef<'_>> {
+    match result.as_array() {
+        // The run page lists files only when every item is one, up to 100 of them.
+        Some(items)
+            if items.len() <= 100
+                && items
+                    .iter()
+                    .all(|item| item.is_object() && s3_file(item).is_some()) =>
+        {
+            items.iter().filter_map(s3_image).collect()
+        }
+        Some(_) => Vec::new(),
+        None => inline_image(result)
+            .or_else(|| s3_image(result))
+            .into_iter()
+            .collect(),
+    }
+}
+
+/// The object storage file a value names, `{s3, storage?}` or `s3://<storage>/<key>`, as
+/// its key and storage.
+fn s3_file(value: &Value) -> Option<(&str, Option<&str>)> {
+    let (key, storage) = match value {
+        Value::String(uri) => {
+            let (storage, key) = uri.strip_prefix("s3://")?.split_once('/')?;
+            (key, Some(storage))
+        }
+        Value::Object(file) => (
+            file.get("s3")?.as_str()?,
+            file.get("storage").and_then(Value::as_str),
+        ),
+        _ => return None,
+    };
+    (!key.is_empty()).then_some((key, storage.filter(|s| !s.is_empty())))
+}
+
+fn s3_image(value: &Value) -> Option<ImageRef<'_>> {
+    let (key, storage) = s3_file(value)?;
+    let lower = key.to_ascii_lowercase();
+    IMAGE_EXTENSIONS
+        .iter()
+        .any(|ext| lower.ends_with(ext))
+        .then_some(ImageRef::S3 { key, storage })
+}
+
+/// A one-key result's value as text, bare or as a file's `content`: how a script returns
+/// an image or a page inline, as `{"png": "<base64>"}`.
+fn single_file(result: &Value) -> Option<(&str, &str)> {
+    let [(kind, value)] = result.as_object()?.iter().collect::<Vec<_>>()[..] else {
+        return None;
+    };
+    let data = value
+        .as_str()
+        .or_else(|| value.get("content").and_then(Value::as_str))
+        .filter(|d| !d.is_empty())?;
+    Some((kind.as_str(), data))
+}
+
+fn is_base64(data: &str) -> bool {
+    data.bytes()
+        .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'+' | b'/' | b'=' | b'\n' | b'\r'))
+}
+
+fn inline_image(result: &Value) -> Option<ImageRef<'_>> {
+    let (kind, data) = single_file(result)?;
+    (matches!(kind, "png" | "jpeg" | "gif") && is_base64(data))
+        .then_some(ImageRef::Inline { kind, data })
+}
+
+/// An image file's MIME type, from its first bytes. The key or extension only says an image
+/// is worth reading: a provider can refuse the whole request for an image whose bytes are
+/// not the type it is sent as.
+fn sniff_image(bytes: &[u8]) -> Option<&'static str> {
+    match bytes {
+        [0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A, ..] => Some("image/png"),
+        [0xFF, 0xD8, 0xFF, ..] => Some("image/jpeg"),
+        [b'G', b'I', b'F', b'8', b'7' | b'9', b'a', ..] => Some("image/gif"),
+        [b'R', b'I', b'F', b'F', _, _, _, _, b'W', b'E', b'B', b'P', ..] => Some("image/webp"),
+        _ => None,
+    }
+}
+
+/// What `get_run` writes beside a result's images: under `key`, what became of them, and
+/// for an inline image the label standing in for its base64, which tells the model nothing.
+struct ImageNote {
+    key: &'static str,
+    text: String,
+    label: Option<String>,
+}
+
+fn image_label(kind: &str) -> String {
+    format!("{} image", kind.to_uppercase())
+}
+
+/// Why an image is left out of an answer: what the model reads, and the `feature_usage`
+/// key it counts under.
+#[derive(Debug)]
+struct Unattached {
+    key: &'static str,
+    why: String,
+}
+
+fn too_large() -> Unattached {
+    let why = format!("larger than {} MB", MAX_IMAGE_BYTES as f64 / 1e6);
+    Unattached { key: "too_large", why }
+}
+
+fn not_image(why: &str) -> Unattached {
+    Unattached { key: "not_image", why: why.to_string() }
+}
+
+fn unreadable(why: String) -> Unattached {
+    Unattached { key: "unreadable", why }
+}
+
+/// Attach the images `result` is, `entry` being its job's entry in the step tree, which
+/// says what a result the job read swapped for a marker was. `None` for a result that is no
+/// image. A failed read leaves its image out and says why; it never fails the answer.
+async fn attach_result_images(
+    ctx: &Ctx<'_>,
+    job_id: &str,
+    result: Option<&Value>,
+    entry: Option<&Value>,
+) -> Option<ImageNote> {
+    let result = result?;
+    let swapped = too_big_image(Some(result), entry).filter(|(kind, _)| *kind != "svg");
+    let (label, total, reads) = match swapped {
+        Some((kind, length)) => {
+            let read = read_swapped_image(ctx, job_id, kind, length).await?;
+            (Some(image_label(kind)), 1, vec![(None, read)])
+        }
+        None => {
+            let refs = image_refs(result);
+            let label = match refs.first()? {
+                ImageRef::Inline { kind, .. } => Some(image_label(kind)),
+                ImageRef::S3 { .. } => None,
+            };
+            let reads =
+                futures::future::join_all(refs.iter().take(MAX_IMAGES).map(|image| async move {
+                    let name = match image {
+                        ImageRef::S3 { key, .. } => Some(*key),
+                        ImageRef::Inline { .. } => None,
+                    };
+                    (name, read_image(ctx, image).await)
+                }))
+                .await;
+            (label, refs.len(), reads)
+        }
+    };
+    let mut budget = MAX_IMAGES_BYTES;
+    let outcomes: Vec<(Option<&str>, Result<(), String>)> = reads
+        .into_iter()
+        .map(|(name, read)| {
+            let outcome = read.and_then(|image| {
+                let bytes = image.data.len() / 4 * 3;
+                if bytes > budget {
+                    let why = format!(
+                        "this answer already carries {} MB of images",
+                        MAX_IMAGES_BYTES as f64 / 1e6
+                    );
+                    return Err(Unattached { key: "too_large", why });
+                }
+                budget -= bytes;
+                ctx.images.lock().unwrap().push(image);
+                Ok(())
+            });
+            // Only an object storage file is named, by its key.
+            let source = if name.is_some() { "s3" } else { "inline" };
+            let key = outcome.as_ref().map_or_else(|skip| skip.key, |_| source);
+            windmill_common::feature_usage::log_feature_usage("mcp_workspace", "result_image", key);
+            (name, outcome.map_err(|skip| skip.why))
+        })
+        .collect();
+    Some(ImageNote {
+        key: if result.is_array() {
+            "result_images"
+        } else {
+            "result_image"
+        },
+        text: image_note_text(&outcomes, total, result.is_array()),
+        label,
+    })
+}
+
+fn image_note_text(
+    outcomes: &[(Option<&str>, Result<(), String>)],
+    total: usize,
+    listed: bool,
+) -> String {
+    if !listed {
+        return match outcomes.first().map(|(_, outcome)| outcome) {
+            Some(Err(why)) => format!("not attached: {why}"),
+            _ => "attached".to_string(),
+        };
+    }
+    let attached = outcomes.iter().filter(|(_, o)| o.is_ok()).count();
+    let mut text = format!("{attached} of {total} images attached");
+    let failed: Vec<String> = outcomes
+        .iter()
+        .filter_map(|(name, outcome)| {
+            let why = outcome.as_ref().err()?;
+            Some(format!("{} ({why})", name.unwrap_or("image")))
+        })
+        .collect();
+    if !failed.is_empty() {
+        text.push_str(&format!("; not attached: {}", failed.join(", ")));
+    }
+    if total > outcomes.len() {
+        text.push_str(&format!(
+            "; an answer carries at most {MAX_IMAGES}, the rest are on the run page"
+        ));
+    }
+    text
+}
+
+/// One image as the model is handed it, or why not.
+async fn read_image(ctx: &Ctx<'_>, image: &ImageRef<'_>) -> Result<ToolImage, Unattached> {
+    match *image {
+        ImageRef::Inline { data, .. } => decode_inline_image(data),
+        ImageRef::S3 { key, storage } => read_s3_image(ctx, key, storage).await,
+    }
+}
+
+/// An inline image the job read swapped for a marker, read again by its one field. `None`
+/// when the result holds more than that field, and so is no image.
+async fn read_swapped_image(
+    ctx: &Ctx<'_>,
+    job_id: &str,
+    kind: &str,
+    length: u64,
+) -> Option<Result<ToolImage, Unattached>> {
+    if length > MAX_IMAGE_CHARS as u64 + 64 {
+        return Some(Err(too_large()));
+    }
+    let whole = match read_whole_image(ctx, job_id, kind, length).await {
+        Ok(whole) => whole?,
+        Err(error) => {
+            let why = format!("its read failed: {}", js_head(api_message(&error), 300));
+            return Some(Err(unreadable(why)));
+        }
+    };
+    Some(match inline_image(&whole) {
+        Some(ImageRef::Inline { data, .. }) => decode_inline_image(data),
+        _ => Err(not_image("its content is not base64")),
+    })
+}
+
+fn decode_inline_image(data: &str) -> Result<ToolImage, Unattached> {
+    use base64::engine::general_purpose::{STANDARD, STANDARD_NO_PAD};
+    use base64::Engine;
+    let data: String = data.chars().filter(|c| !matches!(c, '\n' | '\r')).collect();
+    let bytes = STANDARD
+        .decode(&data)
+        .or_else(|_| STANDARD_NO_PAD.decode(&data))
+        .map_err(|_| not_image("its content is not base64"))?;
+    image_from_bytes(&bytes)
+}
+
+fn image_from_bytes(bytes: &[u8]) -> Result<ToolImage, Unattached> {
+    use base64::Engine;
+    if bytes.len() > MAX_IMAGE_BYTES {
+        return Err(too_large());
+    }
+    let mime_type =
+        sniff_image(bytes).ok_or_else(|| not_image("not a PNG, JPEG, GIF or WebP file"))?;
+    let data = base64::engine::general_purpose::STANDARD.encode(bytes);
+    Ok(ToolImage { data, mime_type })
+}
+
+/// A file of the workspace's object storage, read as the caller through the route the run
+/// page previews it with, so the same storage permission rules apply.
+async fn read_s3_image(
+    ctx: &Ctx<'_>,
+    key: &str,
+    storage: Option<&str>,
+) -> Result<ToolImage, Unattached> {
+    if !cfg!(all(feature = "private", feature = "parquet")) {
+        let why = "reading object storage needs Windmill Enterprise Edition";
+        return Err(unreadable(why.to_string()));
+    }
+    let storage = storage
+        .map(|s| format!("&storage={}", enc(s)))
+        .unwrap_or_default();
+    let route = ctx.ws(&format!(
+        "job_helpers/load_image_preview?file_key={}{storage}",
+        enc(key)
+    ));
+    match ctx.get_bytes(&route, MAX_IMAGE_BYTES).await {
+        Ok(Some(bytes)) => image_from_bytes(&bytes),
+        Ok(None) => Err(too_large()),
+        Err(error) => Err(unreadable(format!(
+            "object storage answered: {}",
+            js_head(api_message(&error), 300)
+        ))),
+    }
+}
+
+/// The images of a finished step's result. Its entry carries the whole result when it is
+/// short, and only its head otherwise.
+async fn step_images(ctx: &Ctx<'_>, job_id: &str, entry: &Value) -> Option<ImageNote> {
+    let prefix = entry["result_prefix"].as_str()?;
+    let whole = entry["result_length"]
+        .as_u64()
+        .is_none_or(|length| length == prefix.chars().count() as u64);
+    let result = match whole {
+        true => serde_json::from_str(prefix).ok()?,
+        false => json!(TOO_BIG),
+    };
+    attach_result_images(ctx, job_id, Some(&result), Some(entry)).await
+}
+
+/// What a run tool adds about a result only `get_run` attaches: an image, or a result too
+/// big to show, which may be one.
+fn image_hint(id: &str, result: Option<&Value>) -> Option<String> {
+    let result = result?;
+    if result == TOO_BIG {
+        return Some(format!(
+            "\n\nThe result is too large to show here. If it is an image, get_run with id=\"{id}\" attaches it."
+        ));
+    }
+    if image_refs(result).is_empty() {
+        return None;
+    }
+    Some(match result.is_array() {
+        true => format!("\n\nThe result lists images: call get_run with id=\"{id}\" to see them."),
+        false => format!("\n\nThe result is an image: call get_run with id=\"{id}\" to see it."),
+    })
 }
 
 /// The end of a job's log, read without the rest of it: an offset past the end returns
@@ -2793,19 +3183,9 @@ fn describe_result(result: &Value) -> Option<String> {
 /// An image result as Windmill draws it, for the card to draw too: base64 for PNG, JPEG and
 /// GIF, the markup itself for SVG, either bare or as a file's `content`.
 fn card_image(result: &Value) -> Option<Value> {
-    let [(kind, value)] = result.as_object()?.iter().collect::<Vec<_>>()[..] else {
-        return None;
-    };
-    let data = value
-        .as_str()
-        .or_else(|| value.get("content").and_then(Value::as_str))
-        .filter(|d| !d.is_empty() && d.len() <= CARD_IMAGE_CHARS)?;
-    let base64 = |d: &str| {
-        d.bytes()
-            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'+' | b'/' | b'=' | b'\n' | b'\r'))
-    };
-    match kind.as_str() {
-        "png" | "jpeg" | "gif" if base64(data) => Some(json!({ "type": kind, "data": data })),
+    let (kind, data) = single_file(result).filter(|(_, data)| data.len() <= CARD_IMAGE_CHARS)?;
+    match kind {
+        "png" | "jpeg" | "gif" if is_base64(data) => Some(json!({ "type": kind, "data": data })),
         "svg" => Some(json!({ "type": "svg", "data": data })),
         _ => None,
     }
@@ -2951,8 +3331,14 @@ fn run_card(id: &str, job: Option<&Value>) -> Map<String, Value> {
 
 /// A run as `get_run` reports it: its summary, args, result and logs around the step
 /// tree. `logs` is the log read's own outcome, so a failed read is told apart from an
-/// empty log.
-fn shape_run(id: &str, job: &Value, logs: Result<String, String>, results: &Value) -> String {
+/// empty log. `images` says what became of the images the result is.
+fn shape_run(
+    id: &str,
+    job: &Value,
+    logs: Result<String, String>,
+    results: &Value,
+    images: Option<&ImageNote>,
+) -> String {
     let mut run = summarize_run(job);
     run.shift_remove("id");
     // Why a run ended badly.
@@ -2972,8 +3358,8 @@ fn shape_run(id: &str, job: &Value, logs: Result<String, String>, results: &Valu
         run.insert("steps_unavailable".into(), true.into());
     }
     // The server swaps a payload too big to send for a marker, each field in its own
-    // form. That is reported, never fetched around: the result keeps the head the step
-    // tree carries.
+    // form. That is reported, and fetched around only for an image the model is handed:
+    // otherwise the result keeps the head the step tree carries.
     if let Some(job_args) = job.get("args").filter(|a| truthy(Some(a))) {
         let too_big = job_args
             .as_object()
@@ -2985,10 +3371,19 @@ fn shape_run(id: &str, job: &Value, logs: Result<String, String>, results: &Valu
         }
     }
     if let Some(result) = job.get("result") {
-        if result == TOO_BIG {
-            run.insert("result_truncated".into(), true.into());
-        } else {
-            run.insert("result".into(), cap(&stringify(result), false).into());
+        match images.and_then(|note| note.label.as_deref()) {
+            Some(label) => {
+                run.insert("result".into(), label.into());
+            }
+            None if result == TOO_BIG => {
+                run.insert("result_truncated".into(), true.into());
+            }
+            None => {
+                run.insert("result".into(), cap(&stringify(result), false).into());
+            }
+        }
+        if let Some(note) = images {
+            run.insert(note.key.into(), note.text.clone().into());
         }
     }
     let logs = match logs {
@@ -3017,7 +3412,8 @@ fn finished_step_job(response: &Value) -> Option<&str> {
 }
 
 /// One step's result in full, from the single entry the server resolved its address to.
-fn step_result(response: &Value, step: &str) -> String {
+/// `images` says what became of the images the result is.
+fn step_result(response: &Value, step: &str, images: Option<&ImageNote>) -> String {
     if let Some(error) = response["step_error"].as_str().filter(|e| !e.is_empty()) {
         let hidden = if truthy(response.get("scope_filtered")) {
             " (Steps running on tags outside your token’s scope are hidden.)"
@@ -3044,7 +3440,14 @@ fn step_result(response: &Value, step: &str) -> String {
     } else {
         String::new()
     };
-    format!("Step \"{step}\" (job {job_id}, {status}) result:\n{prefix}{truncated}")
+    let mut body = match images.and_then(|note| note.label.as_deref()) {
+        Some(label) => label.to_string(),
+        None => format!("{prefix}{truncated}"),
+    };
+    if let Some(note) = images {
+        body.push_str(&format!("\n\n{}: {}", note.key, note.text));
+    }
+    format!("Step \"{step}\" (job {job_id}, {status}) result:\n{body}")
 }
 
 #[cfg(test)]
@@ -3397,6 +3800,84 @@ mod tests {
             jsonb_text_len(&json!([1, "a\"b"])),
             r#"[1, "a\"b"]"#.len() as u64
         );
+    }
+
+    #[test]
+    fn image_results_are_the_shapes_the_run_page_draws() {
+        let inline = |kind, data| vec![ImageRef::Inline { kind, data }];
+        let s3 = |key, storage| ImageRef::S3 { key, storage };
+        assert_eq!(
+            image_refs(&json!({ "png": "iVBORw0KGgo=" })),
+            inline("png", "iVBORw0KGgo=")
+        );
+        assert_eq!(
+            image_refs(&json!({ "jpeg": { "content": "/9j/4A==" } })),
+            inline("jpeg", "/9j/4A==")
+        );
+        assert_eq!(
+            image_refs(&json!({ "s3": "charts/q3.PNG" })),
+            vec![s3("charts/q3.PNG", None)]
+        );
+        assert_eq!(
+            image_refs(&json!("s3://secondary/a.webp")),
+            vec![s3("a.webp", Some("secondary"))]
+        );
+        // A list counts when every item is a file, and only its images are read.
+        let files = json!([{ "s3": "a.png", "storage": "secondary" }, { "s3": "b.csv" }, { "s3": "c.jpg" }]);
+        assert_eq!(
+            image_refs(&files),
+            vec![s3("a.png", Some("secondary")), s3("c.jpg", None)]
+        );
+        for not_an_image in [
+            json!([{ "s3": "a.png" }, { "rows": 1 }]),
+            json!({ "svg": "<svg/>" }),
+            json!({ "chart": { "png": "iVBORw0KGgo=" } }),
+            json!({ "png": "iVBORw0KGgo=", "rows": 1 }),
+            json!({ "png": "not base64!" }),
+            json!({ "s3": "report.pdf" }),
+        ] {
+            assert!(image_refs(&not_an_image).is_empty(), "{not_an_image}");
+        }
+    }
+
+    #[test]
+    fn an_image_is_sent_as_the_type_its_bytes_are() {
+        assert_eq!(sniff_image(b"\x89PNG\r\n\x1a\n\0\0"), Some("image/png"));
+        assert_eq!(sniff_image(b"\xff\xd8\xff\xe0"), Some("image/jpeg"));
+        assert_eq!(sniff_image(b"GIF89a"), Some("image/gif"));
+        assert_eq!(sniff_image(b"RIFF\x24\0\0\0WEBPVP8 "), Some("image/webp"));
+        assert_eq!(sniff_image(b"<html>"), None);
+        // A `{"png": ...}` holding a JPEG goes out as one, without its line breaks.
+        let jpeg = decode_inline_image("/9j/\n4A==").unwrap();
+        assert_eq!(
+            (jpeg.mime_type, jpeg.data.as_str()),
+            ("image/jpeg", "/9j/4A==")
+        );
+        assert!(decode_inline_image("PGh0bWw+").is_err());
+    }
+
+    #[test]
+    fn an_attached_inline_image_reads_as_its_label() {
+        let job =
+            json!({ "type": "CompletedJob", "success": true, "result": { "png": "iVBORw0KGgo=" } });
+        let note = ImageNote {
+            key: "result_image",
+            text: "attached".into(),
+            label: Some("PNG image".into()),
+        };
+        let text = shape_run(
+            "j",
+            &job,
+            Ok(String::new()),
+            &json!({ "entries": [] }),
+            Some(&note),
+        );
+        assert!(
+            text.contains(r#""result": "PNG image""#)
+                && text.contains(r#""result_image": "attached""#),
+            "{text}"
+        );
+        assert!(!text.contains("iVBORw0KGgo"), "{text}");
     }
 
     #[test]

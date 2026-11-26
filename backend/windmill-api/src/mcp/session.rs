@@ -124,7 +124,15 @@ pub(super) async fn call_session_tool(
                 }
             })?;
     windmill_common::feature_usage::log_feature_usage("mcp_workspace", "tool_call", name);
-    let content = vec![ContentBlock::text(outcome.text)];
+    let mut content = vec![ContentBlock::text(outcome.text)];
+    if !outcome.is_error {
+        let images = std::mem::take(&mut *ctx.images.lock().unwrap());
+        content.extend(
+            images
+                .into_iter()
+                .map(|image| ContentBlock::image(image.data, image.mime_type)),
+        );
+    }
     let mut result = if outcome.is_error {
         CallToolResult::error(content)
     } else {
