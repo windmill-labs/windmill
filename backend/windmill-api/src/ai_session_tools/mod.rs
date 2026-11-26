@@ -258,6 +258,7 @@ pub(super) type ToolResult = Result<String, String>;
 pub(crate) struct ToolImage {
     /// Standard base64.
     pub data: String,
+    #[cfg_attr(not(feature = "mcp"), allow(dead_code))]
     pub mime_type: &'static str,
 }
 
