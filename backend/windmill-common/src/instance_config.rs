@@ -649,6 +649,9 @@ pub struct OtelSettings {
     pub metrics_enabled: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub logs_enabled: Option<bool>,
+    /// With logs enabled, export audit events only.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub logs_audit_only: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tracing_enabled: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]

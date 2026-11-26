@@ -111,7 +111,7 @@ use windmill_common::{
     CRITICAL_ALERT_MUTE_ZOMBIE_JOB_RESTART, CRITICAL_ERROR_CHANNELS, DB, DEFAULT_HUB_BASE_URL,
     DEFAULT_OTEL_TRACES_RETENTION_SECS, DEFAULT_SERVICE_LOG_RETENTION_SECS, HUB_BASE_URL,
     JOB_RETENTION_SECS, JOB_RETENTION_SECS_OVERRIDES, JOB_RETENTION_SECS_OVERRIDES_LOADED,
-    METRICS_DEBUG_ENABLED, METRICS_ENABLED, MONITOR_LOGS_ON_OBJECT_STORE, OTEL_LOGS_ENABLED,
+    METRICS_DEBUG_ENABLED, METRICS_ENABLED, MONITOR_LOGS_ON_OBJECT_STORE, OTEL_LOGS_AUDIT_ONLY, OTEL_LOGS_ENABLED,
     OTEL_METRICS_ENABLED, OTEL_TRACING_ENABLED, STORE_AUDIT_LOGS_S3,
 };
 use windmill_common::{
@@ -802,6 +802,7 @@ pub fn apply_metrics_enabled(value: Option<serde_json::Value>) {
 struct OtelSetting {
     metrics_enabled: Option<bool>,
     logs_enabled: Option<bool>,
+    logs_audit_only: Option<bool>,
     tracing_enabled: Option<bool>,
     #[serde(default, deserialize_with = "empty_as_none")]
     otel_exporter_otlp_endpoint: Option<String>,
@@ -829,6 +830,11 @@ pub async fn load_otel(db: &DB) {
                         .map(|x| x.parse::<bool>().unwrap_or(false))
                         .unwrap_or(false)
                 });
+                let logs_audit_only = o.logs_audit_only.unwrap_or_else(|| {
+                    std::env::var("OTEL_LOGS_AUDIT_ONLY")
+                        .map(|x| x.parse::<bool>().unwrap_or(false))
+                        .unwrap_or(false)
+                });
                 let tracing_enabled = o.tracing_enabled.unwrap_or_else(|| {
                     std::env::var("OTEL_TRACING_ENABLED")
                         .map(|x| x.parse::<bool>().unwrap_or(false))
@@ -837,6 +843,7 @@ pub async fn load_otel(db: &DB) {
 
                 OTEL_METRICS_ENABLED.store(metrics_enabled, Ordering::Relaxed);
                 OTEL_LOGS_ENABLED.store(logs_enabled, Ordering::Relaxed);
+                OTEL_LOGS_AUDIT_ONLY.store(logs_audit_only, Ordering::Relaxed);
                 OTEL_TRACING_ENABLED.store(tracing_enabled, Ordering::Relaxed);
 
                 let endpoint = if let Some(endpoint) = o.otel_exporter_otlp_endpoint {
@@ -867,7 +874,7 @@ pub async fn load_otel(db: &DB) {
                         std::env::set_var("OTEL_EXPORTER_OTLP_COMPRESSION", compression);
                     }
                 }
-                println!("OTEL settings loaded: tracing ({tracing_enabled}), logs ({logs_enabled}), metrics ({metrics_enabled}), endpoint ({:?}), headers defined: ({})",
+                println!("OTEL settings loaded: tracing ({tracing_enabled}), logs ({logs_enabled}, audit only: {logs_audit_only}), metrics ({metrics_enabled}), endpoint ({:?}), headers defined: ({})",
                 endpoint, headers.is_some());
             } else {
                 tracing::error!("Error deserializing otel settings");

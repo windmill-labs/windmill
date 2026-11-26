@@ -671,6 +671,18 @@
 									options={{ right: 'Metrics' }}
 								/>
 							</div>
+							{#if $values[setting.key].logs_enabled}
+								<Toggle
+									disabled={!$enterpriseLicense}
+									id="logs_audit_only"
+									bind:checked={$values[setting.key].logs_audit_only}
+									options={{
+										right: 'Export audit logs only',
+										rightTooltip:
+											'Send only audit events through the logs exporter, not the service logs. Audit events are then exported whatever RUST_LOG is set to.'
+									}}
+								/>
+							{/if}
 
 							<div class="flex flex-col gap-1">
 								<label

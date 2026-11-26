@@ -166,8 +166,12 @@ pub fn initialize_tracing(
         file_env_filter.clone()
     };
 
-    // Create a common filter for OTEL logs bridge and tracing layer to respect RUST_LOG
-    let otel_logs_filter = file_env_filter.clone();
+    // The OTEL logs bridge follows RUST_LOG, unless it exports audit events only: those are
+    // emitted at INFO and must reach the collector whatever level the service logs at.
+    let audit_only = crate::OTEL_LOGS_AUDIT_ONLY.load(std::sync::atomic::Ordering::Relaxed);
+    let otel_logs_filter = (!audit_only).then(|| file_env_filter.clone());
+    let otel_audit_filter =
+        audit_only.then(|| Targets::new().with_target(AUDIT_TARGET, LevelFilter::INFO));
 
     // Apply filter to the opentelemetry tracing layer to prevent debug events from being attached to spans
     #[cfg(all(feature = "otel", feature = "enterprise"))]
@@ -180,7 +184,11 @@ pub fn initialize_tracing(
     let opentelemetry_filtered = opentelemetry;
 
     let base_layer = tracing_subscriber::registry()
-        .with(logs_bridge.with_filter(otel_logs_filter))
+        .with(
+            logs_bridge
+                .with_filter(otel_logs_filter)
+                .with_filter(otel_audit_filter),
+        )
         .with(opentelemetry_filtered);
 
     // The service log files are written to be indexed, not tailed, so they always carry the
