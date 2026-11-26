@@ -6,7 +6,6 @@
 		type Script,
 		type WorkflowStatus,
 		type NewScript,
-		ConcurrencyGroupsService,
 		MetricsService,
 		WorkerService,
 		type ScriptArgs
@@ -74,8 +73,9 @@
 	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
 	import { pageHeader } from '$lib/components/pageHeaderRegistry.svelte'
 	import JobDetailHeader from '$lib/components/runs/JobDetailHeader.svelte'
+	import { useConcurrencyKeyStatus } from '$lib/components/runs/useConcurrencyKeyStatus.svelte'
 	import ScriptRetryChain from '$lib/components/runs/ScriptRetryChain.svelte'
-	import FlowExecutionStatus from '$lib/components/runs/FlowExecutionStatus.svelte'
+	import FlowApprovals from '$lib/components/runs/FlowApprovals.svelte'
 	import JobArgs from '$lib/components/JobArgs.svelte'
 	import FlowProgressBar from '$lib/components/flows/FlowProgressBar.svelte'
 	import JobProgressBar from '$lib/components/jobs/JobProgressBar.svelte'
@@ -202,6 +202,8 @@
 
 	let viewTab: 'logs' | 'code' | 'stats' | 'assets' | 'traces' = $state('logs')
 	let selectedJobStep: string | undefined = $state(undefined)
+	let graphEl: HTMLElement | undefined = $state(undefined)
+	let flowStatusViewer: FlowStatusViewer | undefined = $state(undefined)
 
 	// Mirror of the graph's per-module display state (selected iteration of each
 	// ForLoop, etc.). Drives both the iteration pre-fill and the iteration-count
@@ -220,8 +222,9 @@
 		expandedSubflows: () => expandedSubflows
 	})
 	// When the selection can't be restarted from (nothing clicked, Input/Result,
-	// a step inside a parallel loop), the button targets the top-level step that
-	// failed the run, so it is visible without hunting for it in a large graph.
+	// a step inside a parallel step nested in another container), the button
+	// targets the top-level step that failed the run, so it is visible without
+	// hunting for it in a large graph.
 	// A continue-on-error step keeps its `Failure` status on a run that succeeds,
 	// so only a failed run counts, and its last `Failure` is the one that ended it.
 	const failedTopLevelStep = $derived.by(() => {
@@ -239,7 +242,9 @@
 		selectedJobStep !== undefined &&
 			(selectedRestart.topLevelRestartable || selectedRestart.nestedRestartSupported)
 	)
-	const restartStep = $derived(selectionRestartable ? selectedJobStep : failedTopLevelStep)
+	const restartStep = $derived(
+		selectionRestartable ? selectedRestart.restartStepId : failedTopLevelStep
+	)
 	const restart = $derived(selectionRestartable ? selectedRestart : failedRestart)
 	function canRestart(state: ReturnType<typeof useNestedRestartState>) {
 		return (
@@ -265,19 +270,12 @@
 		(localStorage.getItem('hideExplicitProgressTip') ?? 'false') == 'false'
 	)
 
-	let lastJobId: string | undefined = $state(undefined)
-	let concurrencyKey: string | undefined = $state(undefined)
+	const concurrency = useConcurrencyKeyStatus(() => job)
 
 	setContext(
 		'FlowGraphAssetContext',
 		initFlowGraphAssetsCtx({ getModules: () => job?.raw_flow?.modules ?? [] })
 	)
-
-	async function getConcurrencyKey(job: Job | undefined) {
-		if (!job) return
-		lastJobId = job.id
-		concurrencyKey = await ConcurrencyGroupsService.getConcurrencyKey({ id: job.id })
-	}
 
 	// Share read link: if the URL carries a `view_token`, install it so every job
 	// read on this page (incl. flow steps, args, logs, SSE) is authorized by it.
@@ -706,9 +704,6 @@
 	}
 
 	$effect(() => {
-		job?.id && lastJobId !== job.id && untrack(() => getConcurrencyKey(job))
-	})
-	$effect(() => {
 		workspaceId && runId && untrack(() => onRunsPageChange())
 	})
 	$effect(() => {
@@ -1037,6 +1032,8 @@
 			jobId={job.id}
 			selectedJobStep={step}
 			selectedJobStepType={state.selectedJobStepType}
+			parallelFailedCount={state.parallelFailedCount}
+			parallelUnit={state.parallelUnit}
 			restartBranchNames={state.restartBranchNames}
 			nestedPath={state.nestedRestartSupported ? state.nestedRestartPath : undefined}
 			nestedTopStepId={state.nestedRestartTopStepId}
@@ -1425,7 +1422,14 @@
 					openPersistentScriptDrawer={() => {
 						persistentScriptDrawer?.open?.(persistentScriptDefinition)
 					}}
-					{concurrencyKey}
+					concurrencyKey={concurrency.key}
+					concurrencyDeferredFrom={concurrency.deferredFrom}
+					concurrencyReleasedAt={concurrency.releasedAt}
+					stepWaiting={job.type === 'QueuedJob'
+						? Object.values(graphModuleStates).find(
+								(s) => s.type === 'WaitingForExecutor' && s.waiting_reason
+							)?.waiting_reason
+						: undefined}
 				/>
 			{/if}
 		</div>
@@ -1448,6 +1452,8 @@
 					textPosition="bottom"
 					slim
 					showStepId
+					stepStates={graphModuleStates}
+					waitingNested={Object.keys(suspendStatus?.val ?? {}).length > 0}
 				>
 					{#snippet errorAction()}
 						<!-- A saved agent's run is its one step: naming it adds nothing. -->
@@ -1461,12 +1467,15 @@
 						{/if}
 					{/snippet}
 				</FlowProgressBar>
-				{#if suspendStatus}
-					<FlowExecutionStatus
+				{#if suspendStatus && job}
+					<FlowApprovals
 						{job}
 						{isOwner}
 						{suspendStatus}
-						innerModules={job?.flow_status?.modules}
+						onSelectStep={(stepId) => {
+							flowStatusViewer?.selectStep(stepId)
+							graphEl?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+						}}
 					/>
 				{/if}
 			</div>
@@ -1645,9 +1654,10 @@
 		{:else if !job?.['deleted']}
 			<div class="mt-10"></div>
 
-			<div class="w-full mt-10">
+			<div class="w-full mt-10" bind:this={graphEl}>
 				{#if job?.id}
 					<FlowStatusViewer
+						bind:this={flowStatusViewer}
 						jobId={job?.id ?? ''}
 						onJobsLoaded={({ job: newJob }) => {
 							job = newJob

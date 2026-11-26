@@ -255,7 +255,7 @@ async fn deploy_variable(
     if !item_exists(ctx, "variable", None, path).await? {
         if is_secret && stages_no_value {
             return Err(format!(
-                "Draft variable \"{}\" is secret but stages no value, so it cannot be created. Run write_variable with its value first.",
+                "Draft variable \"{}\" is secret but stages no value, so it cannot be created. If the user gave you its value, set it with write_variable. If not, discard this draft and call request_secret: the user types the secret in a secure card and you get back only its path.",
                 draft.get("path").map(js_str).unwrap_or_default()
             ));
         }

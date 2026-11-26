@@ -2763,6 +2763,10 @@
 			lineNumbersMinChars={4}
 			folding
 			{path}
+			codeSource={customUi?.editorBar?.aiGen != false &&
+			(inSessionPane || SUPPORTED_CHAT_SCRIPT_LANGUAGES.includes(lang ?? ''))
+				? { kind: 'script', path: path ?? '', part: activeModuleTab ?? undefined }
+				: undefined}
 			bind:code={editorCode}
 			bind:websocketAlive
 			bind:this={editor}

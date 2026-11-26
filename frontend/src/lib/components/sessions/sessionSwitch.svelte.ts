@@ -29,16 +29,16 @@ import { homeComposerContext } from './homeComposerContext.svelte'
 // Type-only: erased at compile time, so the component graph stays out of this
 // navigation seam (see the dynamic import in openEditorInSession).
 import type { OpenInSessionSource } from './OpenInSessionButton.svelte'
-import type { AppDomSelectorElement } from '../copilot/chat/context'
+import type { PickContext } from '../copilot/chat/context'
 import { presetScopeFor } from '../copilot/chat/workingScope'
 
-// `seedDomElement` rides only with `autoSend`: it is the chip of the prompt being sent.
+// `seedPick` rides only with `autoSend`: it is the chip of the prompt being sent.
 // `untilStarted` keeps the session out of storage until the user starts it, for an item that
 // is kept on its own (a new app's draft) and so loses nothing when the session goes.
 type SeedOpts = {
 	seedPrompt?: string
 	autoSend?: boolean
-	seedDomElement?: AppDomSelectorElement
+	seedPick?: PickContext
 	untilStarted?: boolean
 }
 
@@ -204,7 +204,7 @@ async function sessionHrefFor(
 	setSessionWorkingIn(session.id, workingIn, workingIn ? 'preset' : undefined)
 	if (opts?.seedPrompt) {
 		setSessionDraftPrompt(session.id, opts.seedPrompt)
-		if (opts.autoSend) setSessionAutoSend(session.id, opts.seedDomElement)
+		if (opts.autoSend) setSessionAutoSend(session.id, opts.seedPick)
 	}
 	if (url) {
 		// Dynamic import: a static one would drag the runtime's heavy graph
@@ -229,7 +229,7 @@ export async function openSourceInSession(
 	const opts = {
 		seedPrompt: overrides?.seedPrompt ?? source.seedPrompt,
 		autoSend: overrides?.autoSend ?? source.autoSend,
-		seedDomElement: overrides?.seedDomElement,
+		seedPick: overrides?.seedPick,
 		untilStarted: overrides?.untilStarted
 	}
 	if (source.target) {

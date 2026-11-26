@@ -123,9 +123,17 @@ import {
 	type ToolCallbacks,
 	type ToolDisplayAction
 } from '../shared'
+import { secretRequestToolResult } from '../secretRequest'
 import { scriptLangToEditorLang } from '$lib/scripts'
 import { appFileEditorLang } from '../appFileEditorLang'
-import { isMentionContext, isUserContextPath, type ContextElement } from '../context'
+import {
+	isCodeSelection,
+	isMentionContext,
+	isUserContextPath,
+	type CodeSelection,
+	type CodeSource,
+	type ContextElement
+} from '../context'
 import { getDatatableTools } from '../datatableTools'
 import { getDatatableMigrationTools } from '../datatableMigrationTools'
 import { getDucklakeTools } from '../ducklakeTools'
@@ -391,6 +399,65 @@ const askUserQuestionSchema = z.object({
 		.optional()
 		.describe(
 			'When true, the user may select several answers; use only when the choices can genuinely co-apply (not mutually exclusive). Defaults to single-select.'
+		)
+})
+
+const requestSecretSchema = z.object({
+	path: z
+		.string()
+		.min(1)
+		.describe(
+			"With resource_type, the resource's path; otherwise the secret variable's. Refused if taken, unless replace is set."
+		),
+	replace: z
+		.boolean()
+		.optional()
+		.describe('Set only when the user asked to replace what is at path.'),
+	label: z
+		.string()
+		.min(1)
+		.describe(
+			'What the user is giving or connecting, as they would name it: "OpenAI API key" for a bare secret, "OpenAI" for a resource.'
+		),
+	description: z
+		.string()
+		.optional()
+		.describe(
+			'One short sentence on what it is used for. Becomes the description of what is saved.'
+		),
+	help_text: z
+		.string()
+		.optional()
+		.describe(
+			"Markdown shown on the card: two or three numbered steps to get the values at the user's provider, linking its page when you know it. Include what Windmill needs that the provider's default does not give, e.g. for Supabase the Session pooler string, since the direct host is IPv6-only."
+		),
+	resource_type: z.string().optional().describe('To connect a service: its resource type.'),
+	resource_value: z
+		.record(z.string(), z.unknown())
+		.optional()
+		.describe(
+			"With resource_type: the resource's non-secret fields, matching the type's schema. The user can correct them on the card."
+		),
+	secret_fields: z
+		.array(
+			z.object({
+				field: z.string().min(1).describe('The secret field, e.g. "api_key".'),
+				label: z
+					.string()
+					.optional()
+					.describe('Its label on the card; defaults to the key in words.')
+			})
+		)
+		.min(1)
+		.optional()
+		.describe(
+			'With resource_type: every secret field of the resource (passwords, keys, tokens; not usernames or hosts).'
+		),
+	connection_string: z
+		.boolean()
+		.optional()
+		.describe(
+			'With resource_type "postgresql": open the card on a connection string rather than the fields, as for Supabase or Neon. The user can switch.'
 		)
 })
 
@@ -1901,7 +1968,7 @@ ${testDraftRule}
 - Use list_runs to find recent runs (optionally filtered by path, creator, label, or status), then get_run with a returned id to see what that run was called with, what it returned and what it logged — without starting a new test run.
 - get_run also covers what a flow run did per step — statuses and results across the whole execution tree, subflow steps and loop iterations included — and works while the flow is still running. Pass step to read one step's result in full (capped at 12k chars).
 - Use open_page to show a workspace page with filters applied — Runs, Schedules, Variables, Resources, Assets, Audit logs, or Workspace settings on a specific tab (e.g. "open the failed runs of f/foo/bar", "open the schedule for X", "open the git sync settings"). Carry over every filter the user described — Runs takes the page's whole filter set (time window, path, user, folder, label, tag, worker, trigger kind, args/result, ...), so don't drop a criterion just because it wasn't in the request's main clause. Only the pages listed for this user in the tool are available; don't offer pages that aren't listed. Don't use it as a substitute for list_runs when you just need the data yourself.
-- Whenever you ask the user to perform a manual step in the UI — fill in a resource's credentials, set a secret variable's value, adjust a schedule or setting — call open_page in the same message, targeted at that item (pass open with its path to land in its editor, or the page's filters otherwise). Never just describe where to click.${when(
+- When you need the user to do a step in the UI that you cannot do for them — fill in a resource's credentials, set a secret variable's value, adjust a schedule or setting — call open_page in the same message, targeted at that item (pass open with its path to land in its editor, or the page's filters otherwise). Never just describe where to click. Once nothing is left for them to do, as when an item is saved, offer to open it instead of opening it.${when(
 		canWriteDraft,
 		`
 - Do not offer or open the Compare & Deploy page for normal draft review. Only use open_page with page "compare" when the user explicitly asks to deploy a forked workspace's changes to its parent workspace.`
@@ -2293,14 +2360,23 @@ ${
 }${getRawAppPrompt(language)}`
 }
 
-function getResourceInstructions(): string {
+// An external client has no secret card and no question card, so it keeps the write_variable route.
+function getResourceInstructions(external: boolean): string {
 	return `# Global draft resource & variable instructions
 
 - Global mode writes complete draft payloads only; it does not save, deploy, run, scaffold local files, or generate metadata.
 - A resource draft is a workspace item: \`{ type: 'resource', path, summary?, value, isDraft }\`. \`value\` is a CreateResource body: \`{ path, value, description?, resource_type, labels? }\` where the inner \`value\` is the resource type's data shape.
 - Reading a variable returns \`{ type: 'variable', path, summary?, isSecret, isDraft }\` — never its value, secret or not. \`isSecret\` tells you whether the value is encrypted.
 - \`write_variable\` takes \`{ path, value?, is_secret?, description?, is_oauth?, expires_at?, value_valid_until?, labels? }\`. Creating a variable needs \`value\` and \`is_secret\`; editing one needs only the fields you are changing. Omitting \`value\` keeps the stored value, which is the only way to edit a secret variable — you cannot read its value, so passing any \`value\` you did not get from the user destroys it.
-- For secret fields in a resource value, create the variable with \`write_variable\` and \`is_secret: true\`, and deploy it before the resource (see "Secrets" in the reference below).
+- Connecting a service (a resource with a secret field) happens in one \`request_secret\` call, not in an editor or with \`write_resource\`:
+  1. Ask only what shapes the card and the user has not said${external ? '' : ', in one \`askUserQuestion\`'}: where the service is hosted (e.g. Supabase, Neon, RDS). A Postgres card takes a connection string or the details, and the user picks there; \`connection_string: true\` opens it on the string. Never ask for a value the card takes (a host, a user, a database name, a region): put each field you do not know in \`resource_value\` as an empty string, and the user fills it on the card. Default what has a sensible default.
+  2. Call \`request_secret\` with \`resource_type\`, a resource path you checked is free (list the resources and variables near it first), the non-secret fields you prepared as \`resource_value\`, and every secret field in \`secret_fields\`. ${
+		external
+			? 'It returns a link to a Windmill page where the user types the secrets: give them the link, and once they say it is saved, check that the resource draft exists and use its \`$res:\` path. Do not write that resource yourself.'
+			: 'The user checks the card, types the secrets, and one confirmation saves them and the resource as drafts. Use the \`$res:\` path it returns, which is the one the user chose if it differs from yours; do not write or open that resource yourself.'
+	}
+  3. The card saves drafts, and every run, test runs and connection tests included, reads only deployed items. Before running anything that uses the resource, offer to deploy it with its secret variables; when the user only wanted it saved, end by offering that deploy.
+  4. Never ask for a secret in ${external ? 'the conversation' : 'chat'}, and never create a secret variable with a placeholder or empty value for the user to fill in. A secret that goes into no resource (a run argument) is a \`request_secret\` without \`resource_type\`.
 - Reference formats inside resource values: \`$var:g/all/name\` (global), \`$var:u/user/name\` (user), \`$var:f/folder/name\` (folder). Reference another resource with \`$res:path/to/resource\`. The same strings are also how a resource or variable is passed as a run argument (see the run-argument rule in the resource reference below); what they are never valid as is a variable's own value.
 - Use \`search_resource_types\` to discover valid \`resource_type\` names and their JSON Schemas. Match the resource value to that schema.
 - For an agent (an \`ai_agent\` resource), call \`get_instructions\` with \`subject: "agent"\` instead.
@@ -2382,7 +2458,7 @@ export function getInstructions(
 		case 'flow':
 			return getFlowInstructions(workspace, composeOnly, external, hub)
 		case 'resource':
-			return getResourceInstructions()
+			return getResourceInstructions(external)
 		case 'agent':
 			return getAgentInstructions(workspace, external, composeOnly, untestable, hub)
 		case 'app':
@@ -2594,6 +2670,7 @@ export const readSkillTool: SessionTool<{}> = {
 		'Load the full instructions for an AI skill by resource path. Skills are listed in the system prompt under "Skills"; call this before acting on a task a skill covers, then follow its instructions.'
 	),
 	planModeSafe: true,
+	lookup: true,
 	fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 		const parsed = readSkillSchema.parse(args)
 		const name = skillNameFromPath(parsed.path)
@@ -3380,6 +3457,7 @@ export const globalTools: SessionTool<{}>[] = [
 			'Get authoring guidance for scripts, flows, AI agents, data pipelines, resources, apps, or data tables: their migrations and permissions, and the SQL SDK (wmill.datatable()) used inside runnables.'
 		),
 		planModeSafe: true,
+		lookup: true,
 		fn: async (ctx) => {
 			const { args, toolId, toolCallbacks } = ctx
 			const parsed = getInstructionsSchema.parse(args)
@@ -3509,6 +3587,44 @@ export const globalTools: SessionTool<{}>[] = [
 		}
 	},
 	{
+		// Saving is the user's own action on the card, as pressing Deploy is, so the card is
+		// offered in Use mode too. A workspace whose deploy rules refuse the variable shows the
+		// server's refusal on the card.
+		requires: NONE,
+		readOnlySafe: true,
+		def: createToolDef(
+			requestSecretSchema,
+			'request_secret',
+			'Ask the user for secrets (API key, token, password) through a secure input card in Windmill (in an external client, a link to it). The values are saved as drafts of secret variables, encrypted, and never reach you. With resource_type it connects a service: the card shows the fields you prepared and asks for all its secrets, one confirmation saves them and a draft of the resource, and you get back "$res:<path>", with a connection test result for the types tested without a deploy. Runs read only deployed items, so the drafts must be deployed before anything uses them. Without resource_type it asks for one secret and you get back "$var:<path>". Never ask in the conversation for a value the card takes, secret or not: leave a field you do not know as an empty string in resource_value. Use it for every secret the user has not given you, rather than a placeholder variable for them to fill. A secret the user gave you goes in a secret variable with write_variable, referenced as "$var:<path>", never inline in a resource.'
+		),
+		streamingLabel: 'Asking the user for a secret...',
+		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
+			const parsed = requestSecretSchema.parse(args)
+			// The server checks the arguments and the path, as it does for an MCP client.
+			const response = await callSessionTool(workspace, 'request_secret', parsed)
+			const effect = response.effects.find((e) => e.type === 'secret_request')
+			if (response.is_error || !effect) {
+				const message = response.text || 'The secure input could not be prepared.'
+				toolCallbacks.setToolStatus(toolId, { content: message, error: message })
+				return JSON.stringify({ success: false, error: message })
+			}
+			const request = effect.request
+			if (!toolCallbacks.requestSecret) {
+				const message = 'This chat context cannot show the secure input.'
+				toolCallbacks.setToolStatus(toolId, { content: message, error: message })
+				return JSON.stringify({ success: false, error: message })
+			}
+			toolCallbacks.setToolStatus(toolId, {
+				content: request.resource ? `Connecting ${parsed.label}` : `Asking for ${parsed.label}`,
+				secretRequest: request,
+				isLoading: true
+			})
+			// The chat settles the card itself, whether the turn is still running or not.
+			const outcome = await toolCallbacks.requestSecret(toolId, request)
+			return secretRequestToolResult(request, outcome)
+		}
+	},
+	{
 		requires: NONE,
 		def: createToolDef(
 			updateUserInstructionsSchema,
@@ -3592,6 +3708,7 @@ export const globalTools: SessionTool<{}>[] = [
 			'List workspace items and drafts. Returns metadata only, up to limit items per item type per page (default 50); pass page to continue past a full page.'
 		),
 		planModeSafe: true,
+		lookup: true,
 		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 			listWorkspaceItemsSchema.parse(args)
 			toolCallbacks.setToolStatus(toolId, { content: 'Listing workspace items...' })
@@ -3613,6 +3730,7 @@ export const globalTools: SessionTool<{}>[] = [
 			'List the data pipelines of the workspace: each folder holding at least one pipeline script, with its number of scripts. A pipeline is named by its folder, not by an item path.'
 		),
 		planModeSafe: true,
+		lookup: true,
 		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 			toolCallbacks.setToolStatus(toolId, { content: 'Listing data pipelines...' })
 			const { text } = await runOnServer('list_pipelines', workspace, args)
@@ -3630,6 +3748,7 @@ export const globalTools: SessionTool<{}>[] = [
 			'Read one workspace item or draft. Prefers your draft when one exists; pass version: "deployed" to read the deployed state instead. A deployed item carries extraPerms (a draft does not; pass version: "deployed" for it): who it is shared with beyond its owner, as u/<user> or g/<group> → true (write) or false (read-only). A folder returns its owners and extraPerms; a group returns its members and extraPerms (who may manage it). For a folder or group, path is its name. A g/<group> entry grants every member of that group (g/all is everyone), and workspace admins can read and write every folder and item whatever these lists say.'
 		),
 		planModeSafe: true,
+		lookup: true,
 		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 			const parsed = readWorkspaceItemSchema.parse(args)
 			const { type } = parsed
@@ -3720,6 +3839,7 @@ export const globalTools: SessionTool<{}>[] = [
 	},
 	{
 		requires: WRITE_SCHEDULE_DRAFT,
+		draftWrite: 'schedule',
 		def: createToolDef(
 			writeScheduleToolSchema,
 			'write_schedule',
@@ -3746,6 +3866,7 @@ export const globalTools: SessionTool<{}>[] = [
 	},
 	{
 		requires: WRITE_TRIGGER_DRAFT,
+		draftWrite: 'trigger',
 		def: createToolDef(
 			writeTriggerSchema,
 			'write_trigger',
@@ -3780,6 +3901,7 @@ export const globalTools: SessionTool<{}>[] = [
 			'Get the configuration schema for one trigger kind — its config fields differ per kind.'
 		),
 		planModeSafe: true,
+		lookup: true,
 		fn: async (ctx) => {
 			const { kind } = getTriggerSchemaSchema.parse(ctx.args)
 			return triggerConfigJsonSchema(kind)
@@ -3793,6 +3915,7 @@ export const globalTools: SessionTool<{}>[] = [
 			"Get the shape of a schedule's `advanced` object: retry, pausing, tags, and error-handler tuning."
 		),
 		planModeSafe: true,
+		lookup: true,
 		fn: async () => JSON.stringify(advancedScheduleShape(), null, 2)
 	},
 	{
@@ -3828,6 +3951,7 @@ export const globalTools: SessionTool<{}>[] = [
 	{
 		requires: RUN_PREVIEW,
 		def: testRunScriptToolDef,
+		testRun: 'script',
 		fn: async (ctx) => {
 			const parsed = testRunScriptSchema.parse(ctx.args)
 			return testRunScriptByPath(parsed, ctx)
@@ -3846,6 +3970,7 @@ export const globalTools: SessionTool<{}>[] = [
 	{
 		requires: RUN_PREVIEW,
 		def: testRunCodeToolDef,
+		testRun: 'code',
 		fn: async (ctx) => {
 			const parsed = testRunCodeSchema.parse(ctx.args)
 			return testRunCode(parsed, ctx)
@@ -3881,6 +4006,7 @@ export const globalTools: SessionTool<{}>[] = [
 	{
 		requires: RUN_FLOW_PREVIEW,
 		def: testRunFlowToolDef,
+		testRun: 'flow',
 		fn: async (ctx) => {
 			const parsed = testRunFlowSchema.parse(ctx.args)
 			return testRunFlowByPath(parsed, ctx)
@@ -3911,6 +4037,7 @@ export const globalTools: SessionTool<{}>[] = [
 	{
 		requires: RUN_FLOW_PREVIEW,
 		def: testRunAgentToolDef,
+		testRun: 'agent',
 		fn: async (ctx) => {
 			const parsed = testRunAgentSchema.parse(ctx.args)
 			return testRunAgentByPath(parsed, ctx)
@@ -3941,6 +4068,7 @@ export const globalTools: SessionTool<{}>[] = [
 	{
 		requires: RUN_PREVIEW,
 		def: testRunStepToolDef,
+		testRun: 'flow',
 		fn: async (ctx) => {
 			const parsed = testRunStepSchema.parse(ctx.args)
 			return testRunFlowStepByPath(parsed, ctx)
@@ -3961,6 +4089,7 @@ export const globalTools: SessionTool<{}>[] = [
 			'List recent runs (jobs), most recent first. Optionally filter by path, creator, label, or status. Returns compact metadata only — use get_run with a returned id to see what a run was called with, returned and logged.'
 		),
 		planModeSafe: true,
+		lookup: true,
 		showDetails: true,
 		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 			listRunsSchema.parse(args)
@@ -3981,6 +4110,7 @@ export const globalTools: SessionTool<{}>[] = [
 			'List the workers connected to this Windmill instance (those that pinged in the last 5 minutes), with their worker group, custom tags, seconds since their last ping, and jobs executed. Pair with list_runs to diagnose a stuck queue: runs queued on a tag no listed worker picks up will never start. Three blind spots to report rather than reason past: an empty result states whether no worker is connected or whether workers may be hidden from you, so relay the one it gives instead of picking; a missing custom_tags can mean tags are hidden from you, not unset; and only the 100 most recently pinging workers are listed, so on a bigger instance a tag none of them carries may still be served.'
 		),
 		planModeSafe: true,
+		lookup: true,
 		showDetails: true,
 		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 			toolCallbacks.setToolStatus(toolId, { content: 'Listing workers...' })
@@ -4006,6 +4136,7 @@ export const globalTools: SessionTool<{}>[] = [
 			"Inspect one run: its status, arguments, result and logs, plus — for a flow — the per-step execution tree with each step's status and truncated result (subflow steps, loop iterations, branches and retries included). Works on running jobs too. Pass step to fetch one step's result in full (up to 12k chars)."
 		),
 		planModeSafe: true,
+		lookup: true,
 		showDetails: true,
 		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 			const parsed = getRunSchema.parse(args)
@@ -4129,6 +4260,7 @@ export const globalTools: SessionTool<{}>[] = [
 		// Safe while planning: diff only flushes user-authored parked autosaves, honors the
 		// autosave toggle, and never changes content, deploys, or runs user code.
 		planModeSafe: true,
+		lookup: true,
 		showDetails: true,
 		fn: async (ctx) => {
 			const parsed = diffSchema.parse(ctx.args)
@@ -4225,6 +4357,7 @@ export const globalTools: SessionTool<{}>[] = [
 	},
 	{
 		requires: WRITE_RESOURCE_DRAFT,
+		draftWrite: 'resource',
 		def: createToolDef(
 			writeResourceSchema,
 			'write_resource',
@@ -4241,10 +4374,11 @@ export const globalTools: SessionTool<{}>[] = [
 	},
 	{
 		requires: WRITE_VARIABLE_DRAFT,
+		draftWrite: 'variable',
 		def: createToolDef(
 			writeVariableSchema,
 			'write_variable',
-			'Create or edit a draft variable. Editing is a partial update: pass only the fields you are changing. You can never read the value of a variable, so to edit a secret variable you MUST omit value — any value you pass replaces the stored secret. FAILS if you pass a "$var:" self-reference as the value, or un-secret a variable without giving its new value.',
+			'Create or edit a draft variable. Editing is a partial update: pass only the fields you are changing. You can never read the value of a variable, so to edit a secret variable you MUST omit value — any value you pass replaces the stored secret. FAILS if you pass a "$var:" self-reference as the value, or un-secret a variable without giving its new value. For a secret the user has not given you, call request_secret instead.',
 			{ strict: false }
 		),
 		showDetails: true,
@@ -4263,6 +4397,7 @@ export const globalTools: SessionTool<{}>[] = [
 			'Search workspace resource types and schemas.'
 		),
 		planModeSafe: true,
+		lookup: true,
 		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 			const parsed = searchResourceTypesSchema.parse(args)
 			toolCallbacks.setToolStatus(toolId, {
@@ -4313,6 +4448,7 @@ export const globalTools: SessionTool<{}>[] = [
 			'Read inline script code from one flow module.'
 		),
 		planModeSafe: true,
+		lookup: true,
 		fn: async (ctx) => {
 			const parsed = readFlowModuleCodeSchema.parse(ctx.args)
 			ctx.toolCallbacks.setToolStatus(ctx.toolId, {
@@ -4363,6 +4499,7 @@ export const globalTools: SessionTool<{}>[] = [
 			'Read one raw app frontend file or inline backend runnable. Large files are truncated to a head slice; pass offset/limit to page through the rest.'
 		),
 		planModeSafe: true,
+		lookup: true,
 		fn: async (ctx) => {
 			const parsed = readAppFileSchema.parse(ctx.args)
 			ctx.toolCallbacks.setToolStatus(ctx.toolId, {
@@ -4379,6 +4516,7 @@ export const globalTools: SessionTool<{}>[] = [
 			"Grep across all of a raw app's frontend files and inline backend runnables in one call. Returns matching file:line rows (capped), not file bodies — use it to locate a symbol or string before read_app_file instead of reading whole files one by one."
 		),
 		planModeSafe: true,
+		lookup: true,
 		fn: async (ctx) => {
 			const parsed = searchAppSchema.parse(ctx.args)
 			if (parsed.query.length > 0) {
@@ -4479,6 +4617,7 @@ export const globalTools: SessionTool<{}>[] = [
 		// operators too once `force_viewer_static_fields` marks the call a preview.
 		requires: RUN_PREVIEW,
 		def: testRunAppRunnableToolDef,
+		testRun: 'app',
 		fn: async (ctx) => {
 			const parsed = testRunAppRunnableSchema.parse(ctx.args)
 			return testRunAppRunnable(parsed, ctx)
@@ -4537,6 +4676,7 @@ export const globalTools: SessionTool<{}>[] = [
 			'Check whether the side-panel preview is open in this AI session and which item (kind + path) it is showing — for an artifact tab, also the version the user has pinned in its version picker, which may be older than the latest. Call this before offering or calling open_preview so you do not re-open a preview that is already showing the item you just edited, and whenever the user asks what they are looking at with no ACTIVE PREVIEW section to answer from. Only meaningful inside a session.'
 		),
 		planModeSafe: true,
+		lookup: true,
 		fn: async (ctx) => getSessionPreviewStatus(sessionIdFromCtx(ctx))
 	},
 	{
@@ -4560,6 +4700,7 @@ export const globalTools: SessionTool<{}>[] = [
 			'Fetch the most recent browser console logs (and uncaught errors) from the raw app preview currently open in this AI session. Also reports the build: right after an edit it waits (up to 20s) for the rebuild, and when the build failed it returns the build error and bundler logs first.'
 		),
 		planModeSafe: true,
+		lookup: true,
 		showDetails: true,
 		fn: async (ctx) => {
 			const parsed = getRuntimeLogsSchema.parse(ctx.args)
@@ -4584,6 +4725,7 @@ export const globalTools: SessionTool<{}>[] = [
 			'List the backend runnable executions (jobs) the raw app preview currently open in this AI session has triggered, newest first.'
 		),
 		planModeSafe: true,
+		lookup: true,
 		showDetails: true,
 		fn: async (ctx) => {
 			const parsed = listAppRunsSchema.parse(ctx.args)
@@ -4604,6 +4746,7 @@ export const globalTools: SessionTool<{}>[] = [
 			'Search the live rendered HTML of the raw app preview open in this AI session with a regex, returning matching lines with their line numbers. Use it to check what actually rendered (verify an edit landed, diagnose a blank/empty view). Scope to an element with `selector`, or omit it for the whole page. The DOM is read live, so it reflects the current state.'
 		),
 		planModeSafe: true,
+		lookup: true,
 		showDetails: true,
 		fn: async (ctx) => {
 			const parsed = searchDomSchema.parse(ctx.args)
@@ -4633,6 +4776,7 @@ export const globalTools: SessionTool<{}>[] = [
 			'Read a bounded window of the live rendered HTML of the raw app preview open in this AI session, pretty-printed and line-numbered. Scope to an element with `selector`, or omit it for the whole page. Use search_dom first to locate content, then read_dom to see a specific region. The DOM is read live.'
 		),
 		planModeSafe: true,
+		lookup: true,
 		showDetails: true,
 		fn: async (ctx) => {
 			const parsed = readDomSchema.parse(ctx.args)
@@ -4664,6 +4808,7 @@ export const globalTools: SessionTool<{}>[] = [
 			'Capture a screenshot of the raw app preview currently open in this AI session and attach it as an image so you can see the rendered UI. Use it when the user raises how the app looks, whether reporting a problem or asking for the design improved, rather than to check your own edits. The image is attached in the following message. Requires the raw app preview open (open_preview kind="raw_app").'
 		),
 		planModeSafe: true,
+		lookup: true,
 		showDetails: true,
 		fn: async (ctx) => {
 			// A known text-only model would reject the follow-up image message and fail
@@ -4692,7 +4837,10 @@ export const globalTools: SessionTool<{}>[] = [
 			// buffered here and flushed as a follow-up user image message once the tool batch
 			// completes (see appendPendingToolImages).
 			const image = await normalizeImageDataUrl(result.dataUrl)
-			ctx.toolCallbacks.attachToolImage?.(ctx.toolId, image)
+			ctx.toolCallbacks.attachToolImage?.(ctx.toolId, {
+				image,
+				caption: 'Screenshot(s) of the app preview:'
+			})
 			// The card shows the same copy the model gets; sharing the exact data URL
 			// lets the history's blob store persist one copy for both.
 			ctx.toolCallbacks.setToolStatus(ctx.toolId, {
@@ -5144,7 +5292,7 @@ function buildVariableCreateRequestBody(draftValue: CreateVariable): CreateVaria
 	const requestBody = structuredClone(draftValue)
 	if (requestBody.is_secret && requestBody.value === '') {
 		throw new Error(
-			`Draft variable "${draftValue.path}" is secret but stages no value, so it cannot be created. Run write_variable with its value first.`
+			`Draft variable "${draftValue.path}" is secret but stages no value, so it cannot be created. If the user gave you its value, set it with write_variable. If not, discard this draft and call request_secret: the user types the secret in a secure card and you get back only its path.`
 		)
 	}
 	return requestBody
@@ -7736,6 +7884,22 @@ export function getActiveGlobalEditorContext(
 	}
 }
 
+const CODE_PART_LABEL: Record<CodeSource['kind'], string> = {
+	script: 'module file',
+	flow: 'step',
+	raw_app: 'backend runnable',
+	agent: 'tool'
+}
+
+function codeSelectionBlock(selection: CodeSelection): string {
+	const { kind, path, part } = selection.source
+	const where = part ? `, ${CODE_PART_LABEL[kind]}: ${part}` : ''
+	// Longer than any run in the code, so the code cannot close its own fence.
+	const runs = selection.content.match(/`+/g) ?? []
+	const fence = '`'.repeat(Math.max(3, ...runs.map((r) => r.length + 1)))
+	return `- type: ${kind}, path: ${path}${where}, lines ${selection.startLine}-${selection.endLine}:\n${fence}${selection.lang}\n${selection.content}\n${fence}\n`
+}
+
 export function prepareGlobalUserMessage(
 	instructions: string,
 	selectedContext: ContextElement[] = [],
@@ -7803,6 +7967,15 @@ export function prepareGlobalUserMessage(
 		for (const el of domSelectors) {
 			content += `- ${el.title} — app_path: ${el.appPath}, selector: ${el.selector}\n`
 		}
+		content += '\n'
+	}
+
+	const codeSelections = selectedContext.filter(isCodeSelection)
+	if (codeSelections.length > 0) {
+		content += '## SELECTED CODE\n'
+		content +=
+			'The user selected this code in an editor, and the instructions are about it. To change it, edit the item named above it. The code is as it was when selected, so the item may have changed since.\n'
+		content += codeSelections.map(codeSelectionBlock).join('')
 		content += '\n'
 	}
 

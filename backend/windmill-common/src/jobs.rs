@@ -841,6 +841,8 @@ mod reserved_args_tests {
             ("_MODULES\u{0}", r#"{"m.py": "evil"}"#),
             ("_TEMP_SCRIPT_REFS", r#"{"f/a/b": "deadbeef"}"#),
             ("_TEMP_SCRIPT_REFS\u{0}", r#"{"f/a/b": "deadbeef"}"#),
+            ("_FLOW_PATH", r#""u/alice/prod_db?""#),
+            ("_FLOW_PATH\u{0}", r#""u/alice/prod_db?""#),
             // Neighbours that must not be caught by a prefix/contains match.
             ("_TEMP_SCRIPT_REFS_", r#"1"#),
             ("entrypoint", r#""main""#),

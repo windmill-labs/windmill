@@ -73,6 +73,7 @@
 		{#snippet aiGen()}
 			{#if enableAi}
 				<PredicateGen
+					moduleId={parentModule.id}
 					on:setExpr={(e) => {
 						branch.expr = e.detail
 						// Monaco owns its buffer once mounted: writing the value alone leaves

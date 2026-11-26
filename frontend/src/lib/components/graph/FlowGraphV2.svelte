@@ -27,6 +27,7 @@
 	} from '@xyflow/svelte'
 	import {
 		expandedSubflowOf,
+		expandedSubflowGroup,
 		graphBuilder,
 		type ExpandedSubflow,
 		type InlineScript,
@@ -1102,7 +1103,9 @@
 	// All groups including those from expanded subflows (for overlay rendering)
 	let allGroups = $derived.by(() => {
 		const base = groups ?? []
-		const subflowGroups = Object.values(expandedSubflows).flatMap((sf) => sf.groups ?? [])
+		const subflowGroups = Object.entries(expandedSubflows).flatMap(([id, sf]) =>
+			(sf.groups ?? []).map((g) => expandedSubflowGroup(id, g))
+		)
 		return subflowGroups.length > 0 ? [...base, ...subflowGroups] : base
 	})
 

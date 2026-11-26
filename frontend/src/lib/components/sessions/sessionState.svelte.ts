@@ -15,6 +15,7 @@ import { getLocalSetting, storeLocalSetting } from '$lib/utils'
 import { logFeatureUsage } from '$lib/utils/featureUsage'
 import { isReadOnlySessionWorkspace } from '../copilot/chat/global/sessionAccess'
 import { AIWorkMode } from '../copilot/chat/workMode'
+import type { ReasoningProviderModel } from '../copilot/reasoningRegistry'
 import { workspaceRootId } from './sessionScope.svelte'
 import { type DBSchema, type IDBPDatabase } from 'idb'
 import { userScopedDb } from '$lib/userScopedDb'
@@ -28,7 +29,7 @@ import {
 import { deleteSessionHandEdits } from './sessionHandEdits.svelte'
 import { deleteSessionChats } from '../copilot/chat/HistoryManager.svelte'
 import type { DraftAttachments } from '../copilot/chat/messageDraft.svelte'
-import type { AppDomSelectorElement } from '../copilot/chat/context'
+import type { PickContext } from '../copilot/chat/context'
 import {
 	markSessionDirty,
 	markSessionRemoved,
@@ -45,8 +46,15 @@ export function syncWorkspaceTo(workspaceId: string | undefined): void {
 	if (workspaceId === get(workspaceStore)) return
 	switchWorkspace(workspaceId)
 }
-import { WorkspaceService } from '$lib/gen'
+import { SettingService, WorkspaceService } from '$lib/gen'
 import { createWorkspaceForkAndWait, waitForForkCreation } from '$lib/utils/forkCreation'
+import { stagedForkRequest, type StagedFork } from './sessionForkDefaults'
+import {
+	canUserBypassRuleKindInRulesets,
+	isRuleActiveInRulesets,
+	readProtectionRulesForWorkspace
+} from '$lib/workspaceProtectionRules.svelte'
+import { getUserExt } from '$lib/user'
 import { sendUserToast } from '$lib/toast'
 import { onUserChange } from '$lib/userScopedStorage'
 
@@ -77,13 +85,7 @@ export function isForkSession(
 	return !!ws.parent_workspace_id
 }
 
-export type PendingFork = {
-	// Existing workspace to fork from (drives routing/scope pre-send).
-	parent_workspace_id: string
-	// Slug the new fork will use, e.g. `wm-fork-foo`.
-	id: string
-	// Display name shown in the workspace bar.
-	name: string
+export type PendingFork = StagedFork & {
 	// The background creation this fork started, so a reload mid-copy waits for it rather than
 	// requesting the fork again, which the server refuses while that creation runs.
 	creation_id?: string
@@ -106,9 +108,13 @@ export type Session = {
 	// into workspace_id at first send and then becomes irrelevant.
 	pending_workspace_id?: string
 	// Intent to create a new fork at first send (via commitSessionWorkspace), so
-	// cancelling the draft doesn't leave an orphan fork behind. Found only on records
-	// older clients wrote: no control stages one.
+	// cancelling the draft doesn't leave an orphan fork behind. Staged by Home's "Work in
+	// fork"; `pending_workspace_id` stays the header's workspace it was staged from.
 	pending_fork?: PendingFork
+	// The protected workspace its user chose to work in directly rather than in a fork, which
+	// `resolveSessionAccess` honours for the rule's bypassers only. Keyed by workspace, so it
+	// lapses when the session acts on another one.
+	direct_in?: string
 	// Stable root workspace id used only for sidebar grouping. Lifecycle follows
 	// workspace_id, not this field. Root sessions store the same id in both fields.
 	workspace_root_id?: string
@@ -179,6 +185,12 @@ export type Session = {
 	workingIn?: string[]
 	// How the scope was set, for its usage counter. Absent: the default.
 	workingInSource?: 'preset' | 'manual'
+	// Absent until a pick or the next send, and the session then follows the last pick: unsent,
+	// stored before this field, or restored from the backup. Per browser, like workMode.
+	model?: ReasoningProviderModel
+	// The pick `model` stands in for because the workspace does not offer it, until the user
+	// dismisses the notice or picks a model.
+	replacedModel?: ReasoningProviderModel
 	// Unsent composer text for a pending (uncommitted) session, persisted with
 	// the record so each parallel draft restores its own typed-but-unsent prompt.
 	// Only tracked while unsent; cleared once the workspace commits at first send.
@@ -191,10 +203,10 @@ export type Session = {
 	// would otherwise leave a session armed forever and fire on some later visit.
 	// Consumed exactly once, by takeSessionAutoSend.
 	autoSendDraftAt?: number
-	// The element a preview pick hands over with the auto-sent prompt, sent as its
-	// chip. Lives and dies with `autoSendDraftAt`: a prompt like "make this bigger"
-	// must never go out without the element it names.
-	autoSendDomElement?: AppDomSelectorElement
+	// The preview element or code selection handed over with the auto-sent prompt, sent as
+	// its chip. Lives and dies with `autoSendDraftAt`: a prompt like "make this bigger"
+	// must never go out without what it names.
+	autoSendPick?: PickContext
 }
 
 // One preview tab: `url` is the URL we command the iframe to load, `loc` the
@@ -470,17 +482,17 @@ const AUTO_SEND_TTL_MS = 5 * 60_000
 // Mark this session's draft prompt for sending on arrival. Written straight to
 // the record (not via setSessionDraftPrompt's debounce) because the navigation
 // that follows must not outrun it.
-export function setSessionAutoSend(sessionId: string, domElement?: AppDomSelectorElement): void {
+export function setSessionAutoSend(sessionId: string, pick?: PickContext): void {
 	const s = sessionState.sessions.find((x) => x.id === sessionId)
 	if (!s) return
 	s.autoSendDraftAt = Date.now()
-	s.autoSendDomElement = domElement
+	s.autoSendPick = pick
 	persistTouched(s)
 }
 
-// The element armed with the auto-send intent; read before takeSessionAutoSend clears both.
-export function getSessionAutoSendDomElement(sessionId: string): AppDomSelectorElement | undefined {
-	return sessionState.sessions.find((x) => x.id === sessionId)?.autoSendDomElement
+// The pick armed with the auto-send intent; read before takeSessionAutoSend clears both.
+export function getSessionAutoSendPick(sessionId: string): PickContext | undefined {
+	return sessionState.sessions.find((x) => x.id === sessionId)?.autoSendPick
 }
 
 function autoSendIsFresh(s: Session | undefined): boolean {
@@ -503,7 +515,7 @@ export function takeSessionAutoSend(sessionId: string): boolean {
 	if (!s?.autoSendDraftAt) return false
 	const fresh = autoSendIsFresh(s)
 	delete s.autoSendDraftAt
-	delete s.autoSendDomElement
+	delete s.autoSendPick
 	persistTouched(s)
 	return fresh
 }
@@ -1156,7 +1168,8 @@ function followHomeDraft(): void {
 	const s = homeDraft.id ? sessionState.sessions.find((x) => x.id === homeDraft.id) : undefined
 	const ws = get(workspaceStore)
 	if (!s || !ws || s.workspace_id || sendUnderWay(s.id)) return
-	if (s.pending_workspace_id === ws && !s.pending_fork) return
+	// A fork staged from the header's workspace stays; picking another workspace drops it.
+	if (s.pending_workspace_id === ws) return
 	if (s.pending_workspace_id && workspaceRootId(ws, get(userWorkspaces)) !== sessionRootId(s)) {
 		return
 	}
@@ -1324,6 +1337,24 @@ export function setSessionPendingWorkspace(id: string, workspace_id: string) {
 	if (changed) persistTouched(s)
 }
 
+/** Stage `fork` for a session's first send, or drop the staged one (`undefined`). */
+export function setSessionPendingFork(id: string, fork: StagedFork | undefined) {
+	const s = sessionState.sessions.find((x) => x.id === id)
+	if (!s || s.workspace_id) return
+	s.pending_fork = fork && { ...fork }
+	if (fork) s.direct_in = undefined
+	persistTouched(s)
+}
+
+/** Opt a session into working directly in protected `workspace`, or out (`undefined`). */
+export function setSessionDirectIn(id: string, workspace: string | undefined) {
+	const s = sessionState.sessions.find((x) => x.id === id)
+	if (!s) return
+	s.direct_in = workspace
+	if (workspace) s.pending_fork = undefined
+	persistTouched(s)
+}
+
 // Keep a just-created session in memory until the user starts it (see `untilStarted`).
 export function holdSessionUntilStarted(id: string) {
 	const s = sessionState.sessions.find((x) => x.id === id)
@@ -1467,6 +1498,35 @@ export function setSessionWorkMode(id: string, mode: AIWorkMode): void {
 	persistTouched(s)
 }
 
+/** Not a touch: picking a model on Home's untouched draft must not keep it in the sidebar. */
+export function setSessionModel(
+	id: string,
+	model: ReasoningProviderModel,
+	replaced?: ReasoningProviderModel
+): void {
+	const s = sessionState.sessions.find((x) => x.id === id)
+	if (!s) return
+	s.model = { ...model }
+	s.replacedModel = replaced
+	if (!s.transient) void putSession(s)
+}
+
+export function dismissReplacedModel(id: string): void {
+	const s = sessionState.sessions.find((x) => x.id === id)
+	if (!s) return
+	delete s.replacedModel
+	void putSession(s)
+}
+
+/** A pick by the user, which is also the last pick: an untouched draft follows that one, so it
+ * drops a pick of its own. */
+export function pickSessionModel(id: string, model: ReasoningProviderModel): void {
+	for (const s of sessionState.sessions) {
+		if (s.id !== id && isDiscardableDraft(s)) delete s.model
+	}
+	setSessionModel(id, model)
+}
+
 /** Not a touch: picking a scope on Home's untouched draft must not keep it in the sidebar. */
 export function setSessionWorkingIn(
 	id: string,
@@ -1563,9 +1623,23 @@ export async function materializeForkOutcome(
 			)
 		}
 		if (!resumed) {
+			const base = fork.parent_workspace_id
+			const [datatables, ducklakes, storages, readRules, user] = await Promise.all([
+				WorkspaceService.listDataTables({ workspace: base }).catch(() => undefined),
+				WorkspaceService.listDucklakes({ workspace: base }).catch(() => undefined),
+				SettingService.getSecondaryStorageNames({ workspace: base, includeDefault: true }).catch(
+					() => undefined
+				),
+				readProtectionRulesForWorkspace(base),
+				getUserExt(base)
+			])
+			const rules = readRules ?? []
+			const requireIsolation =
+				isRuleActiveInRulesets(rules, 'RequireIsolatedForks') &&
+				!canUserBypassRuleKindInRulesets(rules, 'RequireIsolatedForks', user)
 			await createWorkspaceForkAndWait(
-				fork.parent_workspace_id,
-				{ id: fork.id, name: fork.name },
+				base,
+				stagedForkRequest(fork, { datatables, ducklakes, storages, requireIsolation }),
 				{ onCreationStarted }
 			)
 		}

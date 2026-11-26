@@ -1,0 +1,34 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT key, original_scheduled_for AS deferred_from, released_at FROM concurrency_key WHERE job_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "key",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "deferred_from",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 2,
+        "name": "released_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "eaf0a5853b3550a4706d2aff6587b750ce7392ac6d7406403ce84127c5d978e3"
+}

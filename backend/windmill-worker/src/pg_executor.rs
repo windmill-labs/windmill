@@ -38,8 +38,9 @@ use windmill_queue::{CanceledBy, MiniPulledJob};
 
 use crate::agent_workers::get_datatable_resource_from_agent_http;
 use crate::common::{
-    build_args_values, get_reserved_variables, narrow_sql_int, s3_mode_args_to_worker_data,
-    s3_stream_and_upload_with_logs, sizeof_val, OccupancyMetrics, S3ModeWorkerData,
+    build_args_values, build_literal_args_values, get_reserved_variables, narrow_sql_int,
+    s3_mode_args_to_worker_data, s3_stream_and_upload_with_logs, sizeof_val, OccupancyMetrics,
+    S3ModeWorkerData,
 };
 use crate::handle_child::run_future_with_polling_update_job_poller;
 use crate::sanitized_sql_params::sanitize_and_interpolate_unsafe_sql_args;
@@ -1100,7 +1101,12 @@ pub async fn do_postgresql(
     parent_runnable_path: Option<String>,
     run_inline: bool,
 ) -> error::Result<Box<RawValue>> {
-    let mut pg_args = build_args_values(job, client, conn).await?;
+    let annotations = windmill_common::worker::SqlAnnotations::parse(query);
+    let mut pg_args = if annotations.literal_args {
+        build_literal_args_values(job)
+    } else {
+        build_args_values(job, client, conn).await?
+    };
 
     let inline_db_res_path = parse_db_resource(&query);
 
@@ -1185,7 +1191,6 @@ pub async fn do_postgresql(
         .await;
     }
 
-    let annotations = windmill_common::worker::SqlAnnotations::parse(query);
     let collection_strategy = if annotations.raw_output || annotations.return_last_result {
         // raw_output emits a single envelope from the last statement, so the
         // multi-statement collection modes don't apply.

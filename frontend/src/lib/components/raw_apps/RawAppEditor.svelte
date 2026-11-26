@@ -39,7 +39,7 @@
 		applyRawAppStorageOp
 	} from './utils'
 	import { runDomQueryOnHtml, type RawAppDomQuery, type RawAppDomRequester } from './rawAppDom'
-	import InlineElementPrompt from './InlineElementPrompt.svelte'
+	import InlinePrompt from '../copilot/chat/InlinePrompt.svelte'
 	import DarkModeObserver from '../DarkModeObserver.svelte'
 	import { getAppliedDarkModeVariant, type DarkModeVariant } from '$lib/darkModeVariant'
 	import RawAppSidebar from './RawAppSidebar.svelte'
@@ -61,7 +61,7 @@
 	import { captureScale, MAX_IMAGE_EDGE } from '../copilot/chat/imageUtils'
 	import { rawAppLintStore } from './lintStore'
 	import { dbSchemas, userStore } from '$lib/stores'
-	import { copilotInfo } from '$lib/aiStore'
+	import { getAiChatManager } from '$lib/components/copilot/chat/aiChatManagerContext'
 	import { useActingUser } from '$lib/actingUser.svelte'
 	import { appPreviewOnBehalfOf } from '$lib/utils/previewOnBehalfOf'
 	import RawAppSdkConsent from './RawAppSdkConsent.svelte'
@@ -86,6 +86,7 @@
 	import { sendUserToast } from '$lib/utils'
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 	import { UserDraft } from '$lib/userDraft.svelte'
+	import { assertDraftSaved } from '$lib/components/sessions/pageDrawerSession'
 	import { setOpenInSessionHandoff } from '$lib/components/sessions/openInSessionContext'
 	import { openSourceInSession } from '$lib/components/sessions/sessionSwitch.svelte'
 	import {
@@ -280,6 +281,9 @@
 		draftBaseVersion = undefined
 	}: Props = $props()
 
+	const aiChat = getAiChatManager()
+	const aiInfo = $derived(aiChat.aiInfo)
+
 	// Workspace this editor operates on: the session's acting workspace when
 	// embedded in a session preview (autosaveWorkspace), else the navigation
 	// workspace. Deploy/save/background-runner must target it, not the navigation one.
@@ -298,14 +302,12 @@
 	// discardIf baseline, safe only when there is none.
 	async function persistDraftForSession(): Promise<void> {
 		if (!opWorkspace || draftStoragePath === undefined) return
-		await UserDraftDbSyncer.flush({
-			workspace: opWorkspace,
-			itemKind: 'raw_app',
-			path: draftStoragePath
-		})
+		const query = { workspace: opWorkspace, itemKind: 'raw_app' as const, path: draftStoragePath }
+		await UserDraftDbSyncer.flush(query)
 		if (newApp) {
 			await UserDraft.forcePersist('raw_app', draftStoragePath, { workspace: opWorkspace })
 		}
+		assertDraftSaved(query)
 	}
 
 	const sessionOpen = $derived(
@@ -2209,7 +2211,7 @@ addEventListener('message', function (e) {
 			await openSourceInSession(sessionOpen, {
 				seedPrompt: prompt,
 				autoSend: true,
-				seedDomElement: createAppDomSelectorElement({
+				seedPick: createAppDomSelectorElement({
 					selector,
 					appPath: sessionOpen.target.path,
 					tagName: el.tagName,
@@ -2990,7 +2992,7 @@ addEventListener('message', function (e) {
 													{bundlerType}
 												</Button>
 											{/if}
-											{#if !$copilotInfo.workspaceDisabled}
+											{#if aiInfo && !aiInfo.workspaceDisabled}
 												<Button
 													variant="subtle"
 													unifiedSize="sm"
@@ -3178,11 +3180,10 @@ addEventListener('message', function (e) {
 	     (fresh value + autofocus); repositioning on scroll keeps the same key so
 	     it never steals focus mid-scroll. -->
 	{#key inlinePromptSelector}
-		<InlineElementPrompt
-			x={inlinePromptPos.x}
-			y={inlinePromptPos.y}
-			label={inlinePromptLabel}
-			inNewSession={!onInlinePrompt}
+		<InlinePrompt
+			position={inlinePromptPos}
+			ariaLabel="Prompt about the selected element"
+			label={onInlinePrompt ? inlinePromptLabel : undefined}
 			onSend={async (prompt) => {
 				if ((await inlinePrompt?.(inlinePromptSelector!, prompt)) === false) return false
 				inlinePromptDismissed = true

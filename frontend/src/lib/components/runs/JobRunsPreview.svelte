@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { ConcurrencyGroupsService, type Job, type WorkflowStatus } from '../../gen'
+	import { type Job, type WorkflowStatus } from '../../gen'
+	import { useConcurrencyKeyStatus } from './useConcurrencyKeyStatus.svelte'
 	import JobLoader from '../JobLoader.svelte'
 	import DisplayResult from '../DisplayResult.svelte'
 	import JobArgs from '../JobArgs.svelte'
@@ -15,7 +16,7 @@
 	import FlowAssetsHandler, { initFlowGraphAssetsCtx } from '../flows/FlowAssetsHandler.svelte'
 	import JobAssetsViewer from '../assets/JobAssetsViewer.svelte'
 	import JobDetailHeader from './JobDetailHeader.svelte'
-	import FlowExecutionStatus from './FlowExecutionStatus.svelte'
+	import FlowApprovals from './FlowApprovals.svelte'
 
 	interface Props {
 		id: string
@@ -34,12 +35,7 @@
 	let loadError: string | undefined = $state(undefined)
 	let isLoadingJobDetails: boolean = $state(false)
 
-	let lastJobId: string | undefined = $state(undefined)
-	let concurrencyKey: string | undefined = $state(undefined)
-	async function getConcurrencyKey(job: Job) {
-		lastJobId = job.id
-		concurrencyKey = await ConcurrencyGroupsService.getConcurrencyKey({ id: job.id })
-	}
+	const concurrency = useConcurrencyKeyStatus(() => job)
 
 	let viewTab = $state('logs')
 
@@ -99,10 +95,6 @@
 		}
 	})
 
-	$effect(() => {
-		job?.id && lastJobId !== job.id && untrack(() => job && getConcurrencyKey(job))
-	})
-
 	let jobLoader: JobLoader | undefined = $state(undefined)
 
 	// Set all tabs content to the same height to prevent layout jumps
@@ -121,6 +113,8 @@
 	// Flow execution status state
 	let suspendStatus: StateStore<Record<string, { job: Job; nb: number }>> = $state({ val: {} })
 	let isOwner: boolean = $state(false)
+	let flowStatusViewer: FlowStatusViewer | undefined = $state(undefined)
+	let flowStatusEl: HTMLElement | undefined = $state(undefined)
 </script>
 
 <JobLoader
@@ -151,7 +145,9 @@
 			<JobDetailHeader
 				{job}
 				compact
-				{concurrencyKey}
+				concurrencyKey={concurrency.key}
+				concurrencyDeferredFrom={concurrency.deferredFrom}
+				concurrencyReleasedAt={concurrency.releasedAt}
 				onFilterByConcurrencyKey={handleFilterByConcurrencyKey}
 				onFilterByWorker={handleFilterByWorker}
 				{onResolutionChanged}
@@ -172,11 +168,14 @@
 			{/if}
 			<div class="w-full mt-2">
 				{#if isFlow}
-					<FlowExecutionStatus
+					<FlowApprovals
 						{job}
 						{isOwner}
-						innerModules={job?.flow_status?.modules}
 						{suspendStatus}
+						onSelectStep={(stepId) => {
+							flowStatusViewer?.selectStep(stepId)
+							flowStatusEl?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+						}}
 					/>
 				{/if}
 			</div>
@@ -192,9 +191,10 @@
 			</div>
 
 			<!-- Job execution content -->
-			<div class="w-full mt-6">
+			<div class="w-full mt-6" bind:this={flowStatusEl}>
 				{#if isFlow}
 					<FlowStatusViewer
+						bind:this={flowStatusViewer}
 						jobId={job.id}
 						workspaceId={job.workspace_id}
 						initialJob={job}

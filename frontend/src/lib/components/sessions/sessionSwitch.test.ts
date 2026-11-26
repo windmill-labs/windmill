@@ -7,7 +7,7 @@ import {
 	startSessionWithPrompt
 } from './sessionSwitch.svelte'
 import {
-	getSessionAutoSendDomElement,
+	getSessionAutoSendPick,
 	homeDraft,
 	peekSessionAutoSend,
 	sessionState,
@@ -172,12 +172,12 @@ describe('auto-send intent', () => {
 		try {
 			await openSourceInSession(
 				{ target: { kind: 'raw_app', path: 'u/me/app' } },
-				{ seedPrompt: 'make this bigger', autoSend: true, seedDomElement: el }
+				{ seedPrompt: 'make this bigger', autoSend: true, seedPick: el }
 			)
 			createdId = sessionState.currentSessionId!
-			expect(getSessionAutoSendDomElement(createdId)).toEqual(el)
+			expect(getSessionAutoSendPick(createdId)).toEqual(el)
 			expect(takeSessionAutoSend(createdId)).toBe(true)
-			expect(getSessionAutoSendDomElement(createdId)).toBeUndefined()
+			expect(getSessionAutoSendPick(createdId)).toBeUndefined()
 		} finally {
 			sessionState.sessions = sessionState.sessions.filter((s) => s.id !== createdId)
 			sessionState.currentSessionId = prevCurrent

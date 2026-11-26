@@ -37,11 +37,14 @@ Symbols, not line numbers, are cited: they drift less.
   so until `whoami` answers that browser still renders as its own last user.
 - **`tokens/impersonate`** (superadmin) returns a multi-use token and sets no cookie.
 - **`max_token_expiration_days`** caps `POST /users/tokens/create` and `tokens/impersonate`, by
-  shortening the stored expiration (`cap_token_expiration`), never by refusing: the CLI
-  authorization page, `wmill user create-token` and the editor's language-server token all pick a
-  lifetime without reading the setting, and CLIs already installed never will. The CLI signs in
-  again on its own when its token expires, which is why the authorization page labels it
-  `cli-login:<username>`, reserved in `is_user_token` so its expiry does not email the user. A token
+  shortening the stored expiration (`cap_token_expiration`), never by refusing: `wmill user
+  create-token` and the editor's language-server token pick a lifetime without reading the
+  setting, and CLIs already installed never will. The CLI authorization page (`/user/cli`) reads
+  it only to offer the lifetimes that would be kept (30 days by default). The CLI signs in again
+  on its own when its token expires, which is why the authorization page labels it
+  `cli-login:<username>`, reserved in `is_user_token` so its expiry does not email the user.
+  `wmill workspace login` replaces a profile's token before it expires, and revokes the previous
+  one only when that label shows the browser login minted it. A token
   owned by a service account is exempt: one in the workspace the token names, or in any workspace
   for a workspace-less token (for `tokens/impersonate`, the impersonated account). Any workspace
   admin can therefore create and impersonate a service account to hold an uncapped token, so the

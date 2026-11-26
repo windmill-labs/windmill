@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use itertools::Itertools;
 use serde_json::value::RawValue;
 use sqlx::{types::Json as SqlxJson, PgConnection};
-use windmill_api_auth::{check_scopes, ApiAuthed};
+use windmill_api_auth::ApiAuthed;
 use windmill_common::DB;
 use windmill_common::{
     db::UserDB,
@@ -22,25 +22,12 @@ use super::{
     WebsocketTrigger,
 };
 
-/// A websocket_triggers:write token can configure secondary runnables that the
-/// listener later executes under the trigger owner's identity: a `$flow:`/
-/// `$script:` URL resolver and `initial_messages` of kind `runnable_result`.
-/// That execution happens in a background task where the reconstructed authed is
-/// scopeless (so its check_scopes is a no-op), so enforce run scope here, at
-/// create/update time, against the API caller's token. Reading the paths here also
-/// refuses, for any caller, one that does not parse.
-fn check_secondary_runnable_scopes(
-    authed: &ApiAuthed,
-    config: &WebsocketConfigRequest,
-) -> Result<()> {
+/// Refuses a `$flow:`/`$script:` URL resolver or `runnable_result` initial message whose path
+/// does not parse: `config_runnables` leaves those out, so the save's run-scope check never sees
+/// them.
+fn check_secondary_runnables_parse(config: &WebsocketConfigRequest) -> Result<()> {
     for runnable in secondary_runnables(&config.url, config.initial_messages.as_deref()) {
-        let runnable = runnable?;
-        let kind = if runnable.is_flow() {
-            "flows"
-        } else {
-            "scripts"
-        };
-        check_scopes(authed, || format!("jobs:run:{kind}:{}", runnable.path()))?;
+        runnable?;
     }
     Ok(())
 }
@@ -157,7 +144,7 @@ impl TriggerCrud for WebsocketTrigger {
         w_id: &str,
         trigger: TriggerData<Self::TriggerConfigRequest>,
     ) -> Result<()> {
-        check_secondary_runnable_scopes(authed, &trigger.config)?;
+        check_secondary_runnables_parse(&trigger.config)?;
         let resolved_edited_by = trigger.base.resolve_edited_by(authed);
         let resolved_permissioned_as = trigger.base.resolve_permissioned_as(authed);
         let filters = trigger
@@ -237,7 +224,7 @@ impl TriggerCrud for WebsocketTrigger {
         path: &str,
         trigger: TriggerData<Self::TriggerConfigRequest>,
     ) -> Result<()> {
-        check_secondary_runnable_scopes(authed, &trigger.config)?;
+        check_secondary_runnables_parse(&trigger.config)?;
         let resolved_edited_by = trigger.base.resolve_edited_by(authed);
         let resolved_permissioned_as = trigger.base.resolve_permissioned_as(authed);
         let filters = trigger

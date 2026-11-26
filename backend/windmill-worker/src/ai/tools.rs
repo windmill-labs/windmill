@@ -727,6 +727,36 @@ async fn execute_mcp_tool_call(
     Ok(())
 }
 
+/// The model's arguments, keeping only the inputs the tool was advertised with. Control
+/// arguments (`_ENTRYPOINT_OVERRIDE`, `_TEMP_SCRIPT_REFS`) and a sub-agent's settings
+/// (`memory`) come from the flow definition, never from the model's call.
+fn model_tool_call_args(
+    tool_call: &OpenAIToolCall,
+    tool: &Tool,
+) -> Result<HashMap<String, Box<RawValue>>, Error> {
+    let raw_tool_call_args = if tool_call.function.arguments.is_empty() {
+        "{}"
+    } else {
+        tool_call.function.arguments.as_str()
+    };
+
+    let mut tool_call_args = serde_json::from_str::<HashMap<String, Box<RawValue>>>(
+        raw_tool_call_args,
+    )
+    .with_context(|| {
+        format!(
+            "Failed to parse tool call arguments for tool call {}: {}",
+            tool_call.function.name, tool_call.function.arguments
+        )
+    })?;
+
+    let schema = serde_json::from_str::<serde_json::Value>(tool.def.function.parameters.get())
+        .context("Failed to parse tool schema")?;
+    let offered = schema.get("properties").and_then(|p| p.as_object());
+    tool_call_args.retain(|key, _| offered.is_some_and(|p| p.contains_key(key)));
+    Ok(tool_call_args)
+}
+
 /// Execute a Windmill tool (script or flow)
 async fn enqueue_windmill_tool(
     ctx: &ToolExecutionContext<'_>,
@@ -751,21 +781,7 @@ async fn enqueue_windmill_tool(
         update_flow_status_module_with_actions(ctx.db, parent_job, actions).await?;
     }
 
-    let raw_tool_call_args = if tool_call.function.arguments.is_empty() {
-        "{}".to_string()
-    } else {
-        tool_call.function.arguments.clone()
-    };
-
-    let mut tool_call_args = serde_json::from_str::<HashMap<String, Box<RawValue>>>(
-        &raw_tool_call_args,
-    )
-    .with_context(|| {
-        format!(
-            "Failed to parse tool call arguments for tool call {}: {}",
-            tool_call.function.name, tool_call.function.arguments
-        )
-    })?;
+    let mut tool_call_args = model_tool_call_args(tool_call, tool)?;
 
     let tool_value = tool_module.get_value()?;
 
@@ -1629,6 +1645,60 @@ mod tests {
             r#"{"x":{"y":["\u0024res:u/a/r"]}}"#
         )));
         assert!(!interpolating_args(&call(r#"{"x":"$5 and var: 3"}"#)));
+    }
+
+    #[test]
+    fn a_tool_job_gets_only_the_inputs_the_model_was_offered() {
+        use super::model_tool_call_args;
+        use windmill_ai::types::{Tool, ToolDef, ToolDefFunction};
+        let tool = |schema: &str| Tool {
+            module: None,
+            def: ToolDef {
+                r#type: "function".to_string(),
+                function: ToolDefFunction {
+                    name: "t".to_string(),
+                    description: None,
+                    parameters: RawValue::from_string(schema.to_string()).unwrap(),
+                },
+            },
+            mcp_source: None,
+            requires_approval: false,
+            question_timeout_secs: None,
+            background_after_secs: None,
+        };
+        let call = |arguments: &str| OpenAIToolCall {
+            id: "call_1".to_string(),
+            function: OpenAIFunction { name: "t".to_string(), arguments: arguments.to_string() },
+            r#type: "function".to_string(),
+            extra_content: None,
+        };
+        let keys = |schema: &str, arguments: &str| {
+            let mut keys = model_tool_call_args(&call(arguments), &tool(schema))
+                .unwrap()
+                .into_keys()
+                .collect::<Vec<_>>();
+            keys.sort();
+            keys
+        };
+
+        let script = r#"{"type":"object","properties":{"check":{"type":"string"}}}"#;
+        assert_eq!(
+            keys(
+                script,
+                r#"{"check":"disk","_ENTRYPOINT_OVERRIDE":"_run","_ENTRYPOINT_OVERRIDE\u0000":"_run","_TEMP_SCRIPT_REFS":{},"argv":[]}"#
+            ),
+            ["check"]
+        );
+        let agent = r#"{"type":"object","properties":{"user_message":{"type":"string"}}}"#;
+        assert_eq!(
+            keys(
+                agent,
+                r#"{"user_message":"hi","memory":{"kind":"auto","memory_id":"x"}}"#
+            ),
+            ["user_message"]
+        );
+        assert!(keys("{}", r#"{"x":1}"#).is_empty());
+        assert!(keys(script, "").is_empty());
     }
 
     #[test]

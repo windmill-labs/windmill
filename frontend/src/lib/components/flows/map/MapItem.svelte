@@ -17,6 +17,8 @@
 	import { getGraphContext } from '$lib/components/graph/graphContext'
 	import { nextMock } from '../flowMock'
 	import { Bug } from 'lucide-svelte'
+	import { flowPathToHref, scriptPathToHref } from '$lib/scripts'
+	import { hubBaseUrlStore } from '$lib/stores'
 
 	interface Props {
 		moduleId: string
@@ -30,6 +32,8 @@
 		nodeState?: FlowNodeState
 		duration_ms?: number | undefined
 		retries?: number | undefined
+		/** In a run, while its concurrency limit holds the step back. */
+		held?: { since?: string; nextCheck?: Date | string }
 		flowJobs:
 			| {
 					flowJobs: string[]
@@ -81,6 +85,7 @@
 		nodeState,
 		duration_ms = undefined,
 		retries = undefined,
+		held = undefined,
 		flowJobs,
 		attempts = undefined,
 		editMode = false,
@@ -281,6 +286,7 @@
 			{:else}
 				<FlowModuleSchemaItem
 					{retries}
+					{held}
 					attempts={attempts && !insertable
 						? {
 								jobs: attempts.flowJobs,
@@ -315,6 +321,11 @@
 							? `Inline ${prettyLanguage(mod.value.language)}`
 							: 'To be defined')}
 					path={`path` in mod.value ? mod.value.path : ''}
+					pathHref={mod.value.type === 'script' && mod.value.path
+						? scriptPathToHref(mod.value.path, $hubBaseUrlStore)
+						: mod.value.type === 'flow' && mod.value.path
+							? flowPathToHref(mod.value.path)
+							: undefined}
 					alwaysShowOutputPicker={!mod.id.startsWith('subflow:') && mod.id !== 'preprocessor'}
 					loopStatus={parentLoop ? { type: 'inside', flow: parentLoop.type } : undefined}
 					inputTransform={mod.value.type !== 'identity' ? mod.value.input_transforms : undefined}

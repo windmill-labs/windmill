@@ -595,7 +595,7 @@ describe("generate-metadata folder argument", () => {
     });
   });
 
-  test("non-existent folder shows up-to-date", async () => {
+  test("non-existent folder says nothing was found", async () => {
     await withTestBackend(async (backend, tempDir) => {
       await setupWorkspace(backend, tempDir, "nonexistent_folder_test");
 
@@ -609,7 +609,60 @@ describe("generate-metadata folder argument", () => {
       );
 
       expect(result.code).toEqual(0);
-      expect(result.stdout).toContain("up-to-date");
+      const output = result.stdout + result.stderr;
+      expect(output).toContain('No scripts, flows or apps to check under "f/does_not_exist"');
+      expect(output).not.toContain("up-to-date");
+    });
+  });
+
+  test("--strict-folder-boundaries creates no metadata outside the folder", async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      await setupWorkspace(backend, tempDir, "strict_missing_metadata_test");
+
+      await createLocalScript(tempDir, "f/panel", "edited");
+      // Scripts kept without metadata on purpose, outside the folder
+      await mkdir(`${tempDir}/f/starbase`, { recursive: true });
+      await writeFile(
+        `${tempDir}/f/starbase/bare.ts`,
+        `export async function main() {\n  return 1;\n}\n`,
+        "utf-8"
+      );
+
+      const result = await backend.runCLICommand(
+        ["generate-metadata", "--yes", "f/panel", "--strict-folder-boundaries"],
+        tempDir,
+        "strict_missing_metadata_test"
+      );
+
+      expect(result.code).toEqual(0);
+      expect(result.stdout + result.stderr).toContain("f/panel/edited");
+      await expect(stat(`${tempDir}/f/starbase/bare.script.yaml`)).rejects.toThrow();
+      await expect(stat(`${tempDir}/f/starbase/bare.script.lock`)).rejects.toThrow();
+      const lockfile = await readFile(`${tempDir}/wmill-lock.yaml`, "utf-8");
+      expect(lockfile).toContain("f/panel/edited");
+    });
+  });
+
+  test("folder outside the includes says it was not checked", async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      await setupWorkspace(backend, tempDir, "folder_outside_includes_test");
+      await writeFile(`${tempDir}/wmill.yaml`, `defaultTs: bun
+includes:
+  - "f/starbase/**"
+excludes: []`, "utf-8");
+
+      await createLocalScript(tempDir, "f/panel", "edited");
+
+      const result = await backend.runCLICommand(
+        ["generate-metadata", "--yes", "f/panel"],
+        tempDir,
+        "folder_outside_includes_test"
+      );
+
+      expect(result.code).toEqual(0);
+      const output = result.stdout + result.stderr;
+      expect(output).toContain('Nothing under "f/panel" was checked');
+      expect(output).not.toContain("up-to-date");
     });
   });
 });

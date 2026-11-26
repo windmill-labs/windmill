@@ -2,7 +2,7 @@
 	import { Tween } from 'svelte/motion'
 	import { linear } from 'svelte/easing'
 	import { twMerge } from 'tailwind-merge'
-	import { Loader2 } from 'lucide-svelte'
+	import { Hourglass, Loader2 } from 'lucide-svelte'
 	import { fade } from 'svelte/transition'
 	import type { Snippet } from 'svelte'
 
@@ -37,6 +37,8 @@
 		isScheduled?: boolean
 		// Whether the job was skipped (early-stop labelled as skipped)
 		isSkipped?: boolean
+		/** Why the next step has not started yet, e.g. a sleep or a concurrency limit. */
+		waitingText?: string
 		/** Rendered after "Error occurred" when the bar is in its error state. */
 		errorAction?: Snippet
 	}
@@ -60,6 +62,7 @@
 		isCanceled = false,
 		isScheduled = false,
 		isSkipped = false,
+		waitingText = undefined,
 		errorAction
 	}: Props = $props()
 	let duration = 200
@@ -92,6 +95,9 @@
 	const status: 'error' | 'done' | 'running' = $derived(
 		error != undefined ? 'error' : finished ? 'done' : 'running'
 	)
+	// Violet like a suspended run everywhere else (badges, Recently run).
+	let waiting = $derived(status == 'running' && isWaitingForEvents && !isCanceled)
+	let fill = $derived(waiting ? 'bg-violet-400' : 'bg-blue-400')
 </script>
 
 <div class={twMerge('flex flex-col gap-1', className)}>
@@ -127,14 +133,14 @@
 				{/if}
 				{#if partIndex < index - 1}
 					<div
-						class="absolute left-0 bottom-0 h-full w-full bg-blue-400 transition-colors duration-300 ease-in-out"
+						class="absolute left-0 bottom-0 h-full w-full {fill} transition-colors duration-300 ease-in-out"
 					></div>
 				{:else if partIndex == index - 1 || (partIndex == index && subIndex !== undefined) || error == partIndex}
 					<div
 						class="absolute left-0 bottom-0 h-full transition-all duration-300 ease-in-out {error ==
 						partIndex
 							? 'bg-red-400'
-							: 'bg-blue-400'}"
+							: fill}"
 						style="width: {getPercent(partIndex, percent.current)}%"
 					></div>
 				{/if}
@@ -153,13 +159,17 @@
 			class="flex justify-between items-end font-medium transition-colors duration-300 ease-in-out {error !=
 				undefined || isCanceled
 				? 'text-red-600 dark:text-red-400'
-				: 'text-blue-700 dark:text-blue-200'}"
+				: waiting
+					? 'text-violet-600 dark:text-violet-400'
+					: 'text-blue-700 dark:text-blue-200'}"
 		>
 			<div class={twMerge(slim ? 'text-xs' : 'text-sm', 'flex items-center gap-1')}>
-				{#if status == 'running' && !isCanceled && !isScheduled && !isSkipped}
+				{#if waiting}
+					<Hourglass size={14} />
+				{:else if status == 'running' && !isCanceled && !isScheduled && !isSkipped}
 					<Loader2 class="animate-spin" size={14} />
 				{/if}
-				{#key status + isWaitingForEvents + stepId + isCanceled + isScheduled + isSkipped}
+				{#key status + isWaitingForEvents + stepId + isCanceled + isScheduled + isSkipped + waitingText}
 					<span in:fade={{ duration: 150 }}>
 						{#if status == 'error'}
 							Error occurred
@@ -173,9 +183,11 @@
 							Waiting to be resumed
 						{:else if isScheduled}
 							(not started)
+						{:else if waitingText}
+							{waitingText}
 						{:else if showStepId}
 							{stepId
-								? `${isCanceled ? 'Canceled at' : 'Running'} step ${stepId}`
+								? `${isCanceled ? 'Canceled at' : 'Running'} step '${stepId}'`
 								: `${isCanceled ? 'Canceled' : ''}`}
 						{:else if hideStepTitle}
 							{isCanceled ? 'Canceled' : 'Running'}

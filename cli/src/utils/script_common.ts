@@ -284,11 +284,11 @@ export function inferContentTypeFromFilePath(
 ): ScriptLanguage {
   if (contentPath.endsWith(".py")) {
     return "python3";
-  } else if (contentPath.endsWith("fetch.ts")) {
+  } else if (contentPath.endsWith(".fetch.ts")) {
     return "nativets";
-  } else if (contentPath.endsWith("bun.ts")) {
+  } else if (contentPath.endsWith(".bun.ts")) {
     return "bun";
-  } else if (contentPath.endsWith("deno.ts")) {
+  } else if (contentPath.endsWith(".deno.ts")) {
     return "deno";
   } else if (contentPath.endsWith(".ts")) {
     return defaultTs ?? "bun";

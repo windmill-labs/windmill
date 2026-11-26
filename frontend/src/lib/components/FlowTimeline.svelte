@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { displayDate, msToCompactDuration } from '$lib/utils'
+	import { ConcurrencyGroupsService } from '$lib/gen'
 	import { Loader2 } from 'lucide-svelte'
 	import TimelineBar from './TimelineBar.svelte'
 	import WaitTimeWarning from './common/waitTimeWarning/WaitTimeWarning.svelte'
@@ -135,6 +136,81 @@
 	})
 
 	const hasApprovalWait = $derived(Object.keys(approvalWaitByModule).length > 0)
+
+	// The hold of a limited step's job once it started; a live hold comes from the step's state.
+	let holds = $state<Record<string, { from?: number; to?: number } | null>>({})
+	$effect(() => {
+		for (const m of flowModules) {
+			if (!m.limited) continue
+			for (const j of items?.[m.id] ?? []) {
+				if (!j.started_at || j.id in untrack(() => holds)) continue
+				holds[j.id] = null
+				ConcurrencyGroupsService.getConcurrencyKeyStatus({ id: j.id })
+					.then((s) => {
+						if (s?.deferred_from)
+							holds[j.id] = {
+								from: new Date(s.deferred_from).getTime(),
+								to: s.released_at ? new Date(s.released_at).getTime() : undefined
+							}
+					})
+					.catch(() => {})
+			}
+		}
+	})
+
+	type WaitSegment = { start: number; len: number; kind: 'sleep' | 'held' | 'wait' }
+	/** A job's wait split into the sleep before it, its concurrency hold and the rest. */
+	function waitSegments(
+		m: FlowModuleForTimeline,
+		job: { id: string; created_at?: number; started_at?: number },
+		single: boolean
+	): WaitSegment[] {
+		const b = { ...job, created_at: job.created_at ?? now }
+		const end = b.started_at ?? now
+		const state = localModuleStates[m.id]
+		const live = b.started_at == undefined && state?.type === 'WaitingForExecutor'
+		let sleepEnd: number | undefined
+		if (single && live && state?.waiting_reason === 'sleep' && state.scheduled_for)
+			sleepEnd = new Date(state.scheduled_for).getTime()
+		else if (single && m.sleepBefore) sleepEnd = b.created_at + m.sleepBefore * 1000
+		const hold =
+			live && state?.waiting_reason === 'concurrency' && state.held_since
+				? { from: new Date(state.held_since).getTime(), to: undefined }
+				: holds[b.id]
+		const clamp = (t: number) => Math.min(Math.max(t, b.created_at), end)
+		const segments: WaitSegment[] = []
+		let at = b.created_at
+		const push = (to: number, kind: WaitSegment['kind']) => {
+			to = clamp(to)
+			if (to > at) segments.push({ start: at, len: to - at, kind })
+			at = Math.max(at, to)
+		}
+		if (sleepEnd != undefined) push(sleepEnd, 'sleep')
+		if (hold?.from != undefined) {
+			push(hold.from, 'wait')
+			push(hold.to ?? end, 'held')
+		}
+		push(end, 'wait')
+		return segments
+	}
+	const segmentStyle = {
+		// A wait like the gray one, striped as one the flow asked for.
+		sleep: {
+			colorClass:
+				'bg-[repeating-linear-gradient(135deg,#d1d5db_0_4px,#e5e7eb_4px_8px)] dark:bg-[repeating-linear-gradient(135deg,#4b5563_0_4px,#374151_4px_8px)] !text-gray-700 dark:!text-gray-100',
+			label: 'Sleep'
+		},
+		held: { colorClass: 'bg-orange-400/90', label: 'Held by concurrency limit' },
+		wait: { colorClass: undefined, label: 'Wait' }
+	}
+	const hasSleep = $derived(
+		flowModules.some((m) => m.sleepBefore) ||
+			Object.values(localModuleStates).some((s) => s.waiting_reason === 'sleep')
+	)
+	const hasHold = $derived(
+		Object.values(holds).some((h) => h?.from != undefined) ||
+			Object.values(localModuleStates).some((s) => s.waiting_reason === 'concurrency')
+	)
 </script>
 
 <OnChange
@@ -160,6 +236,20 @@
 					<div class="h-2.5 w-2.5 rounded-sm bg-blue-500/90"></div>
 					<span>Execution</span>
 				</div>
+				{#if hasSleep}
+					<div class="flex gap-1.5 items-center">
+						<div
+							class="h-2.5 w-2.5 rounded-sm bg-[repeating-linear-gradient(135deg,#d1d5db_0_4px,#e5e7eb_4px_8px)] dark:bg-[repeating-linear-gradient(135deg,#4b5563_0_4px,#374151_4px_8px)]"
+						></div>
+						<span>Sleep</span>
+					</div>
+				{/if}
+				{#if hasHold}
+					<div class="flex gap-1.5 items-center">
+						<div class="h-2.5 w-2.5 rounded-sm bg-orange-400/90"></div>
+						<span>Concurrency limit</span>
+					</div>
+				{/if}
 				{#if hasApprovalWait}
 					<div class="flex gap-1.5 items-center">
 						<div class="h-2.5 w-2.5 rounded-sm bg-purple-400/80"></div>
@@ -184,8 +274,11 @@
 				/>
 			</div>
 		{/if}
-		{#each flowModules as { id: k, type: typ, suspend: isSuspend, label } (k)}
-			{@const subItems = items?.[k]?.filter((x) => x.created_at && x.started_at)}
+		{#each flowModules as m (m.id)}
+			{@const { id: k, type: typ, suspend: isSuspend, label } = m}
+			{@const subItems = items?.[k]?.filter(
+				(x) => x.created_at && (x.started_at || localModuleStates[k]?.waiting_reason)
+			)}
 			<div class="relative px-3 py-1.5">
 				<div class="flex items-center justify-between mb-0.5">
 					<div class="text-xs font-medium"
@@ -238,20 +331,50 @@
 												: now - b?.created_at
 										: 0}
 									{@const aw = isSuspend ? approvalWaitByModule[k] : undefined}
+									{@const segments =
+										waitingLen < 100 ? [] : waitSegments(m, b, subItems?.length === 1)}
 									<div class="flex w-full py-0.5 items-center" {style}>
-										<TimelineBar
-											position="left"
-											id={b?.id}
-											{total}
-											{min}
-											{compact}
-											gray
-											followedByBar={!!b.started_at}
-											spacerClass="bg-gray-100 dark:bg-gray-800/50 rounded-l-md"
-											started_at={b.created_at}
-											len={waitingLen < 100 ? 0 : waitingLen - 100}
-											running={b?.started_at == undefined}
-										/>
+										{#if segments.length <= 1}
+											<TimelineBar
+												position="left"
+												id={b?.id}
+												{total}
+												{min}
+												{compact}
+												gray
+												colorClass={segmentStyle[segments[0]?.kind ?? 'wait'].colorClass}
+												tooltip={segments[0] && segments[0].kind !== 'wait'
+													? `${segmentStyle[segments[0].kind].label} · ${msToCompactDuration(segments[0].len, 1)}`
+													: undefined}
+												followedByBar={!!b.started_at}
+												spacerClass="bg-gray-100 dark:bg-gray-800/50 rounded-l-md"
+												started_at={b.created_at}
+												len={waitingLen < 100 ? 0 : waitingLen - 100}
+												running={b?.started_at == undefined}
+											/>
+										{:else}
+											{#each segments as seg, i (i)}
+												<TimelineBar
+													position={i === 0 ? 'left' : 'none'}
+													id={b?.id}
+													{total}
+													{min}
+													{compact}
+													gray
+													concat={i > 0}
+													colorClass={segmentStyle[seg.kind].colorClass}
+													tooltip="{segmentStyle[seg.kind].label} · {msToCompactDuration(
+														seg.len,
+														1
+													)}"
+													followedByBar
+													spacerClass="bg-gray-100 dark:bg-gray-800/50 rounded-l-md"
+													started_at={seg.start}
+													len={i === segments.length - 1 ? Math.max(seg.len - 100, 0) : seg.len}
+													running={b?.started_at == undefined}
+												/>
+											{/each}
+										{/if}
 										{#if b.started_at}
 											<TimelineBar
 												position={aw || waitingLen < 100 ? 'center' : 'right'}

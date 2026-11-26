@@ -53,6 +53,7 @@
 		moduleToStructureNode
 	} from '$lib/components/graph/flowStructure'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import { getAiChatManager } from '$lib/components/copilot/chat/aiChatManagerContext'
 
 	const operatingWorkspace = useOperatingWorkspace()
 
@@ -112,6 +113,14 @@
 		flowHasChanged
 	}: Props = $props()
 
+	const aiChat = getAiChatManager()
+	// The session workspace's config in a session pane, so new loops match the IteratorGen shown.
+	const aiOff = $derived(disableAi || !aiChat.aiInfo?.enabled)
+	// A step's description goes to the session's chat or to a new session: with neither, it
+	// would be dropped.
+	const inSession = !!getContext('aiChatManager')
+	const stepGenOff = $derived(disableAi || (!inSession && !sessionOpen))
+
 	const { customUi, selectionManager, history, flowStateStore, flowStore, pathStore, opWorkspace } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -157,7 +166,7 @@
 			inlineScript,
 			agentPath,
 			opWs,
-			disableAi
+			aiOff
 		)
 	}
 
@@ -174,14 +183,7 @@
 		const agentMod = findModuleInFlow(flowStore.val.value, agentId)
 		const agentValue = agentMod?.value as { tools?: AgentTool[] } | undefined
 		if (agentValue) {
-			const id = await insertAgentTool(
-				flowStore,
-				flowStateStore,
-				agentValue,
-				detail,
-				opWs,
-				disableAi
-			)
+			const id = await insertAgentTool(flowStore, flowStateStore, agentValue, detail, opWs, aiOff)
 			// Reveal the new tool's config right away — in modal (unanchored) panel mode its editor
 			// is otherwise hidden behind the graph.
 			if (id) selectionManager.selectId(id, { openPanel: true })
@@ -211,7 +213,7 @@
 			inlineScript,
 			toolKind,
 			opWs,
-			disableAi
+			aiOff
 		)
 	}
 
@@ -496,7 +498,7 @@
 	>
 		<FlowStickyNode
 			compact={compactTopbar}
-			{disableAi}
+			disableAi={stepGenOff}
 			{showFlowAiButton}
 			{disableSettings}
 			{disableStaticInputs}
@@ -517,7 +519,7 @@
 			triggerNode={customUi?.triggers != false}
 			path={$pathStore}
 			{newFlow}
-			{disableAi}
+			disableAi={stepGenOff}
 			insertable
 			scroll
 			{minHeight}

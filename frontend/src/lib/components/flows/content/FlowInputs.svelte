@@ -12,11 +12,15 @@
 	import { Check, Code, Zap } from 'lucide-svelte'
 	import SuspendDrawer from './SuspendDrawer.svelte'
 	import { defaultScripts } from '$lib/stores'
+	import { useRoleCapabilities } from '$lib/operatorWriteRights'
 	import { defaultScriptLanguages, processInlineLangs } from '$lib/scripts'
 	import type { SupportedLanguage } from '$lib/common'
 	import DefaultScripts from '$lib/components/DefaultScripts.svelte'
 	import type { FlowBuilderWhitelabelCustomUi } from '$lib/components/custom_ui'
 	import { canHavePreprocessor } from '$lib/script_helpers'
+
+	const roleCaps = useRoleCapabilities()
+	const composeOnlyFlows = $derived($roleCaps.flows === 'compose')
 
 	interface Props {
 		failureModule: boolean
@@ -51,6 +55,13 @@
 	)
 	let pick_existing: 'workspace' | 'hub' = $state('hub')
 	let filter = $state('')
+	// The server adds a hub path only for a role that has code, whatever its flows level.
+	let showHub = $derived($roleCaps.code)
+
+	// The pickers return no reliable kind, and the step's trigger or approval settings depend on it.
+	function pick(e: CustomEvent) {
+		dispatch('pick', { ...e.detail, kind: scriptKind })
+	}
 
 	let langs = $derived(
 		processInlineLangs(undefined, $defaultScripts?.order ?? Object.keys(defaultScriptLanguages))
@@ -220,90 +231,93 @@
 				>
 			{/if}
 		{/if}
-		<h3 class="pb-2 pt-4 flex gap-x-8 flex-wrap">
-			<div>
-				Inline new <span class="text-blue-500 dark:text-blue-400"
-					>{scriptKind == 'script' ? 'action' : scriptKind}</span
+		{#if !composeOnlyFlows}
+			<h3 class="pb-2 pt-4 flex gap-x-8 flex-wrap">
+				<div>
+					Inline new <span class="text-blue-500 dark:text-blue-400"
+						>{scriptKind == 'script' ? 'action' : scriptKind}</span
+					>
+					script
+					<Tooltip
+						documentationLink={scriptKind === 'script'
+							? 'https://www.windmill.dev/docs/flows/editor_components#flow-actions'
+							: scriptKind === 'trigger'
+								? 'https://www.windmill.dev/docs/flows/flow_trigger'
+								: scriptKind === 'approval'
+									? 'https://www.windmill.dev/docs/flows/flow_approval'
+									: scriptKind === 'preprocessor'
+										? 'https://www.windmill.dev/docs/core_concepts/preprocessors'
+										: 'https://www.windmill.dev/docs/getting_started/flows_quickstart#flow-editor'}
+					>
+						Embed <span>{scriptKind == 'script' ? 'action' : scriptKind}</span> script directly inside
+						a flow instead of saving the script into your workspace for reuse. You can always save an
+						inline script to your workspace later.
+					</Tooltip>
+				</div>
+				<DefaultScripts />
+			</h3>
+			{#if noEditor}
+				<div
+					class="py-0.5 text-2xs {summary == undefined || summary == ''
+						? 'text-red-600'
+						: 'text-ternary'}"
+					>Pick a summary first, it will be used to create a separate file whose name will be
+					derived from the summary</div
 				>
-				script
-				<Tooltip
-					documentationLink={scriptKind === 'script'
-						? 'https://www.windmill.dev/docs/flows/editor_components#flow-actions'
-						: scriptKind === 'trigger'
-							? 'https://www.windmill.dev/docs/flows/flow_trigger'
-							: scriptKind === 'approval'
-								? 'https://www.windmill.dev/docs/flows/flow_approval'
-								: scriptKind === 'preprocessor'
-									? 'https://www.windmill.dev/docs/core_concepts/preprocessors'
-									: 'https://www.windmill.dev/docs/getting_started/flows_quickstart#flow-editor'}
-				>
-					Embed <span>{scriptKind == 'script' ? 'action' : scriptKind}</span> script directly inside
-					a flow instead of saving the script into your workspace for reuse. You can always save an inline
-					script to your workspace later.
-				</Tooltip>
+				<input class="w-full" type="text" bind:value={summary} placeholder="Summary" />
+				<div class="pb-2"></div>
+			{/if}
+			<div class="flex flex-row flex-wrap gap-2" id="flow-editor-action-script">
+				{#each langs.filter((lang) => customUi?.languages == undefined || customUi?.languages?.includes(lang?.[1])) as [label, lang] (lang)}
+					{#if displayLang(lang, scriptKind)}
+						<FlowScriptPicker
+							id={`flow-editor-action-script-${lang}`}
+							disabled={noEditor && (summary == undefined || summary == '')}
+							{label}
+							lang={lang == 'docker' ? 'bash' : lang}
+							on:click={() => {
+								dispatch('new', {
+									language: lang == 'docker' ? 'bash' : lang,
+									kind: scriptKind,
+									subkind:
+										lang == 'docker' ? 'docker' : preprocessorModule ? 'preprocessor' : 'flow',
+									summary
+								})
+							}}
+						/>
+					{/if}
+				{/each}
 			</div>
-			<DefaultScripts />
-		</h3>
-		{#if noEditor}
-			<div
-				class="py-0.5 text-2xs {summary == undefined || summary == ''
-					? 'text-red-600'
-					: 'text-ternary'}"
-				>Pick a summary first, it will be used to create a separate file whose name will be derived
-				from the summary</div
-			>
-			<input class="w-full" type="text" bind:value={summary} placeholder="Summary" />
-			<div class="pb-2"></div>
-		{/if}
-		<div class="flex flex-row flex-wrap gap-2" id="flow-editor-action-script">
-			{#each langs.filter((lang) => customUi?.languages == undefined || customUi?.languages?.includes(lang?.[1])) as [label, lang] (lang)}
-				{#if displayLang(lang, scriptKind)}
+
+			{#if !failureModule && !preprocessorModule && customUi?.aiSandbox != false}
+				<h3 class="pb-2 pt-4">AI Sandbox</h3>
+				<div class="flex flex-row flex-wrap gap-2">
 					<FlowScriptPicker
-						id={`flow-editor-action-script-${lang}`}
-						disabled={noEditor && (summary == undefined || summary == '')}
-						{label}
-						lang={lang == 'docker' ? 'bash' : lang}
+						label="Claude Code"
+						lang="claudesandbox"
 						on:click={() => {
 							dispatch('new', {
-								language: lang == 'docker' ? 'bash' : lang,
-								kind: scriptKind,
-								subkind: lang == 'docker' ? 'docker' : preprocessorModule ? 'preprocessor' : 'flow',
+								language: 'bun',
+								kind,
+								subkind: 'claudesandbox',
 								summary
 							})
 						}}
 					/>
-				{/if}
-			{/each}
-		</div>
-
-		{#if !failureModule && !preprocessorModule && customUi?.aiSandbox != false}
-			<h3 class="pb-2 pt-4">AI Sandbox</h3>
-			<div class="flex flex-row flex-wrap gap-2">
-				<FlowScriptPicker
-					label="Claude Code"
-					lang="claudesandbox"
-					on:click={() => {
-						dispatch('new', {
-							language: 'bun',
-							kind,
-							subkind: 'claudesandbox',
-							summary
-						})
-					}}
-				/>
-				<FlowScriptPicker
-					label="Pi"
-					lang="pisandbox"
-					on:click={() => {
-						dispatch('new', {
-							language: 'bun',
-							kind,
-							subkind: 'pisandbox',
-							summary
-						})
-					}}
-				/>
-			</div>
+					<FlowScriptPicker
+						label="Pi"
+						lang="pisandbox"
+						on:click={() => {
+							dispatch('new', {
+								language: 'bun',
+								kind,
+								subkind: 'pisandbox',
+								summary
+							})
+						}}
+					/>
+				</div>
+			{/if}
 		{/if}
 
 		<h3 class="mb-2 mt-6"
@@ -313,14 +327,16 @@
 		>
 		{#if preprocessorModule}
 			<!-- The hub publishes no preprocessor script, so this slot only ever picks from the workspace. -->
-			<WorkspaceScriptPicker displayLock bind:filter kind="preprocessor" on:pick />
-		{:else if pick_existing == 'hub'}
-			<PickHubScript bind:filter {kind} on:pick>
+			<WorkspaceScriptPicker displayLock bind:filter kind="preprocessor" on:pick={pick} />
+		{:else if showHub && pick_existing == 'hub'}
+			<PickHubScript bind:filter {kind} on:pick={pick}>
 				<ToggleHubWorkspace bind:selected={pick_existing} />
 			</PickHubScript>
 		{:else}
-			<WorkspaceScriptPicker displayLock bind:filter {kind} on:pick>
-				<ToggleHubWorkspace bind:selected={pick_existing} />
+			<WorkspaceScriptPicker displayLock bind:filter {kind} on:pick={pick}>
+				{#if showHub}
+					<ToggleHubWorkspace bind:selected={pick_existing} />
+				{/if}
 			</WorkspaceScriptPicker>
 		{/if}
 	{/if}

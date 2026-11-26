@@ -325,6 +325,13 @@
 			aiChatManager.changeMode(AIMode.NAVIGATOR)
 		}
 	})
+
+	// The docked scroller outlives the selection, so without this a step opens at the scroll
+	// position of the one selected before it.
+	function scrollToTopOnSelect(node: HTMLElement) {
+		selectionManager.getSelectedId()
+		node.scrollTop = 0
+	}
 </script>
 
 {#snippet panelBody()}
@@ -435,9 +442,10 @@
 			</div>
 		</Pane>
 		{#if panelMode === 'docked'}
-			<!-- Panels manage their own scrolling, so the pane must not scroll as well or a second
-			     scrollbar appears beside theirs. `!` because splitpanes' own `overflow: auto` rule
-			     has equal specificity and wins on cascade order. -->
+			<!-- The wrapper around the panel body scrolls, not the pane: scrolling the pane would
+			     carry the placement strip away. A panel with its own scrolling must fill the wrapper
+			     exactly, or a second scrollbar appears. `!` because splitpanes' own `overflow: auto`
+			     rule has equal specificity and wins on cascade order. -->
 			<Pane class="relative z-10 !overflow-hidden" size={50} minSize={20}>
 				{#if loading}
 					<div class="w-full h-full">
@@ -445,23 +453,21 @@
 							<WindmillIcon height="40px" width="40px" spin="fast" />
 						</div>
 					</div>
-				{:else if modalPanel}
+				{:else}
 					<div class="flex h-full flex-col">
 						<!-- Fallback for panels without a card header hosting the placement
 						     picker: a slim strip so moving the panel stays reachable. Toggled
 						     around a stable panelBody — re-parenting it would re-mount
 						     the claiming header and loop. -->
-						{#if detachClaims === 0}
+						{#if modalPanel && detachClaims === 0}
 							<div class="flex items-center justify-end border-b px-1">
 								<FlowPanelPlacementPicker variant="header" />
 							</div>
 						{/if}
-						<div class="min-h-0 flex-1">
+						<div class="min-h-0 flex-1 overflow-auto" {@attach scrollToTopOnSelect}>
 							{@render panelBody()}
 						</div>
 					</div>
-				{:else}
-					{@render panelBody()}
 				{/if}
 			</Pane>
 		{/if}

@@ -14,9 +14,13 @@
 	interface Props {
 		job: QueuedJob | CompletedJob | undefined
 		large?: boolean
+		/** Its concurrency limit has held the job back, so a later due time is the next check. */
+		heldByConcurrency?: boolean
+		/** Why the step the flow is at has not started. */
+		stepWaiting?: 'sleep' | 'concurrency'
 	}
 
-	let { job, large = false }: Props = $props()
+	let { job, large = false, heldByConcurrency = false, stepWaiting }: Props = $props()
 
 	let continuedOnError = $derived(job?.flow_status?.continued_on_error ?? [])
 </script>
@@ -90,6 +94,12 @@
 			{/if}
 		</Badge>
 	</div>
+{:else if job && 'running' in job && job.running && stepWaiting}
+	<div>
+		<Badge {large} color={stepWaiting === 'sleep' ? 'gray' : 'orange'}>
+			{stepWaiting === 'sleep' ? 'Sleeping' : 'Step held by concurrency limit'}
+		</Badge>
+	</div>
 {:else if job && 'running' in job && job.running}
 	<div class="flex flex-row flex-wrap gap-1 items-center">
 		<Badge {large} color="yellow">
@@ -99,6 +109,12 @@
 			{/if}
 		</Badge>
 		{@render continuedOnErrorBadge()}
+	</div>
+{:else if job && 'running' in job && heldByConcurrency}
+	<div>
+		<Badge color="orange" {large} title="Next check by {displayDate(job.scheduled_for, true)}">
+			Held by concurrency limit
+		</Badge>
 	</div>
 {:else if job && 'running' in job && 'scheduled_for' in job && job.scheduled_for && forLater(job.scheduled_for)}
 	<div>

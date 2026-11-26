@@ -2825,9 +2825,14 @@ pub async fn handle_app_dependency_job(
     .execute(db)
     .await?;
 
+    // `app_version.id` is one instance-wide sequence and an imported job row carries whatever
+    // `runnable_id` it was given: only a version of an app of the job's workspace is relocked.
+    // Every write below goes through the `id` and `app_id` of this row.
     let record = sqlx::query!(
-        "SELECT app_id, value, raw_app FROM app_version WHERE id = $1",
-        id
+        "SELECT av.app_id, av.value, av.raw_app FROM app_version av JOIN app a ON a.id = av.app_id
+         WHERE av.id = $1 AND a.workspace_id = $2",
+        id,
+        &job.workspace_id
     )
     .fetch_optional(db)
     .await?

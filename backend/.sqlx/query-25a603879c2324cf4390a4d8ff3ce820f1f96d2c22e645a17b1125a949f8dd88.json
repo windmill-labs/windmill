@@ -1,0 +1,97 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT j.id AS \"id!\",\n               COALESCE(j.root_job, j.parent_job, j.id) AS \"root_job_id!\",\n               j.runnable_path,\n               j.permissioned_as_email AS \"email!\",\n               j.created_by AS \"created_by!\",\n               j.created_at AS \"created_at!\",\n               COALESCE(rj.runnable_path, j.runnable_path) AS flow_path,\n               NULLIF(f.summary, '') AS flow_summary,\n               s.flow_status->'approval_conditions' AS approval_conditions,\n               NULLIF(w.m->'home'->>'step_summary', '') AS step_summary,\n               COALESCE((w.m->>'count')::bigint, 1) AS \"required_approvals!\",\n               -- Counted as the worker counts them: those sent to the approval step's job,\n               -- plus those sent to the flow itself.\n               (SELECT count(*) FROM resume_job r WHERE r.job IN (j.id, (w.m->>'job')::uuid))\n                   AS \"approvals!\",\n               EXISTS(SELECT 1 FROM resume_job r\n                      WHERE r.job IN (j.id, (w.m->>'job')::uuid) AND r.approver = $2)\n                   AS \"approved_by_me!\"\n        FROM v2_job_queue q\n        JOIN v2_job j ON j.id = q.id\n        JOIN v2_job_status s ON s.id = q.id\n        LEFT JOIN v2_job rj ON rj.id = COALESCE(j.root_job, j.parent_job)\n        LEFT JOIN flow f\n            ON f.workspace_id = j.workspace_id\n           AND f.path = COALESCE(rj.runnable_path, j.runnable_path)\n        -- The step waiting on the approval, which the worker marks `home` when the approval\n        -- step has `show_on_home`: only those are listed, since many approvals are announced\n        -- elsewhere (a resume link sent to a chat) and every admin and owner could give them.\n        CROSS JOIN LATERAL (\n            SELECT s.flow_status->'modules'->((s.flow_status->>'step')::int) AS m\n        ) w\n        WHERE q.workspace_id = $1\n          AND q.suspend > 0\n          AND w.m->>'type' = 'WaitingForEvents'\n          AND w.m->'home' IS NOT NULL\n          AND ($4::text[] IS NULL OR j.tag = ANY($4))\n        ORDER BY j.created_at DESC\n        LIMIT $3\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "root_job_id!",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "runnable_path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "email!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 4,
+        "name": "created_by!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 5,
+        "name": "created_at!",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 6,
+        "name": "flow_path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 7,
+        "name": "flow_summary",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "approval_conditions",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 9,
+        "name": "step_summary",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 10,
+        "name": "required_approvals!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 11,
+        "name": "approvals!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 12,
+        "name": "approved_by_me!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int8",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      false,
+      null,
+      true,
+      false,
+      false,
+      false,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "25a603879c2324cf4390a4d8ff3ce820f1f96d2c22e645a17b1125a949f8dd88"
+}

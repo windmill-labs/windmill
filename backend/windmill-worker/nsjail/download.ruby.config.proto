@@ -94,8 +94,8 @@ mount {
 {TMP_MOUNT_BLOCK}
 
 mount {
-    src: "{TARGET}"
-    dst: "{TARGET}"
+    src: {TARGET}
+    dst: {TARGET}
     is_bind: true
     mandatory: false
     rw: true

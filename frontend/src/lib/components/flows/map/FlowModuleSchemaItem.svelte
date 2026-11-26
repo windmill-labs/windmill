@@ -62,8 +62,12 @@
 		id?: string | undefined
 		label: string
 		path?: string
+		/** Page of the script or flow `path` names, linked from the label's tooltip. */
+		pathHref?: string
 		nodeState?: FlowNodeState
 		retries?: number | undefined
+		/** In a run, while its concurrency limit holds the step back. */
+		held?: { since?: string; nextCheck?: Date | string }
 		/** In a run, the attempts the retry badge picks from. */
 		attempts?: RetryAttempts | undefined
 		warningMessage?: string | undefined
@@ -96,8 +100,10 @@
 		id = undefined,
 		label,
 		path = '',
+		pathHref = undefined,
 		nodeState,
 		retries = undefined,
+		held = undefined,
 		attempts = undefined,
 		warningMessage = undefined,
 		editMode = false,
@@ -308,6 +314,7 @@
 				<StepSettingsBar
 					{settings}
 					{retries}
+					{held}
 					{attempts}
 					onOpenChange={(o) => (settingsMenuOpen = o)}
 					onOpenSetting={editMode && id
@@ -347,6 +354,7 @@
 			<FlowModuleSchemaItemViewer
 				{label}
 				{path}
+				{pathHref}
 				{id}
 				{bold}
 				bind:editId

@@ -17,8 +17,8 @@ use sql_builder::{prelude::Bind, SqlBuilder};
 use sqlx::{Postgres, Transaction};
 use std::str::FromStr;
 use windmill_api_auth::{
-    build_scope_path_predicate, check_scopes, composed::check_new_hub_paths, maybe_refresh_folders,
-    require_super_admin, ApiAuthed,
+    build_scope_path_predicate, check_run_scopes, check_scopes, composed::check_new_hub_paths,
+    maybe_refresh_folders, require_super_admin, ApiAuthed,
 };
 use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
@@ -274,6 +274,10 @@ async fn validate_dynamic_skip<'c>(
     }
 }
 
+fn dynamic_skip_runnable(path: Option<&str>) -> Option<RunnableRef> {
+    RunnableRef::from_path(path?, false).ok()
+}
+
 /// A handler that does not parse is left out: it never runs, as a fire parses it the same way.
 fn handler_runnables(handlers: [Option<&str>; 3]) -> Vec<RunnableRef> {
     handlers
@@ -381,6 +385,12 @@ async fn create_schedule(
     ]);
     new_runnables.extend(target);
     check_new_hub_paths(&new_runnables, &[], &authed, &db, &w_id).await?;
+    check_run_scopes(
+        &authed,
+        new_runnables
+            .iter()
+            .chain(&dynamic_skip_runnable(ns.dynamic_skip.as_deref())),
+    )?;
 
     let mut tx: Transaction<'_, Postgres> = user_db.begin(&authed).await?;
 
@@ -646,6 +656,21 @@ async fn edit_schedule(
         &w_id,
     )
     .await?;
+    // The edit sets the stored target's args, so its run scope is checked as on create.
+    let target = before.as_ref().and_then(|b| {
+        RunnableRef::from_path(
+            b.get("script_path")?.as_str()?,
+            b.get("is_flow")?.as_bool()?,
+        )
+        .ok()
+    });
+    check_run_scopes(
+        &authed,
+        new_handlers
+            .iter()
+            .chain(&target)
+            .chain(&dynamic_skip_runnable(es.dynamic_skip.as_deref())),
+    )?;
 
     let schedule = sqlx::query_as!(
         Schedule,

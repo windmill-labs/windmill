@@ -52,6 +52,8 @@ export interface RunEvalParams<THelpers, TOutput> {
    * tool changes what the prompt should say — plan mode's instructions have to come back
    * out once the plan is approved. Falls back to the fixed `systemMessage`. */
   getSystemMessage?: () => ChatCompletionSystemMessageParam;
+  /** Stands in for the secret card. Absent, `request_secret` reports that it cannot show one. */
+  requestSecret?: ToolCallbacks["requestSecret"];
   onAssistantMessageStart?: () => void;
   onAssistantToken?: (token: string) => void;
   onAssistantMessageEnd?: () => void;
@@ -80,6 +82,7 @@ export async function runEval<THelpers, TOutput>(
     isPlanModeActive,
     isToolAvailable,
     getSystemMessage,
+    requestSecret,
   } = params;
   let shouldEmitMessageStart = true;
 
@@ -145,6 +148,7 @@ export async function runEval<THelpers, TOutput>(
         return answer === undefined ? undefined : [answer];
       },
     }),
+    ...(requestSecret && { requestSecret }),
     onNewToken: (token: string) => {
       if (shouldEmitMessageStart) {
         onAssistantMessageStart?.();

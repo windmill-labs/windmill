@@ -112,10 +112,12 @@
 	import { editorPositionMap } from '$lib/utils'
 	import { extToLang, langToExt } from '$lib/editorLangUtils'
 	import { aiChatManager, type AIChatManager } from './copilot/chat/AIChatManager.svelte'
-	import type { Selection } from 'monaco-editor'
 	import { canHavePreprocessor, getPreprocessorModuleCode } from '$lib/script_helpers'
 	import { setMonacoTypescriptOptions } from './monacoLanguagesOptions'
 	import { copilotInfo } from '$lib/aiStore'
+	import { createCodeSelection, type CodeSelection, type CodeSource } from './copilot/chat/context'
+	import { getOpenInSessionHandoff, withEditorFlush } from './sessions/openInSessionContext'
+	import { openSourceInSession } from './sessions/sessionSwitch.svelte'
 	import { getDbSchemas } from './apps/components/display/dbtable/metadata'
 	import { rawAppLintStore, type MonacoLintError } from './raw_apps/lintStore'
 	import { MarkerSeverity } from 'monaco-editor'
@@ -168,7 +170,10 @@
 		loadAsync?: boolean
 		key?: string | undefined
 		class?: string | undefined
-		moduleId?: string
+		/** The item an AI session is told the selected code belongs to. Unset for code of no item. */
+		codeSource?: CodeSource
+		/** The language an AI session is told the code is in, when `scriptLang` only colours it. */
+		codeSourceLang?: CodeSelection['lang']
 		enablePreprocessorSnippet?: boolean
 		/** When set, enables raw app lint collection mode and reports Monaco markers to the lint store under this key */
 		rawAppRunnableKey?: string | undefined
@@ -210,7 +215,8 @@
 		loadAsync = false,
 		key = undefined,
 		class: clazz = undefined,
-		moduleId = undefined,
+		codeSource = undefined,
+		codeSourceLang = undefined,
 		enablePreprocessorSnippet = false,
 		rawAppRunnableKey = undefined,
 		preparedAssetsSqlQueries,
@@ -281,6 +287,22 @@
 	// Autocomplete in a session's editor follows the session's workspace, not the tab's.
 	const completionInfo = $derived(
 		sessionScopedChatManager ? sessionScopedChatManager.aiInfo : $copilotInfo
+	)
+	const sessionHandoff = getOpenInSessionHandoff()
+	const inIframe = BROWSER && window.self !== window.top
+	// The item's own hand-off: one of another kind is an outer editor's.
+	const handoffSource = $derived.by(() => {
+		if (!codeSource) return undefined
+		const source = sessionHandoff?.source(
+			codeSource.kind === 'flow' ? { moduleId: codeSource.part } : undefined
+		)
+		return source?.target?.kind === codeSource.kind ? source : undefined
+	})
+	// The path the item's draft is stored under, which the session's tools read it by.
+	const codePath = $derived(handoffSource?.target?.path || codeSource?.path)
+	// In a session, ⌘K goes to its chat instead.
+	const newSessionSource = $derived(
+		sessionScopedChatManager || inIframe || !$copilotInfo.enabled ? undefined : handoffSource
 	)
 	// let graphqlService: MonacoGraphQLAPI | undefined = undefined
 
@@ -398,18 +420,56 @@
 		}
 	}
 
-	export function getSelectedLines(): string | undefined {
-		if (editor) {
-			const selection = editor.getSelection()
-			if (selection) {
-				const range: IRange = {
-					startLineNumber: selection.startLineNumber,
+	/** The selected lines, whole, or the cursor's line. */
+	function getCodeSelection(): CodeSelection | undefined {
+		const selection = editor?.getSelection()
+		const model = editor?.getModel()
+		if (!selection || !model || !codeSource || !codePath || !scriptLang) return undefined
+		const { startLineNumber: startLine, endLineNumber, endColumn } = selection
+		// A selection dragged to the start of a line holds none of it.
+		const endLine =
+			endColumn === 1 && endLineNumber > startLine ? endLineNumber - 1 : endLineNumber
+		return createCodeSelection(
+			{ ...codeSource, path: codePath },
+			{
+				startLine,
+				endLine,
+				content: model.getValueInRange({
+					startLineNumber: startLine,
 					startColumn: 1,
-					endLineNumber: selection.endLineNumber + 1,
-					endColumn: 1
-				}
-				return editor.getModel()?.getValueInRange(range)
+					endLineNumber: endLine,
+					endColumn: model.getLineMaxColumn(endLine)
+				}),
+				lang: codeSourceLang ?? (scriptLang as CodeSelection['lang'])
 			}
+		)
+	}
+
+	async function sendInlinePrompt(prompt: string): Promise<boolean> {
+		const selection = getCodeSelection()
+		if (!selection || !newSessionSource) return false
+		try {
+			await openSourceInSession(withEditorFlush(newSessionSource, flushPendingChanges), {
+				seedPrompt: prompt,
+				autoSend: true,
+				seedPick: selection
+			})
+		} catch (e) {
+			sendUserToast(e instanceof Error ? e.message : String(e), true)
+			return false
+		}
+		closeAIInlineWidget()
+		return true
+	}
+
+	/** Go to the session's chat, with the selected lines. Outside a session no chat is on screen. */
+	function attachSelectionToChat() {
+		if (!sessionScopedChatManager) return
+		const selection = editor?.getSelection()?.isEmpty() ? undefined : getCodeSelection()
+		if (selection) {
+			sessionScopedChatManager.attachCodeSelection(selection)
+		} else {
+			sessionScopedChatManager.focusInput()
 		}
 	}
 
@@ -982,8 +1042,6 @@
 
 	// Inline ai chat widget
 	let showInlineAIChat = $state(false)
-	let inlineAIChatSelection: Selection | null = $state(null)
-	let selectedCode = $state('')
 
 	export async function reviewAndApplyCode(code: string, opts?: ReviewChangesOpts) {
 		await aiChatEditorHandler?.reviewChanges(code, opts)
@@ -1618,9 +1676,6 @@
 			editor?.addCommand(KeyMod.CtrlCmd | KeyCode.DownArrow, function () {
 				if (aiChatManager.pendingNewCode) {
 					aiChatManager.scriptEditorApplyCode?.(aiChatManager.pendingNewCode)
-					if (showInlineAIChat) {
-						closeAIInlineWidget()
-					}
 				}
 			})
 
@@ -1649,35 +1704,16 @@
 			})
 
 			editor?.addCommand(KeyMod.CtrlCmd | KeyCode.KeyL, function () {
-				const selectedLines = getSelectedLines()
-				const selection = editor?.getSelection()
-				const hasSelection =
-					selection &&
-					(selection.startLineNumber !== selection.endLineNumber ||
-						selection.startColumn !== selection.endColumn)
-				// Only a session pane has a chat on screen to send the lines to.
-				const chat = sessionScopedChatManager
-				if (!chat) return
-				if (hasSelection && selectedLines) {
-					chat.addSelectedLinesToContext(
-						selectedLines,
-						selection.startLineNumber,
-						selection.endLineNumber,
-						moduleId
-					)
-				} else {
-					chat.focusInput()
-				}
+				// Monaco runs a command for whichever editor has focus, this one or not.
+				if (editor?.hasWidgetFocus()) attachSelectionToChat()
 			})
 
 			editor?.addCommand(KeyMod.CtrlCmd | KeyCode.KeyK, function () {
-				if ($copilotInfo.enabled) {
-					aiChatEditorHandler?.rejectAll()
-					if (showInlineAIChat) {
-						closeAIInlineWidget()
-					} else {
-						showAIInlineWidget()
-					}
+				if (!editor?.hasWidgetFocus()) return
+				if (newSessionSource) {
+					showInlineAIChat = !showInlineAIChat
+				} else {
+					attachSelectionToChat()
 				}
 			})
 
@@ -1896,29 +1932,9 @@
 		})
 	}
 
-	function showAIInlineWidget() {
-		if (!editor) return
-
-		inlineAIChatSelection = editor.getSelection()
-		if (!inlineAIChatSelection) {
-			return
-		}
-		const model = editor.getModel()
-		selectedCode = ''
-		if (model) {
-			selectedCode = model.getValueInRange(inlineAIChatSelection)
-		}
-		showInlineAIChat = true
-		aiChatInlineWidget?.focusInput()
-	}
-
 	function closeAIInlineWidget() {
 		showInlineAIChat = false
-		inlineAIChatSelection = null
-		selectedCode = ''
 	}
-
-	let aiChatInlineWidget: AIChatInlineWidget | null = $state(null)
 
 	$effect(() => {
 		const fontSize = small ? editorFontSize.small : editorFontSize.regular
@@ -2008,9 +2024,6 @@
 			rejectCodeChanges()
 		} else if ((e.ctrlKey || e.metaKey) && e.key === 'ArrowDown' && aiChatManager.pendingNewCode) {
 			acceptCodeChanges()
-			if (showInlineAIChat) {
-				closeAIInlineWidget()
-			}
 		}
 	}
 	$effect(() => {
@@ -2250,14 +2263,15 @@
 	<GlobalReviewButtons onAcceptAll={acceptCodeChanges} onRejectAll={rejectCodeChanges} />
 {/if}
 
-{#if editor && $copilotInfo.enabled && aiChatEditorHandler}
+{#if editor && showInlineAIChat && newSessionSource}
 	<AIChatInlineWidget
-		bind:this={aiChatInlineWidget}
-		bind:show={showInlineAIChat}
 		{editor}
-		editorHandler={aiChatEditorHandler}
-		selection={inlineAIChatSelection}
-		{selectedCode}
+		line={editor.getSelection()?.startLineNumber ?? 1}
+		onSend={sendInlinePrompt}
+		onClose={(refocus) => {
+			closeAIInlineWidget()
+			if (refocus) editor?.focus()
+		}}
 	/>
 {/if}
 

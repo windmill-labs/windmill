@@ -9,6 +9,7 @@
 	import GoogleSigninButton from './GoogleSigninButton.svelte'
 	import IconedResourceType from './IconedResourceType.svelte'
 	import { addResourceTitle } from './resourceTypeDisplay'
+
 	interface Props {
 		expressOAuthSetup?: boolean
 		workspace?: string
@@ -28,12 +29,14 @@
 	let disabled = $state(false)
 	let isGoogleSignin = $state(false)
 	let manual = $state(true)
+	let actionLabel: string | undefined = $state(undefined)
+	let canGoBack: boolean | undefined = $state(undefined)
 
 	let appConnectInner: AppConnectInner | undefined = $state(undefined)
 
 	let rtToLoad: string | undefined = $state('')
 	/** `fill` connects into a resource that already exists, instead of creating one; filling an
-	 *  OAuth resource reconnects it in place. `scopes` are requested on top of the defaults.
+	 *  OAuth resource reconnects it in place. `scopes` replace the provider's defaults.
 	 *  `workspaceApp` connects through the workspace's OAuth app when it has one, as triggers do. */
 	export async function open(
 		rt?: string,
@@ -104,6 +107,8 @@
 			bind:isGoogleSignin
 			bind:disabled
 			bind:manual
+			bind:actionLabel
+			bind:canGoBack
 			on:close={drawer?.closeDrawer}
 			on:refresh
 			express={expressOAuthSetup}
@@ -114,9 +119,7 @@
 		/>
 		{#snippet actions()}
 			<div class="flex gap-1">
-				<!-- Only when the user came through the type picker: opening the drawer for one
-				     resource type skips step 1, so Back would land on a list they never chose from. -->
-				{#if step > 1 && !rtToLoad}
+				{#if canGoBack}
 					<Button variant="default" unifiedSize="md" onClick={() => appConnectInner?.back()}>
 						Back
 					</Button>
@@ -130,13 +133,7 @@
 						{disabled}
 						onClick={() => appConnectInner?.next()}
 					>
-						{#if step == 2 && !manual}
-							Connect
-						{:else if step == 1}
-							Next
-						{:else}
-							Save
-						{/if}
+						{actionLabel ?? 'Next'}
 					</Button>
 				{/if}
 			</div>
