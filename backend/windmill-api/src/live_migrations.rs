@@ -367,8 +367,11 @@ async fn retire_legacy_audit_table(conn: &mut PgConnection) -> Result<(), Error>
     .await?;
     tx.execute("DROP TABLE audit").await?;
     tx.execute(
-        format!("CREATE VIEW audit AS SELECT {AUDIT_COLUMNS} FROM audit_partitioned WHERE false")
-            .as_str(),
+        format!(
+            "CREATE VIEW audit AS SELECT {AUDIT_COLUMNS}, client_ip, user_agent \
+             FROM audit_partitioned WHERE false"
+        )
+        .as_str(),
     )
     .await?;
     tx.execute("GRANT ALL ON audit TO windmill_user, windmill_admin")
@@ -474,11 +477,11 @@ mod tests {
         .execute(&db)
         .await?;
 
-        // The view stays readable next to audit_partitioned over the columns they share.
-        let seen: i64 = sqlx::query_scalar(&format!(
-            "SELECT count(*) FROM (SELECT {AUDIT_COLUMNS} FROM audit_partitioned
-             UNION ALL SELECT {AUDIT_COLUMNS} FROM audit) a WHERE workspace_id = 'w'"
-        ))
+        // Servers on an older version still read `audit` in a UNION with audit_partitioned.
+        let seen: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM (SELECT * FROM audit_partitioned UNION ALL SELECT * FROM audit) a
+             WHERE workspace_id = 'w'",
+        )
         .fetch_one(&db)
         .await?;
         assert_eq!(seen, 2);
