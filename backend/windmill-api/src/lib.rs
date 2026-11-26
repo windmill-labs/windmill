@@ -323,6 +323,25 @@ async fn set_request_client(
     windmill_common::trigger_history::scope_client(client, next.run(req)).await
 }
 
+/// Scope the request in its origin (client address and user agent), recorded on the audit
+/// entries it writes. A request routed in-process has no connect info and keeps the origin
+/// of the request that routed it.
+async fn set_request_origin(
+    req: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    use windmill_common::request_origin::{current, scope, RequestOrigin};
+    let peer = req
+        .extensions()
+        .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
+        .map(|c| c.0.ip());
+    let origin = match (peer, current()) {
+        (None, Some(outer)) => (*outer).clone(),
+        (peer, _) => RequestOrigin::from_request(peer, req.headers()),
+    };
+    scope(origin, next.run(req)).await
+}
+
 #[cfg(not(feature = "tantivy"))]
 type IndexReader = ();
 
@@ -403,6 +422,7 @@ async fn inject_agent_authed(
                 credential_expiry: None,
                 mcp_client: None,
                 capabilities: None,
+                allowed_ips: None,
             },
             job_id: None,
         });
@@ -1159,6 +1179,7 @@ pub async fn run_server(
                     }
                 })
                 .route("/version", get(git_v))
+                .route("/client_ip", get(client_ip))
                 .nest("/health/status", health::status_service())
                 .route("/min_keep_alive_version", get(min_keep_alive_version))
                 .route("/uptodate", get(is_up_to_date))
@@ -1292,6 +1313,8 @@ pub async fn run_server(
 
     let app = app.layer(axum::middleware::from_fn(set_request_client));
 
+    let app = app.layer(axum::middleware::from_fn(set_request_origin));
+
     let app = app.layer(CatchPanicLayer::custom(|err| {
         tracing::error!("panic in handler, returning 500: {:?}", err);
         Response::builder()
@@ -1308,7 +1331,10 @@ pub async fn run_server(
     let listener = listener.tap_io(move |tcp_stream| {
         let _ = tcp_stream.set_nodelay(!server_mode);
     });
-    let server = axum::serve(listener, app.into_make_service());
+    let server = axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    );
 
     tracing::info!(
         instance = %*INSTANCE_NAME,
@@ -1398,6 +1424,15 @@ async fn git_v() -> String {
 #[cfg(not(feature = "enterprise"))]
 async fn git_v() -> String {
     format!("CE {GIT_VERSION}")
+}
+
+/// The caller's address as every IP check sees it, so a device can learn what to put in a token's
+/// allowed IPs, and an admin can tell a proxy missing from `TRUSTED_PROXIES` (its own address
+/// comes back). Unauthenticated: it tells the caller only where it is calling from.
+async fn client_ip(
+    windmill_common::client_ip::ClientIp(ip): windmill_common::client_ip::ClientIp,
+) -> String {
+    ip.map(|ip| ip.to_string()).unwrap_or_default()
 }
 
 async fn min_keep_alive_version() -> Json<serde_json::Value> {

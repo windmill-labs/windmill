@@ -885,6 +885,12 @@ async fn oauth_approve_inner(
     // (GHSA-hfh4-cx4h-3fcr). Guarded at the shared inner fn: both the workspaced and
     // the gateway approve route reach the exchange through here.
     forbid_elevated_job_token(db, &authed.email, authed.job_id).await?;
+    // The exchanged token carries no IP restriction, so approving would lift the caller's.
+    if authed.allowed_ips.is_some() {
+        return Err(Error::NotAuthorized(
+            "A token restricted to IP addresses cannot approve an MCP client".to_string(),
+        ));
+    }
 
     let caller_restricted = authed
         .scopes

@@ -23,6 +23,7 @@
 	import RetentionPeriodOverrides from './instanceSettings/RetentionPeriodOverrides.svelte'
 	import AgentWorkloadIdentityIssuers from './instanceSettings/AgentWorkloadIdentityIssuers.svelte'
 	import McpExternalIdp from './instanceSettings/McpExternalIdp.svelte'
+	import OtelAuditLogsSettings from './instanceSettings/OtelAuditLogsSettings.svelte'
 	import WorkspaceRolesSetting from './instanceSettings/WorkspaceRolesSetting.svelte'
 	import SmtpSettings from './instanceSettings/SmtpSettings.svelte'
 	import SecretBackendConfig from './instanceSettings/SecretBackendConfig.svelte'
@@ -128,7 +129,8 @@
 
 	async function reloadLicenseKey() {
 		$values['license_key'] = await SettingService.getGlobal({
-			key: 'license_key'
+			key: 'license_key',
+			dangerouslyRevealSecrets: true
 		})
 	}
 
@@ -724,6 +726,7 @@
 								Service name, environment, resource attributes, metrics temporality and other
 								options are set with environment variables.
 							</Description>
+							<OtelAuditLogsSettings {values} disabled={!$enterpriseLicense} />
 						{/if}
 					</div>
 				{:else if setting.fieldType == 'otel_tracing_proxy'}

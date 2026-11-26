@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.885.0
+  version: 1.886.0
   title: Windmill API
 
   contact:
@@ -36,6 +36,26 @@ paths:
       responses:
         "200":
           description: git version of backend
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /client_ip:
+    get:
+      summary: get the caller's IP address
+      description: |
+        The address of the client making the request, as Windmill resolves it for per-IP checks such
+        as token IP allowlists: forwarding headers are believed only from the proxies in
+        TRUSTED_PROXIES. Behind a proxy that is not listed, this is the proxy's address. Empty when
+        the server cannot tell.
+      operationId: getClientIp
+      tags:
+        - settings
+      security: []
+      responses:
+        "200":
+          description: the caller's IP address
           content:
             text/plain:
               schema:
@@ -1903,6 +1923,7 @@ paths:
         - setting
       parameters:
         - $ref: "#/components/parameters/Key"
+        - $ref: "#/components/parameters/DangerouslyRevealSecrets"
       responses:
         "200":
           description: status
@@ -2717,6 +2738,8 @@ paths:
       operationId: listGlobalSettings
       tags:
         - setting
+      parameters:
+        - $ref: "#/components/parameters/DangerouslyRevealSecrets"
       responses:
         "200":
           description: list of settings
@@ -2760,6 +2783,8 @@ paths:
       operationId: getInstanceConfig
       tags:
         - setting
+      parameters:
+        - $ref: "#/components/parameters/DangerouslyRevealSecrets"
       responses:
         "200":
           description: full instance configuration
@@ -8311,6 +8336,37 @@ paths:
                 type: string
         "400":
           description: rule with this name already exists
+
+  /w/{workspace}/workspaces/password_login_members:
+    get:
+      summary: list the members other than service accounts that sign in with a password
+      operationId: listPasswordLoginMembers
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: members signing in with a password, with their groups
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  required:
+                    - username
+                    - email
+                    - groups
+                  properties:
+                    username:
+                      type: string
+                    email:
+                      type: string
+                    groups:
+                      type: array
+                      items:
+                        type: string
 
   /w/{workspace}/workspaces/protection_rules/{rule_name}:
     post:
@@ -29959,6 +30015,15 @@ components:
       required: true
       schema:
         type: string
+    DangerouslyRevealSecrets:
+      name: dangerously_reveal_secrets
+      description: >
+        Return stored secrets in clear. Without it, every secret is replaced by a
+        placeholder, which a write sending it back unchanged keeps as the stored value.
+      in: query
+      required: false
+      schema:
+        type: boolean
     WorkspaceId:
       name: workspace
       in: path
@@ -33950,8 +34015,33 @@ components:
           items:
             type: string
           description: "List of path conflicts that block the offboarding. Empty on success."
+        conflict_items:
+          type: array
+          items:
+            $ref: "#/components/schemas/OffboardPathConflict"
+          description: "The same conflicts as `conflicts`, structured. Empty on success."
         summary:
           $ref: "#/components/schemas/OffboardSummary"
+
+    OffboardPathConflict:
+      type: object
+      properties:
+        workspace_id:
+          type: string
+        kind:
+          type: string
+          description: "Item kind, as its table name (script, flow, app, resource, variable, schedule, eval_dataset, http_trigger, ...)"
+        source_path:
+          type: string
+          description: "The offboarded user's item, under u/{username}/"
+        target_path:
+          type: string
+          description: "The existing item at the reassignment target"
+      required:
+        - workspace_id
+        - kind
+        - source_path
+        - target_path
 
     OffboardSummary:
       type: object
@@ -34057,6 +34147,11 @@ components:
           type: string
         read_only:
           type: boolean
+        allowed_ips:
+          type: array
+          description: IPs or CIDRs the token may be used from; absent when it may be used from anywhere.
+          items:
+            type: string
       required:
         - token_prefix
         - created_at
@@ -34193,6 +34288,15 @@ components:
             For an MCP token (an `mcp:` scope) owned by a superadmin: carry the owner's
             superadmin rights, reaching every workspace rather than only their
             memberships. Ignored for other tokens, which always carry them.
+        allowed_ips:
+          type: array
+          description: |
+            IPs or CIDRs (IPv4 or IPv6) the token may be used from; omit to allow any.
+            A request from elsewhere is refused as unauthenticated. A token that is itself
+            restricted can only create tokens within its own networks, and creates one
+            restricted to them when this is omitted.
+          items:
+            type: string
 
     NewTokenImpersonate:
       type: object
@@ -34206,6 +34310,11 @@ components:
           type: string
         workspace_id:
           type: string
+        allowed_ips:
+          type: array
+          description: IPs or CIDRs the token may be used from; omit to allow any.
+          items:
+            type: string
       required:
         - impersonate_email
 
@@ -34500,6 +34609,12 @@ components:
           type: object
         span:
           type: string
+        client_ip:
+          type: string
+          description: Address of the client that made the request. Forwarding headers are believed only from the proxies listed in the TRUSTED_PROXIES environment variable (loopback by default, plus the private ranges on Windmill Cloud), so behind a reverse proxy this is the proxy's address until it is listed. Absent on entries no request stands behind.
+        user_agent:
+          type: string
+          description: User-Agent header of the request.
       required:
         - workspace_id
         - id
@@ -41717,6 +41832,7 @@ components:
         - RestrictPublicRunSharing
         - RestrictGuestAppDeployment
         - RequireIsolatedForks
+        - RequireSso
     RuleBypasserGroups:
       type: array
       description: Groups that can bypass this ruleset

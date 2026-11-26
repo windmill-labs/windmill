@@ -36,6 +36,7 @@ pub fn global_service() -> Router {
 /// discloses existence only inside a workspace they belong to.
 async fn require_concurrency_key_read(
     token: &str,
+    client_ip: Option<std::net::IpAddr>,
     cache: &AuthCache,
     db: &DB,
     user_db: &UserDB,
@@ -55,7 +56,7 @@ async fn require_concurrency_key_read(
     .ok_or_else(not_found)?;
 
     let authed_in_workspace = cache
-        .get_authed(Some(job.workspace_id.clone()), token)
+        .get_authed(Some(job.workspace_id.clone()), token, client_ip)
         .await
         .ok_or_else(not_found)?;
     windmill_api_auth::check_job_token_scope(&authed_in_workspace, || "jobs:read".to_string())?;
@@ -75,14 +76,23 @@ async fn require_concurrency_key_read(
 async fn get_concurrency_key(
     _authed: ApiAuthed,
     Tokened { token }: Tokened,
+    windmill_common::client_ip::ClientIp(client_ip): windmill_common::client_ip::ClientIp,
     Extension(cache): Extension<Arc<AuthCache>>,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     OptViewToken(view_token): OptViewToken,
     Path(job_id): Path<Uuid>,
 ) -> JsonResult<Option<String>> {
-    require_concurrency_key_read(&token, &cache, &db, &user_db, view_token.as_deref(), job_id)
-        .await?;
+    require_concurrency_key_read(
+        &token,
+        client_ip,
+        &cache,
+        &db,
+        &user_db,
+        view_token.as_deref(),
+        job_id,
+    )
+    .await?;
     let key = sqlx::query_scalar!("SELECT key FROM concurrency_key WHERE job_id = $1", job_id)
         .fetch_optional(&db)
         .await?;
@@ -103,14 +113,23 @@ struct ConcurrencyKeyStatus {
 async fn get_concurrency_key_status(
     _authed: ApiAuthed,
     Tokened { token }: Tokened,
+    windmill_common::client_ip::ClientIp(client_ip): windmill_common::client_ip::ClientIp,
     Extension(cache): Extension<Arc<AuthCache>>,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     OptViewToken(view_token): OptViewToken,
     Path(job_id): Path<Uuid>,
 ) -> JsonResult<Option<ConcurrencyKeyStatus>> {
-    require_concurrency_key_read(&token, &cache, &db, &user_db, view_token.as_deref(), job_id)
-        .await?;
+    require_concurrency_key_read(
+        &token,
+        client_ip,
+        &cache,
+        &db,
+        &user_db,
+        view_token.as_deref(),
+        job_id,
+    )
+    .await?;
     let status = sqlx::query_as!(
         ConcurrencyKeyStatus,
         "SELECT key, original_scheduled_for AS deferred_from, released_at FROM concurrency_key WHERE job_id = $1",

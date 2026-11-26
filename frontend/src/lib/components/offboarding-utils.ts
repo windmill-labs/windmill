@@ -1,4 +1,25 @@
-import type { OffboardAffectedPaths } from '$lib/gen'
+import {
+	AiEvalsService,
+	AmqpTriggerService,
+	AppService,
+	AzureTriggerService,
+	EmailTriggerService,
+	FlowService,
+	GcpTriggerService,
+	HttpTriggerService,
+	KafkaTriggerService,
+	MqttTriggerService,
+	NatsTriggerService,
+	PostgresTriggerService,
+	ResourceService,
+	ScheduleService,
+	ScriptService,
+	SqsTriggerService,
+	VariableService,
+	WebsocketTriggerService,
+	type OffboardAffectedPaths,
+	type OffboardPathConflict
+} from '$lib/gen'
 
 export function pl(n: number, singular: string): string {
 	return `${n} ${singular}${n === 1 ? '' : 's'}`
@@ -114,4 +135,86 @@ export function downloadCsv(rows: string[][], filename: string) {
 	a.download = filename
 	a.click()
 	URL.revokeObjectURL(url)
+}
+
+type DeleteFn = (p: { workspace: string; path: string }) => Promise<unknown>
+
+// Keyed by the table names the offboarding conflict check reports. Scripts and flows are
+// deleted rather than archived: an archived item still holds its path and keeps the conflict.
+const DELETE_BY_KIND: Record<string, DeleteFn> = {
+	script: (p) => ScriptService.deleteScriptByPath(p),
+	flow: (p) => FlowService.deleteFlowByPath(p),
+	app: (p) => AppService.deleteApp(p),
+	resource: (p) => ResourceService.deleteResource(p),
+	variable: (p) => VariableService.deleteVariable(p),
+	schedule: (p) => ScheduleService.deleteSchedule(p),
+	eval_dataset: (p) => AiEvalsService.deleteEvalDataset(p),
+	http_trigger: (p) => HttpTriggerService.deleteHttpTrigger(p),
+	websocket_trigger: (p) => WebsocketTriggerService.deleteWebsocketTrigger(p),
+	kafka_trigger: (p) => KafkaTriggerService.deleteKafkaTrigger(p),
+	postgres_trigger: (p) => PostgresTriggerService.deletePostgresTrigger(p),
+	mqtt_trigger: (p) => MqttTriggerService.deleteMqttTrigger(p),
+	amqp_trigger: (p) => AmqpTriggerService.deleteAmqpTrigger(p),
+	nats_trigger: (p) => NatsTriggerService.deleteNatsTrigger(p),
+	sqs_trigger: (p) => SqsTriggerService.deleteSqsTrigger(p),
+	gcp_trigger: (p) => GcpTriggerService.deleteGcpTrigger(p),
+	azure_trigger: (p) => AzureTriggerService.deleteAzureTrigger(p),
+	email_trigger: (p) => EmailTriggerService.deleteEmailTrigger(p)
+}
+
+const TRASHED_KINDS = new Set(['script', 'flow', 'app', 'resource', 'variable', 'schedule'])
+
+export function canDeleteKind(kind: string): boolean {
+	return kind in DELETE_BY_KIND
+}
+
+export function isTrashedKind(kind: string): boolean {
+	return TRASHED_KINDS.has(kind)
+}
+
+export async function deleteItemOfKind(
+	kind: string,
+	workspace: string,
+	path: string
+): Promise<void> {
+	const del = DELETE_BY_KIND[kind]
+	if (!del) throw new Error(`Cannot delete items of kind ${kind}`)
+	await del({ workspace, path })
+}
+
+export function withoutConflict(
+	conflicts: OffboardPathConflict[],
+	resolved: OffboardPathConflict
+): OffboardPathConflict[] {
+	return conflicts.filter(
+		(c) =>
+			!(
+				c.workspace_id === resolved.workspace_id &&
+				c.kind === resolved.kind &&
+				c.source_path === resolved.source_path
+			)
+	)
+}
+
+/**
+ * Deleting a resource also deletes the variables linked to it, which can remove one side of a
+ * variable conflict. Returns the remaining conflicts that no longer have both sides, so the list
+ * does not offer to "keep" an item that is already gone.
+ */
+export async function conflictsGoneAfterDelete(
+	deletedKind: string,
+	remaining: OffboardPathConflict[]
+): Promise<OffboardPathConflict[]> {
+	if (deletedKind !== 'resource') return []
+	const variables = remaining.filter((c) => c.kind === 'variable')
+	const gone = await Promise.all(
+		variables.map(async (c) => {
+			const [source, target] = await Promise.all([
+				VariableService.existsVariable({ workspace: c.workspace_id, path: c.source_path }),
+				VariableService.existsVariable({ workspace: c.workspace_id, path: c.target_path })
+			])
+			return !source || !target
+		})
+	)
+	return variables.filter((_, i) => gone[i])
 }

@@ -1999,6 +1999,7 @@ async fn get_app_embed_token(
     // Resolved from the token when there is one: this endpoint serves anonymous
     // viewers too, so it cannot take an extractor that requires auth.
     OptTokened { token }: OptTokened,
+    windmill_common::client_ip::ClientIp(client_ip): windmill_common::client_ip::ClientIp,
     Extension(cache): Extension<Arc<AuthCache>>,
     Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
@@ -2007,7 +2008,7 @@ async fn get_app_embed_token(
 ) -> JsonResult<EmbedTokenResponse> {
     let job_id = match token.as_deref() {
         Some(t) => cache
-            .get_opt_job_authed(Some(w_id.clone()), t)
+            .get_opt_job_authed(Some(w_id.clone()), t, client_ip)
             .await
             .and_then(|x| x.job_id),
         None => None,

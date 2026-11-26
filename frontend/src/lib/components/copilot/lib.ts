@@ -25,9 +25,11 @@ import {
 	completionsRejectsToolsWithReasoning,
 	explicitOffToken,
 	requestsReasoning,
+	resolveRequestReasoning,
 	stripLegacyThinkingSuffix,
 	usesOpenAIResponsesApi,
-	type ReasoningEffort
+	type ReasoningEffort,
+	type ReasoningProviderModel
 } from './reasoningRegistry'
 import { formatResourceTypes } from './utils'
 import {
@@ -604,6 +606,7 @@ interface AnthropicCompletionParams {
 	resourcePath?: string
 	resourceValue?: Record<string, any>
 	maxTokensCap?: number
+	reasoningEffort?: ReasoningEffort
 	info?: CopilotInfo
 }
 
@@ -615,6 +618,7 @@ function buildAnthropicProxyRequest({
 	resourcePath,
 	resourceValue,
 	maxTokensCap,
+	reasoningEffort,
 	info
 }: Omit<AnthropicCompletionParams, 'abortController'>) {
 	const { system, messages: anthropicMessages } = convertOpenAIToAnthropicMessages(messages)
@@ -633,12 +637,16 @@ function buildAnthropicProxyRequest({
 			? workspaceAIClients.createAnthropicClient(workspace)
 			: workspaceAIClients.getAnthropicClient()
 
-	const body = {
-		model: modelProvider.model,
-		max_tokens: resolveMaxTokens(modelProvider, maxTokensCap, undefined, info),
-		messages: anthropicMessages,
-		...(system && { system })
-	}
+	const body = applyReasoningToConfig(
+		{
+			model: modelProvider.model,
+			max_tokens: resolveMaxTokens(modelProvider, maxTokensCap, reasoningEffort, info),
+			messages: anthropicMessages,
+			...(system && { system })
+		},
+		'anthropic',
+		reasoningEffort
+	)
 
 	return { client, headers, body }
 }
@@ -900,7 +908,7 @@ export function modelSupportsWebSearch(provider: AIProvider | undefined, model: 
 }
 
 /** The model a request that names none sends: `info`'s workspace's default when given, else the
- * tab's. */
+ * last pick. */
 function modelFor(info: CopilotInfo | undefined): AIProviderModel {
 	return info ? resolveModelFor(info, undefined) : getCurrentModel()
 }
@@ -1147,6 +1155,7 @@ export async function getCompletion(
 			modelProvider,
 			abortController,
 			maxTokensCap: options?.maxTokensCap,
+			reasoningEffort: options?.reasoningEffort,
 			workspace: options?.workspace,
 			info: options?.info
 		})
@@ -1224,7 +1233,11 @@ export async function getStreamedCompletionText(
 	messages: ChatCompletionMessageParam[],
 	abortController: AbortController,
 	// `workspace` and `info` send it for that workspace, with its AI config, rather than the tab's.
-	options?: Partial<AiTarget> & { maxTokensCap?: number; forceModelProvider?: AIProviderModel }
+	options?: Partial<AiTarget> & {
+		maxTokensCap?: number
+		forceModelProvider?: AIProviderModel
+		reasoningEffort?: ReasoningEffort
+	}
 ): Promise<string> {
 	const modelProvider = options?.forceModelProvider ?? modelFor(options?.info)
 	const drain = async (forceCompletions: boolean) => {
@@ -1232,6 +1245,7 @@ export async function getStreamedCompletionText(
 			forceCompletions,
 			forceModelProvider: modelProvider,
 			maxTokensCap: options?.maxTokensCap,
+			reasoningEffort: options?.reasoningEffort,
 			workspace: options?.workspace,
 			info: options?.info
 		})
@@ -1567,15 +1581,16 @@ export async function parseOpenAICompletion(
 }
 
 export function getResponseFromEvent(part: OpenAI.Chat.Completions.ChatCompletionChunk): string {
-	return part.choices?.[0]?.delta?.content || ''
+	return splitContentDelta(part.choices?.[0]?.delta?.content).text
 }
 
 export async function copilot(
 	scriptOptions: CopilotOptions,
 	generatedCode: Writable<string>,
 	abortController: AbortController,
-	generatedExplanation?: Writable<string>
+	options?: { forceModelProvider?: ReasoningProviderModel; generatedExplanation?: Writable<string> }
 ) {
+	const { forceModelProvider, generatedExplanation } = options ?? {}
 	const { prompt, systemPrompt } = await getPrompts(scriptOptions)
 
 	const completion = await getCompletion(
@@ -1589,7 +1604,12 @@ export async function copilot(
 				content: prompt
 			}
 		],
-		abortController
+		abortController,
+		undefined,
+		{
+			forceModelProvider,
+			reasoningEffort: forceModelProvider && resolveRequestReasoning(forceModelProvider)
+		}
 	)
 
 	let response = ''
@@ -1643,6 +1663,8 @@ export async function copilot(
 			generatedCode.set(code)
 		}
 	}
+	// See `getStreamedCompletionText`: an aborted stream ends without throwing.
+	abortController.signal.throwIfAborted()
 
 	// make sure we display the latest and complete code
 	generatedCode.set(code)

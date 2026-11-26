@@ -164,6 +164,18 @@ Symbols, not line numbers, are cited: they drift less.
   reset require `login_type = 'password'`; `set_password` also accepts `pending_oauth` and turns
   the account into a `password` one in the same statement (an account created ahead of its owner
   gets its first credential that way, or through the OAuth claim below).
+- **`RequireSso` protection rule** (workspace-level, `check_new_member_sso` /
+  `check_password_login_allowed` in `windmill-common/src/workspaces.rs`): a `password` account
+  held by it (not a service account, not a bypasser by username or group, admins included) cannot
+  join the workspace, and no member it holds can become a `password` account. It gates both
+  transitions, never sign-in: password members already in the workspace keep logging in, which only
+  the instance's `disable_password_login` stops. A new path that seats a member or writes
+  `login_type = 'password'` (or a password on a `pending_oauth` account) must call the matching
+  check in the transaction that writes. The two checks take no lock, so a join and a password
+  switch of the same account at the same instant can both pass; the automatic joins (domain auto-add and auto-invite,
+  instance groups) skip the user instead of failing, and a git sync pull into a fork fails rather
+  than seat a held sync identity. The
+  superadmin instance import (`POST /users/overwrite`) restores accounts as given, unchecked.
 - **Login links** (`login_link` table, `POST /users/login_links` superadmin-only,
   `GET /auth/login_link/{token}` unauthenticated): single-use, ≤15 min, a session cookie and a
   302 to a same-origin `rd`. `require_login_type` on the mint refuses (409) an account whose
@@ -220,3 +232,34 @@ Symbols, not line numbers, are cited: they drift less.
   profile routes are cloud-gated; for the rest, cloud only adds quotas.
 - **`CREATE_WORKSPACE_REQUIRE_SUPERADMIN`** defaults to `true` when unset; only the literal
   `"true"` enables it when set.
+- **The client IP** (`windmill-common/src/client_ip.rs`, the `ClientIp` extractor) is the TCP
+  peer unless that peer is in `TRUSTED_PROXIES` (comma-separated CIDRs; unset means loopback,
+  plus the private ranges on cloud; empty or `none` trusts nothing). Audit entries record the
+  same address (`request_origin.rs` calls it), so a login refusal and its audit row agree. A
+  self-hosted instance behind a reverse proxy on a private address must list that proxy, or
+  the proxy is every request's client: trusting private ranges by default would let anyone on
+  the network in front name any address. Behind a trusted peer, `X-Forwarded-For`
+  is read from the right up to the first untrusted hop, or, with `CLIENT_IP_HEADER` set, only that
+  header (`CloudFront-Viewer-Address`, `CF-Connecting-IP`, an nginx `X-Real-IP`). `X-Real-IP` is
+  never read implicitly: Caddy and most ingresses pass a client's own through. A CDN in front of
+  the load balancer (CloudFront on app.windmill.dev) needs `CLIENT_IP_HEADER` or its ranges in
+  `TRUSTED_PROXIES`, or its edge address is the client. On cloud, the private-range default
+  also trusts job containers that can reach the server directly. Only the main API server carries the peer: a router called without connect
+  info (tests, internal dispatch) sees `None`, and per-IP decisions skip or refuse it.
+- **`token.allowed_ips`** is EE. A CE build drops a stored list when it loads the token, so it
+  neither checks the list nor passes it on, and refuses a request that sets one. An EE build
+  keeps enforcing stored lists when its license lapses; only setting a new one needs a valid
+  license. The rest of this bullet describes an EE build. The column (`cidr[]`, `NULL` =
+  anywhere) restricts where a token row may be
+  used. `AuthCache::get_opt_job_authed` takes the request's client IP and refuses the token
+  outside its networks, or when the IP is unknown, so every path that resolves a request's
+  token passes that request's `ClientIp` (MCP's multi-workspace mode carries it in
+  `McpToken`). The list rides on the cached `ApiAuthed`, checked per request, never folded
+  into the cache entry. A restricted token cannot lift its restriction: every mint from the
+  caller's identity holds the new row within the caller's networks (the caller's list when
+  none is asked for). That is `create_token_internal` (`tokens/create`, app SDK and embed
+  tokens, native trigger webhook tokens, which then only work from those networks),
+  `tokens/impersonate` and service-account impersonation. `refresh_token`, the MCP OAuth
+  approve and `login_links` refuse a restricted caller, since what they lead to is a session
+  with no restriction. Not inherited, by design: a job's `WM_TOKEN` (a JWT; starting the job
+  already passed the check) and JWTs the server mints for its own loopback calls.

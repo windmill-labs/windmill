@@ -15,10 +15,16 @@ import {
 	WorkspaceService
 } from './gen'
 import {
+	AI_REVIEW_MODEL_SETTING_NAME,
+	AI_REVIEW_PROVIDER_SETTING_NAME,
+	AI_REVIEW_REASONING_SETTING_NAME,
 	aiUserDisabled,
 	COPILOT_SESSION_MODEL_SETTING_NAME,
 	COPILOT_SESSION_PROVIDER_SETTING_NAME,
-	COPILOT_SESSION_REASONING_SETTING_NAME
+	COPILOT_SESSION_REASONING_SETTING_NAME,
+	SCRIPT_GEN_MODEL_SETTING_NAME,
+	SCRIPT_GEN_PROVIDER_SETTING_NAME,
+	SCRIPT_GEN_REASONING_SETTING_NAME
 } from './stores'
 import { getLocalSetting, storeLocalSetting } from './utils'
 import {
@@ -28,20 +34,51 @@ import {
 
 const USER_CUSTOM_PROMPTS_KEY = 'userCustomAIPrompts'
 
-const sessionModel = getLocalSetting(COPILOT_SESSION_MODEL_SETTING_NAME)
-const sessionProvider = getLocalSetting(COPILOT_SESSION_PROVIDER_SETTING_NAME)
-const sessionReasoning = getLocalSetting(COPILOT_SESSION_REASONING_SETTING_NAME)
-export const copilotSessionModel = writable<ReasoningProviderModel | undefined>(
-	sessionModel && sessionProvider
-		? {
-				// Strip the deprecated /thinking suffix on read; the default effort
-				// (resolved later) restores reasoning for migrated selections.
-				model: stripLegacyThinkingSuffix(sessionModel),
-				provider: sessionProvider as AIProvider,
-				...(sessionReasoning ? { reasoning: sessionReasoning } : {})
-			}
-		: undefined
-)
+type PickSettings = { model: string; provider: string; reasoning: string }
+
+const LAST_PICK_SETTINGS: PickSettings = {
+	model: COPILOT_SESSION_MODEL_SETTING_NAME,
+	provider: COPILOT_SESSION_PROVIDER_SETTING_NAME,
+	reasoning: COPILOT_SESSION_REASONING_SETTING_NAME
+}
+const SCRIPT_GEN_PICK_SETTINGS: PickSettings = {
+	model: SCRIPT_GEN_MODEL_SETTING_NAME,
+	provider: SCRIPT_GEN_PROVIDER_SETTING_NAME,
+	reasoning: SCRIPT_GEN_REASONING_SETTING_NAME
+}
+const AI_REVIEW_PICK_SETTINGS: PickSettings = {
+	model: AI_REVIEW_MODEL_SETTING_NAME,
+	provider: AI_REVIEW_PROVIDER_SETTING_NAME,
+	reasoning: AI_REVIEW_REASONING_SETTING_NAME
+}
+
+function readStoredPick(settings: PickSettings): ReasoningProviderModel | undefined {
+	const model = getLocalSetting(settings.model)
+	const provider = getLocalSetting(settings.provider)
+	const reasoning = getLocalSetting(settings.reasoning)
+	if (!model || !provider) return undefined
+	return {
+		// Strip the deprecated /thinking suffix on read; the default effort
+		// (resolved later) restores reasoning for migrated selections.
+		model: stripLegacyThinkingSuffix(model),
+		provider: provider as AIProvider,
+		...(reasoning ? { reasoning } : {})
+	}
+}
+
+function storePick(settings: PickSettings, pick: ReasoningProviderModel) {
+	storeLocalSetting(settings.model, pick.model)
+	storeLocalSetting(settings.provider, pick.provider)
+	storeLocalSetting(settings.reasoning, pick.reasoning)
+}
+
+export const copilotSessionModel = writable(readStoredPick(LAST_PICK_SETTINGS))
+
+// Script generation's own pick, which neither follows nor sets the last pick.
+export const scriptGenModel = writable(readStoredPick(SCRIPT_GEN_PICK_SETTINGS))
+
+// AI review's own pick outside a session; inside one, a review starts on the session's model.
+export const aiReviewModel = writable(readStoredPick(AI_REVIEW_PICK_SETTINGS))
 
 export type CopilotInfo = {
 	enabled: boolean
@@ -304,9 +341,17 @@ export function invalidateWorkspaceCopilotInfo(workspace?: string) {
  * until it has one. */
 export function setLastModelPick(model: ReasoningProviderModel) {
 	copilotSessionModel.set(model)
-	storeLocalSetting(COPILOT_SESSION_MODEL_SETTING_NAME, model.model)
-	storeLocalSetting(COPILOT_SESSION_PROVIDER_SETTING_NAME, model.provider)
-	storeLocalSetting(COPILOT_SESSION_REASONING_SETTING_NAME, model.reasoning)
+	storePick(LAST_PICK_SETTINGS, model)
+}
+
+export function setScriptGenModelPick(model: ReasoningProviderModel) {
+	scriptGenModel.set(model)
+	storePick(SCRIPT_GEN_PICK_SETTINGS, model)
+}
+
+export function setAiReviewModelPick(model: ReasoningProviderModel) {
+	aiReviewModel.set(model)
+	storePick(AI_REVIEW_PICK_SETTINGS, model)
 }
 
 // Leaves copilotSessionModel alone: the pick is shared with sessions in other workspaces, which may
