@@ -489,7 +489,7 @@ jobs:
           done
 
       - name: Docker Scout report
-        uses: docker/scout-action@v1.28.0
+        uses: docker/scout-action@v1.29.0
         with:
           command: cves
           only-severities: critical,high
