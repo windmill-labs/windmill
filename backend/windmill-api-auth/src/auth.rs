@@ -15,6 +15,7 @@ use tracing::Span;
 
 use crate::{ApiAuthed, OptJobAuthed};
 use std::{
+    net::IpAddr,
     str::FromStr,
     sync::{
         atomic::{AtomicI64, AtomicU64, Ordering},
@@ -44,6 +45,57 @@ lazy_static::lazy_static! {
     // Joined hashes of a request's duplicate `token` cookies -> index of the live one.
     static ref PICKED_SESSION_CACHE: Cache<String, (Option<usize>, std::time::Instant)> = Cache::new(500);
 }
+
+/// Throttles the log line for refused IP-restricted tokens: a leaked token hammered from outside
+/// its networks would otherwise log once per request.
+static REFUSAL_LOG: std::sync::LazyLock<RefusalLog> = std::sync::LazyLock::new(RefusalLog::default);
+
+const REFUSAL_LOG_INTERVAL: std::time::Duration = std::time::Duration::from_secs(60);
+/// Bounds the memory an attacker cycling through many tokens can pin; a reset only lets each
+/// token log once more early.
+const REFUSAL_LOG_MAX_TOKENS: usize = 10_000;
+
+#[derive(Default)]
+struct RefusalLog(std::sync::Mutex<std::collections::HashMap<String, (std::time::Instant, u64)>>);
+
+impl RefusalLog {
+    /// Records one refusal of `token_prefix`. Returns the number of its refusals to report when a
+    /// line is due (the first one, then at most one per interval), `None` while suppressed.
+    fn note(&self, token_prefix: &str, now: std::time::Instant) -> Option<u64> {
+        let mut map = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some((last, count)) = map.get_mut(token_prefix) {
+            *count += 1;
+            if now.duration_since(*last) < REFUSAL_LOG_INTERVAL {
+                return None;
+            }
+            let refused = *count;
+            *last = now;
+            *count = 0;
+            return Some(refused);
+        }
+        if map.len() >= REFUSAL_LOG_MAX_TOKENS {
+            map.clear();
+        }
+        map.insert(token_prefix.to_string(), (now, 0));
+        Some(1)
+    }
+}
+
+fn log_ip_refusal(token_prefix: &str, client_ip: Option<IpAddr>) {
+    if let Some(refused) = REFUSAL_LOG.note(token_prefix, std::time::Instant::now()) {
+        tracing::warn!(
+            token_prefix,
+            client_ip = client_ip.map(|ip| ip.to_string()).unwrap_or_default(),
+            refused_since_last_log = refused,
+            "token refused: request is outside the token's allowed IPs"
+        );
+    }
+}
+
+/// Marks a request whose IP refusal was already logged: a failed resolution is not memoized,
+/// so a second auth extractor on the same request resolves the token again.
+#[derive(Clone)]
+struct IpRefusalLogged;
 
 /// A token keeps its identity when a superadmin moves the account to another address, so entries
 /// here must expire on their own; nothing invalidates them by token hash.
@@ -158,16 +210,54 @@ impl AuthCache {
         AUTH_CACHE.remove(&(w_id.to_string(), token));
     }
 
-    pub async fn get_authed(&self, w_id: Option<String>, token: &str) -> Option<ApiAuthed> {
-        Some(self.get_opt_job_authed(w_id, token).await?.authed)
+    /// `client_ip` is the address of the request presenting `token` (`ClientIp`), `None` outside
+    /// one: a token restricted to `allowed_ips` resolves only when it is inside them.
+    pub async fn get_authed(
+        &self,
+        w_id: Option<String>,
+        token: &str,
+        client_ip: Option<IpAddr>,
+    ) -> Option<ApiAuthed> {
+        Some(
+            self.get_opt_job_authed(w_id, token, client_ip)
+                .await?
+                .authed,
+        )
     }
 
     pub async fn get_opt_job_authed(
         &self,
         w_id: Option<String>,
         token: &str,
+        client_ip: Option<IpAddr>,
+    ) -> Option<OptJobAuthed> {
+        self.get_opt_job_authed_lazy_ip(w_id, token, move || client_ip, log_ip_refusal)
+            .await
+    }
+
+    /// `client_ip` is resolved only for a token that has `allowed_ips`, so the hot path pays
+    /// nothing for unrestricted tokens. `on_refused` gets the token prefix and address of a
+    /// request refused for being outside them.
+    async fn get_opt_job_authed_lazy_ip(
+        &self,
+        w_id: Option<String>,
+        token: &str,
+        client_ip: impl FnOnce() -> Option<IpAddr>,
+        on_refused: impl FnOnce(&str, Option<IpAddr>),
     ) -> Option<OptJobAuthed> {
         let mut opt_job_authed = self.get_opt_job_authed_inner(w_id.clone(), token).await?;
+        // Checked per request, outside the cache: the cached identity carries the list, and each
+        // request brings its own address.
+        if let Some(allowed) = opt_job_authed.authed.allowed_ips.as_deref() {
+            let client_ip = client_ip();
+            if !crate::client_ip_allowed(Some(allowed), client_ip) {
+                on_refused(
+                    opt_job_authed.authed.token_prefix.as_deref().unwrap_or(""),
+                    client_ip,
+                );
+                return None;
+            }
+        }
         // Single source of truth: mirror the resolved job_id onto the authed so
         // every consumer (require_super_admin, ...) sees that this identity came
         // from a job's WM_TOKEN, even on an AUTH_CACHE hit whose cached authed
@@ -360,6 +450,7 @@ impl AuthCache {
                     credential_expiry: Some(credential_expiry),
                     mcp_client: None,
                     capabilities: None,
+                    allowed_ips: None,
                 };
                 AUTH_CACHE.insert(
                     key,
@@ -407,6 +498,7 @@ impl AuthCache {
                             credential_expiry: None,
                             mcp_client: claims.mcp_client,
                             capabilities: None,
+                            allowed_ips: None,
                         };
                         // Fail closed: a `job_id` claim that does not parse must reject
                         // the token rather than resolve to `None`, which would clear the
@@ -446,18 +538,22 @@ impl AuthCache {
                         token_hash = $1
                         AND (expiration > NOW() OR expiration IS NULL)
                         AND (workspace_id IS NULL OR workspace_id = $2)
-                    RETURNING owner, email, super_admin, scopes, label, read_only",
+                    RETURNING owner, email, super_admin, scopes, label, read_only,
+                        allowed_ips::text[] AS allowed_ips",
                     t_hash,
                     w_id.as_ref(),
                 )
                 .map(|x| {
                     (
-                        x.owner,
-                        x.email,
-                        x.super_admin,
-                        x.scopes,
-                        x.label,
-                        x.read_only,
+                        (
+                            x.owner,
+                            x.email,
+                            x.super_admin,
+                            x.scopes,
+                            x.label,
+                            x.read_only,
+                        ),
+                        x.allowed_ips,
                     )
                 })
                 .fetch_optional(&self.db)
@@ -465,7 +561,8 @@ impl AuthCache {
                 .ok()
                 .flatten();
 
-                if let Some(user) = user_o {
+                if let Some((user, allowed_ips)) = user_o {
+                    let allowed_ips = crate::token_ip_allowlist_oss::load_allowed_ips(allowed_ips);
                     let authed_o = {
                         match user {
                             (Some(owner), Some(email), super_admin, _, label, read_only)
@@ -540,6 +637,7 @@ impl AuthCache {
                                                 credential_expiry: None,
                                                 mcp_client: None,
                                                 capabilities: None,
+                                                allowed_ips: None,
                                             })
                                         } else {
                                             tracing::warn!(
@@ -596,6 +694,7 @@ impl AuthCache {
                                                 credential_expiry: None,
                                                 mcp_client: None,
                                                 capabilities: None,
+                                                allowed_ips: None,
                                             })
                                         } else {
                                             tracing::warn!(
@@ -697,6 +796,7 @@ impl AuthCache {
                                                 credential_expiry: None,
                                                 mcp_client: None,
                                                 capabilities: None,
+                                                allowed_ips: None,
                                             })
                                         }
                                         None if super_admin => {
@@ -724,6 +824,7 @@ impl AuthCache {
                                                     credential_expiry: None,
                                                     mcp_client: None,
                                                     capabilities: None,
+                                                    allowed_ips: None,
                                                 }),
                                                 Err(e) => {
                                                     tracing::error!(
@@ -764,6 +865,7 @@ impl AuthCache {
                                                 credential_expiry: None,
                                                 mcp_client: None,
                                                 capabilities: None,
+                                                allowed_ips: None,
                                             })
                                         }
                                         None => None,
@@ -786,12 +888,14 @@ impl AuthCache {
                                         credential_expiry: None,
                                         mcp_client: None,
                                         capabilities: None,
+                                        allowed_ips: None,
                                     })
                                 }
                             }
                             _ => None,
                         }
                     };
+                    let authed_o = authed_o.map(|authed| ApiAuthed { allowed_ips, ..authed });
                     if let Some(authed) = authed_o.as_ref() {
                         AUTH_CACHE.insert(
                             key,
@@ -828,6 +932,7 @@ impl AuthCache {
                         credential_expiry: None,
                         mcp_client: None,
                         capabilities: None,
+                        allowed_ips: None,
                     };
                     Some(OptJobAuthed { authed, job_id: None })
                 } else {
@@ -1274,6 +1379,7 @@ fn no_auth_admin_authed() -> ApiAuthed {
         credential_expiry: None,
         mcp_client: None,
         capabilities: None,
+        allowed_ips: None,
     }
 }
 
@@ -1325,9 +1431,22 @@ pub async fn resolve_opt_job_authed(
                     .map(|g| g.0.clone())
             });
 
-            if let Some(mut opt_job_authed) =
-                cache.get_opt_job_authed(workspace_id.clone(), &token).await
-            {
+            let mut ip_refused = None;
+            let resolved = cache
+                .get_opt_job_authed_lazy_ip(
+                    workspace_id.clone(),
+                    &token,
+                    || windmill_common::client_ip::client_ip_of_parts(&parts),
+                    |prefix, ip| ip_refused = Some((prefix.to_string(), ip)),
+                )
+                .await;
+            if let Some((prefix, ip)) = ip_refused {
+                if parts.extensions.get::<IpRefusalLogged>().is_none() {
+                    log_ip_refusal(&prefix, ip);
+                    parts.extensions.insert(IpRefusalLogged);
+                }
+            }
+            if let Some(mut opt_job_authed) = resolved {
                 let path = original_uri.path();
                 let method = parts.method.as_str();
                 if workspace_id.is_none() && opt_job_authed.job_id.is_some() {
@@ -1546,6 +1665,24 @@ pub async fn list_tokens_internal(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn refusal_log_reports_once_per_interval_with_the_count() {
+        let log = RefusalLog::default();
+        let t0 = std::time::Instant::now();
+        assert_eq!(log.note("tok_a", t0), Some(1));
+        for _ in 0..4 {
+            assert_eq!(
+                log.note("tok_a", t0 + std::time::Duration::from_secs(1)),
+                None
+            );
+        }
+        // A token of its own is not held back by another's suppression.
+        assert_eq!(log.note("tok_b", t0), Some(1));
+        // The four suppressed refusals plus this one.
+        assert_eq!(log.note("tok_a", t0 + REFUSAL_LOG_INTERVAL), Some(5));
+        assert_eq!(log.note("tok_a", t0 + REFUSAL_LOG_INTERVAL), None);
+    }
 
     #[test]
     fn filter_tags_reach_their_dev_workspace_form() {

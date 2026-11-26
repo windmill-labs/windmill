@@ -1467,6 +1467,7 @@ mod tests {
             credential_expiry: None,
             mcp_client: None,
             capabilities: Some(windmill_common::roles::RoleCapabilities::FULL),
+            allowed_ips: None,
         }
     }
 

@@ -3666,6 +3666,7 @@ async fn toggle_workspace_error_handler(
 }
 
 async fn get_tokened_raw_script_by_path(
+    windmill_common::client_ip::ClientIp(client_ip): windmill_common::client_ip::ClientIp,
     Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
     Extension(cache): Extension<Arc<AuthCache>>,
@@ -3673,7 +3674,7 @@ async fn get_tokened_raw_script_by_path(
     Query(query): Query<RawScriptByPathQuery>,
 ) -> Result<StringWithLength> {
     let authed = cache
-        .get_authed(Some(w_id.clone()), &token)
+        .get_authed(Some(w_id.clone()), &token, client_ip)
         .await
         .ok_or_else(|| Error::NotAuthorized("Invalid token".to_string()))?;
     return raw_script_by_path(

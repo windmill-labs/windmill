@@ -246,3 +246,20 @@ Symbols, not line numbers, are cited: they drift less.
   `TRUSTED_PROXIES`, or its edge address is the client. On cloud, the private-range default
   also trusts job containers that can reach the server directly. Only the main API server carries the peer: a router called without connect
   info (tests, internal dispatch) sees `None`, and per-IP decisions skip or refuse it.
+- **`token.allowed_ips`** is EE. A CE build drops a stored list when it loads the token, so it
+  neither checks the list nor passes it on, and refuses a request that sets one. An EE build
+  keeps enforcing stored lists when its license lapses; only setting a new one needs a valid
+  license. The rest of this bullet describes an EE build. The column (`cidr[]`, `NULL` =
+  anywhere) restricts where a token row may be
+  used. `AuthCache::get_opt_job_authed` takes the request's client IP and refuses the token
+  outside its networks, or when the IP is unknown, so every path that resolves a request's
+  token passes that request's `ClientIp` (MCP's multi-workspace mode carries it in
+  `McpToken`). The list rides on the cached `ApiAuthed`, checked per request, never folded
+  into the cache entry. A restricted token cannot lift its restriction: every mint from the
+  caller's identity holds the new row within the caller's networks (the caller's list when
+  none is asked for). That is `create_token_internal` (`tokens/create`, app SDK and embed
+  tokens, native trigger webhook tokens, which then only work from those networks),
+  `tokens/impersonate` and service-account impersonation. `refresh_token`, the MCP OAuth
+  approve and `login_links` refuse a restricted caller, since what they lead to is a session
+  with no restriction. Not inherited, by design: a job's `WM_TOKEN` (a JWT; starting the job
+  already passed the check) and JWTs the server mints for its own loopback calls.

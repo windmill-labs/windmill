@@ -12,8 +12,8 @@ use std::net::{IpAddr, SocketAddr};
 use std::sync::LazyLock;
 
 use axum::extract::{ConnectInfo, FromRequestParts};
-use axum::http::{request::Parts, HeaderMap, HeaderName};
-use ipnet::IpNet;
+use axum::http::{request::Parts, Extensions, HeaderMap, HeaderName};
+pub use ipnet::IpNet;
 
 /// Loopback only on a self-hosted instance: it is often reached directly from a private network,
 /// whose clients could otherwise name any address they like. A reverse proxy on a private
@@ -92,11 +92,15 @@ impl<S: Send + Sync> FromRequestParts<S> for ClientIp {
 }
 
 pub fn client_ip_of_parts(parts: &Parts) -> Option<IpAddr> {
-    let peer = parts
-        .extensions
+    client_ip_of(&parts.extensions, &parts.headers)
+}
+
+/// The same, for a handler holding the whole `Request` rather than its parts.
+pub fn client_ip_of(extensions: &Extensions, headers: &HeaderMap) -> Option<IpAddr> {
+    let peer = extensions
         .get::<ConnectInfo<SocketAddr>>()
         .map(|c| c.0.ip())?;
-    Some(resolve_client_ip(peer, &parts.headers, &CLIENT_IP_CONFIG))
+    Some(resolve_client_ip(peer, headers, &CLIENT_IP_CONFIG))
 }
 
 /// An IPv4 client of a dual-stack listener arrives as `::ffff:a.b.c.d`; compare it as IPv4 so

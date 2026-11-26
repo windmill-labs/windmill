@@ -342,6 +342,10 @@ async fn test_rotate_webhook_token(db: Pool<Postgres>) -> anyhow::Result<()> {
     )
     .execute(&db)
     .await?;
+    sqlx::query("UPDATE token SET allowed_ips = '{10.0.0.0/8}' WHERE token_hash = $1")
+        .bind(&original_hash)
+        .execute(&db)
+        .await?;
 
     // Rotate onto a different runnable than the original token was minted for: a rename moves the
     // trigger, and rotation has to follow it rather than carry the old scopes forward.
@@ -361,6 +365,16 @@ async fn test_rotate_webhook_token(db: Pool<Postgres>) -> anyhow::Result<()> {
 
     // New token's hash should exist in DB with the per-service label and expiration
     let new_hash = hash_token(&rotated.new_token);
+    let allowed_ips: Option<Vec<String>> =
+        sqlx::query_scalar("SELECT allowed_ips::text[] FROM token WHERE token_hash = $1")
+            .bind(&new_hash)
+            .fetch_one(&db)
+            .await?;
+    assert_eq!(
+        allowed_ips,
+        Some(vec!["10.0.0.0/8".to_string()]),
+        "rotation must keep the token's IP restriction"
+    );
     let new_row = sqlx::query!(
         "SELECT label, expiration, scopes FROM token WHERE token_hash = $1",
         new_hash

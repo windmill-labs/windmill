@@ -1,10 +1,16 @@
 <script lang="ts">
 	import { onMount, untrack } from 'svelte'
-	import { superadmin, userWorkspaces, usersWorkspaceStore, type UserWorkspace } from '$lib/stores'
+	import {
+		enterpriseLicense,
+		superadmin,
+		userWorkspaces,
+		usersWorkspaceStore,
+		type UserWorkspace
+	} from '$lib/stores'
 	import { Button, Skeleton } from '../common'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 	import Toggle from '../Toggle.svelte'
-	import { SettingService, UserService, type NewToken } from '$lib/gen'
+	import { SettingService, SettingsService, UserService, type NewToken } from '$lib/gen'
 	import { listEveryWorkspace, mcpTokenUrlDisabled } from '$lib/mcpAuth'
 	import { apiBaseUrl } from '$lib/apiBaseUrl.svelte'
 	import TokenDisplay from './TokenDisplay.svelte'
@@ -70,6 +76,29 @@
 
 	let pickedScopes = $state<string[] | null>(null)
 	let readOnly = $state(false)
+	let allowedIpsText = $state('')
+	let allowedIps = $derived(
+		allowedIpsText
+			.split(/[\s,]+/)
+			.map((s) => s.trim())
+			.filter((s) => s.length > 0)
+	)
+	// The address this browser calls from, as the server's IP checks resolve it.
+	let clientIp = $state<string | undefined>(undefined)
+	let clientIpRequested = false
+	$effect(() => {
+		if ($enterpriseLicense && !clientIpRequested) {
+			clientIpRequested = true
+			SettingsService.getClientIp()
+				.then((ip) => (clientIp = ip.trim() || undefined))
+				.catch(() => {})
+		}
+	})
+	function addClientIp() {
+		if (clientIp && !allowedIps.includes(clientIp)) {
+			allowedIpsText = [...allowedIps, clientIp].join(', ')
+		}
+	}
 	// How this instance lets an MCP client in. `oauth` means it refuses `?token=`, so a
 	// generated token would not get a client in and the URL is handed over bare instead.
 	// A failed read lands on `oauth`: the bare URL works whichever way the setting is,
@@ -218,7 +247,9 @@
 					scopes: tokenScopes,
 					workspace_id: tokenWorkspaceId,
 					read_only: mcpMode ? false : readOnly,
-					super_admin: mcpMode && mcpSuperAdmin
+					super_admin: mcpMode && mcpSuperAdmin,
+					allowed_ips:
+						$enterpriseLicense && !mcpMode && allowedIps.length > 0 ? allowedIps : undefined
 				} as NewToken
 			})
 
@@ -542,6 +573,35 @@
 					{/if}
 				</div>
 			</div>
+
+			{#if $enterpriseLicense}
+				<div class="mt-4 flex flex-col gap-1">
+					<span class="text-xs font-semibold text-emphasis">
+						Allowed IPs <span class="font-normal text-secondary">(optional)</span>
+					</span>
+					<TextInput
+						inputProps={{ type: 'text', placeholder: '203.0.113.4, 10.0.0.0/8' }}
+						bind:value={allowedIpsText}
+						class="w-full"
+					/>
+					<p class="text-2xs text-hint">
+						IP addresses or CIDR ranges, separated by commas. Requests from any other address are
+						refused. Leave empty to allow any.
+					</p>
+					{#if clientIp}
+						<div class="flex items-center gap-2 text-2xs text-secondary">
+							<span>Windmill sees this browser's IP as <code>{clientIp}</code></span>
+							{#if !allowedIps.includes(clientIp)}
+								<Button variant="subtle" unifiedSize="2xs" onclick={addClientIp}>Add</Button>
+							{/if}
+						</div>
+					{/if}
+				</div>
+			{:else}
+				<p class="mt-4 text-2xs text-hint">
+					Restricting a token to IP ranges requires Enterprise Edition.
+				</p>
+			{/if}
 
 			{#if !scopes || scopes.length === 0}
 				<div class="mt-4">

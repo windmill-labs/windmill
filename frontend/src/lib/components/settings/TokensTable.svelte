@@ -2,6 +2,7 @@
 	import { untrack } from 'svelte'
 	import TableCustom from '$lib/components/TableCustom.svelte'
 	import { displayDate } from '$lib/utils'
+	import { enterpriseLicense } from '$lib/stores'
 	import { UserService, type TruncatedToken } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import CreateToken from './CreateToken.svelte'
@@ -189,7 +190,7 @@
 			{#snippet body()}
 				<tbody>
 					{#if tokens && tokens.length > 0}
-						{#each tokens as { token_prefix, expiration, label, scopes, workspace_id, read_only } (token_prefix)}
+						{#each tokens as { token_prefix, expiration, label, scopes, workspace_id, read_only, allowed_ips } (token_prefix)}
 							{@const badge = expirationBadge(expiration, label)}
 							<tr>
 								<td class="w-32 text-xs text-primary">{token_prefix}****</td>
@@ -209,6 +210,15 @@
 									<div class="flex items-center gap-1.5 truncate">
 										{#if read_only}
 											<Badge color="blue" small>Read-only</Badge>
+										{/if}
+										{#if $enterpriseLicense && allowed_ips && allowed_ips.length > 0}
+											<span title="Usable only from {allowed_ips.join(', ')}">
+												<Badge color="gray" small>
+													{allowed_ips.length === 1
+														? allowed_ips[0]
+														: `${allowed_ips.length} IP ranges`}
+												</Badge>
+											</span>
 										{/if}
 										<span class="truncate">{shownScopes(scopes)}</span>
 									</div>
