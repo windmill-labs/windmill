@@ -1252,8 +1252,8 @@ async fn offboard_user_from_workspace<'c>(
     sqlx::query(
         "DELETE FROM asset d WHERE d.workspace_id = $3 AND EXISTS ( \
              SELECT 1 FROM asset s \
-             WHERE s.workspace_id = $3 AND s.usage_path LIKE ('u/' || $2 || '/%') \
-             AND s.path = d.path AND s.kind = d.kind AND s.usage_kind = d.usage_kind \
+             WHERE s.workspace_id = $3 AND starts_with(s.usage_path, 'u/' || $2 || '/') \
+             AND s.ctid <> d.ctid AND s.path = d.path AND s.kind = d.kind AND s.usage_kind = d.usage_kind \
              AND REGEXP_REPLACE(s.usage_path, '^u/' || $2 || '/(.*)', $1 || '/\\1') = d.usage_path)",
     )
     .bind(&new_prefix)
@@ -1276,8 +1276,8 @@ async fn offboard_user_from_workspace<'c>(
         sqlx::query(&format!(
             "DELETE FROM dependency_map d WHERE d.workspace_id = $3 AND EXISTS ( \
                  SELECT 1 FROM dependency_map s \
-                 WHERE s.workspace_id = $3 AND s.{column} LIKE ('u/' || $2 || '/%') \
-                 AND s.importer_node_id = d.importer_node_id AND s.importer_kind = d.importer_kind \
+                 WHERE s.workspace_id = $3 AND starts_with(s.{column}, 'u/' || $2 || '/') \
+                 AND s.ctid <> d.ctid AND s.importer_node_id = d.importer_node_id AND s.importer_kind = d.importer_kind \
                  AND REGEXP_REPLACE(s.importer_path, '^u/' || $2 || '/(.*)', $1 || '/\\1') = d.importer_path \
                  AND REGEXP_REPLACE(s.imported_path, '^u/' || $2 || '/(.*)', $1 || '/\\1') = d.imported_path)"
         ))

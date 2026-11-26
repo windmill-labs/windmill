@@ -500,8 +500,8 @@ async fn test_offboard_conflicts(db: Pool<Postgres>) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Usernames may hold `_`, a LIKE wildcard: another user's item matched by it maps to itself, and
-/// reporting it as a conflict would offer to delete it.
+/// Usernames may hold `_`, a LIKE wildcard: another user's item matched by it maps to itself, so
+/// it must be neither reported as a conflict (which offers to delete it) nor cleaned up as stale.
 #[sqlx::test(migrations = "../migrations", fixtures("base", "offboarding_test"))]
 async fn test_offboard_conflicts_underscore_username(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
@@ -520,6 +520,18 @@ async fn test_offboard_conflicts_underscore_username(db: Pool<Postgres>) -> anyh
     )
     .execute(&db)
     .await?;
+    sqlx::query(
+        "INSERT INTO asset (workspace_id, path, kind, usage_path, usage_kind)
+         VALUES ('test-workspace', 'main', 'datatable', 'u/testxuser/s', 'script')",
+    )
+    .execute(&db)
+    .await?;
+    sqlx::query(
+        "INSERT INTO dependency_map (workspace_id, importer_path, importer_kind, imported_path)
+         VALUES ('test-workspace', 'u/testxuser/s', 'script', 'f/shared/lib')",
+    )
+    .execute(&db)
+    .await?;
 
     let resp = authed(client().post(ws_url(port, "offboard/test_user")))
         .json(&json!({ "reassign_to": "u/test-user", "delete_user": false }))
@@ -528,6 +540,14 @@ async fn test_offboard_conflicts_underscore_username(db: Pool<Postgres>) -> anyh
     assert_eq!(resp.status(), 200);
     let body: serde_json::Value = resp.json().await?;
     assert!(body["conflict_items"].is_null(), "{body}");
+    let untouched: i64 = sqlx::query_scalar(
+        "SELECT (SELECT COUNT(*) FROM asset WHERE usage_path = 'u/testxuser/s')
+              + (SELECT COUNT(*) FROM dependency_map WHERE importer_path = 'u/testxuser/s')
+              + (SELECT COUNT(*) FROM variable WHERE path = 'u/testxuser/var')",
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(untouched, 3, "another user's rows must survive the reassignment");
 
     Ok(())
 }
