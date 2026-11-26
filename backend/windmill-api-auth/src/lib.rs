@@ -592,6 +592,15 @@ fn parse_allowed_net(s: &str) -> error::Result<IpNet> {
                 .map(|ip| IpNet::from(windmill_common::client_ip::canonical(ip)))
         })
         .ok_or_else(|| Error::BadRequest(format!("'{s}' is not an IP address or CIDR")))?;
+    // A client is compared as IPv4 when it arrives IPv4-mapped, so a mapped network must be
+    // stored as the IPv4 one or it never matches.
+    let net = match net {
+        IpNet::V6(v6) if v6.prefix_len() >= 96 => match v6.addr().to_ipv4_mapped() {
+            Some(v4) => IpNet::new(v4.into(), v6.prefix_len() - 96).unwrap_or(net),
+            None => net,
+        },
+        net => net,
+    };
     // `cidr` refuses host bits (10.0.0.1/8): store the network the entry names.
     Ok(net.trunc())
 }
@@ -1309,8 +1318,8 @@ pub struct NewToken {
     /// An MCP token carries its owner's superadmin rights (every workspace) only when asked.
     #[serde(default)]
     pub super_admin: Option<bool>,
-    /// IPs or CIDRs the token may be used from; `None` is anywhere. Validated by the handler
-    /// with [`token_ip_allowlist`] before it reaches [`create_token_internal`].
+    /// IPs or CIDRs the token may be used from; `None` is anywhere. [`create_token_internal`]
+    /// validates it and holds it within the caller's own.
     #[serde(default)]
     pub allowed_ips: Option<Vec<String>>,
 }
@@ -1382,6 +1391,12 @@ pub async fn create_token_internal(
         .as_deref()
         .is_some_and(|s| s.iter().any(|scope| scope.starts_with("mcp:")));
     let is_super_admin = is_super_admin && (!is_mcp || token_config.super_admin == Some(true));
+    // Here rather than in each handler: every token minted from a caller's identity (app SDK
+    // and embed tokens, native trigger webhooks included) must inherit its IP restriction.
+    let allowed_ips = token_ip_allowlist(
+        authed.allowed_ips.as_deref(),
+        token_config.allowed_ips.as_deref(),
+    )?;
     if *CLOUD_HOSTED {
         let nb_tokens =
             sqlx::query_scalar!("SELECT COUNT(*) FROM token WHERE email = $1", &authed.email)
@@ -1411,7 +1426,7 @@ pub async fn create_token_internal(
         token_config.scopes.as_ref().map(|x| x.as_slice()),
         token_config.workspace_id,
         token_config.read_only.unwrap_or(false),
-        token_config.allowed_ips.as_deref(),
+        allowed_ips.as_deref(),
     )
     .execute(&mut *tx)
     .await?;
@@ -1637,6 +1652,35 @@ pub fn require_path_read_access_for_preview(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn token_ip_allowlist_normalizes_and_stays_within_the_caller() {
+        let s = |v: &[&str]| v.iter().map(|x| x.to_string()).collect::<Vec<_>>();
+        let nets = |v: &[&str]| v.iter().map(|x| x.parse().unwrap()).collect::<Vec<IpNet>>();
+        assert_eq!(
+            token_ip_allowlist(
+                None,
+                Some(&s(&["10.0.0.1/8", "1.2.3.4", "::ffff:5.6.7.8", "::ffff:9.9.0.0/112"]))
+            )
+            .unwrap(),
+            Some(s(&["10.0.0.0/8", "1.2.3.4/32", "5.6.7.8/32", "9.9.0.0/16"]))
+        );
+        assert!(token_ip_allowlist(None, Some(&[])).is_err());
+        assert!(token_ip_allowlist(None, Some(&s(&["nope"]))).is_err());
+        let caller = nets(&["10.0.0.0/8"]);
+        assert_eq!(
+            token_ip_allowlist(Some(&caller), None).unwrap(),
+            Some(s(&["10.0.0.0/8"]))
+        );
+        assert!(token_ip_allowlist(Some(&caller), Some(&s(&["10.1.0.0/16"]))).is_ok());
+        // Overlapping is not enough: every requested network must sit inside the caller's.
+        assert!(token_ip_allowlist(Some(&caller), Some(&s(&["10.0.0.0/7"]))).is_err());
+        assert!(!client_ip_allowed(Some(&caller), None));
+        assert!(client_ip_allowed(
+            Some(&caller),
+            Some("::ffff:10.1.2.3".parse().unwrap())
+        ));
+    }
 
     fn authed_with_scopes(scopes: Option<Vec<&str>>) -> ApiAuthed {
         ApiAuthed {

@@ -236,9 +236,11 @@ Symbols, not line numbers, are cited: they drift less.
   outside its networks, or when the IP is unknown, so every path that resolves a request's
   token passes that request's `ClientIp` (MCP's multi-workspace mode carries it in
   `McpToken`). The list rides on the cached `ApiAuthed`, checked per request, never folded
-  into the cache entry. A restricted token cannot lift its restriction: `tokens/create`,
-  `tokens/impersonate` and service-account impersonation hold the new row within the
-  caller's networks (the caller's list when none is asked for), and `refresh_token` and the
-  MCP OAuth approve refuse it. Not inherited, by design: a job's `WM_TOKEN` (a JWT; starting
-  the job already passed the check), JWTs the server mints for its own loopback calls, and
-  server-side mints for external callers (native trigger webhook tokens).
+  into the cache entry. A restricted token cannot lift its restriction: every mint from the
+  caller's identity holds the new row within the caller's networks (the caller's list when
+  none is asked for). That is `create_token_internal` (`tokens/create`, app SDK and embed
+  tokens, native trigger webhook tokens, which then only work from those networks),
+  `tokens/impersonate` and service-account impersonation. `refresh_token`, the MCP OAuth
+  approve and `login_links` refuse a restricted caller, since what they lead to is a session
+  with no restriction. Not inherited, by design: a job's `WM_TOKEN` (a JWT; starting the job
+  already passed the check) and JWTs the server mints for its own loopback calls.

@@ -3345,10 +3345,6 @@ async fn create_token(
     }
 
     windmill_api_auth::ensure_scopes_within_caller(&authed, token_config.scopes.as_deref())?;
-    token_config.allowed_ips = windmill_api_auth::token_ip_allowlist(
-        authed.allowed_ips.as_deref(),
-        token_config.allowed_ips.as_deref(),
-    )?;
     // Mirrors the MCP OAuth approve: a scoped token cannot mint superadmin access it may lack.
     if token_config.super_admin == Some(true)
         && authed
@@ -3567,6 +3563,12 @@ async fn create_login_link(
 ) -> Result<(StatusCode, Json<LoginLink>)> {
     require_super_admin(&db, &authed).await?;
     forbid_superadmin_job_token(&db, &authed.email, job_id).await?;
+    // The link opens into a session that carries no IP restriction.
+    if authed.allowed_ips.is_some() {
+        return Err(Error::NotAuthorized(
+            "A token restricted to IP addresses cannot create login links".to_string(),
+        ));
+    }
 
     let email = nl.email.to_lowercase();
     let rd = match nl.rd {
