@@ -101,13 +101,15 @@ fn client_ip(peer: IpAddr, headers: &HeaderMap, trusted: &[IpNet]) -> IpAddr {
     if !is_trusted(&current) {
         return current;
     }
-    let hops: Vec<&str> = headers
+    // Bytes that are not UTF-8 are kept as entries that fail to parse, so they stop the walk
+    // rather than vanish and let the client's own entries, or X-Real-IP, stand in.
+    let values: Vec<String> = headers
         .get_all("x-forwarded-for")
         .iter()
-        .filter_map(|v| v.to_str().ok())
-        .flat_map(|v| v.split(','))
+        .map(|v| String::from_utf8_lossy(v.as_bytes()).into_owned())
         .collect();
-    if hops.is_empty() {
+    let hops: Vec<&str> = values.iter().flat_map(|v| v.split(',')).collect();
+    if values.is_empty() {
         if let Some(ip) = headers
             .get("x-real-ip")
             .and_then(|v| v.to_str().ok())
@@ -167,6 +169,19 @@ mod tests {
             client_ip(ip("10.0.0.1"), &garbage, &trusted),
             ip("10.0.0.1")
         );
+        // A hop that is not UTF-8 stops the walk too, and does not let X-Real-IP in.
+        let mut binary = headers(&[("x-real-ip", "5.5.5.5")]);
+        binary.append(
+            "x-forwarded-for",
+            http::HeaderValue::from_bytes(b"\x80, 1.2.3.4").unwrap(),
+        );
+        assert_eq!(client_ip(ip("10.0.0.1"), &binary, &trusted), ip("1.2.3.4"));
+        let mut binary_last = headers(&[("x-real-ip", "5.5.5.5")]);
+        binary_last.append(
+            "x-forwarded-for",
+            http::HeaderValue::from_bytes(b"1.2.3.4, \x80").unwrap(),
+        );
+        assert_eq!(client_ip(ip("10.0.0.1"), &binary_last, &trusted), ip("10.0.0.1"));
         // X-Real-IP, only from a trusted peer and only without X-Forwarded-For.
         let real = headers(&[("x-real-ip", "5.5.5.5")]);
         assert_eq!(client_ip(ip("10.0.0.1"), &real, &trusted), ip("5.5.5.5"));
