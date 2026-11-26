@@ -34,6 +34,10 @@ pub const MIN_VERSION_SUPPORTS_AEAD_SECRETS: VC = vc(1, 832, 0, "AES-GCM secret 
 // closes. Must name the release this ships in.
 pub const MIN_VERSION_SUPPORTS_VARIABLE_VALUE_WIDENING: VC =
     vc(1, 848, 0, "variable.value widening");
+// Gates widening `workspace.owner` and `capture_config.owner`, for the same reason as
+// `variable.value` above: every query returning them casts them to text from this release.
+// Must name the release this ships in.
+pub const MIN_VERSION_SUPPORTS_OWNER_WIDENING: VC = vc(1, 886, 0, "owner column widening");
 // A renewed license key replaces the one every process reads, and a worker that predates
 // Ed25519 support rejects an Ed25519-signed key and stops pulling jobs, so renewal only offers
 // to accept one once this is met. Only worker versions are seen here, not servers. Must name

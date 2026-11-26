@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT\n            workspace.id AS \"id!\",\n            workspace.name AS \"name!\",\n            workspace.owner AS \"owner!\",\n            workspace.deleted AS \"deleted!\",\n            workspace.premium AS \"premium!\",\n            workspace_settings.color AS \"color\",\n            workspace.parent_workspace_id AS \"parent_workspace_id\",\n            workspace.is_dev_workspace AS \"is_dev_workspace!\",\n            workspace.dev_workspace_label AS \"dev_workspace_label\"\n        FROM workspace\n        LEFT JOIN workspace_settings ON workspace.id = workspace_settings.workspace_id\n         LIMIT $1 OFFSET $2",
+  "query": "SELECT\n            workspace.id AS \"id!\",\n            workspace.name AS \"name!\",\n            workspace.owner::text AS \"owner!\",\n            workspace.deleted AS \"deleted!\",\n            workspace.premium AS \"premium!\",\n            workspace_settings.color AS \"color\",\n            workspace.parent_workspace_id AS \"parent_workspace_id\",\n            workspace.is_dev_workspace AS \"is_dev_workspace!\",\n            workspace.dev_workspace_label AS \"dev_workspace_label\"\n        FROM workspace\n        LEFT JOIN workspace_settings ON workspace.id = workspace_settings.workspace_id\n         LIMIT $1 OFFSET $2",
   "describe": {
     "columns": [
       {
@@ -16,7 +16,7 @@
       {
         "ordinal": 2,
         "name": "owner!",
-        "type_info": "Varchar"
+        "type_info": "Text"
       },
       {
         "ordinal": 3,
@@ -58,7 +58,7 @@
     "nullable": [
       false,
       false,
-      false,
+      null,
       false,
       false,
       true,
@@ -67,5 +67,5 @@
       true
     ]
   },
-  "hash": "8c33cbe3dc0a7539835fab61f981f5117da38c3410ad6e34ad67f5441deaf89e"
+  "hash": "1545c3c0826aed7c69d5c91dd065536f8bea1f5724fa689f934e6321dedb876b"
 }

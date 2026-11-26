@@ -4785,6 +4785,21 @@ pub async fn monitor_db(
         }
     };
 
+    // Tried every iteration until done: a user whose email is longer than the narrow column
+    // cannot create a workspace before it is.
+    let widen_owner_columns_f = async {
+        if server_mode
+            && iteration.is_some()
+            && windmill_common::workspaces::owner_columns_widen_pending()
+        {
+            if let Some(db) = conn.as_sql() {
+                if let Err(e) = windmill_common::workspaces::widen_owner_columns(db).await {
+                    tracing::warn!("could not widen the owner columns, retrying later: {e:#}");
+                }
+            }
+        }
+    };
+
     // Delete the AI session backups older than their workspace's retention. Every ~40 min
     // (240 iterations at the default 10 s, the most a u8 `should_run` counts): the retention
     // counts in days. Spawned for the same reason as the credential maintenance above, a
@@ -4881,6 +4896,7 @@ pub async fn monitor_db(
         datatable_role_set_sweep_f,
         ai_session_retention_f,
         legacy_secret_upgrade_f,
+        widen_owner_columns_f,
         pipeline_freshness_watchdog_f,
         reconcile_unarmed_schedules_f,
         stranded_jobs_f,

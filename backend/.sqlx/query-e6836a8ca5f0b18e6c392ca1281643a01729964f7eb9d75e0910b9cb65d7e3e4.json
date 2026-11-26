@@ -1,0 +1,41 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT \n            owner::text AS \"owner!\",\n            email,\n            path,\n            is_flow\n        FROM \n            capture_config\n        WHERE \n            workspace_id = $1\n            AND trigger_config->>'local_part' = $2\n            AND trigger_kind = 'email'::TRIGGER_KIND \n            AND last_client_ping > NOW() - INTERVAL '10 seconds'\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "owner!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "email",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "is_flow",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "e6836a8ca5f0b18e6c392ca1281643a01729964f7eb9d75e0910b9cb65d7e3e4"
+}
