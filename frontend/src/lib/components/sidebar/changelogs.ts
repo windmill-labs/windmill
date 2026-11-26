@@ -6,6 +6,12 @@ export type Changelog = {
 
 const changelogs: Changelog[] = [
 	{
+		label: 'Schema contracts for pipeline consumers',
+		href: 'https://www.windmill.dev/changelog/pipeline-schema-contracts',
+		date: '2026-07-05'
+	},
+
+	{
 		label: 'AWS Bedrock support for Windmill AI',
 		href: 'https://www.windmill.dev/changelog/aws-bedrock',
 		date: '2025-11-19'
