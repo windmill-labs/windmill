@@ -54,9 +54,6 @@ services:
     environment:
       - DATABASE_URL=${DATABASE_URL}
       - MODE=server
-      # The server is only reachable through caddy on the compose network, so the forwarded
-      # client address it sets is believed. Narrow or drop this if you publish port 8000.
-      - TRUSTED_PROXIES=10.0.0.0/8,172.16.0.0/12,192.168.0.0/16
     depends_on:
       db:
         condition: service_healthy
