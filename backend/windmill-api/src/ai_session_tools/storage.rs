@@ -81,22 +81,11 @@ async fn list_s3_files(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
     let storage = storage_arg(args);
     let prefix = folder_prefix(opt_str_arg(args, "prefix"));
     let page_token = opt_str_arg(args, "page_token");
-    let max_keys = args
+    let mut max_keys = args
         .get("max_keys")
         .and_then(Value::as_u64)
         .unwrap_or(DEFAULT_MAX_KEYS)
-        .clamp(1, MAX_KEYS)
-        .to_string();
-    let path = with_query(
-        ctx.ws("job_helpers/list_stored_files_paged"),
-        &[
-            ("prefix", Some(&prefix)),
-            ("max_keys", Some(&max_keys)),
-            ("page_token", page_token),
-            ("storage", storage),
-        ],
-    );
-    let page = ctx.get(&path).await?;
+        .clamp(1, MAX_KEYS);
     let storages = if prefix.is_empty() && page_token.is_none() {
         Some(
             ctx.get(&ctx.ws("workspaces/get_secondary_storage_names"))
@@ -105,13 +94,31 @@ async fn list_s3_files(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
     } else {
         None
     };
-    Ok(pretty(&listing(
-        storage,
-        &prefix,
-        &page,
-        storages,
-        ctx.auth.is_admin,
-    )))
+    // The page token is sealed by the server, so a page cut short could not resume after
+    // its last kept key: a page over the result budget is asked again with fewer keys.
+    loop {
+        let path = with_query(
+            ctx.ws("job_helpers/list_stored_files_paged"),
+            &[
+                ("prefix", Some(&prefix)),
+                ("max_keys", Some(&max_keys.to_string())),
+                ("page_token", page_token),
+                ("storage", storage),
+            ],
+        );
+        let page = ctx.get(&path).await?;
+        let text = pretty(&listing(
+            storage,
+            &prefix,
+            &page,
+            storages.clone(),
+            ctx.auth.is_admin,
+        ));
+        if text.len() <= RESULT_BUDGET || max_keys == 1 {
+            return Ok(text);
+        }
+        max_keys = (max_keys * RESULT_BUDGET as u64 / text.len() as u64).clamp(1, max_keys - 1);
+    }
 }
 
 fn listing(
