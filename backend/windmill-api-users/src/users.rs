@@ -2854,8 +2854,6 @@ async fn set_login_type(
     .execute(&mut *tx)
     .await?;
 
-    // After the update, which locks whatever account it found, even one created since this
-    // request began; a refusal rolls the update back.
     if et.login_type == "password" {
         windmill_common::workspaces::check_password_login_allowed(&mut *tx, &email).await?;
     }

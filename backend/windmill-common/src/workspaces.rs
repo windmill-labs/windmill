@@ -1599,25 +1599,16 @@ fn sso_ruleset_holding<'a>(
         .map(|r| r.name.as_str())
 }
 
-/// Seating a member and giving the account a password each check what the other writes, so both
-/// take this per-email lock, held until the writing transaction ends; it covers emails with no
-/// account yet, which a row lock cannot. A password transition may already hold, or must take, the
-/// account's `password` row first (as role updates do), and a path inserting the membership must
-/// take this lock before that insert: the order is always row, then this lock, then membership.
-/// Emails share 1024 lock keys so a bulk join holds a bounded number of locks.
-pub async fn lock_sso_transition(conn: &mut sqlx::PgConnection, email: &str) -> Result<()> {
-    sqlx::query("SELECT pg_advisory_xact_lock(hashtext('sso_account'), hashtext($1) & 1023)")
-        .bind(email)
-        .execute(&mut *conn)
-        .await?;
-    Ok(())
-}
-
 /// Refuses seating `email` in `workspace_id` while a `RequireSso` rule there holds them and their
 /// account signs in with a password. `pending_oauth` passes: it can only become a password
 /// account through [`check_password_login_allowed`]. An email with no account yet passes too, for
 /// the same reason. `username` is the one they get in the workspace; without it their instance
 /// username is what bypass lists are matched against. A new member is in `all` and nothing else.
+///
+/// This and [`check_password_login_allowed`] each read what the other writes without locking, so
+/// a join and a password switch of the same account committing at the same instant can both pass.
+/// A lock shared by both would have to be taken in one order with the invite, membership and
+/// `password` row locks of every member path, bulk joins included, or it deadlocks them.
 pub async fn check_new_member_sso(
     conn: &mut sqlx::PgConnection,
     workspace_id: &str,
@@ -1628,7 +1619,6 @@ pub async fn check_new_member_sso(
     if rulesets.is_empty() {
         return Ok(());
     }
-    lock_sso_transition(conn, email).await?;
     let account = sqlx::query!(
         "SELECT login_type, username FROM password WHERE email = $1",
         email
@@ -1655,11 +1645,6 @@ pub async fn check_password_login_allowed(
     conn: &mut sqlx::PgConnection,
     email: &str,
 ) -> Result<()> {
-    sqlx::query("SELECT 1 FROM password WHERE email = $1 FOR NO KEY UPDATE")
-        .bind(email)
-        .execute(&mut *conn)
-        .await?;
-    lock_sso_transition(conn, email).await?;
     let memberships = sqlx::query!(
         r#"SELECT u.workspace_id, u.username,
                   COALESCE(array_agg(g.group_) FILTER (WHERE g.group_ IS NOT NULL), '{}') AS "groups!"
