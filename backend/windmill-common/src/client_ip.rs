@@ -127,7 +127,10 @@ fn parse_addr_then_port(bytes: &[u8]) -> Option<IpAddr> {
     let s = std::str::from_utf8(bytes).ok()?.trim();
     let (ip, port) = s.rsplit_once(':')?;
     port.parse::<u16>().ok()?;
-    let ip = ip.strip_prefix('[').and_then(|i| i.strip_suffix(']')).unwrap_or(ip);
+    let ip = ip
+        .strip_prefix('[')
+        .and_then(|i| i.strip_suffix(']'))
+        .unwrap_or(ip);
     ip.parse::<IpAddr>().ok().map(canonical)
 }
 
@@ -268,9 +271,15 @@ mod tests {
         let c = cfg("10.0.0.0/8", Some("cloudfront-viewer-address"));
         let h = headers(&[
             ("x-forwarded-for", b"6.6.6.6"),
-            ("cloudfront-viewer-address", b"2001:0db8:85a3:0000:0000:8a2e:0370:7334:46532"),
+            (
+                "cloudfront-viewer-address",
+                b"2001:0db8:85a3:0000:0000:8a2e:0370:7334:46532",
+            ),
         ]);
-        assert_eq!(resolve_client_ip(ip("10.0.0.1"), &h, &c), ip("2001:db8:85a3::8a2e:370:7334"));
+        assert_eq!(
+            resolve_client_ip(ip("10.0.0.1"), &h, &c),
+            ip("2001:db8:85a3::8a2e:370:7334")
+        );
         let h = headers(&[("cloudfront-viewer-address", b"5.5.5.5:443")]);
         assert_eq!(resolve_client_ip(ip("10.0.0.1"), &h, &c), ip("5.5.5.5"));
         // Compressed IPv6 with a short port also parses as a bare address: the port must go.
