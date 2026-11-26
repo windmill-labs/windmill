@@ -6,6 +6,82 @@ export type Changelog = {
 
 const changelogs: Changelog[] = [
 	{
+		label: 'Azure Entra ID authentication for MS SQL',
+		href: 'https://www.windmill.dev/changelog/entra-id-database-auth',
+		date: '2026-02-25'
+	},
+	{
+		label: 'HTTP and protobuf OTEL exporters',
+		href: 'https://www.windmill.dev/changelog/otel-http-protobuf-exporter',
+		date: '2026-02-26'
+	},
+	{
+		label: 'Application-level heartbeat for WebSocket triggers',
+		href: 'https://www.windmill.dev/changelog/websocket-trigger-heartbeat',
+		date: '2026-02-27'
+	},
+	{
+		label: 'OR logic for WebSocket and Kafka trigger filters',
+		href: 'https://www.windmill.dev/changelog/trigger-filters-or-logic',
+		date: '2026-02-28'
+	},
+	{
+		label: 'selfApproval option for workflows as code',
+		href: 'https://www.windmill.dev/changelog/self-approval-wac',
+		date: '2026-03-02'
+	},
+	{
+		label: 'Instance-level AI settings',
+		href: 'https://www.windmill.dev/changelog/instance-ai-settings',
+		date: '2026-03-03'
+	},
+	{
+		label: 'Enforce HTTP route workspace prefix instance-wide',
+		href: 'https://www.windmill.dev/changelog/http-route-workspace-prefix',
+		date: '2026-03-04'
+	},
+	{
+		label: 'Git sync available on Community Edition',
+		href: 'https://www.windmill.dev/changelog/git-sync-community-edition',
+		date: '2026-03-07'
+	},
+	{
+		label: 'Windmill operational metrics over OTLP',
+		href: 'https://www.windmill.dev/changelog/otel-metrics',
+		date: '2026-03-08'
+	},
+	{
+		label: 'OTEL trace context exposed in jobs',
+		href: 'https://www.windmill.dev/changelog/otel-trace-context-env-vars',
+		date: '2026-03-09'
+	},
+	{
+		label: 'Route Anthropic and Google AI through Vertex AI',
+		href: 'https://www.windmill.dev/changelog/vertex-ai-routing',
+		date: '2026-03-10'
+	},
+	{
+		label: 'Data tables as Postgres trigger sources',
+		href: 'https://www.windmill.dev/changelog/data-table-postgres-trigger',
+		date: '2026-03-11'
+	},
+	{
+		label: 'Secret masking in job logs',
+		href: 'https://www.windmill.dev/changelog/secret-masking-job-logs',
+		date: '2026-03-12'
+	},
+	{
+		label: 'PDF input for AI agents',
+		href: 'https://www.windmill.dev/changelog/pdf-input-ai-agent',
+		date: '2026-03-16'
+	},
+	{
+		label: 'Custom headers on AI requests',
+		href: 'https://www.windmill.dev/changelog/customai-custom-headers',
+		date: '2026-03-17'
+	},
+
+	{
 		label: 'AWS Bedrock support for Windmill AI',
 		href: 'https://www.windmill.dev/changelog/aws-bedrock',
 		date: '2025-11-19'
