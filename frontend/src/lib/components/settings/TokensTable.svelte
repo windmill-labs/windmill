@@ -2,6 +2,7 @@
 	import { untrack } from 'svelte'
 	import TableCustom from '$lib/components/TableCustom.svelte'
 	import { displayDate } from '$lib/utils'
+	import { enterpriseLicense } from '$lib/stores'
 	import { UserService, type TruncatedToken } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import CreateToken from './CreateToken.svelte'
@@ -210,10 +211,12 @@
 										{#if read_only}
 											<Badge color="blue" small>Read-only</Badge>
 										{/if}
-										{#if allowed_ips && allowed_ips.length > 0}
+										{#if $enterpriseLicense && allowed_ips && allowed_ips.length > 0}
 											<span title="Usable only from {allowed_ips.join(', ')}">
 												<Badge color="gray" small>
-													{allowed_ips.length === 1 ? allowed_ips[0] : `${allowed_ips.length} IP ranges`}
+													{allowed_ips.length === 1
+														? allowed_ips[0]
+														: `${allowed_ips.length} IP ranges`}
 												</Badge>
 											</span>
 										{/if}

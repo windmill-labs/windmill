@@ -243,7 +243,11 @@ Symbols, not line numbers, are cited: they drift less.
   job containers that can reach the server directly; such a deployment should list its proxy's
   exact address. Only the main API server carries the peer: a router called without connect
   info (tests, internal dispatch) sees `None`, and per-IP decisions skip or refuse it.
-- **`token.allowed_ips`** (`cidr[]`, `NULL` = anywhere) restricts where a token row may be
+- **`token.allowed_ips`** is EE. A CE build drops a stored list when it loads the token, so it
+  neither checks the list nor passes it on, and refuses a request that sets one. An EE build
+  keeps enforcing stored lists when its license lapses; only setting a new one needs a valid
+  license. The rest of this bullet describes an EE build. The column (`cidr[]`, `NULL` =
+  anywhere) restricts where a token row may be
   used. `AuthCache::get_opt_job_authed` takes the request's client IP and refuses the token
   outside its networks, or when the IP is unknown, so every path that resolves a request's
   token passes that request's `ClientIp` (MCP's multi-workspace mode carries it in

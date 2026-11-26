@@ -1,6 +1,12 @@
 <script lang="ts">
 	import { onMount, untrack } from 'svelte'
-	import { superadmin, userWorkspaces, usersWorkspaceStore, type UserWorkspace } from '$lib/stores'
+	import {
+		enterpriseLicense,
+		superadmin,
+		userWorkspaces,
+		usersWorkspaceStore,
+		type UserWorkspace
+	} from '$lib/stores'
 	import { Button, Skeleton } from '../common'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 	import Toggle from '../Toggle.svelte'
@@ -79,6 +85,15 @@
 	)
 	// The address this browser calls from, as the server's IP checks resolve it.
 	let clientIp = $state<string | undefined>(undefined)
+	let clientIpRequested = false
+	$effect(() => {
+		if ($enterpriseLicense && !clientIpRequested) {
+			clientIpRequested = true
+			SettingsService.getClientIp()
+				.then((ip) => (clientIp = ip.trim() || undefined))
+				.catch(() => {})
+		}
+	})
 	function addClientIp() {
 		if (clientIp && !allowedIps.includes(clientIp)) {
 			allowedIpsText = [...allowedIps, clientIp].join(', ')
@@ -119,9 +134,6 @@
 	let maxExpirationDays = $state<number | undefined>(undefined)
 
 	onMount(async () => {
-		SettingsService.getClientIp()
-			.then((ip) => (clientIp = ip.trim() || undefined))
-			.catch(() => {})
 		let value: unknown
 		try {
 			value = await SettingService.getGlobal({ key: 'max_token_expiration_days' })
@@ -236,7 +248,8 @@
 					workspace_id: tokenWorkspaceId,
 					read_only: mcpMode ? false : readOnly,
 					super_admin: mcpMode && mcpSuperAdmin,
-					allowed_ips: !mcpMode && allowedIps.length > 0 ? allowedIps : undefined
+					allowed_ips:
+						$enterpriseLicense && !mcpMode && allowedIps.length > 0 ? allowedIps : undefined
 				} as NewToken
 			})
 
@@ -561,28 +574,34 @@
 				</div>
 			</div>
 
-			<div class="mt-4 flex flex-col gap-1">
-				<span class="text-xs font-semibold text-emphasis">
-					Allowed IPs <span class="font-normal text-secondary">(optional)</span>
-				</span>
-				<TextInput
-					inputProps={{ type: 'text', placeholder: '203.0.113.4, 10.0.0.0/8' }}
-					bind:value={allowedIpsText}
-					class="w-full"
-				/>
-				<p class="text-2xs text-hint">
-					IP addresses or CIDR ranges, separated by commas. Requests from any other address are
-					refused. Leave empty to allow any.
+			{#if $enterpriseLicense}
+				<div class="mt-4 flex flex-col gap-1">
+					<span class="text-xs font-semibold text-emphasis">
+						Allowed IPs <span class="font-normal text-secondary">(optional)</span>
+					</span>
+					<TextInput
+						inputProps={{ type: 'text', placeholder: '203.0.113.4, 10.0.0.0/8' }}
+						bind:value={allowedIpsText}
+						class="w-full"
+					/>
+					<p class="text-2xs text-hint">
+						IP addresses or CIDR ranges, separated by commas. Requests from any other address are
+						refused. Leave empty to allow any.
+					</p>
+					{#if clientIp}
+						<div class="flex items-center gap-2 text-2xs text-secondary">
+							<span>Windmill sees this browser's IP as <code>{clientIp}</code></span>
+							{#if !allowedIps.includes(clientIp)}
+								<Button variant="subtle" unifiedSize="2xs" onclick={addClientIp}>Add</Button>
+							{/if}
+						</div>
+					{/if}
+				</div>
+			{:else}
+				<p class="mt-4 text-2xs text-hint">
+					Restricting a token to IP ranges requires Enterprise Edition.
 				</p>
-				{#if clientIp}
-					<div class="flex items-center gap-2 text-2xs text-secondary">
-						<span>Windmill sees this browser's IP as <code>{clientIp}</code></span>
-						{#if !allowedIps.includes(clientIp)}
-							<Button variant="subtle" unifiedSize="2xs" onclick={addClientIp}>Add</Button>
-						{/if}
-					</div>
-				{/if}
-			</div>
+			{/if}
 
 			{#if !scopes || scopes.length === 0}
 				<div class="mt-4">

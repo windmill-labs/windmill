@@ -576,7 +576,12 @@ impl AuthCache {
                 .flatten();
 
                 if let Some((user, allowed_ips)) = user_o {
-                    let allowed_ips = allowed_ips.map(|nets| parse_stored_allowed_ips(&nets));
+                    // IP allowlists are EE: a CE build neither checks a stored list nor passes it
+                    // on to the tokens this one mints. An EE build keeps enforcing it when the
+                    // license lapses, so a lapse never lifts a restriction.
+                    let allowed_ips = allowed_ips
+                        .filter(|_| cfg!(feature = "enterprise"))
+                        .map(|nets| parse_stored_allowed_ips(&nets));
                     let authed_o = {
                         match user {
                             (Some(owner), Some(email), super_admin, _, label, read_only)

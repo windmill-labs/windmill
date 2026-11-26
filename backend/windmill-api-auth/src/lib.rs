@@ -608,7 +608,34 @@ fn parse_allowed_net(s: &str) -> error::Result<IpNet> {
 /// The `allowed_ips` to store for a token `caller` mints. A caller restricted itself mints only
 /// tokens held within its own networks (its list when none is asked for), so a token used from an
 /// allowed network cannot mint one that works from anywhere.
+///
+/// Asking for a list needs an EE build with a valid license. A CE caller never carries a list
+/// (`allowed_ips` is dropped when its token is loaded), so CE neither asks for nor inherits one.
 pub fn token_ip_allowlist(
+    caller: Option<&[IpNet]>,
+    requested: Option<&[String]>,
+) -> error::Result<Option<Vec<String>>> {
+    if requested.is_some() && !token_ip_allowlists_enabled() {
+        return Err(Error::BadRequest(
+            "Token IP allowlists are a Windmill Enterprise Edition feature".to_string(),
+        ));
+    }
+    merge_ip_allowlist(caller, requested)
+}
+
+/// The `cfg` is load-bearing: CE's `LICENSE_KEY_VALID` is always `true`.
+fn token_ip_allowlists_enabled() -> bool {
+    #[cfg(feature = "enterprise")]
+    {
+        windmill_common::ee_oss::LICENSE_KEY_VALID.load(std::sync::atomic::Ordering::Relaxed)
+    }
+    #[cfg(not(feature = "enterprise"))]
+    {
+        false
+    }
+}
+
+fn merge_ip_allowlist(
     caller: Option<&[IpNet]>,
     requested: Option<&[String]>,
 ) -> error::Result<Option<Vec<String>>> {
@@ -1658,23 +1685,28 @@ mod tests {
         let s = |v: &[&str]| v.iter().map(|x| x.to_string()).collect::<Vec<_>>();
         let nets = |v: &[&str]| v.iter().map(|x| x.parse().unwrap()).collect::<Vec<IpNet>>();
         assert_eq!(
-            token_ip_allowlist(
+            merge_ip_allowlist(
                 None,
-                Some(&s(&["10.0.0.1/8", "1.2.3.4", "::ffff:5.6.7.8", "::ffff:9.9.0.0/112"]))
+                Some(&s(&[
+                    "10.0.0.1/8",
+                    "1.2.3.4",
+                    "::ffff:5.6.7.8",
+                    "::ffff:9.9.0.0/112"
+                ]))
             )
             .unwrap(),
             Some(s(&["10.0.0.0/8", "1.2.3.4/32", "5.6.7.8/32", "9.9.0.0/16"]))
         );
-        assert!(token_ip_allowlist(None, Some(&[])).is_err());
-        assert!(token_ip_allowlist(None, Some(&s(&["nope"]))).is_err());
+        assert!(merge_ip_allowlist(None, Some(&[])).is_err());
+        assert!(merge_ip_allowlist(None, Some(&s(&["nope"]))).is_err());
         let caller = nets(&["10.0.0.0/8"]);
         assert_eq!(
-            token_ip_allowlist(Some(&caller), None).unwrap(),
+            merge_ip_allowlist(Some(&caller), None).unwrap(),
             Some(s(&["10.0.0.0/8"]))
         );
-        assert!(token_ip_allowlist(Some(&caller), Some(&s(&["10.1.0.0/16"]))).is_ok());
+        assert!(merge_ip_allowlist(Some(&caller), Some(&s(&["10.1.0.0/16"]))).is_ok());
         // Overlapping is not enough: every requested network must sit inside the caller's.
-        assert!(token_ip_allowlist(Some(&caller), Some(&s(&["10.0.0.0/7"]))).is_err());
+        assert!(merge_ip_allowlist(Some(&caller), Some(&s(&["10.0.0.0/7"]))).is_err());
         assert!(!client_ip_allowed(Some(&caller), None));
         assert!(client_ip_allowed(
             Some(&caller),
