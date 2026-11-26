@@ -130,6 +130,7 @@ import { isMentionContext, isUserContextPath, type ContextElement } from '../con
 import { getDatatableTools } from '../datatableTools'
 import { getDatatableMigrationTools } from '../datatableMigrationTools'
 import { getDucklakeTools } from '../ducklakeTools'
+import { getStorageTools } from '../storageTools'
 import { fileTools } from '../files/fileTools'
 import type { AttachedFilesStore } from '../files/attachedFiles.svelte'
 import { artifactTools } from '../artifacts/artifactTools'
@@ -4851,6 +4852,8 @@ export const globalTools: SessionTool<{}>[] = [
 	...getDatatableMigrationTools(),
 	// Workspace DuckLake: pipeline storage prerequisite, and declared measures
 	...getDucklakeTools(),
+	// Workspace object storage, as the S3 file browser reaches it
+	...getStorageTools(),
 	// Read-only tools over files the user attached to the conversation
 	...fileTools,
 	...workspaceSettingsTools

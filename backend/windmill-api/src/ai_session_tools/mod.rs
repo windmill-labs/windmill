@@ -71,6 +71,7 @@ mod misc;
 mod runs;
 mod secrets;
 mod settings;
+mod storage;
 mod views;
 mod workspace;
 
@@ -165,12 +166,15 @@ const DESTRUCTIVE: &[&str] = &[
     "rebase_draft",
     "delete_app_file",
     "delete_app_runnable",
+    "delete_s3_file",
+    "move_s3_file",
 ];
 
 /// Tools that reach a system outside Windmill on the workspace's behalf: running code can
-/// reach any system the workspace can, and `get_db_schema` connects to a resource's
-/// database, and `search_npm_packages` queries the npm registry, which Windmill does not
-/// control. Reading Windmill's own hub and docs does not count.
+/// reach any system the workspace can, `get_db_schema` connects to a resource's database,
+/// the storage tools reach the workspace's object storage bucket, and `search_npm_packages`
+/// queries the npm registry, which Windmill does not control. Reading Windmill's own hub
+/// and docs does not count.
 #[cfg(any(test, feature = "mcp"))]
 const OPEN_WORLD: &[&str] = &[
     "search_npm_packages",
@@ -184,6 +188,10 @@ const OPEN_WORLD: &[&str] = &[
     "test_run_app_runnable",
     "test_run_code",
     "get_db_schema",
+    "list_s3_files",
+    "read_s3_file",
+    "delete_s3_file",
+    "move_s3_file",
 ];
 
 /// Tools the session counts as reads that still start a job. A read-only token runs
@@ -218,7 +226,9 @@ macro_rules! groups {
         }
     };
 }
-groups!(guidance, workspace, items, misc, flows, apps, runs, deploy, data, settings, secrets);
+groups!(
+    guidance, workspace, items, misc, flows, apps, runs, deploy, data, settings, secrets, storage
+);
 
 /// A tool as a client lists it.
 #[cfg(feature = "mcp")]

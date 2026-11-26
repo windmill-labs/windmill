@@ -91,7 +91,7 @@ fn role_arg(args: &Value) -> Result<Option<&str>, String> {
 }
 
 /// `path?k=v&...` over the parameters that are set.
-fn with_query(path: String, params: &[(&str, Option<&str>)]) -> String {
+pub(super) fn with_query(path: String, params: &[(&str, Option<&str>)]) -> String {
     let query: Vec<String> = params
         .iter()
         .filter_map(|(k, v)| v.map(|v| format!("{k}={}", enc(v))))

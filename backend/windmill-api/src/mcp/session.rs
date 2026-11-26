@@ -39,7 +39,7 @@ fn tool_title(name: &str) -> String {
     let words: Vec<String> = name
         .split('_')
         .map(|word| match word {
-            "db" | "sql" | "json" => word.to_uppercase(),
+            "db" | "sql" | "json" | "s3" => word.to_uppercase(),
             _ => word.to_string(),
         })
         .collect();
