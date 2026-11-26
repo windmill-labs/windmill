@@ -435,6 +435,20 @@ async fn evaluate_stop_after_all_iters_if(
     Ok(())
 }
 
+const FAILURE_THRESHOLD_ERROR: &str = "FailureThresholdReached";
+const FAILURE_THRESHOLD_CANCELER: &str = "failure threshold";
+
+fn failure_threshold_message(threshold: u32, parallel: bool) -> String {
+    let s = if threshold == 1 { "" } else { "s" };
+    let mut message =
+        format!("For loop stopped after {threshold} failed iteration{s}, its failure threshold");
+    if parallel {
+        message
+            .push_str(". Iterations already running finished; those not yet started were canceled");
+    }
+    message
+}
+
 fn result_has_recover_true(nresult: Arc<Box<RawValue>>) -> bool {
     let recover = serde_json::from_str::<RecoveryObject>(nresult.get());
     return recover.map(|r| r.recover.unwrap_or(false)).unwrap_or(false);
@@ -606,30 +620,41 @@ pub async fn update_flow_status_after_job_completion_internal(
         //     "UPDATE FLOW STATUS 2: {module_step:#?} {module_status:#?} {old_status:#?} "
         // );
 
-        let (is_loop, skip_loop_failures, parallelism, parallel_loop, loop_bounds) =
-            if let FlowStatusModule::InProgress { iterator: Some(_), parallel, .. } = module_status
-            {
-                let value = current_module
+        let (
+            is_loop,
+            skip_loop_failures,
+            failure_threshold,
+            parallelism,
+            parallel_loop,
+            loop_bounds,
+        ) = if let FlowStatusModule::InProgress { iterator: Some(_), parallel, .. } = module_status
+        {
+            let value = current_module
+                .as_ref()
+                .and_then(|x| x.get_value_with_skip_failures().ok());
+            let skip_failures = value
+                .as_ref()
+                .and_then(|x| x.skip_failures)
+                .unwrap_or(false);
+            (
+                true,
+                skip_failures,
+                value
                     .as_ref()
-                    .and_then(|x| x.get_value_with_skip_failures().ok());
-                (
-                    true,
-                    value
-                        .as_ref()
-                        .and_then(|x| x.skip_failures)
-                        .unwrap_or(false),
-                    value.as_ref().and_then(|x| x.parallelism.clone()),
-                    *parallel,
-                    value.map(|x| {
-                        (
-                            x.max_iterations.filter(|m| *m > 0),
-                            x.max_duration_secs.filter(|m| *m > 0),
-                        )
-                    }),
-                )
-            } else {
-                (false, false, None, false, None)
-            };
+                    .and_then(|x| x.failure_threshold)
+                    .filter(|t| skip_failures && *t > 0),
+                value.as_ref().and_then(|x| x.parallelism.clone()),
+                *parallel,
+                value.map(|x| {
+                    (
+                        x.max_iterations.filter(|m| *m > 0),
+                        x.max_duration_secs.filter(|m| *m > 0),
+                    )
+                }),
+            )
+        } else {
+            (false, false, None, None, false, None)
+        };
 
         let (is_branch_all, parallel_branchall) = match module_status {
             FlowStatusModule::InProgress { branchall: Some(_), parallel, .. } => (true, *parallel),
@@ -785,7 +810,7 @@ pub async fn update_flow_status_after_job_completion_internal(
         // A while loop that reached its iteration or duration bound without its stop condition
         // being met fails. The loop's start is the first iteration's start, which the module
         // status persists, so the duration bound holds across worker restarts.
-        let loop_exhausted_msg = match (module_status, loop_bounds) {
+        let mut loop_err_msg = match (module_status, loop_bounds) {
             (
                 FlowStatusModule::InProgress {
                     iterator: Some(FlowIterator { index, .. }),
@@ -803,7 +828,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                     .or_else(|| flow_job_duration.as_ref().map(|d| d.started_at));
                 let elapsed_secs =
                     started_at.map(|s| (chrono::Utc::now() - s).num_milliseconds() as f64 / 1000.0);
-                if max_iterations.is_some_and(|m| iterations >= m as usize) {
+                let message = if max_iterations.is_some_and(|m| iterations >= m as usize) {
                     Some(format!(
                         "While loop reached its maximum of {iterations} iterations without its stop condition being met"
                     ))
@@ -814,18 +839,45 @@ pub async fn update_flow_status_after_job_completion_internal(
                         )),
                         _ => None,
                     }
-                }
+                };
+                message.map(|m| ("LoopExhausted", m))
+            }
+            // A sequential for loop stops at the iteration that reaches its failure threshold.
+            (
+                FlowStatusModule::InProgress {
+                    flow_jobs: Some(jobs),
+                    flow_jobs_success: Some(jobs_success),
+                    while_loop: false,
+                    parallel: false,
+                    ..
+                },
+                _,
+            ) if !success && failure_threshold.is_some() => {
+                let threshold = failure_threshold.unwrap_or_default();
+                let failed = jobs
+                    .iter()
+                    .zip(jobs_success)
+                    .filter(|(j, s)| *j != job_id_for_status && **s == Some(false))
+                    .count()
+                    + 1;
+                (failed >= threshold as usize).then(|| {
+                    (
+                        FAILURE_THRESHOLD_ERROR,
+                        failure_threshold_message(threshold, false),
+                    )
+                })
             }
             _ => None,
         };
-        let loop_exhausted_err = loop_exhausted_msg.as_ref().map(|message| {
+        let loop_error_value = |(name, message): &(&str, String)| {
             Arc::new(to_raw_value(&serde_json::json!({
-                "error": { "name": "LoopExhausted", "message": message }
+                "error": { "name": name, "message": message }
             })))
-        });
+        };
+        let mut loop_err = loop_err_msg.as_ref().map(loop_error_value);
         // skip_failures tolerates failed iterations, not the loop failing as a whole.
-        let skip_loop_failures = skip_loop_failures && loop_exhausted_err.is_none();
-        if loop_exhausted_err.is_some() {
+        let mut skip_loop_failures = skip_loop_failures && loop_err.is_none();
+        if loop_err.is_some() {
             has_triggered_error_handler = false;
         }
 
@@ -904,6 +956,46 @@ pub async fn update_flow_status_after_job_completion_internal(
                                  "error while fetching iterator index: {e:#}"
                              ))
                          })?.ok_or_else(|| Error::internal_err(format!("requiring an index in InProgress for flow {flow} at step {}", old_status.step)))?;
+
+                        // Past the failure threshold, the iterations not started yet are cancelled:
+                        // those held by `parallelism`, and those whose first step no worker has
+                        // pulled (cancelling that step first, under its row lock, so an iteration
+                        // a worker just started is left alone). Running ones finish, and the loop
+                        // fails once all are in. The count reads the row this transaction updated.
+                        if let Some(threshold) = failure_threshold.filter(|_| !success) {
+                            sqlx::query!(
+                                "WITH failed AS (
+                                    SELECT count(*) AS n FROM v2_job_status s,
+                                        jsonb_array_elements(s.flow_status->'modules'->$6::int->'flow_jobs_success') e
+                                    WHERE s.id = $1 AND e = 'false'::jsonb
+                                ), first_steps AS (
+                                    UPDATE v2_job_queue q
+                                    SET canceled_by = $3, canceled_reason = $4, scheduled_for = now(), suspend = 0
+                                    FROM v2_job j, v2_job_status f
+                                    WHERE (SELECT n FROM failed) >= $7
+                                        AND j.id = q.id AND f.id = j.parent_job AND j.parent_job = ANY($2)
+                                        AND q.workspace_id = $5 AND NOT q.running AND q.canceled_by IS NULL
+                                        AND ((f.flow_status->'step')::int = 0
+                                            OR f.flow_status->'modules'->((f.flow_status->'step')::int)->>'id'
+                                                = f.flow_status->'restarted_from'->>'step_id')
+                                    RETURNING j.parent_job
+                                )
+                                UPDATE v2_job_queue
+                                SET canceled_by = $3, canceled_reason = $4, scheduled_for = now(), suspend = 0
+                                WHERE workspace_id = $5 AND canceled_by IS NULL
+                                    AND (id IN (SELECT parent_job FROM first_steps)
+                                        OR (id = ANY($2) AND suspend > 0 AND (SELECT n FROM failed) >= $7))",
+                                flow,
+                                jobs.as_slice(),
+                                FAILURE_THRESHOLD_CANCELER,
+                                format!("the for loop reached its failure threshold of {threshold} failed iterations"),
+                                w_id,
+                                old_status.step,
+                                threshold as i64,
+                            )
+                            .execute(&mut *tx)
+                            .await?;
+                        }
 
                         // let status_for_debug = sqlx::query!(
                         //     "SELECT flow_status FROM v2_job_status WHERE id = $1",
@@ -1025,6 +1117,20 @@ pub async fn update_flow_status_after_job_completion_internal(
                         }
                     }
                     let mut flow_jobs_duration = success_and_durations.1;
+
+                    let threshold_reached = failure_threshold.filter(|t| {
+                        flow_jobs_success.as_ref().is_some_and(|s| {
+                            s.iter().filter(|x| **x == Some(false)).count() >= *t as usize
+                        })
+                    });
+                    if let Some(threshold) = threshold_reached {
+                        loop_err_msg = Some((
+                            FAILURE_THRESHOLD_ERROR,
+                            failure_threshold_message(threshold, true),
+                        ));
+                        loop_err = loop_err_msg.as_ref().map(loop_error_value);
+                        skip_loop_failures = false;
+                    }
                     if let Some(flow_jobs_duration) = flow_jobs_duration.as_mut() {
                         let position = jobs.iter().position(|x| x == job_id_for_status);
                         flow_jobs_duration.set(position, &flow_job_duration);
@@ -1171,7 +1277,7 @@ pub async fn update_flow_status_after_job_completion_internal(
 
                     // for parallel branchall and forloop, we do not want to trigger the error handler again at the forloop/branchall node since it was already triggered at the leaf level
                     // so we want to ignore the has_triggered_error_handler flag at the forloop/branchall node and reset it based on if the node is a success or failure
-                    if !success && flow_value.failure_module.is_some() {
+                    if !success && flow_value.failure_module.is_some() && loop_err.is_none() {
                         has_triggered_error_handler = true;
                     } else {
                         has_triggered_error_handler = false;
@@ -1241,7 +1347,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                 (*while_loop || *index + 1 < itered_len)
                     && (success || skip_loop_failures)
                     && !stop_early
-                    && loop_exhausted_err.is_none()
+                    && loop_err.is_none()
             } =>
             {
                 if let Some(jobs) = flow_jobs {
@@ -1369,7 +1475,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                 if (success
                     || (flow_jobs.is_some() && (skip_loop_failures || skip_seq_branch_failure)))
                     && !(stop_early && stop_early_err_msg.is_some() && !skip_if_stop_early)
-                    && loop_exhausted_err.is_none()
+                    && loop_err.is_none()
                 {
                     let is_skipped = (stop_early && skip_if_stop_early)
                         || if current_module.as_ref().is_some_and(|m| m.skip_if.is_some()) {
@@ -1412,7 +1518,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                         evaluate_retry(
                             &retry,
                             &old_status.retry,
-                            loop_exhausted_err.clone().unwrap_or_else(|| result.clone()),
+                            loop_err.clone().unwrap_or_else(|| result.clone()),
                             Marc::new(args),
                             resolved_flow_env.as_deref(),
                             Some(client),
@@ -1428,8 +1534,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                             job: *job_id_for_status,
                         });
                     }
-                    if (stop_early && stop_early_err_msg.is_some()) || loop_exhausted_err.is_some()
-                    {
+                    if (stop_early && stop_early_err_msg.is_some()) || loop_err.is_some() {
                         // if stop_early with error message, we need to set explictely success to false as this function was called with success = true as the job succeeded
                         success = false;
                     }
@@ -1471,8 +1576,8 @@ pub async fn update_flow_status_after_job_completion_internal(
             )));
         }
 
-        if loop_exhausted_err.is_some() {
-            nresult = loop_exhausted_err.clone();
+        if loop_err.is_some() {
+            nresult = loop_err.clone();
         }
 
         let step_counter = if inc_step_counter {
@@ -1885,7 +1990,7 @@ pub async fn update_flow_status_after_job_completion_internal(
             let should_retry = evaluate_retry(
                 retry_config,
                 &old_status.retry,
-                loop_exhausted_err.clone().unwrap_or_else(|| result.clone()),
+                loop_err.clone().unwrap_or_else(|| result.clone()),
                 Marc::new(args),
                 resolved_flow_env.as_deref(),
                 Some(client),
@@ -1986,8 +2091,9 @@ pub async fn update_flow_status_after_job_completion_internal(
 
         let failure_step_recovers = is_failure_step && result_has_recover_true(nresult.clone());
         // An error this flow raises on its own (a stop predicate's error message, a while loop
-        // reaching its bound) is a new failure that no error handler recovered or saw yet.
-        if stop_early_err_msg.is_some() || loop_exhausted_msg.is_some() {
+        // reaching its bound, a for loop reaching its failure threshold) is a new failure that
+        // no error handler recovered or saw yet.
+        if stop_early_err_msg.is_some() || loop_err_msg.is_some() {
             recovered_by_child = false;
         }
 

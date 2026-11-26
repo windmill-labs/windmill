@@ -1697,6 +1697,7 @@ async fn lock_modules(
                     parallelism,
                     squash,
                     iteration_label,
+                    failure_threshold,
                 } => {
                     let nmodules;
                     (nmodules, nmodified_ids, nerrors) = Box::pin(lock_modules(
@@ -1730,6 +1731,7 @@ async fn lock_modules(
                         parallelism,
                         squash,
                         iteration_label,
+                        failure_threshold,
                     }
                     .into()
                 }

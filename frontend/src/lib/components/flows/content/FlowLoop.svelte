@@ -19,6 +19,7 @@
 	import { logIterationLabel } from '../iterationLabelTelemetry'
 
 	import InputTransformForm from '$lib/components/InputTransformForm.svelte'
+	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import PropPickerWrapper from '../propPicker/PropPickerWrapper.svelte'
 	import type { PropPickerContext } from '$lib/components/prop_picker'
 	import { useUiIntent } from '$lib/components/copilot/chat/flow/useUiIntent'
@@ -321,17 +322,47 @@
 						</PropPickerWrapper>
 					</section>
 					<section class="flex flex-col gap-6">
-						<Toggle
-							size="xs"
-							textClass="text-xs font-normal text-primary"
-							bind:checked={mod.value.skip_failures}
-							options={{
-								right: 'Skip failures',
-								rightTooltip:
-									'If disabled, the flow will fail as soon as one of the iteration fail. Otherwise, the error will be collected as the result of the iteration. Regardless of this setting, if a flow level error handler is defined, it will process the error. (Workspace error handlers will NOT be used to process errors if enabled.)',
-								rightDocumentationLink: 'https://www.windmill.dev/docs/flows/flow_loops'
-							}}
-						/>
+						<div class="flex flex-col gap-2">
+							<Toggle
+								size="xs"
+								textClass="text-xs font-normal text-primary"
+								bind:checked={mod.value.skip_failures}
+								on:change={({ detail }) => {
+									if (!detail) (mod.value as ForloopFlow).failure_threshold = undefined
+								}}
+								options={{
+									right: 'Skip failures',
+									rightTooltip:
+										'If disabled, the flow will fail as soon as one of the iteration fail. Otherwise, the error will be collected as the result of the iteration. Regardless of this setting, if a flow level error handler is defined, it will process the error. (Workspace error handlers will NOT be used to process errors if enabled.)',
+									rightDocumentationLink: 'https://www.windmill.dev/docs/flows/flow_loops'
+								}}
+							/>
+							{#if mod.value.skip_failures}
+								<div class="pl-9 flex items-center gap-2 text-xs text-secondary" transition:slideDynamic>
+									<span>Fail the loop after</span>
+									<TextInput
+										class="w-20"
+										size="sm"
+										bind:value={
+											() => (mod.value as ForloopFlow).failure_threshold,
+											(v) => {
+												const n = Number(v)
+												;(mod.value as ForloopFlow).failure_threshold =
+													Number.isInteger(n) && n >= 1 ? n : undefined
+											}
+										}
+										inputProps={{ type: 'number', min: 1, step: 1, placeholder: 'No limit' }}
+									/>
+									<span>failed iterations</span>
+									<Tooltip>
+										Once this many iterations have failed, the loop fails and the flow with it.
+										A parallel loop starts no further iteration: iterations not started yet are
+										canceled and those already running finish. Leave empty to never stop on
+										failures.
+									</Tooltip>
+								</div>
+							{/if}
+						</div>
 						<Toggle
 							size="xs"
 							textClass="text-xs font-normal text-primary"

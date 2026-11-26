@@ -320,6 +320,7 @@ can call one, not an agent used as a tool.
 ## Loop Structure Rules
 
 - A `forloopflow` runs its `modules` once per element of `iterator`, a javascript expression returning an array (e.g. `results.get_items`); `parallel: true` runs the iterations concurrently, and `skip_failures: true` carries on past a failed iteration
+- To carry on past failed iterations only up to a budget (e.g. a rollout over many targets), set `skip_failures: true` with `failure_threshold: N` on the `forloopflow` value: the loop fails with `{ error: { name: "FailureThresholdReached", message } }` once N iterations have failed. A parallel loop then starts no further iteration and cancels those not started yet, while iterations already running finish
 - When iterations are items a user will look for in a run (customers, files, ids), set `iteration_label` on the `forloopflow` value to a javascript expression naming each one, e.g. `flow_input.iter.value.name`; it only labels iterations in the run viewer and never changes what runs
 - For `whileloopflow`, break the loop with a module-level `stop_after_if`: on the loop module itself, or on an inner step (required when that step carries state via its own `results` — see below)
 - `stop_after_if` is always a sibling of `id` and `value` on a flow module — never a direct key of the loop's `value` object

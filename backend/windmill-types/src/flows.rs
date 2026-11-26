@@ -707,6 +707,7 @@ pub struct FlowModuleValueWithParallel {
 #[derive(Deserialize)]
 pub struct FlowModuleValueWithSkipFailures {
     pub skip_failures: Option<bool>,
+    pub failure_threshold: Option<u32>,
     pub max_iterations: Option<u32>,
     pub max_duration_secs: Option<u32>,
     pub parallel: Option<bool>,
@@ -1154,6 +1155,9 @@ pub enum FlowModuleValue {
         /// viewers show for that iteration. Never fails the iteration.
         #[serde(skip_serializing_if = "Option::is_none")]
         iteration_label: Option<InputTransform>,
+        /// With `skip_failures`, the loop fails as soon as this many iterations have failed.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        failure_threshold: Option<u32>,
     },
     WhileloopFlow {
         modules: Vec<FlowModule>,
@@ -1281,6 +1285,7 @@ struct UntaggedFlowModuleValue {
     pass_flow_input_directly: Option<bool>,
     squash: Option<bool>,
     iteration_label: Option<InputTransform>,
+    failure_threshold: Option<u32>,
     max_iterations: Option<u32>,
     max_duration_secs: Option<u32>,
     #[serde(flatten)]
@@ -1326,6 +1331,7 @@ impl<'de> Deserialize<'de> for FlowModuleValue {
                 parallelism: untagged.parallelism,
                 squash: untagged.squash,
                 iteration_label: untagged.iteration_label,
+                failure_threshold: untagged.failure_threshold,
             }),
             "whileloopflow" => Ok(FlowModuleValue::WhileloopFlow {
                 modules: untagged

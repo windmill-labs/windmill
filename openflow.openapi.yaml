@@ -909,6 +909,10 @@ components:
         skip_failures:
           type: boolean
           description: If true, iteration failures don't stop the loop. Failed iterations return null
+        failure_threshold:
+          type: integer
+          minimum: 1
+          description: With skip_failures, the loop fails with an error named 'FailureThresholdReached' as soon as this many iterations have failed. A sequential loop stops at the iteration that reaches it. A parallel loop starts no further iteration and cancels those not started yet, while iterations already running finish
         type:
           type: string
           enum:

@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH failed AS (\n                                    SELECT count(*) AS n FROM v2_job_status s,\n                                        jsonb_array_elements(s.flow_status->'modules'->$6::int->'flow_jobs_success') e\n                                    WHERE s.id = $1 AND e = 'false'::jsonb\n                                ), first_steps AS (\n                                    UPDATE v2_job_queue q\n                                    SET canceled_by = $3, canceled_reason = $4, scheduled_for = now(), suspend = 0\n                                    FROM v2_job j, v2_job_status f\n                                    WHERE (SELECT n FROM failed) >= $7\n                                        AND j.id = q.id AND f.id = j.parent_job AND j.parent_job = ANY($2)\n                                        AND q.workspace_id = $5 AND NOT q.running AND q.canceled_by IS NULL\n                                        AND ((f.flow_status->'step')::int = 0\n                                            OR f.flow_status->'modules'->((f.flow_status->'step')::int)->>'id'\n                                                = f.flow_status->'restarted_from'->>'step_id')\n                                    RETURNING j.parent_job\n                                )\n                                UPDATE v2_job_queue\n                                SET canceled_by = $3, canceled_reason = $4, scheduled_for = now(), suspend = 0\n                                WHERE workspace_id = $5 AND canceled_by IS NULL\n                                    AND (id IN (SELECT parent_job FROM first_steps)\n                                        OR (id = ANY($2) AND suspend > 0 AND (SELECT n FROM failed) >= $7))",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "UuidArray",
+        "Varchar",
+        "Text",
+        "Text",
+        "Int4",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "52fab799da5ec9dd29691c0711b9b819be93d8a2668106f16fff79ac13925e92"
+}
