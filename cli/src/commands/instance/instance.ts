@@ -38,6 +38,7 @@ import {
   pullInstanceSettings,
   pushInstanceConfigs,
   pushInstanceSettings,
+  REDACTED_SECRET_PREFIX,
   type SimplifiedSettings,
 } from "../../core/settings.ts";
 import { deepEqual, readTextFile } from "../../utils/utils.ts";
@@ -183,6 +184,7 @@ export type InstanceSyncOptions = {
   yes?: boolean;
   prefix?: string;
   prefixSettings?: boolean;
+  showSecrets?: boolean;
 };
 
 export async function pickInstance(
@@ -667,25 +669,22 @@ export async function getActiveInstance(opts: {
 
 async function getConfig(opts: InstanceSyncOptions & { outputFile?: string; showSecrets?: boolean }) {
   await pickInstance(opts, false);
-  const config = await wmill.getInstanceConfig() as any;
-
-  // In interactive mode, mask secrets by default and prompt
-  const hasSecrets = config?.global_settings?.license_key || config?.global_settings?.jwt_secret;
   let showSecrets = opts.showSecrets ?? false;
-  if (!showSecrets && hasSecrets && process.stdout.isTTY && !opts.outputFile) {
-    log.warn("Config contains sensitive fields (license_key, jwt_secret). They are masked by default.");
-    log.warn("Use --show-secrets to include them, or press Y to show them now.");
-    showSecrets = await Confirm.prompt({ message: "Show secrets?", default: false });
-  } else if (!process.stdout.isTTY || opts.outputFile) {
-    // Non-interactive or writing to file: always include secrets
-    showSecrets = true;
-  }
+  let config = await wmill.getInstanceConfig({ dangerouslyRevealSecrets: showSecrets }) as any;
 
-  if (!showSecrets && config?.global_settings) {
-    if (config.global_settings.license_key) config.global_settings.license_key = "***";
-    if (config.global_settings.jwt_secret) config.global_settings.jwt_secret = "***";
+  const redacted = !showSecrets && JSON.stringify(config?.global_settings ?? {}).includes(REDACTED_SECRET_PREFIX);
+  if (redacted && process.stdout.isTTY && !opts.outputFile) {
+    log.warn("Secrets (license key, passwords, tokens) are redacted. Use --show-secrets to include them, or press Y to show them now.");
+    showSecrets = await Confirm.prompt({ message: "Show secrets?", default: false });
+    if (showSecrets) {
+      config = await wmill.getInstanceConfig({ dangerouslyRevealSecrets: true }) as any;
+    }
+  } else if (redacted) {
+    log.infoStderr(
+      "Secrets are redacted: pass --show-secrets to include them. Pushing this export back keeps the stored secrets, but it cannot set up another instance."
+    );
   }
-  if (config?.global_settings && !config.global_settings.jwt_secret) {
+  if (showSecrets && config?.global_settings && !config.global_settings.jwt_secret) {
     log.infoStderr(
       "jwt_secret, rsa_keys and the instance database secrets are not part of the export: the server withholds them (EXPORT_SERVER_SECRETS=false). This export cannot fully restore or migrate the instance."
     );
@@ -778,6 +777,10 @@ const command = new Command()
   .option("--dry-run", "Perform a dry run without making changes")
   .option("--skip-users", "Skip pulling users")
   .option("--skip-settings", "Skip pulling settings")
+  .option(
+    "--show-secrets",
+    "Pull secrets (license key, passwords, tokens) in clear instead of redacted",
+  )
   .option("--skip-configs", "Skip pulling configs (worker groups)")
   .option("--skip-groups", "Skip pulling instance groups")
   .option("--include-workspaces", "Also pull workspaces")
@@ -826,7 +829,7 @@ const command = new Command()
   .command("get-config")
   .description("Dump the current instance config (global settings + worker configs) as YAML")
   .option("-o, --output-file <file:string>", "Write YAML to a file instead of stdout")
-  .option("--show-secrets", "Include sensitive fields (license key, JWT secret) without prompting")
+  .option("--show-secrets", "Include secrets (license key, passwords, tokens) in clear without prompting")
   .option(
     "--instance <instance:string>",
     "Name of the instance, override the active instance",

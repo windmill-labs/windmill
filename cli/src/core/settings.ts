@@ -103,6 +103,9 @@ export const SETTINGS_MANAGED_ONLY_WHEN_PRESENT = [
  * so a file that still carries one must not show as differing from the workspace. */
 export const RETIRED_SETTINGS = ["guest_access_enabled"] as const;
 
+/** How the server's settings reads begin a secret they withheld (without `dangerouslyRevealSecrets`). */
+export const REDACTED_SECRET_PREFIX = "__REDACTED__";
+
 // Legacy settings interface for reading old settings.yaml files
 interface LegacySimplifiedSettings {
   auto_invite_enabled?: boolean;
@@ -781,7 +784,18 @@ export async function pullInstanceSettings(
   opts: InstanceSyncOptions,
   preview = false
 ) {
-  const remoteSettings = await wmill.listGlobalSettings();
+  const remoteSettings = await wmill.listGlobalSettings({
+    dangerouslyRevealSecrets: opts.showSecrets ?? false,
+  });
+  if (
+    !preview &&
+    !opts.showSecrets &&
+    JSON.stringify(remoteSettings).includes(REDACTED_SECRET_PREFIX)
+  ) {
+    log.info(
+      "Secrets are redacted in the pulled settings: pass --show-secrets to include them. Pushing them back keeps the stored secrets."
+    );
+  }
 
   await checkInstanceSettingsPath(opts);
 
