@@ -5418,7 +5418,8 @@ async fn test_failure_module_recover_inside_loop(db: Pool<Postgres>) -> anyhow::
 }
 
 /// A loop skipping failures fails once `failure_threshold` iterations have failed: a sequential
-/// loop runs no further iteration, a parallel one cancels the iterations not started yet.
+/// loop runs no further iteration, a parallel one cancels the iterations not started yet. An error
+/// handler recovering the failed iterations does not lift the threshold.
 #[cfg(feature = "deno_core")]
 #[sqlx::test(fixtures("base"))]
 async fn test_forloop_failure_threshold(db: Pool<Postgres>) -> anyhow::Result<()> {
@@ -5426,13 +5427,20 @@ async fn test_forloop_failure_threshold(db: Pool<Postgres>) -> anyhow::Result<()
     let server = ApiServer::start(db.clone()).await?;
     let port = server.addr.port();
 
-    let run = |parallel: bool| {
-        let flow: FlowValue = serde_json::from_value(json!({
+    let run = |parallel: bool, recovering_handler: bool| {
+        // Recovered, every iteration ends as a success job, so the loop fails on the threshold
+        // alone only if it is reached on the last iteration.
+        let items = if recovering_handler {
+            json!([1, 2])
+        } else {
+            json!([1, 2, 3, 4, 5])
+        };
+        let mut flow = json!({
             "modules": [{
                 "id": "loop",
                 "value": {
                     "type": "forloopflow",
-                    "iterator": { "type": "static", "value": [1, 2, 3, 4, 5] },
+                    "iterator": { "type": "static", "value": items },
                     "skip_failures": true,
                     "failure_threshold": 2,
                     "parallel": parallel,
@@ -5447,9 +5455,28 @@ async fn test_forloop_failure_threshold(db: Pool<Postgres>) -> anyhow::Result<()
                         },
                     }],
                 },
+            }, {
+                "id": "b",
+                "value": {
+                    "input_transforms": {},
+                    "type": "rawscript",
+                    "language": "bun",
+                    "content": "export function main() { return { ran_b: true } }",
+                },
             }],
-        }))
-        .unwrap();
+        });
+        if recovering_handler {
+            flow["failure_module"] = json!({
+                "value": {
+                    "input_transforms": { "error": { "type": "javascript", "expr": "error" } },
+                    "type": "rawscript",
+                    "language": "bun",
+                    "content": "export function main(error: any) { \
+                        return { handled: error.name, recover: error.name !== 'FailureThresholdReached' } }",
+                },
+            });
+        }
+        let flow: FlowValue = serde_json::from_value(flow).unwrap();
         RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
             .run_until_complete(&db, false, port)
     };
@@ -5462,10 +5489,11 @@ async fn test_forloop_failure_threshold(db: Pool<Postgres>) -> anyhow::Result<()
         .fetch_all(&db)
     };
 
-    let sequential = run(false).await;
+    let sequential = run(false, false).await;
     let sequential_iterations = iteration_statuses(sequential.id).await?;
-    let parallel = run(true).await;
+    let parallel = run(true, false).await;
     let parallel_iterations = iteration_statuses(parallel.id).await?;
+    let recovered = run(true, true).await;
     server.close().await.unwrap();
 
     for job in [&sequential, &parallel] {
@@ -5479,6 +5507,12 @@ async fn test_forloop_failure_threshold(db: Pool<Postgres>) -> anyhow::Result<()
     assert_eq!(
         parallel_iterations,
         ["canceled", "canceled", "canceled", "failure", "failure"]
+    );
+    assert!(!recovered.success, "recovered iterations still count");
+    assert_eq!(
+        recovered.json_result().unwrap()["handled"],
+        "FailureThresholdReached",
+        "the handler must see the threshold error and the step after the loop must not run"
     );
     Ok(())
 }

@@ -958,8 +958,9 @@ pub async fn update_flow_status_after_job_completion_internal(
                          })?.ok_or_else(|| Error::internal_err(format!("requiring an index in InProgress for flow {flow} at step {}", old_status.step)))?;
 
                         // Past the failure threshold, the iterations not started yet are cancelled:
-                        // those no worker has picked up, or that `parallelism` holds back (a
-                        // `suspend` is also an approval, hence no child job yet). An iteration a
+                        // those no worker has picked up, or that `parallelism` holds back. A
+                        // `suspend` is also an approval, whose iteration already ran a step: the
+                        // child job check keeps it, and any started iteration, out. An iteration a
                         // worker picked up runs to its end, and the loop fails once all are in.
                         // The count reads the row this transaction just updated.
                         if let Some(threshold) = failure_threshold.filter(|_| !success) {
