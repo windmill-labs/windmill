@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.886.0](https://github.com/windmill-labs/windmill/compare/v1.885.0...v1.886.0) (2026-11-26)
+
+
+### Features
+
+* a second OTel logs exporter for audit logs ([#12675](https://github.com/windmill-labs/windmill/issues/12675)) ([f28bdff](https://github.com/windmill-labs/windmill/commit/f28bdff94f82d18c2d75d179c6f35f524f5b220c))
+* add a Require SSO workspace protection rule ([#12681](https://github.com/windmill-labs/windmill/issues/12681)) ([71f22fc](https://github.com/windmill-labs/windmill/commit/71f22fc6e93f43b2ee4d1eec5c1b5c9ece5e941e))
+* overwrite or discard each path conflict when reassigning user items ([#12683](https://github.com/windmill-labs/windmill/issues/12683)) ([b3ab8e2](https://github.com/windmill-labs/windmill/commit/b3ab8e22b37a666d4ffdbead4a80c406502254b2))
+* own model and effort for script generation and AI review ([#12678](https://github.com/windmill-labs/windmill/issues/12678)) ([51cd51c](https://github.com/windmill-labs/windmill/commit/51cd51cd52cabed72b6516e83b1542d0225543cd))
+* record client IP and user agent on audit entries ([#12673](https://github.com/windmill-labs/windmill/issues/12673)) ([c689d74](https://github.com/windmill-labs/windmill/commit/c689d74505a007d87dfc558fd69ee22ccba22653))
+
+
+### Bug Fixes
+
+* derive the client ip from trusted proxies only ([#12677](https://github.com/windmill-labs/windmill/issues/12677)) ([f452090](https://github.com/windmill-labs/windmill/commit/f45209064ac3a030e0c31f5ac54c09f8c54a32c1))
+* redact secrets in instance settings reads unless explicitly revealed ([#12682](https://github.com/windmill-labs/windmill/issues/12682)) ([cc855e6](https://github.com/windmill-labs/windmill/commit/cc855e6fd94268c19bf05658736e15b83310f283))
+* resolve the client ip in one place and trust private ranges only on cloud ([#12685](https://github.com/windmill-labs/windmill/issues/12685)) ([0b11d3e](https://github.com/windmill-labs/windmill/commit/0b11d3e9a691450997d902015f680a54fd2f2cc6))
+
 ## [1.885.0](https://github.com/windmill-labs/windmill/compare/v1.884.1...v1.885.0) (2026-11-25)
 
 
