@@ -754,6 +754,9 @@ function createRuntime(session: Session): SessionRuntime {
 		previewTabs.open({ type: 'artifact', id, name, version })
 	}
 	manager.closeArtifact = (id) => previewTabs.closeArtifact(id)
+	manager.openS3File = (file) => {
+		previewTabs.open({ type: 's3file', file })
+	}
 	// Key the store before any configureGlobalMode runs, so a new session's first create shows at once.
 	void manager.artifacts.setSession(session.id)
 

@@ -2,6 +2,8 @@ import { z } from 'zod'
 import { createToolDef } from './shared'
 import { NONE, type SessionTool } from './sessionCapabilities'
 import { runOnServer } from './global/backendSessionTools'
+import { chatModelSeesImages, toolImagesFor } from './global/toolImages'
+import type { GlobalToolHelpers } from './global/core'
 
 /**
  * The workspace's object storage (its large file storage and secondary storages), through the
@@ -39,7 +41,16 @@ const s3KeyArg = z
 	.string()
 	.describe('Key of the file, as list_s3_files returns it in `s3`, e.g. `charts/sales.csv`.')
 
-const readS3FileSchema = z.object({ s3: s3KeyArg, storage: storageArg })
+const readS3FileSchema = z.object({
+	s3: s3KeyArg,
+	storage: storageArg,
+	open_in_preview: z
+		.boolean()
+		.optional()
+		.describe(
+			"Also open the file in the side panel next to the chat. Only when the user asks to open or display the file itself: reading it to answer a question about it does not. Only Windmill's own chat has that panel; elsewhere the result's `link` opens the file."
+		)
+})
 const deleteS3FileSchema = z.object({ s3: s3KeyArg, storage: storageArg })
 const moveS3FileSchema = z.object({
 	s3: s3KeyArg,
@@ -55,7 +66,7 @@ const listS3FilesToolDef = createToolDef(
 const readS3FileToolDef = createToolDef(
 	readS3FileSchema,
 	'read_s3_file',
-	"Read a file in the workspace's object storage: its size and last modified time, and a preview of its content: the start of a text, JSON or CSV file, or the first rows of a Parquet file. Other files, such as images, return their metadata only."
+	"Read a file in the workspace's object storage: its size and last modified time, and a preview of its content: the start of a text, JSON or CSV file, the first rows of a Parquet file, or the image itself for a png, jpeg, gif or webp of up to 5 MB, which you then see. Other files return their metadata only."
 )
 const deleteS3FileToolDef = createToolDef(
 	deleteS3FileSchema,
@@ -100,15 +111,34 @@ export function getStorageTools(): SessionTool<{}>[] {
 			planModeSafe: true,
 			lookup: true,
 			showDetails: true,
-			fn: async ({ args, workspace, toolId, toolCallbacks }) => {
-				const { s3, storage } = readS3FileSchema.parse(args)
+			fn: async ({ args, workspace, toolId, toolCallbacks, helpers }) => {
+				const parsed = readS3FileSchema.parse(args)
+				const s3 = parsed.s3
+				const storage = parsed.storage === '_default_' ? undefined : parsed.storage || undefined
 				toolCallbacks.setToolStatus(toolId, { content: `Reading ${s3}${storageLabel(storage)}...` })
-				const { text } = await runOnServer('read_s3_file', workspace, args)
+				const response = await runOnServer('read_s3_file', workspace, args)
+				const result = JSON.parse(response.text)
+				const { images, omitted } = await toolImagesFor(
+					(response.images ?? []).map((i) => ({ name: s3, mimeType: i.mime_type, data: i.data })),
+					chatModelSeesImages(helpers)
+				)
+				const caption = `${s3}${storageLabel(storage)}, as read_s3_file returned it:`
+				for (const image of images) toolCallbacks.attachToolImage?.(toolId, { image, caption })
+				if (images.length > 0) result.image = 'attached in the following message'
+				else if (omitted.length > 0) result.image = `not shown: ${omitted.join('; ')}`
+				const file = { s3, ...(storage ? { storage } : {}) }
+				const openS3File = (helpers as GlobalToolHelpers | undefined)?.openS3File
+				if (parsed.open_in_preview) {
+					if (openS3File) openS3File(file)
+					result.side_panel = openS3File ? 'opened' : 'this chat has no side panel'
+				}
 				toolCallbacks.setToolStatus(toolId, {
 					content: `Read ${s3}${storageLabel(storage)}`,
-					result: JSON.parse(text)
+					result,
+					s3File: file,
+					...(images.length > 0 ? { imageUrl: images[0].dataUrl } : {})
 				})
-				return text
+				return JSON.stringify(result, null, 2)
 			}
 		},
 		{

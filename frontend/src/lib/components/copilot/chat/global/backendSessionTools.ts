@@ -49,6 +49,8 @@ export type SessionToolResponse = {
 	text: string
 	is_error: boolean
 	effects: SessionToolEffect[]
+	/** Images the model sees beside the text, base64-encoded. */
+	images?: { mime_type: string; data: string }[]
 }
 
 /** What the browser holds that a tool reads: the editor open on each draft kind, and

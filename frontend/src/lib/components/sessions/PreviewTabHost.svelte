@@ -21,6 +21,7 @@
 	import { useSessionPermissions } from './sessionPermissions.svelte'
 	import ArtifactViewer from '../copilot/chat/artifacts/ArtifactViewer.svelte'
 	import RunFormPreviewSlot from './RunFormPreviewSlot.svelte'
+	import S3FilePreview from '../S3FilePreview.svelte'
 	import { setOverlayHost } from '../common/overlayHost.svelte'
 	import { setReadOnlyWorkspace } from '../operatingWorkspace.svelte'
 
@@ -504,6 +505,19 @@
 		{:else if !runtime?.manager.artifacts.loading}
 			<div class="p-4 text-sm text-tertiary">This artifact is no longer available.</div>
 		{/if}
+	</div>
+{:else if slot.kind === 's3file' && mounted}
+	<div
+		class="absolute inset-0 flex flex-col min-h-0 bg-surface {visibility}"
+		aria-hidden={!active}
+		{inert}
+	>
+		<S3FilePreview
+			fileKey={slot.file.s3}
+			storage={slot.file.storage}
+			workspace={workspaceId || undefined}
+			showMetadata
+		/>
 	</div>
 {:else if slot.kind === 'runform' && mounted}
 	<div

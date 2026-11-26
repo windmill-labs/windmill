@@ -20,7 +20,11 @@ import {
 	WorkspaceService
 } from '$lib/gen'
 import { deepEqual } from 'fast-equals'
-import { promptSafe, type ArtifactVersionTarget } from '$lib/components/sessions/previewRouter'
+import {
+	promptSafe,
+	type ArtifactVersionTarget,
+	type S3FileRef
+} from '$lib/components/sessions/previewRouter'
 import { canDraftItem, roleCanDraft } from '$lib/editRights'
 import { renderPromptTemplate } from './promptTemplate'
 import { $ScriptLang } from '$lib/gen/schemas.gen'
@@ -4948,6 +4952,7 @@ export type GlobalToolHelpers = SessionToolHelpers & {
 	artifacts?: SessionArtifactsStore
 	getChatId?: () => string | undefined
 	openArtifact?: (artifactId: string, name: string, version?: ArtifactVersionTarget) => void
+	openS3File?: (file: S3FileRef) => void
 }
 
 function sessionIdFromCtx(ctx: { helpers?: unknown }): string | undefined {

@@ -14,7 +14,7 @@ import type { ScopeDecision } from './workingScope'
 import type { GroupingTools } from './toolGroups'
 import type { AttachedFilesStore } from './files/attachedFiles.svelte'
 import type { SessionArtifactsStore } from './artifacts/artifactsState.svelte'
-import type { ArtifactVersionTarget } from '$lib/components/sessions/previewRouter'
+import type { ArtifactVersionTarget, S3FileRef } from '$lib/components/sessions/previewRouter'
 import type { FlowAIChatHelpers } from './flow/core'
 import type { AppAIChatHelpers } from './app/core'
 import type AIChatInput from './AIChatInput.svelte'
@@ -205,6 +205,9 @@ export interface ChatViewHost {
 	attachedFiles: AttachedFilesStore
 	artifacts: SessionArtifactsStore
 	openArtifact?: (artifactId: string, name: string, version?: ArtifactVersionTarget) => void
+	/** Opens a file of the workspace's object storage in the session's side panel; only a
+	 * session has one. */
+	openS3File?: (file: S3FileRef) => void
 	flowAiChatHelpers?: FlowAIChatHelpers
 	appAiChatHelpers?: AppAIChatHelpers
 }

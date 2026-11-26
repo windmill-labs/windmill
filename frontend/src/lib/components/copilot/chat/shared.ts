@@ -800,6 +800,9 @@ export type ToolDisplayMessage = {
 	 * always-visible card that opens (or focuses) the item's preview in the
 	 * session side panel. Set only for session chats — the side panel is their surface. */
 	previewCard?: { kind: PreviewCardKind | 'agent'; path: string }
+	/** A file of the workspace's object storage this tool read, which the row offers to open in
+	 * the session side panel. */
+	s3File?: { s3: string; storage?: string }
 	/** Whole text on both sides of an edit this call saved. Kept in full rather than as a
 	 * reference: drafts are overwritten in place, so the sides cannot be fetched back later. */
 	codeDiff?: ToolCodeDiff

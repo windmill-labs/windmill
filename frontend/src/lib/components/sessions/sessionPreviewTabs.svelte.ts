@@ -19,6 +19,8 @@ import {
 	previewLocationLabel,
 	resolvePreviewTab,
 	runFormUrl,
+	s3FileUrl,
+	parseS3FileRoute,
 	barePath,
 	type ArtifactVersionTarget,
 	type PreviewItemMode,
@@ -109,6 +111,7 @@ function targetUrl(target: PreviewTarget, onto?: SessionPreviewTab): string {
 		return artifactUrl(target.id, target.name, keptVersion(target, onto))
 	}
 	if (target.type === 'runform') return runFormUrl(target.toolCallId, target.label)
+	if (target.type === 's3file') return s3FileUrl(target.file)
 	// A re-point with no mode keeps the side the tab is already on, so an AI write to
 	// an item the user left on View does not yank them back to the editor.
 	const mode = target.mode ?? (onto ? (parsePreviewItemRoute(onto.url)?.mode ?? 'edit') : 'edit')
@@ -849,6 +852,7 @@ export function describePreview(
 		const where = whereIs(t)
 		const artifact = parseArtifactRoute(where)
 		const pageItem = parsePageItemRoute(where)
+		const s3File = parseS3FileRoute(where)
 		const page = matchPreviewPage(where)
 		const pipelineFolder = parsePipelineRoute(where)
 		const route = parsePreviewItemRoute(where)
@@ -856,7 +860,9 @@ export function describePreview(
 			? // A pinned tab is not showing what the assistant last wrote, and nothing else in this
 				// summary would tell it so.
 				`artifact "${artifact.name || 'Artifact'}"${artifact.version ? ` (pinned to v${artifact.version})` : ''}`
-			: pageItem
+			: s3File
+				? `object storage file "${s3File.s3}"${s3File.storage ? ` in storage "${s3File.storage}"` : ''}`
+				: pageItem
 				? `${pageItemKindLabel(pageItem).toLowerCase()} "${pageItem.path}"`
 				: page
 					? `page "${page.label}"${previewLocationDetail(where)}`

@@ -2707,7 +2707,7 @@
 	},
 	{
 		"name": "read_s3_file",
-		"description": "Read a file in the workspace's object storage: its size and last modified time, and a preview of its content: the start of a text, JSON or CSV file, or the first rows of a Parquet file. Other files, such as images, return their metadata only.",
+		"description": "Read a file in the workspace's object storage: its size and last modified time, and a preview of its content: the start of a text, JSON or CSV file, the first rows of a Parquet file, or the image itself for a png, jpeg, gif or webp of up to 5 MB, which you then see. Other files return their metadata only.",
 		"parameters": {
 			"type": "object",
 			"properties": {
@@ -2718,6 +2718,10 @@
 				"storage": {
 					"description": "Name of a secondary storage, as list_s3_files returns them in `storages`. Omit for the workspace's primary storage.",
 					"type": "string"
+				},
+				"open_in_preview": {
+					"description": "Also open the file in the side panel next to the chat. Only when the user asks to open or display the file itself: reading it to answer a question about it does not. Only Windmill's own chat has that panel; elsewhere the result's `link` opens the file.",
+					"type": "boolean"
 				}
 			},
 			"required": [
