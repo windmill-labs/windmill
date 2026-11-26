@@ -1,0 +1,74 @@
+name: Competitor Benchmarks
+
+on:
+  schedule:
+    - cron: "0 6 * * 1" # Weekly on Monday at 6 AM UTC
+  workflow_dispatch:
+
+jobs:
+  benchmark_competitors:
+    runs-on: ubicloud-standard-8
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Pre-pull competitor Docker images
+        run: |
+          docker pull postgres:16 &
+          docker pull ghcr.io/windmill-labs/windmill:main &
+          docker pull temporalio/auto-setup:latest &
+          docker pull inngest/inngest:latest &
+          docker pull docker.io/restatedev/restate:latest &
+          docker pull kestra/kestra:latest &
+          wait
+
+      - name: Run competitor benchmarks
+        timeout-minutes: 60
+        run: |
+          cd benchmarks/competitors
+          deno run -A competitor_suite.ts \
+            -c competitor_suite_config.json \
+            --output-dir ./results
+
+      - name: Generate comparison graphs
+        run: |
+          cd benchmarks/competitors
+          deno run -A competitor_graphs.ts \
+            -c competitor_graphs_config.json \
+            --results-dir ./results \
+            --output-dir ./results
+
+      - name: Upload results
+        uses: actions/upload-artifact@v4
+        with:
+          name: competitor_benchmarks
+          path: |
+            benchmarks/competitors/results/*.json
+            benchmarks/competitors/results/*.svg
+
+  commit_results:
+    runs-on: ubicloud
+    needs: benchmark_competitors
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: benchmarks
+      - uses: actions/download-artifact@v4
+        with:
+          name: competitor_benchmarks
+          path: competitors/
+      - name: Push changes
+        run: |
+          git add .
+          git config --local user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git commit -m "Update competitor benchmarks" || exit 0
+          git push

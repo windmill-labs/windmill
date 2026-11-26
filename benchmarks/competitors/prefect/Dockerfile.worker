@@ -1,0 +1,4 @@
+FROM prefecthq/prefect:3-latest
+WORKDIR /app
+COPY flow.py .
+CMD ["python", "flow.py"]

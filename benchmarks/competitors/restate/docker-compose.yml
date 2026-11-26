@@ -1,0 +1,13 @@
+services:
+  restate:
+    image: docker.io/restatedev/restate:latest
+    ports:
+      - "8085:8080"   # Ingress
+      - "9075:9070"   # Admin/meta
+
+  app:
+    image: restate-benchmark-app
+    depends_on:
+      - restate
+    ports:
+      - "9080:9080"
