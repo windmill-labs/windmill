@@ -220,3 +220,10 @@ Symbols, not line numbers, are cited: they drift less.
   profile routes are cloud-gated; for the rest, cloud only adds quotas.
 - **`CREATE_WORKSPACE_REQUIRE_SUPERADMIN`** defaults to `true` when unset; only the literal
   `"true"` enables it when set.
+- **The client IP** (`windmill-common/src/client_ip.rs`, the `ClientIp` extractor) is the TCP
+  peer unless that peer is in `TRUSTED_PROXIES` (comma-separated CIDRs; unset means loopback,
+  private and link-local ranges; `none` trusts nothing). Behind a trusted peer, `X-Forwarded-For`
+  is read from the right up to the first untrusted hop, then `X-Real-IP`. A CDN in front of the
+  load balancer (CloudFront on app.windmill.dev) must have its ranges listed, or its edge address
+  is the client. Only the main API server carries the peer: a router called without connect info
+  (tests, internal dispatch) sees `None`, and per-IP decisions skip or refuse it.

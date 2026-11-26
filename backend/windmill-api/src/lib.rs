@@ -1308,7 +1308,10 @@ pub async fn run_server(
     let listener = listener.tap_io(move |tcp_stream| {
         let _ = tcp_stream.set_nodelay(!server_mode);
     });
-    let server = axum::serve(listener, app.into_make_service());
+    let server = axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    );
 
     tracing::info!(
         instance = %*INSTANCE_NAME,
