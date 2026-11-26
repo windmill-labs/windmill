@@ -1589,7 +1589,15 @@ async fn sso_ruleset_holding(
 // Seating a member and giving the account a password each check what the other writes, so both
 // lock the account's `password` row (shared to join, exclusive to change the credential) until
 // the writing transaction ends. The row, not a separate lock: role updates already lock it first,
-// and a second lock taken in another order would deadlock with them.
+// and a second lock taken in another order would deadlock with them. An email with no row yet
+// (joining ahead of its account, or the account being created) takes `lock_missing_account`.
+async fn lock_missing_account(conn: &mut sqlx::PgConnection, email: &str) -> Result<()> {
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtext('sso_account:' || $1))")
+        .bind(email)
+        .execute(&mut *conn)
+        .await?;
+    Ok(())
+}
 
 /// Refuses seating `email` in `workspace_id` while a `RequireSso` rule there holds them and their
 /// account signs in with a password. `pending_oauth` passes: it can only become a password
@@ -1602,12 +1610,20 @@ pub async fn check_new_member_sso(
     email: &str,
     username: Option<&str>,
 ) -> Result<()> {
-    let account = sqlx::query!(
-        "SELECT login_type, username FROM password WHERE email = $1 FOR SHARE",
-        email
-    )
-    .fetch_optional(&mut *conn)
-    .await?;
+    let mut account = None;
+    for missing_locked in [false, true] {
+        account = sqlx::query!(
+            "SELECT login_type, username FROM password WHERE email = $1 FOR SHARE",
+            email
+        )
+        .fetch_optional(&mut *conn)
+        .await?;
+        if account.is_some() || missing_locked {
+            break;
+        }
+        // Read again once locked: an account created meanwhile is the one to judge.
+        lock_missing_account(conn, email).await?;
+    }
     let Some(account) = account.filter(|a| a.login_type == "password") else {
         return Ok(());
     };
@@ -1628,10 +1644,14 @@ pub async fn check_password_login_allowed(
     conn: &mut sqlx::PgConnection,
     email: &str,
 ) -> Result<()> {
-    sqlx::query("SELECT 1 FROM password WHERE email = $1 FOR NO KEY UPDATE")
+    let locked = sqlx::query("SELECT 1 FROM password WHERE email = $1 FOR NO KEY UPDATE")
         .bind(email)
         .execute(&mut *conn)
-        .await?;
+        .await?
+        .rows_affected();
+    if locked == 0 {
+        lock_missing_account(conn, email).await?;
+    }
     let memberships = sqlx::query!(
         r#"SELECT u.workspace_id, u.username,
                   COALESCE(array_agg(g.group_) FILTER (WHERE g.group_ IS NOT NULL), '{}') AS "groups!"
