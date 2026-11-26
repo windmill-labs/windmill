@@ -6,6 +6,22 @@ export type Changelog = {
 
 const changelogs: Changelog[] = [
 	{
+		label: 'Web search sources in AI chat',
+		href: 'https://www.windmill.dev/changelog/ai-chat-web-search-sources',
+		date: '2026-07-20'
+	},
+	{
+		label: 'Attach text files to AI chat messages',
+		href: 'https://www.windmill.dev/changelog/ai-chat-text-file-attachments',
+		date: '2026-07-21'
+	},
+	{
+		label: 'AI sessions (beta)',
+		href: 'https://www.windmill.dev/changelog/ai-sessions',
+		date: '2026-07-22'
+	},
+
+	{
 		label: 'AWS Bedrock support for Windmill AI',
 		href: 'https://www.windmill.dev/changelog/aws-bedrock',
 		date: '2025-11-19'
