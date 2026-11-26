@@ -37,6 +37,7 @@ pub mod azure_workload_identity;
 pub mod bench;
 pub mod cache;
 pub mod client;
+pub mod client_ip;
 pub mod data_metrics;
 pub mod datatable_roles;
 #[cfg(all(feature = "private", feature = "enterprise"))]
