@@ -1586,17 +1586,29 @@ async fn sso_ruleset_holding(
         .map(|r| r.name))
 }
 
+/// Serializes, per email, seating a member against giving the account a password: each side checks
+/// what the other writes, so without it both can commit past each other's check. Held until the
+/// caller's transaction ends, which must also be the one making the write.
+async fn lock_sso_transition(conn: &mut sqlx::PgConnection, email: &str) -> Result<()> {
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtext('sso_transition:' || $1))")
+        .bind(email)
+        .execute(&mut *conn)
+        .await?;
+    Ok(())
+}
+
 /// Refuses seating `email` in `workspace_id` while a `RequireSso` rule there holds them and their
 /// account signs in with a password. `pending_oauth` passes: it can only become a password
 /// account through [`check_password_login_allowed`]. An email with no account yet passes too, for
 /// the same reason. `username` is the one they get in the workspace; without it their instance
-/// username is what bypass lists are matched against.
+/// username is what bypass lists are matched against. A new member is in `all` and nothing else.
 pub async fn check_new_member_sso(
     conn: &mut sqlx::PgConnection,
     workspace_id: &str,
     email: &str,
     username: Option<&str>,
 ) -> Result<()> {
+    lock_sso_transition(conn, email).await?;
     let account = sqlx::query!(
         "SELECT login_type, username FROM password WHERE email = $1",
         email
@@ -1607,7 +1619,8 @@ pub async fn check_new_member_sso(
         return Ok(());
     };
     let username = username.or(account.username.as_deref());
-    if let Some(ruleset) = sso_ruleset_holding(conn, workspace_id, username, &[]).await? {
+    let groups = ["all".to_string()];
+    if let Some(ruleset) = sso_ruleset_holding(conn, workspace_id, username, &groups).await? {
         return Err(Error::BadRequest(format!(
             "Ruleset {ruleset} of {workspace_id} requires SSO: {email} signs in with a password, \
              so it cannot join this workspace"
@@ -1622,6 +1635,7 @@ pub async fn check_password_login_allowed(
     conn: &mut sqlx::PgConnection,
     email: &str,
 ) -> Result<()> {
+    lock_sso_transition(conn, email).await?;
     let memberships = sqlx::query!(
         r#"SELECT u.workspace_id, u.username,
                   COALESCE(array_agg(g.group_) FILTER (WHERE g.group_ IS NOT NULL), '{}') AS "groups!"

@@ -171,7 +171,9 @@ Symbols, not line numbers, are cited: they drift less.
   transitions, never sign-in: password members already in the workspace keep logging in, which only
   the instance's `disable_password_login` stops. A new path that seats a member or writes
   `login_type = 'password'` (or a password on a `pending_oauth` account) must call the matching
-  check; the automatic joins (domain auto-add, instance groups) skip the user instead of failing.
+  check in the transaction that writes, since both take one per-email advisory lock; the automatic
+  joins (domain auto-add and auto-invite, instance groups) skip the user instead of failing. The
+  superadmin instance import (`POST /users/overwrite`) restores accounts as given, unchecked.
 - **Login links** (`login_link` table, `POST /users/login_links` superadmin-only,
   `GET /auth/login_link/{token}` unauthenticated): single-use, ≤15 min, a session cookie and a
   302 to a same-origin `rd`. `require_login_type` on the mint refuses (409) an account whose

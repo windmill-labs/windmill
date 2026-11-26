@@ -868,5 +868,16 @@ async fn test_require_sso(db: Pool<Postgres>) -> anyhow::Result<()> {
     let resp = to_password("pw-bypass@windmill.dev").send().await?;
     assert_eq!(resp.status(), 200, "{}", resp.text().await?);
 
+    // Every new member is in `all`, so bypassing it admits anyone.
+    let resp = post(
+        "/w/sso-ws/workspaces/protection_rules/sso".to_string(),
+        json!({"name": "sso", "rules": ["RequireSso"], "bypass_groups": ["all"], "bypass_users": []}),
+    )
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+    let resp = add("pw@windmill.dev").send().await?;
+    assert_eq!(resp.status(), 201, "{}", resp.text().await?);
+
     Ok(())
 }

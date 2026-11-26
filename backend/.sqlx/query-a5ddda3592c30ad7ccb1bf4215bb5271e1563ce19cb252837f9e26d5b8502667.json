@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT i.email FROM workspace_invite i\n                 JOIN password p ON p.email = i.email AND p.login_type = 'password'\n                 WHERE i.workspace_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "email",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "a5ddda3592c30ad7ccb1bf4215bb5271e1563ce19cb252837f9e26d5b8502667"
+}
