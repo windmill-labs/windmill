@@ -958,9 +958,11 @@ pub async fn update_flow_status_after_job_completion_internal(
                          })?.ok_or_else(|| Error::internal_err(format!("requiring an index in InProgress for flow {flow} at step {}", old_status.step)))?;
 
                         // Past the failure threshold, the iterations not started yet are cancelled:
-                        // those held by `parallelism`, and those whose first step no worker has
-                        // pulled (cancelling that step first, under its row lock, so an iteration
-                        // a worker just started is left alone). Running ones finish, and the loop
+                        // those with no step yet (unpulled, or held by `parallelism`; a `suspend`
+                        // can also be an approval, hence the child check), and those whose
+                        // first step no worker has pulled, as a first attempt rather than a retry
+                        // (cancelling that step first, under its row lock, so an iteration a
+                        // worker just started is left alone). Running ones finish, and the loop
                         // fails once all are in. The count reads the row this transaction updated.
                         if let Some(threshold) = failure_threshold.filter(|_| !success) {
                             sqlx::query!(
@@ -975,6 +977,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                                     WHERE (SELECT n FROM failed) >= $7
                                         AND j.id = q.id AND f.id = j.parent_job AND j.parent_job = ANY($2)
                                         AND q.workspace_id = $5 AND NOT q.running AND q.canceled_by IS NULL
+                                        AND COALESCE((f.flow_status->'retry'->>'fail_count')::int, 0) = 0
                                         AND ((f.flow_status->'step')::int = 0
                                             OR f.flow_status->'modules'->((f.flow_status->'step')::int)->>'id'
                                                 = f.flow_status->'restarted_from'->>'step_id')
@@ -984,7 +987,9 @@ pub async fn update_flow_status_after_job_completion_internal(
                                 SET canceled_by = $3, canceled_reason = $4, scheduled_for = now(), suspend = 0
                                 WHERE workspace_id = $5 AND canceled_by IS NULL
                                     AND (id IN (SELECT parent_job FROM first_steps)
-                                        OR (id = ANY($2) AND suspend > 0 AND (SELECT n FROM failed) >= $7))",
+                                        OR (id = ANY($2) AND (suspend > 0 OR NOT running)
+                                            AND NOT EXISTS (SELECT 1 FROM v2_job c WHERE c.parent_job = v2_job_queue.id)
+                                            AND (SELECT n FROM failed) >= $7))",
                                 flow,
                                 jobs.as_slice(),
                                 FAILURE_THRESHOLD_CANCELER,

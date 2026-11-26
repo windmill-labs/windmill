@@ -114,7 +114,9 @@
 		if (!threshold || failed < threshold) return undefined
 		return {
 			short: 'Stopped: failure threshold reached',
-			detail: `${threshold} iteration${threshold > 1 ? 's' : ''} failed, the loop's failure threshold. Iterations not started yet were canceled.`
+			detail:
+				`${threshold} iteration${threshold > 1 ? 's' : ''} failed, the loop's failure threshold.` +
+				(value.parallel ? ' Iterations not started yet were canceled.' : '')
 		}
 	})
 
