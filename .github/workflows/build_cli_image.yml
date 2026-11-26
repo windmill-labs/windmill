@@ -22,7 +22,7 @@ jobs:
     if: github.event_name == 'push' || !startsWith(github.ref, 'refs/tags/')
     runs-on: ubicloud
     steps:
-      - uses: actions/checkout@v4.4.0
+      - uses: actions/checkout@v7.0.1
         with:
           fetch-depth: 0
       - uses: depot/setup-action@v1.7.2

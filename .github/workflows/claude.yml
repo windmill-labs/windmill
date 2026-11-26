@@ -37,7 +37,7 @@ jobs:
       id-token: write
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4.4.0
+        uses: actions/checkout@v7.0.1
         with:
           fetch-depth: 1
 
@@ -67,7 +67,7 @@ jobs:
 
       - name: Checkout EE repository
         if: steps.ee.outputs.available == 'true'
-        uses: actions/checkout@v4.4.0
+        uses: actions/checkout@v7.0.1
         with:
           repository: windmill-labs/windmill-ee-private
           path: ./windmill-ee-private

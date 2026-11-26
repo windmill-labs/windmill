@@ -9,7 +9,7 @@ jobs:
   publish_gallery:
     runs-on: ubicloud-standard-8
     steps:
-      - uses: actions/checkout@v4.4.0
+      - uses: actions/checkout@v7.0.1
       - run: . ./powershell-client/publish.ps1
         shell: pwsh
         env:

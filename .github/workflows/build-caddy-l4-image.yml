@@ -26,7 +26,7 @@ jobs:
   build_ee:
     runs-on: ubicloud
     steps:
-      - uses: actions/checkout@v4.4.0
+      - uses: actions/checkout@v7.0.1
       - uses: depot/setup-action@v1.7.2
 
       # docker-compose.yml pins an exact tag, and the Caddyfile it must agree

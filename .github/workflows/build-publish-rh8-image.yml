@@ -11,7 +11,7 @@ jobs:
   build_ee:
     runs-on: ubicloud-standard-4
     steps:
-      - uses: actions/checkout@v4.4.0
+      - uses: actions/checkout@v7.0.1
         with:
           fetch-depth: 0
 
@@ -19,7 +19,7 @@ jobs:
         run: |
           echo "ee_repo_ref=$(cat ./backend/ee-repo-ref.txt)" >> "$GITHUB_ENV"
 
-      - uses: actions/checkout@v4.4.0
+      - uses: actions/checkout@v7.0.1
         with:
           repository: windmill-labs/windmill-ee-private
           path: ./windmill-ee-private

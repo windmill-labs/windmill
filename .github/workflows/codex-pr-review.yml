@@ -176,7 +176,7 @@ jobs:
 
       - name: Checkout repository
         if: steps.codex_config.outputs.enabled == 'true' && steps.pr.outputs.skip != 'true'
-        uses: actions/checkout@v5.1.0
+        uses: actions/checkout@v7.0.1
         with:
           ref: refs/pull/${{ steps.pr.outputs.pr_number }}/merge
           fetch-depth: 1
@@ -204,7 +204,7 @@ jobs:
 
       - name: Checkout EE repository
         if: steps.ee.outputs.available == 'true'
-        uses: actions/checkout@v5.1.0
+        uses: actions/checkout@v7.0.1
         with:
           repository: windmill-labs/windmill-ee-private
           path: ./windmill-ee-private

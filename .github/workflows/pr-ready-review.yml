@@ -96,7 +96,7 @@ jobs:
 
       - name: Checkout repository
         if: steps.marker.outputs.skip != 'true'
-        uses: actions/checkout@v5.1.0
+        uses: actions/checkout@v7.0.1
         with:
           fetch-depth: 1
 
@@ -115,7 +115,7 @@ jobs:
 
       - name: Checkout EE repository
         if: steps.ee.outputs.available == 'true'
-        uses: actions/checkout@v5.1.0
+        uses: actions/checkout@v7.0.1
         with:
           repository: windmill-labs/windmill-ee-private
           path: ./windmill-ee-private
