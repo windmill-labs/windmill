@@ -4,7 +4,7 @@
 	import AiUsagePanel from '$lib/components/workspaceSettings/AiUsagePanel.svelte'
 	import { copilotInfo, copilotWorkspace } from '$lib/aiStore'
 
-	let { open = $bindable(false) }: { open?: boolean } = $props()
+	let { open = $bindable() }: { open?: boolean } = $props()
 </script>
 
 <Drawer bind:open size="800px">

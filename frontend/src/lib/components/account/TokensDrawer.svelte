@@ -13,7 +13,7 @@
 	}
 
 	let {
-		open = $bindable(false),
+		open = $bindable(),
 		scopes = undefined,
 		newTokenLabel = undefined,
 		newTokenWorkspace = undefined,

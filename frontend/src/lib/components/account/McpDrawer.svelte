@@ -3,7 +3,7 @@
 	import CreateToken from '$lib/components/settings/CreateToken.svelte'
 	import { accountSettingsHref } from '$lib/components/sidebar/settings'
 
-	let { open = $bindable(false) }: { open?: boolean } = $props()
+	let { open = $bindable() }: { open?: boolean } = $props()
 </script>
 
 <Drawer bind:open size="800px">

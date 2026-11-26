@@ -12,7 +12,7 @@
 	} from '$lib/darkModeVariant'
 	import { ACCOUNT_SETTINGS_LINKS } from './accountSettingsLinks'
 
-	let { open = $bindable(false) }: { open?: boolean } = $props()
+	let { open = $bindable() }: { open?: boolean } = $props()
 
 	let darkVariant = $state<DarkModeVariant>(getDarkModeVariant())
 
