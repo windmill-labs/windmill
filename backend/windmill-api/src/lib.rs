@@ -323,6 +323,25 @@ async fn set_request_client(
     windmill_common::trigger_history::scope_client(client, next.run(req)).await
 }
 
+/// Scope the request in its origin (client address and user agent), recorded on the audit
+/// entries it writes. A request routed in-process has no connect info and keeps the origin
+/// of the request that routed it.
+async fn set_request_origin(
+    req: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    use windmill_common::request_origin::{current, scope, RequestOrigin};
+    let peer = req
+        .extensions()
+        .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
+        .map(|c| c.0.ip());
+    let origin = match (peer, current()) {
+        (None, Some(outer)) => (*outer).clone(),
+        (peer, _) => RequestOrigin::from_request(peer, req.headers()),
+    };
+    scope(origin, next.run(req)).await
+}
+
 #[cfg(not(feature = "tantivy"))]
 type IndexReader = ();
 
@@ -1292,6 +1311,8 @@ pub async fn run_server(
 
     let app = app.layer(axum::middleware::from_fn(set_request_client));
 
+    let app = app.layer(axum::middleware::from_fn(set_request_origin));
+
     let app = app.layer(CatchPanicLayer::custom(|err| {
         tracing::error!("panic in handler, returning 500: {:?}", err);
         Response::builder()
@@ -1308,7 +1329,10 @@ pub async fn run_server(
     let listener = listener.tap_io(move |tcp_stream| {
         let _ = tcp_stream.set_nodelay(!server_mode);
     });
-    let server = axum::serve(listener, app.into_make_service());
+    let server = axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    );
 
     tracing::info!(
         instance = %*INSTANCE_NAME,

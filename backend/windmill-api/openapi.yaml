@@ -34480,6 +34480,12 @@ components:
           type: object
         span:
           type: string
+        client_ip:
+          type: string
+          description: Address of the client that made the request. Forwarding headers are believed only from the proxies listed in the TRUSTED_PROXIES environment variable (loopback by default, plus the private ranges on Windmill Cloud), so behind a reverse proxy this is the proxy's address until it is listed. Absent on entries no request stands behind.
+        user_agent:
+          type: string
+          description: User-Agent header of the request.
       required:
         - workspace_id
         - id
