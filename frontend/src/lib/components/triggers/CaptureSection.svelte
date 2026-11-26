@@ -36,12 +36,13 @@
 	import { FlaskConical } from 'lucide-svelte'
 	import Alert from '../common/alert/Alert.svelte'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
-	import { useTriggerLock } from '$lib/operatorWriteRights'
+	import { useRoleCapabilities, useTriggerLock } from '$lib/operatorWriteRights'
 
 	const operatingWorkspace = useOperatingWorkspace()
 	// Saving a capture config is a trigger write the server refuses to a withdrawn operator, so
 	// every capture kind locks here rather than each editor passing it down.
 	const triggerLock = useTriggerLock()
+	const roleCaps = useRoleCapabilities()
 
 	interface Props {
 		disabled?: boolean | undefined
@@ -66,6 +67,9 @@
 		children,
 		displayAlert = false
 	}: Props = $props()
+
+	// The button inserts an inline script, which the server refuses in a compose-only role's flow.
+	const canAddInlinePreprocessor = $derived(!captureInfo.isFlow || $roleCaps.flows !== 'compose')
 
 	const testKind: 'preprocessor' | 'main' = $derived(hasPreprocessor ? 'preprocessor' : 'main')
 
@@ -482,7 +486,8 @@
 							<Alert type="info" title="Raw payload displayed" size="xs" class="mt-2 mb-2">
 								<div class="flex flex-col gap-2">
 									<div>
-										Add a preprocessor to use the raw payload data in the flow.
+										Add a preprocessor{canAddInlinePreprocessor ? '' : ' from the flow graph'} to use
+										the raw payload data in the flow.
 										<a
 											href="https://www.windmill.dev/docs/core_concepts/preprocessors"
 											target="_blank"
@@ -493,24 +498,26 @@
 											<ExternalLink size={12} class="inline-block" />
 										</a>
 									</div>
-									<div class="flex justify-end">
-										<Button
-											size="xs"
-											variant="accent"
-											wrapperClasses="w-fit"
-											onclick={() => {
-												if (selectedCapture) {
-													dispatch('addPreprocessor', {
-														args: $state.snapshot(payloadData)
-													})
-												} else {
-													dispatch('addPreprocessor')
-												}
-											}}
-										>
-											Add preprocessor
-										</Button>
-									</div>
+									{#if canAddInlinePreprocessor}
+										<div class="flex justify-end">
+											<Button
+												size="xs"
+												variant="accent"
+												wrapperClasses="w-fit"
+												onclick={() => {
+													if (selectedCapture) {
+														dispatch('addPreprocessor', {
+															args: $state.snapshot(payloadData)
+														})
+													} else {
+														dispatch('addPreprocessor')
+													}
+												}}
+											>
+												Add preprocessor
+											</Button>
+										</div>
+									{/if}
 								</div>
 							</Alert>
 						{/if}

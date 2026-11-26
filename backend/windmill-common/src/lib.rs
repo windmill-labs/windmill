@@ -37,6 +37,7 @@ pub mod azure_workload_identity;
 pub mod bench;
 pub mod cache;
 pub mod client;
+pub mod client_ip;
 pub mod data_metrics;
 pub mod datatable_roles;
 #[cfg(all(feature = "private", feature = "enterprise"))]
@@ -98,6 +99,7 @@ pub mod job_provenance;
 pub mod jobs;
 pub mod jwt;
 pub mod login_rate_limit;
+pub mod request_origin;
 pub mod more_serde;
 pub mod oauth2;
 #[cfg(all(feature = "enterprise", feature = "openidconnect", feature = "private"))]
@@ -482,6 +484,10 @@ lazy_static::lazy_static! {
     pub static ref OTEL_METRICS_ENABLED: AtomicBool = AtomicBool::new(std::env::var("OTEL_METRICS").is_ok());
     pub static ref OTEL_TRACING_ENABLED: AtomicBool = AtomicBool::new(std::env::var("OTEL_TRACING").is_ok());
     pub static ref OTEL_LOGS_ENABLED: AtomicBool = AtomicBool::new(std::env::var("OTEL_LOGS").is_ok());
+    /// Leave audit events out of the logs export, for when the audit export carries them.
+    pub static ref OTEL_LOGS_EXCLUDE_AUDIT: AtomicBool = AtomicBool::new(env_bool("OTEL_LOGS_EXCLUDE_AUDIT"));
+    pub static ref OTEL_AUDIT_LOGS_EXPORT: std::sync::RwLock<Option<OtelAuditLogsExport>> =
+        std::sync::RwLock::new(OtelAuditLogsExport::from_env());
 
     pub static ref METRICS_DEBUG_ENABLED: AtomicBool = AtomicBool::new(false);
 
@@ -3466,4 +3472,59 @@ impl KillpillSender {
     // fn is_sent(&self) -> bool {
     //     self.already_sent.load(Ordering::SeqCst)
     // }
+}
+
+fn env_bool(var: &str) -> bool {
+    std::env::var(var).is_ok_and(|x| x.parse::<bool>().unwrap_or(false))
+}
+
+/// An OTLP logs exporter of its own for audit events, beside the logs export: audit events can
+/// go to long-term storage while the service logs go elsewhere, or nowhere.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OtelAuditLogsExport {
+    pub endpoint: String,
+    /// `key=value` pairs separated by commas, as in `OTEL_EXPORTER_OTLP_HEADERS`.
+    pub headers: Option<String>,
+    /// `grpc` (the default) or `http/protobuf`.
+    pub protocol: Option<String>,
+    /// Only the audit events of these workspaces, and of the instance itself, are exported.
+    /// `None` exports every workspace.
+    pub workspaces: Option<Vec<String>>,
+}
+
+impl OtelAuditLogsExport {
+    pub fn new(
+        enabled: bool,
+        endpoint: Option<String>,
+        headers: Option<String>,
+        protocol: Option<String>,
+        workspaces: Option<Vec<String>>,
+    ) -> Option<Self> {
+        let endpoint = endpoint.filter(|e| !e.trim().is_empty())?;
+        enabled.then(|| Self {
+            endpoint: endpoint.trim().to_string(),
+            headers: headers.filter(|h| !h.trim().is_empty()),
+            protocol: protocol.filter(|p| !p.trim().is_empty()),
+            workspaces: workspaces
+                .map(|w| {
+                    w.iter()
+                        .map(|w| w.trim().to_string())
+                        .filter(|w| !w.is_empty())
+                        .collect::<Vec<_>>()
+                })
+                .filter(|w| !w.is_empty()),
+        })
+    }
+
+    fn from_env() -> Option<Self> {
+        Self::new(
+            env_bool("OTEL_AUDIT_LOGS_ENABLED"),
+            std::env::var("OTEL_AUDIT_LOGS_ENDPOINT").ok(),
+            std::env::var("OTEL_AUDIT_LOGS_HEADERS").ok(),
+            std::env::var("OTEL_AUDIT_LOGS_PROTOCOL").ok(),
+            std::env::var("OTEL_AUDIT_LOGS_WORKSPACES")
+                .ok()
+                .map(|v| v.split(',').map(str::to_string).collect()),
+        )
+    }
 }

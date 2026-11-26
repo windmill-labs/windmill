@@ -138,6 +138,7 @@
 	import { editInForkAllowed, editInForkLabel, openEditInFork } from '$lib/utils/editInFork'
 	import { isCloudHosted } from '$lib/cloud'
 	import { UserDraft } from '$lib/userDraft.svelte'
+	import { assertDraftSaved } from './sessions/pageDrawerSession'
 	import { setOpenInSessionHandoff } from './sessions/openInSessionContext'
 	import { getEditorStoragePath, setEditorStoragePath } from './editorStoragePathContext'
 	import { useEditRights, useRoleCapabilities, useTriggerLock } from '$lib/operatorWriteRights'
@@ -494,9 +495,15 @@
 	// discardIf baseline, safe only when there is none.
 	async function persistDraftForSession(): Promise<void> {
 		await saveDraft()
-		if (opWorkspace && liveEditorDraftStoragePath && newFlow) {
+		if (!opWorkspace || !liveEditorDraftStoragePath) return
+		if (newFlow) {
 			await UserDraft.forcePersist('flow', liveEditorDraftStoragePath, { workspace: opWorkspace })
 		}
+		assertDraftSaved({
+			workspace: opWorkspace,
+			itemKind: 'flow',
+			path: liveEditorDraftStoragePath
+		})
 	}
 
 	export function computeUnlockedSteps(flow: Flow) {
@@ -1034,18 +1041,16 @@
 	const outerStoragePath = getEditorStoragePath()
 	setEditorStoragePath(() => liveEditorDraftStoragePath ?? outerStoragePath?.())
 
-	// "Open in AI session" target: the URL draft path the editor loads/saves by
-	// (which for a new flow differs from the live-edited friendly `$pathStore`),
-	// falling back to `$pathStore` in drawer mounts that carry no storage path.
-	const sessionTargetPath = $derived(liveEditorDraftStoragePath || $pathStore)
-
 	const aiBuilderShown = $derived(!disableAi && customUi?.topBar?.aiBuilder != false)
 	const showFlowAiButton = $derived(aiBuilderShown && $roleCaps.flows !== 'compose')
 
+	// Targets the draft path the editor loads/saves by, which for a new flow differs from
+	// the live-edited friendly `$pathStore`. A drawer mount has none: its edits are in no
+	// draft, so leaving for a session would lose them.
 	const sessionOpen = $derived(
-		sessionTargetPath
+		indicatorPath
 			? {
-					target: { kind: 'flow' as const, path: sessionTargetPath },
+					target: { kind: 'flow' as const, path: indicatorPath },
 					workspaceId: opWorkspace ?? undefined,
 					beforeOpen: persistDraftForSession
 				}

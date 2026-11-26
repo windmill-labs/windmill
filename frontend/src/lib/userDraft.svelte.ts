@@ -930,13 +930,25 @@ function releaseEntry(mk: string): void {
  */
 function makeDetachedHandle<V>(defaultValue?: V): UserDraftHandle<V> {
 	let val = $state<V | undefined>(snapshotDraftValue(defaultValue))
-	return {
-		get draft(): V | undefined {
-			return val
-		},
-		set draft(value: V | undefined) {
-			val = value
-		}
+	return new Handle<V>(
+		() => val,
+		(value) => (val = value)
+	)
+}
+
+// A class instance, not an object literal: `$state` proxies plain objects, so a literal
+// stored in `useMany`'s `handles` would reach callers as a new proxy on every reconcile,
+// and the reconcile's `===` no-op check would compare a proxy with its raw handle.
+class Handle<V> implements UserDraftHandle<V> {
+	constructor(
+		private read: () => V | undefined,
+		private write: (value: V | undefined) => void
+	) {}
+	get draft(): V | undefined {
+		return this.read()
+	}
+	set draft(value: V | undefined) {
+		this.write(value)
 	}
 }
 
@@ -950,15 +962,13 @@ function makeHandle<V>(
 	// throwing — the consumer should already be torn down by then.
 	const mk = mapKey(workspace, itemKind, path)
 	const stateOf = (): DraftState<unknown> | undefined => entries.get(mk)?.state
-	return {
-		get draft(): V | undefined {
-			return stateOf()?.val as V | undefined
-		},
-		set draft(value: V | undefined) {
+	return new Handle<V>(
+		() => stateOf()?.val as V | undefined,
+		(value) => {
 			const state = stateOf()
 			if (state) state.val = value
 		}
-	}
+	)
 }
 
 /** Test-only: clear all in-memory entries. */

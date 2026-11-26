@@ -54,6 +54,7 @@ export async function pull(opts: GlobalOptions) {
   if (hubBaseUrl !== DEFAULT_HUB_BASE_URL) {
     const hubSecret = (await wmill.getGlobal({
       key: "hub_api_secret",
+      dangerouslyRevealSecrets: true,
     })) as string | undefined;
     log.info("Fetching resource types from private hub: " + hubBaseUrl);
     if (hubSecret) {

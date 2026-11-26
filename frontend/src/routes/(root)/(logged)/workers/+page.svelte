@@ -228,7 +228,8 @@
 
 		try {
 			const licenseKey = (await SettingService.getGlobal({
-				key: 'license_key'
+				key: 'license_key',
+				dangerouslyRevealSecrets: true
 			})) as string
 
 			if (!licenseKey) {

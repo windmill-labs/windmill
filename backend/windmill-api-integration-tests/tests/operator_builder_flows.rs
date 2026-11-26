@@ -1,7 +1,10 @@
 use serde_json::json;
+use serial_test::serial;
 use sqlx::{Pool, Postgres};
 use windmill_test_utils::*;
 
+/// Every test here must be `#[serial]`: the rights cache is process-global and keyed by workspace id
+/// alone, so parallel tests under this same id read each other's rights.
 const WS: &str = "test-workspace";
 
 fn operator_client() -> reqwest::Client {
@@ -82,6 +85,7 @@ fn inline_code_flow(path: &str) -> serde_json::Value {
 /// already deployed and nothing more, and the endpoints that author code stay shut whether or not
 /// it is granted.
 #[sqlx::test(migrations = "../migrations", fixtures("base", "permissions_test"))]
+#[serial]
 async fn test_operator_builder_flows_boundary(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
     let server = ApiServer::start(db.clone()).await?;
@@ -475,5 +479,51 @@ async fn check_builder_agents(
         "a builder must not override an input the agent's author set"
     );
 
+    Ok(())
+}
+
+/// Each slot of a flow picks scripts of its own kind. A role without `code` gets the kind it asks
+/// for, preprocessors without a main included, and still no library.
+#[sqlx::test(migrations = "../migrations", fixtures("base", "permissions_test"))]
+#[serial]
+async fn test_operator_lists_scripts_of_the_requested_kind(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let api = format!("http://localhost:{port}/api/w/{WS}");
+    let c = operator_client();
+
+    add_script(&db, 5001, "u/operator/action", "operator").await?;
+    add_script(&db, 5002, "u/operator/library", "operator").await?;
+    add_script(&db, 5003, "u/operator/prep", "operator").await?;
+    sqlx::query(
+        "UPDATE script SET auto_kind = 'lib',
+             kind = CASE WHEN hash = 5003 THEN 'preprocessor' ELSE kind END
+         WHERE hash IN (5002, 5003)",
+    )
+    .execute(&db)
+    .await?;
+
+    for (query, expected) in [
+        ("", vec!["u/operator/action"]),
+        ("&kinds=preprocessor", vec!["u/operator/prep"]),
+        (
+            "&kinds=script,preprocessor",
+            vec!["u/operator/action", "u/operator/prep"],
+        ),
+    ] {
+        let scripts: Vec<serde_json::Value> = c
+            .get(format!("{api}/scripts/list?path_start=u/operator/{query}"))
+            .send()
+            .await?
+            .error_for_status()?
+            .json()
+            .await?;
+        let mut paths: Vec<&str> = scripts.iter().filter_map(|s| s["path"].as_str()).collect();
+        paths.sort();
+        assert_eq!(paths, expected, "scripts listed for `{query}`");
+    }
     Ok(())
 }

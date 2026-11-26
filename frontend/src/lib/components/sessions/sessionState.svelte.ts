@@ -29,7 +29,7 @@ import {
 import { deleteSessionHandEdits } from './sessionHandEdits.svelte'
 import { deleteSessionChats } from '../copilot/chat/HistoryManager.svelte'
 import type { DraftAttachments } from '../copilot/chat/messageDraft.svelte'
-import type { AppDomSelectorElement } from '../copilot/chat/context'
+import type { PickContext } from '../copilot/chat/context'
 import {
 	markSessionDirty,
 	markSessionRemoved,
@@ -203,10 +203,10 @@ export type Session = {
 	// would otherwise leave a session armed forever and fire on some later visit.
 	// Consumed exactly once, by takeSessionAutoSend.
 	autoSendDraftAt?: number
-	// The element a preview pick hands over with the auto-sent prompt, sent as its
-	// chip. Lives and dies with `autoSendDraftAt`: a prompt like "make this bigger"
-	// must never go out without the element it names.
-	autoSendDomElement?: AppDomSelectorElement
+	// The preview element or code selection handed over with the auto-sent prompt, sent as
+	// its chip. Lives and dies with `autoSendDraftAt`: a prompt like "make this bigger"
+	// must never go out without what it names.
+	autoSendPick?: PickContext
 }
 
 // One preview tab: `url` is the URL we command the iframe to load, `loc` the
@@ -482,17 +482,17 @@ const AUTO_SEND_TTL_MS = 5 * 60_000
 // Mark this session's draft prompt for sending on arrival. Written straight to
 // the record (not via setSessionDraftPrompt's debounce) because the navigation
 // that follows must not outrun it.
-export function setSessionAutoSend(sessionId: string, domElement?: AppDomSelectorElement): void {
+export function setSessionAutoSend(sessionId: string, pick?: PickContext): void {
 	const s = sessionState.sessions.find((x) => x.id === sessionId)
 	if (!s) return
 	s.autoSendDraftAt = Date.now()
-	s.autoSendDomElement = domElement
+	s.autoSendPick = pick
 	persistTouched(s)
 }
 
-// The element armed with the auto-send intent; read before takeSessionAutoSend clears both.
-export function getSessionAutoSendDomElement(sessionId: string): AppDomSelectorElement | undefined {
-	return sessionState.sessions.find((x) => x.id === sessionId)?.autoSendDomElement
+// The pick armed with the auto-send intent; read before takeSessionAutoSend clears both.
+export function getSessionAutoSendPick(sessionId: string): PickContext | undefined {
+	return sessionState.sessions.find((x) => x.id === sessionId)?.autoSendPick
 }
 
 function autoSendIsFresh(s: Session | undefined): boolean {
@@ -515,7 +515,7 @@ export function takeSessionAutoSend(sessionId: string): boolean {
 	if (!s?.autoSendDraftAt) return false
 	const fresh = autoSendIsFresh(s)
 	delete s.autoSendDraftAt
-	delete s.autoSendDomElement
+	delete s.autoSendPick
 	persistTouched(s)
 	return fresh
 }

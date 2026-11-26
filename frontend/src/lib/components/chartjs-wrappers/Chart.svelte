@@ -8,6 +8,7 @@
 	import 'chart.js/auto'
 	import 'chartjs-adapter-date-fns'
 	import { untrack } from 'svelte'
+	import { clone } from '$lib/utils'
 
 	interface Props extends HTMLCanvasAttributes {
 		type: T
@@ -28,7 +29,7 @@
 			chart = new Chart(canvasElem, {
 				type,
 				data: $state.snapshot(data) as typeof data,
-				options: $state.snapshot(options) as typeof options
+				options: clone(options)
 			})
 		})
 		return () => {

@@ -17,6 +17,9 @@
 	import ItemsList from '$lib/components/home/ItemsList.svelte'
 	import RecentRunsPanel from '$lib/components/home/RecentRunsPanel.svelte'
 	import RecentRunsHeaderStatus from '$lib/components/home/RecentRunsHeaderStatus.svelte'
+	import WaitingApprovalsHeaderStatus from '$lib/components/home/WaitingApprovalsHeaderStatus.svelte'
+	import WaitingApprovalsPanel from '$lib/components/home/WaitingApprovalsPanel.svelte'
+	import { useWaitingApprovals } from '$lib/components/home/waitingApprovals.svelte'
 	import {
 		allRunsHref,
 		itemHref,
@@ -126,6 +129,17 @@
 	// The side panel needs the room of a desktop window; narrower, only the header status shows.
 	const wide = new MediaQuery('min-width: 1024px')
 	let showRunsPanel = $derived(showRuns && wide.current && runsPanelOpen.val)
+	// Read whether or not the workspace shows the user any item: someone who can only approve,
+	// through a group, may see none of its scripts or flows.
+	const waitingApprovals = useWaitingApprovals(() => $workspaceStore ?? undefined)
+	const approvalsSectionOpen = usePanelOpen('wm-home-approvals-open')
+	let showApprovalsPanel = $derived(
+		tab == 'workspace' && wide.current && approvalsSectionOpen.val && waitingApprovals.total > 0
+	)
+	let showApprovalsStatus = $derived(waitingApprovals.total > 0 && !showApprovalsPanel)
+	let showSideColumn = $derived(showRunsPanel || showApprovalsPanel)
+	const SIDE_CARD =
+		'flex flex-col bg-surface-tertiary border border-border-light rounded-lg px-5 pt-2 pb-3 group-has-[[data-composer-open]]/home:bg-transparent group-has-[[data-composer-open]]/home:border-transparent'
 	const runsMenuId = homeHeaderMenu.register(200, () => {
 		const data = recentRuns.current
 		if (!showRuns || showRunsPanel || !homeActionsGathered()) return []
@@ -348,6 +362,15 @@
 {/snippet}
 
 {#snippet runsStatus()}
+	<!-- Stays in the bar when the other actions gather into ⋮, down to the hourglass and the count:
+	     it is the one thing in the bar that waits on the user. -->
+	{#if showApprovalsStatus}
+		<WaitingApprovalsHeaderStatus
+			compact={homeActionsCompact()}
+			approvals={waitingApprovals}
+			onShowSection={wide.current ? () => (approvalsSectionOpen.val = true) : undefined}
+		/>
+	{/if}
 	{#if showRuns && !showRunsPanel && !homeActionsGathered()}
 		<RecentRunsHeaderStatus
 			compact={homeActionsCompact()}
@@ -373,17 +396,17 @@
 	<!-- Where edits to this workspace are made is a fact about the workspace, so it sits in the
 	     header with the workspace's own name rather than above the list. -->
 	<PageHeaderContent actions={editRuleBadge} />
-	<!-- After the home menu (order 100): the run status closes the bar. -->
+	<!-- After the home menu (order 100): the run statuses close the bar. -->
 	<PageHeaderContent
 		actions={runsStatus}
 		actionsOrder={200}
 		actionFolds={HOME_ACTION_FOLDS}
-		actionsVersion={homeActionsVersion()}
+		actionsVersion={`${homeActionsVersion()}:${showApprovalsStatus}`}
 	/>
 
 	<ForkWorkspaceBanner />
 	<WorkspaceDraftsBanner />
-	<div class="flex w-full justify-center {showRunsPanel ? 'max-w-[1520px]' : ''}">
+	<div class="flex w-full justify-center {showSideColumn ? 'max-w-[1520px]' : ''}">
 		<div class="flex flex-col items-center flex-1 min-w-0">
 			<!-- While the composer is open this column stays at the top and the lists scroll under it. Its
 	     parent holds the lists too, because a sticky element holds only inside its parent; its
@@ -485,23 +508,41 @@
 				<ItemsList bind:this={itemsList} bind:subtab showEditButtons={showCreateButtons} />
 			{/if}
 		</div>
-		{#if showRunsPanel}
-			<!-- Beside the composer and the items card, as one of the page's cards, and like them it
-		     loses its frame while the composer is open. The page scrolls, so it holds to the top
-		     and its list scrolls inside it. `data-works-with-composer`: a press in it leaves the
-		     composer open, as one in the items card does. -->
-			<aside
+		{#if showSideColumn}
+			<!-- Beside the composer and the items card, as the page's cards, and like them its cards
+		     lose their frame while the composer is open. The page scrolls, so the column holds to
+		     the top and each list scrolls inside its card. `data-works-with-composer`: a press in
+		     it leaves the composer open, as one in the items card does. -->
+			<div
 				data-works-with-composer
-				class="sticky top-3 self-start shrink-0 w-[380px] max-[1180px]:w-[300px] -ml-2 mr-4 mt-3 mb-6 max-h-[calc(100dvh-48px-1.5rem)] flex flex-col bg-surface-tertiary border border-border-light rounded-lg px-5 pt-2 pb-3 group-has-[[data-composer-open]]/home:bg-transparent group-has-[[data-composer-open]]/home:border-transparent"
-				aria-label="Recently run"
+				class="sticky top-3 self-start shrink-0 w-[380px] max-[1180px]:w-[300px] -ml-2 mr-4 mt-3 mb-6 max-h-[calc(100dvh-48px-1.5rem)] flex flex-col gap-3"
 			>
-				<RecentRunsPanel
-					runs={recentRuns}
-					folder={runsFolder}
-					onFocusItem={revealRunItem}
-					onCollapse={() => (runsPanelOpen.val = false)}
-				/>
-			</aside>
+				{#if showApprovalsPanel}
+					<!-- At most half the column with Recently run below it: a long queue scrolls inside.
+					     The column has no height of its own, so a percentage would cap nothing. -->
+					<aside
+						class="{SIDE_CARD} min-h-0 {showRunsPanel
+							? 'max-h-[calc((100dvh-48px-1.5rem)/2)]'
+							: ''}"
+						aria-label="Awaiting your approval"
+					>
+						<WaitingApprovalsPanel
+							approvals={waitingApprovals}
+							onCollapse={() => (approvalsSectionOpen.val = false)}
+						/>
+					</aside>
+				{/if}
+				{#if showRunsPanel}
+					<aside class="{SIDE_CARD} min-h-0 flex-1" aria-label="Recently run">
+						<RecentRunsPanel
+							runs={recentRuns}
+							folder={runsFolder}
+							onFocusItem={revealRunItem}
+							onCollapse={() => (runsPanelOpen.val = false)}
+						/>
+					</aside>
+				{/if}
+			</div>
 		{/if}
 	</div>
 </div>

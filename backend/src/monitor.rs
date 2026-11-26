@@ -111,7 +111,7 @@ use windmill_common::{
     CRITICAL_ALERT_MUTE_ZOMBIE_JOB_RESTART, CRITICAL_ERROR_CHANNELS, DB, DEFAULT_HUB_BASE_URL,
     DEFAULT_OTEL_TRACES_RETENTION_SECS, DEFAULT_SERVICE_LOG_RETENTION_SECS, HUB_BASE_URL,
     JOB_RETENTION_SECS, JOB_RETENTION_SECS_OVERRIDES, JOB_RETENTION_SECS_OVERRIDES_LOADED,
-    METRICS_DEBUG_ENABLED, METRICS_ENABLED, MONITOR_LOGS_ON_OBJECT_STORE, OTEL_LOGS_ENABLED,
+    METRICS_DEBUG_ENABLED, METRICS_ENABLED, MONITOR_LOGS_ON_OBJECT_STORE, OtelAuditLogsExport, OTEL_AUDIT_LOGS_EXPORT, OTEL_LOGS_ENABLED, OTEL_LOGS_EXCLUDE_AUDIT,
     OTEL_METRICS_ENABLED, OTEL_TRACING_ENABLED, STORE_AUDIT_LOGS_S3,
 };
 use windmill_common::{
@@ -802,6 +802,15 @@ pub fn apply_metrics_enabled(value: Option<serde_json::Value>) {
 struct OtelSetting {
     metrics_enabled: Option<bool>,
     logs_enabled: Option<bool>,
+    logs_exclude_audit: Option<bool>,
+    audit_logs_enabled: Option<bool>,
+    #[serde(default, deserialize_with = "empty_as_none")]
+    audit_logs_endpoint: Option<String>,
+    #[serde(default, deserialize_with = "empty_as_none")]
+    audit_logs_headers: Option<String>,
+    #[serde(default, deserialize_with = "empty_as_none")]
+    audit_logs_protocol: Option<String>,
+    audit_logs_workspaces: Option<Vec<String>>,
     tracing_enabled: Option<bool>,
     #[serde(default, deserialize_with = "empty_as_none")]
     otel_exporter_otlp_endpoint: Option<String>,
@@ -837,6 +846,37 @@ pub async fn load_otel(db: &DB) {
 
                 OTEL_METRICS_ENABLED.store(metrics_enabled, Ordering::Relaxed);
                 OTEL_LOGS_ENABLED.store(logs_enabled, Ordering::Relaxed);
+
+                let env_bool = |var: &str| {
+                    std::env::var(var)
+                        .map(|x| x.parse::<bool>().unwrap_or(false))
+                        .unwrap_or(false)
+                };
+                let logs_exclude_audit = o
+                    .logs_exclude_audit
+                    .unwrap_or_else(|| env_bool("OTEL_LOGS_EXCLUDE_AUDIT"));
+                OTEL_LOGS_EXCLUDE_AUDIT.store(logs_exclude_audit, Ordering::Relaxed);
+                let audit_logs = OtelAuditLogsExport::new(
+                    o.audit_logs_enabled
+                        .unwrap_or_else(|| env_bool("OTEL_AUDIT_LOGS_ENABLED")),
+                    o.audit_logs_endpoint
+                        .or_else(|| std::env::var("OTEL_AUDIT_LOGS_ENDPOINT").ok()),
+                    o.audit_logs_headers
+                        .or_else(|| std::env::var("OTEL_AUDIT_LOGS_HEADERS").ok()),
+                    o.audit_logs_protocol
+                        .or_else(|| std::env::var("OTEL_AUDIT_LOGS_PROTOCOL").ok()),
+                    // A saved empty list means every workspace and does not fall back to the
+                    // environment, so clearing the list in the UI cannot bring an env list back.
+                    o.audit_logs_workspaces.or_else(|| {
+                        std::env::var("OTEL_AUDIT_LOGS_WORKSPACES")
+                            .ok()
+                            .map(|v| v.split(',').map(str::to_string).collect())
+                    }),
+                );
+                let audit_logs_endpoint = audit_logs.as_ref().map(|a| a.endpoint.clone());
+                if let Ok(mut export) = OTEL_AUDIT_LOGS_EXPORT.write() {
+                    *export = audit_logs;
+                }
                 OTEL_TRACING_ENABLED.store(tracing_enabled, Ordering::Relaxed);
 
                 let endpoint = if let Some(endpoint) = o.otel_exporter_otlp_endpoint {
@@ -867,7 +907,7 @@ pub async fn load_otel(db: &DB) {
                         std::env::set_var("OTEL_EXPORTER_OTLP_COMPRESSION", compression);
                     }
                 }
-                println!("OTEL settings loaded: tracing ({tracing_enabled}), logs ({logs_enabled}), metrics ({metrics_enabled}), endpoint ({:?}), headers defined: ({})",
+                println!("OTEL settings loaded: tracing ({tracing_enabled}), logs ({logs_enabled}, without audit: {logs_exclude_audit}), audit logs endpoint ({audit_logs_endpoint:?}), metrics ({metrics_enabled}), endpoint ({:?}), headers defined: ({})",
                 endpoint, headers.is_some());
             } else {
                 tracing::error!("Error deserializing otel settings");

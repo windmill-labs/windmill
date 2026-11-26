@@ -41,7 +41,8 @@ use windmill_common::db::Authed;
 use windmill_common::flow_conversations::{add_message_to_conversation_tx, MessageType};
 use windmill_common::flow_status::{
     ApprovalConditions, ContinuedOnError, FlowJobDuration, FlowJobsDuration,
-    FlowStatusModuleWParent, Iterator as FlowIterator, JobResult, MAX_CONTINUED_ON_ERROR,
+    FlowStatusModuleWParent, HomeListing, Iterator as FlowIterator, JobResult,
+    MAX_CONTINUED_ON_ERROR,
 };
 use windmill_common::flows::{add_virtual_items_if_necessary, Branch, FlowNodeId, StopAfterIf};
 use windmill_common::jobs::{
@@ -3600,6 +3601,7 @@ pub struct ResumeRow {
     pub approver: Option<String>,
     pub approved: bool,
     pub resume_id: i32,
+    pub created_at: chrono::DateTime<chrono::Utc>,
 }
 
 impl ResumeRow {
@@ -4195,7 +4197,7 @@ async fn push_next_flow_job(
             // Query for both step-level resumes (job = step_id) and flow-level resumes (job = flow_id)
             // Flow-level resumes allow pre-approvals that can be consumed by any suspend step
             let resumes = sqlx::query_as::<_, ResumeRow>(
-                 "SELECT value, approver, resume_id, approved FROM resume_job WHERE job = $1 OR job = $2 ORDER BY created_at ASC",
+                 "SELECT value, approver, resume_id, approved, created_at FROM resume_job WHERE job = $1 OR job = $2 ORDER BY created_at ASC",
              )
              .bind(last)
              .bind(flow_job.id)
@@ -4356,7 +4358,9 @@ async fn push_next_flow_job(
                              resume_id: r.resume_id as u16,
                              approver: r
                                  .approver.clone()
-                                 .unwrap_or_else(|| "unknown".to_string())
+                                 .unwrap_or_else(|| "unknown".to_string()),
+                             approved_at: Some(r.created_at),
+                             approved: Some(r.approved),
                          })
                          .collect::<Vec<_>>()
                      ),
@@ -4399,7 +4403,14 @@ async fn push_next_flow_job(
                     json!(FlowStatusModule::WaitingForEvents {
                         id: status_module.id(),
                         count: required_events,
-                        job: last
+                        job: last,
+                        home: (suspend.show_on_home == Some(true)).then(|| HomeListing {
+                            step_summary: usize::try_from(status.step - 1)
+                                .ok()
+                                .and_then(|i| flow.modules.get(i))
+                                .and_then(|m| m.summary.clone())
+                                .filter(|s| !s.is_empty()),
+                        }),
                     }),
                     (required_events.saturating_sub(resume_messages.len() as u16)) as i32,
                     Duration::from_secs(
@@ -7574,6 +7585,7 @@ mod tests {
             approver: Some("ann".to_string()),
             approved: false,
             resume_id: 0,
+            created_at: chrono::Utc::now(),
         };
         assert_eq!(
             denial(json!({"reason": " too risky "})).disapproval_error(),

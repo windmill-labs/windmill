@@ -37,6 +37,8 @@
 	// (the composer keeps every badge the same size).
 	const COMPACT_TYPES = new Set([
 		'app_dom_selector',
+		'code_piece',
+		'flow_module_code_piece',
 		'workspace_app',
 		'workspace_agent',
 		'workspace_script',

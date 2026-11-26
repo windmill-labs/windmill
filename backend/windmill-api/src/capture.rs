@@ -578,6 +578,7 @@ async fn set_config(
         let config = serde_json::to_value(&nc.trigger_config)?;
         let new = windmill_trigger_websocket::WebsocketTrigger::config_runnables(&config);
         check_new_hub_paths(&new, &[], &authed, &db, &w_id).await?;
+        windmill_api_auth::check_run_scopes(&authed, &new)?;
     }
 
     let mut tx = user_db.begin(&authed).await?;

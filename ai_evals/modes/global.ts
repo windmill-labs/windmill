@@ -55,6 +55,7 @@ export function createGlobalModeRunner(
           previewTabs: initial?.previewTabs,
           sessionChat: context.evalCase?.runtime?.sessionChat,
           planMode: context.evalCase?.runtime?.planMode,
+          codeSelections: context.evalCase?.runtime?.codeSelections,
           profile: context.evalCase?.runtime?.profile,
           pipelineRun: context.executionOnly
             ? undefined

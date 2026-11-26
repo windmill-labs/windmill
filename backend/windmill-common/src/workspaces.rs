@@ -81,6 +81,7 @@ bitflags::bitflags! {
         const RESTRICT_PUBLIC_RUN_SHARING =         1 << 4;
         const RESTRICT_GUEST_APP_DEPLOYMENT =       1 << 5;
         const REQUIRE_ISOLATED_FORKS =              1 << 6;
+        const REQUIRE_SSO =                         1 << 7;
     }
 }
 
@@ -95,6 +96,7 @@ pub enum ProtectionRuleKind {
     RestrictPublicRunSharing,
     RestrictGuestAppDeployment,
     RequireIsolatedForks,
+    RequireSso,
 }
 
 impl ProtectionRuleKind {
@@ -119,6 +121,7 @@ impl ProtectionRuleKind {
                 ProtectionRules::RESTRICT_GUEST_APP_DEPLOYMENT
             }
             ProtectionRuleKind::RequireIsolatedForks => ProtectionRules::REQUIRE_ISOLATED_FORKS,
+            ProtectionRuleKind::RequireSso => ProtectionRules::REQUIRE_SSO,
         }
     }
 
@@ -142,6 +145,9 @@ impl ProtectionRuleKind {
             }
             ProtectionRuleKind::RequireIsolatedForks => {
                 "Forks of this workspace must isolate its data: no shared object storage or ducklake, and every data table cloned"
+            }
+            ProtectionRuleKind::RequireSso => {
+                "Every member of this workspace other than a service account must sign in with SSO"
             }
         }
     }
@@ -1553,6 +1559,117 @@ pub async fn check_user_against_rule(
     }
 
     Ok(RuleCheckResult::Allowed)
+}
+
+struct SsoRuleset {
+    name: String,
+    bypass_users: Vec<String>,
+    bypass_groups: Vec<String>,
+}
+
+/// `workspace_id`'s `RequireSso` rulesets, read uncached so a rule just turned on already
+/// refuses the next join.
+async fn sso_rulesets(
+    conn: &mut sqlx::PgConnection,
+    workspace_id: &str,
+) -> Result<Vec<SsoRuleset>> {
+    Ok(sqlx::query_as!(
+        SsoRuleset,
+        "SELECT name, bypass_users, bypass_groups FROM workspace_protection_rule
+         WHERE workspace_id = $1 AND (rules & $2) <> 0 ORDER BY name",
+        workspace_id,
+        ProtectionRules::REQUIRE_SSO.bits(),
+    )
+    .fetch_all(&mut *conn)
+    .await?)
+}
+
+/// The first of `rulesets` that holds a member named `username` in `groups`.
+fn sso_ruleset_holding<'a>(
+    rulesets: &'a [SsoRuleset],
+    username: Option<&str>,
+    groups: &[String],
+) -> Option<&'a str> {
+    rulesets
+        .iter()
+        .find(|r| {
+            !(username.is_some_and(|u| r.bypass_users.iter().any(|b| b == u))
+                || r.bypass_groups.iter().any(|g| groups.contains(g)))
+        })
+        .map(|r| r.name.as_str())
+}
+
+/// Refuses seating `email` in `workspace_id` while a `RequireSso` rule there holds them and their
+/// account signs in with a password. `pending_oauth` passes: it can only become a password
+/// account through [`check_password_login_allowed`]. An email with no account yet passes too, for
+/// the same reason. `username` is the one they get in the workspace; without it their instance
+/// username is what bypass lists are matched against. A new member is in `all` and nothing else.
+///
+/// This and [`check_password_login_allowed`] each read what the other writes without locking, so
+/// a join and a password switch of the same account committing at the same instant can both pass.
+/// A lock shared by both would have to be taken in one order with the invite, membership and
+/// `password` row locks of every member path, bulk joins included, or it deadlocks them.
+pub async fn check_new_member_sso(
+    conn: &mut sqlx::PgConnection,
+    workspace_id: &str,
+    email: &str,
+    username: Option<&str>,
+) -> Result<()> {
+    let rulesets = sso_rulesets(conn, workspace_id).await?;
+    if rulesets.is_empty() {
+        return Ok(());
+    }
+    let account = sqlx::query!(
+        "SELECT login_type, username FROM password WHERE email = $1",
+        email
+    )
+    .fetch_optional(&mut *conn)
+    .await?;
+    let Some(account) = account.filter(|a| a.login_type == "password") else {
+        return Ok(());
+    };
+    let username = username.or(account.username.as_deref());
+    let groups = ["all".to_string()];
+    if let Some(ruleset) = sso_ruleset_holding(&rulesets, username, &groups) {
+        return Err(Error::BadRequest(format!(
+            "Ruleset {ruleset} of {workspace_id} requires SSO: {email} signs in with a password, \
+             so it cannot join this workspace"
+        )));
+    }
+    Ok(())
+}
+
+/// Refuses giving `email` a password login while a `RequireSso` rule of a workspace they are a
+/// non-service-account member of holds them.
+pub async fn check_password_login_allowed(
+    conn: &mut sqlx::PgConnection,
+    email: &str,
+) -> Result<()> {
+    let memberships = sqlx::query!(
+        r#"SELECT u.workspace_id, u.username,
+                  COALESCE(array_agg(g.group_) FILTER (WHERE g.group_ IS NOT NULL), '{}') AS "groups!"
+           FROM usr u
+           LEFT JOIN usr_to_group g ON g.workspace_id = u.workspace_id AND g.usr = u.username
+           WHERE u.email = $1 AND NOT u.is_service_account
+             AND EXISTS (SELECT 1 FROM workspace_protection_rule r
+                         WHERE r.workspace_id = u.workspace_id AND (r.rules & $2) <> 0)
+           GROUP BY u.workspace_id, u.username"#,
+        email,
+        ProtectionRules::REQUIRE_SSO.bits(),
+    )
+    .fetch_all(&mut *conn)
+    .await?;
+    for m in memberships {
+        let rulesets = sso_rulesets(conn, &m.workspace_id).await?;
+        if let Some(ruleset) = sso_ruleset_holding(&rulesets, Some(&m.username), &m.groups) {
+            return Err(Error::BadRequest(format!(
+                "Ruleset {ruleset} of {} requires SSO for its members, so {email} cannot sign in \
+                 with a password",
+                m.workspace_id
+            )));
+        }
+    }
+    Ok(())
 }
 
 /// The roles members of `workspace_id` get in a fork of it, merged across its rulesets: where two

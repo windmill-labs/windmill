@@ -649,6 +649,21 @@ pub struct OtelSettings {
     pub metrics_enabled: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub logs_enabled: Option<bool>,
+    /// Leave audit events out of the logs export.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub logs_exclude_audit: Option<bool>,
+    /// A second logs exporter that receives audit events only.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub audit_logs_enabled: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub audit_logs_endpoint: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub audit_logs_headers: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub audit_logs_protocol: Option<String>,
+    /// Restrict the audit export to these workspaces; instance-level entries are always kept.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub audit_logs_workspaces: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tracing_enabled: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1200,6 +1215,11 @@ const SENSITIVE_SETTINGS: &[&str] = &[
     "powershell_repo_pat",
     "workspace_registries",
     "sandbox_registry_auth",
+    "nuget_config",
+    "maven_settings_xml",
+    "cargo_registries",
+    // A webhook URL is commonly its own credential.
+    "instance_events_webhook",
 ];
 
 /// Object-valued settings that contain sensitive sub-fields.
@@ -1224,7 +1244,54 @@ const NESTED_SENSITIVE_FIELDS: &[(&str, &[&str])] = &[
     ("custom_instance_pg_databases", &["user_pwd"]),
     ("external_instance_pg", &["password"]),
     ("github_enterprise_app", &["private_key"]),
+    (
+        "otel",
+        &["otel_exporter_otlp_headers", "audit_logs_headers"],
+    ),
 ];
+
+/// Settings that are maps-of-objects where each child has sensitive sub-fields.
+const NESTED_MAP_SENSITIVE: &[(&str, &[&str])] = &[
+    ("oauths", &["secret", "signing_secret"]),
+    ("external_secrets", &["token", "approle_secret_id"]),
+];
+
+/// Calls `f` on every part of setting `key`'s value that holds a secret, as listed in
+/// [`SENSITIVE_SETTINGS`], [`NESTED_SENSITIVE_FIELDS`] and [`NESTED_MAP_SENSITIVE`]. Logs
+/// and API reads both redact through it, so a new secret is listed once, there.
+fn visit_secrets(
+    key: &str,
+    value: &mut serde_json::Value,
+    f: &mut dyn FnMut(&mut serde_json::Value),
+) {
+    if SENSITIVE_SETTINGS.contains(&key) {
+        f(value);
+        return;
+    }
+    if let Some((_, fields)) = NESTED_SENSITIVE_FIELDS.iter().find(|(k, _)| *k == key) {
+        if let Some(obj) = value.as_object_mut() {
+            for field in *fields {
+                if let Some(v) = obj.get_mut(*field) {
+                    f(v);
+                }
+            }
+        }
+        return;
+    }
+    if let Some((_, fields)) = NESTED_MAP_SENSITIVE.iter().find(|(k, _)| *k == key) {
+        if let Some(entries) = value.as_object_mut() {
+            for entry in entries.values_mut() {
+                if let Some(obj) = entry.as_object_mut() {
+                    for field in *fields {
+                        if let Some(v) = obj.get_mut(*field) {
+                            f(v);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
 
 fn redact_json_value(value: &serde_json::Value) -> serde_json::Value {
     match value {
@@ -1234,42 +1301,89 @@ fn redact_json_value(value: &serde_json::Value) -> serde_json::Value {
 }
 
 fn mask_nested_sensitive(key: &str, value: &serde_json::Value) -> serde_json::Value {
-    for &(parent_key, sub_fields) in NESTED_SENSITIVE_FIELDS {
-        if key == parent_key {
-            if let serde_json::Value::Object(map) = value {
-                let mut masked = map.clone();
-                for &field in sub_fields {
-                    if let Some(v) = masked.get(field) {
-                        masked.insert(field.to_string(), redact_json_value(v));
-                    }
-                }
-                return serde_json::Value::Object(masked);
-            }
+    let mut masked = value.clone();
+    visit_secrets(key, &mut masked, &mut |v| *v = redact_json_value(v));
+    masked
+}
+
+/// What the settings read endpoints return in place of a stored secret unless the caller
+/// passes `dangerously_reveal_secrets=true`. A write carrying it back keeps the stored value
+/// at that spot ([`restore_redacted_secrets`]), so a redacted read round-trips through a write.
+pub const REDACTED_SECRET: &str =
+    "__REDACTED__ (read it with dangerously_reveal_secrets=true; send this back unchanged to keep the stored value)";
+
+/// Replaces every secret in setting `key`'s value with [`REDACTED_SECRET`]. Only non-empty
+/// strings are replaced, recursing into objects and arrays, so the value keeps the shape its
+/// typed config field parses, and an unset secret still reads as unset.
+pub fn redact_setting_secrets(key: &str, value: &mut serde_json::Value) {
+    fn redact_leaves(v: &mut serde_json::Value) {
+        match v {
+            serde_json::Value::String(s) if !s.is_empty() => *s = REDACTED_SECRET.to_string(),
+            serde_json::Value::Array(items) => items.iter_mut().for_each(redact_leaves),
+            serde_json::Value::Object(obj) => obj.values_mut().for_each(redact_leaves),
+            _ => {}
         }
     }
-    // Settings that are maps-of-objects where each child has a sensitive sub-field.
-    const NESTED_MAP_SENSITIVE: &[(&str, &[&str])] = &[
-        ("oauths", &["secret", "signing_secret"]),
-        ("external_secrets", &["token", "approle_secret_id"]),
-    ];
-    for &(parent_key, child_fields) in NESTED_MAP_SENSITIVE {
-        if key == parent_key {
-            if let serde_json::Value::Object(entries) = value {
-                let mut masked = entries.clone();
-                for (_entry_key, entry_val) in masked.iter_mut() {
-                    if let serde_json::Value::Object(ref mut obj) = entry_val {
-                        for &child_field in child_fields {
-                            if let Some(v) = obj.get(child_field) {
-                                obj.insert(child_field.to_string(), redact_json_value(v));
-                            }
-                        }
-                    }
+    visit_secrets(key, value, &mut redact_leaves);
+}
+
+pub fn contains_redacted_secret(value: &serde_json::Value) -> bool {
+    match value {
+        serde_json::Value::String(s) => s == REDACTED_SECRET,
+        serde_json::Value::Array(items) => items.iter().any(contains_redacted_secret),
+        serde_json::Value::Object(obj) => obj.values().any(contains_redacted_secret),
+        _ => false,
+    }
+}
+
+/// Puts the stored value back wherever `desired` carries [`REDACTED_SECRET`], matched by JSON
+/// path against `current`. Fails rather than store the placeholder when nothing is stored there.
+pub fn restore_redacted_secrets(
+    key: &str,
+    desired: &mut serde_json::Value,
+    current: Option<&serde_json::Value>,
+) -> Result<(), String> {
+    fn walk(
+        path: &mut String,
+        desired: &mut serde_json::Value,
+        current: Option<&serde_json::Value>,
+    ) -> Result<(), String> {
+        match desired {
+            serde_json::Value::String(s) if s == REDACTED_SECRET => match current {
+                Some(c) if !c.is_null() => {
+                    *desired = c.clone();
+                    Ok(())
                 }
-                return serde_json::Value::Object(masked);
+                _ => Err(format!(
+                    "{path} is the redacted placeholder, but no value is stored there to keep"
+                )),
+            },
+            serde_json::Value::Object(obj) => {
+                for (k, v) in obj.iter_mut() {
+                    let len = path.len();
+                    path.push('.');
+                    path.push_str(k);
+                    walk(path, v, current.and_then(|c| c.get(k.as_str())))?;
+                    path.truncate(len);
+                }
+                Ok(())
             }
+            serde_json::Value::Array(items) => {
+                for (i, v) in items.iter_mut().enumerate() {
+                    let len = path.len();
+                    path.push_str(&format!("[{i}]"));
+                    walk(path, v, current.and_then(|c| c.get(i)))?;
+                    path.truncate(len);
+                }
+                Ok(())
+            }
+            _ => Ok(()),
         }
     }
-    value.clone()
+    if !contains_redacted_secret(desired) {
+        return Ok(());
+    }
+    walk(&mut key.to_string(), desired, current)
 }
 
 fn redact_string(s: &str) -> String {
@@ -1518,6 +1632,15 @@ pub async fn sync_global_settings_declarative(
     desired: &BTreeMap<String, serde_json::Value>,
     observer: &impl ConfigWriteObserver,
 ) -> anyhow::Result<()> {
+    let mut restored = None;
+    if desired.values().any(contains_redacted_secret) {
+        let mut copy = desired.clone();
+        for (key, value) in copy.iter_mut() {
+            restore_redacted_secrets(key, value, current.get(key)).map_err(anyhow::Error::msg)?;
+        }
+        restored = Some(copy);
+    }
+    let desired = restored.as_ref().unwrap_or(desired);
     for url_key in [
         crate::global_settings::GITHUB_APP_WEBHOOK_BASE_URL_SETTING,
         crate::global_settings::API_BASE_URL_SETTING,
@@ -1786,20 +1909,24 @@ pub fn resolve_env_refs(settings: &mut GlobalSettings) -> Result<(), String> {
 impl InstanceConfig {
     /// Read the full instance configuration from the database.
     pub async fn from_db(db: &sqlx::Pool<sqlx::Postgres>) -> anyhow::Result<Self> {
-        Self::read_from_db(db, true).await
+        Self::read_from_db(db, true, true).await
     }
 
     /// The instance configuration as an API response may carry it: `from_db` without
-    /// `SERVER_SECRET_SETTINGS` unless `server_secrets_exported()`. It holds admin-entered
-    /// credentials (`license_key`, `scim_token`, SMTP and OAuth secrets), so callers must
-    /// have checked superadmin.
-    pub async fn from_db_for_api(db: &sqlx::Pool<sqlx::Postgres>) -> anyhow::Result<Self> {
-        Self::read_from_db(db, server_secrets_exported()).await
+    /// `SERVER_SECRET_SETTINGS` unless `server_secrets_exported()`, and with every secret
+    /// replaced by [`REDACTED_SECRET`] unless `reveal_secrets`. Callers must have checked
+    /// superadmin.
+    pub async fn from_db_for_api(
+        db: &sqlx::Pool<sqlx::Postgres>,
+        reveal_secrets: bool,
+    ) -> anyhow::Result<Self> {
+        Self::read_from_db(db, server_secrets_exported(), reveal_secrets).await
     }
 
     async fn read_from_db(
         db: &sqlx::Pool<sqlx::Postgres>,
         include_server_secrets: bool,
+        reveal_secrets: bool,
     ) -> anyhow::Result<Self> {
         // Read global_settings table → flat map → deserialize into GlobalSettings
         let rows: Vec<(String, serde_json::Value)> =
@@ -1811,6 +1938,12 @@ impl InstanceConfig {
             .filter(|(name, _)| !HIDDEN_SETTINGS.contains(&name.as_str()))
             .filter(|(name, _)| {
                 include_server_secrets || !SERVER_SECRET_SETTINGS.contains(&name.as_str())
+            })
+            .map(|(name, mut value)| {
+                if !reveal_secrets {
+                    redact_setting_secrets(&name, &mut value);
+                }
+                (name, value)
             })
             .collect();
         let global_settings: GlobalSettings =
@@ -2836,6 +2969,49 @@ mod tests {
     }
 
     #[test]
+    fn redacted_settings_parse_and_restore_on_write() {
+        let stored = serde_json::json!({
+            "custom_instance_pg_databases": {
+                "user_pwd": "pg-secret",
+                "databases": { "mydb": { "success": true, "tag": "t" } }
+            },
+            "custom_instance_replication_pwd": "repl-secret",
+            "workspace_registries": { "ws": { "npm": { "token": "reg-secret" } } },
+            "oauths": { "google": { "id": "client-id", "secret": "oauth-secret" } },
+            "nuget_config": "<add key=\"ClearTextPassword\" value=\"nuget-secret\" />",
+            "otel": { "otel_exporter_otlp_endpoint": "https://otel", "otel_exporter_otlp_headers": "authorization=otel-secret" },
+            "base_url": "https://example.com",
+        });
+        let mut read = stored.clone();
+        for (key, value) in read.as_object_mut().unwrap().iter_mut() {
+            redact_setting_secrets(key, value);
+        }
+        let text = read.to_string();
+        for secret in [
+            "pg-secret",
+            "repl-secret",
+            "reg-secret",
+            "oauth-secret",
+            "nuget-secret",
+            "otel-secret",
+        ] {
+            assert!(!text.contains(secret), "{secret} leaked: {text}");
+        }
+        assert_eq!(read["oauths"]["google"]["id"], "client-id");
+        assert_eq!(read["base_url"], "https://example.com");
+        // The redacted read still parses into the typed config the API returns.
+        serde_json::from_value::<GlobalSettings>(read.clone()).unwrap();
+
+        for (key, value) in read.as_object_mut().unwrap().iter_mut() {
+            restore_redacted_secrets(key, value, stored.get(key)).unwrap();
+        }
+        assert_eq!(read, stored);
+
+        let mut orphan = serde_json::json!({ "smtp_password": REDACTED_SECRET });
+        assert!(restore_redacted_secrets("smtp_settings", &mut orphan, None).is_err());
+    }
+
+    #[test]
     fn db_oversize_alert_defaults() {
         let alert: DbOversizeAlert = serde_json::from_str("{}").unwrap();
         assert!(!alert.enabled);
@@ -2957,6 +3133,19 @@ mod tests {
         assert!(!formatted.contains("slack-signing-secret-678"));
         assert!(formatted.contains("client-id"));
         assert!(formatted.contains("****"));
+    }
+
+    #[test]
+    fn format_setting_value_redacts_otel_headers() {
+        let val = serde_json::json!({
+            "otel_exporter_otlp_endpoint": "http://collector:4317",
+            "otel_exporter_otlp_headers": "Authorization=Bearer main-token-12345",
+            "audit_logs_headers": "Authorization=Bearer audit-token-67890"
+        });
+        let formatted = format_setting_value("otel", &val);
+        assert!(!formatted.contains("main-token-12345"));
+        assert!(!formatted.contains("audit-token-67890"));
+        assert!(formatted.contains("http://collector:4317"));
     }
 
     #[test]

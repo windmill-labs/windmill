@@ -1,7 +1,7 @@
 openapi: '3.0.3'
 
 info:
-  version: 1.884.1
+  version: 1.885.0
   title: OpenFlow Spec
   contact:
     name: Ruben Fiszel
@@ -389,6 +389,12 @@ components:
                 approval messages. 'detailed' (used when unset) shows the flow details
                 (arguments, graph, approvers); 'minimal' shows only the request: the step
                 description, form and approve/reject actions
+            show_on_home:
+              type: boolean
+              description: >-
+                If true, a run waiting on this step is listed on the Home page of each user who
+                can approve it. Leave unset when the approval request is sent through another
+                channel (Slack, Discord, email), so it does not sit there unanswered
         priority:
           type: number
           description: Execution priority for this step (higher numbers run first)
@@ -1528,6 +1534,15 @@ components:
                 type: integer
               approver:
                 type: string
+              approved_at:
+                type: string
+                format: date-time
+                description: absent for approvals recorded before it was kept
+              approved:
+                type: boolean
+                description: >
+                  false for a rejection the flow continued past; absent for approvals recorded
+                  before it was kept
             required:
               - resume_id
               - approver
