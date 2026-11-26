@@ -218,6 +218,12 @@ export const CODE_COMPLETION_SETTING_NAME = 'codeCompletionSessionEnabled'
 export const COPILOT_SESSION_MODEL_SETTING_NAME = 'copilotSessionModel'
 export const COPILOT_SESSION_PROVIDER_SETTING_NAME = 'copilotSessionProvider'
 export const COPILOT_SESSION_REASONING_SETTING_NAME = 'copilotSessionReasoning'
+export const SCRIPT_GEN_MODEL_SETTING_NAME = 'scriptGenModel'
+export const SCRIPT_GEN_PROVIDER_SETTING_NAME = 'scriptGenProvider'
+export const SCRIPT_GEN_REASONING_SETTING_NAME = 'scriptGenReasoning'
+export const AI_REVIEW_MODEL_SETTING_NAME = 'aiReviewModel'
+export const AI_REVIEW_PROVIDER_SETTING_NAME = 'aiReviewProvider'
+export const AI_REVIEW_REASONING_SETTING_NAME = 'aiReviewReasoning'
 export const formatOnSave = writable<boolean>(
 	getLocalSetting(FORMAT_ON_SAVE_SETTING_NAME) != 'false'
 )

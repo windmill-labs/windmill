@@ -649,6 +649,21 @@ pub struct OtelSettings {
     pub metrics_enabled: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub logs_enabled: Option<bool>,
+    /// Leave audit events out of the logs export.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub logs_exclude_audit: Option<bool>,
+    /// A second logs exporter that receives audit events only.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub audit_logs_enabled: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub audit_logs_endpoint: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub audit_logs_headers: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub audit_logs_protocol: Option<String>,
+    /// Restrict the audit export to these workspaces; instance-level entries are always kept.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub audit_logs_workspaces: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tracing_enabled: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1229,7 +1244,10 @@ const NESTED_SENSITIVE_FIELDS: &[(&str, &[&str])] = &[
     ("custom_instance_pg_databases", &["user_pwd"]),
     ("external_instance_pg", &["password"]),
     ("github_enterprise_app", &["private_key"]),
-    ("otel", &["otel_exporter_otlp_headers"]),
+    (
+        "otel",
+        &["otel_exporter_otlp_headers", "audit_logs_headers"],
+    ),
 ];
 
 /// Settings that are maps-of-objects where each child has sensitive sub-fields.
@@ -3115,6 +3133,19 @@ mod tests {
         assert!(!formatted.contains("slack-signing-secret-678"));
         assert!(formatted.contains("client-id"));
         assert!(formatted.contains("****"));
+    }
+
+    #[test]
+    fn format_setting_value_redacts_otel_headers() {
+        let val = serde_json::json!({
+            "otel_exporter_otlp_endpoint": "http://collector:4317",
+            "otel_exporter_otlp_headers": "Authorization=Bearer main-token-12345",
+            "audit_logs_headers": "Authorization=Bearer audit-token-67890"
+        });
+        let formatted = format_setting_value("otel", &val);
+        assert!(!formatted.contains("main-token-12345"));
+        assert!(!formatted.contains("audit-token-67890"));
+        assert!(formatted.contains("http://collector:4317"));
     }
 
     #[test]

@@ -67,6 +67,14 @@ fn create_targets_filter(default_env_filter: LevelFilter) -> Targets {
     }
 }
 
+fn audit_filter() -> Targets {
+    Targets::new().with_target(AUDIT_TARGET, LevelFilter::INFO)
+}
+
+fn not_audit_filter() -> tracing_subscriber::filter::FilterFn<impl Fn(&tracing::Metadata<'_>) -> bool> {
+    tracing_subscriber::filter::filter_fn(|m| m.target() != AUDIT_TARGET)
+}
+
 pub const LOGS_SERVICE: &str = "logs/services/";
 pub const LOGS_AUDIT: &str = "logs/audit/";
 
@@ -120,6 +128,7 @@ pub fn initialize_tracing(
     let opentelemetry: Option<EnvFilter> = None;
 
     let logs_bridge = crate::otel_oss::init_logs_bridge(&mode, hostname, environment);
+    let audit_logs_bridge = crate::otel_oss::init_audit_logs_bridge(&mode, hostname, environment);
 
     use tracing_appender::rolling::{RollingFileAppender, Rotation};
 
@@ -168,6 +177,9 @@ pub fn initialize_tracing(
 
     // Create a common filter for OTEL logs bridge and tracing layer to respect RUST_LOG
     let otel_logs_filter = file_env_filter.clone();
+    let otel_logs_without_audit = crate::OTEL_LOGS_EXCLUDE_AUDIT
+        .load(std::sync::atomic::Ordering::Relaxed)
+        .then(not_audit_filter);
 
     // Apply filter to the opentelemetry tracing layer to prevent debug events from being attached to spans
     #[cfg(all(feature = "otel", feature = "enterprise"))]
@@ -180,7 +192,17 @@ pub fn initialize_tracing(
     let opentelemetry_filtered = opentelemetry;
 
     let base_layer = tracing_subscriber::registry()
-        .with(logs_bridge.with_filter(otel_logs_filter))
+        .with(
+            logs_bridge
+                .with_filter(otel_logs_filter)
+                .with_filter(otel_logs_without_audit),
+        )
+        // Audit events reach their own export whatever RUST_LOG is set to.
+        .with(
+            audit_logs_bridge
+                .with_filter(audit_filter())
+                .with_filter(audit_workspace_filter()),
+        )
         .with(opentelemetry_filtered);
 
     // The service log files are written to be indexed, not tailed, so they always carry the
@@ -229,9 +251,18 @@ pub fn initialize_tracing(
 /// value, masked by a list of known secret fields rather than by shape, and that is fit
 /// for the operator's own stdout but not for a collector.
 pub fn initialize_subcommand_tracing(service: &str, hostname: &str, environment: &str) {
-    let logs_bridge = crate::otel_oss::init_logs_bridge_for_service(service, hostname, environment);
+    let logs_bridge = (!crate::OTEL_LOGS_EXCLUDE_AUDIT.load(std::sync::atomic::Ordering::Relaxed))
+        .then(|| crate::otel_oss::init_logs_bridge_for_service(service, hostname, environment))
+        .flatten();
+    let audit_logs_bridge =
+        crate::otel_oss::init_audit_logs_bridge_for_service(service, hostname, environment);
     tracing_subscriber::registry()
-        .with(logs_bridge.with_filter(Targets::new().with_target(AUDIT_TARGET, LevelFilter::INFO)))
+        .with(logs_bridge.with_filter(audit_filter()))
+        .with(
+            audit_logs_bridge
+                .with_filter(audit_filter())
+                .with_filter(audit_workspace_filter()),
+        )
         .with(
             tracing_subscriber::fmt::layer().with_filter(
                 EnvFilter::builder()
@@ -240,6 +271,50 @@ pub fn initialize_subcommand_tracing(service: &str, hostname: &str, environment:
             ),
         )
         .init();
+}
+
+/// Keeps the audit events of the listed workspaces and lets every other event through.
+/// Entries about the instance itself are recorded under workspace `global` and always kept:
+/// no workspace stands behind them, and dropping them would hide settings changes.
+struct AuditWorkspaceFilter(std::collections::HashSet<String>);
+
+impl AuditWorkspaceFilter {
+    fn new(workspaces: Vec<String>) -> Self {
+        Self(workspaces.into_iter().collect())
+    }
+}
+
+impl<S> tracing_subscriber::layer::Filter<S> for AuditWorkspaceFilter {
+    fn enabled(&self, _: &tracing::Metadata<'_>, _: &Context<'_, S>) -> bool {
+        true
+    }
+
+    fn event_enabled(&self, event: &Event<'_>, _: &Context<'_, S>) -> bool {
+        if event.metadata().target() != AUDIT_TARGET {
+            return true;
+        }
+        struct Workspace<'a>(&'a std::collections::HashSet<String>, Option<bool>);
+        impl tracing::field::Visit for Workspace<'_> {
+            fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
+                if field.name() == "workspace_id" {
+                    self.1 = Some(value == "global" || self.0.contains(value));
+                }
+            }
+            fn record_debug(&mut self, _: &tracing::field::Field, _: &dyn std::fmt::Debug) {}
+        }
+        let mut ws = Workspace(&self.0, None);
+        event.record(&mut ws);
+        ws.1.unwrap_or(true)
+    }
+}
+
+/// The workspace scope of the audit export, `None` for every workspace.
+fn audit_workspace_filter() -> Option<AuditWorkspaceFilter> {
+    crate::OTEL_AUDIT_LOGS_EXPORT
+        .read()
+        .ok()
+        .and_then(|e| e.as_ref().and_then(|e| e.workspaces.clone()))
+        .map(AuditWorkspaceFilter::new)
 }
 
 lazy_static::lazy_static! {
@@ -288,5 +363,56 @@ where
         } else {
             println!("Error getting lock for log counting");
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Mutex;
+
+    #[derive(Clone, Default)]
+    struct Seen(Arc<Mutex<Vec<String>>>);
+
+    impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for Seen {
+        fn on_event(&self, event: &Event<'_>, _: Context<'_, S>) {
+            struct Msg(String);
+            impl tracing::field::Visit for Msg {
+                fn record_debug(&mut self, f: &tracing::field::Field, v: &dyn std::fmt::Debug) {
+                    if f.name() == "message" {
+                        self.0 = format!("{v:?}");
+                    }
+                }
+            }
+            let mut m = Msg(String::new());
+            event.record(&mut m);
+            self.0.lock().unwrap().push(m.0);
+        }
+    }
+
+    /// The two exports as `initialize_tracing` filters them: the logs export without audit
+    /// events, and the audit export with audit events of the listed workspaces only.
+    #[test]
+    fn audit_and_logs_exports_split_events() {
+        let logs = Seen::default();
+        let audit = Seen::default();
+        tracing::subscriber::with_default(
+            tracing_subscriber::registry()
+                .with(logs.clone().with_filter(Some(not_audit_filter())))
+                .with(
+                    audit
+                        .clone()
+                        .with_filter(audit_filter())
+                        .with_filter(Some(AuditWorkspaceFilter::new(vec!["kept".to_string()]))),
+                ),
+            || {
+                tracing::info!(target: AUDIT_TARGET, workspace_id = "kept", "a");
+                tracing::info!(target: AUDIT_TARGET, workspace_id = "dropped", "b");
+                tracing::info!(target: AUDIT_TARGET, workspace_id = "global", "c");
+                tracing::info!(workspace_id = "kept", "d");
+            },
+        );
+        assert_eq!(*logs.0.lock().unwrap(), ["d"]);
+        assert_eq!(*audit.0.lock().unwrap(), ["a", "c"]);
     }
 }
