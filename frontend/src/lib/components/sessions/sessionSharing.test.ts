@@ -48,7 +48,8 @@ describe('readSessionSnapshot', () => {
 			content: 'Run',
 			showDetails: false,
 			blockedByPlanMode: false,
-			declinedByUser: false
+			declinedByUser: false,
+			readsAgent: false
 		})
 		expect(snapshot.artifacts.map((a) => a.id)).toEqual(['a'])
 	})
