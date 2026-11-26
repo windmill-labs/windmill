@@ -1,4 +1,4 @@
-import { HelpersService, OpenAPI } from '$lib/gen'
+import { AppService, HelpersService, OpenAPI } from '$lib/gen'
 import { getHeaders } from '$lib/gen/core/request'
 import { ColumnIdentity, type ColumnDef } from './apps/components/display/dbtable/utils'
 import type { IDbTableOps } from './dbOps'
@@ -18,6 +18,9 @@ export type S3TableSource = {
 	s3ResourcePath?: string
 	csvSeparator?: string
 	csvHasHeader?: boolean
+	/** Read through a deployed app's `apps_u/*` routes, which take no column filters and
+	 * no header flag. */
+	app?: { path: string; presigned?: string }
 }
 
 type Chunk = {
@@ -47,14 +50,29 @@ export async function s3TableOps(
 ): Promise<{ ops: IDbTableOps; csvSeparator?: string }> {
 	const format = serverTableFormat(source.fileKey)
 	if (!format) throw new Error(`${source.fileKey} cannot be read as a table`)
+	const app = source.app
 	const common = {
 		workspace: source.workspace,
 		path: source.fileKey,
 		storage: source.storage,
 		s3ResourcePath: source.s3ResourcePath
 	}
+	const signed = new URLSearchParams(app?.presigned ?? '')
+	const appCommon = app && {
+		workspace: source.workspace,
+		path: app.path,
+		fileKey: source.fileKey,
+		storage: source.storage,
+		sig: signed.get('sig') ?? undefined,
+		exp: signed.get('exp') ?? undefined
+	}
 	const csvOptions: { csvSeparator?: string; csvHasHeader?: boolean } =
-		format === 'csv' ? { csvSeparator: source.csvSeparator, csvHasHeader: source.csvHasHeader } : {}
+		format === 'csv'
+			? {
+					csvSeparator: source.csvSeparator,
+					csvHasHeader: app ? undefined : source.csvHasHeader
+				}
+			: {}
 	const filtersParam = (columnFilters: Record<string, unknown> | undefined) =>
 		columnFilters && Object.keys(columnFilters).length ? JSON.stringify(columnFilters) : undefined
 	const searchParam = (quicksearch: string) => quicksearch.trim() || undefined
@@ -77,6 +95,20 @@ export async function s3TableOps(
 			sortCol: params.orderBy,
 			sortDesc: params.isDesc
 		}
+		if (appCommon) {
+			const appData = {
+				...appCommon,
+				csvSeparator: csvOptions.csvSeparator,
+				offset: data.offset,
+				limit: data.limit,
+				searchTerm: data.searchTerm,
+				sortCol: data.sortCol,
+				sortDesc: data.sortDesc
+			}
+			return (await (format === 'parquet'
+				? AppService.appLoadParquetPreview(appData)
+				: AppService.appLoadCsvPreview(appData))) as Chunk
+		}
 		return (await (format === 'parquet'
 			? HelpersService.loadParquetPreview(data)
 			: HelpersService.loadCsvPreview(data))) as Chunk
@@ -89,7 +121,7 @@ export async function s3TableOps(
 		field,
 		datatype: datatypeOf(head.column_types?.[i]),
 		// The server cannot read a struct, map or union as text to filter it.
-		filterable: !/^(Struct|Map|Union)/.test(head.column_types?.[i] ?? ""),
+		filterable: !app && !/^(Struct|Map|Union)/.test(head.column_types?.[i] ?? ''),
 		defaultvalue: '',
 		isprimarykey: false,
 		isidentity: ColumnIdentity.No,
@@ -102,6 +134,13 @@ export async function s3TableOps(
 		tableKey: source.fileKey.split('/').pop() ?? source.fileKey,
 		colDefs,
 		getCount: async ({ quicksearch, columnFilters }) => {
+			if (appCommon) {
+				const res = await AppService.appLoadTableCount({
+					...appCommon,
+					searchTerm: searchParam(quicksearch)
+				})
+				return res.count ?? 0
+			}
 			const res = await HelpersService.loadTableRowCount({
 				...common,
 				...csvOptions,

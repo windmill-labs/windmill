@@ -22,6 +22,11 @@
 	import { twMerge } from 'tailwind-merge'
 	import ExpandableImage from '$lib/components/common/image/ExpandableImage.svelte'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import FileTextPreview, {
+		isMarkdownFile
+	} from '$lib/components/common/fileDownload/FileTextPreview.svelte'
+
+	const PREVIEW_BYTES = 128 * 1024
 
 	const operatingWorkspace = useOperatingWorkspace()
 
@@ -51,6 +56,8 @@
 		/** CSV parsing options owned by the caller, which then renders its own controls:
 		 * the preview hides its own and reloads when these change. */
 		csvOptions?: { separator: string | undefined; hasHeader: boolean }
+		/** Markdown shown as its source, owned by the caller, which then renders its own switch. */
+		markdownSource?: boolean
 		/** Merged onto the preview body, below the metadata strip. */
 		bodyClass?: string
 		// Bump this to force a re-fetch (metadata + preview). Used by the
@@ -71,6 +78,7 @@
 		class: className = '',
 		bodyClass = '',
 		csvOptions = undefined,
+		markdownSource = undefined,
 		refreshKey
 	}: Props = $props()
 
@@ -191,16 +199,12 @@
 				csvSeparator: csvOptions ? csvOptions.separator : csvSeparatorChar,
 				csvHasHeader: csvOptions?.hasHeader ?? csvHasHeader,
 				readBytesFrom: 0,
-				readBytesLength: 128 * 1024,
+				readBytesLength: PREVIEW_BYTES,
 				storage,
 				s3ResourcePath
 			})
-			let content = raw.content
-			if (content !== null && content !== undefined && content.length >= 128 * 1024) {
-				content = content.substring(0, 128 * 1024 - 35) + '\n\n ... FILE CONTENT TRUNCATED ...\n\n'
-			}
 			if (raw !== undefined) {
-				filePreview = { fileKey: key, contentPreview: content, contentType: raw.content_type }
+				filePreview = { fileKey: key, contentPreview: raw.content, contentType: raw.content_type }
 				if (fileMetadata) {
 					fileMetadata.mimeType =
 						((key.endsWith('.png') ||
@@ -224,6 +228,20 @@
 		(storage ? `&storage=${storage}` : '') +
 			(s3ResourcePath ? `&s3_resource_path=${encodeURIComponent(s3ResourcePath)}` : '')
 	)
+
+	/** The file's text is on screen, drawn on this body's background (see FileTextPreview). */
+	let showsText = $derived(
+		!!fileKey &&
+			!notFound &&
+			!loadError &&
+			!filePreviewLoading &&
+			!isImageOrPdf(fileMetadata?.fileKey) &&
+			filePreview?.contentType !== 'Unknown' &&
+			!emptyString(filePreview?.contentPreview)
+	)
+	function isImageOrPdf(key: string | undefined) {
+		return /\.(png|jpe?g|webp|pdf)$/.test(key ?? '')
+	}
 
 	function onCsvControlsChanged() {
 		if (fileMetadata?.fileKey) {
@@ -250,7 +268,13 @@
 			{#if fileMetadata.lastModified}<span>{fileMetadata.lastModified}</span>{/if}
 		</div>
 	{/if}
-	<div class={twMerge('flex-1 min-h-0 overflow-auto p-4 bg-surface-secondary', bodyClass)}>
+	<div
+		class={twMerge(
+			'flex-1 min-h-0 overflow-auto p-4 bg-surface-secondary',
+			bodyClass,
+			showsText ? 'bg-surface-input' : ''
+		)}
+	>
 		{#if !fileKey}
 			<div class="text-tertiary text-xs">No file selected.</div>
 		{:else if fileInfoLoading && !fileMetadata && !notFound && !loadError}
@@ -340,9 +364,17 @@
 					{/if}
 				</div>
 			{/if}
-			<pre class="grow whitespace-no-wrap break-words"
-				>{#if !emptyString(filePreview.contentPreview)}{filePreview.contentPreview}{:else if filePreview.contentType !== undefined}Preview impossible.{/if}</pre
-			>
+			{#if filePreview.contentPreview && !emptyString(filePreview.contentPreview)}
+				<FileTextPreview
+					content={filePreview.contentPreview}
+					readLimit={PREVIEW_BYTES}
+					markdown={isMarkdownFile(filePreview.fileKey)}
+					fill
+					{markdownSource}
+				/>
+			{:else if filePreview.contentType !== undefined}
+				<div class="text-primary">Preview impossible.</div>
+			{/if}
 		{/if}
 	</div>
 </div>
