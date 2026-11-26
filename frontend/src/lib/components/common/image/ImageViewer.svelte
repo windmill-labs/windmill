@@ -1,6 +1,7 @@
 <script lang="ts">
 	import Portal from '$lib/components/Portal.svelte'
-	import { Copy, Download, ExternalLink, PanelRight, X, ZoomIn, ZoomOut } from 'lucide-svelte'
+	import { Copy, Download, ExternalLink, Maximize, PanelRight, X } from 'lucide-svelte'
+	import ZoomControl from './ZoomControl.svelte'
 	import { fade } from 'svelte/transition'
 	import { on } from 'svelte/events'
 	import { sendUserToast } from '$lib/toast'
@@ -338,11 +339,13 @@
 							class="absolute inset-x-0 top-0 flex items-center justify-between gap-3 p-3 pointer-events-none"
 						>
 							<div
-								class="flex items-baseline gap-2 min-w-0 h-9 px-3 leading-9 rounded-md bg-surface-tertiary shadow-lg pointer-events-auto"
+								class="flex items-baseline gap-2 min-w-0 h-9 px-1 leading-9 drop-shadow pointer-events-auto"
 							>
-								<span class="truncate text-xs font-semibold text-emphasis">{caption}</span>
+								<!-- The overlay is black in both themes, and a zoomed image can pass under the
+								caption, hence fixed white text with a shadow rather than theme tokens. -->
+								<span class="truncate text-xs font-medium text-white/90">{caption}</span>
 								{#if natural}
-									<span class="shrink-0 text-2xs text-secondary tabular-nums">
+									<span class="shrink-0 text-2xs text-white/60 tabular-nums">
 										{natural.w} × {natural.h}
 									</span>
 								{/if}
@@ -350,32 +353,24 @@
 							<div
 								class="flex shrink-0 items-center gap-0.5 h-9 px-1 rounded-md bg-surface-tertiary shadow-lg pointer-events-auto"
 							>
-								<Button
-									variant="subtle"
-									unifiedSize="sm"
-									iconOnly
-									startIcon={{ icon: ZoomOut }}
-									title="Zoom out (−)"
-									disabled={scale <= minScale + 0.001}
-									onclick={zoomOut}
+								<ZoomControl
+									{scale}
+									min={minScale}
+									max={MAX_SCALE}
+									onZoomOut={zoomOut}
+									onZoomIn={zoomIn}
+									onZoomTo={(s) => {
+										animate = true
+										zoomTo(s)
+									}}
 								/>
 								<Button
 									variant="subtle"
 									unifiedSize="sm"
-									btnClasses="w-14 justify-center tabular-nums"
+									iconOnly
+									startIcon={{ icon: Maximize }}
 									title="Fit to screen (0)"
 									onclick={fit}
-								>
-									{Math.round(scale * 100)}%
-								</Button>
-								<Button
-									variant="subtle"
-									unifiedSize="sm"
-									iconOnly
-									startIcon={{ icon: ZoomIn }}
-									title="Zoom in (+)"
-									disabled={scale >= MAX_SCALE - 0.001}
-									onclick={zoomIn}
 								/>
 								<div class="w-px h-4 mx-1 bg-border-light"></div>
 								<Button

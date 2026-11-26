@@ -4874,7 +4874,7 @@ export const SESSION_PREVIEW_TOOL_NAMES = new Set([
 	'list_artifacts',
 	'read_artifact',
 	'list_artifact_versions',
-	'show_file'
+	'show_image'
 ])
 
 /**

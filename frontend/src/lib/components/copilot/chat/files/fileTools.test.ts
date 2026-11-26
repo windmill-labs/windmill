@@ -6,7 +6,7 @@ vi.mock('../shared', () => ({
 	createToolDef: (_schema: unknown, name: string, description: string) => ({ name, description })
 }))
 
-import { searchFilesTool } from './fileTools'
+import { resultImages, searchFilesTool } from './fileTools'
 import type { AttachedFile, AttachedFilesStore } from './attachedFiles.svelte'
 
 /** Minimal store stub mirroring the real lookup contract (id first, then
@@ -72,7 +72,7 @@ describe('search_files — attachments present but nothing readable', () => {
 			file: 'a.png'
 		})
 		expect(ready).toMatch(/is an image/i)
-		expect(ready).not.toMatch(/show_file/)
+		expect(ready).not.toMatch(/show_image/)
 	})
 
 	it('still reports indexing while a file is genuinely indexing', async () => {
@@ -137,5 +137,26 @@ describe('search_files — colliding display names', () => {
 		const out = await runSearch(colliding(), { pattern: 'target', file: 'fBBB' })
 		expect(out).toContain('bravo target')
 		expect(out).not.toContain('alpha target')
+	})
+})
+
+describe('resultImages', () => {
+	it('finds the image a result holds and each render_all item, by its path', () => {
+		expect(resultImages({ png: 'AAA' })).toEqual([{ format: 'png', path: [] }])
+		expect(resultImages({ jpeg: { content: 'AAA' } })).toEqual([{ format: 'jpeg', path: [] }])
+		expect(
+			resultImages({ render_all: [{ markdown: '# a' }, { png: 'AAA' }, { gif: 'BBB' }] })
+		).toEqual([
+			{ format: 'png', path: ['render_all', 1] },
+			{ format: 'gif', path: ['render_all', 2] }
+		])
+		expect(resultImages({ s3: 'charts/a.png' })).toEqual([{ s3: { s3: 'charts/a.png' } }])
+		expect(resultImages('s3://secondary/b.jpg')).toEqual([
+			{ s3: { s3: 'b.jpg', storage: 'secondary' } }
+		])
+		expect(resultImages([{ s3: 'a.png' }, { s3: 'b.webp' }])).toHaveLength(2)
+		expect(resultImages({ s3: 'data.parquet' })).toEqual([])
+		expect(resultImages({ png: 42 })).toEqual([])
+		expect(resultImages('png')).toEqual([])
 	})
 })

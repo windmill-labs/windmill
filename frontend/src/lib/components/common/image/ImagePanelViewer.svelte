@@ -1,8 +1,7 @@
 <script lang="ts">
-	import { Download, Maximize, Minus, Plus } from 'lucide-svelte'
+	import { Download, Grid2x2, Maximize, Moon, Sun } from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
-	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
-	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
+	import ZoomControl from './ZoomControl.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { useIsDarkMode } from '$lib/components/DarkModeObserver.svelte'
 
@@ -17,6 +16,11 @@
 	let { src, name, bytes }: Props = $props()
 
 	type Backdrop = 'checker' | 'light' | 'dark'
+	const BACKDROPS = {
+		light: { label: 'Light', icon: Sun },
+		dark: { label: 'Dark', icon: Moon },
+		checker: { label: 'Checkerboard', icon: Grid2x2 }
+	} as const
 
 	const MIN_ZOOM = 0.02
 	const MAX_ZOOM = 32
@@ -44,6 +48,13 @@
 	const isDark = useIsDarkMode()
 	let chosenBackdrop = $state<Backdrop | undefined>(undefined)
 	const backdrop = $derived<Backdrop>(chosenBackdrop ?? (isDark.val ? 'dark' : 'light'))
+	// The cycle starts at the theme's own backdrop, so the first click swaps light and dark.
+	const backdropCycle = $derived<Backdrop[]>(
+		isDark.val ? ['dark', 'light', 'checker'] : ['light', 'dark', 'checker']
+	)
+	const nextBackdrop = $derived(
+		backdropCycle[(backdropCycle.indexOf(backdrop) + 1) % backdropCycle.length]
+	)
 	let drag: { pointerId: number; x: number; y: number; ox: number; oy: number } | undefined =
 		$state(undefined)
 
@@ -63,7 +74,6 @@
 	// A fitted image is centred and stays put; once zoomed it can be dragged anywhere the
 	// clamp allows.
 	const pannable = $derived(zoom !== undefined)
-	const percent = $derived(`${Math.round(scale * 100)}%`)
 
 	function onLoad(e: Event) {
 		const img = e.currentTarget as HTMLImageElement
@@ -175,37 +185,23 @@
 			{/if}
 		</span>
 		<div class="flex flex-wrap items-center gap-1">
+			<ZoomControl
+				scale={natural ? scale : undefined}
+				min={MIN_ZOOM}
+				max={MAX_ZOOM}
+				onZoomOut={() => stepZoom(-1)}
+				onZoomIn={() => stepZoom(1)}
+				onZoomTo={(s) => zoomTo(s)}
+			/>
 			<Button
 				unifiedSize="sm"
 				variant="subtle"
 				iconOnly
-				startIcon={{ icon: Minus }}
-				title="Zoom out (-)"
-				disabled={!natural || scale <= MIN_ZOOM}
-				onClick={() => stepZoom(-1)}
-			/>
-			<span class="w-11 text-center text-2xs tabular-nums text-secondary" aria-live="polite">
-				{natural ? percent : ''}
-			</span>
-			<Button
-				unifiedSize="sm"
-				variant="subtle"
-				iconOnly
-				startIcon={{ icon: Plus }}
-				title="Zoom in (+)"
-				disabled={!natural || scale >= MAX_ZOOM}
-				onClick={() => stepZoom(1)}
-			/>
-			<Button
-				unifiedSize="sm"
-				variant={zoom === undefined ? 'default' : 'subtle'}
 				startIcon={{ icon: Maximize }}
 				title="Fit to panel (0)"
 				disabled={!natural}
 				onClick={fit}
-			>
-				Fit
-			</Button>
+			/>
 			<Button
 				unifiedSize="sm"
 				variant={zoom === 1 ? 'default' : 'subtle'}
@@ -215,21 +211,14 @@
 			>
 				1:1
 			</Button>
-			<ToggleButtonGroup
-				noWFull
-				selected={backdrop}
-				onSelected={(v) => {
-					// The group also reports a programmatic change of `selected`; only a different
-					// value is the viewer's pick, else a theme switch would pin the backdrop.
-					if (v !== backdrop) chosenBackdrop = v as Backdrop
-				}}
-			>
-				{#snippet children({ item })}
-					<ToggleButton {item} value="checker" label="Grid" tooltip="Checkerboard" size="sm" />
-					<ToggleButton {item} value="light" label="Light" tooltip="Light background" size="sm" />
-					<ToggleButton {item} value="dark" label="Dark" tooltip="Dark background" size="sm" />
-				{/snippet}
-			</ToggleButtonGroup>
+			<Button
+				unifiedSize="sm"
+				variant="subtle"
+				iconOnly
+				startIcon={{ icon: BACKDROPS[backdrop].icon }}
+				title={`${BACKDROPS[backdrop].label} background, click for ${BACKDROPS[nextBackdrop].label.toLowerCase()}`}
+				onClick={() => (chosenBackdrop = nextBackdrop)}
+			/>
 			<Button
 				unifiedSize="sm"
 				variant="subtle"

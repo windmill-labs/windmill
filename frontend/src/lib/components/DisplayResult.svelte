@@ -5,7 +5,13 @@
 	import { json } from 'svelte-highlight/languages'
 	import DbtRunResult from '$lib/components/dbt/DbtRunResult.svelte'
 	import { parseDbtRun } from '$lib/components/dbt/parseDbtRun'
-	import { copyToClipboard, parseS3Object, roughSizeOfObject } from '$lib/utils'
+	import {
+		copyToClipboard,
+		isS3ImageKey,
+		parseS3Object,
+		roughSizeOfObject,
+		s3ImagePreviewUrl
+	} from '$lib/utils'
 	import ExpandableImage from '$lib/components/common/image/ExpandableImage.svelte'
 	import { getImageOpener } from '$lib/components/common/image/imageOpener'
 	import type { ImageResultFormat, ResultPath } from '$lib/components/sessions/previewRouter'
@@ -199,15 +205,12 @@
 	// the provenance-gated `apps_u/download_s3_file/{appPath}` endpoint; otherwise
 	// (editor/preview) it uses the viewer-scoped `job_helpers/load_image_preview`.
 	function s3DisplayUrl(s3object: { s3: string; storage?: string; presigned?: string }): string {
-		const endpoint = appPath
-			? `apps_u/download_s3_file/${appPath}`
-			: 'job_helpers/load_image_preview'
-		const keyParam = appPath ? 's3' : 'file_key'
-		let url = `/api/w/${workspaceId}/${endpoint}?${keyParam}=${encodeURIComponent(s3object.s3)}`
+		if (!appPath) return s3ImagePreviewUrl(workspaceId ?? '', s3object)
+		let url = `/api/w/${workspaceId}/apps_u/download_s3_file/${appPath}?s3=${encodeURIComponent(s3object.s3)}`
 		if (s3object.storage) {
 			url += `&storage=${s3object.storage}`
 		}
-		if (appPath && s3object.presigned) {
+		if (s3object.presigned) {
 			url += `&${s3object.presigned}`
 		}
 		return url
@@ -1290,7 +1293,7 @@
 										presigned={s3object?.presigned}
 									/>
 								{/key}
-							{:else if s3object?.s3?.endsWith('.png') || s3object?.s3?.endsWith('.jpeg') || s3object?.s3?.endsWith('.jpg') || s3object?.s3?.endsWith('.webp')}
+							{:else if isS3ImageKey(s3object?.s3 ?? '')}
 								<div class="h-full mt-2">
 									<ExpandableImage
 										alt="preview rendered"
@@ -1360,7 +1363,7 @@
 											>open table preview <ArrowDownFromLine />
 										</button>
 									{/if}
-								{:else if s3object?.s3?.endsWith('.png') || s3object?.s3?.endsWith('.jpeg') || s3object?.s3?.endsWith('.jpg') || s3object?.s3?.endsWith('.webp')}
+								{:else if isS3ImageKey(s3object?.s3 ?? '')}
 									{#if seeS3PreviewFileFromList == s3object?.s3}
 										<div class="h-full mt-2">
 											<ExpandableImage
