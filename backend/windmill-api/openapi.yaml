@@ -34009,6 +34009,11 @@ components:
           type: string
         read_only:
           type: boolean
+        allowed_ips:
+          type: array
+          description: IPs or CIDRs the token may be used from; absent when it may be used from anywhere.
+          items:
+            type: string
       required:
         - token_prefix
         - created_at
@@ -34145,6 +34150,15 @@ components:
             For an MCP token (an `mcp:` scope) owned by a superadmin: carry the owner's
             superadmin rights, reaching every workspace rather than only their
             memberships. Ignored for other tokens, which always carry them.
+        allowed_ips:
+          type: array
+          description: |
+            IPs or CIDRs (IPv4 or IPv6) the token may be used from; omit to allow any.
+            A request from elsewhere is refused as unauthenticated. A token that is itself
+            restricted can only create tokens within its own networks, and creates one
+            restricted to them when this is omitted.
+          items:
+            type: string
 
     NewTokenImpersonate:
       type: object
@@ -34158,6 +34172,11 @@ components:
           type: string
         workspace_id:
           type: string
+        allowed_ips:
+          type: array
+          description: IPs or CIDRs the token may be used from; omit to allow any.
+          items:
+            type: string
       required:
         - impersonate_email
 

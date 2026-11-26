@@ -11,8 +11,8 @@ use std::net::{IpAddr, SocketAddr};
 use std::sync::LazyLock;
 
 use axum::extract::{ConnectInfo, FromRequestParts};
-use axum::http::{request::Parts, HeaderMap, HeaderName};
-use ipnet::IpNet;
+use axum::http::{request::Parts, Extensions, HeaderMap, HeaderName};
+pub use ipnet::IpNet;
 
 /// Loopback, private and link-local networks: where a reverse proxy in front of Windmill
 /// usually connects from. Anything else in front (a CDN, a public load balancer) must be listed
@@ -91,11 +91,15 @@ impl<S: Send + Sync> FromRequestParts<S> for ClientIp {
 }
 
 pub fn client_ip_of_parts(parts: &Parts) -> Option<IpAddr> {
-    let peer = parts
-        .extensions
+    client_ip_of(&parts.extensions, &parts.headers)
+}
+
+/// The same, for a handler holding the whole `Request` rather than its parts.
+pub fn client_ip_of(extensions: &Extensions, headers: &HeaderMap) -> Option<IpAddr> {
+    let peer = extensions
         .get::<ConnectInfo<SocketAddr>>()
         .map(|c| c.0.ip())?;
-    Some(resolve_client_ip(peer, &parts.headers, &CLIENT_IP_CONFIG))
+    Some(resolve_client_ip(peer, headers, &CLIENT_IP_CONFIG))
 }
 
 /// An IPv4 client of a dual-stack listener arrives as `::ffff:a.b.c.d`; compare it as IPv4 so
@@ -111,19 +115,27 @@ fn is_trusted(ip: IpAddr, trusted: &[IpNet]) -> bool {
     trusted.iter().any(|n| n.contains(&ip))
 }
 
-/// An address as proxies write it: bare, `ip:port`, `[v6]:port`, or CloudFront's unbracketed
-/// `v6:port`.
+/// An address as proxies write it: bare, `ip:port` or `[v6]:port`.
 fn parse_addr(bytes: &[u8]) -> Option<IpAddr> {
     let s = std::str::from_utf8(bytes).ok()?.trim();
     s.parse::<IpAddr>()
         .ok()
         .or_else(|| s.parse::<SocketAddr>().ok().map(|a| a.ip()))
-        .or_else(|| {
-            let (ip, port) = s.rsplit_once(':')?;
-            port.parse::<u16>().ok()?;
-            ip.parse::<IpAddr>().ok()
-        })
         .map(canonical)
+}
+
+/// `CloudFront-Viewer-Address` always ends in the source port, after an unbracketed IPv6
+/// address. Read generically, `2001:db8::1:4430` is itself a valid address, so each source port
+/// would name a different client.
+fn parse_addr_then_port(bytes: &[u8]) -> Option<IpAddr> {
+    let s = std::str::from_utf8(bytes).ok()?.trim();
+    let (ip, port) = s.rsplit_once(':')?;
+    port.parse::<u16>().ok()?;
+    let ip = ip
+        .strip_prefix('[')
+        .and_then(|i| i.strip_suffix(']'))
+        .unwrap_or(ip);
+    ip.parse::<IpAddr>().ok().map(canonical)
 }
 
 pub fn resolve_client_ip(peer: IpAddr, headers: &HeaderMap, cfg: &ClientIpConfig) -> IpAddr {
@@ -134,6 +146,9 @@ pub fn resolve_client_ip(peer: IpAddr, headers: &HeaderMap, cfg: &ClientIpConfig
     if let Some(name) = &cfg.header {
         let mut values = headers.get_all(name).iter();
         return match (values.next(), values.next()) {
+            (Some(v), None) if name.as_str() == "cloudfront-viewer-address" => {
+                parse_addr_then_port(v.as_bytes()).unwrap_or(peer)
+            }
             (Some(v), None) => parse_addr(v.as_bytes()).unwrap_or(peer),
             _ => peer,
         };
@@ -260,11 +275,23 @@ mod tests {
         let c = cfg("10.0.0.0/8", Some("cloudfront-viewer-address"));
         let h = headers(&[
             ("x-forwarded-for", b"6.6.6.6"),
-            ("cloudfront-viewer-address", b"2001:0db8:85a3:0000:0000:8a2e:0370:7334:46532"),
+            (
+                "cloudfront-viewer-address",
+                b"2001:0db8:85a3:0000:0000:8a2e:0370:7334:46532",
+            ),
         ]);
-        assert_eq!(resolve_client_ip(ip("10.0.0.1"), &h, &c), ip("2001:db8:85a3::8a2e:370:7334"));
+        assert_eq!(
+            resolve_client_ip(ip("10.0.0.1"), &h, &c),
+            ip("2001:db8:85a3::8a2e:370:7334")
+        );
         let h = headers(&[("cloudfront-viewer-address", b"5.5.5.5:443")]);
         assert_eq!(resolve_client_ip(ip("10.0.0.1"), &h, &c), ip("5.5.5.5"));
+        // Compressed IPv6 with a short port also parses as a bare address: the port must go.
+        for port in ["4430", "4431"] {
+            let v = format!("2001:db8::1:{port}");
+            let h = headers(&[("cloudfront-viewer-address", v.as_bytes())]);
+            assert_eq!(resolve_client_ip(ip("10.0.0.1"), &h, &c), ip("2001:db8::1"));
+        }
         // Absent, repeated or unreadable: the peer, never a guess.
         let h = headers(&[("x-forwarded-for", b"6.6.6.6")]);
         assert_eq!(resolve_client_ip(ip("10.0.0.1"), &h, &c), ip("10.0.0.1"));

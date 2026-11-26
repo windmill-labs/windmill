@@ -403,6 +403,7 @@ async fn inject_agent_authed(
                 credential_expiry: None,
                 mcp_client: None,
                 capabilities: None,
+                allowed_ips: None,
             },
             job_id: None,
         });

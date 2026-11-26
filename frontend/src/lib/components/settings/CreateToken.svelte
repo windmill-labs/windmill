@@ -70,6 +70,13 @@
 
 	let pickedScopes = $state<string[] | null>(null)
 	let readOnly = $state(false)
+	let allowedIpsText = $state('')
+	let allowedIps = $derived(
+		allowedIpsText
+			.split(/[\s,]+/)
+			.map((s) => s.trim())
+			.filter((s) => s.length > 0)
+	)
 	// How this instance lets an MCP client in. `oauth` means it refuses `?token=`, so a
 	// generated token would not get a client in and the URL is handed over bare instead.
 	// A failed read lands on `oauth`: the bare URL works whichever way the setting is,
@@ -218,7 +225,8 @@
 					scopes: tokenScopes,
 					workspace_id: tokenWorkspaceId,
 					read_only: mcpMode ? false : readOnly,
-					super_admin: mcpMode && mcpSuperAdmin
+					super_admin: mcpMode && mcpSuperAdmin,
+					allowed_ips: !mcpMode && allowedIps.length > 0 ? allowedIps : undefined
 				} as NewToken
 			})
 
@@ -541,6 +549,21 @@
 						</p>
 					{/if}
 				</div>
+			</div>
+
+			<div class="mt-4 flex flex-col gap-1">
+				<span class="text-xs font-semibold text-emphasis">
+					Allowed IPs <span class="font-normal text-secondary">(optional)</span>
+				</span>
+				<TextInput
+					inputProps={{ type: 'text', placeholder: '203.0.113.4, 10.0.0.0/8' }}
+					bind:value={allowedIpsText}
+					class="w-full"
+				/>
+				<p class="text-2xs text-hint">
+					IP addresses or CIDR ranges, separated by commas. Requests from any other address are
+					refused. Leave empty to allow any.
+				</p>
 			</div>
 
 			{#if !scopes || scopes.length === 0}

@@ -37,6 +37,7 @@ use windmill_common::{
 };
 
 use scopes::ScopeDefinition;
+use windmill_common::client_ip::IpNet;
 use windmill_common::scopes::scope_contains;
 
 // Re-export key auth types and functions
@@ -97,6 +98,10 @@ pub struct ApiAuthed {
     /// The role's capabilities in the request's workspace (`AuthCache::get_opt_job_authed`); `None`
     /// outside a request.
     pub capabilities: Option<RoleCapabilities>,
+    /// The networks the token row this identity came from may be used from (`token.allowed_ips`).
+    /// Enforced by `AuthCache::get_opt_job_authed` against each request's client IP; a token
+    /// minted from this identity through `tokens/create` is held within them.
+    pub allowed_ips: Option<Vec<IpNet>>,
 }
 
 impl ApiAuthed {
@@ -191,6 +196,7 @@ impl From<Authed> for ApiAuthed {
             credential_expiry: None,
             mcp_client: value.mcp_client,
             capabilities: value.capabilities,
+            allowed_ips: None,
         }
     }
 }
@@ -571,6 +577,77 @@ pub async fn caller_scope_ceiling(
         // The job left the queue and its row was swept: only the token's own claims are left.
         None => authed.scopes.clone(),
     })
+}
+
+const MAX_ALLOWED_IPS: usize = 100;
+
+fn parse_allowed_net(s: &str) -> error::Result<IpNet> {
+    let s = s.trim();
+    let net = s
+        .parse::<IpNet>()
+        .ok()
+        .or_else(|| {
+            s.parse::<std::net::IpAddr>()
+                .ok()
+                .map(|ip| IpNet::from(windmill_common::client_ip::canonical(ip)))
+        })
+        .ok_or_else(|| Error::BadRequest(format!("'{s}' is not an IP address or CIDR")))?;
+    // `cidr` refuses host bits (10.0.0.1/8): store the network the entry names.
+    Ok(net.trunc())
+}
+
+/// The `allowed_ips` to store for a token `caller` mints. A caller restricted itself mints only
+/// tokens held within its own networks (its list when none is asked for), so a token used from an
+/// allowed network cannot mint one that works from anywhere.
+pub fn token_ip_allowlist(
+    caller: Option<&[IpNet]>,
+    requested: Option<&[String]>,
+) -> error::Result<Option<Vec<String>>> {
+    let requested = match requested {
+        None => None,
+        Some([]) => {
+            return Err(Error::BadRequest(
+                "allowed_ips must name at least one IP or CIDR; omit it to allow any".to_string(),
+            ))
+        }
+        Some(list) if list.len() > MAX_ALLOWED_IPS => {
+            return Err(Error::BadRequest(format!(
+                "allowed_ips takes at most {MAX_ALLOWED_IPS} entries"
+            )))
+        }
+        Some(list) => Some(
+            list.iter()
+                .map(|s| parse_allowed_net(s))
+                .collect::<error::Result<Vec<_>>>()?,
+        ),
+    };
+    let nets = match (caller, requested) {
+        (None, requested) => requested,
+        (Some(caller), None) => Some(caller.to_vec()),
+        (Some(caller), Some(requested)) => {
+            if let Some(n) = requested
+                .iter()
+                .find(|n| !caller.iter().any(|c| c.contains(*n)))
+            {
+                return Err(Error::PermissionDenied(format!(
+                    "{n} is outside the networks the calling token may be used from"
+                )));
+            }
+            Some(requested)
+        }
+    };
+    Ok(nets.map(|nets| nets.iter().map(|n| n.to_string()).collect()))
+}
+
+/// Whether a credential restricted to `allowed` may be used by a request from `client_ip`. An
+/// unknown address (a request with no connection info) never passes a restriction.
+pub fn client_ip_allowed(allowed: Option<&[IpNet]>, client_ip: Option<std::net::IpAddr>) -> bool {
+    match allowed {
+        None => true,
+        Some(nets) => client_ip
+            .map(windmill_common::client_ip::canonical)
+            .is_some_and(|ip| nets.iter().any(|n| n.contains(&ip))),
+    }
 }
 
 /// Enforce monotonic privilege when a token lifecycle endpoint mints or rescopes
@@ -1197,6 +1274,7 @@ pub async fn fetch_api_authed_from_permissioned_as(
                 credential_expiry: None,
                 mcp_client: None,
                 capabilities: None,
+                allowed_ips: None,
             };
 
             API_AUTHED_CACHE.insert(
@@ -1231,6 +1309,10 @@ pub struct NewToken {
     /// An MCP token carries its owner's superadmin rights (every workspace) only when asked.
     #[serde(default)]
     pub super_admin: Option<bool>,
+    /// IPs or CIDRs the token may be used from; `None` is anywhere. Validated by the handler
+    /// with [`token_ip_allowlist`] before it reaches [`create_token_internal`].
+    #[serde(default)]
+    pub allowed_ips: Option<Vec<String>>,
 }
 
 impl NewToken {
@@ -1250,6 +1332,7 @@ impl NewToken {
             workspace_id,
             read_only,
             super_admin: None,
+            allowed_ips: None,
         }
     }
 }
@@ -1313,8 +1396,8 @@ pub async fn create_token_internal(
     }
     let rows = sqlx::query!(
         "INSERT INTO token
-            (token_hash, token_prefix, token, email, label, expiration, super_admin, scopes, workspace_id, read_only)
-            SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
+            (token_hash, token_prefix, token, email, label, expiration, super_admin, scopes, workspace_id, read_only, allowed_ips)
+            SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::text[]::cidr[]
             WHERE $9::varchar IS NULL OR NOT EXISTS(
                 SELECT 1 FROM workspace WHERE id = $9 AND deleted = true
             )",
@@ -1328,6 +1411,7 @@ pub async fn create_token_internal(
         token_config.scopes.as_ref().map(|x| x.as_slice()),
         token_config.workspace_id,
         token_config.read_only.unwrap_or(false),
+        token_config.allowed_ips.as_deref(),
     )
     .execute(&mut *tx)
     .await?;

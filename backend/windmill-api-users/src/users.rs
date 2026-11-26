@@ -333,6 +333,8 @@ pub struct TruncatedToken {
     pub scopes: Option<Vec<String>>,
     pub workspace_id: Option<String>,
     pub read_only: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub allowed_ips: Option<Vec<String>>,
 }
 
 // NewToken is re-exported from windmill-api-auth above
@@ -2988,6 +2990,12 @@ async fn refresh_token(
                 .to_string(),
         ));
     }
+    // A session carries no IP restriction, so exchanging for one would lift it.
+    if authed.allowed_ips.is_some() {
+        return Err(Error::NotAuthorized(
+            "A token restricted to IP addresses cannot be exchanged for a session".to_string(),
+        ));
+    }
     let t_hash = windmill_common::auth::hash_token(&token);
     // Only a live, non-impersonation row may be exchanged for a session: an impersonation must
     // end at its 24h expiry, not become a renewable service-account session billed as active.
@@ -3337,6 +3345,10 @@ async fn create_token(
     }
 
     windmill_api_auth::ensure_scopes_within_caller(&authed, token_config.scopes.as_deref())?;
+    token_config.allowed_ips = windmill_api_auth::token_ip_allowlist(
+        authed.allowed_ips.as_deref(),
+        token_config.allowed_ips.as_deref(),
+    )?;
     // Mirrors the MCP OAuth approve: a scoped token cannot mint superadmin access it may lack.
     if token_config.super_admin == Some(true)
         && authed
@@ -3404,6 +3416,10 @@ async fn impersonate(
         ));
     }
 
+    let allowed_ips = windmill_api_auth::token_ip_allowlist(
+        authed.allowed_ips.as_deref(),
+        new_token.allowed_ips.as_deref(),
+    )?;
     let impersonated = new_token.impersonate_email.unwrap();
 
     let is_super_admin = sqlx::query_scalar!(
@@ -3418,15 +3434,16 @@ async fn impersonate(
 
     sqlx::query!(
         "INSERT INTO token
-            (token_hash, token_prefix, token, email, label, expiration, super_admin)
-            VALUES ($1, $2, $3, $4, $5, $6, $7)",
+            (token_hash, token_prefix, token, email, label, expiration, super_admin, allowed_ips)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8::text[]::cidr[])",
         t_hash,
         t_prefix,
         plaintext as Option<&str>,
         impersonated,
         new_token.label,
         expiration,
-        is_super_admin
+        is_super_admin,
+        allowed_ips.as_deref()
     )
     .execute(&mut *tx)
     .await?;
@@ -4008,7 +4025,8 @@ async fn list_tokens(
         sqlx::query_as!(
             TruncatedToken,
             "SELECT label, token_prefix, expiration, created_at, \
-             last_used_at, scopes, workspace_id, read_only FROM token WHERE email = $1 AND (label != 'ephemeral-script' OR label IS NULL)
+             last_used_at, scopes, workspace_id, read_only, allowed_ips::text[] AS allowed_ips \
+             FROM token WHERE email = $1 AND (label != 'ephemeral-script' OR label IS NULL)
              ORDER BY created_at DESC LIMIT $2 OFFSET $3",
             email,
             per_page as i64,
@@ -4020,7 +4038,8 @@ async fn list_tokens(
         sqlx::query_as!(
             TruncatedToken,
             "SELECT label, token_prefix, expiration, created_at, \
-            last_used_at, scopes, workspace_id, read_only FROM token WHERE email = $1
+            last_used_at, scopes, workspace_id, read_only, allowed_ips::text[] AS allowed_ips \
+            FROM token WHERE email = $1
             ORDER BY created_at DESC LIMIT $2 OFFSET $3",
             email,
             per_page as i64,
@@ -4325,6 +4344,7 @@ async fn get_all_runnables(
     Extension(db): Extension<UserDB>,
     authed: ApiAuthed,
     Tokened { token }: Tokened,
+    ClientIp(client_ip): ClientIp,
     Extension(cache): Extension<Arc<windmill_api_auth::AuthCache>>,
 ) -> JsonResult<Vec<Runnable>> {
     let mut tx = db.clone().begin(&authed).await?;
@@ -4340,7 +4360,7 @@ async fn get_all_runnables(
 
     for workspace in workspaces {
         let nauthed = cache
-            .get_authed(Some(workspace.clone()), &token)
+            .get_authed(Some(workspace.clone()), &token, client_ip)
             .await
             .ok_or_else(|| {
                 Error::BadRequest(format!("not authorized to access workspace: {workspace}"))

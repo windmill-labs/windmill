@@ -13862,6 +13862,7 @@ mod approval_view_gate_tests {
             credential_expiry: None,
             mcp_client: None,
             capabilities: Some(windmill_common::roles::RoleCapabilities::FULL),
+            allowed_ips: None,
         }
     }
 

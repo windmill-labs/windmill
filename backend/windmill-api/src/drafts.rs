@@ -1061,6 +1061,7 @@ pub struct TransferDraftsResponse {
 async fn transfer_drafts(
     authed: ApiAuthed,
     tokened: crate::auth::Tokened,
+    windmill_common::client_ip::ClientIp(client_ip): windmill_common::client_ip::ClientIp,
     Extension(auth_cache): Extension<std::sync::Arc<crate::auth::AuthCache>>,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
@@ -1111,7 +1112,7 @@ async fn transfer_drafts(
         // own claims, not the database's. A job token stays refused even where its claims
         // list both workspaces.
         let authed_there = auth_cache
-            .get_authed(Some(target.to_string()), &tokened.token)
+            .get_authed(Some(target.to_string()), &tokened.token, client_ip)
             .await
             .filter(|a| a.job_id.is_none())
             .ok_or_else(|| Error::PermissionDenied(format!("this token cannot act on {target}")))?;

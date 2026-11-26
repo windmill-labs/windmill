@@ -368,6 +368,7 @@ async fn get_http_route_trigger(
     route_path: &str,
     auth_cache: &Arc<AuthCache>,
     token: Option<&String>,
+    client_ip: Option<std::net::IpAddr>,
     db: &DB,
     user_db: UserDB,
     method: &http::Method,
@@ -408,7 +409,7 @@ async fn get_http_route_trigger(
     let username_override = if let AuthenticationMethod::Windmill = trigger.authentication_method {
         let opt_authed = if let Some(token) = token {
             auth_cache
-                .get_authed(Some(trigger.workspace_id.clone()), token)
+                .get_authed(Some(trigger.workspace_id.clone()), token, client_ip)
                 .await
         } else {
             None
@@ -496,6 +497,7 @@ async fn route_job(
     Extension(auth_cache): Extension<Arc<AuthCache>>,
     Extension(cors_policy): Extension<ResolvedCorsPolicy>,
     OptTokened { token }: OptTokened,
+    windmill_common::client_ip::ClientIp(client_ip): windmill_common::client_ip::ClientIp,
     Path(route_path): Path<StripPath>,
     headers: HeaderMap,
     args: RawHttpTriggerArgs,
@@ -506,6 +508,7 @@ async fn route_job(
         route_path,
         &auth_cache,
         token.as_ref(),
+        client_ip,
         &db,
         user_db.clone(),
         &args.0.metadata.method,

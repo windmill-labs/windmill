@@ -231,3 +231,14 @@ Symbols, not line numbers, are cited: they drift less.
   job containers that can reach the server directly; such a deployment should list its proxy's
   exact address. Only the main API server carries the peer: a router called without connect
   info (tests, internal dispatch) sees `None`, and per-IP decisions skip or refuse it.
+- **`token.allowed_ips`** (`cidr[]`, `NULL` = anywhere) restricts where a token row may be
+  used. `AuthCache::get_opt_job_authed` takes the request's client IP and refuses the token
+  outside its networks, or when the IP is unknown, so every path that resolves a request's
+  token passes that request's `ClientIp` (MCP's multi-workspace mode carries it in
+  `McpToken`). The list rides on the cached `ApiAuthed`, checked per request, never folded
+  into the cache entry. A restricted token cannot lift its restriction: `tokens/create`,
+  `tokens/impersonate` and service-account impersonation hold the new row within the
+  caller's networks (the caller's list when none is asked for), and `refresh_token` and the
+  MCP OAuth approve refuse it. Not inherited, by design: a job's `WM_TOKEN` (a JWT; starting
+  the job already passed the check), JWTs the server mints for its own loopback calls, and
+  server-side mints for external callers (native trigger webhook tokens).

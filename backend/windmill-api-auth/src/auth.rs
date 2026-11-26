@@ -15,6 +15,7 @@ use tracing::Span;
 
 use crate::{ApiAuthed, OptJobAuthed};
 use std::{
+    net::IpAddr,
     str::FromStr,
     sync::{
         atomic::{AtomicI64, AtomicU64, Ordering},
@@ -100,6 +101,20 @@ pub fn invalidate_token_from_cache(token_prefix: &str) {
     );
 }
 
+/// A stored entry that no longer parses is dropped rather than widening the list: with every
+/// entry unreadable the token is usable from nowhere, never from anywhere.
+fn parse_stored_allowed_ips(nets: &[String]) -> Vec<windmill_common::client_ip::IpNet> {
+    nets.iter()
+        .filter_map(|n| match n.parse() {
+            Ok(net) => Some(net),
+            Err(_) => {
+                tracing::error!("token allowed_ips entry {n:?} does not parse, ignoring it");
+                None
+            }
+        })
+        .collect()
+}
+
 #[derive(Clone)]
 pub struct ExpiringAuthCache {
     pub authed: ApiAuthed,
@@ -158,16 +173,38 @@ impl AuthCache {
         AUTH_CACHE.remove(&(w_id.to_string(), token));
     }
 
-    pub async fn get_authed(&self, w_id: Option<String>, token: &str) -> Option<ApiAuthed> {
-        Some(self.get_opt_job_authed(w_id, token).await?.authed)
+    /// `client_ip` is the address of the request presenting `token` (`ClientIp`), `None` outside
+    /// one: a token restricted to `allowed_ips` resolves only when it is inside them.
+    pub async fn get_authed(
+        &self,
+        w_id: Option<String>,
+        token: &str,
+        client_ip: Option<IpAddr>,
+    ) -> Option<ApiAuthed> {
+        Some(
+            self.get_opt_job_authed(w_id, token, client_ip)
+                .await?
+                .authed,
+        )
     }
 
     pub async fn get_opt_job_authed(
         &self,
         w_id: Option<String>,
         token: &str,
+        client_ip: Option<IpAddr>,
     ) -> Option<OptJobAuthed> {
         let mut opt_job_authed = self.get_opt_job_authed_inner(w_id.clone(), token).await?;
+        // Checked per request, outside the cache: the cached identity carries the list, and each
+        // request brings its own address.
+        if !crate::client_ip_allowed(opt_job_authed.authed.allowed_ips.as_deref(), client_ip) {
+            tracing::warn!(
+                token_prefix = opt_job_authed.authed.token_prefix.as_deref().unwrap_or(""),
+                client_ip = client_ip.map(|ip| ip.to_string()).unwrap_or_default(),
+                "token refused: request is outside the token's allowed IPs"
+            );
+            return None;
+        }
         // Single source of truth: mirror the resolved job_id onto the authed so
         // every consumer (require_super_admin, ...) sees that this identity came
         // from a job's WM_TOKEN, even on an AUTH_CACHE hit whose cached authed
@@ -360,6 +397,7 @@ impl AuthCache {
                     credential_expiry: Some(credential_expiry),
                     mcp_client: None,
                     capabilities: None,
+                    allowed_ips: None,
                 };
                 AUTH_CACHE.insert(
                     key,
@@ -407,6 +445,7 @@ impl AuthCache {
                             credential_expiry: None,
                             mcp_client: claims.mcp_client,
                             capabilities: None,
+                            allowed_ips: None,
                         };
                         // Fail closed: a `job_id` claim that does not parse must reject
                         // the token rather than resolve to `None`, which would clear the
@@ -446,18 +485,22 @@ impl AuthCache {
                         token_hash = $1
                         AND (expiration > NOW() OR expiration IS NULL)
                         AND (workspace_id IS NULL OR workspace_id = $2)
-                    RETURNING owner, email, super_admin, scopes, label, read_only",
+                    RETURNING owner, email, super_admin, scopes, label, read_only,
+                        allowed_ips::text[] AS allowed_ips",
                     t_hash,
                     w_id.as_ref(),
                 )
                 .map(|x| {
                     (
-                        x.owner,
-                        x.email,
-                        x.super_admin,
-                        x.scopes,
-                        x.label,
-                        x.read_only,
+                        (
+                            x.owner,
+                            x.email,
+                            x.super_admin,
+                            x.scopes,
+                            x.label,
+                            x.read_only,
+                        ),
+                        x.allowed_ips,
                     )
                 })
                 .fetch_optional(&self.db)
@@ -465,7 +508,8 @@ impl AuthCache {
                 .ok()
                 .flatten();
 
-                if let Some(user) = user_o {
+                if let Some((user, allowed_ips)) = user_o {
+                    let allowed_ips = allowed_ips.map(|nets| parse_stored_allowed_ips(&nets));
                     let authed_o = {
                         match user {
                             (Some(owner), Some(email), super_admin, _, label, read_only)
@@ -540,6 +584,7 @@ impl AuthCache {
                                                 credential_expiry: None,
                                                 mcp_client: None,
                                                 capabilities: None,
+                                                allowed_ips: None,
                                             })
                                         } else {
                                             tracing::warn!(
@@ -596,6 +641,7 @@ impl AuthCache {
                                                 credential_expiry: None,
                                                 mcp_client: None,
                                                 capabilities: None,
+                                                allowed_ips: None,
                                             })
                                         } else {
                                             tracing::warn!(
@@ -697,6 +743,7 @@ impl AuthCache {
                                                 credential_expiry: None,
                                                 mcp_client: None,
                                                 capabilities: None,
+                                                allowed_ips: None,
                                             })
                                         }
                                         None if super_admin => {
@@ -724,6 +771,7 @@ impl AuthCache {
                                                     credential_expiry: None,
                                                     mcp_client: None,
                                                     capabilities: None,
+                                                    allowed_ips: None,
                                                 }),
                                                 Err(e) => {
                                                     tracing::error!(
@@ -764,6 +812,7 @@ impl AuthCache {
                                                 credential_expiry: None,
                                                 mcp_client: None,
                                                 capabilities: None,
+                                                allowed_ips: None,
                                             })
                                         }
                                         None => None,
@@ -786,12 +835,14 @@ impl AuthCache {
                                         credential_expiry: None,
                                         mcp_client: None,
                                         capabilities: None,
+                                        allowed_ips: None,
                                     })
                                 }
                             }
                             _ => None,
                         }
                     };
+                    let authed_o = authed_o.map(|authed| ApiAuthed { allowed_ips, ..authed });
                     if let Some(authed) = authed_o.as_ref() {
                         AUTH_CACHE.insert(
                             key,
@@ -828,6 +879,7 @@ impl AuthCache {
                         credential_expiry: None,
                         mcp_client: None,
                         capabilities: None,
+                        allowed_ips: None,
                     };
                     Some(OptJobAuthed { authed, job_id: None })
                 } else {
@@ -1274,6 +1326,7 @@ fn no_auth_admin_authed() -> ApiAuthed {
         credential_expiry: None,
         mcp_client: None,
         capabilities: None,
+        allowed_ips: None,
     }
 }
 
@@ -1325,8 +1378,13 @@ pub async fn resolve_opt_job_authed(
                     .map(|g| g.0.clone())
             });
 
-            if let Some(mut opt_job_authed) =
-                cache.get_opt_job_authed(workspace_id.clone(), &token).await
+            if let Some(mut opt_job_authed) = cache
+                .get_opt_job_authed(
+                    workspace_id.clone(),
+                    &token,
+                    windmill_common::client_ip::client_ip_of_parts(&parts),
+                )
+                .await
             {
                 let path = original_uri.path();
                 let method = parts.method.as_str();
