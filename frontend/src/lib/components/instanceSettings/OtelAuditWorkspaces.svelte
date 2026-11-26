@@ -5,7 +5,8 @@
 	import { resource } from 'runed'
 
 	interface Props {
-		/** Unset exports every workspace's audit events. */
+		/** Empty exports every workspace's audit events. Cleared to `[]`, not unset: unset
+		 *  falls back to the OTEL_LOGS_AUDIT_WORKSPACES environment variable. */
 		value: string[] | undefined
 		disabled?: boolean
 	}
@@ -35,5 +36,5 @@
 	{items}
 	{disabled}
 	placeholder="All workspaces"
-	bind:value={() => value ?? [], (v) => (value = v.length ? v : undefined)}
+	bind:value={() => value ?? [], (v) => (value = v)}
 />
