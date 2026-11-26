@@ -106,6 +106,57 @@ export const RETIRED_SETTINGS = ["guest_access_enabled"] as const;
 /** How the server's settings reads begin a secret they withheld (without `dangerouslyRevealSecrets`). */
 export const REDACTED_SECRET_PREFIX = "__REDACTED__";
 
+function keepUnchangedLocalSecrets(redacted: any, revealed: any, local: any): any {
+  if (typeof redacted === "string" && redacted.startsWith(REDACTED_SECRET_PREFIX)) {
+    return local !== undefined && deepEqual(local, revealed) ? local : redacted;
+  }
+  if (Array.isArray(redacted)) {
+    return redacted.map((v, i) =>
+      keepUnchangedLocalSecrets(v, revealed?.[i], local?.[i])
+    );
+  }
+  if (redacted && typeof redacted === "object") {
+    return Object.fromEntries(
+      Object.entries(redacted).map(([k, v]) => [
+        k,
+        keepUnchangedLocalSecrets(v, revealed?.[k], local?.[k]),
+      ])
+    );
+  }
+  return redacted;
+}
+
+/**
+ * The remote settings as pull and push compare them with the local file. Unless
+ * `showSecrets`, a remote secret stays redacted, except where the local file already holds
+ * that same value: comparing against the redacted value alone would flag every secret as
+ * changed on each sync, while the revealed one must not reach the printed diff or the file.
+ */
+async function remoteSettingsAgainstLocal(
+  opts: InstanceSyncOptions,
+  readLocal: () => Promise<GlobalSetting[]>
+): Promise<GlobalSetting[]> {
+  if (opts.showSecrets) {
+    return await wmill.listGlobalSettings({ dangerouslyRevealSecrets: true });
+  }
+  const redacted = await wmill.listGlobalSettings();
+  if (!JSON.stringify(redacted).includes(REDACTED_SECRET_PREFIX)) {
+    return redacted;
+  }
+  const revealed = await wmill.listGlobalSettings({
+    dangerouslyRevealSecrets: true,
+  });
+  const local = await readLocal();
+  return redacted.map((s) => ({
+    ...s,
+    value: keepUnchangedLocalSecrets(
+      s.value,
+      revealed.find((r) => r.name === s.name)?.value,
+      local.find((l) => l.name === s.name)?.value
+    ),
+  }));
+}
+
 // Legacy settings interface for reading old settings.yaml files
 interface LegacySimplifiedSettings {
   auto_invite_enabled?: boolean;
@@ -784,12 +835,13 @@ export async function pullInstanceSettings(
   opts: InstanceSyncOptions,
   preview = false
 ) {
-  const remoteSettings = await wmill.listGlobalSettings({
-    dangerouslyRevealSecrets: opts.showSecrets ?? false,
-  });
+  const remoteSettings = await remoteSettingsAgainstLocal(
+    opts,
+    async () =>
+      await processInstanceSettings(await readInstanceSettings(opts), "decode")
+  );
   if (
     !preview &&
-    !opts.showSecrets &&
     JSON.stringify(remoteSettings).includes(REDACTED_SECRET_PREFIX)
   ) {
     log.info(
@@ -832,9 +884,12 @@ export async function pushInstanceSettings(
   opts: InstanceSyncOptions,
   preview: boolean = false
 ) {
-  const remoteSettings = await wmill.listGlobalSettings();
   let localSettings: GlobalSetting[] = await readInstanceSettings(opts);
   localSettings = await processInstanceSettings(localSettings, "decode");
+  const remoteSettings = await remoteSettingsAgainstLocal(
+    opts,
+    async () => localSettings
+  );
 
   if (opts.baseUrl) {
     localSettings = localSettings.filter((s) => s.name !== "base_url");
