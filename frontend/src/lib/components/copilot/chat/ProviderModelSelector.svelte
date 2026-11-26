@@ -50,7 +50,7 @@
 		items={() =>
 			offered.map((m) => ({
 				displayName: m.model,
-				selected: m.model === providerModel.model,
+				selected: m.model === providerModel.model && m.provider === providerModel.provider,
 				action: () => {
 					// Carry the effort onto the new model only if it supports that level
 					// ('off' only where the model can truly disable); otherwise drop it so
