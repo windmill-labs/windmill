@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT login_type, username FROM password WHERE email = $1 FOR SHARE",
+  "query": "SELECT login_type, username FROM password WHERE email = $1",
   "describe": {
     "columns": [
       {
@@ -24,5 +24,5 @@
       true
     ]
   },
-  "hash": "142e840e1ee6b3723f153ce1b4c0ab766ebd98930651bc9069e22128ce6a3998"
+  "hash": "22b6a5e8d05d47c86713ff804857e037112aac008865934fa3419581034e69d3"
 }
