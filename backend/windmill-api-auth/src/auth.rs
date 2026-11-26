@@ -152,20 +152,6 @@ pub fn invalidate_token_from_cache(token_prefix: &str) {
     );
 }
 
-/// A stored entry that no longer parses is dropped rather than widening the list: with every
-/// entry unreadable the token is usable from nowhere, never from anywhere.
-fn parse_stored_allowed_ips(nets: &[String]) -> Vec<windmill_common::client_ip::IpNet> {
-    nets.iter()
-        .filter_map(|n| match n.parse() {
-            Ok(net) => Some(net),
-            Err(_) => {
-                tracing::error!("token allowed_ips entry {n:?} does not parse, ignoring it");
-                None
-            }
-        })
-        .collect()
-}
-
 #[derive(Clone)]
 pub struct ExpiringAuthCache {
     pub authed: ApiAuthed,
@@ -576,12 +562,7 @@ impl AuthCache {
                 .flatten();
 
                 if let Some((user, allowed_ips)) = user_o {
-                    // IP allowlists are EE: a CE build neither checks a stored list nor passes it
-                    // on to the tokens this one mints. An EE build keeps enforcing it when the
-                    // license lapses, so a lapse never lifts a restriction.
-                    let allowed_ips = allowed_ips
-                        .filter(|_| cfg!(feature = "enterprise"))
-                        .map(|nets| parse_stored_allowed_ips(&nets));
+                    let allowed_ips = crate::token_ip_allowlist_oss::load_allowed_ips(allowed_ips);
                     let authed_o = {
                         match user {
                             (Some(owner), Some(email), super_admin, _, label, read_only)

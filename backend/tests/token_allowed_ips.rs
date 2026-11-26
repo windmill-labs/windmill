@@ -1,6 +1,6 @@
 //! A token restricted to `allowed_ips` works only from those networks, and cannot mint a
 //! credential that works from anywhere else. Setting a list is EE-only.
-#![cfg(feature = "enterprise")]
+#![cfg(all(feature = "enterprise", feature = "private"))]
 
 use sqlx::{Pool, Postgres};
 

@@ -12,6 +12,10 @@ pub mod composed;
 pub mod ee;
 pub mod ee_oss;
 pub mod scopes;
+#[cfg(all(feature = "private", feature = "enterprise"))]
+mod token_ip_allowlist_ee;
+pub mod token_ip_allowlist_oss;
+pub use token_ip_allowlist_oss::{client_ip_allowed, token_ip_allowlist};
 
 use axum::extract::{FromRequestParts, OptionalFromRequestParts, Path, Request, State};
 use axum::middleware::Next;
@@ -577,113 +581,6 @@ pub async fn caller_scope_ceiling(
         // The job left the queue and its row was swept: only the token's own claims are left.
         None => authed.scopes.clone(),
     })
-}
-
-const MAX_ALLOWED_IPS: usize = 100;
-
-fn parse_allowed_net(s: &str) -> error::Result<IpNet> {
-    let s = s.trim();
-    let net = s
-        .parse::<IpNet>()
-        .ok()
-        .or_else(|| {
-            s.parse::<std::net::IpAddr>()
-                .ok()
-                .map(|ip| IpNet::from(windmill_common::client_ip::canonical(ip)))
-        })
-        .ok_or_else(|| Error::BadRequest(format!("'{s}' is not an IP address or CIDR")))?;
-    // A client is compared as IPv4 when it arrives IPv4-mapped, so a mapped network must be
-    // stored as the IPv4 one or it never matches.
-    let net = match net {
-        IpNet::V6(v6) if v6.prefix_len() >= 96 => match v6.addr().to_ipv4_mapped() {
-            Some(v4) => IpNet::new(v4.into(), v6.prefix_len() - 96).unwrap_or(net),
-            None => net,
-        },
-        net => net,
-    };
-    // `cidr` refuses host bits (10.0.0.1/8): store the network the entry names.
-    Ok(net.trunc())
-}
-
-/// The `allowed_ips` to store for a token `caller` mints. A caller restricted itself mints only
-/// tokens held within its own networks (its list when none is asked for), so a token used from an
-/// allowed network cannot mint one that works from anywhere.
-///
-/// Asking for a list needs an EE build with a valid license. A CE caller never carries a list
-/// (`allowed_ips` is dropped when its token is loaded), so CE neither asks for nor inherits one.
-pub fn token_ip_allowlist(
-    caller: Option<&[IpNet]>,
-    requested: Option<&[String]>,
-) -> error::Result<Option<Vec<String>>> {
-    if requested.is_some() && !token_ip_allowlists_enabled() {
-        return Err(Error::BadRequest(
-            "Token IP allowlists are a Windmill Enterprise Edition feature".to_string(),
-        ));
-    }
-    merge_ip_allowlist(caller, requested)
-}
-
-/// The `cfg` is load-bearing: CE's `LICENSE_KEY_VALID` is always `true`.
-fn token_ip_allowlists_enabled() -> bool {
-    #[cfg(feature = "enterprise")]
-    {
-        windmill_common::ee_oss::LICENSE_KEY_VALID.load(std::sync::atomic::Ordering::Relaxed)
-    }
-    #[cfg(not(feature = "enterprise"))]
-    {
-        false
-    }
-}
-
-fn merge_ip_allowlist(
-    caller: Option<&[IpNet]>,
-    requested: Option<&[String]>,
-) -> error::Result<Option<Vec<String>>> {
-    let requested = match requested {
-        None => None,
-        Some([]) => {
-            return Err(Error::BadRequest(
-                "allowed_ips must name at least one IP or CIDR; omit it to allow any".to_string(),
-            ))
-        }
-        Some(list) if list.len() > MAX_ALLOWED_IPS => {
-            return Err(Error::BadRequest(format!(
-                "allowed_ips takes at most {MAX_ALLOWED_IPS} entries"
-            )))
-        }
-        Some(list) => Some(
-            list.iter()
-                .map(|s| parse_allowed_net(s))
-                .collect::<error::Result<Vec<_>>>()?,
-        ),
-    };
-    let nets = match (caller, requested) {
-        (None, requested) => requested,
-        (Some(caller), None) => Some(caller.to_vec()),
-        (Some(caller), Some(requested)) => {
-            if let Some(n) = requested
-                .iter()
-                .find(|n| !caller.iter().any(|c| c.contains(*n)))
-            {
-                return Err(Error::PermissionDenied(format!(
-                    "{n} is outside the networks the calling token may be used from"
-                )));
-            }
-            Some(requested)
-        }
-    };
-    Ok(nets.map(|nets| nets.iter().map(|n| n.to_string()).collect()))
-}
-
-/// Whether a credential restricted to `allowed` may be used by a request from `client_ip`. An
-/// unknown address (a request with no connection info) never passes a restriction.
-pub fn client_ip_allowed(allowed: Option<&[IpNet]>, client_ip: Option<std::net::IpAddr>) -> bool {
-    match allowed {
-        None => true,
-        Some(nets) => client_ip
-            .map(windmill_common::client_ip::canonical)
-            .is_some_and(|ip| nets.iter().any(|n| n.contains(&ip))),
-    }
 }
 
 /// Enforce monotonic privilege when a token lifecycle endpoint mints or rescopes
@@ -1679,40 +1576,6 @@ pub fn require_path_read_access_for_preview(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn token_ip_allowlist_normalizes_and_stays_within_the_caller() {
-        let s = |v: &[&str]| v.iter().map(|x| x.to_string()).collect::<Vec<_>>();
-        let nets = |v: &[&str]| v.iter().map(|x| x.parse().unwrap()).collect::<Vec<IpNet>>();
-        assert_eq!(
-            merge_ip_allowlist(
-                None,
-                Some(&s(&[
-                    "10.0.0.1/8",
-                    "1.2.3.4",
-                    "::ffff:5.6.7.8",
-                    "::ffff:9.9.0.0/112"
-                ]))
-            )
-            .unwrap(),
-            Some(s(&["10.0.0.0/8", "1.2.3.4/32", "5.6.7.8/32", "9.9.0.0/16"]))
-        );
-        assert!(merge_ip_allowlist(None, Some(&[])).is_err());
-        assert!(merge_ip_allowlist(None, Some(&s(&["nope"]))).is_err());
-        let caller = nets(&["10.0.0.0/8"]);
-        assert_eq!(
-            merge_ip_allowlist(Some(&caller), None).unwrap(),
-            Some(s(&["10.0.0.0/8"]))
-        );
-        assert!(merge_ip_allowlist(Some(&caller), Some(&s(&["10.1.0.0/16"]))).is_ok());
-        // Overlapping is not enough: every requested network must sit inside the caller's.
-        assert!(merge_ip_allowlist(Some(&caller), Some(&s(&["10.0.0.0/7"]))).is_err());
-        assert!(!client_ip_allowed(Some(&caller), None));
-        assert!(client_ip_allowed(
-            Some(&caller),
-            Some("::ffff:10.1.2.3".parse().unwrap())
-        ));
-    }
 
     fn authed_with_scopes(scopes: Option<Vec<&str>>) -> ApiAuthed {
         ApiAuthed {
