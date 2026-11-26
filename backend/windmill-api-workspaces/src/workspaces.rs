@@ -12865,8 +12865,8 @@ struct PasswordLoginMember {
     groups: Vec<String>,
 }
 
-/// Members other than service accounts whose account signs in with a password: the ones a
-/// `RequireSso` rule would hold but cannot remove.
+/// Members other than service accounts whose account signs in with a password, with their groups
+/// so the caller can leave out a rule's bypassers. A `RequireSso` rule does not remove them.
 async fn list_password_login_members(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
