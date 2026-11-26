@@ -254,6 +254,14 @@ pub(crate) fn session_tools(access: SessionAccess) -> impl Iterator<Item = ToolI
 /// What a tool hands back: the text the model reads, or the message of a failed call.
 pub(super) type ToolResult = Result<String, String>;
 
+/// An image the model reads beside a tool's text: an MCP `image` content block.
+pub(crate) struct ToolImage {
+    /// Standard base64.
+    pub data: String,
+    #[cfg_attr(not(feature = "mcp"), allow(dead_code))]
+    pub mime_type: &'static str,
+}
+
 /// The caller, and the API reached as them.
 pub(crate) struct Ctx<'a> {
     pub auth: &'a ApiAuthed,
@@ -273,6 +281,8 @@ pub(crate) struct Ctx<'a> {
     /// What the card draws of this call, as `(key, value)`: returned in the result's
     /// `_meta`, which the model never reads.
     pub view: std::sync::Mutex<Option<(&'static str, Value)>>,
+    /// The images the model reads beside the text, returned as MCP content blocks.
+    pub images: std::sync::Mutex<Vec<ToolImage>>,
 }
 
 impl<'a> Ctx<'a> {
@@ -293,7 +303,15 @@ impl<'a> Ctx<'a> {
             effects: Default::default(),
             jwt: Default::default(),
             view: Default::default(),
+            images: Default::default(),
         }
+    }
+
+    /// Whether the model reads images beside the text. The chat's providers take a tool
+    /// result as text only (OpenAI's tool messages cannot carry an image), so only an MCP
+    /// client is handed any.
+    pub(super) fn reads_images(&self) -> bool {
+        self.surface == Surface::Mcp
     }
 
     /// Hand the chat something to apply. A no-op for MCP, which has no editor.
@@ -329,6 +347,43 @@ impl Ctx<'_> {
         body: Option<Value>,
         timeout: std::time::Duration,
     ) -> ToolResult {
+        let (status, bytes) = self.send(method, path, body, timeout, usize::MAX).await?;
+        let text = String::from_utf8_lossy(bytes.as_deref().unwrap_or_default()).into_owned();
+        match status.is_success() {
+            true => Ok(text),
+            false => Err(api_error(status, &text)),
+        }
+    }
+
+    /// `GET` an answer as bytes, at most `max_bytes` of them: `None` for a longer answer,
+    /// which is not read past the limit.
+    pub async fn get_bytes(
+        &self,
+        path: &str,
+        max_bytes: usize,
+    ) -> Result<Option<bytes::Bytes>, String> {
+        let (status, bytes) = self
+            .send("GET", path, None, REQUEST_TIMEOUT, max_bytes)
+            .await?;
+        match status.is_success() {
+            true => Ok(bytes),
+            false => {
+                let text = String::from_utf8_lossy(bytes.as_deref().unwrap_or_default());
+                Err(api_error(status, &text))
+            }
+        }
+    }
+
+    /// Call the API as the caller and read at most `max_bytes` of the answer: `None` past
+    /// that.
+    async fn send(
+        &self,
+        method: &str,
+        path: &str,
+        body: Option<Value>,
+        timeout: std::time::Duration,
+        max_bytes: usize,
+    ) -> Result<(http::StatusCode, Option<bytes::Bytes>), String> {
         let url = guarded_url(self.base_internal_url, self.w_id, method, path, self.access)?;
         // No route scope: this server only admits `mcp:all`, several routes (hub, embeddings)
         // map to none, and `guarded_url` is what keeps a call on its route. The tag fence
@@ -347,21 +402,15 @@ impl Ctx<'_> {
             .unwrap()
             .get(self.base_internal_url)
             .cloned();
-        let (status, text) = match router {
+        match router {
             Some(router) => {
-                self.call_router(router, method, &url, body, scopes, timeout)
-                    .await?
+                self.call_router(router, method, &url, body, scopes, timeout, max_bytes)
+                    .await
             }
-            None => self.call_http(method, &url, body, scopes, timeout).await?,
-        };
-        if status.is_success() {
-            Ok(text)
-        } else if text.trim().is_empty() {
-            // What a browser's request reports for an answer with no body.
-            let reason = status.canonical_reason().unwrap_or_default();
-            Err(format!("{}: {reason}", status.as_u16()))
-        } else {
-            Err(format!("{}: {}", status.as_u16(), text))
+            None => {
+                self.call_http(method, &url, body, scopes, timeout, max_bytes)
+                    .await
+            }
         }
     }
 
@@ -375,7 +424,8 @@ impl Ctx<'_> {
         body: Option<Value>,
         scopes: Option<Vec<String>>,
         timeout: std::time::Duration,
-    ) -> Result<(http::StatusCode, String), String> {
+        max_bytes: usize,
+    ) -> Result<(http::StatusCode, Option<bytes::Bytes>), String> {
         use tower::ServiceExt;
         let parsed = reqwest::Url::parse(url).map_err(|e| e.to_string())?;
         // The router does not see the base URL's own path prefix.
@@ -405,10 +455,8 @@ impl Ctx<'_> {
         tokio::time::timeout(timeout, async {
             let Ok(response) = router.oneshot(request).await;
             let status = response.status();
-            let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
-                .await
-                .map_err(|e| e.to_string())?;
-            Ok((status, String::from_utf8_lossy(&bytes).into_owned()))
+            let body = read_capped(response.into_body().into_data_stream(), max_bytes).await?;
+            Ok((status, body))
         })
         .await
         .map_err(|_| format!("Failed to execute request: {method} {url} timed out"))?
@@ -422,7 +470,8 @@ impl Ctx<'_> {
         body: Option<Value>,
         scopes: Option<Vec<String>>,
         timeout: std::time::Duration,
-    ) -> Result<(http::StatusCode, String), String> {
+        max_bytes: usize,
+    ) -> Result<(http::StatusCode, Option<bytes::Bytes>), String> {
         let method = http::Method::from_bytes(method.as_bytes()).map_err(|e| e.to_string())?;
         let token = self
             .jwt
@@ -441,7 +490,14 @@ impl Ctx<'_> {
             .await
             .map_err(|e| format!("Failed to execute request: {e}"))?;
         let status = response.status();
-        Ok((status, response.text().await.map_err(|e| e.to_string())?))
+        if response
+            .content_length()
+            .is_some_and(|len| len > max_bytes as u64)
+        {
+            return Ok((status, None));
+        }
+        let body = read_capped(response.bytes_stream(), max_bytes).await?;
+        Ok((status, body))
     }
 
     pub async fn get(&self, path: &str) -> Result<Value, String> {
@@ -497,6 +553,36 @@ impl Ctx<'_> {
             _ => base.as_str().to_string(),
         }
     }
+}
+
+/// A failed API call as the session reads it: the status code, then the answer.
+fn api_error(status: http::StatusCode, body: &str) -> String {
+    if body.trim().is_empty() {
+        // What a browser's request reports for an answer with no body.
+        let reason = status.canonical_reason().unwrap_or_default();
+        format!("{}: {reason}", status.as_u16())
+    } else {
+        format!("{}: {body}", status.as_u16())
+    }
+}
+
+/// A body read in full while it stays within `max` bytes: `None` once it passes that,
+/// without reading the rest.
+async fn read_capped<E: std::fmt::Display>(
+    stream: impl futures::Stream<Item = Result<bytes::Bytes, E>>,
+    max: usize,
+) -> Result<Option<bytes::Bytes>, String> {
+    use futures::StreamExt;
+    let mut stream = std::pin::pin!(stream);
+    let mut body = bytes::BytesMut::new();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|e| e.to_string())?;
+        if body.len().saturating_add(chunk.len()) > max {
+            return Ok(None);
+        }
+        body.extend_from_slice(&chunk);
+    }
+    Ok(Some(body.freeze()))
 }
 
 /// Routes outside the workspace that a tool reads.

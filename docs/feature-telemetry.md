@@ -4,7 +4,7 @@
 anonymous usage-stats payload. It answers "does anyone use this, and which variant do they pick"
 without any identifying data leaving the instance.
 
-It currently carries 111 registered actions across forty-three features (`access_view`, `ai_session`, `ai_chat`,
+It currently carries 112 registered actions across forty-three features (`access_view`, `ai_session`, `ai_chat`,
 `autoscaling_diagnostics`, `code_mode`,
 `ai_fix`, `ai_agent`, `ai_decision`, `ai_agent_eval`, `app_sandbox`, `datatable`, `db_manager`, `flow_editor`,
 `flow_run`, `flow_step`, `home`, `header_nav`, `run_form`, `sharing`, `debugger`, `trigger`,
