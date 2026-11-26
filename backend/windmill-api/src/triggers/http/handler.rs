@@ -414,6 +414,13 @@ async fn get_http_route_trigger(
             None
         };
         if let Some(authed) = opt_authed {
+            // `/r/*` bypasses the `ApiAuthed` read-only check, and every method runs the
+            // trigger's runnable, so a read-only token is refused whatever the method.
+            if authed.read_only {
+                return Err(Error::PermissionDenied(
+                    "Token is read-only. Triggering HTTP routes is not allowed.".to_string(),
+                ));
+            }
             check_scopes(&authed, || format!("http_triggers:read:{}", &trigger.path))?;
 
             // check that the user has access to the trigger
