@@ -1,0 +1,34 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT u.username, u.email,\n                  COALESCE(array_agg(g.group_) FILTER (WHERE g.group_ IS NOT NULL), '{}') AS \"groups!\"\n           FROM usr u\n           JOIN password p ON p.email = u.email AND p.login_type = 'password'\n           LEFT JOIN usr_to_group g ON g.workspace_id = u.workspace_id AND g.usr = u.username\n           WHERE u.workspace_id = $1 AND NOT u.is_service_account\n           GROUP BY u.username, u.email\n           ORDER BY u.username",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "username",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "email",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "groups!",
+        "type_info": "VarcharArray"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      null
+    ]
+  },
+  "hash": "1816ab8f23338f3e01d01bf4e1ba67e1c180bd4c81b17db1ae2619e2e73fef28"
+}

@@ -1,0 +1,35 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT name, bypass_users, bypass_groups FROM workspace_protection_rule\n         WHERE workspace_id = $1 AND (rules & $2) <> 0 ORDER BY name",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "name",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "bypass_users",
+        "type_info": "TextArray"
+      },
+      {
+        "ordinal": 2,
+        "name": "bypass_groups",
+        "type_info": "TextArray"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "8c8ab1f498ca1460d2b58d95c09af1e3230e8f7cfd7a49b4fec87110e31470fa"
+}

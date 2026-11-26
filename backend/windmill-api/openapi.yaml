@@ -8317,6 +8317,37 @@ paths:
         "400":
           description: rule with this name already exists
 
+  /w/{workspace}/workspaces/password_login_members:
+    get:
+      summary: list the members other than service accounts that sign in with a password
+      operationId: listPasswordLoginMembers
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: members signing in with a password, with their groups
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  required:
+                    - username
+                    - email
+                    - groups
+                  properties:
+                    username:
+                      type: string
+                    email:
+                      type: string
+                    groups:
+                      type: array
+                      items:
+                        type: string
+
   /w/{workspace}/workspaces/protection_rules/{rule_name}:
     post:
       summary: update an existing protection rule
@@ -41680,6 +41711,7 @@ components:
         - RestrictPublicRunSharing
         - RestrictGuestAppDeployment
         - RequireIsolatedForks
+        - RequireSso
     RuleBypasserGroups:
       type: array
       description: Groups that can bypass this ruleset
