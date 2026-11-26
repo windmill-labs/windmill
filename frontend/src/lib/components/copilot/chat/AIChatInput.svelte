@@ -7,8 +7,8 @@
 		contextElementKey,
 		createAttachedFileContextElement,
 		isMentionContext,
+		isPickContext,
 		isSameContextElement,
-		type AppDomSelectorElement,
 		type ContextElement
 	} from './context'
 	import { AIMode } from './AIChatManager.svelte'
@@ -85,19 +85,10 @@
 		onEditEnd?: () => void
 		className?: string
 		onClickOutside?: () => void
-		onSendRequest?: (instructions: string) => void
 		showContext?: boolean
-		bottomRightSnippet?: Snippet
 		/** Shows "Press Esc again to clear" next to the send button. */
 		clearHint?: boolean
 		onKeyDown?: (e: KeyboardEvent) => void
-		// When provided, overrides `chatHost.loading` for the send/stop
-		// button — useful for callers driving their own request lifecycle
-		// (e.g. the inline ⌘K widget runs requests outside the global
-		// `chatHost.loading` flag).
-		loading?: boolean
-		// Called when the user clicks Stop. Defaults to `chatHost.cancel()`.
-		onCancel?: () => void
 		// Observe the composer draft as it changes (the text is local state —
 		// `chatHost.instructions` only carries programmatic prompts). Used by
 		// sessions to persist the typed-but-unsent prompt with the session draft.
@@ -144,13 +135,9 @@
 		onEditEnd = () => {},
 		className = '',
 		onClickOutside = () => {},
-		onSendRequest = undefined,
 		showContext = true,
-		bottomRightSnippet,
 		clearHint = false,
 		onKeyDown = undefined,
-		loading,
-		onCancel,
 		onDraftChange = undefined,
 		initialAttachments = undefined,
 		onAttachmentsChange = undefined,
@@ -637,9 +624,7 @@
 			chatHost.mode === AIMode.GLOBAL
 	)
 
-	const domSelectorChips = $derived(
-		(selectedContext ?? []).filter((c): c is AppDomSelectorElement => c.type === 'app_dom_selector')
-	)
+	const pickChips = $derived((selectedContext ?? []).filter(isPickContext))
 
 	const contextKey = contextElementKey
 
@@ -984,6 +969,12 @@
 		chatManager.contextManager?.consumeMentionContext()
 	}
 
+	/** Apart from the mentions, which an answer to a question consumes too: it carries no pick. */
+	function consumePicksIfGlobal() {
+		if (chatHost.mode !== AIMode.GLOBAL) return
+		chatManager.contextManager?.consumePickContext()
+	}
+
 	/** `midTurn`: Ctrl/⌘+Enter, which sends a message queued behind a running turn into that
 	 * turn instead of after it (`ChatViewHost.sendQueuedMidTurn`). */
 	function sendRequest({ midTurn = false }: { midTurn?: boolean } = {}) {
@@ -1036,6 +1027,7 @@
 					)
 					// Consumed at enqueue, not at flush: the entry above pinned them.
 					consumeMentionsIfGlobal()
+					consumePicksIfGlobal()
 					contextTextareaComponent?.clearForSend()
 				}
 				// With an empty composer, this marks what is already queued.
@@ -1063,6 +1055,7 @@
 			// when given no override, and the consume below empties it.
 			const carried = chatHost.mode === AIMode.GLOBAL ? [...selectedContext] : undefined
 			consumeMentionsIfGlobal()
+			consumePicksIfGlobal()
 			// A host that refuses the turn puts the draft back itself (see AIChatManager's
 			// restoreToInput and FlowChatViewHost's upload failure): restoring here too
 			// would double the text and every attachment.
@@ -1072,8 +1065,7 @@
 				images: sent.images,
 				files: sent.files,
 				blobs: sent.blobs,
-				contextOverride: carried,
-				contextOverrideOrigin: carried ? 'pinned' : undefined
+				contextOverride: carried
 			})
 			// clearForSend() pre-zaps the textarea's mention-sync so the wipe doesn't
 			// drop `selectedContext` before the send has settled its context: the pin
@@ -1086,9 +1078,6 @@
 		}
 	}
 
-	// A custom `onSendRequest` consumer (e.g. the inline ⌘K widget) has no chip
-	// display, so it gets the fully expanded text; the default path keeps tokens
-	// for the conversation bubble and expands them for the LLM inside the manager.
 	/** Enter in a plain textarea. Ctrl/⌘ sends without stopping, and that press stops here for
 	 * the same reason as in `ContextTextarea`: pages bind their own Ctrl/⌘+Enter on the window. */
 	function sendFromEnter(e: KeyboardEvent) {
@@ -1096,14 +1085,6 @@
 		const midTurn = e.ctrlKey || e.metaKey
 		if (midTurn) e.stopPropagation()
 		sendRequest({ midTurn })
-	}
-
-	function submitRequest(options: { midTurn?: boolean } = {}) {
-		if (onSendRequest) {
-			onSendRequest(expanded(chatDraft(draft.text, draft.pastes)))
-		} else {
-			sendRequest(options)
-		}
 	}
 
 	$effect(() => {
@@ -1342,12 +1323,11 @@
 	<!-- The turn stays `loading` while parked on a question, but a drafted answer
 	     is what the button should ship then — otherwise the only pointer action on
 	     a typed answer would be Stop. Anything else keeps Stop. -->
-	{@const isLoading = (loading ?? chatHost.loading) && !questionAnsweredBySend}
+	{@const isLoading = chatHost.loading && !questionAnsweredBySend}
 	{@const emptyDraft = draft.isEmpty}
 	<!-- A text-free GLOBAL draft with context chips is a valid turn (Enter
 	     already sends it), so the button stays enabled there for pointer/touch
-	     parity — mirrors the sendRequest guard. Custom onSendRequest consumers
-	     (inline ⌘K) and editor copilots need content. -->
+	     parity — mirrors the sendRequest guard. Editor copilots need content. -->
 	{@const needsText = chatHost.requiresMessageText && draft.text.trim() === ''}
 	<!-- The wording is about the attachment, so it earns its place only once there is one:
 	     an empty composer is the idle state, not a refusal. -->
@@ -1359,10 +1339,7 @@
 		pendingBlobs > 0 ||
 		ingestionHolds > 0 ||
 		needsText ||
-		(emptyDraft &&
-			(onSendRequest !== undefined ||
-				chatHost.mode !== AIMode.GLOBAL ||
-				selectedContext.length === 0))}
+		(emptyDraft && (chatHost.mode !== AIMode.GLOBAL || selectedContext.length === 0))}
 	<!-- Accent only once there is something to send, so the button lights up as the draft
 	     becomes sendable; idle and Stop stay quiet. -->
 	<div class="relative flex shrink-0">
@@ -1389,9 +1366,9 @@
 			disabled={!isLoading && sendDisabled}
 			on:click={() => {
 				if (isLoading) {
-					onCancel ? onCancel() : chatHost.cancel()
+					chatHost.cancel()
 				} else if (!sendDisabled) {
-					submitRequest()
+					sendRequest()
 				}
 			}}
 		/>
@@ -1399,11 +1376,11 @@
 {/snippet}
 
 <!-- One wrapping row for every badge-shaped chip: selected context (or, when the
-     picker row is hidden — showContext=false in GLOBAL/session mode — the raw-app
-     inspector's DOM picks, which always show), then message files. Only image
+     picker row is hidden — showContext=false in GLOBAL/session mode — the preview elements
+     and code the user picked, which always show), then message files. Only image
      thumbnails get their own row (different height). -->
 {#snippet badgeRow()}
-	{@const contextChips = showContext ? selectedContext : domSelectorChips}
+	{@const contextChips = showContext ? selectedContext : pickChips}
 	{#if contextChips.length > 0 || draft.files.length > 0 || pendingFiles > 0 || draft.blobs.length > 0 || pendingBlobs > 0}
 		<div class="flex flex-row flex-wrap items-center gap-1 px-2.5 pt-2">
 			{#each contextChips as element (contextKey(element))}
@@ -1502,7 +1479,6 @@
 			!e.defaultPrevented &&
 			e.target instanceof HTMLTextAreaElement &&
 			editingMessageIndex === null &&
-			onSendRequest === undefined &&
 			draft.isEmpty &&
 			pendingImages === 0 &&
 			pendingFiles === 0 &&
@@ -1515,9 +1491,8 @@
 			// Empty means no attachment still decoding/reading either —
 			// recalling over an attachments-only draft would clobber it.
 			// Textarea only — ArrowUp on the wrapper's buttons/badges must not
-			// mutate the composer; and main composer only — the edit input and
-			// custom-send consumers (inline widget) have their own history
-			// semantics.
+			// mutate the composer; and main composer only — the edit input has
+			// its own history semantics.
 			if (
 				chatHost.queuedMessage ||
 				chatHost.queuedImages.length > 0 ||
@@ -1564,7 +1539,7 @@
 					if (disabled) {
 						return
 					}
-					submitRequest({ midTurn: withModifier })
+					sendRequest({ midTurn: withModifier })
 				}}
 				{disabled}
 				{onKeyDown}
@@ -1582,7 +1557,7 @@
 					{@render toolbarRow()}
 				{/snippet}
 			</ContextTextarea>
-			{#if !bottomRightSnippet && !toolbarInBox}
+			{#if !toolbarInBox}
 				<div class="absolute bottom-1 right-1">
 					{@render sendStopButton()}
 				</div>
@@ -1623,11 +1598,9 @@
 				class={twMerge('resize-none', CHAT_INPUT_PADDING)}
 				{disabled}
 			></textarea>
-			{#if !bottomRightSnippet}
-				<div class="absolute bottom-1 right-1">
-					{@render sendStopButton()}
-				</div>
-			{/if}
+			<div class="absolute bottom-1 right-1">
+				{@render sendStopButton()}
+			</div>
 		</div>
 		{#if showAppContextTooltip}
 			<Portal target="body">
@@ -1681,20 +1654,13 @@
 					class={twMerge('resize-none', COMPOSER_FIELD_RESET, CHAT_INPUT_PADDING)}
 					{disabled}
 				></textarea>
-				{#if !bottomRightSnippet}
-					<div class="absolute bottom-1 right-1">
-						{@render sendStopButton()}
-					</div>
-				{/if}
+				<div class="absolute bottom-1 right-1">
+					{@render sendStopButton()}
+				</div>
 			</div>
 		</div>
 	{/if}
 	{#if toolbar && !toolbarInBox}
 		<div class="mt-1">{@render toolbar()}</div>
-	{/if}
-	{#if bottomRightSnippet}
-		<div class="absolute bottom-1 right-1">
-			{@render bottomRightSnippet()}
-		</div>
 	{/if}
 </div>

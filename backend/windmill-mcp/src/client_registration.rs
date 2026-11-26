@@ -23,6 +23,11 @@ use crate::oauth::{no_redirect_http_client_pinned, AuthorizationManager};
 pub struct McpClientCredentials {
     pub client_id: String,
     pub client_secret: Option<String>,
+    /// Whether this call registered (or re-registered) Windmill at the server
+    /// rather than reusing the stored client. Registration makes the server
+    /// contact an author-chosen host and writes the instance-wide
+    /// `mcp_oauth_client` table, so callers acting for a user audit it.
+    pub newly_registered: bool,
     /// The token endpoint and the addresses it resolved to during SSRF validation.
     /// Both are private so that [`Self::token_request`] is the only way to obtain
     /// the URL: it returns it together with a client pinned to those addresses, so
@@ -175,6 +180,7 @@ pub async fn get_or_refresh_mcp_client(
             return Ok(McpClientCredentials {
                 client_id: client.client_id,
                 client_secret: decrypted_secret,
+                newly_registered: false,
                 token_endpoint: client.token_endpoint,
                 token_endpoint_target,
             });
@@ -261,6 +267,7 @@ pub async fn get_or_refresh_mcp_client(
     Ok(McpClientCredentials {
         client_id,
         client_secret,
+        newly_registered: true,
         token_endpoint: metadata.token_endpoint,
         token_endpoint_target,
     })
@@ -311,6 +318,7 @@ mod tests {
         let credentials = McpClientCredentials {
             client_id: "id".to_string(),
             client_secret: None,
+            newly_registered: false,
             token_endpoint: "http://unresolvable.invalid/token".to_string(),
             token_endpoint_target: windmill_common::ssrf::ValidatedTarget {
                 host: "unresolvable.invalid".to_string(),

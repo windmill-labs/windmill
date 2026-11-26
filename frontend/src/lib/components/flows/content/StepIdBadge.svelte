@@ -3,9 +3,13 @@
 
 	interface Props {
 		id: string
+		/** Past this many characters, cut from the start: the end of a chained id is the step. */
+		maxLength?: number
 	}
 
-	let { id }: Props = $props()
+	let { id, maxLength }: Props = $props()
+
+	let shown = $derived(maxLength && id.length > maxLength ? '…' + id.slice(1 - maxLength) : id)
 </script>
 
 <!-- Styled like the id badge on a graph node, so a step named in text reads as the same thing. -->
@@ -16,5 +20,5 @@
 	baseClass="!px-1"
 	title={id}
 >
-	<span class="text-2xs font-normal">{id}</span>
+	<span class="text-2xs font-normal">{shown}</span>
 </Badge>

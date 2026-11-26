@@ -254,6 +254,22 @@ secretRequests:
 and the resource are created in the workspace, deployed, and the model reads the result the
 chat would give it. `check` is reported as is; no connection test runs.
 
+`runtime.codeSelections` attaches code to the prompt of a global case, as the chips of code
+selected in an editor do. `source` names the item (`script`, `flow`, `raw_app` or `agent`) and
+optionally its `part` (a flow step, app runnable, agent tool or script module file), and
+`content` is the code from `startLine` to `endLine`:
+
+```yaml
+codeSelections:
+  - source: { kind: flow, path: f/evals/global/process_refund, part: calculate_total }
+    lang: bun
+    startLine: 1
+    endLine: 2
+    content: |-
+      export async function main(subtotal: number) {
+        return { subtotal, total: subtotal }
+```
+
 `runtime.profile` runs a session-chat case (`sessionChat: true`) as a non-admin role
 instead of full access: the prompt, toolset and tool schemas are cut as production's
 `capabilitiesForRole` cuts them, and the workspace's `operator_settings` are seeded for the

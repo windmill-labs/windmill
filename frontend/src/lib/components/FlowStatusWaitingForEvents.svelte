@@ -96,6 +96,23 @@
 			<DisplayResult {workspaceId} noControls result={description} language={job?.language} />
 			<div class="mt-2"></div>
 		{/if}
+		<!-- The form first, then its buttons below it, as any form is submitted. -->
+		{#if job?.raw_flow?.modules?.[approvalStep]?.suspend?.resume_form?.schema}
+			<div class="flex items-start gap-1 mb-2">
+				<div
+					class={twMerge(
+						'w-full border rounded-lg p-2',
+						light ? 'min-w-96 max-h-svh overflow-y-auto' : ''
+					)}
+				>
+					<SchemaForm onlyMaskPassword bind:args={default_payload} {defaultValues} {schema} />
+				</div>
+				<Tooltip>
+					The payload is optional, it is passed to the following step through the `resume`
+					variable
+				</Tooltip>
+			</div>
+		{/if}
 		<!-- A new approval step gets usable buttons again. -->
 		{#key job?.flow_status?.modules?.[approvalStep]?.job}
 			<ApprovalActions
@@ -118,20 +135,6 @@
 					</a>
 				{/if}
 
-				{#if job?.raw_flow?.modules?.[approvalStep]?.suspend?.resume_form?.schema}
-					<div
-						class={twMerge(
-							'w-full border rounded-lg p-2',
-							light ? 'min-w-96 max-h-svh overflow-y-auto' : ''
-						)}
-					>
-						<SchemaForm onlyMaskPassword bind:args={default_payload} {defaultValues} {schema} />
-					</div>
-					<Tooltip>
-						The payload is optional, it is passed to the following step through the `resume`
-						variable
-					</Tooltip>
-				{/if}
 			</ApprovalActions>
 		{/key}
 	</div>

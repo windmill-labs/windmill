@@ -5619,6 +5619,40 @@ pub async fn custom_concurrency_key(
     .await
 }
 
+/// A job's concurrency key, and whether its limit has held it back without letting it in yet.
+pub async fn concurrency_key_and_hold(
+    db: &Pool<Postgres>,
+    job_id: &Uuid,
+) -> windmill_common::error::Result<Option<(String, bool)>> {
+    let fut = async || {
+        sqlx::query!(
+            "SELECT key, original_scheduled_for IS NOT NULL AND released_at IS NULL AS \"held!\"
+            FROM concurrency_key WHERE job_id = $1",
+            job_id
+        )
+        .fetch_optional(db)
+        .await
+    };
+    fut.retry(
+        ConstantBuilder::default()
+            .with_delay(std::time::Duration::from_secs(3))
+            .with_max_times(5)
+            .build(),
+    )
+    .notify(|err, dur| {
+        tracing::error!(
+            "Could not get concurrency key for job {job_id}, retrying in {dur:#?}, err: {err:#?}"
+        );
+    })
+    .await
+    .map(|r| r.map(|r| (r.key, r.held)))
+    .map_err(|e| {
+        Error::internal_err(format!(
+            "Could not get concurrency key for job {job_id}: {e:#}"
+        ))
+    })
+}
+
 pub async fn concurrency_key(
     db: &Pool<Postgres>,
     id: &Uuid,

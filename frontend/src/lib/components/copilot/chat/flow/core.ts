@@ -19,7 +19,6 @@ import {
 	buildSchemaForTool,
 	buildTestRunArgs,
 	buildContextString,
-	applyCodePiecesToFlowModules,
 	SPECIAL_MODULE_IDS,
 	formatScriptLintResult,
 	type ScriptLintResult,
@@ -42,7 +41,7 @@ import {
 import { flowModuleSchema } from './openFlowZod.gen'
 import { collectAllFlowModuleIdsFromModules } from '$lib/components/flows/flowTree'
 import {
-	buildEditableFlowJson as buildEditableFlowJsonBase,
+	buildEditableFlowJson,
 	FLOW_VALUE_SETTINGS_KEYS,
 	pickFlowValueSettings,
 	validateEditableFlowJson,
@@ -75,27 +74,6 @@ function formatEmptyInlineScriptWarning({
 	}
 	const moduleList = emptyInlineScriptModuleIds.map((id) => `'${id}'`).join(', ')
 	return ` Warning: inline scripts ${moduleList} are empty for now. Use set_module_code to fill them in.`
-}
-
-/**
- * Build the agent-facing compact view of a flow, with editor-only post-processing
- * (insert `[#START]` / `[#END]` markers around code pieces selected as context).
- * Delegates to the shared `buildEditableFlowJson` for the rest.
- */
-function buildEditableFlowJson(
-	flow: ExtendedOpenFlow,
-	inlineScriptSession?: InlineScriptSession,
-	selectedContext: ContextElement[] = []
-): EditableFlowJson {
-	const json = buildEditableFlowJsonBase(
-		{ value: flow.value, schema: flow.schema },
-		inlineScriptSession
-	)
-	const codePieces = selectedContext.filter((c) => c.type === 'flow_module_code_piece')
-	if (codePieces.length === 0) {
-		return json
-	}
-	return { ...json, modules: applyCodePiecesToFlowModules(codePieces, json.modules) }
 }
 
 /**
@@ -567,7 +545,9 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 			// Snapshot the current flow with a fresh session so the compact JSON matches what the model saw,
 			// then copy extracted inline scripts back into the helper session before applying the patch.
 			const inlineScriptSession = createInlineScriptSession()
-			const currentFlowJson = JSON.stringify(buildEditableFlowJson(flow, inlineScriptSession))
+			const currentFlowJson = JSON.stringify(
+				buildEditableFlowJson({ value: flow.value, schema: flow.schema }, inlineScriptSession)
+			)
 
 			toolCallbacks.setToolStatus(toolId, {
 				content: 'Applying JSON patch...'
@@ -1230,7 +1210,10 @@ ${instructions}`
 
 	// Clear the inline script store and extract inline scripts for token optimization
 	scriptSession?.clear()
-	const editableFlowJson = buildEditableFlowJson(flow, scriptSession, selectedContext)
+	const editableFlowJson = buildEditableFlowJson(
+		{ value: flow.value, schema: flow.schema },
+		scriptSession
+	)
 
 	let flowContent = `## CURRENT FLOW JSON COMPACT:
 \`\`\`json

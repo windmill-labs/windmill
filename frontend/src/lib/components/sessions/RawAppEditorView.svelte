@@ -317,32 +317,17 @@
 		runtime.manager.contextManager.clearSelectedDomElements(path)
 	}
 
-	// The inline mini-composer over a selected element sends a chat turn; the
-	// element is already an app_dom_selector chip, so it rides along as context.
-	// Mirror the composer: while another send holds the chat — streaming, in
-	// preflight, or waiting for the transcript to be restored — queue it (a second
-	// concurrent sendRequest would race the shared abortController / streaming
-	// buffers) — it auto-sends when the current turn completes.
+	// The inline mini-composer sits over ONE element: with several selected, the model could not
+	// tell which one the prompt is about. Match appPath too, as selectors are generated per app
+	// and collide across them.
 	function onInlinePrompt(selector: string, prompt: string) {
-		// Snapshot the selection synchronously at submit time so a re-selection
-		// during the async send preflight (immediate path) or before the queue
-		// flushes (loading path) can't swap the context. Scope the DOM chips to the
-		// anchored element: the inline prompt sits over ONE element, so with several
-		// selected, drop the others (a multi-select would otherwise send every
-		// selector and the model couldn't tell which one the prompt is about).
-		// Match appPath too — selectors are generated per app and collide across
-		// them, and a restored draft can legitimately hold chips from several apps.
-		// Non-DOM context is kept.
-		const snapshot = runtime.manager.contextManager
+		const { contextManager } = runtime.manager
+		const picks = contextManager
 			.getSelectedContext()
-			.filter(
-				(c) => c.type !== 'app_dom_selector' || (c.selector === selector && c.appPath === path)
-			)
-		if (runtime.manager.loading || runtime.manager.sendInFlight || runtime.manager.sendPending) {
-			runtime.manager.queueMessage(prompt, [], snapshot)
-		} else {
-			void runtime.manager.sendRequest({ instructions: prompt, contextOverride: snapshot })
-		}
+			.filter((c) => c.type === 'app_dom_selector')
+			.filter((c) => c.selector === selector && c.appPath === path)
+		contextManager.removeSelectedDomElement(selector, path)
+		runtime.manager.sendOrQueue(prompt, picks)
 	}
 
 	// The preview host keeps every opened tab mounted, so registering on mount would

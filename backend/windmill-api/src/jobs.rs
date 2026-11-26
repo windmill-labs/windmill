@@ -410,6 +410,11 @@ pub fn workspaced_service() -> Router {
             get(get_approval_step_detail),
         )
         .route(
+            "/flow/nested_approvals/{job_id}",
+            get(list_nested_approvals),
+        )
+        .route("/approvals/waiting", get(list_waiting_approvals))
+        .route(
             "/job_view_token/{id}",
             get(get_job_view_token).layer(cors.clone()),
         )
@@ -5348,6 +5353,8 @@ struct ApprovalInfo {
     step_summary: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     flow_summary: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    required_events: Option<u32>,
     approvers: Vec<Approval>,
     /// Share-read-link token for the flow, minted only for callers allowed to view this
     /// approval. Lets an authenticated workspace-member approver open the run details of
@@ -5441,6 +5448,10 @@ fn approval_conditions_from_settings(suspend: &Suspend) -> Option<ApprovalCondit
 struct ApprovalStepView {
     skin: ApprovalSkin,
     summary: Option<String>,
+    required_events: Option<u32>,
+    /// The approval step's job: approvals sent to it count for this step, with those sent to
+    /// the flow itself. Rows for the flow's earlier steps stay until the run finishes.
+    job: Option<Uuid>,
 }
 
 async fn get_approval_info(
@@ -5529,7 +5540,8 @@ async fn get_approval_info(
                 .and_then(|m| m.get("skin"))
                 .and_then(|v| serde_json::from_value::<ApprovalSkin>(v.clone()).ok())
                 .unwrap_or_default();
-            let step = Some(ApprovalStepView { skin, summary: None });
+            let step =
+                Some(ApprovalStepView { skin, summary: None, required_events: None, job: None });
             (form, description, default_args, enums, run_ac, None, step)
         } else {
             let fs = row
@@ -5609,6 +5621,10 @@ async fn get_approval_info(
                     .and_then(|module| module.suspend.as_ref())
                     .and_then(approval_conditions_from_settings)
             });
+            let step_job_id = fs
+                .as_ref()
+                .and_then(|s| approval_step.and_then(|step| s.modules.get(step)))
+                .and_then(|m| m.job());
             let step = approval_module.map(|module| ApprovalStepView {
                 skin: module
                     .suspend
@@ -5616,13 +5632,11 @@ async fn get_approval_info(
                     .and_then(|s| s.skin)
                     .unwrap_or_default(),
                 summary: module.summary.clone().filter(|s| !s.trim().is_empty()),
+                required_events: module.suspend.as_ref().and_then(|s| s.required_events),
+                job: step_job_id,
             });
 
             // Fetch description, default_args, and enums from the step's completed job result
-            let step_job_id = fs
-                .as_ref()
-                .and_then(|s| approval_step.and_then(|step| s.modules.get(step)))
-                .and_then(|m| m.job());
             let (desc, default_args, enums) = if let Some(sjid) = step_job_id {
                 let result: Option<serde_json::Value> = sqlx::query_scalar(
                     "SELECT result FROM v2_job_completed WHERE id = $1 AND workspace_id = $2",
@@ -5644,6 +5658,8 @@ async fn get_approval_info(
         };
 
     let skin = step.as_ref().map(|s| s.skin).unwrap_or_default();
+    let required_events = step.as_ref().and_then(|s| s.required_events);
+    let step_job = step.as_ref().and_then(|s| s.job);
     let step_summary = step.and_then(|s| s.summary);
 
     let user_auth_required = approval_conditions
@@ -5678,22 +5694,27 @@ async fn get_approval_info(
             skin,
             step_summary: None,
             flow_summary: None,
+            required_events: None,
             approvers: vec![],
             view_token: None,
         }));
     }
 
     // Get existing approvers
-    let approvers: Vec<Approval> = sqlx::query_as::<_, (i32, Option<String>)>(
-        "SELECT resume_id, approver FROM resume_job WHERE flow = $1",
+    let approvers: Vec<Approval> = sqlx::query!(
+        "SELECT resume_id, approver, created_at, approved FROM resume_job
+         WHERE flow = $1 AND ($2::uuid IS NULL OR job IN ($1, $2))",
+        job_id,
+        step_job
     )
-    .bind(&job_id)
     .fetch_all(&db)
     .await?
     .into_iter()
-    .map(|(rid, approver)| Approval {
-        resume_id: rid as u16,
-        approver: approver.unwrap_or_else(|| "anonymous".to_string()),
+    .map(|r| Approval {
+        resume_id: r.resume_id as u16,
+        approver: r.approver.unwrap_or_else(|| "anonymous".to_string()),
+        approved_at: Some(r.created_at),
+        approved: Some(r.approved),
     })
     .collect();
 
@@ -5725,6 +5746,7 @@ async fn get_approval_info(
         skin,
         step_summary,
         flow_summary: row.flow_summary,
+        required_events,
         approvers,
         view_token,
     }))
@@ -5745,10 +5767,376 @@ enum ApprovalStepStatus {
 }
 
 #[derive(Serialize)]
+struct WaitingApproval {
+    /// The suspended flow, the one its approval page takes: the root run, or the branch, loop or
+    /// subflow run holding the step.
+    job_id: Uuid,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    flow_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    flow_summary: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    step_summary: Option<String>,
+    started_by: String,
+    created_at: chrono::DateTime<chrono::Utc>,
+    approvals: i64,
+    required_approvals: i64,
+}
+
+#[derive(Serialize)]
+struct WaitingApprovals {
+    approvals: Vec<WaitingApproval>,
+    /// Every listed run, of which `approvals` holds the most recent.
+    total: usize,
+}
+
+// ponytail: scans the most recent suspended runs only; a workspace past this many waiting
+// approvals needs the approver check in SQL rather than in `can_approve_step`.
+const WAITING_APPROVALS_SCAN: i64 = 1000;
+const WAITING_APPROVALS_RETURNED: usize = 100;
+
+#[derive(Serialize)]
+struct NestedApproval {
+    job_id: Uuid,
+    subflows: Vec<String>,
+    step_id: String,
+    step_summary: Option<String>,
+    /// Fewer approvers than this on a step that went past: it timed out and continued.
+    required_events: u64,
+    approvers: Vec<Approval>,
+}
+
+#[derive(Serialize)]
+struct NestedApprovals {
+    approvals: Vec<NestedApproval>,
+    more: bool,
+}
+
+/// Whether a step can start a run holding an approval step: a subflow, whose steps its caller
+/// does not carry, or a loop or branch whose own steps hold one.
+fn may_hold_approval(step: &serde_json::Value) -> bool {
+    let holds = |modules: &serde_json::Value| {
+        modules
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|m| m.get("suspend").is_some_and(|s| !s.is_null()) || may_hold_approval(m))
+    };
+    let branches = |v: &serde_json::Value| {
+        v["branches"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|b| holds(&b["modules"]))
+    };
+    let v = &step["value"];
+    match v["type"].as_str() {
+        Some("flow") => true,
+        Some("forloopflow" | "whileloopflow") => holds(&v["modules"]),
+        Some("branchone") => holds(&v["default"]) || branches(v),
+        Some("branchall") => branches(v),
+        _ => false,
+    }
+}
+
+/// The ids of the steps under `modules`, at any depth, that may hold an approval. Read from a
+/// flow's full definition: a loop or branch run's own (`flow_node`) keeps nested loop and branch
+/// bodies as `modules_node` references, so its inline steps are not all of them. Step ids are
+/// unique across a flow, so its loop and branch runs look their steps up here.
+fn approval_holders(modules: &[serde_json::Value], out: &mut HashSet<String>) {
+    for m in modules {
+        if may_hold_approval(m) {
+            if let Some(id) = m["id"].as_str() {
+                out.insert(id.to_string());
+            }
+        }
+        let v = &m["value"];
+        let nested = std::iter::once(&v["modules"])
+            .chain(std::iter::once(&v["default"]))
+            .chain(v["branches"].as_array().into_iter().flatten().map(|b| &b["modules"]));
+        for body in nested {
+            approval_holders(body.as_array().map(Vec::as_slice).unwrap_or_default(), out);
+        }
+    }
+}
+
+// ponytail: a loop whose steps hold an approval has one per iteration; past this many nested
+// runs read, the rest stay on their own runs' pages.
+const NESTED_RUNS_READ: usize = 200;
+
+/// The approval steps that runs nested under a flow run (subflows, branch and loop runs, at any
+/// depth) went past. Who approved them is kept on those runs, not on the flow run. Only the
+/// runs started by a step that can hold an approval step are read, one level at a time.
+async fn list_nested_approvals(
+    OptViewToken(view_token): OptViewToken,
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, flow_id)): Path<(String, Uuid)>,
+) -> error::Result<Json<NestedApprovals>> {
+    let created_by = sqlx::query_scalar!(
+        "SELECT created_by FROM v2_job WHERE id = $1 AND workspace_id = $2",
+        flow_id,
+        w_id
+    )
+    .fetch_optional(&db)
+    .await?
+    .ok_or_else(|| Error::NotFound(format!("Job {flow_id} not found")))?;
+    require_job_read_access(
+        &db,
+        &user_db,
+        &authed,
+        &w_id,
+        &flow_id,
+        &created_by,
+        view_token.as_deref(),
+    )
+    .await?;
+
+    let modules = |v: &Option<serde_json::Value>| -> Vec<serde_json::Value> {
+        v.as_ref()
+            .and_then(|v| v.get("modules"))
+            .and_then(|m| m.as_array())
+            .cloned()
+            .unwrap_or_default()
+    };
+    let scope_tags = get_scope_tags(&authed);
+    // Each run to read, with the subflow steps leading to it (none for the flow run itself) and,
+    // for a loop or branch run, the steps of its flow that may hold an approval.
+    type Holders = std::sync::Arc<HashSet<String>>;
+    let mut level: HashMap<Uuid, (Option<Vec<String>>, Option<Holders>)> =
+        HashMap::from([(flow_id, (None, None))]);
+    let mut seen: HashSet<Uuid> = HashSet::from([flow_id]);
+    let mut approvals = vec![];
+    let mut more = false;
+    while !level.is_empty() {
+        let ids: Vec<Uuid> = level.keys().copied().collect();
+        let rows = sqlx::query!(
+            r#"SELECT j.id, j.tag, j.kind = 'flownode' AS "is_node!",
+                      COALESCE(s.flow_status, c.flow_status) AS flow_status,
+                      COALESCE(j.raw_flow, fv.value, fn.flow) AS flow
+               FROM v2_job j
+               LEFT JOIN v2_job_status s ON s.id = j.id
+               LEFT JOIN v2_job_completed c ON c.id = j.id
+               LEFT JOIN flow_version fv
+                   ON j.raw_flow IS NULL AND j.kind = 'flow' AND fv.id = j.runnable_id
+               LEFT JOIN flow_node fn
+                   ON j.raw_flow IS NULL AND j.kind = 'flownode' AND fn.id = j.runnable_id
+               WHERE j.id = ANY($1) AND j.workspace_id = $2"#,
+            &ids,
+            w_id
+        )
+        .fetch_all(&db)
+        .await?;
+        let mut next = HashMap::new();
+        for r in rows {
+            let (at, inherited) = level.get(&r.id).cloned().unwrap_or_default();
+            let defs = modules(&r.flow);
+            let holders = match inherited {
+                Some(h) if r.is_node => h,
+                _ => {
+                    let mut h = HashSet::new();
+                    approval_holders(&defs, &mut h);
+                    std::sync::Arc::new(h)
+                }
+            };
+            let statuses = modules(&r.flow_status);
+            // The read check admitted the flow run on its own tag only. A nested run outside
+            // the caller's tag scope is still walked through, so it cannot hide a descendant
+            // the caller could read directly, but its approvals are not returned.
+            let in_scope = scope_tags.as_ref().map_or(true, |t| t.contains(&r.tag.as_str()));
+            if let (Some(subflows), true) = (&at, in_scope) {
+                let flow_step = r.flow_status.as_ref().and_then(|f| f["step"].as_u64());
+                for (i, m) in statuses.iter().enumerate() {
+                    // A step `skip_if` skipped never asked for approval.
+                    if m["type"] != "Success" || m["skipped"].as_bool() == Some(true) {
+                        continue;
+                    }
+                    let step_id = m["id"].as_str().unwrap_or_default();
+                    let def = defs.iter().find(|d| d["id"] == step_id);
+                    if !def.is_some_and(|d| !d["suspend"].is_null()) {
+                        continue;
+                    }
+                    let approvers: Vec<Approval> =
+                        serde_json::from_value(m["approvers"].clone()).unwrap_or_default();
+                    // No response and the flow moved past the step after it: it timed out and
+                    // continued. While it waits, `step` is that next step's index.
+                    if approvers.is_empty() && !flow_step.is_some_and(|s| s > i as u64 + 1) {
+                        continue;
+                    }
+                    let step_summary = def
+                        .and_then(|d| d["summary"].as_str())
+                        .filter(|s| !s.is_empty())
+                        .map(str::to_string);
+                    let required_events = def
+                        .and_then(|d| d["suspend"]["required_events"].as_u64())
+                        .unwrap_or(1);
+                    approvals.push(NestedApproval {
+                        job_id: r.id,
+                        subflows: subflows.clone(),
+                        step_id: step_id.to_string(),
+                        step_summary,
+                        required_events,
+                        approvers,
+                    });
+                }
+            }
+            for d in &defs {
+                let Some(step) = d["id"].as_str().filter(|s| holders.contains(*s)) else {
+                    continue;
+                };
+                let Some(status) = statuses.iter().find(|s| s["id"] == step) else {
+                    continue;
+                };
+                let mut subflows = at.clone().unwrap_or_default();
+                if d["value"]["type"] == "flow" {
+                    subflows.push(step.to_string());
+                }
+                // A subflow or branch run is the step's `job`, a loop's or a branch's runs its
+                // `flow_jobs`.
+                let started = std::iter::once(&status["job"])
+                    .chain(status["flow_jobs"].as_array().into_iter().flatten())
+                    .filter_map(|v| v.as_str()?.parse::<Uuid>().ok());
+                for child in started {
+                    if seen.len() > NESTED_RUNS_READ {
+                        more = true;
+                        break;
+                    }
+                    if seen.insert(child) {
+                        next.insert(child, (Some(subflows.clone()), Some(holders.clone())));
+                    }
+                }
+            }
+        }
+        level = next;
+    }
+    approvals.sort_by_key(|a| a.approvers.first().and_then(|a| a.approved_at));
+    Ok(Json(NestedApprovals { approvals, more }))
+}
+
+/// The runs waiting on an approval step set to show on Home that the caller can approve, by the
+/// same check the resume boundary runs. A step anyone holding its link can approve is listed
+/// only to those who can read its run, or every member would learn the names of flows they
+/// have no access to.
+async fn list_waiting_approvals(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Path(w_id): Path<String>,
+) -> error::Result<Json<WaitingApprovals>> {
+    // A token confined to some tags reads no job outside them, here as in every job read.
+    let scope_tags =
+        get_scope_tags(&authed).map(|v| v.into_iter().map(str::to_string).collect::<Vec<_>>());
+    let rows = sqlx::query!(
+        r#"
+        SELECT j.id AS "id!",
+               COALESCE(j.root_job, j.parent_job, j.id) AS "root_job_id!",
+               j.runnable_path,
+               j.permissioned_as_email AS "email!",
+               j.created_by AS "created_by!",
+               j.created_at AS "created_at!",
+               COALESCE(rj.runnable_path, j.runnable_path) AS flow_path,
+               NULLIF(f.summary, '') AS flow_summary,
+               s.flow_status->'approval_conditions' AS approval_conditions,
+               NULLIF(w.m->'home'->>'step_summary', '') AS step_summary,
+               COALESCE((w.m->>'count')::bigint, 1) AS "required_approvals!",
+               -- Counted as the worker counts them: those sent to the approval step's job,
+               -- plus those sent to the flow itself.
+               (SELECT count(*) FROM resume_job r WHERE r.job IN (j.id, (w.m->>'job')::uuid))
+                   AS "approvals!",
+               EXISTS(SELECT 1 FROM resume_job r
+                      WHERE r.job IN (j.id, (w.m->>'job')::uuid) AND r.approver = $2)
+                   AS "approved_by_me!"
+        FROM v2_job_queue q
+        JOIN v2_job j ON j.id = q.id
+        JOIN v2_job_status s ON s.id = q.id
+        LEFT JOIN v2_job rj ON rj.id = COALESCE(j.root_job, j.parent_job)
+        LEFT JOIN flow f
+            ON f.workspace_id = j.workspace_id
+           AND f.path = COALESCE(rj.runnable_path, j.runnable_path)
+        -- The step waiting on the approval, which the worker marks `home` when the approval
+        -- step has `show_on_home`: only those are listed, since many approvals are announced
+        -- elsewhere (a resume link sent to a chat) and every admin and owner could give them.
+        CROSS JOIN LATERAL (
+            SELECT s.flow_status->'modules'->((s.flow_status->>'step')::int) AS m
+        ) w
+        WHERE q.workspace_id = $1
+          AND q.suspend > 0
+          AND w.m->>'type' = 'WaitingForEvents'
+          AND w.m->'home' IS NOT NULL
+          AND ($4::text[] IS NULL OR j.tag = ANY($4))
+        ORDER BY j.created_at DESC
+        LIMIT $3
+        "#,
+        &w_id,
+        &authed.username,
+        WAITING_APPROVALS_SCAN,
+        scope_tags.as_deref(),
+    )
+    .fetch_all(&db)
+    .await?;
+
+    let candidates: Vec<_> = rows
+        .into_iter()
+        .filter(|r| !r.approved_by_me)
+        .filter_map(|r| {
+            let ac = r
+                .approval_conditions
+                .as_ref()
+                .and_then(|v| serde_json::from_value::<ApprovalConditions>(v.clone()).ok());
+            let opt_authed = Some(authed.clone());
+            can_approve_step(&opt_authed, &ac, r.runnable_path.as_deref(), &r.email).then(|| {
+                let auth_required = ac.as_ref().is_some_and(|ac| ac.user_auth_required);
+                (r, auth_required)
+            })
+        })
+        .collect();
+
+    let root_ids: Vec<Uuid> = candidates
+        .iter()
+        .filter(|(_, auth_required)| !auth_required)
+        .map(|(r, _)| r.root_job_id)
+        .collect();
+    let readable: std::collections::HashSet<Uuid> = if root_ids.is_empty() {
+        Default::default()
+    } else {
+        let mut tx = user_db.begin(&authed).await?;
+        let ids = sqlx::query_scalar!("SELECT id FROM v2_job WHERE id = ANY($1)", &root_ids)
+            .fetch_all(&mut *tx)
+            .await?;
+        tx.commit().await?;
+        ids.into_iter().collect()
+    };
+
+    let listed: Vec<WaitingApproval> = candidates
+        .into_iter()
+        .filter_map(|(r, auth_required)| {
+            (auth_required || readable.contains(&r.root_job_id)).then(|| WaitingApproval {
+                job_id: r.id,
+                flow_path: r.flow_path,
+                flow_summary: r.flow_summary,
+                step_summary: r.step_summary,
+                started_by: r.created_by,
+                created_at: r.created_at,
+                approvals: r.approvals,
+                required_approvals: r.required_approvals,
+            })
+        })
+        .collect();
+    let total = listed.len();
+    let approvals = listed
+        .into_iter()
+        .take(WAITING_APPROVALS_RETURNED)
+        .collect();
+    Ok(Json(WaitingApprovals { approvals, total }))
+}
+
+#[derive(Serialize)]
 struct StepApproval {
     resume_id: u16,
     approver: String,
-    /// Known only while the run is live: a finished run keeps approver names alone.
+    /// Known only while the run is live, as is `value`: a finished run keeps approver names and
+    /// times alone.
     #[serde(skip_serializing_if = "Option::is_none")]
     approved: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -5861,7 +6249,6 @@ async fn get_approval_step_detail(
         module: Option<serde_json::Value>,
         next_module: Option<serde_json::Value>,
         module_def: Option<serde_json::Value>,
-        is_last_module: bool,
         run_approval_conditions: Option<serde_json::Value>,
         suspend_until: Option<chrono::DateTime<chrono::Utc>>,
         flow_error: Option<serde_json::Value>,
@@ -5880,10 +6267,6 @@ async fn get_approval_step_detail(
                     '$.modules[*] ? (@.id == $id)',
                     jsonb_build_object('id', $3::text)
                 ) AS module_def,
-                COALESCE(
-                    COALESCE(j.raw_flow, fv.value, fn.flow)->'modules'->-1->>'id' = $3,
-                    false
-                ) AS is_last_module,
                 s.flow_status->'approval_conditions' AS run_approval_conditions,
                 q.suspend_until,
                 c.result->'error' AS flow_error,
@@ -5947,12 +6330,13 @@ async fn get_approval_step_detail(
         .module_def
         .and_then(|v| serde_json::from_value(v).ok())
         .ok_or_else(not_found)?;
-    // The worker holds a run only after a step with a positive `required_events` that has a
-    // step after it (`needs_resume`); the last step's suspend settings never stop the run.
+    // The worker holds a run only after a step with a positive `required_events`. A last step
+    // holds it too: the worker appends a virtual step after it (`add_virtual_items_if_necessary`),
+    // which the stored flow does not carry.
     let suspend = module_def
         .suspend
         .as_ref()
-        .filter(|s| s.required_events.unwrap_or(0) > 0 && !row.is_last_module)
+        .filter(|s| s.required_events.unwrap_or(0) > 0)
         .ok_or_else(|| {
             Error::BadRequest(format!("Step {step_id} is not an approval (suspend) step"))
         })?;
@@ -5999,9 +6383,9 @@ async fn get_approval_step_detail(
             .map(|a| StepApproval {
                 resume_id: a.resume_id,
                 approver: a.approver.clone(),
-                approved: None,
+                approved: a.approved,
                 value: None,
-                created_at: None,
+                created_at: a.approved_at,
             })
             .collect()
     } else {
@@ -6594,6 +6978,8 @@ pub async fn get_suspended_job_flow(
         .map(|x| Approval {
             resume_id: x.resume_id as u16,
             approver: x.approver.unwrap_or_else(|| "anonymous".to_string()),
+            approved_at: None,
+            approved: None,
         })
         .collect()
     } else {
@@ -13623,5 +14009,86 @@ mod approval_view_gate_tests {
         ));
         assert_eq!(login.unwrap().user_groups_required, ["approvers"]);
         assert!(from_settings(serde_json::json!({})).is_none());
+    }
+}
+
+#[cfg(test)]
+mod nested_approvals_tests {
+    use super::{approval_holders, may_hold_approval};
+    use serde_json::json;
+
+    fn script(id: &str) -> serde_json::Value {
+        json!({"id": id, "value": {"type": "rawscript", "content": "", "language": "bun"}})
+    }
+
+    fn approval(id: &str) -> serde_json::Value {
+        let mut s = script(id);
+        s["suspend"] = json!({"required_events": 1});
+        s
+    }
+
+    #[test]
+    fn reads_only_steps_that_can_hold_an_approval() {
+        // A subflow's steps are not in its caller's definition: always followed.
+        assert!(may_hold_approval(
+            &json!({"id": "sub", "value": {"type": "flow", "path": "f/a/b"}})
+        ));
+        let lp = |modules| json!({"id": "l", "value": {"type": "forloopflow", "modules": modules}});
+        assert!(!may_hold_approval(&lp(json!([script("a")]))));
+        assert!(may_hold_approval(&lp(json!([script("a"), approval("b")]))));
+        // At any depth of inline loops.
+        assert!(may_hold_approval(&lp(json!([lp(json!([approval("b")]))]))));
+        assert!(may_hold_approval(
+            &json!({"id": "w", "value": {"type": "whileloopflow",
+            "modules": [{"id": "sub", "value": {"type": "flow", "path": "f/a/b"}}]}})
+        ));
+        let branches = |kind, default, branch| {
+            json!({"id": "br", "value": {"type": kind, "default": default,
+                "branches": [{"modules": branch}]}})
+        };
+        assert!(!may_hold_approval(&branches(
+            "branchone",
+            json!([script("a")]),
+            json!([script("b")])
+        )));
+        assert!(may_hold_approval(&branches(
+            "branchone",
+            json!([approval("a")]),
+            json!([])
+        )));
+        assert!(may_hold_approval(&branches(
+            "branchone",
+            json!([]),
+            json!([approval("b")])
+        )));
+        assert!(may_hold_approval(&branches(
+            "branchall",
+            json!(null),
+            json!([approval("b")])
+        )));
+        assert!(!may_hold_approval(&branches(
+            "branchall",
+            json!(null),
+            json!([script("b")])
+        )));
+        // A step's own suspend is the caller's own approval, not a nested one.
+        assert!(!may_hold_approval(&approval("a")));
+        // `"suspend": null` is not an approval step.
+        let mut nulled = script("a");
+        nulled["suspend"] = serde_json::Value::Null;
+        assert!(!may_hold_approval(&lp(json!([nulled]))));
+    }
+
+    #[test]
+    fn holders_reach_into_nested_loop_bodies() {
+        // A loop run's own definition keeps the inner loop as a `modules_node` reference, so
+        // the inner loop is found only from the flow's full definition.
+        let inner = json!({"id": "inner", "value": {"type": "forloopflow",
+            "modules": [approval("s")]}});
+        let outer = json!({"id": "outer", "value": {"type": "forloopflow",
+            "modules": [script("a"), inner]}});
+        let mut holders = std::collections::HashSet::new();
+        approval_holders(&[outer, script("z")], &mut holders);
+        assert_eq!(holders, ["outer", "inner"].map(String::from).into());
     }
 }

@@ -6,13 +6,12 @@
 	import FlowMetadata from '$lib/components/FlowMetadata.svelte'
 	import JobArgs from '$lib/components/JobArgs.svelte'
 	import { onDestroy, onMount, untrack } from 'svelte'
-	import Tooltip from '$lib/components/Tooltip.svelte'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import Login from '$lib/components/Login.svelte'
 	import { AlertTriangle, ExternalLink } from 'lucide-svelte'
 	import { mergeSchema } from '$lib/common'
-	import { emptyString } from '$lib/utils'
+	import { displayDate, emptyString } from '$lib/utils'
 	import { Alert } from '$lib/components/common'
 	import DenyReason from '$lib/components/approvals/DenyReason.svelte'
 	import { getUserExt } from '$lib/user'
@@ -276,13 +275,19 @@
 					<h2 class="text-sm font-semibold text-emphasis">Approvers</h2>
 					<div class="mt-2 text-xs font-normal text-primary">
 						{#if approvalInfo.approvers?.length > 0}
+							<!-- Worded as the run page's Approvals card words it. -->
+							{#if approvalInfo.required_events}
+								<p class="text-secondary mb-1">
+									{approvalInfo.approvers.length} of {approvalInfo.required_events} approvals
+								</p>
+							{/if}
 							<ul>
 								{#each approvalInfo.approvers as a}
 									<li>
-										<p>
-											{a.approver}
-											<Tooltip>Unique id of approval: {a.resume_id}</Tooltip>
-										</p>
+										{a.approver}
+										{#if a.approved_at}
+											<span class="text-hint">· {displayDate(a.approved_at)}</span>
+										{/if}
 									</li>
 								{/each}
 							</ul>

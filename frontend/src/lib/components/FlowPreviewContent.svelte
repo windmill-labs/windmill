@@ -632,7 +632,15 @@
 			</div>
 
 			{#if jobId}
-				<FlowProgressBar {job} bind:this={flowProgressBar} slim textPosition="bottom" showStepId />
+				<FlowProgressBar
+					{job}
+					bind:this={flowProgressBar}
+					slim
+					textPosition="bottom"
+					showStepId
+					stepStates={localModuleStates}
+					waitingNested={Object.keys(suspendStatus?.val ?? {}).length > 0}
+				/>
 			{/if}
 
 			{#if job}

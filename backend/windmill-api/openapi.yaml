@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.884.1
+  version: 1.885.0
   title: Windmill API
 
   contact:
@@ -13174,6 +13174,94 @@ paths:
             application/json:
               schema: {}
 
+  /w/{workspace}/jobs/flow/nested_approvals/{job_id}:
+    get:
+      summary: list the approvals given in runs nested under a flow run
+      description: >
+        List the approval steps that runs nested under a flow run (subflows, branch and
+        loop runs, at any depth) went past, with who approved or rejected each and when.
+        The flow run's own approval steps are not listed: they are in its flow status.
+        Only the runs started by a step that can hold an approval step are read: a
+        subflow, or a loop or branch whose steps hold one.
+      operationId: listNestedApprovals
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: job_id
+          in: path
+          required: true
+          description: id of the flow run
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: the nested approval steps, oldest first
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - approvals
+                  - more
+                properties:
+                  approvals:
+                    type: array
+                    items:
+                      type: object
+                      required:
+                        - job_id
+                        - subflows
+                        - step_id
+                        - required_events
+                        - approvers
+                      properties:
+                        job_id:
+                          type: string
+                          format: uuid
+                          description: the nested run the step belongs to
+                        subflows:
+                          type: array
+                          items:
+                            type: string
+                          description: >
+                            ids of the subflow steps leading to the nested run, outermost
+                            first. Step ids are unique across a flow, loop and branch steps
+                            included, so the first one (or the step itself) is a step of
+                            the flow run's own graph
+                        step_id:
+                          type: string
+                        step_summary:
+                          type: string
+                        required_events:
+                          type: integer
+                          description: >
+                            approvals the step required; fewer approvers means it timed out
+                            and the flow continued
+                        approvers:
+                          type: array
+                          items:
+                            type: object
+                            required:
+                              - resume_id
+                              - approver
+                            properties:
+                              resume_id:
+                                type: integer
+                              approver:
+                                type: string
+                              approved_at:
+                                type: string
+                                format: date-time
+                              approved:
+                                type: boolean
+                  more:
+                    type: boolean
+                    description: >
+                      more nested runs than are read, typically a loop with an approval in
+                      every iteration: their approvals are on those runs' own pages
+
   /w/{workspace}/jobs/flow/approval_step_detail/{job_id}/{step_id}:
     get:
       summary: get the approval detail of one step of a flow run
@@ -13284,8 +13372,9 @@ paths:
                   approvals:
                     type: array
                     description: >
-                      approvals received. approved, value and created_at are known only
-                      while the run is live; a finished run keeps approver names alone.
+                      approvals received. approved and value are known only while the run is
+                      live; a finished run keeps approver names and, for approvals recorded
+                      since it was kept, created_at.
                     items:
                       type: object
                       required:
@@ -13304,6 +13393,65 @@ paths:
                           format: date-time
                   error:
                     description: the run's error, when status is not_resumed
+
+  /w/{workspace}/jobs/approvals/waiting:
+    get:
+      summary: list the runs waiting for an approval the caller can give
+      description: >
+        Runs suspended on an approval step the caller can approve, by the same check the
+        approval itself runs, newest first, excluding steps the caller already approved. A
+        step that does not require login is listed only to callers who can read its run.
+      operationId: listWaitingApprovals
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: runs waiting for the caller's approval
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [approvals, total]
+                properties:
+                  approvals:
+                    type: array
+                    description: the most recent of the listed runs, at most 100
+                    items:
+                      type: object
+                      required:
+                        - job_id
+                        - started_by
+                        - created_at
+                        - approvals
+                        - required_approvals
+                      properties:
+                        job_id:
+                          type: string
+                          format: uuid
+                          description: >
+                            the suspended flow run, the one its approval page takes: the root
+                            run, or the branch, loop or subflow run holding the approval step
+                        flow_path:
+                          type: string
+                        flow_summary:
+                          type: string
+                        step_summary:
+                          type: string
+                        started_by:
+                          type: string
+                        created_at:
+                          type: string
+                          format: date-time
+                        approvals:
+                          type: integer
+                          description: approvals received so far
+                        required_approvals:
+                          type: integer
+                  total:
+                    type: integer
+                    description: how many runs are listed in all
 
   /w/{workspace}/jobs/job_view_token/{id}:
     get:
@@ -20297,6 +20445,9 @@ paths:
                   flow_summary:
                     type: string
                     description: summary of the flow or workflow the approval belongs to
+                  required_events:
+                    type: integer
+                    description: approvals the step requires; absent for a workflow as code
                   approvers:
                     type: array
                     items:
@@ -20309,6 +20460,11 @@ paths:
                           type: integer
                         approver:
                           type: string
+                        approved_at:
+                          type: string
+                          format: date-time
+                        approved:
+                          type: boolean
                   view_token:
                     type: string
                     description: >-
@@ -20563,6 +20719,11 @@ paths:
                           type: integer
                         approver:
                           type: string
+                        approved_at:
+                          type: string
+                          format: date-time
+                        approved:
+                          type: boolean
                       required:
                         - resume_id
                         - approver
@@ -27816,6 +27977,38 @@ paths:
             application/json:
               schema:
                 type: string
+  /concurrency_groups/{id}/key_status:
+    get:
+      summary: Get a job's concurrency key and whether its limit held it back
+      description: Requires read access to the job, the same as reading the run itself. Returns null when the job has no concurrency key.
+      operationId: getConcurrencyKeyStatus
+      tags:
+        - concurrencyGroups
+      parameters:
+        - $ref: "#/components/parameters/JobId"
+      responses:
+        "200":
+          description: concurrency key and deferral of the given job
+          content:
+            application/json:
+              schema:
+                type: object
+                nullable: true
+                properties:
+                  key:
+                    type: string
+                  deferred_from:
+                    type: string
+                    format: date-time
+                    nullable: true
+                    description: When the job was first due. Set the first time its concurrency limit held it back, and kept after it ran.
+                  released_at:
+                    type: string
+                    format: date-time
+                    nullable: true
+                    description: When the concurrency limit let in a job it had held back, as the time the job was last due. The rest until it started is queue time.
+                required:
+                  - key
   /w/{workspace}/concurrency_groups/list_jobs:
     get:
       summary: Get intervals of job runtime concurrency
@@ -34443,9 +34636,11 @@ components:
         - has_preprocessor
 
     RecentRunStatus:
-      description: a failure someone or something marked as handled is `resolved`, not `failure`
+      description: >
+        a failure someone or something marked as handled is `resolved`, not `failure`; a run
+        waiting for an approval is `suspended`, not `running`
       type: string
-      enum: [success, failure, resolved, canceled, running]
+      enum: [success, failure, resolved, canceled, running, suspended]
 
     RecentRunHiddenItem:
       type: object

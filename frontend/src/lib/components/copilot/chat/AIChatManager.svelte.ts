@@ -40,17 +40,14 @@ import {
 	createJobUpdateReader,
 	deriveChatJobStatus,
 	pendingToolImagesMessage,
+	type ToolImage,
 	trimJob
 } from './shared'
 import type {
 	ChatCompletionMessageParam,
 	ChatCompletionSystemMessageParam
 } from 'openai/resources/chat/completions.mjs'
-import {
-	prepareInlineChatSystemPrompt,
-	prepareScriptSystemMessage,
-	prepareScriptTools
-} from './script/core'
+import { prepareScriptSystemMessage, prepareScriptTools } from './script/core'
 import type { ScriptLintResult } from './shared'
 import { navigatorTools, prepareNavigatorSystemMessage } from './navigator/core'
 import { loadApiTools } from './api/apiTools'
@@ -126,11 +123,13 @@ import {
 	createAppFrontendFileContextElement,
 	flattenDatatablesToAppContextElements,
 	isMentionContext,
+	isPickContext,
 	isSameContextElement,
+	type CodeSelection,
 	type ContextElement,
+	type PickContext,
 	type AppDatatableElement
 } from './context'
-import type { Selection } from 'monaco-editor'
 import type AIChatInput from './AIChatInput.svelte'
 import { prepareApiSystemMessage, prepareApiUserMessage } from './api/core'
 import {
@@ -470,7 +469,7 @@ function refreshFreeTierUsage(workspace: string | undefined) {
  * context snapshot always move together so a flush can't drop one. */
 type QueuedEntry = {
 	draft: DraftSnapshot
-	context: ContextElement[] | undefined
+	context: ContextElement[]
 }
 
 /** Plan mode's view of the chat it runs in. A function rather than an object literal in the
@@ -536,7 +535,6 @@ export class AIChatManager implements ChatViewHost {
 	/** Markdown artifacts the copilot created for the current session. */
 	artifacts = new SessionArtifactsStore()
 	abortController: AbortController | undefined = undefined
-	inlineAbortController: AbortController | undefined = undefined
 	// Flag to skip Responses API if it's not available (e.g., Azure region doesn't support it)
 	skipResponsesApi = $state(false)
 
@@ -795,7 +793,7 @@ export class AIChatManager implements ChatViewHost {
 	/** Images buffered by tools (e.g. take_screenshot) during the current tool batch,
 	 * keyed by toolId. Drained by appendPendingToolImages into a follow-up user message
 	 * after the batch. Cleared at each turn start so an aborted batch can't leak. */
-	private pendingToolImages = new Map<string, AttachedImage[]>()
+	private pendingToolImages = new Map<string, ToolImage[]>()
 	/** Model of the most recent loop iteration, recorded via onBeforeIteration.
 	 * The selector stays switchable mid-flight, so when a request fails neither
 	 * the send-time nor the currently-selected model necessarily names the one
@@ -2880,7 +2878,8 @@ export class AIChatManager implements ChatViewHost {
 	#takeQueue(): QueuedEntry {
 		const taken = {
 			draft: this.#queuedDraft.take(),
-			context: this.queuedContext
+			// Not undefined, which would send the live selection: that of the next message.
+			context: this.queuedContext ?? []
 		}
 		this.queuedContext = undefined
 		this.#queueSendsMidTurnIn = undefined
@@ -2912,7 +2911,7 @@ export class AIChatManager implements ChatViewHost {
 			images: queued.draft.images,
 			files: queued.draft.files
 		})
-		if (queued.context?.length) {
+		if (queued.context.length) {
 			const merged = [...queued.context]
 			for (const c of this.queuedContext ?? []) {
 				if (!merged.some((m) => isSameContextElement(m, c))) {
@@ -2923,33 +2922,23 @@ export class AIChatManager implements ChatViewHost {
 		}
 	}
 
-	/** Put a draft's pinned DOM selector chips back as the live selection, so the
-	 * restored draft and the selection stay coherent (its instruction targets the
-	 * element it was written for). No-op when the draft pinned no DOM chips, so a
-	 * plain-text draft leaves the live selection untouched.
+	/** Put a draft's pinned picks back as the live selection, so the restored draft and the
+	 * selection stay coherent (its instruction targets what it was written for). No-op when
+	 * the draft pinned none, so a plain-text draft leaves the live selection untouched.
 	 *
 	 * `keepExisting` when the restored text was merged into a draft the user was
 	 * already writing: that draft's own chips must survive alongside, or its
-	 * instruction — still sitting in the composer — would be retargeted at this
-	 * draft's element. Otherwise the restore replaces, since any chip selected
-	 * since belongs to a draft that is being replaced too. */
-	#restoreDomContext(context: ContextElement[] | undefined, keepExisting = false) {
-		const domChips = (context ?? []).filter((c) => c.type === 'app_dom_selector')
-		if (domChips.length === 0) return
-		const existing = keepExisting
-			? (this.contextManager?.getSelectedContext().filter((c) => c.type === 'app_dom_selector') ??
-				[])
-			: []
-		this.contextManager?.clearSelectedDomElements()
-		// addSelectedDomElement dedups on (selector, appPath), so a chip both drafts
-		// share collapses to one.
-		for (const c of [...domChips, ...existing]) {
-			this.contextManager?.addSelectedDomElement(c)
-		}
+	 * instruction, still sitting in the composer, would be retargeted at this
+	 * draft's pick. Otherwise the restore replaces preview elements, since any
+	 * selected since belongs to a draft that is being replaced too. */
+	#restorePickContext(context: ContextElement[] | undefined, keepExisting = false) {
+		const picks = (context ?? []).filter(isPickContext)
+		if (picks.length === 0) return
+		this.contextManager?.restorePickContext(picks, keepExisting)
 	}
 
 	/** Give back the mentions a send carried when its text returns to the composer,
-	 * so its `@` tokens still have entries to bind to. Additive, unlike the DOM
+	 * so its `@` tokens still have entries to bind to. Additive, unlike the pick
 	 * restore above: dropping the entries this send did not carry would strand the
 	 * tokens naming them in a draft whose text now shares the same composer.
 	 *
@@ -2975,12 +2964,18 @@ export class AIChatManager implements ChatViewHost {
 	 *
 	 * Gated on `sendInFlight` as well as `loading`: `loading` only rises after a
 	 * send's attachment upkeep, so between the two a click would slip past. */
-	sendOrQueue(text: string, context?: ContextElement[]) {
+	sendOrQueue(text: string, picks: PickContext[] = []) {
+		// The composer's own picks stay there: they belong to the draft being written in it.
+		const context = [...this.#contextWithoutPicks(), ...picks]
 		if (this.loading || this.sendInFlight || this.sendPending) {
 			this.queueMessage(text, [], context)
 			return
 		}
 		void this.sendRequest({ instructions: text, contextOverride: context })
+	}
+
+	#contextWithoutPicks(): ContextElement[] {
+		return this.contextManager.getSelectedContext().filter((c) => !isPickContext(c))
 	}
 
 	/** Remove the queued message and put it back into the input, images included. */
@@ -2998,27 +2993,31 @@ export class AIChatManager implements ChatViewHost {
 		// the composer targets the element the draft was written for, not whatever
 		// is selected now. If its text was prepended onto an existing draft, that
 		// draft's chips are kept too — both instructions now share one composer.
-		this.#restoreDomContext(queued.context, mergedIntoDraft)
+		this.#restorePickContext(queued.context, mergedIntoDraft)
 		// The queue aggregates several enqueues into one entry and records no
 		// originating mode, so the mode now is the closest signal available. A
 		// recall after a mid-turn mode switch can therefore miss a restore.
 		this.#restoreMentionContext(queued.context, this.mode)
 	}
 
-	/** Put what the user typed back where they can see it: into the input
-	 * when it's mounted, otherwise back into the queue so it reappears with
-	 * the chat panel instead of being silently dropped. */
+	/** Put what the user typed back where they can see it, with its picks: into the input
+	 * when it's mounted, beside the picks there, otherwise back into the queue so it reappears
+	 * with the chat panel instead of being silently dropped. */
 	private restoreToInput(
 		text: string,
 		images: AttachedImage[] = [],
-		files: AttachedTextFile[] = []
+		files: AttachedTextFile[] = [],
+		context: ContextElement[] = []
 	): boolean {
 		if (this.aiChatInput) {
-			return this.aiChatInput.prependText(text, images, files) === true
+			const mergedIntoDraft = this.aiChatInput.prependText(text, images, files) === true
+			this.#restorePickContext(context, true)
+			return mergedIntoDraft
 		}
 		// Merge onto anything already queued (see #restoreQueue) — replacing would
 		// silently drop a message queued while this one was in flight.
-		this.#queuedDraft.prepend({ text, images, files })
+		const draft = { text, images, files, pastes: [], blobs: [] }
+		this.#restoreQueue({ draft, context })
 		return false
 	}
 
@@ -3592,29 +3591,28 @@ export class AIChatManager implements ChatViewHost {
 		}
 	}
 
-	// Roll a turn that produced nothing usable back out of the transcript and
-	// hand its text back to the composer for editing/resending. `restoreToInput`
-	// is false when a queued message is about to take over (a user cancel with
-	// something queued) — then the rolled-back prompt is dropped rather than
-	// shoved back into the input, so the handoff to the queued message is clean.
-	private restoreUnsentTurn = async (
-		displayLenAfterUser: number,
-		modelLenAfterUser: number,
-		instructions: string,
-		pastes: PasteAttachment[],
-		restoreToInput: boolean = true,
-		images: AttachedImage[] = [],
-		files: AttachedTextFile[] = []
-	): Promise<boolean> => {
+	/** Hand a rolled-back message back to the composer with its picks and mentions, or with none
+	 * of them: on a draft that declined the text, they would retarget what is being written. */
+	#returnToComposer(
+		draft: Pick<DraftSnapshot, 'text' | 'pastes' | 'images' | 'files'>,
+		context: ContextElement[] | undefined,
+		originMode: AIMode,
+		{ replacePicks = false } = {}
+	) {
+		const { text, pastes, images, files } = draft
+		if (!this.aiChatInput?.restoreInstructions(text, pastes, images, files)) return
+		this.#restorePickContext(context, !replacePicks)
+		this.#restoreMentionContext(context, originMode)
+	}
+
+	// Roll a turn that produced nothing usable back out of the transcript.
+	#dropUnsentTurn(displayLenAfterUser: number, modelLenAfterUser: number) {
 		this.displayMessages = this.displayMessages.slice(0, displayLenAfterUser - 1)
 		this.messages = this.messages.slice(0, modelLenAfterUser - 1)
 		// The rolled-back turn's files must not stay registered: the message
 		// referencing them is gone, so leaving them would keep stale content
 		// readable by the tools on later turns.
 		this.#syncMessageFiles()
-		if (!restoreToInput) return false
-		// An occupied composer declines the restore and keeps its own draft.
-		return this.aiChatInput?.restoreInstructions(instructions, pastes, images, files) === true
 	}
 
 	// Bytes each live composer has staged toward its next send (committed
@@ -3911,92 +3909,6 @@ export class AIChatManager implements ChatViewHost {
 		}
 	}
 
-	sendInlineRequest = async (instructions: string, selectedCode: string, selection: Selection) => {
-		// Validate inputs
-		if (!instructions.trim()) {
-			throw new Error('Instructions are required')
-		}
-		// Use a separate abort controller for inline requests to avoid interfering with main chat
-		this.inlineAbortController = new AbortController()
-		const lang = this.scriptEditorOptions?.lang ?? 'bun'
-		const selectedContext: ContextElement[] = [...this.contextManager.getSelectedContext()]
-		const startLine = selection.startLineNumber
-		const endLine = selection.endLineNumber
-		selectedContext.push({
-			type: 'code_piece',
-			lang,
-			title: `L${startLine}-L${endLine}`,
-			startLine,
-			endLine,
-			content: selectedCode
-		})
-
-		const systemMessage: ChatCompletionSystemMessageParam = {
-			role: 'system',
-			content: prepareInlineChatSystemPrompt(lang, {
-				workflowAsCode: this.scriptEditorOptions?.workflowAsCode ?? false
-			})
-		}
-
-		let reply = ''
-
-		try {
-			const userMessage = prepareScriptUserMessage(instructions, selectedContext)
-			const messages = [userMessage]
-
-			const params = {
-				messages,
-				abortController: this.inlineAbortController,
-				callbacks: {
-					onNewToken: (token: string) => {
-						reply += token
-					},
-					onMessageEnd: () => {},
-					setToolStatus: () => {},
-					removeToolStatus: () => {}
-				},
-				systemMessage
-			}
-
-			await this.chatRequest({ ...params })
-
-			// Validate we received a response
-			if (!reply.trim()) {
-				throw new Error('AI response was empty')
-			}
-
-			// Try to extract new code from response
-			const newCodeMatch = reply.match(/<new_code>([\s\S]*?)<\/new_code>/i)
-			if (newCodeMatch && newCodeMatch[1]) {
-				const code = newCodeMatch[1].trim()
-				if (!code) {
-					throw new Error('AI response contained empty code block')
-				}
-				return code
-			}
-
-			// Fallback: try to take everything after the last <new_code> tag
-			const lastNewCodeMatch = reply.match(/<new_code>([\s\S]*)/i)
-			if (lastNewCodeMatch && lastNewCodeMatch[1]) {
-				const code = lastNewCodeMatch[1].trim().replace(/```/g, '')
-				if (!code) {
-					throw new Error('AI response contained empty code block')
-				}
-				return code
-			}
-
-			// If no code tags found, throw error with helpful message
-			throw new Error('AI response did not contain valid code. Please try rephrasing your request.')
-		} catch (error) {
-			// if abort controller is aborted, don't throw an error
-			if (this.inlineAbortController?.signal.aborted) {
-				return
-			}
-			console.error('Unexpected error in sendInlineRequest:', error)
-			throw new Error('An unexpected error occurred. Please try again.')
-		}
-	}
-
 	// Optional pre-flight hook called once per send, after the user's message
 	// bubble + loading indicator are shown optimistically but before the request
 	// goes out. Sessions use this to commit/materialise the workspace (creating a
@@ -4114,13 +4026,7 @@ export class AIChatManager implements ChatViewHost {
 			return undefined
 		}
 
-		const { draft, context = [] } = this.#takeQueue()
-		// Pinned at enqueue, so consumed from the live selection as any pinned send does.
-		for (const c of context) {
-			if (c.type === 'app_dom_selector') {
-				this.contextManager?.removeSelectedDomElement(c.selector, c.appPath)
-			}
-		}
+		const { draft, context } = this.#takeQueue()
 		if (this.mode === AIMode.SCRIPT || this.mode === AIMode.FLOW) {
 			this.contextManager?.updateContextOnRequest({})
 		}
@@ -4174,8 +4080,7 @@ export class AIChatManager implements ChatViewHost {
 		}
 		// The shared manager has no chat on screen: turns render only in a session's own chat.
 		// One started here would still stream, spend tokens and apply tool calls, entirely
-		// off-screen, so refuse it. `sendInlineRequest` is exempt: the ⌘K widget renders its own
-		// composer inside Monaco.
+		// off-screen, so refuse it.
 		if (this === aiChatManager) {
 			console.error('sendRequest called with no chat UI mounted; dropping the turn')
 			sendUserToast('This action needs the AI chat. Start an AI session to continue.', true)
@@ -4211,7 +4116,8 @@ export class AIChatManager implements ChatViewHost {
 					this.restoreToInput(
 						expanded(chatDraft(options.instructions ?? this.instructions, options.pastes ?? [])),
 						options.images,
-						options.files
+						options.files,
+						options.contextOverride
 					)
 				}
 				sendUserToast(
@@ -4247,12 +4153,6 @@ export class AIChatManager implements ChatViewHost {
 			// contextManager. Set whenever a send settles its context ahead of the
 			// turn: a composer submit at the click, a queued message at enqueue.
 			contextOverride?: ContextElement[]
-			/** Where `contextOverride` came from. 'pinned' (default): the chips were
-			 * selected for THIS message, so they are consumed from the live selection
-			 * on send. 'replay': an edit/retry resending an older message's context —
-			 * those chips were consumed long ago, and removing them again would strip
-			 * an identical selection the user has since made in the composer. */
-			contextOverrideOrigin?: 'pinned' | 'replay'
 			/** Auto-send of a queued draft: on preflight failure the caller re-queues
 			 * it, so the composer restore must not also fire (the draft would exist
 			 * twice — queue chip and composer). */
@@ -4326,6 +4226,8 @@ export class AIChatManager implements ChatViewHost {
 			// resolved to `/clear` or `/compact` must not strand its resend reservation.
 			if (COMPACT_COMMAND_RE.test(trimmed) || CLEAR_COMMAND_RE.test(trimmed)) {
 				this.#releaseOutgoingReservation(reservationKey)
+				// It carries no pick either.
+				this.#restorePickContext(options.contextOverride, true)
 			}
 			// `/compact`: summarize the conversation locally to free up context.
 			if (COMPACT_COMMAND_RE.test(trimmed)) {
@@ -4395,17 +4297,16 @@ export class AIChatManager implements ChatViewHost {
 				// restore is keyed to requestedMode: a GLOBAL submit whose mode
 				// flipped during the upkeep awaits above still gets its mentions
 				// back, while a send that started outside GLOBAL consumed none.
-				const taken =
-					this.aiChatInput?.restoreInstructions(
-						this.instructions,
+				this.#returnToComposer(
+					{
+						text: this.instructions,
 						pastes,
-						options.images ?? [],
-						options.files ?? []
-					) === true
-				if (taken) {
-					this.#restoreDomContext(options.contextOverride, true)
-					this.#restoreMentionContext(options.contextOverride, requestedMode)
-				}
+						images: options.images ?? [],
+						files: options.files ?? []
+					},
+					options.contextOverride,
+					requestedMode
+				)
 			}
 			return false
 		}
@@ -4433,7 +4334,7 @@ export class AIChatManager implements ChatViewHost {
 			// that does not write a token would break that and need one here.
 			if (!this.instructions.trim() && files.length === 0) {
 				sendUserToast(`${sendModel.model} can't read images. Switch to a vision model first.`, true)
-				if (!options.queued) this.restoreToInput('', requestedImages)
+				if (!options.queued) this.restoreToInput('', requestedImages, [], options.contextOverride)
 				return false
 			}
 			sendUserToast(
@@ -4458,7 +4359,12 @@ export class AIChatManager implements ChatViewHost {
 				// awaits above occupies the composer, and this restore must merge
 				// into it (or queue), never be refused by it.
 				if (!options.queued) {
-					this.restoreToInput(expanded(chatDraft(this.instructions, pastes)), images, files)
+					this.restoreToInput(
+						expanded(chatDraft(this.instructions, pastes)),
+						images,
+						files,
+						options.contextOverride
+					)
 				}
 				sendUserToast('This session is running in another tab. Your message was kept.', true)
 			}
@@ -4516,16 +4422,11 @@ export class AIChatManager implements ChatViewHost {
 				console.error('AIChatManager beforeSend hook failed', e)
 				rollbackOptimisticSend()
 				if (!options.queued) {
-					// Mentions were consumed at submit, so they come back with the text or
-					// not at all. Only when the composer took it: it declines when the
-					// user has started a new draft, and restoring then would put these
-					// mentions on that draft and every turn after it.
-					const taken =
-						this.aiChatInput?.restoreInstructions(this.instructions, pastes, images, files) === true
-					if (taken) {
-						this.#restoreDomContext(options.contextOverride, true)
-						this.#restoreMentionContext(options.contextOverride, requestedMode)
-					}
+					this.#returnToComposer(
+						{ text: this.instructions, pastes, images, files },
+						options.contextOverride,
+						requestedMode
+					)
 				}
 				sendUserToast(
 					`Could not prepare the session before sending: ${
@@ -4583,14 +4484,11 @@ export class AIChatManager implements ChatViewHost {
 				})
 				if (accepted === false) this.#restoreQueue(next)
 			} else {
-				// Same pairing as the beforeSend catch above: mentions ride back with the
-				// text, only if the composer took it.
-				const taken =
-					this.aiChatInput?.restoreInstructions(this.instructions, pastes, images, files) === true
-				if (taken) {
-					this.#restoreDomContext(options.contextOverride, true)
-					this.#restoreMentionContext(options.contextOverride, requestedMode)
-				}
+				this.#returnToComposer(
+					{ text: this.instructions, pastes, images, files },
+					options.contextOverride,
+					requestedMode
+				)
 			}
 			return true
 		}
@@ -4691,27 +4589,16 @@ export class AIChatManager implements ChatViewHost {
 			// it belongs to whatever the user has selected since. Otherwise read the
 			// current selection.
 			const oldSelectedContext =
-				options.contextOverride ?? this.contextManager?.getSelectedContext() ?? []
-			// DOM selector chips are one-shot: they ride with this message (captured in
+				options.contextOverride ??
+				(options.synthetic
+					? this.#contextWithoutPicks()
+					: (this.contextManager?.getSelectedContext() ?? []))
+			// Pick chips are one-shot: they ride with this message (captured in
 			// oldSelectedContext) and render above it, but must not persist in the input
-			// for the next turn. Clearing here leaves oldSelectedContext untouched.
-			if (options.contextOverrideOrigin === 'replay') {
-				// Edit/retry: the override is a copy of an already-sent message's
-				// context, consumed on its original send. The live selection belongs to
-				// the composer's own draft — touching it here would strip it.
-			} else if (options.contextOverride) {
-				// A pinned submit consumes only the chips it carried. Drop just those
-				// from the live selection (still there if the user didn't re-select); a
-				// newer selection made since is left intact.
-				for (const c of options.contextOverride) {
-					if (c.type === 'app_dom_selector') {
-						// Match appPath too: another app's live chip can share this
-						// selector, and dropping it would discard a newer selection.
-						this.contextManager?.removeSelectedDomElement(c.selector, c.appPath)
-					}
-				}
-			} else {
-				this.contextManager?.clearSelectedDomElements()
+			// for the next turn. Whoever pinned a snapshot has already taken them out: what
+			// is live then, or when the client sends, is the composer's next message's.
+			if (!options.contextOverride && !options.synthetic) {
+				this.contextManager?.consumePickContext()
 			}
 			if (this.mode === AIMode.SCRIPT || this.mode === AIMode.FLOW) {
 				this.contextManager?.updateContextOnRequest(options)
@@ -4792,7 +4679,7 @@ export class AIChatManager implements ChatViewHost {
 						}
 					: m
 			)
-			// For restoreUnsentTurn: the compact composer form (with paste tokens),
+			// For the restore after a rollback: the compact composer form (with paste tokens),
 			// not the expanded LLM text, plus the rollback anchor after the user turn.
 			const sentInstructions = this.instructions
 			const sentPastes = pastes
@@ -4871,7 +4758,7 @@ export class AIChatManager implements ChatViewHost {
 					this.modifiedItems ? [...this.modifiedItems] : undefined
 				)
 			}
-			// Rollback anchors for restoreUnsentTurn: captured after compaction so
+			// Rollback anchors for #dropUnsentTurn: captured after compaction so
 			// they index into the (possibly compacted) stored history. The summary
 			// path shrinks displayMessages too, so the display anchor must also be
 			// read here, not before compaction.
@@ -5106,27 +4993,16 @@ export class AIChatManager implements ChatViewHost {
 				// about to auto-send (see the flush below) — drop the rolled-back
 				// prompt instead of restoring it to the input so the handoff is clean.
 				const willAutoSendQueued = this.wasCancelledByUser() && this.#hasQueuedMessage()
-				const textRestored = await this.restoreUnsentTurn(
-					displayLenAfterUser,
-					modelLenAfterUser,
-					sentInstructions,
-					sentPastes,
-					!willAutoSendQueued,
-					sentImages,
-					files
-				)
-				// restoreUnsentTurn hands the text/pastes/images back for a resend, but
-				// the DOM selector chips were already consumed from the live selection
-				// before the request went out. Restore this turn's own chips so the
-				// resend keeps its element scope — replacing (not merging) any chips
-				// selected during the stream, so the restored draft stays coherent.
-				// Only when the composer actually took the text back: on a queued-message
-				// handoff, or when a draft typed during the stream made the composer
-				// decline, this prompt is dropped — restoring its chips would then
-				// retarget whatever draft is sitting there.
-				if (textRestored) {
-					this.#restoreDomContext(oldSelectedContext)
-					this.#restoreMentionContext(oldSelectedContext, requestedMode)
+				this.#dropUnsentTurn(displayLenAfterUser, modelLenAfterUser)
+				if (!willAutoSendQueued) {
+					// Elements picked during the stream are replaced, so that the restored
+					// draft stays coherent.
+					this.#returnToComposer(
+						{ text: sentInstructions, pastes: sentPastes, images: sentImages, files },
+						oldSelectedContext,
+						requestedMode,
+						{ replacePicks: true }
+					)
 				}
 				if (this.displayMessages.length === 0) {
 					// saveChat no-ops on an empty transcript; the chat persisted earlier
@@ -5328,15 +5204,6 @@ export class AIChatManager implements ChatViewHost {
 		this.cancelLoadingTools()
 	}
 
-	cancelInlineRequest = (reason?: string) => {
-		const cancelReason = reason ?? 'inline_cancelled'
-		console.log('cancelling inline request:', {
-			reason: cancelReason,
-			inlineAbortController: this.inlineAbortController
-		})
-		this.inlineAbortController?.abort(cancelReason)
-	}
-
 	/**
 	 * The images of a stored user turn as the model saw them. Anything resending
 	 * a turn (retry, edit) must read them from here, never from the transcript
@@ -5442,16 +5309,15 @@ export class AIChatManager implements ChatViewHost {
 		// the element the message was about. An edit passes `editedContext` (the edit
 		// box was seeded from this message's chips and the user may have changed
 		// them); a bare Retry passes nothing and falls back to the original
-		// contextElements. `undefined` for modes that don't attach context leaves the
-		// live-selection behavior. An empty array is a deliberate "no context".
+		// contextElements. A message stored without any gets an empty array, as `undefined`
+		// would send the live selection, which is the composer's.
 		this.instructions = newContent ?? userMessage.content
 		// Prune the truncated messages' file registrations BEFORE the resend
 		// re-registers its own — the other way around would delete the fresh rows.
 		this.#syncMessageFiles()
 		this.sendRequest({
 			pastes: pastes ?? userMessage.pastes,
-			contextOverride: editedContext ?? userMessage.contextElements,
-			contextOverrideOrigin: 'replay',
+			contextOverride: editedContext ?? userMessage.contextElements ?? [],
 			images: images ?? sentImages,
 			// The bubble copy is authoritative for files: the API message carries
 			// only a reference (content lives in the store), so nothing ever strips
@@ -5461,16 +5327,8 @@ export class AIChatManager implements ChatViewHost {
 		})
 	}
 
-	addSelectedLinesToContext = (
-		lines: string,
-		startLine: number,
-		endLine: number,
-		moduleId?: string
-	) => {
-		if (!moduleId) {
-			this.changeMode(AIMode.SCRIPT)
-		}
-		this.contextManager?.addSelectedLinesToContext(lines, startLine, endLine, moduleId)
+	attachCodeSelection(selection: CodeSelection) {
+		this.contextManager.addCodeSelection(selection)
 		this.focusInput()
 	}
 

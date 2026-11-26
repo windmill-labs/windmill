@@ -41,6 +41,8 @@ lazy_static::lazy_static! {
     pub static ref AUTH_CACHE: Cache<(String, String), ExpiringAuthCache> = Cache::new(300);
     // Cache for token -> email lookups (for non-workspace-member authenticated users)
     static ref TOKEN_EMAIL_CACHE: Cache<String, (Option<String>, std::time::Instant)> = Cache::new(500);
+    // Joined hashes of a request's duplicate `token` cookies -> index of the live one.
+    static ref PICKED_SESSION_CACHE: Cache<String, (Option<usize>, std::time::Instant)> = Cache::new(500);
 }
 
 /// A token keeps its identity when a superadmin moves the account to another address, so entries
@@ -956,6 +958,69 @@ async fn admit_and_record_guest_jwt(db: &DB, w_id: &str, email: &str, app_path: 
     true
 }
 
+/// Browsers send one or two; checking more would let one request try many guessed tokens
+/// while `BRUTE_FORCE_COUNTER` counts a single failure.
+const MAX_SESSION_COOKIES: usize = 4;
+
+/// The first `token` cookie values, parsed the way `Cookies` parses them, in the order sent.
+fn session_cookie_values(parts: &Parts) -> Vec<String> {
+    parts
+        .headers
+        .get_all(http::header::COOKIE)
+        .iter()
+        .filter_map(|h| h.to_str().ok())
+        .flat_map(|h| h.split(';'))
+        .filter_map(|c| tower_cookies::Cookie::parse_encoded(c).ok())
+        .filter(|c| c.name() == COOKIE_NAME)
+        .map(|c| c.value_trimmed().to_owned())
+        .take(MAX_SESSION_COOKIES)
+        .collect()
+}
+
+/// A browser can hold two `token` cookies for one host: this instance's, and one a parent-domain
+/// instance set with `Domain=` (app.windmill.dev on `.windmill.dev`), which JS cannot clear since
+/// it is HttpOnly. Browsers disagree on their order (Safari sends the host's first, Chrome last),
+/// so neither position can be trusted: keep the first one that is a live session here.
+async fn pick_live_session_token<S: Send + Sync>(
+    parts: &mut Parts,
+    state: &S,
+    candidates: Vec<String>,
+) -> Option<String> {
+    // `Cookies::get` keeps the last duplicate: the pick when nothing can be checked.
+    let fallback = candidates.last().cloned();
+    let Ok(Extension(cache)) = Extension::<Arc<AuthCache>>::from_request_parts(parts, state).await
+    else {
+        return fallback;
+    };
+    let hashes: Vec<String> = candidates.iter().map(|t| hash_token(t)).collect();
+    // A browser keeps sending the same pair on every request, so the pick is cached. A token
+    // revoked within the TTL can still be picked, and then fails authentication as revoked.
+    let key = hashes.join(",");
+    if let Some((picked, at)) = PICKED_SESSION_CACHE.get(&key) {
+        if at.elapsed().as_secs() < TOKEN_EMAIL_CACHE_TTL_SECS {
+            return picked.map(|i| candidates[i].clone()).or(fallback);
+        }
+    }
+    let live: Vec<String> = match sqlx::query_scalar(
+        "SELECT h FROM unnest($1::text[]) AS h \
+         WHERE EXISTS (SELECT 1 FROM token WHERE token_hash = h \
+                       AND (expiration > NOW() OR expiration IS NULL))",
+    )
+    .bind(&hashes)
+    .fetch_all(&cache.db)
+    .await
+    {
+        Ok(live) => live,
+        Err(e) => {
+            tracing::error!("checking duplicate session cookies: {e:#}");
+            return fallback;
+        }
+    };
+    let picked = hashes.iter().position(|h| live.contains(h));
+    PICKED_SESSION_CACHE.insert(key, (picked, std::time::Instant::now()));
+    picked.map(|i| candidates[i].clone()).or(fallback)
+}
+
 pub(crate) async fn extract_token<S: Send + Sync>(parts: &mut Parts, state: &S) -> Option<String> {
     let auth_header = parts
         .headers
@@ -965,14 +1030,21 @@ pub(crate) async fn extract_token<S: Send + Sync>(parts: &mut Parts, state: &S) 
 
     let from_cookie = match auth_header {
         Some(x) => Some(x.to_owned()),
-        None => Extension::<Cookies>::from_request_parts(parts, state)
-            .await
-            .ok()
-            .and_then(|cookies| {
-                cookies
-                    .get(COOKIE_NAME)
-                    .map(|c| c.value_trimmed().to_owned())
-            }),
+        None => {
+            let candidates = session_cookie_values(parts);
+            if candidates.len() > 1 {
+                pick_live_session_token(parts, state, candidates).await
+            } else {
+                Extension::<Cookies>::from_request_parts(parts, state)
+                    .await
+                    .ok()
+                    .and_then(|cookies| {
+                        cookies
+                            .get(COOKIE_NAME)
+                            .map(|c| c.value_trimmed().to_owned())
+                    })
+            }
+        }
     };
 
     #[derive(Deserialize)]

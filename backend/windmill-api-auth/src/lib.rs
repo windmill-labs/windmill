@@ -462,6 +462,24 @@ where
     Ok(())
 }
 
+/// A trigger or schedule runs what it names as its owner, in a background job that carries no
+/// token scopes, so the `jobs:run` scope a direct run would need is checked at save time against
+/// the caller's token.
+pub fn check_run_scopes<'a>(
+    authed: &ApiAuthed,
+    runnables: impl IntoIterator<Item = &'a windmill_common::runnable_ref::RunnableRef>,
+) -> error::Result<()> {
+    for runnable in runnables {
+        let kind = if runnable.is_flow() {
+            "flows"
+        } else {
+            "scripts"
+        };
+        check_scopes(authed, || format!("jobs:run:{kind}:{}", runnable.path()))?;
+    }
+    Ok(())
+}
+
 /// Returns the caller's "real" scope restrictions: every scope other than
 /// `if_jobs:filter_tags:` tag filters. `None` means the token is unscoped and
 /// has the full privileges of its user; `Some` means it is restricted to the
