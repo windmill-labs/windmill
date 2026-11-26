@@ -80,6 +80,7 @@ import type { editor as meditor } from 'monaco-editor'
 import { pendingFolderInstructions, type FolderInstructionsContext } from './folderInstructions'
 import type { WebSearchSource } from './webSearchResult'
 import { runOnServer } from './global/backendSessionTools'
+import { mcpUnavailableMessage } from './global/mcpUnavailable'
 import { isAgentStream } from '../../aiAgentResult'
 
 // Prettify function for code arguments - extracts and formats code from JSON
@@ -948,6 +949,12 @@ async function callTool<T>({
 			throw new Error(
 				`${functionName} is not available yet: no pipeline editor is open for this chat. Call open_preview(kind="pipeline", path="<folder>") first and wait for its result; once it reports the editor open, the pipeline tools are callable. Do not fall back to write_script.`
 			)
+		}
+		// The MCP tools exist only in global mode and only while the user has a server
+		// turned on, a per-browser setting change_mode cannot reach.
+		if (/^(search_mcp_tools|call_mcp_(read|write)_tool)$/.test(functionName)) {
+			const server = typeof args?.server === 'string' ? args.server : undefined
+			throw new Error(await mcpUnavailableMessage(workspace, server))
 		}
 		throw new Error(
 			`Unknown tool call: ${functionName}. Probably not in the correct mode, use the change_mode tool to switch to the correct mode.`
