@@ -204,6 +204,7 @@ async fn test_alert_job_queue_waiting_in_global_settings(db: Pool<Postgres>) -> 
 async fn read_secret_surfaces(
     base: &str,
     names: &[&str],
+    reveal: bool,
 ) -> anyhow::Result<Vec<(String, u16, String)>> {
     let mut paths = vec![
         "instance_config".to_string(),
@@ -214,9 +215,13 @@ async fn read_secret_surfaces(
     paths.extend(names.iter().map(|n| format!("global/{n}")));
     let mut out = vec![];
     for path in paths {
-        let resp = authed(client().get(format!("{base}/{path}")))
-            .send()
-            .await?;
+        let resp = authed(
+            client()
+                .get(format!("{base}/{path}"))
+                .query(&[("dangerously_reveal_secrets", reveal)]),
+        )
+        .send()
+        .await?;
         let status = resp.status().as_u16();
         out.push((path, status, resp.text().await?));
     }
@@ -252,9 +257,17 @@ async fn test_server_secrets_follow_export_flag(db: Pool<Postgres>) -> anyhow::R
     let server = ApiServer::start(db.clone()).await?;
     let base = format!("http://localhost:{}/api/settings", server.addr.port());
 
-    // Default: a full export, so `get-config` and `pull` can migrate an instance.
     std::env::remove_var("EXPORT_SERVER_SECRETS");
-    for (path, status, body) in read_secret_surfaces(&base, &names).await? {
+    // A read that does not ask for secrets gets them redacted.
+    for (path, status, body) in read_secret_surfaces(&base, &names, false).await? {
+        assert_2xx(status, &body, &path);
+        assert!(
+            !body.contains("planted-"),
+            "{path} returned a secret without dangerously_reveal_secrets: {body}"
+        );
+    }
+    // Asked for, a full export, so `get-config` and `pull` can migrate an instance.
+    for (path, status, body) in read_secret_surfaces(&base, &names, true).await? {
         assert_2xx(status, &body, &path);
         assert!(
             body.contains("planted-"),
@@ -263,7 +276,7 @@ async fn test_server_secrets_follow_export_flag(db: Pool<Postgres>) -> anyhow::R
     }
 
     std::env::set_var("EXPORT_SERVER_SECRETS", "0");
-    let withheld = read_secret_surfaces(&base, &names).await;
+    let withheld = read_secret_surfaces(&base, &names, true).await;
     std::env::remove_var("EXPORT_SERVER_SECRETS");
     for (path, status, body) in withheld? {
         if path.starts_with("global/") {

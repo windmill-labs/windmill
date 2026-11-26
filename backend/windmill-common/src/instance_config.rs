@@ -1200,6 +1200,11 @@ const SENSITIVE_SETTINGS: &[&str] = &[
     "powershell_repo_pat",
     "workspace_registries",
     "sandbox_registry_auth",
+    "nuget_config",
+    "maven_settings_xml",
+    "cargo_registries",
+    // A webhook URL is commonly its own credential.
+    "instance_events_webhook",
 ];
 
 /// Object-valued settings that contain sensitive sub-fields.
@@ -1224,6 +1229,7 @@ const NESTED_SENSITIVE_FIELDS: &[(&str, &[&str])] = &[
     ("custom_instance_pg_databases", &["user_pwd"]),
     ("external_instance_pg", &["password"]),
     ("github_enterprise_app", &["private_key"]),
+    ("otel", &["otel_exporter_otlp_headers"]),
 ];
 
 /// Settings that are maps-of-objects where each child has sensitive sub-fields.
@@ -2954,6 +2960,8 @@ mod tests {
             "custom_instance_replication_pwd": "repl-secret",
             "workspace_registries": { "ws": { "npm": { "token": "reg-secret" } } },
             "oauths": { "google": { "id": "client-id", "secret": "oauth-secret" } },
+            "nuget_config": "<add key=\"ClearTextPassword\" value=\"nuget-secret\" />",
+            "otel": { "otel_exporter_otlp_endpoint": "https://otel", "otel_exporter_otlp_headers": "authorization=otel-secret" },
             "base_url": "https://example.com",
         });
         let mut read = stored.clone();
@@ -2961,7 +2969,14 @@ mod tests {
             redact_setting_secrets(key, value);
         }
         let text = read.to_string();
-        for secret in ["pg-secret", "repl-secret", "reg-secret", "oauth-secret"] {
+        for secret in [
+            "pg-secret",
+            "repl-secret",
+            "reg-secret",
+            "oauth-secret",
+            "nuget-secret",
+            "otel-secret",
+        ] {
             assert!(!text.contains(secret), "{secret} leaked: {text}");
         }
         assert_eq!(read["oauths"]["google"]["id"], "client-id");
