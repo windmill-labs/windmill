@@ -33902,8 +33902,33 @@ components:
           items:
             type: string
           description: "List of path conflicts that block the offboarding. Empty on success."
+        conflict_items:
+          type: array
+          items:
+            $ref: "#/components/schemas/OffboardPathConflict"
+          description: "The same conflicts as `conflicts`, structured. Empty on success."
         summary:
           $ref: "#/components/schemas/OffboardSummary"
+
+    OffboardPathConflict:
+      type: object
+      properties:
+        workspace_id:
+          type: string
+        kind:
+          type: string
+          description: "Item kind, as its table name (script, flow, app, resource, variable, schedule, eval_dataset, http_trigger, ...)"
+        source_path:
+          type: string
+          description: "The offboarded user's item, under u/{username}/"
+        target_path:
+          type: string
+          description: "The existing item at the reassignment target"
+      required:
+        - workspace_id
+        - kind
+        - source_path
+        - target_path
 
     OffboardSummary:
       type: object
