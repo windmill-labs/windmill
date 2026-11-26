@@ -924,6 +924,7 @@ pub const ENV_SETTINGS: &[&str] = &[
     "WORKER_GROUP",
     "SAML_METADATA",
     "INSTANCE_IS_DEV",
+    "TRUSTED_PROXIES",
     "OTEL_METRICS",
     "OTEL_TRACING",
     "OTEL_LOGS",

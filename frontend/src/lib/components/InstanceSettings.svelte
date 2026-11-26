@@ -135,7 +135,7 @@
 		loading = true
 
 		// Bulk-load all settings in a single API call
-		const config = await SettingService.getInstanceConfig()
+		const config = await SettingService.getInstanceConfig({ dangerouslyRevealSecrets: true })
 		const gs = (config.global_settings ?? {}) as Record<string, any>
 
 		initialOauths = gs['oauths'] ?? {}

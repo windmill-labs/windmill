@@ -1281,6 +1281,14 @@ async fn join_workspace<'c>(
         )));
     }
 
+    windmill_common::workspaces::check_new_member_sso(
+        &mut *tx,
+        &w_id,
+        &authed.email,
+        Some(&username),
+    )
+    .await?;
+
     sqlx::query!(
         "INSERT INTO usr
             (workspace_id, email, username, is_admin, operator)
@@ -2848,6 +2856,10 @@ async fn set_login_type(
     )
     .execute(&mut *tx)
     .await?;
+
+    if et.login_type == "password" {
+        windmill_common::workspaces::check_password_login_allowed(&mut *tx, &email).await?;
+    }
 
     audit_log(
         &mut *tx,

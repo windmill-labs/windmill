@@ -344,7 +344,8 @@ async fn run_backfill(
                       row_to_json(r)::text AS "line!"
                FROM (
                    SELECT workspace_id, id, timestamp, username, operation,
-                          action_kind::text AS action_kind, resource, parameters, email, span
+                          action_kind::text AS action_kind, resource, parameters, email, span,
+                          client_ip, user_agent
                    FROM audit_partitioned
                    WHERE timestamp >= $1 AND timestamp < $2
                      AND (timestamp, id) > ($3, $4)

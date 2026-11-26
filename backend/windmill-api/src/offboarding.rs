@@ -85,8 +85,42 @@ fn default_true() -> bool {
 pub(crate) struct OffboardResponse {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     conflicts: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    conflict_items: Vec<PathConflict>,
     #[serde(skip_serializing_if = "Option::is_none")]
     summary: Option<OffboardSummary>,
+}
+
+impl OffboardResponse {
+    fn conflicts(conflict_items: Vec<PathConflict>, global: bool) -> Self {
+        let conflicts = conflict_items
+            .iter()
+            .map(|c| {
+                if global {
+                    format!("[{}] {}: {}", c.workspace_id, c.kind, c.target_path)
+                } else {
+                    format!("{}: {}", c.kind, c.target_path)
+                }
+            })
+            .collect();
+        Self { conflicts, conflict_items, summary: None }
+    }
+
+    fn done(summary: OffboardSummary) -> Self {
+        Self { conflicts: vec![], conflict_items: vec![], summary: Some(summary) }
+    }
+}
+
+/// An item of the departing user whose reassigned path is already taken.
+#[derive(Serialize)]
+struct PathConflict {
+    workspace_id: String,
+    /// The table the item lives in (`script`, `flow`, `http_trigger`, ...).
+    kind: String,
+    /// The departing user's item, under `u/{username}/`.
+    source_path: String,
+    /// The existing item the reassignment would collide with.
+    target_path: String,
 }
 
 #[derive(Serialize)]
@@ -415,7 +449,7 @@ pub(crate) async fn offboard_workspace_user(
 
     let conflicts = check_path_conflicts(&db, &w_id, &username, &req.reassign_to).await?;
     if !conflicts.is_empty() {
-        return Ok(Json(OffboardResponse { conflicts, summary: None }));
+        return Ok(Json(OffboardResponse::conflicts(conflicts, false)));
     }
 
     let email = sqlx::query_scalar!(
@@ -478,10 +512,7 @@ pub(crate) async fn offboard_workspace_user(
         .await?;
     }
 
-    Ok(Json(OffboardResponse {
-        conflicts: vec![],
-        summary: Some(summary),
-    }))
+    Ok(Json(OffboardResponse::done(summary)))
 }
 
 // ---- Instance-level endpoints ----
@@ -557,16 +588,11 @@ pub(crate) async fn offboard_global_user(
                 &reassignment.reassign_to,
             )
             .await?;
-            for c in conflicts {
-                all_conflicts.push(format!("[{}] {}", &ws.workspace_id, c));
-            }
+            all_conflicts.extend(conflicts);
         }
     }
     if !all_conflicts.is_empty() {
-        return Ok(Json(OffboardResponse {
-            conflicts: all_conflicts,
-            summary: None,
-        }));
+        return Ok(Json(OffboardResponse::conflicts(all_conflicts, true)));
     }
 
     let mut tx = db.begin().await?;
@@ -654,10 +680,7 @@ pub(crate) async fn offboard_global_user(
 
     tx.commit().await?;
 
-    Ok(Json(OffboardResponse {
-        conflicts: vec![],
-        summary: Some(total_summary),
-    }))
+    Ok(Json(OffboardResponse::done(total_summary)))
 }
 
 // ---- Validation helpers ----
@@ -769,7 +792,7 @@ async fn check_path_conflicts(
     w_id: &str,
     username: &str,
     reassign_to: &str,
-) -> Result<Vec<String>> {
+) -> Result<Vec<PathConflict>> {
     let new_prefix = format!("{}/", reassign_to);
     let mut conflicts = Vec::new();
 
@@ -800,11 +823,14 @@ async fn check_path_conflicts(
             "flow" => " AND NOT t1.archived",
             _ => "",
         };
+        // A conflict is resolved by deleting one of its two paths, so the source must be the
+        // departing user's: `starts_with` rather than LIKE, where the `_` usernames may hold
+        // matches any character and would report another user's item as conflicting with itself.
         // SAFETY: `table_name` comes from a hardcoded allowlist `tables`, not user input.
-        let rows: Vec<String> = sqlx::query_scalar(&format!(
-            "SELECT REGEXP_REPLACE(t1.path, '^u/' || $1 || '/', $3) \
+        let rows: Vec<(String, String)> = sqlx::query_as(&format!(
+            "SELECT DISTINCT t1.path, REGEXP_REPLACE(t1.path, '^u/' || $1 || '/', $3) \
              FROM {table} t1 \
-             WHERE t1.path LIKE ('u/' || $1 || '/%') AND t1.workspace_id = $2{extra_filter} \
+             WHERE starts_with(t1.path, 'u/' || $1 || '/') AND t1.workspace_id = $2{extra_filter} \
              AND EXISTS ( \
                  SELECT 1 FROM {table} t2 \
                  WHERE t2.path = REGEXP_REPLACE(t1.path, '^u/' || $1 || '/', $3) \
@@ -818,8 +844,13 @@ async fn check_path_conflicts(
         .fetch_all(db)
         .await?;
 
-        for path in rows {
-            conflicts.push(format!("{}: {}", table_name, path));
+        for (source_path, target_path) in rows {
+            conflicts.push(PathConflict {
+                workspace_id: w_id.to_string(),
+                kind: table_name.to_string(),
+                source_path,
+                target_path,
+            });
         }
     }
 
@@ -1216,12 +1247,47 @@ async fn offboard_user_from_workspace<'c>(
         &new_prefix, username, w_id
     ).execute(&mut **tx).await?;
 
+    // Deleting a script or flow by path leaves its asset usages behind, on the keys the moved
+    // usages take; such a row is an orphan or the same usage, so it is dropped, not renamed onto.
+    sqlx::query(
+        "DELETE FROM asset d WHERE d.workspace_id = $3 AND EXISTS ( \
+             SELECT 1 FROM asset s \
+             WHERE s.workspace_id = $3 AND starts_with(s.usage_path, 'u/' || $2 || '/') \
+             AND s.ctid <> d.ctid AND s.path = d.path AND s.kind = d.kind AND s.usage_kind = d.usage_kind \
+             AND REGEXP_REPLACE(s.usage_path, '^u/' || $2 || '/(.*)', $1 || '/\\1') = d.usage_path)",
+    )
+    .bind(&new_prefix)
+    .bind(username)
+    .bind(w_id)
+    .execute(&mut **tx)
+    .await?;
+
     sqlx::query!(
         r#"UPDATE asset SET usage_path = REGEXP_REPLACE(usage_path, 'u/' || $2 || '/(.*)', $1 || '/\1') WHERE usage_path LIKE ('u/' || $2 || '/%') AND workspace_id = $3"#,
         &new_prefix, username, w_id
     ).execute(&mut **tx).await?;
 
     // ---- dependency_map ----
+    // Deleting an item by path leaves its rows here, so an item deleted to make room at the
+    // target still holds the keys the moved rows take. A row already holding a moved row's final
+    // key is such an orphan or the same edge, so it is dropped rather than renamed onto.
+    // SAFETY: `column` comes from the hardcoded list below, not user input.
+    for column in ["importer_path", "imported_path"] {
+        sqlx::query(&format!(
+            "DELETE FROM dependency_map d WHERE d.workspace_id = $3 AND EXISTS ( \
+                 SELECT 1 FROM dependency_map s \
+                 WHERE s.workspace_id = $3 AND starts_with(s.{column}, 'u/' || $2 || '/') \
+                 AND s.ctid <> d.ctid AND s.importer_node_id = d.importer_node_id AND s.importer_kind = d.importer_kind \
+                 AND REGEXP_REPLACE(s.importer_path, '^u/' || $2 || '/(.*)', $1 || '/\\1') = d.importer_path \
+                 AND REGEXP_REPLACE(s.imported_path, '^u/' || $2 || '/(.*)', $1 || '/\\1') = d.imported_path)"
+        ))
+        .bind(&new_prefix)
+        .bind(username)
+        .bind(w_id)
+        .execute(&mut **tx)
+        .await?;
+    }
+
     sqlx::query!(
         r#"UPDATE dependency_map SET importer_path = REGEXP_REPLACE(importer_path, 'u/' || $2 || '/(.*)', $1 || '/\1') WHERE importer_path LIKE ('u/' || $2 || '/%') AND workspace_id = $3"#,
         &new_prefix, username, w_id

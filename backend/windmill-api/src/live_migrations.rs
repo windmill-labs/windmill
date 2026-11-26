@@ -367,8 +367,11 @@ async fn retire_legacy_audit_table(conn: &mut PgConnection) -> Result<(), Error>
     .await?;
     tx.execute("DROP TABLE audit").await?;
     tx.execute(
-        format!("CREATE VIEW audit AS SELECT {AUDIT_COLUMNS} FROM audit_partitioned WHERE false")
-            .as_str(),
+        format!(
+            "CREATE VIEW audit AS SELECT {AUDIT_COLUMNS}, client_ip, user_agent \
+             FROM audit_partitioned WHERE false"
+        )
+        .as_str(),
     )
     .await?;
     tx.execute("GRANT ALL ON audit TO windmill_user, windmill_admin")

@@ -1903,6 +1903,7 @@ paths:
         - setting
       parameters:
         - $ref: "#/components/parameters/Key"
+        - $ref: "#/components/parameters/DangerouslyRevealSecrets"
       responses:
         "200":
           description: status
@@ -2717,6 +2718,8 @@ paths:
       operationId: listGlobalSettings
       tags:
         - setting
+      parameters:
+        - $ref: "#/components/parameters/DangerouslyRevealSecrets"
       responses:
         "200":
           description: list of settings
@@ -2760,6 +2763,8 @@ paths:
       operationId: getInstanceConfig
       tags:
         - setting
+      parameters:
+        - $ref: "#/components/parameters/DangerouslyRevealSecrets"
       responses:
         "200":
           description: full instance configuration
@@ -8311,6 +8316,37 @@ paths:
                 type: string
         "400":
           description: rule with this name already exists
+
+  /w/{workspace}/workspaces/password_login_members:
+    get:
+      summary: list the members other than service accounts that sign in with a password
+      operationId: listPasswordLoginMembers
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: members signing in with a password, with their groups
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  required:
+                    - username
+                    - email
+                    - groups
+                  properties:
+                    username:
+                      type: string
+                    email:
+                      type: string
+                    groups:
+                      type: array
+                      items:
+                        type: string
 
   /w/{workspace}/workspaces/protection_rules/{rule_name}:
     post:
@@ -29911,6 +29947,15 @@ components:
       required: true
       schema:
         type: string
+    DangerouslyRevealSecrets:
+      name: dangerously_reveal_secrets
+      description: >
+        Return stored secrets in clear. Without it, every secret is replaced by a
+        placeholder, which a write sending it back unchanged keeps as the stored value.
+      in: query
+      required: false
+      schema:
+        type: boolean
     WorkspaceId:
       name: workspace
       in: path
@@ -33902,8 +33947,33 @@ components:
           items:
             type: string
           description: "List of path conflicts that block the offboarding. Empty on success."
+        conflict_items:
+          type: array
+          items:
+            $ref: "#/components/schemas/OffboardPathConflict"
+          description: "The same conflicts as `conflicts`, structured. Empty on success."
         summary:
           $ref: "#/components/schemas/OffboardSummary"
+
+    OffboardPathConflict:
+      type: object
+      properties:
+        workspace_id:
+          type: string
+        kind:
+          type: string
+          description: "Item kind, as its table name (script, flow, app, resource, variable, schedule, eval_dataset, http_trigger, ...)"
+        source_path:
+          type: string
+          description: "The offboarded user's item, under u/{username}/"
+        target_path:
+          type: string
+          description: "The existing item at the reassignment target"
+      required:
+        - workspace_id
+        - kind
+        - source_path
+        - target_path
 
     OffboardSummary:
       type: object
@@ -34468,6 +34538,12 @@ components:
           type: object
         span:
           type: string
+        client_ip:
+          type: string
+          description: Address of the client that made the request. Forwarding headers are believed only from the proxies listed in the TRUSTED_PROXIES environment variable (loopback by default, plus the private ranges on Windmill Cloud), so behind a reverse proxy this is the proxy's address until it is listed. Absent on entries no request stands behind.
+        user_agent:
+          type: string
+          description: User-Agent header of the request.
       required:
         - workspace_id
         - id
@@ -41679,6 +41755,7 @@ components:
         - RestrictPublicRunSharing
         - RestrictGuestAppDeployment
         - RequireIsolatedForks
+        - RequireSso
     RuleBypasserGroups:
       type: array
       description: Groups that can bypass this ruleset
