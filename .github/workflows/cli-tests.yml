@@ -65,7 +65,7 @@ jobs:
         if: steps.setup-bun.outcome == 'failure'
         uses: oven-sh/setup-bun@v2.2.0
         with:
-          bun-version: latest
+          bun-version: 1.3.10
 
       - name: Generate Windmill client
         working-directory: cli
@@ -124,7 +124,7 @@ jobs:
         if: steps.setup-bun.outcome == 'failure'
         uses: oven-sh/setup-bun@v2.2.0
         with:
-          bun-version: latest
+          bun-version: 1.3.10
 
       - name: Symlink Bun to /usr/bin/bun
         run: sudo ln -sf $(which bun) /usr/bin/bun
@@ -191,7 +191,7 @@ jobs:
         if: steps.setup-bun.outcome == 'failure'
         uses: oven-sh/setup-bun@v2.2.0
         with:
-          bun-version: latest
+          bun-version: 1.3.10
 
       - name: Get Bun and Node paths
         id: runtime-paths
