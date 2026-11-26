@@ -234,7 +234,7 @@ const showImageSchema = z.object({
 	step_id: z
 		.string()
 		.optional()
-		.describe("With job_id on a flow: the step whose result holds the image, by its id.")
+		.describe('With job_id on a flow: the step whose result holds the image, by its id.')
 })
 
 const showImageToolDef = createToolDef(
@@ -258,14 +258,15 @@ function s3Image(value: unknown): ResultImage | undefined {
 }
 
 /** The images a result holds, where DisplayResult renders them: the result's own
- * `png`/`jpeg`/`gif` key (a base64 string or `{ content }`), an S3 image object or a list
- * of them, and each `render_all` item. */
+ * `png`/`jpeg`/`gif` key (a base64 string or `{ content }`), an S3 image object, the images
+ * among a list of S3 objects (DisplayResult lists any mix of file types), and each
+ * `render_all` item. */
 export function resultImages(value: unknown, path: ResultPath = []): ResultImage[] {
 	const s3 = s3Image(value)
 	if (s3) return [s3]
 	if (Array.isArray(value)) {
-		const items = value.map(s3Image)
-		return items.every((i) => i) ? (items as ResultImage[]) : []
+		const isS3List = value.every((i) => typeof (i as { s3?: unknown } | null)?.s3 === 'string')
+		return isS3List ? value.flatMap((i) => s3Image(i) ?? []) : []
 	}
 	if (!value || typeof value !== 'object') return []
 	const obj = value as Record<string, unknown>

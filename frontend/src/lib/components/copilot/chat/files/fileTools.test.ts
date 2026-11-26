@@ -155,6 +155,10 @@ describe('resultImages', () => {
 			{ s3: { s3: 'b.jpg', storage: 'secondary' } }
 		])
 		expect(resultImages([{ s3: 'a.png' }, { s3: 'b.webp' }])).toHaveLength(2)
+		expect(resultImages([{ s3: 'plot.png' }, { s3: 'data.csv' }])).toEqual([
+			{ s3: { s3: 'plot.png' } }
+		])
+		expect(resultImages([{ s3: 'plot.png' }, 'other'])).toEqual([])
 		expect(resultImages({ s3: 'data.parquet' })).toEqual([])
 		expect(resultImages({ png: 42 })).toEqual([])
 		expect(resultImages('png')).toEqual([])
