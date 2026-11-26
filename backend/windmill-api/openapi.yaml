@@ -34449,6 +34449,12 @@ components:
           type: object
         span:
           type: string
+        client_ip:
+          type: string
+          description: Address of the client that made the request, as resolved through TRUSTED_PROXIES. Absent on entries no request stands behind.
+        user_agent:
+          type: string
+          description: User-Agent header of the request.
       required:
         - workspace_id
         - id
