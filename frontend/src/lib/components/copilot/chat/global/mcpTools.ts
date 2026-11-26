@@ -4,10 +4,8 @@ import { createToolDef } from '../shared'
 import { NONE, type SessionTool } from '../sessionCapabilities'
 import { enabledMcpPaths } from '$lib/components/mcp/enabledServers'
 import { isOwnOrSharedMcpPath, MCP_LIST_PER_PAGE, mcpViewer } from '$lib/components/mcp/ownServers'
-import { MAX_ATTACHED_IMAGES, normalizeImageDataUrl, type AttachedImage } from '../imageUtils'
-import { modelSupportsVision } from '../../modelConfig'
-import { tryGetCurrentModel } from '$lib/aiStore'
-import type { GlobalToolHelpers } from './core'
+import { MAX_ATTACHED_IMAGES, type AttachedImage } from '../imageUtils'
+import { chatModelSeesImages, toolImagesFor } from './toolImages'
 
 /**
  * Access to the MCP servers the user has connected (resources of type `mcp`)
@@ -313,20 +311,12 @@ async function executeTool(
 		return { result, images: [] }
 	}
 
-	const images: AttachedImage[] = []
-	for (const image of rawImages) {
-		const name = describeImage(image.index, image.mimeType)
-		// A text-only model would reject the follow-up image message and fail the turn.
-		if (!canSeeImages) {
-			omitted.push(`${name}: the current model cannot read images`)
-			continue
-		}
-		try {
-			images.push(await normalizeImageDataUrl(`data:${image.mimeType};base64,${image.data}`))
-		} catch {
-			omitted.push(`${name}: could not be decoded`)
-		}
-	}
+	const decoded = await toolImagesFor(
+		rawImages.map((i) => ({ ...i, name: describeImage(i.index, i.mimeType) })),
+		canSeeImages
+	)
+	const images = decoded.images
+	omitted.push(...decoded.omitted)
 	const note = imagesNote(images.length, omitted)
 	return { result: bounded({ success: true, data, ...(note ? { images: note } : {}) }), images }
 }
@@ -484,16 +474,13 @@ function createCallTool(servers: McpServer[], mode: 'read' | 'write'): SessionTo
 				return bounded({ success: false, error })
 			}
 			toolCallbacks.setToolStatus(toolId, { content: `Calling ${parsed.tool}...` })
-			// Re-read per call: the session's model can change between turns.
-			const sessionAi = (helpers as GlobalToolHelpers | undefined)?.sessionAi
-			const model = sessionAi ? sessionAi().model : tryGetCurrentModel()
 			const { result, images } = await executeTool(
 				workspace,
 				resolved.server,
 				resolved.tool,
 				parsed.arguments ?? {},
 				isRead,
-				!model || modelSupportsVision(model.provider, model.model)
+				chatModelSeesImages(helpers)
 			)
 			const caption = `Image(s) returned by ${parsed.tool} on ${resolved.server.path}:`
 			for (const image of images) toolCallbacks.attachToolImage?.(toolId, { image, caption })

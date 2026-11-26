@@ -105,6 +105,11 @@ export type PreviewTarget =
 	| { type: 'artifact'; id: string; name: string; version?: ArtifactVersionTarget }
 	| { type: 'runform'; toolCallId: string; label: string }
 	| { type: 'pageitem'; ref: PageItemRef }
+	| { type: 's3file'; file: S3FileRef }
+
+/** A file in the workspace's object storage: its key, in the storage it names (the primary
+ * one when none). */
+export type S3FileRef = { s3: string; storage?: string }
 
 /**
  * Which side of an item to open when the opener is showing the reader something
@@ -214,7 +219,13 @@ const INJECTED_PARAMS = ['nomenubar', 'workspace'] as const
 export function canonicalizeObservedLoc(loc: string): string {
 	// An artifact or a run form is a scheme, not a path — `new URL` would happily parse it
 	// and hand back a pathname with the scheme gone.
-	if (parseArtifactRoute(loc) || parseRunFormRoute(loc) || parsePageItemRoute(loc)) return loc
+	if (
+		parseArtifactRoute(loc) ||
+		parseRunFormRoute(loc) ||
+		parsePageItemRoute(loc) ||
+		parseS3FileRoute(loc)
+	)
+		return loc
 	try {
 		const u = new URL(loc, 'http://_')
 		for (const p of INJECTED_PARAMS) u.searchParams.delete(p)
@@ -296,6 +307,8 @@ export function describeLocation(loc: string): PreviewLocation {
 	if (runForm) return { identity: `runform:${runForm.toolCallId}`, view: '', anchor: '' }
 	const pageItem = parsePageItemRoute(loc)
 	if (pageItem) return { identity: pageItemUrl(pageItem), view: '', anchor: '' }
+	const s3File = parseS3FileRoute(loc)
+	if (s3File) return { identity: s3FileUrl(s3File), view: '', anchor: '' }
 	// Keyed by its hash: as a bare path it would claim the live editor's tab on the same script.
 	const historical = parseHistoricalScriptEdit(loc)
 	if (historical) {
@@ -479,6 +492,8 @@ export function previewLocationLabel(url: string): string {
 	if (artifact) return artifact.name || 'Artifact'
 	const runForm = parseRunFormRoute(url)
 	if (runForm) return runForm.label || 'Run form'
+	const s3File = parseS3FileRoute(url)
+	if (s3File) return s3File.s3.split('/').pop() || s3File.s3
 	const pageItem = parsePageItemRoute(url)
 	if (pageItem) return pageItem.path.split('/').pop() || pageItem.path
 	const page = matchReusablePage(url)
@@ -607,6 +622,26 @@ export function parseRunRoute(
 	}
 }
 
+// A file in the workspace's object storage. A scheme for the same reason as artifacts: the tab
+// mounts a viewer, there is no page to frame. `_default_` stands for the primary storage, as
+// the storage endpoints name it.
+export function parseS3FileRoute(url: string): S3FileRef | null {
+	const m = url.match(/^s3file:([^/?#]+)\/([^?#]+)$/)
+	if (!m) return null
+	try {
+		const storage = decodeURIComponent(m[1])
+		const s3 = m[2].split('/').map(decodeURIComponent).join('/')
+		return storage === '_default_' ? { s3 } : { s3, storage }
+	} catch {
+		return null
+	}
+}
+
+export function s3FileUrl(file: S3FileRef): string {
+	const key = file.s3.split('/').map(encodeURIComponent).join('/')
+	return `s3file:${encodeURIComponent(file.storage || '_default_')}/${key}`
+}
+
 export function runFormUrl(toolCallId: string, label: string): string {
 	return `runform:${encodeURIComponent(toolCallId)}#${encodeURIComponent(label)}`
 }
@@ -640,6 +675,7 @@ export type PreviewSlot =
 	| { kind: 'viewer'; viewerKind: SessionTargetKind | 'agent'; path: string }
 	| { kind: 'artifact'; id: string; version?: number }
 	| { kind: 'runform'; toolCallId: string }
+	| { kind: 's3file'; file: S3FileRef }
 	| { kind: 'pageitem'; ref: PageItemRef }
 	| { kind: 'pagelist'; path: string }
 	| { kind: 'run'; jobId: string; workspace?: string }
@@ -662,6 +698,8 @@ export function resolvePreviewTab(url: string): PreviewSlot {
 	if (artifact) return { kind: 'artifact', id: artifact.id, version: artifact.version }
 	const runForm = parseRunFormRoute(url)
 	if (runForm) return { kind: 'runform', toolCallId: runForm.toolCallId }
+	const s3File = parseS3FileRoute(url)
+	if (s3File) return { kind: 's3file', file: s3File }
 	const pageItem = parsePageItemRoute(url)
 	if (pageItem) return { kind: 'pageitem', ref: pageItem }
 	const route = barePath(url)
@@ -702,6 +740,7 @@ export function workspacePageHref(location: string): string | undefined {
 	switch (slot.kind) {
 		case 'artifact':
 		case 'runform':
+		case 's3file':
 			return undefined
 		case 'pageitem':
 			return pageItemPageHref(slot.ref)

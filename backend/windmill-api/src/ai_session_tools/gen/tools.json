@@ -2676,6 +2676,111 @@
 		"read_only": true
 	},
 	{
+		"name": "list_s3_files",
+		"description": "List one folder of the workspace's object storage (S3, Azure Blob or GCS): its subfolders, and its files with size and last modified time. Call again with a subfolder as `prefix` to go deeper, and with `next_page_token` for the rest of a long folder. A call at the root also returns `storages`, the names of the workspace's secondary storages. Each file is an S3 object `{ s3, storage? }`, the shape a script or flow takes as an S3 file input. Only what the user may list is returned, as in the workspace's S3 file browser.",
+		"parameters": {
+			"type": "object",
+			"properties": {
+				"storage": {
+					"description": "Name of a secondary storage, as list_s3_files returns them in `storages`. Omit for the workspace's primary storage.",
+					"type": "string"
+				},
+				"prefix": {
+					"description": "Folder to list, e.g. `charts/` or `charts/2026/`. Omit for the root.",
+					"type": "string"
+				},
+				"page_token": {
+					"description": "The `next_page_token` of a previous call, for the rest of the same folder.",
+					"type": "string"
+				},
+				"max_keys": {
+					"description": "Max number of folders and files to return. Defaults to 100.",
+					"type": "integer",
+					"minimum": 1,
+					"maximum": 500
+				}
+			},
+			"additionalProperties": false,
+			"required": []
+		},
+		"read_only": true
+	},
+	{
+		"name": "read_s3_file",
+		"description": "Read a file in the workspace's object storage: its size and last modified time, and a preview of its content: the start of a text, JSON or CSV file, the first rows of a Parquet file, or the image itself for a png, jpeg, gif or webp of up to 3.75 MB, which you then see. Other files return their metadata only.",
+		"parameters": {
+			"type": "object",
+			"properties": {
+				"s3": {
+					"description": "Key of the file, as list_s3_files returns it in `s3`, e.g. `charts/sales.csv`.",
+					"type": "string"
+				},
+				"storage": {
+					"description": "Name of a secondary storage, as list_s3_files returns them in `storages`. Omit for the workspace's primary storage.",
+					"type": "string"
+				},
+				"open_in_preview": {
+					"description": "Also open the file in the side panel next to the chat. Only when the user asks to open or display the file itself: reading it to answer a question about it does not. Only Windmill's own chat has that panel; elsewhere the result's `link` opens the file.",
+					"type": "boolean"
+				}
+			},
+			"required": [
+				"s3"
+			],
+			"additionalProperties": false
+		},
+		"read_only": true
+	},
+	{
+		"name": "delete_s3_file",
+		"description": "Delete one file from the workspace's object storage. It cannot be undone: call it only when the user asked for that file to be deleted.",
+		"parameters": {
+			"type": "object",
+			"properties": {
+				"s3": {
+					"description": "Key of the file, as list_s3_files returns it in `s3`, e.g. `charts/sales.csv`.",
+					"type": "string"
+				},
+				"storage": {
+					"description": "Name of a secondary storage, as list_s3_files returns them in `storages`. Omit for the workspace's primary storage.",
+					"type": "string"
+				}
+			},
+			"required": [
+				"s3"
+			],
+			"additionalProperties": false
+		},
+		"read_only": false
+	},
+	{
+		"name": "move_s3_file",
+		"description": "Move or rename one file within one storage of the workspace's object storage: it is copied to `dest_s3`, then the original is deleted. A file already at `dest_s3` is replaced.",
+		"parameters": {
+			"type": "object",
+			"properties": {
+				"s3": {
+					"description": "Key of the file, as list_s3_files returns it in `s3`, e.g. `charts/sales.csv`.",
+					"type": "string"
+				},
+				"dest_s3": {
+					"description": "New key of the file, in the same storage.",
+					"type": "string"
+				},
+				"storage": {
+					"description": "Name of a secondary storage, as list_s3_files returns them in `storages`. Omit for the workspace's primary storage.",
+					"type": "string"
+				}
+			},
+			"required": [
+				"s3",
+				"dest_s3"
+			],
+			"additionalProperties": false
+		},
+		"read_only": false
+	},
+	{
 		"name": "search_files",
 		"description": "Search the user-attached files with a regular expression and return matching lines with their line numbers. Use this to locate content before reading a specific window with read_file.",
 		"parameters": {

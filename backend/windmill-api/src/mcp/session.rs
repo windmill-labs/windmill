@@ -39,7 +39,7 @@ fn tool_title(name: &str) -> String {
     let words: Vec<String> = name
         .split('_')
         .map(|word| match word {
-            "db" | "sql" | "json" => word.to_uppercase(),
+            "db" | "sql" | "json" | "s3" => word.to_uppercase(),
             _ => word.to_string(),
         })
         .collect();
@@ -124,7 +124,13 @@ pub(super) async fn call_session_tool(
                 }
             })?;
     windmill_common::feature_usage::log_feature_usage("mcp_workspace", "tool_call", name);
-    let content = vec![ContentBlock::text(outcome.text)];
+    let mut content = vec![ContentBlock::text(outcome.text)];
+    content.extend(
+        outcome
+            .images
+            .into_iter()
+            .map(|image| ContentBlock::image(image.data, image.mime_type)),
+    );
     let mut result = if outcome.is_error {
         CallToolResult::error(content)
     } else {

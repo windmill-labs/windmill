@@ -71,6 +71,7 @@ mod misc;
 mod runs;
 mod secrets;
 mod settings;
+mod storage;
 mod views;
 mod workspace;
 
@@ -165,12 +166,15 @@ const DESTRUCTIVE: &[&str] = &[
     "rebase_draft",
     "delete_app_file",
     "delete_app_runnable",
+    "delete_s3_file",
+    "move_s3_file",
 ];
 
 /// Tools that reach a system outside Windmill on the workspace's behalf: running code can
-/// reach any system the workspace can, and `get_db_schema` connects to a resource's
-/// database, and `search_npm_packages` queries the npm registry, which Windmill does not
-/// control. Reading Windmill's own hub and docs does not count.
+/// reach any system the workspace can, `get_db_schema` connects to a resource's database,
+/// the storage tools reach the workspace's object storage bucket, and `search_npm_packages`
+/// queries the npm registry, which Windmill does not control. Reading Windmill's own hub
+/// and docs does not count.
 #[cfg(any(test, feature = "mcp"))]
 const OPEN_WORLD: &[&str] = &[
     "search_npm_packages",
@@ -184,6 +188,10 @@ const OPEN_WORLD: &[&str] = &[
     "test_run_app_runnable",
     "test_run_code",
     "get_db_schema",
+    "list_s3_files",
+    "read_s3_file",
+    "delete_s3_file",
+    "move_s3_file",
 ];
 
 /// Tools the session counts as reads that still start a job. A read-only token runs
@@ -218,7 +226,9 @@ macro_rules! groups {
         }
     };
 }
-groups!(guidance, workspace, items, misc, flows, apps, runs, deploy, data, settings, secrets);
+groups!(
+    guidance, workspace, items, misc, flows, apps, runs, deploy, data, settings, secrets, storage
+);
 
 /// A tool as a client lists it.
 #[cfg(feature = "mcp")]
@@ -273,6 +283,16 @@ pub(crate) struct Ctx<'a> {
     /// What the card draws of this call, as `(key, value)`: returned in the result's
     /// `_meta`, which the model never reads.
     pub view: std::sync::Mutex<Option<(&'static str, Value)>>,
+    /// Images the model sees beside the text: MCP sends them as image content, the chat
+    /// attaches them to the conversation.
+    pub images: std::sync::Mutex<Vec<ToolImage>>,
+}
+
+/// An image a tool returns, base64-encoded.
+#[derive(Serialize)]
+pub(crate) struct ToolImage {
+    pub mime_type: String,
+    pub data: String,
 }
 
 impl<'a> Ctx<'a> {
@@ -293,6 +313,7 @@ impl<'a> Ctx<'a> {
             effects: Default::default(),
             jwt: Default::default(),
             view: Default::default(),
+            images: Default::default(),
         }
     }
 
@@ -313,6 +334,15 @@ impl Ctx<'_> {
         *self.view.lock().unwrap() = Some((key, value));
     }
 
+    /// Return an image to the model with the call's text.
+    pub fn push_image(&self, mime_type: &str, bytes: &[u8]) {
+        use base64::Engine;
+        self.images.lock().unwrap().push(ToolImage {
+            mime_type: mime_type.to_string(),
+            data: base64::engine::general_purpose::STANDARD.encode(bytes),
+        });
+    }
+
     /// Call the API as the caller. `path` follows `/api`; a non-2xx answer is the error.
     pub async fn request(&self, method: &str, path: &str, body: Option<Value>) -> ToolResult {
         self.request_within(method, path, body, REQUEST_TIMEOUT)
@@ -329,6 +359,22 @@ impl Ctx<'_> {
         body: Option<Value>,
         timeout: std::time::Duration,
     ) -> ToolResult {
+        let bytes = self.request_bytes(method, path, body, timeout).await?;
+        Ok(String::from_utf8_lossy(&bytes).into_owned())
+    }
+
+    /// `GET` a route that answers with bytes, such as a file's content.
+    pub async fn get_bytes(&self, path: &str) -> Result<Vec<u8>, String> {
+        self.request_bytes("GET", path, None, REQUEST_TIMEOUT).await
+    }
+
+    async fn request_bytes(
+        &self,
+        method: &str,
+        path: &str,
+        body: Option<Value>,
+        timeout: std::time::Duration,
+    ) -> Result<Vec<u8>, String> {
         let url = guarded_url(self.base_internal_url, self.w_id, method, path, self.access)?;
         // No route scope: this server only admits `mcp:all`, several routes (hub, embeddings)
         // map to none, and `guarded_url` is what keeps a call on its route. The tag fence
@@ -347,7 +393,7 @@ impl Ctx<'_> {
             .unwrap()
             .get(self.base_internal_url)
             .cloned();
-        let (status, text) = match router {
+        let (status, bytes) = match router {
             Some(router) => {
                 self.call_router(router, method, &url, body, scopes, timeout)
                     .await?
@@ -355,8 +401,10 @@ impl Ctx<'_> {
             None => self.call_http(method, &url, body, scopes, timeout).await?,
         };
         if status.is_success() {
-            Ok(text)
-        } else if text.trim().is_empty() {
+            return Ok(bytes);
+        }
+        let text = String::from_utf8_lossy(&bytes);
+        if text.trim().is_empty() {
             // What a browser's request reports for an answer with no body.
             let reason = status.canonical_reason().unwrap_or_default();
             Err(format!("{}: {reason}", status.as_u16()))
@@ -375,7 +423,7 @@ impl Ctx<'_> {
         body: Option<Value>,
         scopes: Option<Vec<String>>,
         timeout: std::time::Duration,
-    ) -> Result<(http::StatusCode, String), String> {
+    ) -> Result<(http::StatusCode, Vec<u8>), String> {
         use tower::ServiceExt;
         let parsed = reqwest::Url::parse(url).map_err(|e| e.to_string())?;
         // The router does not see the base URL's own path prefix.
@@ -408,7 +456,7 @@ impl Ctx<'_> {
             let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
                 .await
                 .map_err(|e| e.to_string())?;
-            Ok((status, String::from_utf8_lossy(&bytes).into_owned()))
+            Ok((status, bytes.to_vec()))
         })
         .await
         .map_err(|_| format!("Failed to execute request: {method} {url} timed out"))?
@@ -422,7 +470,7 @@ impl Ctx<'_> {
         body: Option<Value>,
         scopes: Option<Vec<String>>,
         timeout: std::time::Duration,
-    ) -> Result<(http::StatusCode, String), String> {
+    ) -> Result<(http::StatusCode, Vec<u8>), String> {
         let method = http::Method::from_bytes(method.as_bytes()).map_err(|e| e.to_string())?;
         let token = self
             .jwt
@@ -441,7 +489,8 @@ impl Ctx<'_> {
             .await
             .map_err(|e| format!("Failed to execute request: {e}"))?;
         let status = response.status();
-        Ok((status, response.text().await.map_err(|e| e.to_string())?))
+        let bytes = response.bytes().await.map_err(|e| e.to_string())?;
+        Ok((status, bytes.to_vec()))
     }
 
     pub async fn get(&self, path: &str) -> Result<Value, String> {
@@ -728,6 +777,8 @@ pub(crate) enum CallRefused {
 pub(crate) struct ToolOutcome {
     pub text: String,
     pub is_error: bool,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub images: Vec<ToolImage>,
 }
 
 /// The card tools only MCP Apps clients draw; the chat draws its own cards.
@@ -743,7 +794,11 @@ pub(crate) async fn call_session_tool(
         return Ok(outcome(views::call(ctx, name, &args).await));
     }
     let result = call_generated_tool(ctx, name, &args).await?;
-    Ok(outcome(result))
+    let mut outcome = outcome(result);
+    if !outcome.is_error {
+        outcome.images = std::mem::take(&mut *ctx.images.lock().unwrap());
+    }
+    Ok(outcome)
 }
 
 /// A generated session tool, refused when the caller's access does not cover it.
@@ -771,12 +826,12 @@ async fn call_generated_tool(
 
 fn outcome(result: ToolResult) -> ToolOutcome {
     match result {
-        Ok(text) => ToolOutcome { text, is_error: false },
+        Ok(text) => ToolOutcome { text, is_error: false, images: vec![] },
         // Without the status code `Ctx` prefixes an API failure with, as the session reads it.
         Err(message) => {
             let body = workspace::api_message(&message);
             let text = if body.is_empty() { &message } else { body };
-            ToolOutcome { text: text.to_string(), is_error: true }
+            ToolOutcome { text: text.to_string(), is_error: true, images: vec![] }
         }
     }
 }

@@ -10,7 +10,8 @@
 		PanelRight,
 		Lock,
 		ExternalLink,
-		BookOpen
+		BookOpen,
+		Eye
 	} from 'lucide-svelte'
 	import { truncateRev } from '$lib/utils'
 	import {
@@ -354,6 +355,22 @@
 		{/if}
 	{/snippet}
 
+	{#snippet s3FileChip()}
+		{#if message.s3File && chatHost.openS3File}
+			{@const file = message.s3File}
+			<Button
+				variant="default"
+				unifiedSize="2xs"
+				title="Open {file.s3} in the side panel"
+				onClick={() => chatHost.openS3File?.(file)}
+				endIcon={{ icon: Eye }}
+				wrapperClasses="shrink-0"
+			>
+				{file.s3.split('/').pop()}
+			</Button>
+		{/if}
+	{/snippet}
+
 	{#snippet jobLink()}
 		<a
 			href="/run/{message.jobId}?workspace={chatHost.operatingWorkspace}"
@@ -394,7 +411,13 @@
 		headerClass={message.needsConfirmation || pendingOutOfScope ? 'opacity-80' : ''}
 		labelClass="truncate"
 		contentClass="space-y-3"
-		headerRight={showPreviewChip ? previewChip : message.jobId ? jobLink : undefined}
+		headerRight={showPreviewChip
+			? previewChip
+			: message.s3File && chatHost.openS3File && !message.isLoading && !message.error
+				? s3FileChip
+				: message.jobId
+					? jobLink
+					: undefined}
 		headerLeft={mcpServer?.workspace ? serverMark : undefined}
 	>
 		<!-- Image a tool produced (e.g. take_screenshot) — shown inline, not gated on expand. -->

@@ -8,6 +8,8 @@ import {
 	itemDisplayName,
 	matchReusablePage,
 	parseArtifactRoute,
+	parseS3FileRoute,
+	s3FileUrl,
 	parsePreviewItemRoute,
 	parsePreviewSelectedId,
 	parseRunFormRoute,
@@ -452,6 +454,20 @@ describe('parsePreviewSelectedId', () => {
 
 	it('is undefined without the param', () => {
 		expect(parsePreviewSelectedId('/flows/edit/f/foo/bar')).toBeUndefined()
+	})
+})
+
+describe('s3 file route', () => {
+	it('round-trips a key and its storage, and the primary storage as no storage', () => {
+		for (const file of [
+			{ s3: 'charts/q1 report#2.csv', storage: 'archive' },
+			{ s3: 'a/b/c.png' }
+		]) {
+			const url = s3FileUrl(file)
+			expect(parseS3FileRoute(url)).toEqual(file)
+			expect(resolvePreviewTab(url)).toEqual({ kind: 's3file', file })
+			expect(workspacePageHref(url)).toBeUndefined()
+		}
 	})
 })
 

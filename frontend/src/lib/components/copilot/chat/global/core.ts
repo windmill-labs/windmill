@@ -20,7 +20,11 @@ import {
 	WorkspaceService
 } from '$lib/gen'
 import { deepEqual } from 'fast-equals'
-import { promptSafe, type ArtifactVersionTarget } from '$lib/components/sessions/previewRouter'
+import {
+	promptSafe,
+	type ArtifactVersionTarget,
+	type S3FileRef
+} from '$lib/components/sessions/previewRouter'
 import { canDraftItem, roleCanDraft } from '$lib/editRights'
 import { renderPromptTemplate } from './promptTemplate'
 import { $ScriptLang } from '$lib/gen/schemas.gen'
@@ -137,6 +141,7 @@ import {
 import { getDatatableTools } from '../datatableTools'
 import { getDatatableMigrationTools } from '../datatableMigrationTools'
 import { getDucklakeTools } from '../ducklakeTools'
+import { getStorageTools } from '../storageTools'
 import { fileTools } from '../files/fileTools'
 import type { AttachedFilesStore } from '../files/attachedFiles.svelte'
 import { artifactTools } from '../artifacts/artifactTools'
@@ -4858,6 +4863,8 @@ export const globalTools: SessionTool<{}>[] = [
 	...getDatatableMigrationTools(),
 	// Workspace DuckLake: pipeline storage prerequisite, and declared measures
 	...getDucklakeTools(),
+	// Workspace object storage, as the S3 file browser reaches it
+	...getStorageTools(),
 	// Read-only tools over files the user attached to the conversation
 	...fileTools,
 	...workspaceSettingsTools
@@ -4952,6 +4959,7 @@ export type GlobalToolHelpers = SessionToolHelpers & {
 	artifacts?: SessionArtifactsStore
 	getChatId?: () => string | undefined
 	openArtifact?: (artifactId: string, name: string, version?: ArtifactVersionTarget) => void
+	openS3File?: (file: S3FileRef) => void
 }
 
 function sessionIdFromCtx(ctx: { helpers?: unknown }): string | undefined {

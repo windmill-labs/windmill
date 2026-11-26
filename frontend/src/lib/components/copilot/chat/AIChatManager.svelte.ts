@@ -215,7 +215,7 @@ import { scopedKey, onUserChange, migrateLegacyLocalStorage } from '$lib/userSco
 import { getLocalSetting, storeLocalSetting } from '$lib/utils'
 import { AttachedFilesStore } from './files/attachedFiles.svelte'
 import { SessionArtifactsStore } from './artifacts/artifactsState.svelte'
-import type { ArtifactVersionTarget } from '$lib/components/sessions/previewRouter'
+import type { ArtifactVersionTarget, S3FileRef } from '$lib/components/sessions/previewRouter'
 import { appendAttachedFilesRoster } from './files/fileTools'
 import { ENTER_PLAN_MODE_TOOL, EXIT_PLAN_MODE_TOOL } from './planMode'
 import { PlanModeController, type PlanModeHost } from './planModeController.svelte'
@@ -689,6 +689,7 @@ export class AIChatManager implements ChatViewHost {
 	isRunFormTabOpen?: (toolCallId: string) => boolean
 	openArtifact?: (artifactId: string, name: string, version?: ArtifactVersionTarget) => void
 	closeArtifact?: (artifactId: string) => void
+	openS3File?: (file: S3FileRef) => void
 	#loading = $state<boolean>(false)
 	get loading(): boolean {
 		return this.#loading
@@ -3196,7 +3197,8 @@ export class AIChatManager implements ChatViewHost {
 						artifacts: this.artifacts,
 						access: this.#toolAccess,
 						getChatId: () => this.historyManager.getCurrentChatId(),
-						openArtifact: this.openArtifact
+						openArtifact: this.openArtifact,
+						openS3File: this.openS3File
 					}
 				: {}),
 			testActiveFlow: async (storagePath: string, args?: Record<string, any>, memoryId?: string) =>
