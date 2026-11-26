@@ -2846,10 +2846,6 @@ async fn set_login_type(
     forbid_superadmin_job_token(&db, &authed.email, job_id).await?;
     let mut tx = db.begin().await?;
 
-    if et.login_type == "password" {
-        windmill_common::workspaces::check_password_login_allowed(&mut *tx, &email).await?;
-    }
-
     sqlx::query!(
         "UPDATE password SET login_type = $1 WHERE email = $2",
         et.login_type,
@@ -2857,6 +2853,12 @@ async fn set_login_type(
     )
     .execute(&mut *tx)
     .await?;
+
+    // After the update, which locks whatever account it found, even one created since this
+    // request began; a refusal rolls the update back.
+    if et.login_type == "password" {
+        windmill_common::workspaces::check_password_login_allowed(&mut *tx, &email).await?;
+    }
 
     audit_log(
         &mut *tx,
