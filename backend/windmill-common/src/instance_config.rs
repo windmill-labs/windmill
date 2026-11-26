@@ -1239,6 +1239,10 @@ const NESTED_SENSITIVE_FIELDS: &[(&str, &[&str])] = &[
     ("custom_instance_pg_databases", &["user_pwd"]),
     ("external_instance_pg", &["password"]),
     ("github_enterprise_app", &["private_key"]),
+    (
+        "otel",
+        &["otel_exporter_otlp_headers", "audit_logs_headers"],
+    ),
 ];
 
 fn redact_json_value(value: &serde_json::Value) -> serde_json::Value {
@@ -2972,6 +2976,19 @@ mod tests {
         assert!(!formatted.contains("slack-signing-secret-678"));
         assert!(formatted.contains("client-id"));
         assert!(formatted.contains("****"));
+    }
+
+    #[test]
+    fn format_setting_value_redacts_otel_headers() {
+        let val = serde_json::json!({
+            "otel_exporter_otlp_endpoint": "http://collector:4317",
+            "otel_exporter_otlp_headers": "Authorization=Bearer main-token-12345",
+            "audit_logs_headers": "Authorization=Bearer audit-token-67890"
+        });
+        let formatted = format_setting_value("otel", &val);
+        assert!(!formatted.contains("main-token-12345"));
+        assert!(!formatted.contains("audit-token-67890"));
+        assert!(formatted.contains("http://collector:4317"));
     }
 
     #[test]
