@@ -2488,9 +2488,13 @@ fn jsonb_text_len(value: &Value) -> u64 {
 // `get_run`'s answer for an MCP client.
 // ============================================================================
 
-/// The largest image handed to the model, in bytes: its base64 stays under the 5 MiB that
-/// Claude clients accept per image.
+/// The largest image handed to the model, in bytes. Its base64 is at most 5,000,000
+/// characters: the 5 MB per image that Claude takes on Amazon Bedrock, the lowest of its
+/// platforms (the Claude API takes 10 MB).
 const MAX_IMAGE_BYTES: usize = 3_750_000;
+/// The widest or tallest image handed to the model: the Claude API refuses a larger one, and
+/// with it the whole request.
+const MAX_IMAGE_SIDE: u32 = 8000;
 /// The base64 of the largest image, in characters.
 const MAX_IMAGE_CHARS: usize = MAX_IMAGE_BYTES / 3 * 4;
 /// The images one answer carries at most, and their bytes together.
@@ -2588,6 +2592,55 @@ fn sniff_image(bytes: &[u8]) -> Option<&'static str> {
         [0xFF, 0xD8, 0xFF, ..] => Some("image/jpeg"),
         [b'G', b'I', b'F', b'8', b'7' | b'9', b'a', ..] => Some("image/gif"),
         [b'R', b'I', b'F', b'F', _, _, _, _, b'W', b'E', b'B', b'P', ..] => Some("image/webp"),
+        _ => None,
+    }
+}
+
+/// An image's width and height, from the header its format keeps them in.
+fn image_size(bytes: &[u8], mime_type: &str) -> Option<(u32, u32)> {
+    let field = |at: usize, len: usize| bytes.get(at..at + len);
+    let fold = |value: u32, byte: &u8| (value << 8) | u32::from(*byte);
+    let be = |at, len| Some(field(at, len)?.iter().fold(0, fold));
+    let le = |at, len| Some(field(at, len)?.iter().rev().fold(0, fold));
+    match mime_type {
+        "image/png" if bytes.get(12..16)? == b"IHDR" => Some((be(16, 4)?, be(20, 4)?)),
+        "image/gif" => Some((le(6, 2)?, le(8, 2)?)),
+        "image/webp" => match bytes.get(12..16)? {
+            b"VP8 " if bytes.get(23..26)? == b"\x9d\x01\x2a" => {
+                Some((le(26, 2)? & 0x3fff, le(28, 2)? & 0x3fff))
+            }
+            b"VP8L" if *bytes.get(20)? == 0x2f => {
+                let bits = le(21, 4)?;
+                Some(((bits & 0x3fff) + 1, ((bits >> 14) & 0x3fff) + 1))
+            }
+            b"VP8X" => Some((le(24, 3)? + 1, le(27, 3)? + 1)),
+            _ => None,
+        },
+        "image/jpeg" => {
+            // The frame header follows the metadata segments, each skipped whole by its
+            // length, so an EXIF thumbnail's header inside one is never read. Stray bytes
+            // between segments are skipped, as decoders skip them.
+            let mut at = 2;
+            loop {
+                while *bytes.get(at)? != 0xFF {
+                    at += 1;
+                }
+                let marker = *bytes.get(at + 1)?;
+                at += 2;
+                match marker {
+                    0xFF => at -= 1,
+                    0x01 | 0xD0..=0xD8 => {}
+                    0xD9 | 0xDA => return None,
+                    0xC0..=0xCF if !matches!(marker, 0xC4 | 0xC8 | 0xCC) => {
+                        return Some((be(at + 5, 2)?, be(at + 3, 2)?));
+                    }
+                    _ => match be(at, 2)? as usize {
+                        length if length >= 2 => at += length,
+                        _ => return None,
+                    },
+                }
+            }
+        }
         _ => None,
     }
 }
@@ -2775,6 +2828,12 @@ fn image_from_bytes(bytes: &[u8]) -> Result<ToolImage, Unattached> {
     }
     let mime_type =
         sniff_image(bytes).ok_or_else(|| not_image("not a PNG, JPEG, GIF or WebP file"))?;
+    let (width, height) = image_size(bytes, mime_type)
+        .ok_or_else(|| not_image("its width and height cannot be read"))?;
+    if width.max(height) > MAX_IMAGE_SIDE {
+        let why = format!("{width}x{height} px, wider or taller than {MAX_IMAGE_SIDE} px");
+        return Err(Unattached { key: "too_large", why });
+    }
     let data = base64::engine::general_purpose::STANDARD.encode(bytes);
     Ok(ToolImage { data, mime_type })
 }
@@ -3848,12 +3907,46 @@ mod tests {
         assert_eq!(sniff_image(b"RIFF\x24\0\0\0WEBPVP8 "), Some("image/webp"));
         assert_eq!(sniff_image(b"<html>"), None);
         // A `{"png": ...}` holding a JPEG goes out as one, without its line breaks.
-        let jpeg = decode_inline_image("/9j/\n4A==").unwrap();
+        let jpeg = decode_inline_image("/9j/\nwAARCAACAAM=").unwrap();
         assert_eq!(
             (jpeg.mime_type, jpeg.data.as_str()),
-            ("image/jpeg", "/9j/4A==")
+            ("image/jpeg", "/9j/wAARCAACAAM=")
         );
         assert!(decode_inline_image("PGh0bWw+").is_err());
+    }
+
+    #[test]
+    fn an_image_wider_or_taller_than_models_take_is_left_out() {
+        let size = |bytes: &[u8]| image_size(bytes, sniff_image(bytes)?);
+        let png = |width: u32, height: u32| {
+            let header = b"\x89PNG\r\n\x1a\n\0\0\0\x0dIHDR".as_slice();
+            [
+                header,
+                width.to_be_bytes().as_slice(),
+                height.to_be_bytes().as_slice(),
+            ]
+            .concat()
+        };
+        assert_eq!(size(&png(1280, 9000)), Some((1280, 9000)));
+        // A JPEG's frame header comes after its metadata segments and any stray bytes.
+        let jpeg = b"\xff\xd8\xff\xe0\0\x04ab\0\xff\xc2\0\x11\x08\x02\x58\x03\x20";
+        assert_eq!(size(jpeg), Some((800, 600)));
+        assert_eq!(size(b"GIF89a\x40\x01\xc8\0"), Some((320, 200)));
+        let webp = |chunk: &[u8]| [b"RIFF\0\0\0\0WEBP".as_slice(), chunk].concat();
+        let lossy = webp(b"VP8 \0\0\0\0\0\0\0\x9d\x01\x2a\x80\x02\xe0\x01");
+        assert_eq!(size(&lossy), Some((640, 480)));
+        assert_eq!(
+            size(&webp(b"VP8L\0\0\0\0\x2f\x8f\xc1\x4a\0")),
+            Some((400, 300))
+        );
+        let extended = webp(b"VP8X\0\0\0\0\0\0\0\0\x3f\x1f\0\x3f\x1f\0");
+        assert_eq!(size(&extended), Some((8000, 8000)));
+
+        assert!(image_from_bytes(&png(8000, 8000)).is_ok());
+        let tall = image_from_bytes(&png(1280, 9000));
+        assert!(matches!(tall, Err(Unattached { key: "too_large", .. })));
+        let headless = image_from_bytes(b"\x89PNG\r\n\x1a\n");
+        assert!(matches!(headless, Err(Unattached { key: "not_image", .. })));
     }
 
     #[test]
