@@ -6,6 +6,12 @@ export type Changelog = {
 
 const changelogs: Changelog[] = [
 	{
+		label: 'Unified wmill.yaml workspaces config',
+		href: 'https://www.windmill.dev/changelog/cli-workspaces-unification',
+		date: '2026-04-10'
+	},
+
+	{
 		label: 'AWS Bedrock support for Windmill AI',
 		href: 'https://www.windmill.dev/changelog/aws-bedrock',
 		date: '2025-11-19'
