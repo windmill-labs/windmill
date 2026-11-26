@@ -672,7 +672,12 @@ async function getConfig(opts: InstanceSyncOptions & { outputFile?: string; show
   let showSecrets = opts.showSecrets ?? false;
   let config = await wmill.getInstanceConfig({ dangerouslyRevealSecrets: showSecrets }) as any;
 
-  const redacted = !showSecrets && JSON.stringify(config?.global_settings ?? {}).includes(REDACTED_SECRET_PREFIX);
+  const settings = config?.global_settings ?? {};
+  const serverRedacted = JSON.stringify(settings).includes(REDACTED_SECRET_PREFIX);
+  // A server without redaction ignores the parameter and returns its secrets in clear.
+  const clearFromOlderServer =
+    !showSecrets && !serverRedacted && Boolean(settings.license_key || settings.jwt_secret);
+  const redacted = !showSecrets && (serverRedacted || clearFromOlderServer);
   if (redacted && process.stdout.isTTY && !opts.outputFile) {
     log.warn("Secrets (license key, passwords, tokens) are redacted. Use --show-secrets to include them, or press Y to show them now.");
     showSecrets = await Confirm.prompt({ message: "Show secrets?", default: false });
@@ -683,6 +688,10 @@ async function getConfig(opts: InstanceSyncOptions & { outputFile?: string; show
     log.infoStderr(
       "Secrets are redacted: pass --show-secrets to include them. Pushing this export back keeps the stored secrets, but it cannot set up another instance."
     );
+  }
+  if (!showSecrets && clearFromOlderServer) {
+    if (config.global_settings.license_key) config.global_settings.license_key = "***";
+    if (config.global_settings.jwt_secret) config.global_settings.jwt_secret = "***";
   }
   if (showSecrets && config?.global_settings && !config.global_settings.jwt_secret) {
     log.infoStderr(

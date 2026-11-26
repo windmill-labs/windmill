@@ -762,7 +762,10 @@ export async function pushWorkspaceKey(
   }
 }
 
-export async function readInstanceSettings(opts: InstanceSyncOptions) {
+export async function readInstanceSettings(
+  opts: InstanceSyncOptions,
+  silent = false
+) {
   let localSettings: GlobalSetting[] = [];
 
   await checkInstanceSettingsPath(opts);
@@ -772,7 +775,7 @@ export async function readInstanceSettings(opts: InstanceSyncOptions) {
       instanceSettingsPath
     )) as GlobalSetting[];
   } catch {
-    log.warn(`No ${instanceSettingsPath} found`);
+    if (!silent) log.warn(`No ${instanceSettingsPath} found`);
   }
   return localSettings;
 }
@@ -838,7 +841,10 @@ export async function pullInstanceSettings(
   const remoteSettings = await remoteSettingsAgainstLocal(
     opts,
     async () =>
-      await processInstanceSettings(await readInstanceSettings(opts), "decode")
+      await processInstanceSettings(
+        await readInstanceSettings(opts, true),
+        "decode"
+      )
   );
   if (
     !preview &&
