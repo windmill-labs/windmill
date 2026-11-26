@@ -8,7 +8,7 @@
 	import InstanceUiSync from '$lib/components/InstanceUiSync.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
-	import UserSettings from '$lib/components/UserSettings.svelte'
+	import TokensDrawer from '$lib/components/account/TokensDrawer.svelte'
 	import { generateRandomString } from '$lib/utils'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import WorkspaceMenu from '$lib/components/sidebar/WorkspaceMenu.svelte'
@@ -19,7 +19,7 @@
 	let clientName = $page.url.searchParams.get('domain') ?? undefined
 	let redirectURI = $page.url.searchParams.get('redirect_uri')
 
-	let userSettings: UserSettings | undefined = $state()
+	let userSettings: TokensDrawer | undefined = $state()
 	let token: string | undefined = $state(undefined)
 	let scopes: string[] = $state([])
 
@@ -76,10 +76,10 @@
 
 <!-- This page skips the logged layout, which is what normally loads the API base url. -->
 <InstanceUiSync />
-<UserSettings
+<TokensDrawer
 	bind:this={userSettings}
-	on:tokenCreated={(e) => {
-		token = e.detail
+	onTokenCreated={(newToken) => {
+		token = newToken
 	}}
 	newTokenLabel={`webhook-${$userStore?.username ?? 'superadmin'}-${generateRandomString(4)}`}
 	{scopes}

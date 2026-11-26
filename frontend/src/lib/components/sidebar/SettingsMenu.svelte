@@ -36,7 +36,8 @@
 	import MenuLink from './MenuLink.svelte'
 	import SideBarNotification from './SideBarNotification.svelte'
 	import { markChangelogsOpened, readRecentChangelogs } from './changelogs'
-	import { USER_SETTINGS_HASH, SUPERADMIN_SETTINGS_HASH } from './settings'
+	import { SUPERADMIN_SETTINGS_HASH } from './settings'
+	import { ACCOUNT_SETTINGS_LINKS } from '../account/accountSettingsLinks'
 	import { accountSetup } from './accountSetup.svelte'
 	import { EXECUTIONS_HINT } from './executionsHint'
 	import { TOUR_PARAM, TOUR_PARAM_VALUE } from '$lib/components/tutorials/operatorTour'
@@ -229,11 +230,11 @@
 							}
 						]
 					: []),
-				{
-					displayName: 'Account settings',
-					icon: Settings,
-					href: USER_SETTINGS_HASH
-				},
+				...ACCOUNT_SETTINGS_LINKS.map((link) => ({
+					displayName: link.label,
+					icon: link.icon,
+					href: link.href
+				})),
 				// A superadmin who is not a member has no `usr` row, so there is no access to list.
 				...($userStore && !$userStore.non_member
 					? [
