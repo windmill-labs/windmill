@@ -195,3 +195,26 @@ export function withoutConflict(
 			)
 	)
 }
+
+/**
+ * Deleting a resource also deletes the variables linked to it, which can remove one side of a
+ * variable conflict. Returns the remaining conflicts that no longer have both sides, so the list
+ * does not offer to "keep" an item that is already gone.
+ */
+export async function conflictsGoneAfterDelete(
+	deletedKind: string,
+	remaining: OffboardPathConflict[]
+): Promise<OffboardPathConflict[]> {
+	if (deletedKind !== 'resource') return []
+	const variables = remaining.filter((c) => c.kind === 'variable')
+	const gone = await Promise.all(
+		variables.map(async (c) => {
+			const [source, target] = await Promise.all([
+				VariableService.existsVariable({ workspace: c.workspace_id, path: c.source_path }),
+				VariableService.existsVariable({ workspace: c.workspace_id, path: c.target_path })
+			])
+			return !source || !target
+		})
+	)
+	return variables.filter((_, i) => gone[i])
+}

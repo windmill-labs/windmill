@@ -6,6 +6,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import {
 		canDeleteKind,
+		conflictsGoneAfterDelete,
 		deleteItemOfKind,
 		isTrashedKind,
 		itemHref,
@@ -36,11 +37,21 @@
 		deleting = true
 		try {
 			await deleteItemOfKind(conflict.kind, conflict.workspace_id, path)
-			sendUserToast(`Deleted ${kindLabel(conflict.kind)} ${path}`)
-			onResolved(conflict)
-			pending = undefined
 		} catch (e) {
 			sendUserToast(`Could not delete ${path}: ${apiErrorMessage(e)}`, true)
+			deleting = false
+			return
+		}
+		sendUserToast(`Deleted ${kindLabel(conflict.kind)} ${path}`)
+		const remaining = conflicts.filter((c) => c !== conflict)
+		onResolved(conflict)
+		pending = undefined
+		try {
+			for (const gone of await conflictsGoneAfterDelete(conflict.kind, remaining)) {
+				onResolved(gone)
+			}
+		} catch (e) {
+			sendUserToast(`Could not refresh the remaining conflicts: ${apiErrorMessage(e)}`, true)
 		} finally {
 			deleting = false
 		}
@@ -72,6 +83,7 @@
 					<Button
 						unifiedSize="xs"
 						variant="default"
+						disabled={deleting}
 						destructive
 						title="Delete the existing {conflict.target_path} so {conflict.source_path} can take its place"
 						onclick={() => (pending = { conflict, action: 'overwrite' })}
@@ -81,6 +93,7 @@
 					<Button
 						unifiedSize="xs"
 						variant="default"
+						disabled={deleting}
 						title="Delete {conflict.source_path} and keep the existing {conflict.target_path}"
 						onclick={() => (pending = { conflict, action: 'discard' })}
 					>

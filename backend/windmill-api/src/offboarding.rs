@@ -823,11 +823,14 @@ async fn check_path_conflicts(
             "flow" => " AND NOT t1.archived",
             _ => "",
         };
+        // A conflict is resolved by deleting one of its two paths, so the source must be the
+        // departing user's: `starts_with` rather than LIKE, where the `_` usernames may hold
+        // matches any character and would report another user's item as conflicting with itself.
         // SAFETY: `table_name` comes from a hardcoded allowlist `tables`, not user input.
         let rows: Vec<(String, String)> = sqlx::query_as(&format!(
             "SELECT DISTINCT t1.path, REGEXP_REPLACE(t1.path, '^u/' || $1 || '/', $3) \
              FROM {table} t1 \
-             WHERE t1.path LIKE ('u/' || $1 || '/%') AND t1.workspace_id = $2{extra_filter} \
+             WHERE starts_with(t1.path, 'u/' || $1 || '/') AND t1.workspace_id = $2{extra_filter} \
              AND EXISTS ( \
                  SELECT 1 FROM {table} t2 \
                  WHERE t2.path = REGEXP_REPLACE(t1.path, '^u/' || $1 || '/', $3) \
@@ -1243,6 +1246,21 @@ async fn offboard_user_from_workspace<'c>(
         r#"UPDATE workspace_runnable_dependencies SET runnable_path = REGEXP_REPLACE(runnable_path, 'u/' || $2 || '/(.*)', $1 || '/\1') WHERE runnable_path LIKE ('u/' || $2 || '/%') AND workspace_id = $3"#,
         &new_prefix, username, w_id
     ).execute(&mut **tx).await?;
+
+    // Deleting a script or flow by path leaves its asset usages behind, on the keys the moved
+    // usages take; such a row is an orphan or the same usage, so it is dropped, not renamed onto.
+    sqlx::query(
+        "DELETE FROM asset d WHERE d.workspace_id = $3 AND EXISTS ( \
+             SELECT 1 FROM asset s \
+             WHERE s.workspace_id = $3 AND s.usage_path LIKE ('u/' || $2 || '/%') \
+             AND s.path = d.path AND s.kind = d.kind AND s.usage_kind = d.usage_kind \
+             AND REGEXP_REPLACE(s.usage_path, '^u/' || $2 || '/(.*)', $1 || '/\\1') = d.usage_path)",
+    )
+    .bind(&new_prefix)
+    .bind(username)
+    .bind(w_id)
+    .execute(&mut **tx)
+    .await?;
 
     sqlx::query!(
         r#"UPDATE asset SET usage_path = REGEXP_REPLACE(usage_path, 'u/' || $2 || '/(.*)', $1 || '/\1') WHERE usage_path LIKE ('u/' || $2 || '/%') AND workspace_id = $3"#,

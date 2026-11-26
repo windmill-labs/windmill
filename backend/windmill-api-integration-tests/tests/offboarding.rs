@@ -500,8 +500,40 @@ async fn test_offboard_conflicts(db: Pool<Postgres>) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Resolving a conflict by deleting the target leaves that script's `dependency_map` rows behind,
-/// on the keys the departing user's rows are renamed onto.
+/// Usernames may hold `_`, a LIKE wildcard: another user's item matched by it maps to itself, and
+/// reporting it as a conflict would offer to delete it.
+#[sqlx::test(migrations = "../migrations", fixtures("base", "offboarding_test"))]
+async fn test_offboard_conflicts_underscore_username(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    sqlx::query(
+        "INSERT INTO usr (workspace_id, email, username, is_admin, role)
+         VALUES ('test-workspace', 'underscore@windmill.dev', 'test_user', false, 'User')",
+    )
+    .execute(&db)
+    .await?;
+    sqlx::query(
+        "INSERT INTO variable (workspace_id, path, value, is_secret, description)
+         VALUES ('test-workspace', 'u/testxuser/var', 'v', false, '')",
+    )
+    .execute(&db)
+    .await?;
+
+    let resp = authed(client().post(ws_url(port, "offboard/test_user")))
+        .json(&json!({ "reassign_to": "u/test-user", "delete_user": false }))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 200);
+    let body: serde_json::Value = resp.json().await?;
+    assert!(body["conflict_items"].is_null(), "{body}");
+
+    Ok(())
+}
+
+/// Resolving a conflict by deleting the target leaves that script's `dependency_map` and `asset`
+/// rows behind, on the keys the departing user's rows are renamed onto.
 #[sqlx::test(migrations = "../migrations", fixtures("base", "offboarding_test"))]
 async fn test_offboard_over_deleted_target(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
@@ -512,6 +544,13 @@ async fn test_offboard_over_deleted_target(db: Pool<Postgres>) -> anyhow::Result
         "INSERT INTO dependency_map (workspace_id, importer_path, importer_kind, imported_path)
          VALUES ('test-workspace', 'u/test-user/conflict_script', 'script', 'f/shared/lib'),
                 ('test-workspace', 'u/test-user-2/conflict_script', 'script', 'f/shared/lib')",
+    )
+    .execute(&db)
+    .await?;
+    sqlx::query(
+        "INSERT INTO asset (workspace_id, path, kind, usage_path, usage_kind)
+         VALUES ('test-workspace', 'main', 'datatable', 'u/test-user/conflict_script', 'script'),
+                ('test-workspace', 'main', 'datatable', 'u/test-user-2/conflict_script', 'script')",
     )
     .execute(&db)
     .await?;
@@ -537,6 +576,12 @@ async fn test_offboard_over_deleted_target(db: Pool<Postgres>) -> anyhow::Result
     .fetch_all(&db)
     .await?;
     assert_eq!(importers, vec!["u/test-user/conflict_script".to_string()]);
+    let users: Vec<String> = sqlx::query_scalar(
+        "SELECT usage_path FROM asset WHERE workspace_id = 'test-workspace' AND path = 'main'",
+    )
+    .fetch_all(&db)
+    .await?;
+    assert_eq!(users, vec!["u/test-user/conflict_script".to_string()]);
 
     Ok(())
 }
