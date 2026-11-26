@@ -1,11 +1,14 @@
 <script lang="ts">
-	import { Section, Button, DrawerContent } from '$lib/components/common'
+	import { Section, Button, DrawerContent, Alert } from '$lib/components/common'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import Label from '$lib/components/Label.svelte'
 	import ManageGroupsLink from '$lib/components/ManageGroupsLink.svelte'
 	import MultiSelect from '$lib/components/select/MultiSelect.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
-	import { workspaceStore } from '$lib/stores'
+	import { superadmin, workspaceStore } from '$lib/stores'
+	import { isCloudHosted } from '$lib/cloud'
+	import { goto } from '$app/navigation'
+	import { resource } from 'runed'
 	import {
 		GroupService,
 		UserService,
@@ -48,6 +51,7 @@
 	let restrictPublicRunSharing = $state(hasRule('RestrictPublicRunSharing'))
 	let restrictGuestAppDeployment = $state(hasRule('RestrictGuestAppDeployment'))
 	let requireIsolatedForks = $state(hasRule('RequireIsolatedForks'))
+	let requireSso = $state(hasRule('RequireSso'))
 	let selectedGroups = $state<string[]>(
 		untrack(() => rule)?.bypass_groups?.map((g) => g.replace('g/', '')) ?? []
 	)
@@ -68,6 +72,7 @@
 	let initialRestrictPublicRunSharing = $state(hasRule('RestrictPublicRunSharing'))
 	let initialRestrictGuestAppDeployment = $state(hasRule('RestrictGuestAppDeployment'))
 	let initialRequireIsolatedForks = $state(hasRule('RequireIsolatedForks'))
+	let initialRequireSso = $state(hasRule('RequireSso'))
 	let initialSelectedGroups = $state<string[]>(
 		untrack(() => rule)?.bypass_groups
 			? untrack(() => rule)!.bypass_groups.map((g) => g.replace('g/', ''))
@@ -115,6 +120,23 @@
 		}
 	})
 
+	// The rule only refuses new password members; these already in the workspace stay held by it.
+	const passwordMembers = resource(
+		() => (requireSso ? $workspaceStore : undefined),
+		async (workspace) =>
+			workspace ? await WorkspaceService.listPasswordLoginMembers({ workspace }) : []
+	)
+	const heldPasswordMembers = $derived(
+		(passwordMembers.current ?? []).filter(
+			(m) =>
+				!selectedUsers.includes(m.username) && !m.groups.some((g) => selectedGroups.includes(g))
+		)
+	)
+	const passwordLoginDisabled = resource(
+		() => requireSso && !isCloudHosted(),
+		async (shown) => (shown ? await UserService.isPasswordLoginDisabled() : undefined)
+	)
+
 	// Computed properties
 	const hasUnsavedChanges = $derived(
 		isCreateMode
@@ -126,6 +148,7 @@
 					restrictPublicRunSharing ||
 					restrictGuestAppDeployment ||
 					requireIsolatedForks ||
+					requireSso ||
 					selectedGroups.length > 0 ||
 					selectedUsers.length > 0 ||
 					forkRoleMapping.length > 0
@@ -137,6 +160,7 @@
 					restrictPublicRunSharing !== initialRestrictPublicRunSharing ||
 					restrictGuestAppDeployment !== initialRestrictGuestAppDeployment ||
 					requireIsolatedForks !== initialRequireIsolatedForks ||
+					requireSso !== initialRequireSso ||
 					JSON.stringify([...selectedGroups].sort()) !==
 						JSON.stringify([...initialSelectedGroups].sort()) ||
 					JSON.stringify([...selectedUsers].sort()) !==
@@ -193,7 +217,8 @@
 						...(restrictGuestAppDeployment
 							? ['RestrictGuestAppDeployment' as ProtectionRuleKind]
 							: []),
-						...(requireIsolatedForks ? ['RequireIsolatedForks' as ProtectionRuleKind] : [])
+						...(requireIsolatedForks ? ['RequireIsolatedForks' as ProtectionRuleKind] : []),
+						...(requireSso ? ['RequireSso' as ProtectionRuleKind] : [])
 					],
 					bypass_groups: selectedGroups,
 					bypass_users: selectedUsers,
@@ -234,7 +259,8 @@
 						...(restrictGuestAppDeployment
 							? ['RestrictGuestAppDeployment' as ProtectionRuleKind]
 							: []),
-						...(requireIsolatedForks ? ['RequireIsolatedForks' as ProtectionRuleKind] : [])
+						...(requireIsolatedForks ? ['RequireIsolatedForks' as ProtectionRuleKind] : []),
+						...(requireSso ? ['RequireSso' as ProtectionRuleKind] : [])
 					],
 					bypass_groups: selectedGroups,
 					bypass_users: selectedUsers,
@@ -253,6 +279,7 @@
 			initialRestrictPublicRunSharing = restrictPublicRunSharing
 			initialRestrictGuestAppDeployment = restrictGuestAppDeployment
 			initialRequireIsolatedForks = requireIsolatedForks
+			initialRequireSso = requireSso
 			initialSelectedGroups = clone(selectedGroups)
 			initialSelectedUsers = clone(selectedUsers)
 			initialForkRoleMapping = clone(forkRoleMapping)
@@ -382,6 +409,46 @@
 				{@render description(
 					'Only workspace admins and bypassers can mint a public link to a run (readable without login). The read-only link for workspace members stays available to everyone.'
 				)}
+			</div>
+			<div class="flex flex-col gap-1">
+				<Toggle bind:checked={requireSso} options={{ right: 'Require SSO' }} />
+				{@render description(
+					'Every member other than a service account or a bypasser must sign in with SSO: a user signing in with a password cannot be added, invited or auto-added, and no member can be switched to a password login. Admins are held too.'
+				)}
+				{#if requireSso}
+					<div class="flex flex-col gap-2 pl-11 pt-1">
+						{#if heldPasswordMembers.length > 0}
+							<Alert
+								type="warning"
+								size="xs"
+								title={`${heldPasswordMembers.length} ${heldPasswordMembers.length === 1 ? 'member signs' : 'members sign'} in with a password`}
+							>
+								The rule does not remove existing members. Move them to SSO, remove them, or add
+								them as bypassers: {heldPasswordMembers
+									.map((m) => `${m.username} (${m.email})`)
+									.join(', ')}.
+							</Alert>
+						{/if}
+						{#if !isCloudHosted()}
+							<Alert
+								type="info"
+								size="xs"
+								title="Usually better set on the instance"
+								actions={$superadmin
+									? [{ label: 'Open instance settings', onClick: () => goto('#superadmin-settings') }]
+									: undefined}
+							>
+								Disable password login in the instance settings to require SSO of every user in
+								every workspace: it also stops password sign-in itself, which this rule does not.
+								{#if passwordLoginDisabled.current === true}
+									Password login is already disabled on this instance.
+								{:else if passwordLoginDisabled.current === false}
+									Password login is currently enabled on this instance.
+								{/if}
+							</Alert>
+						{/if}
+					</div>
+				{/if}
 			</div>
 		</Section>
 

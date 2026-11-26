@@ -164,6 +164,18 @@ Symbols, not line numbers, are cited: they drift less.
   reset require `login_type = 'password'`; `set_password` also accepts `pending_oauth` and turns
   the account into a `password` one in the same statement (an account created ahead of its owner
   gets its first credential that way, or through the OAuth claim below).
+- **`RequireSso` protection rule** (workspace-level, `check_new_member_sso` /
+  `check_password_login_allowed` in `windmill-common/src/workspaces.rs`): a `password` account
+  held by it (not a service account, not a bypasser by username or group, admins included) cannot
+  join the workspace, and no member it holds can become a `password` account. It gates both
+  transitions, never sign-in: password members already in the workspace keep logging in, which only
+  the instance's `disable_password_login` stops. A new path that seats a member or writes
+  `login_type = 'password'` (or a password on a `pending_oauth` account) must call the matching
+  check in the transaction that writes. The two checks take no lock, so a join and a password
+  switch of the same account at the same instant can both pass; the automatic joins (domain auto-add and auto-invite,
+  instance groups) skip the user instead of failing, and a git sync pull into a fork fails rather
+  than seat a held sync identity. The
+  superadmin instance import (`POST /users/overwrite`) restores accounts as given, unchecked.
 - **Login links** (`login_link` table, `POST /users/login_links` superadmin-only,
   `GET /auth/login_link/{token}` unauthenticated): single-use, ≤15 min, a session cookie and a
   302 to a same-origin `rd`. `require_login_type` on the mint refuses (409) an account whose
@@ -220,3 +232,14 @@ Symbols, not line numbers, are cited: they drift less.
   profile routes are cloud-gated; for the rest, cloud only adds quotas.
 - **`CREATE_WORKSPACE_REQUIRE_SUPERADMIN`** defaults to `true` when unset; only the literal
   `"true"` enables it when set.
+- **The client IP** (`windmill-common/src/client_ip.rs`, the `ClientIp` extractor) is the TCP
+  peer unless that peer is in `TRUSTED_PROXIES` (comma-separated CIDRs; unset means loopback,
+  private and link-local ranges; `none` trusts nothing). Behind a trusted peer, `X-Forwarded-For`
+  is read from the right up to the first untrusted hop, or, with `CLIENT_IP_HEADER` set, only that
+  header (`CloudFront-Viewer-Address`, `CF-Connecting-IP`, an nginx `X-Real-IP`). `X-Real-IP` is
+  never read implicitly: Caddy and most ingresses pass a client's own through. A CDN in front of
+  the load balancer (CloudFront on app.windmill.dev) needs `CLIENT_IP_HEADER` or its ranges in
+  `TRUSTED_PROXIES`, or its edge address is the client. The private-range default also trusts
+  job containers that can reach the server directly; such a deployment should list its proxy's
+  exact address. Only the main API server carries the peer: a router called without connect
+  info (tests, internal dispatch) sees `None`, and per-IP decisions skip or refuse it.

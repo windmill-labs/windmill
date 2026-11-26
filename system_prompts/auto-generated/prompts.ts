@@ -1633,7 +1633,7 @@ write a secret you were not given: keep the placeholder.
 | \`git_sync\` | \`{ repositories: [...] }\`, each with \`git_repo_resource_path\`, \`script_path\` and \`settings\` (include/exclude paths and types). Server-owned fields (webhook secrets, sync state, credentials) are never read nor written. |
 | \`datatable\` | \`{ datatables: { <name>: { database: { resource_type, resource_path } } } }\`, both required: \`resource_type: postgresql\` with \`resource_path\` a Postgres resource's path, or \`instance\`, or \`external_instance\` (Enterprise only), with \`resource_path\` the name of a database a superadmin set up. A fork's entry can instead be \`{ reference: { workspace_id, datatable } }\`, pointing at its parent's data table; keep it as is. \`main\` is the one scripts use by default. Role permissions are \`datatable_permissions\`. |
 | \`datatable_permissions\` | \`{ <data table>: { default_role, roles: { <role>: [tenants] } } }\`: who may connect to each data table as which role. Tenants are \`u/<user>\`, \`g/<group>\`, \`f/<folder>\` or \`*\`; \`admin\` is always a role, and \`default_role: null\` means no default. A data table the value omits is no longer under roles. Only a data table on a cluster Windmill manages can be. |
-| \`protection_rules\` | \`{ <rule name>: { rules: [...], bypass_groups: [...], bypass_users: [...], fork_role_mapping?: { <role here>: <role in its forks> } } }\`, rules among \`DisableDirectDeployment\`, \`DisableWorkspaceForking\`, \`RestrictDeployToDeployers\`, \`RestrictAnonymousAppDeployment\`, \`RestrictPublicRunSharing\`, \`RestrictGuestAppDeployment\`, \`RequireIsolatedForks\`. A rule the value omits is deleted. The dev workspace lock is not listed and cannot be set here. |
+| \`protection_rules\` | \`{ <rule name>: { rules: [...], bypass_groups: [...], bypass_users: [...], fork_role_mapping?: { <role here>: <role in its forks> } } }\`, rules among \`DisableDirectDeployment\`, \`DisableWorkspaceForking\`, \`RestrictDeployToDeployers\`, \`RestrictAnonymousAppDeployment\`, \`RestrictPublicRunSharing\`, \`RestrictGuestAppDeployment\`, \`RequireIsolatedForks\`, \`RequireSso\` (an account signing in with a password, other than a bypasser, cannot join, and no member can be switched to a password login; members already signing in with a password are not removed). A rule the value omits is deleted. The dev workspace lock is not listed and cannot be set here. |
 | \`ducklake\` | \`{ ducklakes: { <name>: { catalog, storage, ... } } }\`. |
 | \`dbt_warehouses\` | dbt warehouse connections. |
 | \`default_app\` | Path of the app shown as the workspace home. |
@@ -4439,6 +4439,7 @@ sync local with a remote instance or the opposite (push or pull)
   - \`--dry-run\` - Perform a dry run without making changes
   - \`--skip-users\` - Skip pulling users
   - \`--skip-settings\` - Skip pulling settings
+  - \`--show-secrets\` - Pull secrets (license key, passwords, tokens) in clear instead of redacted
   - \`--skip-configs\` - Skip pulling configs (worker groups)
   - \`--skip-groups\` - Skip pulling instance groups
   - \`--include-workspaces\` - Also pull workspaces
@@ -4461,7 +4462,7 @@ sync local with a remote instance or the opposite (push or pull)
 - \`instance whoami\` - Display information about the currently logged-in user
 - \`instance get-config\` - Dump the current instance config (global settings + worker configs) as YAML
   - \`-o, --output-file <file:string>\` - Write YAML to a file instead of stdout
-  - \`--show-secrets\` - Include sensitive fields (license key, JWT secret) without prompting
+  - \`--show-secrets\` - Include secrets (license key, passwords, tokens) in clear without prompting
   - \`--instance <instance:string>\` - Name of the instance, override the active instance
 - \`instance connect-slack\` - Non-interactively connect Slack at the instance level using a pre-minted bot token (xoxb-...). Produces the same artifacts as the UI OAuth flow: global_settings 'slack' row + encrypted f/slack_bot/global_bot_token variable and resource in the admins workspace.
   - \`--bot-token <bot_token:string>\` - Slack bot token (xoxb-...)

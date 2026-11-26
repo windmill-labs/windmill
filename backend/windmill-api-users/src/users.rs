@@ -14,6 +14,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::sync::LazyLock;
 use std::time::Duration;
+use windmill_common::client_ip::ClientIp;
 
 use windmill_api_auth::ApiAuthed;
 
@@ -1277,6 +1278,14 @@ async fn join_workspace<'c>(
             authed.email, w_id
         )));
     }
+
+    windmill_common::workspaces::check_new_member_sso(
+        &mut *tx,
+        &w_id,
+        &authed.email,
+        Some(&username),
+    )
+    .await?;
 
     sqlx::query!(
         "INSERT INTO usr
@@ -2846,6 +2855,10 @@ async fn set_login_type(
     .execute(&mut *tx)
     .await?;
 
+    if et.login_type == "password" {
+        windmill_common::workspaces::check_password_login_allowed(&mut *tx, &email).await?;
+    }
+
     audit_log(
         &mut *tx,
         &authed,
@@ -2866,7 +2879,7 @@ async fn set_login_type(
 
 #[allow(unreachable_code, unused_variables)]
 async fn login(
-    headers: axum::http::HeaderMap,
+    ClientIp(client_ip): ClientIp,
     cookies: Cookies,
     Extension(db): Extension<DB>,
     Extension(argon2): Extension<Arc<Argon2<'_>>>,
@@ -2889,7 +2902,7 @@ async fn login(
         ));
     }
 
-    windmill_common::login_rate_limit::check_and_increment_login_attempt(&headers, &email)?;
+    windmill_common::login_rate_limit::check_and_increment_login_attempt(client_ip, &email)?;
 
     let mut tx = db.begin().await?;
     let audit_author = AuditAuthor {
@@ -3861,7 +3874,7 @@ struct LoginLinkQuery {
 }
 
 async fn consume_login_link(
-    headers: axum::http::HeaderMap,
+    ClientIp(client_ip): ClientIp,
     cookies: Cookies,
     Extension(db): Extension<DB>,
     Path(token): Path<String>,
@@ -3879,7 +3892,7 @@ async fn consume_login_link(
     // The account is unknown until the row is read, so only the global and per-IP tiers
     // apply here; a 32-char random token leaves nothing for the per-account tier to guard.
     windmill_common::login_rate_limit::check_and_increment_login_attempt(
-        &headers,
+        client_ip,
         &t_hash[..TOKEN_PREFIX_LEN],
     )?;
 

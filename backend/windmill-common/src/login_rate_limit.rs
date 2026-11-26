@@ -53,32 +53,6 @@ static GLOBAL_LIMIT: LazyLock<i32> = LazyLock::new(|| {
         .unwrap_or(DEFAULT_GLOBAL_LIMIT)
 });
 
-/// Extract client IP from proxy headers. Only meaningful when behind a trusted
-/// reverse proxy (e.g. CLOUD_HOSTED). Returns `None` if no proxy header is present.
-pub fn extract_client_ip(headers: &axum::http::HeaderMap) -> Option<String> {
-    if let Some(real_ip) = headers.get("x-real-ip") {
-        if let Ok(ip) = real_ip.to_str() {
-            let trimmed = ip.trim();
-            if !trimmed.is_empty() {
-                return Some(trimmed.to_string());
-            }
-        }
-    }
-
-    if let Some(forwarded_for) = headers.get("x-forwarded-for") {
-        if let Ok(ips) = forwarded_for.to_str() {
-            if let Some(first_ip) = ips.split(',').next() {
-                let trimmed = first_ip.trim();
-                if !trimmed.is_empty() {
-                    return Some(trimmed.to_string());
-                }
-            }
-        }
-    }
-
-    None
-}
-
 fn too_many_attempts() -> Error {
     Error::Generic(
         StatusCode::TOO_MANY_REQUESTS,
@@ -91,7 +65,7 @@ fn too_many_attempts() -> Error {
 /// a general throttle on login traffic per server instance.
 /// Per-IP is only active on CLOUD_HOSTED or when LOGIN_RATE_LIMIT_PER_IP is explicitly set.
 pub fn check_and_increment_login_attempt(
-    headers: &axum::http::HeaderMap,
+    client_ip: Option<std::net::IpAddr>,
     email: &str,
 ) -> Result<()> {
     // Global limit: always on, uses atomics (single key, no need for a map)
@@ -99,8 +73,8 @@ pub fn check_and_increment_login_attempt(
 
     // Per-IP limit: CLOUD_HOSTED or explicit opt-in
     if *CLOUD_HOSTED || *PER_IP_LIMIT_EXPLICIT {
-        if let Some(ip) = extract_client_ip(headers) {
-            if !IP_RATE_LIMIT.try_increment(ip, *PER_IP_LIMIT) {
+        if let Some(ip) = client_ip {
+            if !IP_RATE_LIMIT.try_increment(ip.to_string(), *PER_IP_LIMIT) {
                 return Err(too_many_attempts());
             }
         }
