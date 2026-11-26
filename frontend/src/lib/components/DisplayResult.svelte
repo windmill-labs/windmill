@@ -1476,7 +1476,7 @@
 							{@const size = notSent ? info?.length : loadedResultBytes / 2}
 							{@const hasOtherAction = !!imageKind || !!tooBigFilename || download_as_csv}
 							<div
-								class="mb-2 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md bg-surface-secondary px-2 py-1 [container-type:inline-size]"
+								class="mt-2 mb-2 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md bg-surface-secondary px-2 py-1 [container-type:inline-size]"
 							>
 								<span class="text-secondary">
 									{#if imageKind}<Image size={14} />{:else if tooBigFilename}<FileText
