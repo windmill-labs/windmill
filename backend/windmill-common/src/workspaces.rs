@@ -1561,38 +1561,52 @@ pub async fn check_user_against_rule(
     Ok(RuleCheckResult::Allowed)
 }
 
-/// The first `RequireSso` ruleset of `workspace_id` that holds a member named `username` in
-/// `groups`, read uncached so a rule just turned on already refuses the next join.
-async fn sso_ruleset_holding(
+struct SsoRuleset {
+    name: String,
+    bypass_users: Vec<String>,
+    bypass_groups: Vec<String>,
+}
+
+/// `workspace_id`'s `RequireSso` rulesets, read uncached so a rule just turned on already
+/// refuses the next join.
+async fn sso_rulesets(
     conn: &mut sqlx::PgConnection,
     workspace_id: &str,
-    username: Option<&str>,
-    groups: &[String],
-) -> Result<Option<String>> {
-    let rulesets = sqlx::query!(
+) -> Result<Vec<SsoRuleset>> {
+    Ok(sqlx::query_as!(
+        SsoRuleset,
         "SELECT name, bypass_users, bypass_groups FROM workspace_protection_rule
          WHERE workspace_id = $1 AND (rules & $2) <> 0 ORDER BY name",
         workspace_id,
         ProtectionRules::REQUIRE_SSO.bits(),
     )
     .fetch_all(&mut *conn)
-    .await?;
-    Ok(rulesets
-        .into_iter()
+    .await?)
+}
+
+/// The first of `rulesets` that holds a member named `username` in `groups`.
+fn sso_ruleset_holding<'a>(
+    rulesets: &'a [SsoRuleset],
+    username: Option<&str>,
+    groups: &[String],
+) -> Option<&'a str> {
+    rulesets
+        .iter()
         .find(|r| {
             !(username.is_some_and(|u| r.bypass_users.iter().any(|b| b == u))
                 || r.bypass_groups.iter().any(|g| groups.contains(g)))
         })
-        .map(|r| r.name))
+        .map(|r| r.name.as_str())
 }
 
-// Seating a member and giving the account a password each check what the other writes, so both
-// take this per-email lock, held until the writing transaction ends; it covers emails with no
-// account yet, which a row lock cannot. A password transition may already hold, or must take, the
-// account's `password` row first (as role updates do): the join side never locks that row, so
-// the order is always row then this lock, and the two cannot deadlock.
-async fn lock_sso_transition(conn: &mut sqlx::PgConnection, email: &str) -> Result<()> {
-    sqlx::query("SELECT pg_advisory_xact_lock(hashtext('sso_account:' || $1))")
+/// Seating a member and giving the account a password each check what the other writes, so both
+/// take this per-email lock, held until the writing transaction ends; it covers emails with no
+/// account yet, which a row lock cannot. A password transition may already hold, or must take, the
+/// account's `password` row first (as role updates do), and a path inserting the membership must
+/// take this lock before that insert: the order is always row, then this lock, then membership.
+/// Emails share 1024 lock keys so a bulk join holds a bounded number of locks.
+pub async fn lock_sso_transition(conn: &mut sqlx::PgConnection, email: &str) -> Result<()> {
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtext('sso_account'), hashtext($1) & 1023)")
         .bind(email)
         .execute(&mut *conn)
         .await?;
@@ -1610,6 +1624,10 @@ pub async fn check_new_member_sso(
     email: &str,
     username: Option<&str>,
 ) -> Result<()> {
+    let rulesets = sso_rulesets(conn, workspace_id).await?;
+    if rulesets.is_empty() {
+        return Ok(());
+    }
     lock_sso_transition(conn, email).await?;
     let account = sqlx::query!(
         "SELECT login_type, username FROM password WHERE email = $1",
@@ -1622,7 +1640,7 @@ pub async fn check_new_member_sso(
     };
     let username = username.or(account.username.as_deref());
     let groups = ["all".to_string()];
-    if let Some(ruleset) = sso_ruleset_holding(conn, workspace_id, username, &groups).await? {
+    if let Some(ruleset) = sso_ruleset_holding(&rulesets, username, &groups) {
         return Err(Error::BadRequest(format!(
             "Ruleset {ruleset} of {workspace_id} requires SSO: {email} signs in with a password, \
              so it cannot join this workspace"
@@ -1657,9 +1675,8 @@ pub async fn check_password_login_allowed(
     .fetch_all(&mut *conn)
     .await?;
     for m in memberships {
-        if let Some(ruleset) =
-            sso_ruleset_holding(conn, &m.workspace_id, Some(&m.username), &m.groups).await?
-        {
+        let rulesets = sso_rulesets(conn, &m.workspace_id).await?;
+        if let Some(ruleset) = sso_ruleset_holding(&rulesets, Some(&m.username), &m.groups) {
             return Err(Error::BadRequest(format!(
                 "Ruleset {ruleset} of {} requires SSO for its members, so {email} cannot sign in \
                  with a password",
