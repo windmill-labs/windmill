@@ -356,9 +356,10 @@
 									<span>failed iterations</span>
 									<Tooltip>
 										Once this many iterations have failed, the loop fails and the flow with it.
-										A parallel loop starts no further iteration: iterations not started yet are
-										canceled and those already running finish. Leave empty to never stop on
-										failures.
+										A parallel loop cancels the iterations not started yet, including those held
+										back by the concurrency limit, and lets the running ones finish: limit
+										concurrent iterations to bound how many are running at that point. Leave
+										empty to never stop on failures.
 									</Tooltip>
 								</div>
 							{/if}

@@ -912,7 +912,7 @@ components:
         failure_threshold:
           type: integer
           minimum: 1
-          description: With skip_failures, the loop fails with an error named 'FailureThresholdReached' as soon as this many iterations have failed. A sequential loop stops at the iteration that reaches it. A parallel loop starts no further iteration and cancels those not started yet, while iterations already running finish
+          description: With skip_failures, the loop fails with an error named 'FailureThresholdReached' as soon as this many iterations have failed. A sequential loop stops at the iteration that reaches it. A parallel loop cancels the iterations no worker has picked up yet, including those held back by parallelism, while iterations already picked up finish; set parallelism to bound how many are in flight when the threshold is reached
         type:
           type: string
           enum:

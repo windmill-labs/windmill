@@ -958,38 +958,20 @@ pub async fn update_flow_status_after_job_completion_internal(
                          })?.ok_or_else(|| Error::internal_err(format!("requiring an index in InProgress for flow {flow} at step {}", old_status.step)))?;
 
                         // Past the failure threshold, the iterations not started yet are cancelled:
-                        // those with no step yet (unpulled, or held by `parallelism`; a `suspend`
-                        // can also be an approval, hence the child check), and those whose
-                        // first step no worker has pulled, as a first attempt rather than a retry
-                        // (cancelling that step first, under its row lock, so an iteration a
-                        // worker just started is left alone). Running ones finish, and the loop
-                        // fails once all are in. The count reads the row this transaction updated.
+                        // those no worker has picked up, or that `parallelism` holds back (a
+                        // `suspend` is also an approval, hence no child job yet). An iteration a
+                        // worker picked up runs to its end, and the loop fails once all are in.
+                        // The count reads the row this transaction just updated.
                         if let Some(threshold) = failure_threshold.filter(|_| !success) {
                             sqlx::query!(
-                                "WITH failed AS (
-                                    SELECT count(*) AS n FROM v2_job_status s,
-                                        jsonb_array_elements(s.flow_status->'modules'->$6::int->'flow_jobs_success') e
-                                    WHERE s.id = $1 AND e = 'false'::jsonb
-                                ), first_steps AS (
-                                    UPDATE v2_job_queue q
-                                    SET canceled_by = $3, canceled_reason = $4, scheduled_for = now(), suspend = 0
-                                    FROM v2_job j, v2_job_status f
-                                    WHERE (SELECT n FROM failed) >= $7
-                                        AND j.id = q.id AND f.id = j.parent_job AND j.parent_job = ANY($2)
-                                        AND q.workspace_id = $5 AND NOT q.running AND q.canceled_by IS NULL
-                                        AND COALESCE((f.flow_status->'retry'->>'fail_count')::int, 0) = 0
-                                        AND ((f.flow_status->'step')::int = 0
-                                            OR f.flow_status->'modules'->((f.flow_status->'step')::int)->>'id'
-                                                = f.flow_status->'restarted_from'->>'step_id')
-                                    RETURNING j.parent_job
-                                )
-                                UPDATE v2_job_queue
-                                SET canceled_by = $3, canceled_reason = $4, scheduled_for = now(), suspend = 0
-                                WHERE workspace_id = $5 AND canceled_by IS NULL
-                                    AND (id IN (SELECT parent_job FROM first_steps)
-                                        OR (id = ANY($2) AND (suspend > 0 OR NOT running)
-                                            AND NOT EXISTS (SELECT 1 FROM v2_job c WHERE c.parent_job = v2_job_queue.id)
-                                            AND (SELECT n FROM failed) >= $7))",
+                                "UPDATE v2_job_queue
+                                 SET canceled_by = $3, canceled_reason = $4, scheduled_for = now(), suspend = 0
+                                 WHERE id = ANY($2) AND workspace_id = $5 AND canceled_by IS NULL
+                                     AND (suspend > 0 OR NOT running)
+                                     AND NOT EXISTS (SELECT 1 FROM v2_job c WHERE c.parent_job = v2_job_queue.id)
+                                     AND (SELECT count(*) FROM v2_job_status s,
+                                             jsonb_array_elements(s.flow_status->'modules'->$6::int->'flow_jobs_success') e
+                                          WHERE s.id = $1 AND e = 'false'::jsonb) >= $7",
                                 flow,
                                 jobs.as_slice(),
                                 FAILURE_THRESHOLD_CANCELER,
@@ -1214,6 +1196,7 @@ pub async fn update_flow_status_after_job_completion_internal(
 
                     let new_status = if
                         !(stop_early && stop_early_err_msg.is_some() && !skip_if_stop_early) // if stop_early with error and NOT skip_if_stopped, mark as failure
+                        && loop_err.is_none()
                         && (
                                 skip_loop_failures
                                 || sqlx::query_scalar!(
