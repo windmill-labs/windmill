@@ -1278,6 +1278,14 @@ async fn join_workspace<'c>(
         )));
     }
 
+    windmill_common::workspaces::check_new_member_sso(
+        &mut *tx,
+        &w_id,
+        &authed.email,
+        Some(&username),
+    )
+    .await?;
+
     sqlx::query!(
         "INSERT INTO usr
             (workspace_id, email, username, is_admin, operator)
@@ -2837,6 +2845,10 @@ async fn set_login_type(
     require_super_admin(&db, &authed).await?;
     forbid_superadmin_job_token(&db, &authed.email, job_id).await?;
     let mut tx = db.begin().await?;
+
+    if et.login_type == "password" {
+        windmill_common::workspaces::check_password_login_allowed(&mut *tx, &email).await?;
+    }
 
     sqlx::query!(
         "UPDATE password SET login_type = $1 WHERE email = $2",

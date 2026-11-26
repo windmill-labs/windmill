@@ -164,6 +164,14 @@ Symbols, not line numbers, are cited: they drift less.
   reset require `login_type = 'password'`; `set_password` also accepts `pending_oauth` and turns
   the account into a `password` one in the same statement (an account created ahead of its owner
   gets its first credential that way, or through the OAuth claim below).
+- **`RequireSso` protection rule** (workspace-level, `check_new_member_sso` /
+  `check_password_login_allowed` in `windmill-common/src/workspaces.rs`): a `password` account
+  held by it (not a service account, not a bypasser by username or group, admins included) cannot
+  join the workspace, and no member it holds can become a `password` account. It gates both
+  transitions, never sign-in: password members already in the workspace keep logging in, which only
+  the instance's `disable_password_login` stops. A new path that seats a member or writes
+  `login_type = 'password'` (or a password on a `pending_oauth` account) must call the matching
+  check; the automatic joins (domain auto-add, instance groups) skip the user instead of failing.
 - **Login links** (`login_link` table, `POST /users/login_links` superadmin-only,
   `GET /auth/login_link/{token}` unauthenticated): single-use, ≤15 min, a session cookie and a
   302 to a same-origin `rd`. `require_login_type` on the mint refuses (409) an account whose
