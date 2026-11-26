@@ -121,7 +121,7 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
             "path",
             "is_flow",
             "workspace_id",
-            "owner AS username",
+            "owner::text AS username",
             "trigger_config",
         ];
 
