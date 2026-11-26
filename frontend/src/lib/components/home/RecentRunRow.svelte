@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { goto } from '$app/navigation'
 	import { workspaceStore } from '$lib/stores'
-	import { CircleCheck, CircleSlash, CircleX, EyeOff, Loader2, Wrench } from 'lucide-svelte'
+	import { CircleCheck, CirclePlay, CircleSlash, CircleX, EyeOff, Wrench } from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import { useRoleCapabilities } from '$lib/operatorWriteRights'
@@ -102,7 +102,7 @@
 >
 	<span class="flex w-3.5 shrink-0 justify-center">
 		{#if item.status === 'running'}
-			<Loader2 size={14} class="animate-spin text-yellow-500" />
+			<span class="text-yellow-500" title="Running"><CirclePlay size={14} /></span>
 		{:else if failing}
 			<CircleX size={14} class="text-red-500" />
 		{:else if item.status === 'resolved'}
