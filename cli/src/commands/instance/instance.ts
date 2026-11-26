@@ -686,7 +686,11 @@ async function getConfig(opts: InstanceSyncOptions & { outputFile?: string; show
   }
   const redacted = !showSecrets && (serverRedacted || clearFromOlderServer);
   if (redacted && interactive) {
-    log.warn("Secrets (license key, passwords, tokens) are redacted. Use --show-secrets to include them, or press Y to show them now.");
+    log.warn(
+      clearFromOlderServer
+        ? "Config contains sensitive fields (license_key, jwt_secret). They are masked by default. Use --show-secrets to include them, or press Y to show them now."
+        : "Secrets (license key, passwords, tokens) are redacted. Use --show-secrets to include them, or press Y to show them now."
+    );
     showSecrets = await Confirm.prompt({ message: "Show secrets?", default: false });
     if (showSecrets) {
       config = await wmill.getInstanceConfig({ dangerouslyRevealSecrets: true }) as any;
