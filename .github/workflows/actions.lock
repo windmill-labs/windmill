@@ -30,7 +30,7 @@ workflows:
     '.github/workflows/backend-test-windows.yml':
         - 'actions-rust-lang/setup-rust-toolchain@v1.17.0'
         - 'actions/checkout@v4.4.0'
-        - 'actions/setup-dotnet@v4.3.1'
+        - 'actions/setup-dotnet@v6.1.0'
         - 'actions/setup-go@v7.0.0'
         - 'actions/setup-node@v7.1.0'
         - 'astral-sh/setup-uv@v10.3.3'
@@ -42,7 +42,7 @@ workflows:
         - 'actions-rust-lang/setup-rust-toolchain@v1.17.0'
         - 'actions/cache@v3.5.0'
         - 'actions/checkout@v4.4.0'
-        - 'actions/setup-dotnet@v4.3.1'
+        - 'actions/setup-dotnet@v6.1.0'
         - 'actions/setup-go@v7.0.0'
         - 'actions/setup-node@v7.1.0'
         - 'astral-sh/setup-uv@v10.3.3'
@@ -310,9 +310,9 @@ dependencies:
         commit: 'sha1-f28e40c7f34bde8b3046d885e986cb6290c5673b'
         owner_id: 44036562
         repo_id: 205262760
-    'actions/setup-dotnet@v4.3.1':
-        ref: 'v4.3.1'
-        commit: 'sha1-67a3573c9a986a3f9c594539f4ab511d57bb3ce9'
+    'actions/setup-dotnet@v6.1.0':
+        ref: 'v6.1.0'
+        commit: 'sha1-0f4a354dd5547a28c70b7853dbd95d5b67886e73'
         owner_id: 44036562
         repo_id: 192625306
     'actions/setup-go@v7.0.0':
