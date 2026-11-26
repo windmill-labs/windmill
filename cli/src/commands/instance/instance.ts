@@ -677,8 +677,15 @@ async function getConfig(opts: InstanceSyncOptions & { outputFile?: string; show
   // A server without redaction ignores the parameter and returns its secrets in clear.
   const clearFromOlderServer =
     !showSecrets && !serverRedacted && Boolean(settings.license_key || settings.jwt_secret);
+  const interactive = process.stdout.isTTY && !opts.outputFile;
+  // Masking such an export is only safe on screen: applied back, that server would store the mask.
+  if (clearFromOlderServer && !interactive) {
+    throw new Error(
+      "This server does not redact secrets, so a redacted export would overwrite them when applied back. Pass --show-secrets to export them."
+    );
+  }
   const redacted = !showSecrets && (serverRedacted || clearFromOlderServer);
-  if (redacted && process.stdout.isTTY && !opts.outputFile) {
+  if (redacted && interactive) {
     log.warn("Secrets (license key, passwords, tokens) are redacted. Use --show-secrets to include them, or press Y to show them now.");
     showSecrets = await Confirm.prompt({ message: "Show secrets?", default: false });
     if (showSecrets) {
