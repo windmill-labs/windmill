@@ -699,6 +699,18 @@ paths:
       operationId: setupTotp
       tags:
         - user
+      requestBody:
+        description: the account's current password
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                password:
+                  type: string
+              required:
+                - password
       responses:
         "200":
           description: the secret to register in an authenticator app

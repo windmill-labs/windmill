@@ -36,7 +36,9 @@ Symbols, not line numbers, are cited: they drift less.
   accepted wherever a code is. Wrong codes are capped per account at 5 a minute on the
   `password` row, so the cap holds across servers; the caller commits the count even when it
   refuses the code. Without that cap, a known password leaves a 6-digit code as the only barrier.
-  A superadmin removes a lost second factor with `POST /users/totp/reset/{user}`. The secret is
+  Enrolling (`setup`) asks for the password again, so a stolen session cannot add its own
+  authenticator and lock the owner out of password login. A superadmin removes a lost second
+  factor with `POST /users/totp/reset/{user}`. The secret is
   encrypted under the `admins` workspace key, and rotating that key re-encrypts it
   (`set_encryption_key`); a secret left under an old key locks its user out. The global user
   export leaves it out, as its files end up in git: an overwrite keeps the second factor of every
