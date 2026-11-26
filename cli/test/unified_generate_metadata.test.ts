@@ -635,7 +635,7 @@ describe("generate-metadata folder argument", () => {
       );
 
       expect(result.code).toEqual(0);
-      expect(result.stdout + result.stderr).toContain("f/panel/edited");
+      expect((result.stdout + result.stderr).replaceAll("\\", "/")).toContain("f/panel/edited");
       await expect(stat(`${tempDir}/f/starbase/bare.script.yaml`)).rejects.toThrow();
       await expect(stat(`${tempDir}/f/starbase/bare.script.lock`)).rejects.toThrow();
       const lockfile = await readFile(`${tempDir}/wmill-lock.yaml`, "utf-8");
