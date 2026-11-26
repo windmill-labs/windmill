@@ -62,6 +62,18 @@
 						</span>
 					</div>
 				{/if}
+				{#if log.client_ip}
+					<div class="flex flex-col gap-1">
+						<span class="font-semibold text-xs text-emphasis">Client IP</span>
+						<span class="text-xs break-all">{log.client_ip}</span>
+					</div>
+				{/if}
+				{#if log.user_agent}
+					<div class="flex flex-col gap-1">
+						<span class="font-semibold text-xs text-emphasis">User agent</span>
+						<span class="text-xs break-all">{log.user_agent}</span>
+					</div>
+				{/if}
 				<div class="flex flex-col gap-1">
 					<span class="font-semibold text-xs text-emphasis">Parameters</span>
 					<div class="text-xs p-2 bg-surface-secondary rounded-md overflow-x-auto">
