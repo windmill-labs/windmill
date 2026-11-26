@@ -2707,7 +2707,7 @@
 	},
 	{
 		"name": "read_s3_file",
-		"description": "Read a file in the workspace's object storage: its size and last modified time, and a preview of its content: the start of a text, JSON or CSV file, the first rows of a Parquet file, or the image itself for a png, jpeg, gif or webp of up to 5 MB, which you then see. Other files return their metadata only.",
+		"description": "Read a file in the workspace's object storage: its size and last modified time, and a preview of its content: the start of a text, JSON or CSV file, the first rows of a Parquet file, or the image itself for a png, jpeg, gif or webp of up to 3.75 MB, which you then see. Other files return their metadata only.",
 		"parameters": {
 			"type": "object",
 			"properties": {

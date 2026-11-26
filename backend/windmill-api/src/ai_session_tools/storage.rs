@@ -2,7 +2,7 @@
 //! the endpoints of the S3 file browser: what the caller may list, read, delete or move there
 //! is exactly what the browser lets them do.
 
-use serde_json::{Map, Value};
+use serde_json::{json, Map, Value};
 
 use super::data::with_query;
 use super::workspace::path_enc;
@@ -46,16 +46,11 @@ const PARQUET_PREVIEW_ROWS: usize = 50;
 /// The CSV preview endpoint parses at most this many rows, whatever length it is asked.
 const CSV_PREVIEW_ROWS: usize = 20;
 const MAX_CELL_CHARS: usize = 1000;
-/// Anthropic's limit for one image; the server has no image library to downscale with.
-const MAX_IMAGE_BYTES: u64 = 5 * 1024 * 1024;
+/// Anthropic refuses an image whose base64 data passes 5 MB, and the server has no image
+/// library to downscale with.
+const MAX_IMAGE_BYTES: u64 = 5 * 1024 * 1024 / 4 * 3;
 /// What the S3 file browser shows as an image.
-const IMAGE_TYPES: &[(&str, &str)] = &[
-    ("png", "image/png"),
-    ("jpg", "image/jpeg"),
-    ("jpeg", "image/jpeg"),
-    ("gif", "image/gif"),
-    ("webp", "image/webp"),
-];
+const IMAGE_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "gif", "webp"];
 
 /// `None` for the primary storage, however it was named.
 fn storage_arg(args: &Value) -> Option<&str> {
@@ -200,15 +195,15 @@ async fn read_s3_file(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
                 ],
             ))
             .await?;
-        out.insert("columns".into(), preview["columns"].clone());
-        out.insert("column_types".into(), preview["column_types"].clone());
-        fit_rows(&mut out, array(preview.get("rows")));
-    } else if let Some(mime_type) = image_type(key) {
+        fit_parquet(
+            &mut out,
+            array(preview.get("columns")),
+            array(preview.get("column_types")),
+            array(preview.get("rows")),
+        );
+    } else if is_image_key(key) {
         if size > MAX_IMAGE_BYTES {
-            out.insert(
-                "image".into(),
-                format!("not attached: larger than {} MB", MAX_IMAGE_BYTES >> 20).into(),
-            );
+            out.insert("image".into(), "not attached: larger than 3.75 MB".into());
         } else {
             let bytes = ctx
                 .get_bytes(&with_query(
@@ -216,8 +211,17 @@ async fn read_s3_file(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
                     &[("file_key", Some(key)), ("storage", storage)],
                 ))
                 .await?;
-            ctx.push_image(mime_type, &bytes);
-            out.insert("image".into(), "attached".into());
+            // Model APIs refuse an image whose declared type is not its content's, so
+            // the type comes from the bytes, never from the key's extension.
+            if let Some(mime_type) = sniff_image(&bytes) {
+                ctx.push_image(mime_type, &bytes);
+                out.insert("image".into(), "attached".into());
+            } else {
+                out.insert(
+                    "image".into(),
+                    "not attached: not a png, jpeg, gif or webp image".into(),
+                );
+            }
         }
     } else {
         let mut length = size.min(PREVIEW_BYTES);
@@ -268,12 +272,23 @@ async fn text_preview(
     .await
 }
 
-fn image_type(key: &str) -> Option<&'static str> {
-    let ext = key.rsplit_once('.')?.1.to_lowercase();
-    IMAGE_TYPES
-        .iter()
-        .find(|(e, _)| *e == ext)
-        .map(|(_, mime_type)| *mime_type)
+fn is_image_key(key: &str) -> bool {
+    key.rsplit_once('.')
+        .is_some_and(|(_, ext)| IMAGE_EXTENSIONS.contains(&ext.to_lowercase().as_str()))
+}
+
+fn sniff_image(bytes: &[u8]) -> Option<&'static str> {
+    if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+        Some("image/png")
+    } else if bytes.starts_with(&[0xff, 0xd8, 0xff]) {
+        Some("image/jpeg")
+    } else if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") {
+        Some("image/gif")
+    } else if bytes.len() >= 12 && &bytes[..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
+        Some("image/webp")
+    } else {
+        None
+    }
 }
 
 /// Bytes of `value` once pretty-printed `depth` levels deep in the result.
@@ -319,13 +334,56 @@ fn fit_text(out: &mut Map<String, Value>, content: &str, file_cut: bool, csv_cut
     }
 }
 
-/// The Parquet rows that fit the result, with long strings cut at any depth; a first row
-/// too wide on its own keeps its leading columns.
-fn fit_rows(out: &mut Map<String, Value>, returned: &[Value]) {
+/// The schema and rows of a Parquet preview that fit the result. The schema takes at most
+/// half the room, long strings are cut at any depth, and a first row too wide on its own
+/// keeps its leading columns.
+fn fit_parquet(
+    out: &mut Map<String, Value>,
+    columns: &[Value],
+    column_types: &[Value],
+    returned: &[Value],
+) {
+    let schema_room = room(out) / 2;
+    let mut used = 0;
+    let mut listed = 0;
+    for (i, column) in columns.iter().enumerate() {
+        let mut pair = json!([column, column_types.get(i)]);
+        cut_strings(&mut pair);
+        used += pretty_len(&pair, 2);
+        if used > schema_room {
+            break;
+        }
+        listed += 1;
+    }
+    let cut = |values: &[Value]| {
+        let mut values = values[..listed.min(values.len())].to_vec();
+        values.iter_mut().for_each(|v| {
+            cut_strings(v);
+        });
+        Value::Array(values)
+    };
+    out.insert("columns".into(), cut(columns));
+    out.insert("column_types".into(), cut(column_types));
+    let mut notes = vec![];
+    if listed < columns.len() {
+        notes.push(format!(
+            "Only the first {listed} of {} columns are listed.",
+            columns.len()
+        ));
+    }
+    fit_rows(out, returned, columns.len(), notes);
+}
+
+fn fit_rows(
+    out: &mut Map<String, Value>,
+    returned: &[Value],
+    column_count: usize,
+    mut notes: Vec<String>,
+) {
     let mut room = room(out);
     let mut cut_cells = false;
     let mut rows = vec![];
-    let mut left_out = vec![];
+    let mut kept_columns = None;
     for row in returned {
         let mut row = row.clone();
         cut_cells |= cut_strings(&mut row);
@@ -340,20 +398,19 @@ fn fit_rows(out: &mut Map<String, Value>, returned: &[Value]) {
             if let Value::Object(cells) = row {
                 let mut kept = Map::new();
                 for (column, cell) in cells {
-                    let cost = column.len() + pretty_len(&cell, 3) + 12;
-                    if left_out.is_empty() && cost <= room {
-                        room -= cost;
-                        kept.insert(column, cell);
-                    } else {
-                        left_out.push(column);
+                    let cost = pretty_len(&json!(column), 0) + pretty_len(&cell, 3) + 12;
+                    if cost > room {
+                        break;
                     }
+                    room -= cost;
+                    kept.insert(column, cell);
                 }
+                kept_columns = Some(kept.len());
                 rows.push(Value::Object(kept));
             }
         }
         break;
     }
-    let mut notes = vec![];
     if rows.len() < returned.len() || returned.len() == PARQUET_PREVIEW_ROWS {
         notes.push(match rows.len() {
             1 => "The first row only.".to_string(),
@@ -365,11 +422,9 @@ fn fit_rows(out: &mut Map<String, Value>, returned: &[Value]) {
             "Text longer than {MAX_CELL_CHARS} characters is cut."
         ));
     }
-    if !left_out.is_empty() {
+    if let Some(kept) = kept_columns {
         notes.push(format!(
-            "{} columns left out of the row: {}.",
-            left_out.len(),
-            left_out.join(", ")
+            "The row keeps its first {kept} of {column_count} columns."
         ));
     }
     out.insert("rows".into(), rows.into());
@@ -436,7 +491,6 @@ async fn move_s3_file(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
 
     /// Each listed file must stay an S3 object the session's other tools take as is.
     #[test]
@@ -485,22 +539,48 @@ mod tests {
         let wide: Map<String, Value> = (0..100)
             .map(|i| (format!("c{i}"), json!("x".repeat(1000))))
             .collect();
+        let names: Vec<Value> = wide.keys().map(|k| json!(k)).collect();
+        let types = vec![json!("Utf8"); 100];
         let mut out = file();
-        fit_rows(
+        fit_parquet(
             &mut out,
+            &names,
+            &types,
             &[Value::Object(wide.clone()), Value::Object(wide)],
         );
         let shown = fits(out);
         assert_eq!(shown["rows"].as_array().unwrap().len(), 1);
-        assert!(shown["note"].as_str().unwrap().contains("columns left out"));
+        assert!(shown["note"].as_str().unwrap().contains("of 100 columns."));
+
+        // The endpoint's schema arrays name every column, however many there are.
+        let names: Vec<Value> = (0..2000).map(|i| json!(format!("{i:0>36}"))).collect();
+        let types = vec![json!("Utf8"); 2000];
+        let row: Map<String, Value> = names
+            .iter()
+            .map(|n| (n.as_str().unwrap().to_string(), json!("v")))
+            .collect();
+        let mut out = file();
+        fit_parquet(&mut out, &names, &types, &[Value::Object(row)]);
+        let shown = fits(out);
+        assert!(shown["note"]
+            .as_str()
+            .unwrap()
+            .contains("of 2000 columns are listed."));
 
         let nested = json!({ "id": 1, "tags": ["y".repeat(1_000_000)] });
         let mut out = file();
-        fit_rows(&mut out, &[nested]);
+        fit_parquet(&mut out, &[json!("id"), json!("tags")], &[], &[nested]);
         let shown = fits(out);
         assert_eq!(
             shown["rows"][0]["tags"][0].as_str().unwrap().len(),
             MAX_CELL_CHARS
         );
+    }
+
+    #[test]
+    fn image_type_comes_from_the_bytes() {
+        assert_eq!(sniff_image(b"\xff\xd8\xff\xe0rest"), Some("image/jpeg"));
+        assert_eq!(sniff_image(b"RIFF\0\0\0\0WEBPVP8 "), Some("image/webp"));
+        assert_eq!(sniff_image(b"<svg"), None);
     }
 }
