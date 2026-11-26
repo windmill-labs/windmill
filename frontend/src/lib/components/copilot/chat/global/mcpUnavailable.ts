@@ -15,7 +15,7 @@ export async function mcpUnavailableMessage(workspace: string, path?: string): P
 	try {
 		visible = (await listVisibleMcpServers(workspace)).map((s) => s.path)
 	} catch (e: any) {
-		return `Could not list the MCP servers: ${e?.body?.error?.message ?? e?.message ?? String(e)}`
+		return `Could not list the MCP servers: ${e?.body?.error?.message ?? e?.body ?? e?.message ?? String(e)}`
 	}
 	const enabled = new Set(enabledMcpPaths(workspace))
 	const on = visible.filter((p) => enabled.has(p))

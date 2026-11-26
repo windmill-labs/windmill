@@ -501,6 +501,16 @@ describe('loadMcpServers', () => {
 		)
 	})
 
+	it('reports a plain-text error body when listing fails', async () => {
+		listResourceMock.mockRejectedValueOnce({
+			body: 'database is down',
+			message: 'Internal Server Error'
+		})
+		expect(await mcpUnavailableMessage('test-ws', 'f/team/shared_mcp')).toBe(
+			'Could not list the MCP servers: database is down'
+		)
+	})
+
 	it('does not carry an enabled server into another workspace', async () => {
 		setMcpEnabled('test-ws', 'u/hugo/github_mcp', true)
 		expect(await loadMcpServers('other-ws')).toEqual([])
