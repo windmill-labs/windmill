@@ -7,6 +7,7 @@ use crate::ai::utils::{
 };
 use crate::common::{get_root_job_id, OccupancyMetrics};
 use crate::result_processor::handle_non_flow_job_error;
+use crate::worker::{create_span_with_name, log_context_for_job, record_job_span_status};
 use crate::worker_flow::{
     evaluate_input_transform, raw_script_to_payload, resolve_flow_step_tag, script_to_payload,
     JobPayloadWithTag,
@@ -22,6 +23,7 @@ use std::{
     sync::Arc,
     time::{Duration, Instant},
 };
+use tracing::Instrument;
 use uuid::Uuid;
 use windmill_ai::{ai_types::OpenAIToolCall, query_builder::StreamEventSink, types::*};
 use windmill_common::jobs::JobPayload;
@@ -1147,27 +1149,44 @@ fn spawn_local_tool(
             );
             let job_dir = create_job_dir(&worker_dir_spawn, tool_job.id).await;
 
-            handle_queued_job(
-                tool_job.clone(),
-                None,
-                None,
-                None,
-                None,
-                &conn_spawn,
-                &client_spawn,
-                &hostname_spawn,
+            let span = create_span_with_name(
+                &tool_job,
                 &worker_name_spawn,
-                &worker_dir_spawn,
-                &job_dir,
-                None,
-                &base_internal_url_spawn,
-                job_completed_tx,
-                &mut occupancy_metrics_spawn,
-                &mut killpill_rx_spawn,
-                None,
-                None,
-                #[cfg(feature = "benchmark")]
-                &mut bench_spawn,
+                Some(&hostname_spawn),
+                "job",
+            );
+            let log_ctx =
+                log_context_for_job(&tool_job, &worker_name_spawn, Some(&hostname_spawn));
+            windmill_common::log_context::with_log_context(
+                log_ctx,
+                async {
+                    let result = Box::pin(handle_queued_job(
+                        tool_job.clone(),
+                        None,
+                        None,
+                        None,
+                        None,
+                        &conn_spawn,
+                        &client_spawn,
+                        &hostname_spawn,
+                        &worker_name_spawn,
+                        &worker_dir_spawn,
+                        &job_dir,
+                        None,
+                        &base_internal_url_spawn,
+                        job_completed_tx,
+                        &mut occupancy_metrics_spawn,
+                        &mut killpill_rx_spawn,
+                        None,
+                        None,
+                        #[cfg(feature = "benchmark")]
+                        &mut bench_spawn,
+                    ))
+                    .await;
+                    record_job_span_status(&result);
+                    result
+                }
+                .instrument(span),
             )
             .await
         }
