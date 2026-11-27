@@ -945,6 +945,35 @@ paths:
               schema:
                 type: string
 
+  /users/totp/status/{user}:
+    get:
+      summary: get whether a user has two-factor authentication (require super admin)
+      operationId: getTotpStatusOfUser
+      tags:
+        - user
+      parameters:
+        - name: user
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: two-factor status of the user
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  enabled:
+                    type: boolean
+                  required:
+                    type: boolean
+                    description: whether the instance requires two-factor authentication for password logins
+                required:
+                  - enabled
+                  - required
+
   /users/set_password_of/{user}:
     post:
       summary: set password for a specific user (require super admin)

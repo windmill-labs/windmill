@@ -44,8 +44,20 @@
 		sendUserToast(`Password updated for ${email}`)
 	}
 
-	async function resetTotp() {
+	// Fetched when the editor opens rather than with the user list: one editor exists per row.
+	// Undefined while loading and on builds without two-factor support, which hide the section.
+	let editorOpen = $state(false)
+	let totp = $state<{ enabled: boolean; required: boolean } | undefined>(undefined)
+	async function loadTotp() {
+		totp = await UserService.getTotpStatusOfUser({ user: email }).catch(() => undefined)
+	}
+	$effect(() => {
+		if (editorOpen && login_type == 'password') loadTotp()
+	})
+
+	async function removeTotp() {
 		sendUserToast(await UserService.resetTotpOfUser({ user: email }))
+		await loadTotp()
 	}
 
 	async function saveLoginType() {
@@ -59,6 +71,7 @@
 	floatingConfig={{ strategy: 'fixed', placement: 'left-end' }}
 	contentClasses="pt-9"
 	closeButton
+	bind:isOpen={editorOpen}
 >
 	{#snippet trigger()}
 		<Button unifiedSize="sm" nonCaptureEvent={true} variant="subtle" startIcon={{ icon: Pencil }}
@@ -177,22 +190,28 @@
 					Update login type
 				</Button>
 			</label>
-			<div class="block text-primary">
-				<div class="pb-1 text-xs font-semibold text-emphasis">Two-factor authentication</div>
-				<div class="text-2xs text-secondary mb-1">
-					Removes the user's authenticator, for when they lost access to it. They can set up a new
-					one from their user settings.
+			{#if totp}
+				<div class="block text-primary">
+					<div class="pb-1 text-xs font-semibold text-emphasis">Two-factor authentication</div>
+					<div class="text-xs text-primary">{totp.enabled ? 'On' : 'Off'}</div>
+					{#if totp.enabled}
+						<div class="text-2xs text-secondary mt-1">
+							For a user who lost their authenticator and recovery codes. {totp.required
+								? 'They set it up again at their next login.'
+								: 'They can set it up again from their user settings.'}
+						</div>
+						<Button
+							unifiedSize="md"
+							variant="default"
+							buttonType="button"
+							btnClasses="mt-2"
+							onclick={removeTotp}
+						>
+							Remove two-factor
+						</Button>
+					{/if}
 				</div>
-				<Button
-					unifiedSize="md"
-					variant="default"
-					buttonType="button"
-					btnClasses="mt-2"
-					onclick={resetTotp}
-				>
-					Reset two-factor
-				</Button>
-			</div>
+			{/if}
 		</div>
 	{/snippet}
 </Popover>
