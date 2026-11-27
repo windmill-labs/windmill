@@ -23,6 +23,7 @@
 	import { SettingService, UserService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import { loginErrorDetail, TOTP_SETUP_REQUIRED } from '$lib/loginError'
+	import { TWO_FACTOR_SETUP_HASH } from '$lib/components/sidebar/settings'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import SettingsPageHeader from '$lib/components/settings/SettingsPageHeader.svelte'
@@ -95,6 +96,12 @@
 	let accountSubmitting = $state(false)
 	let accountError = $state('')
 	let showOssAccountDialog = $state(false)
+	// Offered only when this build serves two-factor authentication.
+	let totpAvailable = $state(false)
+	let setUpTotp = $state(true)
+	UserService.getTotpStatus()
+		.then(() => (totpAvailable = true))
+		.catch(() => {})
 	let ossAccountError = $state('')
 
 	// --- Resource type sync (triggered on entering account step) ---
@@ -325,7 +332,10 @@
 						'/user/login?email=' +
 							encodeURIComponent(newEmail) +
 							'&password=' +
-							encodeURIComponent(newPassword)
+							encodeURIComponent(newPassword) +
+							(totpAvailable && setUpTotp
+								? '&rd=' + encodeURIComponent('/user/workspaces' + TWO_FACTOR_SETUP_HASH)
+								: '')
 					)
 			)
 		} catch (e: any) {
@@ -377,6 +387,17 @@
 						size="md"
 					/>
 				</div>
+				{#if totpAvailable}
+					<Alert type="info" title="Recommended: two-factor authentication" size="xs">
+						A superadmin account controls the whole instance. Protect it with a code from an
+						authenticator app on top of its password.
+					</Alert>
+					<Toggle
+						bind:checked={setUpTotp}
+						options={{ right: 'Set up two-factor authentication after logging in' }}
+						size="xs"
+					/>
+				{/if}
 			</div>
 		</SettingCard>
 
