@@ -33,6 +33,8 @@
 				label: string | undefined
 				scopes: string[] | undefined
 				workspaceId: string | undefined
+				expiration: string | undefined
+				allowedIps: string[] | undefined
 		  }
 		| undefined
 	>(undefined)
@@ -115,13 +117,17 @@
 		tokenPrefix: string,
 		tokenLabel: string | undefined,
 		tokenScopes: string[] | undefined,
-		tokenWorkspaceId: string | undefined
+		tokenWorkspaceId: string | undefined,
+		tokenExpiration: string | undefined,
+		tokenAllowedIps: string[] | undefined
 	) {
 		editingToken = {
 			prefix: tokenPrefix,
 			label: tokenLabel,
 			scopes: tokenScopes,
-			workspaceId: tokenWorkspaceId
+			workspaceId: tokenWorkspaceId,
+			expiration: tokenExpiration,
+			allowedIps: tokenAllowedIps
 		}
 		editModalOpen = true
 	}
@@ -238,7 +244,9 @@
 													token_prefix,
 													label ?? undefined,
 													scopes ?? undefined,
-													workspace_id ?? undefined
+													workspace_id ?? undefined,
+													expiration ?? undefined,
+													allowed_ips ?? undefined
 												)}
 											size="xs"
 											startIcon={{ icon: Pen }}
@@ -284,5 +292,7 @@
 	labelEditable={isUserToken(editingToken?.label)}
 	initialScopes={editingToken?.scopes}
 	tokenWorkspaceId={editingToken?.workspaceId}
+	initialExpiration={editingToken?.expiration}
+	initialAllowedIps={editingToken?.allowedIps}
 	onSaved={listTokens}
 />

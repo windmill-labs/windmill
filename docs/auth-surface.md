@@ -92,6 +92,16 @@ Symbols, not line numbers, are cited: they drift less.
   stores the `super_admin` request on its code and refresh rows, and each exchange re-checks
   `password`. A new path minting a token must ask the same questions, or it reaches a different
   set of workspaces than the others.
+- **Editing a token widens it only as far as the caller could mint it**
+  (`tokens/update_scopes`, `tokens/update_limits` for expiration and `allowed_ips`). Narrowing is
+  always allowed; a change that widens any of them (scopes outside the stored ones, a later or
+  removed expiration, networks outside the stored list or none) must leave a token
+  `ensure_grant_within_caller` accepts: scopes within the caller's, no superadmin unless the caller
+  is unscoped and carries it, no admin the caller withholds, networks within the caller's. A later
+  expiration goes through `cap_token_expiration`, and changing it re-registers the expiry warning.
+  Only user tokens (`is_user_token`) take limit edits, and only they or an MCP OAuth sign-in widen
+  scopes: a system token is minted narrow for wherever it is handed. Every job token is refused,
+  since `$WM_TOKEN` is unscoped and narrowing breaks whatever holds the token.
 - **Every superadmin route refuses a job token**: `require_super_admin`
   (`windmill-api-auth/src/lib.rs`) errors on `authed.job_id.is_some()`. A script that needs
   `users/create`, `tokens/impersonate`, `set_login_type`, … must use a dedicated superadmin user

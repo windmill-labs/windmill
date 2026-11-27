@@ -615,7 +615,16 @@ pub fn ensure_scopes_within_caller(
     authed: &ApiAuthed,
     requested_scopes: Option<&[String]>,
 ) -> error::Result<()> {
-    if let Some(caller_restrictions) = scope_restrictions(authed.scopes.as_deref()) {
+    ensure_scopes_within(authed.scopes.as_deref(), requested_scopes)
+}
+
+/// Whether a credential holding `holder_scopes` covers `requested_scopes`, by the rules of
+/// [`ensure_scopes_within_caller`].
+pub fn ensure_scopes_within(
+    holder_scopes: Option<&[String]>,
+    requested_scopes: Option<&[String]>,
+) -> error::Result<()> {
+    if let Some(caller_restrictions) = scope_restrictions(holder_scopes) {
         let Some(requested_restrictions) = scope_restrictions(requested_scopes) else {
             return Err(Error::PermissionDenied(
                 "A scope-restricted token cannot create or update a token with broader (unscoped) \
@@ -682,7 +691,7 @@ pub fn ensure_scopes_within_caller(
     // not be able to mint or rescope a credential that drops or widens the fence
     // — even if the caller has no other scope restrictions (filter_tags-only
     // tokens otherwise look "unscoped" to `scope_restrictions`).
-    if let Some(caller_tags) = first_filter_tags(authed.scopes.as_deref()) {
+    if let Some(caller_tags) = first_filter_tags(holder_scopes) {
         let Some(requested_tags) = first_filter_tags(requested_scopes) else {
             return Err(Error::PermissionDenied(
                 "A token restricted by if_jobs:filter_tags cannot mint or rescope a token that \
@@ -702,6 +711,54 @@ pub fn ensure_scopes_within_caller(
     }
 
     Ok(())
+}
+
+/// What a stored token grants, as a token edit leaves it.
+pub struct TokenGrant<'a> {
+    pub scopes: Option<&'a [String]>,
+    pub super_admin: bool,
+    pub admin: bool,
+    pub allowed_ips: Option<&'a [IpNet]>,
+}
+
+/// Refuse a token edit that widens the token beyond what `authed` could mint through
+/// `tokens/create` right now. Widening a token in place is then never stronger than minting a
+/// new one: the scopes, the admin and superadmin rights and the IP allowlist are each held to
+/// the caller's, as minting holds them.
+pub fn ensure_grant_within_caller(authed: &ApiAuthed, grant: &TokenGrant) -> error::Result<()> {
+    ensure_scopes_within_caller(authed, grant.scopes)?;
+    let caller_scoped = authed
+        .scopes
+        .as_deref()
+        .is_some_and(|s| s.iter().any(|x| !x.starts_with("if_jobs:filter_tags:")));
+    if grant.super_admin && (caller_scoped || authed.super_admin_withheld) {
+        return Err(Error::NotAuthorized(
+            "Only an unscoped token carrying superadmin rights can widen a superadmin token"
+                .to_string(),
+        ));
+    }
+    if grant.admin && authed.admin_withheld {
+        return Err(Error::NotAuthorized(
+            "A token withholding workspace admin rights cannot widen a token carrying them"
+                .to_string(),
+        ));
+    }
+    if let Some(caller) = authed.allowed_ips.as_deref() {
+        if !ip_nets_within(caller, grant.allowed_ips) {
+            return Err(Error::PermissionDenied(
+                "A token restricted to IP addresses cannot widen a token beyond the networks it \
+                 may be used from itself"
+                    .to_string(),
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Whether every network of `inner` lies within `outer`. `None` (usable from anywhere) lies
+/// within no list.
+pub fn ip_nets_within(outer: &[IpNet], inner: Option<&[IpNet]>) -> bool {
+    inner.is_some_and(|nets| nets.iter().all(|n| outer.iter().any(|o| o.contains(n))))
 }
 
 /// Tags from the first `if_jobs:filter_tags:<a,b,...>` scope, matching the
@@ -1458,6 +1515,24 @@ pub async fn register_token_expiry_notification(
     {
         tracing::error!("Failed to register token expiry notification: {}", e);
     }
+}
+
+/// Replace a token's pending expiry notification after its expiration changed, so a token
+/// extended after its warning went out is warned again before the new date.
+pub async fn reset_token_expiry_notification(
+    tx: &mut sqlx::PgConnection,
+    token_hash: &str,
+    label: Option<&str>,
+    expiration: Option<chrono::DateTime<chrono::Utc>>,
+) -> Result<()> {
+    sqlx::query!(
+        "DELETE FROM token_expiry_notification WHERE token_hash = $1",
+        token_hash
+    )
+    .execute(&mut *tx)
+    .await?;
+    register_token_expiry_notification(tx, token_hash, label, expiration).await;
+    Ok(())
 }
 
 // ------------ Permission helpers ------------
