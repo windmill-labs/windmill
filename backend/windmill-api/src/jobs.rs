@@ -2411,21 +2411,30 @@ async fn require_preview_label_runnable(
     }
 }
 
-/// The runnable a job starts, as its ACL names it.
+/// A job, or one of its `parent_job` ancestors, as its ACL names what it runs.
 struct JobRunnable {
     id: Uuid,
+    depth: i32,
     created_by: String,
     target: Option<(RunnableAclKind, String)>,
 }
 
-/// One query for all `ids`. A step of a run (a flow's module, a branch) stands for the run it
-/// belongs to, as only the top level needs run. A saved agent's run is a
-/// flow preview under its path (its chat turns under `<agent>.chat`), a script or flow wrapped
-/// for retries or an error handler a single-step flow, and a preview's path the label
-/// `require_preview_label_runnable` checks; recognized as `require_job_within_read_scope` does.
+/// One query for all `ids`: each job and its `parent_job` ancestors, nearest first, as
+/// `filter_jobs_within_cancel_scope` walks them, since cancelling a job stops its descendants.
+/// A saved agent's run is a flow preview under its path (its chat turns under `<agent>.chat`),
+/// a script or flow wrapped for retries or an error handler a single-step flow, and a
+/// preview's path the label `require_preview_label_runnable` checks. A flow's own steps
+/// (`flowscript`, `flownode`, ...) name no runnable.
 async fn job_runnables(db: &DB, w_id: &str, ids: &[Uuid]) -> error::Result<Vec<JobRunnable>> {
     let rows = sqlx::query!(
-        r#"SELECT s.id AS "id!", j.created_by AS "created_by!",
+        r#"WITH RECURSIVE chain(origin, id, parent_job, depth) AS (
+                SELECT id, id, parent_job, 0 FROM v2_job WHERE id = ANY($1) AND workspace_id = $2
+                UNION ALL
+                SELECT c.origin, j.id, j.parent_job, c.depth + 1 FROM v2_job j
+                    JOIN chain c ON j.id = c.parent_job AND j.workspace_id = $2
+                    WHERE c.depth < 100
+            )
+            SELECT c.origin AS "id!", c.depth AS "depth!", j.created_by AS "created_by!",
                 CASE WHEN a.agent THEN regexp_replace(j.runnable_path, '\.chat$', '')
                     ELSE j.runnable_path END AS runnable_path,
                 CASE
@@ -2442,22 +2451,11 @@ async fn job_runnables(db: &DB, w_id: &str, ids: &[Uuid]) -> error::Result<Vec<J
                                 'script'
                             ) = 'flow' THEN 'flow' ELSE 'script' END
                 END AS acl_kind
-            FROM v2_job s
-            -- A flow's step, of whatever kind, climbs. A run started from another job (the SDK's
-            -- `parent_job`, no `flow_step_id`) is still a run of its own runnable.
-            JOIN v2_job j ON j.workspace_id = s.workspace_id AND j.id = CASE
-                WHEN s.flow_step_id IS NULL AND s.kind IN ('script', 'script_hub',
-                    'unassigned_script', 'preview', 'flow', 'unassigned_flow', 'flowpreview',
-                    'singlestepflow', 'unassigned_singlestepflow')
-                    THEN s.id
-                ELSE COALESCE((SELECT r.id FROM v2_job r
-                    WHERE r.id = COALESCE(s.root_job, s.flow_innermost_root_job, s.parent_job)
-                        AND r.workspace_id = s.workspace_id), s.id)
-                END,
+            FROM chain c JOIN v2_job j ON j.id = c.id AND j.workspace_id = $2,
             LATERAL (SELECT j.kind = 'flowpreview'
                 AND j.raw_flow->'modules'->1 IS NULL
                 AND j.raw_flow->'modules'->0->>'id' = '__wm_agent_root' AS agent) a
-            WHERE s.id = ANY($1) AND s.workspace_id = $2"#,
+            ORDER BY c.origin, c.depth"#,
         ids,
         w_id,
     )
@@ -2472,12 +2470,17 @@ async fn job_runnables(db: &DB, w_id: &str, ids: &[Uuid]) -> error::Result<Vec<J
                 Some("flow") => Some(RunnableAclKind::Flow),
                 _ => None,
             };
-            JobRunnable { id: r.id, created_by: r.created_by, target: kind.zip(r.runnable_path) }
+            JobRunnable {
+                id: r.id,
+                depth: r.depth,
+                created_by: r.created_by,
+                target: kind.zip(r.runnable_path),
+            }
         })
         .collect())
 }
 
-/// `require_can_run` on what the job runs, for a route that starts it again.
+/// `require_can_run` on what the job itself runs, for a route that starts it again.
 #[cfg(feature = "enterprise")]
 async fn require_can_run_job(
     db: &DB,
@@ -2486,15 +2489,15 @@ async fn require_can_run_job(
     id: Uuid,
 ) -> error::Result<()> {
     for job in job_runnables(db, w_id, &[id]).await? {
-        if let Some((kind, path)) = job.target {
+        if let (0, Some((kind, path))) = (job.depth, job.target) {
             require_can_run(db, &authed.to_authed_ref(), w_id, kind, &path).await?;
         }
     }
     Ok(())
 }
 
-/// Of `ids`, the runs of others the caller may not stop or hurry, with the path they lack run on:
-/// that takes the right to start them, reading them is not enough.
+/// Of `ids`, the runs the caller may not stop or hurry, with the nearest path they lack run on:
+/// that takes starting the job or one of its ancestors, or having started one of them.
 async fn others_runs_without_run(
     db: &DB,
     authed: &ApiAuthed,
@@ -2505,9 +2508,18 @@ async fn others_runs_without_run(
     if authed.is_admin {
         return Ok(refused);
     }
+    let mut admitted: HashSet<Uuid> = HashSet::new();
     let mut checked: HashMap<(RunnableAclKind, String), bool> = HashMap::new();
     for job in job_runnables(db, w_id, ids).await? {
-        let Some(target) = job.target.filter(|_| job.created_by != authed.username) else {
+        if admitted.contains(&job.id) {
+            continue;
+        }
+        if job.created_by == authed.username {
+            admitted.insert(job.id);
+            refused.remove(&job.id);
+            continue;
+        }
+        let Some(target) = job.target else {
             continue;
         };
         let may_run = match checked.get(&target) {
@@ -2525,8 +2537,11 @@ async fn others_runs_without_run(
                 may_run
             }
         };
-        if !may_run {
-            refused.insert(job.id, target.1);
+        if may_run {
+            admitted.insert(job.id);
+            refused.remove(&job.id);
+        } else {
+            refused.entry(job.id).or_insert(target.1);
         }
     }
     Ok(refused)

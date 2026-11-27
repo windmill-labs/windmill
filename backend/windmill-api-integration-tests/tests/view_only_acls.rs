@@ -151,6 +151,47 @@ async fn test_view_only_grants(db: Pool<Postgres>) -> anyhow::Result<()> {
         403
     );
 
+    // A run under a parent the viewer may run is theirs to stop, as cancelling the parent would.
+    assert_eq!(
+        post(
+            &admin,
+            port,
+            "scripts/create",
+            bash_script("u/test-user/p", None)
+        )
+        .await?,
+        201
+    );
+    let share = json!({"owner": "u/test-user-2", "write": false});
+    assert_eq!(
+        post(&admin, port, "acls/add/script/u/test-user/p", share).await?,
+        200
+    );
+    let parent = admin
+        .post(format!(
+            "http://localhost:{port}/api/w/{WS}/jobs/run/p/u/test-user/p?scheduled_for=2100-01-01T00:00:00Z"
+        ))
+        .json(&json!({}))
+        .send()
+        .await?
+        .text()
+        .await?;
+    sqlx::query("UPDATE v2_job SET parent_job = $1::uuid WHERE id = $2::uuid")
+        .bind(&parent)
+        .bind(&job)
+        .execute(&db)
+        .await?;
+    assert_eq!(
+        post(
+            &viewer,
+            port,
+            &format!("jobs_u/queue/cancel/{job}"),
+            json!({})
+        )
+        .await?,
+        200
+    );
+
     // Grants add up: an item grant that runs lifts the folder's view-only one.
     let item_grant = json!({"owner": "u/test-user-2", "level": "run"});
     assert_eq!(

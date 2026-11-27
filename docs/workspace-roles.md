@@ -69,7 +69,9 @@ and run-now of someone else's run, previews labelled with the path, agent and ev
 saving of schedules and triggers, and the firing of triggers, which fetch their target as their
 owner on every fire. A schedule's later runs are not re-checked, as they were never re-checked
 for read either: demoting its owner does not stop it. Flow steps, subflows and agent tools are not
-checked, as only the top-level run needs it. Its positive answers are cached, so every write that can take
+checked, as only the top-level run needs it. Cancel and run-now take run on the job or on one
+of its `parent_job` ancestors, as cancelling a job stops its descendants; a restart takes run on
+the flow it restarts. Its positive answers are cached, so every write that can take
 run away calls `notify_run_perms_change`; the cache's 60s expiry bounds what that cannot see, such
 as an item deleted and recreated without the grant. Anything that copies one of those rows (a new script
 version, a rename, a fork, a workspace rename) must copy `view_only` too: a copy that drops it
