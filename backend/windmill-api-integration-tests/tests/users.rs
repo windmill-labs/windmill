@@ -77,7 +77,7 @@ async fn test_user_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
 
     // --- tokens/create ---
     let resp = authed(client().post(format!("{global_base}/tokens/create")))
-        .json(&json!({"label": "ephemeral-test-token"}))
+        .json(&json!({"label": "test-token"}))
         .send()
         .await
         .unwrap();
@@ -1707,5 +1707,122 @@ async fn test_list_tokens_reports_carried_rights(db: Pool<Postgres>) -> anyhow::
     .execute(&db)
     .await?;
     assert_eq!(rights("SECRET_TOKEN").await?, (Some(false), Some(false)));
+    Ok(())
+}
+
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_token_edits_widen_only_as_far_as_the_caller_could_mint(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let base = format!("http://localhost:{}/api/users/tokens", server.addr.port());
+    let post = |token: String, path: String, body: serde_json::Value| {
+        let url = format!("{base}/{path}");
+        async move {
+            let resp = client()
+                .post(url)
+                .header("Authorization", format!("Bearer {token}"))
+                .json(&body)
+                .send()
+                .await?;
+            let status = resp.status().as_u16();
+            anyhow::Ok((status, resp.text().await?))
+        }
+    };
+    let mint = |body: serde_json::Value| {
+        let post = post.clone();
+        async move {
+            let (status, token) = post("SECRET_TOKEN".into(), "create".into(), body).await?;
+            anyhow::ensure!(status == 201, "create: {token}");
+            anyhow::Ok(token)
+        }
+    };
+    let prefix = |t: &str| t[..10].to_string();
+    let in_days = |d: u64| {
+        (sqlx::types::chrono::Utc::now() + std::time::Duration::from_secs(d * 86400)).to_rfc3339()
+    };
+
+    let target = prefix(&mint(json!({"label": "target", "expiration": in_days(10)})).await?);
+    let scoped = mint(json!({"label": "scoped", "scopes": ["users:write"]})).await?;
+
+    // A scoped caller may shorten an unscoped token, never extend it: it could not mint one.
+    let limits = format!("update_limits/{target}");
+    let (s, body) = post(
+        scoped.clone(),
+        limits.clone(),
+        json!({"expiration": in_days(5)}),
+    )
+    .await?;
+    assert_eq!(s, 200, "{body}");
+    let (s, body) = post(
+        scoped.clone(),
+        limits.clone(),
+        json!({"expiration": in_days(20)}),
+    )
+    .await?;
+    assert_eq!(s, 403, "{body}");
+    let (s, body) = post(scoped.clone(), limits.clone(), json!({"expiration": null})).await?;
+    assert_eq!(s, 403, "{body}");
+    let (s, body) = post(
+        "SECRET_TOKEN".into(),
+        limits,
+        json!({"expiration": in_days(20)}),
+    )
+    .await?;
+    assert_eq!(s, 200, "{body}");
+    // Other API servers evict their cached copy of the edited token.
+    let evicted: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM notify_event
+          WHERE channel = 'notify_token_invalidation' AND payload = $1)",
+    )
+    .bind(&target)
+    .fetch_one(&db)
+    .await?;
+    assert!(evicted);
+
+    // Widening the scopes of a superadmin token needs a caller that could mint superadmin.
+    let sa = prefix(
+        &mint(
+            json!({"label": "sa", "super_admin": true, "scopes": ["scripts:read", "users:write"]}),
+        )
+        .await?,
+    );
+    let scoped2 =
+        mint(json!({"label": "s2", "scopes": ["scripts:read", "scripts:write", "users:write"]}))
+            .await?;
+    let rescope = format!("update_scopes/{sa}");
+    let widen = json!({"scopes": ["scripts:write", "users:write"]});
+    let (s, body) = post(scoped2.clone(), rescope.clone(), widen.clone()).await?;
+    assert_eq!(s, 401, "{body}");
+    let (s, body) = post(scoped2, rescope.clone(), json!({"scopes": ["users:write"]})).await?;
+    assert_eq!(s, 200, "{body}");
+    let (s, body) = post("SECRET_TOKEN".into(), rescope, widen).await?;
+    assert_eq!(s, 200, "{body}");
+
+    // A system-labelled token only narrows, and keeps its server-managed lifetime.
+    let embed = prefix(&mint(json!({"label": "embed_app:x", "scopes": ["scripts:read"]})).await?);
+    let rescope = format!("update_scopes/{embed}");
+    let (s, body) = post(
+        "SECRET_TOKEN".into(),
+        rescope.clone(),
+        json!({"scopes": null}),
+    )
+    .await?;
+    assert_eq!(s, 400, "{body}");
+    let (s, body) = post(
+        "SECRET_TOKEN".into(),
+        rescope,
+        json!({"scopes": ["scripts:read:f/x"]}),
+    )
+    .await?;
+    assert_eq!(s, 200, "{body}");
+    let (s, body) = post(
+        "SECRET_TOKEN".into(),
+        format!("update_limits/{embed}"),
+        json!({"expiration": in_days(1)}),
+    )
+    .await?;
+    assert_eq!(s, 400, "{body}");
     Ok(())
 }
