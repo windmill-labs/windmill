@@ -54,15 +54,9 @@
 			: undefined
 	)
 
-	// The object URL pins the blob in memory until revoked, so it lives exactly as long as
-	// the blob it was made from is the one shown.
+	// Never revoked: a linked file's blob refers to its bytes on disk or in IndexedDB, so an
+	// object URL left behind holds a URL entry, not the image.
 	const blobUrl = $derived(blob ? URL.createObjectURL(blob) : undefined)
-	$effect(() => {
-		const url = blobUrl
-		return () => {
-			if (url) URL.revokeObjectURL(url)
-		}
-	})
 
 	// An inline result is fetched again from its job: the tab keeps only the job's address.
 	const resultImage = resource(
