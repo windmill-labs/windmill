@@ -288,7 +288,20 @@
 		displayName: string
 	}
 
+	// One submit at a time: a second setup request would replace the pending secret, and the
+	// page could then show a QR code the server no longer accepts.
+	let submitting = false
 	async function login(): Promise<void> {
+		if (submitting) return
+		submitting = true
+		try {
+			await submitLogin()
+		} finally {
+			submitting = false
+		}
+	}
+
+	async function submitLogin(): Promise<void> {
 		if (!email || !password) {
 			if (!email && !password) failLogin('Enter both your email and password.')
 			else if (!email) failLogin('Enter your email.', 'email')
