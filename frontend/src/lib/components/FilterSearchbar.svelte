@@ -715,15 +715,6 @@
 		})
 	)
 
-	// The filter list has nothing to show when no filter is left to pick (a table with no
-	// filterable column, or a term matching none) and there are no presets: opening it would
-	// leave a bare "Filters" heading over the content below.
-	let hasMenuContent = $derived(
-		(!!currentTag && !!schema[currentTag]) ||
-			presets.length > 0 ||
-			menuItems.some((i) => i.type === 'filter')
-	)
-
 	function appendFilterAsText(presetValue: string) {
 		// For allowMultiple fields, append value with comma to existing filter instead of adding duplicate key
 		const match = presetValue.match(/^(\w+):\\\s+(.+)$/)
@@ -830,7 +821,7 @@
 </div>
 
 <GenericDropdown
-	open={(dropdownVisible && hasMenuContent) || freeTextFilterHint}
+	open={dropdownVisible || freeTextFilterHint}
 	instantClose={hideDropdownOnFreeText}
 	getInputRect={() => {
 		const r = inputElement?.getBoundingClientRect() ?? new DOMRect()

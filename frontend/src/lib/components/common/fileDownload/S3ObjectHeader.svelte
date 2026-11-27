@@ -47,7 +47,7 @@
 			? FileImage
 			: ['csv', 'parquet'].includes(extension ?? '')
 				? FileSpreadsheet
-				: ['pdf', 'txt', 'md', 'json'].includes(extension ?? '')
+				: ['pdf', 'txt', 'log', 'md', 'markdown', 'json'].includes(extension ?? '')
 					? FileText
 					: File
 	)
@@ -63,7 +63,7 @@
 			<span class="font-mono">{key}</span>
 		</span>
 	</div>
-	<div class="flex flex-row items-center gap-1 shrink-0 ml-auto">
+	<div class="flex flex-row flex-wrap justify-end items-center gap-1 min-w-0 ml-auto">
 		{#if markdownSource !== undefined && onMarkdownSource}
 			<ToggleButtonGroup
 				noWFull

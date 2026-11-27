@@ -16,7 +16,7 @@
 		disabled?: boolean
 		selectedColor?: string | undefined
 		small?: boolean
-		size?: 'xs' | 'sm' | 'md' | 'lg'
+		size?: 'sm' | 'md' | 'lg'
 		iconProps?: Record<string, any>
 		showTooltipIcon?: boolean
 		documentationLink?: string | undefined

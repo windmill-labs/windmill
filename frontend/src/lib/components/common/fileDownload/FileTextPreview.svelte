@@ -1,6 +1,7 @@
 <script lang="ts" module>
 	export function isMarkdownFile(fileKey: string | undefined): boolean {
-		return /\.(md|markdown)$/i.test(fileKey ?? '')
+		// Not `.markdown`: the file preview route reads it as an unknown type.
+		return /\.md$/i.test(fileKey ?? '')
 	}
 
 	// The read stops at a byte count, so a truncated file usually ends mid-line.

@@ -122,7 +122,8 @@ export async function s3TableOps(
 
 	const ops: IDbTableOps = {
 		dbType: 'duckdb',
-		tableKey: source.fileKey.split('/').pop() ?? source.fileKey,
+		// Named after the file without its extension: the table's CSV export appends `.csv`.
+		tableKey: (source.fileKey.split('/').pop() ?? source.fileKey).replace(/\.[^.]+$/, ''),
 		colDefs,
 		getCount: async ({ quicksearch, columnFilters }) => {
 			const args = {

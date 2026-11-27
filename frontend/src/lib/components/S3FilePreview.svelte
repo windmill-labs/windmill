@@ -270,7 +270,7 @@
 	{/if}
 	<div
 		class={twMerge(
-			'flex-1 min-h-0 overflow-auto p-4 bg-surface-secondary',
+			'flex flex-col flex-1 min-h-0 overflow-auto p-4 bg-surface-secondary',
 			bodyClass,
 			showsText ? 'bg-surface-input' : ''
 		)}
@@ -365,13 +365,16 @@
 				</div>
 			{/if}
 			{#if filePreview.contentPreview && !emptyString(filePreview.contentPreview)}
-				<FileTextPreview
-					content={filePreview.contentPreview}
-					readLimit={PREVIEW_BYTES}
-					markdown={isMarkdownFile(filePreview.fileKey)}
-					fill
-					{markdownSource}
-				/>
+				<!-- Takes the height left under the line above, so only the text scrolls. -->
+				<div class="flex-1 min-h-0">
+					<FileTextPreview
+						content={filePreview.contentPreview}
+						readLimit={PREVIEW_BYTES}
+						markdown={isMarkdownFile(filePreview.fileKey)}
+						fill
+						{markdownSource}
+					/>
+				</div>
 			{:else if filePreview.contentType !== undefined}
 				<div class="text-primary">Preview impossible.</div>
 			{/if}

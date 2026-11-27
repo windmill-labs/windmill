@@ -794,6 +794,8 @@
 		// the same key, so comparing keys would let an older request speak for a newer one.
 		const requestId = ++metadataRequestId
 		fileInfoLoading = true
+		// Each file opens rendered, as the separator resets per file.
+		markdownView = 'rendered'
 		let fileMetadataRaw: LoadFileMetadataResponse
 		try {
 			fileMetadataRaw = await loadFileMetadataRequest({
