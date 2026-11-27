@@ -2195,17 +2195,6 @@ pub(super) async fn show_deploy_review(ctx: &Ctx<'_>, args: &Value) -> ToolResul
             " Only the first {MAX_REVIEW_ITEMS} of {total} are shown."
         ));
     }
-    let rest: Vec<&str> = items
-        .iter()
-        .filter(|item| item.get("digest").is_none())
-        .filter_map(|item| item.get("name").unwrap_or(&item["path"]).as_str())
-        .collect();
-    if !rest.is_empty() {
-        text.push_str(&format!(
-            " Nothing to deploy for {} (no change, or not deployable this way).",
-            rest.join(", ")
-        ));
-    }
     for line in item_lines {
         text.push_str(&format!("\n{line}"));
     }
