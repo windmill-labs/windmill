@@ -706,6 +706,10 @@ Manage API tokens
 - `token create` - Create a new API token
   - `--label <label:string>` - Token label
   - `--expiration <expiration:string>` - Token expiration (ISO 8601 timestamp)
+  - `--scope <scope:string>` - Restrict the token to this scope (e.g. jobs:run, scripts:read:f/folder/*). Repeatable. Omit for full access.
+- `token update-scopes <token_prefix:string>` - Replace the scopes of one of your tokens, by its prefix
+  - `--scope <scope:string>` - Scope the token is restricted to (e.g. jobs:run, scripts:read:f/folder/*). Repeatable; replaces all existing scopes.
+  - `--full-access` - Remove every scope restriction, giving the token full access
 - `token delete <token_prefix:string>` - Delete a token by its prefix
 
 ### trash
