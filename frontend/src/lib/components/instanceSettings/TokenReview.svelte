@@ -23,8 +23,6 @@
 	const perPage = 1000
 
 	let tokens: TokenForReview[] = $state([])
-	let hasMore = $state(true)
-	let pagesLoaded = 0
 	let loading = $state(false)
 	let loadFailed = $state(false)
 	let riskyOnly = $state(true)
@@ -32,13 +30,25 @@
 	let toDelete: TokenForReview | undefined = $state(undefined)
 	let deleting = $state(false)
 
-	async function loadPage(page: number) {
+	// The listing is ordered by last use, which moves while pages are fetched: a token used
+	// in between shows up on two pages, so rows already seen are dropped.
+	async function loadAll() {
 		loading = true
 		try {
-			const res = await UserService.listTokensAsSuperAdmin({ page, perPage })
-			tokens = page === 1 ? res : [...tokens, ...res]
-			hasMore = res.length === perPage
-			pagesLoaded = page
+			const seen = new Set<string>()
+			const all: TokenForReview[] = []
+			for (let page = 1; ; page++) {
+				const res = await UserService.listTokensAsSuperAdmin({ page, perPage })
+				for (const t of res) {
+					const key = `${t.email}:${t.token_prefix}`
+					if (!seen.has(key)) {
+						seen.add(key)
+						all.push(t)
+					}
+				}
+				if (res.length < perPage) break
+			}
+			tokens = all
 			loadFailed = false
 		} catch (e) {
 			loadFailed = true
@@ -47,7 +57,7 @@
 			loading = false
 		}
 	}
-	loadPage(1)
+	loadAll()
 
 	let rows = $derived.by(() => {
 		const now = new Date()
@@ -102,12 +112,9 @@
 					<li>{line}</li>
 				{/each}
 			</ul>
-			{#if hasMore}
-				Counted over the {tokens.length} least recently used tokens loaded so far.
-			{/if}
 		</Alert>
 	</div>
-{:else if !loading && !loadFailed && !hasMore}
+{:else if !loading && !loadFailed}
 	<div class="mb-4">
 		<Alert type="success" size="xs" title="No token needs a review" />
 	</div>
@@ -129,12 +136,7 @@
 	/>
 </div>
 
-<DataTable
-	shouldLoadMore={hasMore}
-	loadMore={perPage}
-	{loading}
-	on:loadMore={() => loadPage(pagesLoaded + 1)}
->
+<DataTable {loading}>
 	<Head>
 		<tr>
 			<Cell head first>Owner</Cell>

@@ -1,5 +1,3 @@
-import { MCP_SESSION } from '../mcp/McpAccessPicker.svelte'
-
 export const STALE_TOKEN_DAYS = 90
 
 export type TokenRisk = 'never_expires' | 'unused' | 'superadmin' | 'admin'
@@ -60,8 +58,7 @@ function isSession(label: string | undefined): boolean {
 
 /** A token narrowed by scopes or read-only mode does not carry its owner's full rights. */
 function isUnrestricted(t: TokenRiskFields): boolean {
-	const scopes = (t.scopes ?? []).filter((s) => s !== MCP_SESSION)
-	return !t.read_only && scopes.length === 0
+	return !t.read_only && (t.scopes ?? []).length === 0
 }
 
 export function tokenRisks(t: TokenRiskFields, now: Date = new Date()): TokenRisk[] {
@@ -93,9 +90,4 @@ export function tokenRiskSummary(counts: Record<TokenRisk, number>): string[] {
 	return (Object.keys(TOKEN_RISK_INFO) as TokenRisk[])
 		.filter((r) => counts[r] > 0)
 		.map((r) => TOKEN_RISK_INFO[r].summary(counts[r]))
-}
-
-export function riskyTokenCount(tokens: TokenRiskFields[]): number {
-	const now = new Date()
-	return tokens.filter((t) => tokenRisks(t, now).length > 0).length
 }
