@@ -36,6 +36,12 @@ Symbols, not line numbers, are cited: they drift less.
   expiry or another login changes or drops it. A session revoked server-side keeps its hint,
   so until `whoami` answers that browser still renders as its own last user.
 - **`tokens/impersonate`** (superadmin) returns a multi-use token and sets no cookie.
+- **`GET /api/tokens/introspect`** describes the credential presenting it, never one named in
+  the request, and resolves it in the handler rather than through `ApiAuthed`: the route layer
+  would refuse a scoped token there, and a workspace-bound one resolves on no global route. Its
+  route verdict is `check_route_layer` (`windmill-api-auth/src/auth.rs`), the function the auth
+  extractor runs, plus the runnable scope of the run-by-path endpoints (`run_by_path_scope`); a
+  handler that checks a scope of its own and is missing there gets an over-reported "allowed".
 - **`max_token_expiration_days`** caps `POST /users/tokens/create` and `tokens/impersonate`, by
   shortening the stored expiration (`cap_token_expiration`), never by refusing: `wmill user
   create-token` and the editor's language-server token pick a lifetime without reading the

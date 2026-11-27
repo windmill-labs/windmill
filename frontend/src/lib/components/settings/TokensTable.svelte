@@ -2,7 +2,9 @@
 	import { untrack } from 'svelte'
 	import TableCustom from '$lib/components/TableCustom.svelte'
 	import { displayDate } from '$lib/utils'
-	import { enterpriseLicense } from '$lib/stores'
+	import { enterpriseLicense, workspaceStore } from '$lib/stores'
+	import CollapseLink from '../CollapseLink.svelte'
+	import TokenInspector from './TokenInspector.svelte'
 	import { UserService, type TruncatedToken } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import CreateToken from './CreateToken.svelte'
@@ -37,6 +39,7 @@
 		| undefined
 	>(undefined)
 	let editModalOpen = $state(false)
+	let testOpen = $state(false)
 
 	$effect(() => {
 		listTokens()
@@ -274,6 +277,16 @@
 				<Button variant="subtle" size="xs" on:click={handlePreviousPage}>Previous</Button>
 			{/if}
 		</div>
+	</div>
+	<div class="mt-4">
+		<CollapseLink text="Test a token" bind:open={testOpen}>
+			<div class="text-xs text-secondary mb-2">
+				See who a token acts as, what it is scoped to and whether it can call a route{$workspaceStore
+					? ` in ${$workspaceStore}`
+					: ''}.
+			</div>
+			<TokenInspector workspace={$workspaceStore} />
+		</CollapseLink>
 	</div>
 </div>
 
