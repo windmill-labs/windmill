@@ -117,7 +117,7 @@ export async function getS3File({
 
 	// Editor/preview runs execute as the *caller* (Viewer mode), so read their
 	// results back as the caller through the viewer-scoped `job_helpers` endpoint —
-	// never author-mode — consistent with DisplayResult/ParqetCsvTableRenderer. Only
+	// never author-mode — consistent with DisplayResult. Only
 	// a deployed app view reads on-behalf of the author via the provenance-gated
 	// `apps_u` endpoint.
 	if (isEditor) {

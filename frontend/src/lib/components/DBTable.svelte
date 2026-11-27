@@ -106,6 +106,8 @@
 		joinTargets?: DbJoinTarget[]
 		/** Offered from the add-column button: adding a column to the table itself. */
 		onNewColumn?: () => void
+		/** Hides the button that downloads the loaded rows, for a file whose owner disabled downloads. */
+		disableDownload?: boolean
 	}
 	let {
 		dbTableOps,
@@ -115,7 +117,8 @@
 		onRowFilterApplied,
 		layoutStorageKey,
 		joinTargets,
-		onNewColumn
+		onNewColumn,
+		disableDownload = false
 	}: Props = $props()
 
 	const storedLayout = untrack(() =>
@@ -1153,14 +1156,16 @@
 					{/if}
 				</span>
 			{/if}
-			<Button
-				startIcon={{ icon: Download }}
-				variant="subtle"
-				unifiedSize="sm"
-				iconOnly
-				title="Download loaded rows as CSV"
-				onClick={downloadCsv}
-			/>
+			{#if !disableDownload}
+				<Button
+					startIcon={{ icon: Download }}
+					variant="subtle"
+					unifiedSize="sm"
+					iconOnly
+					title="Download loaded rows as CSV"
+					onClick={downloadCsv}
+				/>
+			{/if}
 			<div class="flex" bind:this={columnsAnchor}>
 				<Popover
 					floatingConfig={{ strategy: 'fixed', placement: 'bottom-end' }}

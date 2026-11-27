@@ -40,7 +40,8 @@
 	import Toggle from './Toggle.svelte'
 	import FileDownload from './common/fileDownload/FileDownload.svelte'
 
-	import ParqetTableRenderer from './ParqetCsvTableRenderer.svelte'
+	import S3ObjectTable from './common/fileDownload/S3ObjectTable.svelte'
+	import { serverTableFormat } from './s3TableOps'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import MapResult from './MapResult.svelte'
@@ -1231,16 +1232,9 @@
 							{/if}
 						</div>
 						{#if typeof s3object?.s3 === 'string'}
-							{#if s3object?.s3?.endsWith('.parquet') || s3object?.s3?.endsWith('.csv')}
+							{#if serverTableFormat(s3object.s3)}
 								{#key s3object.s3}
-									<ParqetTableRenderer
-										disable_download={s3object?.disable_download}
-										{workspaceId}
-										{appPath}
-										s3resource={s3object?.s3}
-										storage={s3object?.storage}
-										presigned={s3object?.presigned}
-									/>
+									<S3ObjectTable {s3object} {workspaceId} {appPath} />
 								{/key}
 							{:else if s3object?.s3?.endsWith('.png') || s3object?.s3?.endsWith('.jpeg') || s3object?.s3?.endsWith('.jpg') || s3object?.s3?.endsWith('.webp')}
 								<div class="h-full mt-2">
@@ -1293,16 +1287,9 @@
 								{:else}
 									<div class="flex text-primary pt-2">{s3object?.s3} (download disabled)</div>
 								{/if}
-								{#if s3object?.s3?.endsWith('.parquet') || s3object?.s3?.endsWith('.csv')}
+								{#if typeof s3object?.s3 === 'string' && serverTableFormat(s3object.s3)}
 									{#if seeS3PreviewFileFromList == s3object?.s3}
-										<ParqetTableRenderer
-											disable_download={s3object?.disable_download}
-											{workspaceId}
-											{appPath}
-											s3resource={s3object?.s3}
-											storage={s3object?.storage}
-											presigned={s3object?.presigned}
-										/>{:else}
+										<S3ObjectTable {s3object} {workspaceId} {appPath} />{:else}
 										<button
 											class="text-primary whitespace-nowrap flex gap-2 items-center"
 											onclick={() => {
