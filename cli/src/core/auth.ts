@@ -130,7 +130,7 @@ export async function requireLogin(
         ? `! The token of workspace profile '${workspace.name}' has expired or was revoked. Sign in again to continue.`
         : "! Could not reach API given existing credentials. Attempting to reauth..."
     ));
-    const newToken = await loginInteractive(workspace.remote);
+    const newToken = await loginInteractive(workspace.remote, workspace.workspaceId);
     if (!newToken) {
       throw new Error(
         `Unauthorized: Could not authenticate with the provided credentials. Run 'wmill workspace login ${workspace.name}' in a terminal to sign in again.`

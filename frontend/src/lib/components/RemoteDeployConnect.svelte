@@ -144,7 +144,7 @@
 			<div class="flex flex-col gap-2">
 				<a
 					class="text-xs flex flex-row items-center gap-1 w-fit"
-					href="{target.base_url}/#user-settings"
+					href="{target.base_url}/#user-settings-tokens"
 					target="_blank"
 					rel="noopener noreferrer"
 				>

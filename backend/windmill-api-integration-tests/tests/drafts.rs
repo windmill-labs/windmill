@@ -444,6 +444,8 @@ async fn test_transfer_drafts_to_fork(db: Pool<Postgres>) -> anyhow::Result<()> 
             scopes: None,
             audit_span: None,
             mcp_client: None,
+            admin_withheld: false,
+            super_admin_withheld: false,
         })
     };
     let job_id = uuid::Uuid::new_v4().to_string();

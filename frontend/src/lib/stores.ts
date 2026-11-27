@@ -115,13 +115,23 @@ export const maybePremium: Readable<boolean> = derived(
 // polling or owning its own invalidation.
 export const workspaceMembershipVersion = writable<number>(0)
 export const usersWorkspaceStore = writable<UserWorkspaceList | undefined>(undefined)
+/**
+ * A token the app mints for a workspace reaches it through a membership, or, for a superadmin
+ * who has none there, only by carrying superadmin rights (`super_admin: true`, which the server
+ * ignores for anyone else).
+ */
+export function needsSuperAdminFor(workspace: string): boolean {
+	return !(get(usersWorkspaceStore)?.workspaces ?? []).some((w) => w.id === workspace)
+}
 // Stands in for `UserWorkspace.username` on entries with no `usr` row behind them. It
 // names nobody, so anything that would address a user by it (a `u/<username>/...` path)
 // must treat it as "no username here" rather than render it.
 export const NON_MEMBER_USERNAME = 'superadmin'
 export const superadmin = writable<string | false | undefined>(undefined)
 export const devopsRole = writable<string | false | undefined>(undefined)
-export const lspTokenStore = writable<string | undefined>(undefined)
+export const lspTokenStore = writable<{ workspace: string; token: string } | undefined>(
+	undefined
+)
 export const hubBaseUrlStore = writable<string>(DEFAULT_HUB_BASE_URL)
 // Whether the store above is the instance's answer or still the default it was seeded with.
 // It reads as the public hub either way, which is fine for a link and wrong for anything

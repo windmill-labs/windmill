@@ -126,7 +126,9 @@ async function mintApiToken(resourceType: string): Promise<string> {
 		requestBody: {
 			label: `ephemeral-test-connection: ${resourceType}`,
 			expiration: new Date(Date.now() + API_TOKEN_TTL_MS).toISOString(),
-			scopes: ['settings:write']
+			scopes: ['settings:write'],
+			// The test endpoint lets a superadmin reach private endpoints; the scope bounds the rest.
+			super_admin: true
 		}
 	})
 }

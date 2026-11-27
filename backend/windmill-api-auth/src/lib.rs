@@ -106,6 +106,14 @@ pub struct ApiAuthed {
     /// Enforced by `AuthCache::get_opt_job_authed` against each request's client IP; a token
     /// minted from this identity through `tokens/create` is held within them.
     pub allowed_ips: Option<Vec<IpNet>>,
+    /// The token row this identity came from does not carry its owner's workspace admin rights
+    /// (`token.admin`): `is_admin` is already capped, and a credential minted from this identity
+    /// must not regain them.
+    pub admin_withheld: bool,
+    /// The token row this identity came from does not carry its owner's superadmin rights
+    /// (`token.super_admin`, sessions excepted). Superadmin gates key off the account's email,
+    /// so they must read this: [`require_super_admin`], [`is_super_admin_authed`].
+    pub super_admin_withheld: bool,
 }
 
 impl ApiAuthed {
@@ -201,6 +209,8 @@ impl From<Authed> for ApiAuthed {
             mcp_client: value.mcp_client,
             capabilities: value.capabilities,
             allowed_ips: None,
+            admin_withheld: false,
+            super_admin_withheld: false,
         }
     }
 }
@@ -325,6 +335,13 @@ pub async fn require_super_admin(db: &DB, authed: &ApiAuthed) -> error::Result<(
                 .to_owned(),
         ));
     }
+    if authed.super_admin_withheld {
+        return Err(Error::NotAuthorized(
+            "This endpoint requires superadmin rights, which this token does not carry. Create \
+             a token with 'Superadmin rights' turned on to call it."
+                .to_owned(),
+        ));
+    }
     require_super_admin_email(db, &authed.email).await
 }
 
@@ -333,7 +350,7 @@ pub async fn require_super_admin(db: &DB, authed: &ApiAuthed) -> error::Result<(
 /// A job's `WM_TOKEN` is never a superadmin regardless of whose email it carries
 /// (GHSA-hfh4-cx4h-3fcr), so callers naturally fall through to the restricted path.
 pub async fn is_super_admin_authed(db: &DB, authed: &ApiAuthed) -> error::Result<bool> {
-    if authed.job_id.is_some() {
+    if authed.job_id.is_some() || authed.super_admin_withheld {
         return Ok(false);
     }
     is_super_admin_email(db, &authed.email).await
@@ -841,7 +858,20 @@ pub async fn require_devops_role(db: &DB, authed: &ApiAuthed) -> error::Result<(
                 .to_owned(),
         ));
     }
-    if is_devops_email(db, &authed.email).await? {
+    // `is_devops_email` is also true for a superadmin, which a token withholding those rights
+    // must not pass as: only the account's own devops role counts then.
+    let is_devops = if authed.super_admin_withheld {
+        sqlx::query_scalar!(
+            "SELECT devops FROM password WHERE email = $1",
+            &authed.email
+        )
+        .fetch_optional(db)
+        .await?
+        .unwrap_or(false)
+    } else {
+        is_devops_email(db, &authed.email).await?
+    };
+    if is_devops {
         Ok(())
     } else {
         Err(Error::NotAuthorized(
@@ -1208,6 +1238,8 @@ pub async fn fetch_api_authed_from_permissioned_as(
                 mcp_client: None,
                 capabilities: None,
                 allowed_ips: None,
+                admin_withheld: false,
+                super_admin_withheld: false,
             };
 
             API_AUTHED_CACHE.insert(
@@ -1239,9 +1271,15 @@ pub struct NewToken {
     pub workspace_id: Option<String>,
     #[serde(default)]
     pub read_only: Option<bool>,
-    /// An MCP token carries its owner's superadmin rights (every workspace) only when asked.
+    /// Whether the token carries its owner's superadmin rights (admin in every workspace, the
+    /// superadmin routes). `None` inherits them, except for an MCP token; the `tokens/create`
+    /// handler turns `None` into `false`. Never grants rights the owner or caller lacks.
     #[serde(default)]
     pub super_admin: Option<bool>,
+    /// Whether the token carries its owner's workspace admin rights, under the same rules as
+    /// `super_admin` (`None` inherits, the handler withholds unless asked).
+    #[serde(default)]
+    pub admin: Option<bool>,
     /// IPs or CIDRs the token may be used from; `None` is anywhere. [`create_token_internal`]
     /// validates it and holds it within the caller's own.
     #[serde(default)]
@@ -1265,6 +1303,7 @@ impl NewToken {
             workspace_id,
             read_only,
             super_admin: None,
+            admin: None,
             allowed_ips: None,
         }
     }
@@ -1314,7 +1353,14 @@ pub async fn create_token_internal(
         .scopes
         .as_deref()
         .is_some_and(|s| s.iter().any(|scope| scope.starts_with("mcp:")));
-    let is_super_admin = is_super_admin && (!is_mcp || token_config.super_admin == Some(true));
+    // Held within the caller's own credential, so a token withholding them cannot mint one back.
+    let is_super_admin = is_super_admin
+        && !authed.super_admin_withheld
+        && match token_config.super_admin {
+            Some(requested) => requested,
+            None => !is_mcp,
+        };
+    let carries_admin = token_config.admin.unwrap_or(true) && !authed.admin_withheld;
     // Here rather than in each handler: every token minted from a caller's identity (app SDK
     // and embed tokens, native trigger webhooks included) must inherit its IP restriction.
     let allowed_ips = token_ip_allowlist(
@@ -1335,8 +1381,8 @@ pub async fn create_token_internal(
     }
     let rows = sqlx::query!(
         "INSERT INTO token
-            (token_hash, token_prefix, token, email, label, expiration, super_admin, scopes, workspace_id, read_only, allowed_ips)
-            SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::text[]::cidr[]
+            (token_hash, token_prefix, token, email, label, expiration, super_admin, scopes, workspace_id, read_only, allowed_ips, admin)
+            SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::text[]::cidr[], $12
             WHERE $9::varchar IS NULL OR NOT EXISTS(
                 SELECT 1 FROM workspace WHERE id = $9 AND deleted = true
             )",
@@ -1351,6 +1397,7 @@ pub async fn create_token_internal(
         token_config.workspace_id,
         token_config.read_only.unwrap_or(false),
         allowed_ips.as_deref(),
+        carries_admin,
     )
     .execute(&mut *tx)
     .await?;

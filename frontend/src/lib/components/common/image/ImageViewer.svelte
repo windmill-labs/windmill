@@ -246,8 +246,11 @@
 			return
 		}
 		// Browsers refuse to open a data: URL as a page; a blob URL of the same bytes opens.
+		// The blob URL takes this page's origin, so only plain raster types open as they are;
+		// anything else, SVG included since it opens as a document, is re-encoded to PNG.
 		try {
-			const url = URL.createObjectURL(await fetchBlob())
+			const blob = await fetchBlob()
+			const url = URL.createObjectURL(RASTER_TYPES.has(blob.type) ? blob : await rasterize())
 			window.open(url, '_blank', 'noopener')
 			setTimeout(() => URL.revokeObjectURL(url), 60_000)
 		} catch (e) {
@@ -255,16 +258,30 @@
 		}
 	}
 
+	const RASTER_TYPES = new Set([
+		'image/png',
+		'image/jpeg',
+		'image/gif',
+		'image/webp',
+		'image/avif',
+		'image/bmp'
+	])
+
+	/** The displayed image as PNG bytes, drawn through a canvas. */
+	function rasterize(): Promise<Blob> {
+		const canvas = document.createElement('canvas')
+		canvas.width = natural?.w ?? imgEl!.naturalWidth
+		canvas.height = natural?.h ?? imgEl!.naturalHeight
+		canvas.getContext('2d')!.drawImage(imgEl!, 0, 0, canvas.width, canvas.height)
+		return new Promise<Blob>((resolve, reject) =>
+			canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('encoding failed'))), 'image/png')
+		)
+	}
+
 	async function copyImage() {
 		try {
 			// The clipboard takes PNG in every browser, other types in few: re-encode through a canvas.
-			const canvas = document.createElement('canvas')
-			canvas.width = imgEl!.naturalWidth
-			canvas.height = imgEl!.naturalHeight
-			canvas.getContext('2d')!.drawImage(imgEl!, 0, 0)
-			const blob = new Promise<Blob>((resolve, reject) =>
-				canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('encoding failed'))), 'image/png')
-			)
+			const blob = rasterize()
 			// Handed over as a promise so `write` runs within the click: Safari refuses it once
 			// the user gesture has expired, which an awaited encode would let happen.
 			await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })])
