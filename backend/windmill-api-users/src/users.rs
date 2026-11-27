@@ -3169,8 +3169,8 @@ pub async fn create_session_token<'c>(
 
     sqlx::query!(
         "INSERT INTO token
-            (token_hash, token_prefix, token, email, label, expiration, super_admin, scopes, read_only)
-            VALUES ($1, $2, $3, $4, $5, now() + ($6 || ' seconds')::interval, $7, $8, $9)",
+            (token_hash, token_prefix, token, email, label, expiration, super_admin, scopes, read_only, admin)
+            VALUES ($1, $2, $3, $4, $5, now() + ($6 || ' seconds')::interval, $7, $8, $9, true)",
         t_hash,
         t_prefix,
         plaintext as Option<&str>,
@@ -3264,8 +3264,8 @@ pub async fn create_guest_session_token<'c>(
 
     sqlx::query!(
         "INSERT INTO token
-            (token_hash, token_prefix, token, email, label, expiration, super_admin, scopes, workspace_id)
-            VALUES ($1, $2, $3, $4, $5, now() + ($6 || ' seconds')::interval, false, $7, $8)",
+            (token_hash, token_prefix, token, email, label, expiration, super_admin, scopes, workspace_id, admin)
+            VALUES ($1, $2, $3, $4, $5, now() + ($6 || ' seconds')::interval, false, $7, $8, false)",
         t_hash,
         t_prefix,
         plaintext as Option<&str>,
