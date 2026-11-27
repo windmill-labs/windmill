@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE password SET totp_recovery_codes = array_remove(totp_recovery_codes, $2)\n             WHERE email = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "c42f409f1c238ed5d6e9b57dd0b2a621e23dfbfefe99e848484b764fa57d837f"
+}

@@ -5,6 +5,7 @@
 	import { Button } from '$lib/components/common'
 	import { sendUserToast } from '$lib/toast'
 	import TextInput from '../text_input/TextInput.svelte'
+	import TotpModal, { type TotpAction } from './TotpModal.svelte'
 
 	let newPassword = $state<string | undefined>(undefined)
 	let passwordError = $state<string | undefined>(undefined)
@@ -19,9 +20,18 @@
 
 	async function loadLoginType(): Promise<void> {
 		login_type = (await UserService.globalWhoami()).login_type
+		if (login_type == 'password') await loadTotp()
 		if (login_type == 'pending_oauth') {
 			passwordAllowed = !(await UserService.isPasswordLoginDisabled().catch(() => false))
 		}
+	}
+
+	let totpEnabled = $state<boolean | undefined>(undefined)
+	let totpAction = $state<TotpAction | undefined>(undefined)
+
+	async function loadTotp(): Promise<void> {
+		// Builds without two-factor support do not serve the route: the section stays hidden.
+		totpEnabled = (await UserService.getTotpStatus().catch(() => undefined))?.enabled
 	}
 
 	async function setPassword(): Promise<void> {
@@ -78,4 +88,34 @@
 			</span>
 		</div>
 	{/if}
+
+	{#if login_type == 'password' && totpEnabled != undefined}
+		<div class="flex flex-col gap-1 w-120">
+			<span class="text-xs text-emphasis font-semibold">Two-factor authentication</span>
+			<span class="text-xs text-secondary font-normal">
+				{totpEnabled
+					? 'On. Logging in with your password also asks for a code from your authenticator app.'
+					: 'Ask for a code from an authenticator app each time you log in with your password.'}
+			</span>
+			<div class="flex flex-row gap-1">
+				{#if totpEnabled}
+					<Button
+						unifiedSize="sm"
+						variant="default"
+						onClick={() => (totpAction = 'recovery_codes')}
+					>
+						New recovery codes
+					</Button>
+					<Button unifiedSize="sm" variant="default" onClick={() => (totpAction = 'disable')}>
+						Turn off
+					</Button>
+				{:else}
+					<Button unifiedSize="sm" variant="default" onClick={() => (totpAction = 'setup')}>
+						Set up two-factor authentication
+					</Button>
+				{/if}
+			</div>
+		</div>
+	{/if}
 </form>
+<TotpModal bind:action={totpAction} onClose={loadTotp} />

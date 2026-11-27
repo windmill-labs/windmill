@@ -24,6 +24,10 @@ windmill-audit.workspace = true
 windmill-git-sync.workspace = true
 
 argon2.workspace = true
+base32.workspace = true
+hmac.workspace = true
+rand.workspace = true
+sha1.workspace = true
 axum.workspace = true
 chrono.workspace = true
 http.workspace = true

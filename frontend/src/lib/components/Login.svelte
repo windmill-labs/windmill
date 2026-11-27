@@ -42,7 +42,12 @@
 	import { sameTopDomainOrigin } from '$lib/cookies'
 	import { isValidLogoutRedirect, toSameOriginRelativePath } from '$lib/logoutRedirect'
 	import InputError from './InputError.svelte'
-	import { loginErrorMessage } from '$lib/loginError'
+	import {
+		loginErrorDetail,
+		loginErrorMessage,
+		TOTP_INVALID_MESSAGE,
+		TOTP_REQUIRED
+	} from '$lib/loginError'
 	import { parseAccountSettingsHash } from './sidebar/settings'
 	import Badge from './common/badge/Badge.svelte'
 	import {
@@ -109,6 +114,7 @@
 	const emailId = `${uid}-email`
 	const passwordId = `${uid}-password`
 	const errorId = `${uid}-error`
+	const totpId = `${uid}-totp`
 	const emailErrorId = `${uid}-email-error`
 
 	const providers = [
@@ -183,6 +189,22 @@
 
 	let showPassword = $state(false)
 	let passwordField = $state<Password | undefined>(undefined)
+	// The account the server asked an authenticator code for. The code step replaces the form
+	// and resends the password kept here, so the server needs no half-logged-in state.
+	let totpFor = $state<string | undefined>(undefined)
+	let totpCode = $state('')
+	let totpField = $state<TextInput | undefined>(undefined)
+	let showTotp = $derived(totpFor !== undefined && totpFor === email)
+
+	async function leaveTotp() {
+		totpFor = undefined
+		totpCode = ''
+		formError = undefined
+		// The swapped-in markup would otherwise replay a shake left on from a failed attempt.
+		shake = false
+		await tick()
+		passwordField?.focus()
+	}
 	// Type argument rather than annotation: annotating narrows the declaration to the
 	// initializer's `undefined`, so a top-level read sees `never` instead of the array.
 	let logins = $state<OAuthLogin[] | undefined>(undefined)
@@ -200,7 +222,7 @@
 	let formError = $state<
 		| {
 				message: string
-				fields: 'both' | 'email' | 'password'
+				fields: 'both' | 'email' | 'password' | 'totp'
 				email: string | undefined
 				password: string | undefined
 		  }
@@ -221,7 +243,7 @@
 
 	async function failLogin(
 		message: string,
-		fields: 'both' | 'email' | 'password' = 'both',
+		fields: 'both' | 'email' | 'password' | 'totp' = 'both',
 		// The pair the message is about. Defaults to what is in the fields right now, but a
 		// rejected request passes what it actually submitted: the user may have typed on since.
 		attempted: { email: string | undefined; password: string | undefined } = { email, password }
@@ -258,9 +280,15 @@
 			return
 		}
 
+		if (showTotp && !totpCode.trim()) {
+			failLogin('Enter the code from your authenticator app.', 'totp')
+			return
+		}
+
 		const requestBody = {
 			email,
-			password
+			password,
+			totp_code: showTotp ? totpCode : undefined
 		}
 
 		// Await the DOM update: the field must be back to type="password" before the
@@ -274,7 +302,17 @@
 			// previous account must not be served to this one.
 			noteSessionEmail(email)
 		} catch (err) {
-			failLogin(loginErrorMessage(err), 'both', requestBody)
+			if (loginErrorDetail(err) === TOTP_REQUIRED) {
+				formError = undefined
+				shake = false
+				totpFor = requestBody.email
+				totpCode = ''
+				await tick()
+				totpField?.focus()
+				return
+			}
+			const message = loginErrorMessage(err)
+			failLogin(message, message === TOTP_INVALID_MESSAGE ? 'totp' : 'both', requestBody)
 			return
 		}
 
@@ -760,130 +798,179 @@
 		<p class="text-sm text-center text-secondary py-4">Signing you in…</p>
 	{/if}
 
-	{#if !passwordFirst}
-		{@render providerButtons()}
-		{#if !autoRedirecting && !disablePasswordLogin && (saml || (logins && logins.length > 0))}
-			{@render orDivider()}
-			<!-- Only an entry point to the form below: once that is open the divider is what
-				separates the two ways in. -->
-			{#if !showPassword}
-				<div class="center-center">
-					<Button
-						unifiedSize="sm"
-						variant="subtle"
-						onClick={() => {
-							showPassword = true
-						}}
-					>
-						Log in without third-party
-					</Button>
-				</div>
-			{/if}
-		{/if}
-	{/if}
-
-	{#if !autoRedirecting && showPassword && !disablePasswordLogin}
-		<div>
-			{#if firstTime}
-				<p class="text-xs text-center w-full pb-4 text-secondary">
-					Welcome! Default credentials admin@windmill.dev / changeme have been prefilled.
+	{#if showTotp}
+		<div class="space-y-4">
+			<div class="space-y-1">
+				<h2 class="text-sm font-semibold text-emphasis">Two-factor authentication</h2>
+				<p class="text-xs text-secondary">
+					Enter the code from your authenticator app for {email}, or one of your recovery codes.
 				</p>
-			{/if}
-			<div class="space-y-4">
-				{#if cloudHosted}
-					<p class="text-xs text-secondary pb-6">
-						To get credentials without the OAuth providers above, send an email at
-						contact@windmill.dev
-					</p>
-				{/if}
-				<div bind:this={fieldsEl} class="space-y-2 {shake ? 'motion-safe:animate-shake' : ''}">
-					<div class="space-y-1">
-						<label for={emailId} class="block text-xs font-semibold text-emphasis"> Email </label>
-						<div>
-							<TextInput
-								size="md"
-								error={emailErrored}
-								bind:value={email}
-								inputProps={{
-									id: emailId,
-									type: 'email',
-									autocomplete: 'username',
-									'aria-invalid': emailErrored ? 'true' : undefined,
-									'aria-describedby':
-										errorField === 'email' ? emailErrorId : emailErrored ? errorId : undefined,
-									onkeydown: (e) => {
-										// Only move on once the field holds something: while the browser's
-										// credential dropdown is open, Enter belongs to the dropdown
-										if (e.key === 'Enter' && !e.isComposing && !e.repeat && e.currentTarget.value) {
-											e.preventDefault()
-											passwordField?.focus()
-										}
-									}
-								}}
-							/>
-						</div>
-						<div id={emailErrorId} role="alert" class="min-h-5">
-							{#if errorField === 'email'}
-								<InputError error={credentialsError} />
-							{/if}
-						</div>
-					</div>
-
-					<div class="space-y-1">
-						<label for={passwordId} class="block text-xs font-semibold text-emphasis">
-							Password
-						</label>
-						<div>
-							<Password
-								bind:this={passwordField}
-								bind:password
-								id={passwordId}
-								placeholder=""
-								autocomplete="current-password"
-								allowMultiline={false}
-								error={passwordErrored}
-								describedBy={passwordErrored ? errorId : undefined}
-								onKeyDown={handleKeyDown}
-							/>
-						</div>
-						{@render errorMessage()}
-					</div>
-				</div>
-
-				<div>
-					<Button onClick={login} variant="accent" unifiedSize="lg" disabled={!email || !password}>
-						Log in
-					</Button>
-					{#if smtpConfigured}
-						<div class="text-center pt-2">
-							<a
-								href="/user/forgot-password"
-								class="text-2xs text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300"
-							>
-								Forgot password?
-							</a>
-						</div>
-					{/if}
+			</div>
+			<div bind:this={fieldsEl} class="space-y-1 {shake ? 'motion-safe:animate-shake' : ''}">
+				<label for={totpId} class="block text-xs font-semibold text-emphasis">
+					Authentication code
+				</label>
+				<TextInput
+					bind:this={totpField}
+					size="md"
+					bind:value={totpCode}
+					error={!!errorField}
+					inputProps={{
+						id: totpId,
+						name: 'totp',
+						'aria-invalid': errorField ? 'true' : undefined,
+						'aria-describedby': errorField ? errorId : undefined,
+						autocomplete: 'one-time-code',
+						onkeydown: handleKeyDown
+					}}
+				/>
+				{@render errorMessage()}
+			</div>
+			<div class="space-y-2">
+				<Button onClick={login} variant="accent" unifiedSize="lg" disabled={!totpCode.trim()}>
+					Verify
+				</Button>
+				<div class="center-center">
+					<Button unifiedSize="sm" variant="subtle" onClick={leaveTotp}>Back</Button>
 				</div>
 			</div>
-
-			{#if cloudHosted}
-				<p class="text-2xs text-secondary mt-10 text-center">
-					By logging in, you agree to our
-					<a href="https://windmill.dev/terms_of_service" target="_blank" rel="noreferrer">
-						Terms of service
-					</a>
-					and
-					<a href="https://windmill.dev/privacy_policy" target="_blank" rel="noreferrer">
-						Privacy policy
-					</a>
-				</p>
-			{/if}
 		</div>
-	{/if}
+	{:else}
+		{#if !passwordFirst}
+			{@render providerButtons()}
+			{#if !autoRedirecting && !disablePasswordLogin && (saml || (logins && logins.length > 0))}
+				{@render orDivider()}
+				<!-- Only an entry point to the form below: once that is open the divider is what
+				separates the two ways in. -->
+				{#if !showPassword}
+					<div class="center-center">
+						<Button
+							unifiedSize="sm"
+							variant="subtle"
+							onClick={() => {
+								showPassword = true
+							}}
+						>
+							Log in without third-party
+						</Button>
+					</div>
+				{/if}
+			{/if}
+		{/if}
 
-	{#if passwordFirst && (saml || (logins && logins.length > 0))}
-		{@render orDivider()}
-		{@render providerButtons()}
+		{#if !autoRedirecting && showPassword && !disablePasswordLogin}
+			<div>
+				{#if firstTime}
+					<p class="text-xs text-center w-full pb-4 text-secondary">
+						Welcome! Default credentials admin@windmill.dev / changeme have been prefilled.
+					</p>
+				{/if}
+				<div class="space-y-4">
+					{#if cloudHosted}
+						<p class="text-xs text-secondary pb-6">
+							To get credentials without the OAuth providers above, send an email at
+							contact@windmill.dev
+						</p>
+					{/if}
+					<div bind:this={fieldsEl} class="space-y-2 {shake ? 'motion-safe:animate-shake' : ''}">
+						<div class="space-y-1">
+							<label for={emailId} class="block text-xs font-semibold text-emphasis"> Email </label>
+							<div>
+								<TextInput
+									size="md"
+									error={emailErrored}
+									bind:value={email}
+									inputProps={{
+										id: emailId,
+										type: 'email',
+										autocomplete: 'username',
+										'aria-invalid': emailErrored ? 'true' : undefined,
+										'aria-describedby':
+											errorField === 'email' ? emailErrorId : emailErrored ? errorId : undefined,
+										onkeydown: (e) => {
+											// Only move on once the field holds something: while the browser's
+											// credential dropdown is open, Enter belongs to the dropdown
+											if (
+												e.key === 'Enter' &&
+												!e.isComposing &&
+												!e.repeat &&
+												e.currentTarget.value
+											) {
+												e.preventDefault()
+												passwordField?.focus()
+											}
+										}
+									}}
+								/>
+							</div>
+							<div id={emailErrorId} role="alert" class="min-h-5">
+								{#if errorField === 'email'}
+									<InputError error={credentialsError} />
+								{/if}
+							</div>
+						</div>
+
+						<div class="space-y-1">
+							<label for={passwordId} class="block text-xs font-semibold text-emphasis">
+								Password
+							</label>
+							<div>
+								<Password
+									bind:this={passwordField}
+									bind:password
+									id={passwordId}
+									placeholder=""
+									autocomplete="current-password"
+									allowMultiline={false}
+									error={passwordErrored}
+									describedBy={passwordErrored ? errorId : undefined}
+									onKeyDown={handleKeyDown}
+								/>
+							</div>
+							{@render errorMessage()}
+						</div>
+					</div>
+
+					<div>
+						<Button
+							onClick={login}
+							variant="accent"
+							unifiedSize="lg"
+							disabled={!email || !password}
+						>
+							Log in
+						</Button>
+						{#if smtpConfigured}
+							<div class="text-center pt-2">
+								<a
+									href="/user/forgot-password"
+									class="text-2xs text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300"
+								>
+									Forgot password?
+								</a>
+							</div>
+						{/if}
+					</div>
+				</div>
+
+				{#if cloudHosted}
+					<p class="text-2xs text-secondary mt-10 text-center">
+						By logging in, you agree to our
+						<a href="https://windmill.dev/terms_of_service" target="_blank" rel="noreferrer">
+							Terms of service
+						</a>
+						and
+						<a href="https://windmill.dev/privacy_policy" target="_blank" rel="noreferrer">
+							Privacy policy
+						</a>
+					</p>
+				{/if}
+			</div>
+		{/if}
+
+		{#if passwordFirst && (saml || (logins && logins.length > 0))}
+			{@render orDivider()}
+			{@render providerButtons()}
+		{/if}
 	{/if}
 </div>

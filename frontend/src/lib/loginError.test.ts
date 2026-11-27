@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest'
-import { loginErrorMessage } from './loginError'
+import {
+	loginErrorDetail,
+	loginErrorMessage,
+	TOTP_INVALID_MESSAGE,
+	TOTP_REQUIRED
+} from './loginError'
 
 describe('loginErrorMessage', () => {
 	it('maps the backend rejection to one message for a wrong email and a wrong password', () => {
@@ -18,6 +23,15 @@ describe('loginErrorMessage', () => {
 		// The rate limiter's own wording is not echoed back: a 429 always gets this sentence.
 		expect(loginErrorMessage({ status: 429, body: 'Bad request: slow down' })).toBe(
 			'Too many login attempts. Please try again later.'
+		)
+	})
+
+	it('recognises the two-factor responses of the login endpoint', () => {
+		expect(loginErrorDetail({ status: 400, body: 'Bad request: Two-factor code required' })).toBe(
+			TOTP_REQUIRED
+		)
+		expect(loginErrorMessage({ status: 400, body: 'Bad request: Invalid two-factor code' })).toBe(
+			TOTP_INVALID_MESSAGE
 		)
 	})
 
