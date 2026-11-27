@@ -39,6 +39,7 @@
 	import { markdownProse } from './markdownProse'
 	import Toggle from './Toggle.svelte'
 	import S3ObjectHeader from './common/fileDownload/S3ObjectHeader.svelte'
+	import Tooltip from './Tooltip.svelte'
 	import S3TextPreview from './common/fileDownload/S3TextPreview.svelte'
 
 	import S3ObjectTable from './common/fileDownload/S3ObjectTable.svelte'
