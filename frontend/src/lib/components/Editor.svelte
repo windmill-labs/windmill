@@ -36,6 +36,7 @@
 		type DBSchema,
 		codeCompletionSessionEnabled,
 		lspTokenStore,
+		needsSuperAdminFor,
 		formatOnSave,
 		vimMode,
 		relativeLineNumbers
@@ -1996,7 +1997,8 @@
 					expiration: expiration.toISOString(),
 					workspace_id: workspace || undefined,
 					// It reads the scripts an import names as the editing user would, admin included.
-					admin: true
+					admin: true,
+					super_admin: needsSuperAdminFor(workspace)
 				}
 			})
 			$lspTokenStore = { workspace, token: newToken }

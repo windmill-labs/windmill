@@ -4,11 +4,13 @@
 
 use serde_json::json;
 use sqlx::{Pool, Postgres};
+use windmill_common::{auth::create_jwt_token_withholding, db::Authed};
 use windmill_test_utils::*;
 
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
 async fn test_token_rights_are_opt_in(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
+    set_jwt_secret().await;
     let server = ApiServer::start(db.clone()).await?;
     let base = format!("http://localhost:{}/api", server.addr.port());
     let http = reqwest::Client::new();
@@ -51,6 +53,37 @@ async fn test_token_rights_are_opt_in(db: Pool<Postgres>) -> anyhow::Result<()> 
         .await?;
     assert_eq!(status(admin_route, &regained).await?.status(), 403);
     assert_eq!(status(superadmin_route, &regained).await?.status(), 401);
+
+    // A JWT minted from such a token (the AI session tools mint one per call) keeps the caps.
+    let caller_jwt = create_jwt_token_withholding(
+        Authed {
+            email: "test@windmill.dev".to_string(),
+            username: "test-user".to_string(),
+            is_admin: false,
+            is_operator: false,
+            groups: vec![],
+            folders: vec![],
+            scopes: None,
+            token_prefix: None,
+            mcp_client: None,
+            capabilities: None,
+        },
+        "test-workspace",
+        3600,
+        None,
+        None,
+        None,
+        None,
+        (true, true),
+    )
+    .await?;
+    assert_eq!(status(superadmin_route, &caller_jwt).await?.status(), 401);
+    let from_jwt = mint(&caller_jwt, json!({ "admin": true, "super_admin": true }))
+        .await?
+        .text()
+        .await?;
+    assert_eq!(status(admin_route, &from_jwt).await?.status(), 403);
+    assert_eq!(status(superadmin_route, &from_jwt).await?.status(), 401);
 
     assert_eq!(
         status("/users/refresh_token", &plain).await?.status(),

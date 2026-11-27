@@ -4,6 +4,7 @@
  */
 
 import { VariableService, UserService } from '$lib/gen'
+import { needsSuperAdminFor } from '$lib/stores'
 
 /**
  * Fetch contextual variables (WM_WORKSPACE, WM_TOKEN, etc.) for the debugger.
@@ -30,7 +31,8 @@ export async function fetchContextualVariables(workspace: string): Promise<Recor
 					expiration: expirationDate.toISOString(),
 					workspace_id: workspace,
 					// Stands in for the job's own WM_TOKEN, which carries the user's admin rights.
-					admin: true
+					admin: true,
+					super_admin: needsSuperAdminFor(workspace)
 				}
 			})
 			envVars['WM_TOKEN'] = freshToken

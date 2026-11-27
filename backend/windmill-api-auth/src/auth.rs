@@ -501,8 +501,8 @@ impl AuthCache {
                             mcp_client: claims.mcp_client,
                             capabilities: None,
                             allowed_ips: None,
-                            admin_withheld: false,
-                            super_admin_withheld: false,
+                            admin_withheld: claims.admin_withheld,
+                            super_admin_withheld: claims.super_admin_withheld,
                         };
                         // Fail closed: a `job_id` claim that does not parse must reject
                         // the token rather than resolve to `None`, which would clear the

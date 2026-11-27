@@ -115,6 +115,14 @@ export const maybePremium: Readable<boolean> = derived(
 // polling or owning its own invalidation.
 export const workspaceMembershipVersion = writable<number>(0)
 export const usersWorkspaceStore = writable<UserWorkspaceList | undefined>(undefined)
+/**
+ * A token the app mints for a workspace reaches it through a membership, or, for a superadmin
+ * who has none there, only by carrying superadmin rights (`super_admin: true`, which the server
+ * ignores for anyone else).
+ */
+export function needsSuperAdminFor(workspace: string): boolean {
+	return !(get(usersWorkspaceStore)?.workspaces ?? []).some((w) => w.id === workspace)
+}
 // Stands in for `UserWorkspace.username` on entries with no `usr` row behind them. It
 // names nobody, so anything that would address a user by it (a `u/<username>/...` path)
 // must treat it as "no username here" rather than render it.
