@@ -99,7 +99,14 @@
 </script>
 
 {#snippet primary()}
-	<Button unifiedSize="sm" variant="accent" disabled={!canContinue} loading={busy} onClick={next}>
+	<Button
+		unifiedSize="sm"
+		variant="accent"
+		destructive={action == 'disable'}
+		disabled={!canContinue}
+		loading={busy}
+		onClick={next}
+	>
 		{nextLabel}
 	</Button>
 {/snippet}
@@ -116,6 +123,11 @@
 		{/if}
 
 		{#if recoveryCodes}
+			{#if action == 'setup'}
+				<Alert type="success" title="Two-factor authentication is on" size="xs">
+					Logging in with your password now also asks for a code from your authenticator app.
+				</Alert>
+			{/if}
 			<div class="flex flex-col gap-1">
 				<span class="text-xs text-secondary font-normal">
 					Each code logs you in once if you lose your authenticator.
