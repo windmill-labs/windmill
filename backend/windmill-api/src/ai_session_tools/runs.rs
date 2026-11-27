@@ -2566,7 +2566,7 @@ fn run_text(run: &Map<String, Value>) -> String {
         run_kind_text(run)
     )];
     let preview = if finished {
-        let label = if status == "failure" {
+        let label = if matches!(status, "failure" | "canceled") {
             "Error"
         } else {
             "Result"
@@ -2577,7 +2577,10 @@ fn run_text(run: &Map<String, Value>) -> String {
     };
     if let Some((label, value)) = preview {
         let head = js_head(value, TEXT_PREVIEW_CHARS);
-        let cut = head.len() < value.len() || run.get("result_cut") == Some(&Value::Bool(true));
+        let cut = head.len() < value.len()
+            || (finished
+                && value != TOO_BIG_TEXT
+                && run.get("result_cut") == Some(&Value::Bool(true)));
         lines.push(format!("{label}: {head}{}", if cut { "…" } else { "" }));
     }
     if let Some(url) = text("url") {
@@ -2679,6 +2682,8 @@ const CARD_ITERATIONS: usize = 10;
 const CARD_IMAGE_CHARS: usize = 1_000_000;
 /// What the job read returns in place of a result too big to send.
 const TOO_BIG: &str = "WINDMILL_TOO_BIG";
+/// The card's `result` for a result too large to store.
+const TOO_BIG_TEXT: &str = "Too large to show here.";
 const CARD_STEP_RESULT_CHARS: usize = 300;
 const CARD_ARGS_CHARS: usize = 4000;
 const CARD_LOG_CHARS: i64 = 3000;
@@ -2968,7 +2973,7 @@ fn run_card(id: &str, job: Option<&Value>) -> Map<String, Value> {
         }
         let result = envelope.map(|e| &e["output"]).or(result);
         if too_big {
-            run.insert("result".into(), "Too large to show here.".into());
+            run.insert("result".into(), TOO_BIG_TEXT.into());
             run.insert("result_cut".into(), true.into());
         }
         let error = result
