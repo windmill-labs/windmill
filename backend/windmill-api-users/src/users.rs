@@ -4111,7 +4111,7 @@ async fn list_tokens(
                (t.admin AND EXISTS (SELECT 1 FROM usr u WHERE u.email = t.email AND u.is_admin \
                    AND NOT u.disabled AND (t.workspace_id IS NULL OR u.workspace_id = t.workspace_id))) \
                    AS \"admin!\", \
-               ((t.super_admin OR t.label = 'session') \
+               ((t.super_admin OR COALESCE(t.label = 'session', false)) \
                    AND COALESCE((SELECT p.super_admin FROM password p WHERE p.email = t.email), false)) \
                    AS \"super_admin!\" \
              FROM token t WHERE t.email = $1 AND (t.label != 'ephemeral-script' OR t.label IS NULL)
@@ -4130,7 +4130,7 @@ async fn list_tokens(
                (t.admin AND EXISTS (SELECT 1 FROM usr u WHERE u.email = t.email AND u.is_admin \
                    AND NOT u.disabled AND (t.workspace_id IS NULL OR u.workspace_id = t.workspace_id))) \
                    AS \"admin!\", \
-               ((t.super_admin OR t.label = 'session') \
+               ((t.super_admin OR COALESCE(t.label = 'session', false)) \
                    AND COALESCE((SELECT p.super_admin FROM password p WHERE p.email = t.email), false)) \
                    AS \"super_admin!\" \
              FROM token t WHERE t.email = $1

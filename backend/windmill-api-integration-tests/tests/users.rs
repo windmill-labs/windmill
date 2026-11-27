@@ -1672,6 +1672,27 @@ async fn test_list_tokens_reports_carried_rights(db: Pool<Postgres>) -> anyhow::
     // test2@: a plain member, whose token carries the column's default `admin = true`.
     assert_eq!(rights("SECRET_TOKEN_2").await?, (Some(false), Some(false)));
 
+    // An unlabeled token of a superadmin owner: rights-free, and it must not break the list.
+    sqlx::query(
+        "INSERT INTO token (token_hash, token_prefix, email, label, super_admin)
+         VALUES (encode(sha256('UNLABELED'::bytea), 'hex'), 'UNLABELED0', 'test@windmill.dev', NULL, false)",
+    )
+    .execute(&db)
+    .await?;
+    let tokens = client()
+        .get(&url)
+        .header("Authorization", "Bearer SECRET_TOKEN")
+        .send()
+        .await?
+        .error_for_status()?
+        .json::<serde_json::Value>()
+        .await?;
+    let unlabeled = tokens
+        .as_array()
+        .and_then(|a| a.iter().find(|t| t["token_prefix"] == "UNLABELED0"))
+        .ok_or_else(|| anyhow::anyhow!("unlabeled token not listed: {tokens}"))?;
+    assert_eq!(unlabeled["super_admin"], false);
+
     // Withheld admin is reported as such even for an admin owner.
     sqlx::query("UPDATE token SET admin = false, super_admin = false WHERE email = 'test@windmill.dev'")
         .execute(&db)
