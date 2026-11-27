@@ -42,41 +42,40 @@
 	}
 </script>
 
-<div class="border border-border-light rounded-md p-4 h-full">
-	<h2 class="text-emphasis text-sm font-semibold mb-2">User info</h2>
+<form class="flex flex-col gap-6">
+	<div class="w-full text-primary flex flex-col gap-1">
+		<div class="text-xs text-emphasis font-semibold">Email</div>
+		<span class="text-xs font-normal text-primary">
+			{$usersWorkspaceStore?.email}
+		</span>
+	</div>
 
-	<form class="flex flex-col gap-6">
-		<div class="w-full text-primary flex flex-col gap-1">
-			<div class="text-xs text-emphasis font-semibold">Email</div>
-			<span class="text-xs font-normal text-primary">
-				{$usersWorkspaceStore?.email}
-			</span>
-		</div>
-
+	{#if login_type == 'password' || (login_type == 'pending_oauth' && passwordAllowed)}
 		<label class="flex flex-col gap-1 w-120">
 			<span class="text-xs text-emphasis font-semibold">Password</span>
-			{#if login_type == 'password' || (login_type == 'pending_oauth' && passwordAllowed)}
-				<div class="flex flex-row gap-1 items-center">
-					<TextInput
-						inputProps={{ autocomplete: 'new-password', type: 'password' }}
-						bind:value={newPassword}
-						error={passwordError}
-					/>
-					<Button
-						size="sm"
-						variant="default"
-						btnClasses="w-min whitespace-nowrap"
-						on:click={setPassword}>Set password</Button
-					>
-				</div>
-				{#if passwordError}
-					<div class="text-red-600 text-2xs">{passwordError}</div>
-				{/if}
-			{:else if login_type == 'github'}
-				<span class="text-xs text-primary font-normal"
-					>Authenticated through Github OAuth2. Cannot set a password.</span
+			<div class="flex flex-row gap-1 items-center">
+				<TextInput
+					inputProps={{ autocomplete: 'new-password', type: 'password' }}
+					bind:value={newPassword}
+					error={passwordError}
+				/>
+				<Button
+					size="sm"
+					variant="default"
+					btnClasses="w-min whitespace-nowrap"
+					on:click={setPassword}>Set password</Button
 				>
+			</div>
+			{#if passwordError}
+				<div class="text-red-600 text-2xs">{passwordError}</div>
 			{/if}
 		</label>
-	</form>
-</div>
+	{:else if login_type != 'none' && login_type != 'pending_oauth'}
+		<div class="flex flex-col gap-1">
+			<div class="text-xs text-emphasis font-semibold">Sign-in</div>
+			<span class="text-xs font-normal text-primary">
+				Through <span class="capitalize">{login_type}</span> single sign-on
+			</span>
+		</div>
+	{/if}
+</form>

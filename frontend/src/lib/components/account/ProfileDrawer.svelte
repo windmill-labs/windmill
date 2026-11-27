@@ -24,32 +24,25 @@
 		<div class="flex flex-col gap-6 pb-8">
 			<UserInfoSettings />
 
-			<div
-				class="flex flex-row justify-between items-start gap-2 border border-border-light p-4 rounded-md"
-			>
-				<div class="flex flex-col gap-2">
-					<div class="font-semibold text-emphasis text-xs flex items-center">
-						Theme <DarkModeToggle forcedDarkMode={false} />
-					</div>
-					<div class="flex items-center gap-2">
-						<span class="text-xs text-secondary">Dark variant</span>
-						<ToggleButtonGroup
-							selected={darkVariant}
-							class="w-fit"
-							onSelected={(v) => {
-								darkVariant = v
-								setDarkModeVariant(v)
-							}}
-						>
-							{#snippet children({ item })}
-								<ToggleButton value="default" label="Default" size="sm" {item} />
-								<ToggleButton value="github" label="GitHub" size="sm" {item} />
-							{/snippet}
-						</ToggleButtonGroup>
-					</div>
+			<div class="flex flex-col gap-1">
+				<div class="text-xs text-emphasis font-semibold flex items-center">
+					Theme <DarkModeToggle forcedDarkMode={false} />
 				</div>
-				<div class="text-xs text-emphasis flex-col flex">
-					Windmill <Version />
+				<div class="flex items-center gap-2">
+					<span class="text-xs text-secondary">Dark variant</span>
+					<ToggleButtonGroup
+						selected={darkVariant}
+						class="w-fit"
+						onSelected={(v) => {
+							darkVariant = v
+							setDarkModeVariant(v)
+						}}
+					>
+						{#snippet children({ item })}
+							<ToggleButton value="default" label="Default" size="sm" {item} />
+							<ToggleButton value="github" label="GitHub" size="sm" {item} />
+						{/snippet}
+					</ToggleButtonGroup>
 				</div>
 			</div>
 
@@ -63,6 +56,8 @@
 					</ListRow>
 				{/each}
 			</div>
+
+			<div class="flex items-center gap-1 text-xs text-secondary">Windmill <Version /></div>
 		</div>
 	</DrawerContent>
 </Drawer>

@@ -36,9 +36,7 @@
 	}
 </script>
 
-<div class="border border-border-light rounded-md p-4 h-full">
-	<h2 class="text-emphasis text-sm font-semibold mb-2">AI user settings</h2>
-
+<div>
 	<div class="flex flex-col gap-4">
 		<Toggle
 			on:change={(e) => {

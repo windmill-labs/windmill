@@ -22,6 +22,10 @@
 				Tokens you create here are listed, and can be revoked, in
 				<a href={accountSettingsHref('tokens')}>Tokens</a>.
 			</div>
+			<div class="text-xs text-secondary">
+				Windmill's own AI assistant is configured in
+				<a href={accountSettingsHref('ai')}>AI settings</a>.
+			</div>
 		</div>
 	</DrawerContent>
 </Drawer>
