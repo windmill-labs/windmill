@@ -4236,6 +4236,13 @@ pub struct TokenReviewQuery {
     pub after_token_prefix: Option<String>,
 }
 
+pub(crate) fn token_review_requires_ee() -> Error {
+    Error::BadRequest(
+        "Listing and deleting every user's tokens requires a valid Windmill Enterprise Edition license"
+            .to_string(),
+    )
+}
+
 async fn list_tokens_as_super_admin(
     Extension(db): Extension<DB>,
     authed: ApiAuthed,

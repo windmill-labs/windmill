@@ -1,5 +1,6 @@
 //! The `token_risk` view flags what a token review looks at, and the superadmin review (EE)
-//! pages through it with a cursor, so a token used between two pages is not skipped.
+//! pages through it with a cursor, so a token used between two pages is not skipped. Without
+//! `enterprise` (the CE image builds `private` alone), only its counts are served.
 
 use sqlx::{Pool, Postgres, Row};
 use windmill_test_utils::*;
@@ -107,7 +108,7 @@ async fn test_token_risk_rules(db: Pool<Postgres>) -> anyhow::Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "private")]
+#[cfg(feature = "enterprise")]
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
 async fn test_token_review_cursor_survives_use(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
@@ -157,5 +158,39 @@ async fn test_token_review_cursor_survives_use(db: Pool<Postgres>) -> anyhow::Re
         .json()
         .await?;
     assert_eq!(next[0]["token_prefix"], "page-b");
+    Ok(())
+}
+
+#[cfg(not(feature = "enterprise"))]
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_token_review_list_is_ee(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let base = format!("http://localhost:{}/api/users/tokens", server.addr.port());
+    let http = reqwest::Client::new();
+    insert_token(&db, "victim", "test2@windmill.dev").await;
+
+    let counts = http
+        .get(format!("{base}/risk_counts_as_super_admin"))
+        .bearer_auth("SECRET_TOKEN")
+        .send()
+        .await?;
+    assert_eq!(counts.status(), 200);
+    let list = http
+        .get(format!("{base}/list_as_super_admin"))
+        .bearer_auth("SECRET_TOKEN")
+        .send()
+        .await?;
+    assert_eq!(list.status(), 400);
+    let delete = http
+        .delete(format!("{base}/delete_as_super_admin/test2@windmill.dev/victim"))
+        .bearer_auth("SECRET_TOKEN")
+        .send()
+        .await?;
+    assert_eq!(delete.status(), 400);
+    let left: i64 = sqlx::query_scalar("SELECT count(*) FROM token WHERE token_prefix = 'victim'")
+        .fetch_one(&db)
+        .await?;
+    assert_eq!(left, 1);
     Ok(())
 }

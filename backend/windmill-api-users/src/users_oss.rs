@@ -37,24 +37,22 @@ pub(crate) async fn portal_cloud_trial_login(
     ))
 }
 
-#[cfg(not(feature = "private"))]
+// The CE image builds with `private` but not `enterprise`, so these, not `users_ee`'s, serve
+// it: the instance-wide token list stays EE.
+#[cfg(not(all(feature = "private", feature = "enterprise")))]
 pub(crate) async fn list_tokens_as_super_admin(
-    _db: &DB,
+    _db: &windmill_common::DB,
     _query: crate::users::TokenReviewQuery,
 ) -> windmill_common::error::Result<Vec<crate::users::TokenForReview>> {
-    Err(windmill_common::error::Error::BadRequest(
-        "Reviewing every user's tokens requires Windmill Enterprise Edition".to_string(),
-    ))
+    Err(crate::users::token_review_requires_ee())
 }
 
-#[cfg(not(feature = "private"))]
+#[cfg(not(all(feature = "private", feature = "enterprise")))]
 pub(crate) async fn delete_token_as_super_admin(
-    _db: &DB,
-    _authed: &ApiAuthed,
+    _db: &windmill_common::DB,
+    _authed: &windmill_api_auth::ApiAuthed,
     _email: &str,
     _token_prefix: &str,
 ) -> windmill_common::error::Result<String> {
-    Err(windmill_common::error::Error::BadRequest(
-        "Deleting another user's token requires Windmill Enterprise Edition".to_string(),
-    ))
+    Err(crate::users::token_review_requires_ee())
 }
