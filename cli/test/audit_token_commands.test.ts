@@ -200,7 +200,7 @@ describe("token command", () => {
       expect((await scopesOf()).scopes).toEqual(["scripts:read"]);
 
       const cleared = await backend.runCLICommand(
-        ["token", "update-scopes", token.token_prefix, "--full-access"],
+        ["token", "update-scopes", token.token_prefix, "--clear"],
         tempDir
       );
       expect(cleared.code).toEqual(0);

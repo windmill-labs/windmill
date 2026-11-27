@@ -701,10 +701,13 @@ Manage API tokens
 - `token create` - Create a new API token
   - `--label <label:string>` - Token label
   - `--expiration <expiration:string>` - Token expiration (ISO 8601 timestamp)
-  - `--scope <scope:string>` - Restrict the token to this scope (e.g. jobs:run, scripts:read:f/folder/*). Repeatable. Omit for full access.
+  - `--all-workspaces` - Do not bind the token to the current workspace: it then reaches every workspace you are a member of and instance-level endpoints
+  - `--admin` - Carry your workspace admin rights (off by default)
+  - `--superadmin` - Carry your superadmin rights (off by default)
+  - `--scope <scope:string>` - Restrict the token to this scope (e.g. jobs:run, scripts:read:f/folder/*). Repeatable. Omit for no scope restriction.
 - `token update-scopes <token_prefix:string>` - Replace the scopes of one of your tokens, by its prefix
   - `--scope <scope:string>` - Scope the token is restricted to (e.g. jobs:run, scripts:read:f/folder/*). Repeatable; replaces all existing scopes.
-  - `--full-access` - Remove every scope restriction, giving the token full access
+  - `--clear` - Remove every scope restriction (the token keeps its workspace binding and admin/superadmin rights)
 - `token delete <token_prefix:string>` - Delete a token by its prefix
 
 ### trash
@@ -764,6 +767,8 @@ user related commands
 - `user create-token` - Create a new API token for the authenticated user
   - `--email <email:string>` - Specify credentials to use for authentication. This will not be stored. It will only be used to exchange for a token with the API server, which will not be stored either.
   - `--password <password:string>` - Specify credentials to use for authentication. This will not be stored. It will only be used to exchange for a token with the API server, which will not be stored either.
+  - `--admin` - Carry your workspace admin rights (off by default)
+  - `--superadmin` - Carry your superadmin rights (off by default)
 
 ### variable
 

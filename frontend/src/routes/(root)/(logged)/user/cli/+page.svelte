@@ -5,7 +5,10 @@
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import { Button } from '$lib/components/common'
 	import Select from '$lib/components/select/Select.svelte'
-	import { userStore, usersWorkspaceStore, workspaceStore } from '$lib/stores'
+	import Toggle from '$lib/components/Toggle.svelte'
+	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
+	import { superadmin, userStore, usersWorkspaceStore, workspaceStore } from '$lib/stores'
 	import { parseMaxTokenExpirationDays } from '$lib/tokenExpiration'
 
 	let port = $state(Number(page.url.searchParams.get('port')))
@@ -54,6 +57,18 @@
 		return picked === 0 || picked > ceilingDays ? ceilingDays : picked
 	})
 
+	// Instance-wide by default: `wmill workspace add`, `workspace list/fork` and `instance`
+	// commands call instance-level endpoints, which a workspace-bound token is refused on. The
+	// owner's admin and superadmin rights are carried only when asked for.
+	// Binding is offered only for the workspace the CLI names (`&workspace=`): the CLI files the
+	// token under that profile, so a token bound to any other workspace would be refused there.
+	// An older CLI, or `wmill instance`, names none and gets an instance-wide token.
+	const cliWorkspace = page.url.searchParams.get('workspace') || undefined
+	let reach = $state<'workspace' | 'all'>('all')
+	let carryAdmin = $state(false)
+	let carrySuperAdmin = $state(false)
+	const isAdminSomewhere = $derived(!!$userStore?.is_admin || !!$superadmin)
+
 	async function authorizeToken(): Promise<void> {
 		const username = $userStore?.username
 		// `cli-login:` is reserved in `is_user_token` (windmill-common): the CLI signs in again on
@@ -66,12 +81,23 @@
 		const newToken = await UserService.createToken({
 			requestBody: {
 				label,
-				expiration
+				expiration,
+				workspace_id: reach === 'workspace' ? cliWorkspace : undefined,
+				admin: carryAdmin,
+				super_admin: carrySuperAdmin
 			}
 		})
 
 		const url =
-			scheme + '://' + host + ':' + port + '?token=' + newToken + '&workspace=' + $workspaceStore
+			scheme +
+			'://' +
+			host +
+			':' +
+			port +
+			'?token=' +
+			newToken +
+			'&workspace=' +
+			(cliWorkspace ?? $workspaceStore)
 		window.location.href = url
 	}
 </script>
@@ -94,8 +120,58 @@
 			Once it expires, the CLI asks you to sign in again.
 		</p>
 	</div>
+	{#if cliWorkspace}
+		<div class="flex flex-col gap-1 pt-4">
+			<span class="text-xs font-semibold text-emphasis">Works in</span>
+			<ToggleButtonGroup bind:selected={reach} allowEmpty={false}>
+				{#snippet children({ item })}
+					<ToggleButton {item} value="all" label="All workspaces (instance-wide)" />
+					<ToggleButton {item} value="workspace" label={`Only ${cliWorkspace}`} />
+				{/snippet}
+			</ToggleButtonGroup>
+			<p class="text-2xs text-hint">
+				{#if reach === 'all'}
+					Needed for <code>wmill workspace add</code>, <code>workspace list</code>/<code>fork</code>
+					and <code>instance</code> commands.
+				{:else}
+					Enough to sync {cliWorkspace}; commands that reach other workspaces or the instance are
+					refused.
+				{/if}
+			</p>
+		</div>
+	{/if}
+	{#if (isAdminSomewhere && !carrySuperAdmin) || $superadmin}
+		<div class="flex flex-col gap-2 pt-4">
+			{#if isAdminSomewhere && !carrySuperAdmin}
+				<Toggle
+					bind:checked={carryAdmin}
+					options={{
+						right: 'Workspace admin rights',
+						rightTooltip:
+							'Needed to sync workspace settings, users and groups. Off, the CLI acts as a regular member of your workspaces.'
+					}}
+					size="xs"
+				/>
+			{/if}
+			{#if $superadmin}
+				<Toggle
+					bind:checked={carrySuperAdmin}
+					options={{
+						right: 'Superadmin rights',
+						rightTooltip:
+							'Needed for instance commands such as `wmill instance push`. Off, the CLI cannot reach instance settings or workspaces you are not a member of.'
+					}}
+					size="xs"
+				/>
+			{/if}
+		</div>
+	{/if}
 	<div class="flex flex-row justify-around pt-4 gap-x-1">
 		<Button variant="default" destructive unifiedSize="lg" href="/">Decline</Button>
-		<Button variant="accent" unifiedSize="lg" onClick={authorizeToken}>Authorize</Button>
+		<Button
+			variant="accent"
+			unifiedSize="lg"
+			onClick={authorizeToken}>Authorize</Button
+		>
 	</div>
 </CenteredModal>

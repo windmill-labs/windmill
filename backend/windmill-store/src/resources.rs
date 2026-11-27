@@ -823,6 +823,14 @@ pub async fn get_resource_value_interpolated_internal<'a>(
                 "CUSTOM_INSTANCE_DB cannot be resolved from a job token ($WM_TOKEN)".to_string(),
             ));
         }
+        if db_with_opt_authed
+            .authed()
+            .is_some_and(|a| a.super_admin_withheld)
+        {
+            return Err(Error::NotAuthorized(
+                "CUSTOM_INSTANCE_DB requires a token carrying superadmin rights".to_string(),
+            ));
+        }
         require_super_admin_email(db_with_opt_authed.db(), &db_with_opt_authed.email()).await?;
         let mut pg_creds = PgDatabase::parse_uri(&get_database_url().await?.as_str().await)?;
         pg_creds.dbname = dbname.to_string();

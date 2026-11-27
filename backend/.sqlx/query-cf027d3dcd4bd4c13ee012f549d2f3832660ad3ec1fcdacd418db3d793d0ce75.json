@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE token SET super_admin = false WHERE email = $2 AND label != 'session' AND NOT $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Bool",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "cf027d3dcd4bd4c13ee012f549d2f3832660ad3ec1fcdacd418db3d793d0ce75"
+}

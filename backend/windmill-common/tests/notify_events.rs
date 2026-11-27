@@ -375,8 +375,10 @@ async fn test_trigger_notify_user_email_change(db: Pool<Postgres>) {
         .await
         .expect("Should poll events");
     assert!(
-        events.iter().any(|e| e.channel == "notify_user_email_change"
-            && e.payload == "test-workspace:test-user"),
+        events
+            .iter()
+            .any(|e| e.channel == "notify_user_email_change"
+                && e.payload == "test-workspace:test-user"),
         "email change should evict the key it moved"
     );
 
@@ -467,6 +469,75 @@ async fn test_trigger_notify_token_invalidation(db: Pool<Postgres>) {
     assert!(
         !token_events.is_empty(),
         "Should have notify_token_invalidation event"
+    );
+}
+
+/// A token's `super_admin` follows its owner's down, judged at commit: the global user import
+/// deletes and re-inserts every `password` row, which must leave a re-imported superadmin's
+/// tokens alone.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_token_superadmin_follows_owner_demotion(db: Pool<Postgres>) {
+    let token_is_superadmin = || async {
+        sqlx::query_scalar::<_, bool>("SELECT super_admin FROM token WHERE token = 'SECRET_TOKEN'")
+            .fetch_one(&db)
+            .await
+            .unwrap()
+    };
+    let reinsert = |super_admin: bool| {
+        let db = db.clone();
+        async move {
+            let mut tx = db.begin().await.unwrap();
+            sqlx::query("DELETE FROM password WHERE email = 'test@windmill.dev'")
+                .execute(&mut *tx)
+                .await
+                .unwrap();
+            sqlx::query(
+                "INSERT INTO password(email, password_hash, login_type, super_admin, verified, name)
+                 VALUES ('test@windmill.dev', 'x', 'password', $1, true, 'Test User')",
+            )
+            .bind(super_admin)
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+            tx.commit().await.unwrap();
+        }
+    };
+
+    reinsert(true).await;
+    assert!(
+        token_is_superadmin().await,
+        "re-imported superadmin keeps it"
+    );
+
+    // SCIM's rename moves the account and leaves its tokens under the old address.
+    for (from, to) in [
+        ("test@windmill.dev", "renamed@windmill.dev"),
+        ("renamed@windmill.dev", "test@windmill.dev"),
+    ] {
+        sqlx::query("UPDATE password SET email = $1 WHERE email = $2")
+            .bind(to)
+            .bind(from)
+            .execute(&db)
+            .await
+            .unwrap();
+    }
+    assert!(
+        token_is_superadmin().await,
+        "an email change is no demotion"
+    );
+
+    let before_id = get_latest_event_id(&db).await.unwrap();
+    reinsert(false).await;
+    assert!(
+        !token_is_superadmin().await,
+        "re-imported as a user loses it"
+    );
+    let events = poll_notify_events(&db, before_id).await.unwrap();
+    assert!(
+        events
+            .iter()
+            .any(|e| e.channel == "notify_token_invalidation" && e.payload == "SECRET_TOK"),
+        "demotion should evict the cached identity, got {events:?}"
     );
 }
 

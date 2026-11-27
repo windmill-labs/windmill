@@ -11288,7 +11288,8 @@ async fn attach_dev_workspace(
     )
     .fetch_optional(&db)
     .await?
-    .unwrap_or(false);
+    .unwrap_or(false)
+        && !authed.admin_withheld;
     if !is_admin_of_dev && !windmill_api_auth::is_super_admin_authed(&db, &authed).await? {
         return Err(Error::PermissionDenied(format!(
             "Attaching workspace '{dev_w_id}' as a dev requires being an admin of it (or a superadmin)"
@@ -11816,7 +11817,8 @@ async fn archive_workspace(
         )
         .fetch_optional(&db)
         .await?
-        .unwrap_or(false);
+        .unwrap_or(false)
+        && !authed.admin_withheld;
         if !is_prod_admin && !windmill_api_auth::is_super_admin_authed(&db, &authed).await? {
             return Err(Error::PermissionDenied(format!(
                 "Archiving dev workspace '{w_id}' requires being an admin of its parent prod workspace '{prod}' (or a superadmin)"
@@ -14470,6 +14472,8 @@ async fn load_workspace_authed(
             mcp_client: base_authed.mcp_client.clone(),
             capabilities: None,
             allowed_ips: None,
+            admin_withheld: base_authed.admin_withheld,
+            super_admin_withheld: base_authed.super_admin_withheld,
         });
     };
 
@@ -14491,7 +14495,7 @@ async fn load_workspace_authed(
     Ok(ApiAuthed {
         email: base_authed.email.clone(),
         username: user_row.username,
-        is_admin: is_super_admin || user_row.is_admin,
+        is_admin: is_super_admin || (user_row.is_admin && !base_authed.admin_withheld),
         is_operator: !user_row.is_admin
             && windmill_common::roles::member_is_restricted(
                 &mut conn,
@@ -14513,6 +14517,8 @@ async fn load_workspace_authed(
         mcp_client: base_authed.mcp_client.clone(),
         capabilities: None,
         allowed_ips: None,
+        admin_withheld: base_authed.admin_withheld,
+        super_admin_withheld: base_authed.super_admin_withheld,
     })
 }
 

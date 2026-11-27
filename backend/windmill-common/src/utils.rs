@@ -367,10 +367,21 @@ pub async fn require_admin_or_devops(
     // branch on a workspace it isn't admin of (GHSA-hfh4-cx4h-3fcr). Workspace admin
     // (`is_admin`) stays allowed — that is the cap ceiling.
     is_job_token: bool,
+    // True when the caller's token withholds its owner's superadmin rights: only the
+    // account's own devops role counts then, not the one a superadmin implies.
+    super_admin_withheld: bool,
     db: &DB,
 ) -> Result<()> {
     if !is_admin {
-        if is_job_token || !is_devops_email(db, email).await? {
+        let is_devops = if super_admin_withheld {
+            sqlx::query_scalar!("SELECT devops FROM password WHERE email = $1", email)
+                .fetch_optional(db)
+                .await?
+                .unwrap_or(false)
+        } else {
+            is_devops_email(db, email).await?
+        };
+        if is_job_token || !is_devops {
             return Err(Error::RequireAdmin(username.to_string()));
         }
     }
