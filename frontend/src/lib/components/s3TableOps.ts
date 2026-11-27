@@ -18,8 +18,9 @@ export type S3TableSource = {
 	s3ResourcePath?: string
 	csvSeparator?: string
 	csvHasHeader?: boolean
-	/** Read through a deployed app's `apps_u/*` routes, which take no column filters and
-	 * no header flag. */
+	/** Read through a deployed app's `apps_u/*` routes, which take no header flag and no
+	 * `filters`: only a "contains" match on one column (`search_col`), or a search of all of
+	 * them. */
 	app?: { path: string; presigned?: string }
 }
 
@@ -76,6 +77,13 @@ export async function s3TableOps(
 	const filtersParam = (columnFilters: Record<string, unknown> | undefined) =>
 		columnFilters && Object.keys(columnFilters).length ? JSON.stringify(columnFilters) : undefined
 	const searchParam = (quicksearch: string) => quicksearch.trim() || undefined
+	// The app routes take one search: the first column filter, else the search of all columns.
+	const appSearch = (quicksearch: string, columnFilters: Record<string, unknown> | undefined) => {
+		const [column, value] = Object.entries(columnFilters ?? {})[0] ?? []
+		return column
+			? { searchCol: column, searchTerm: String(value ?? '').replace(/^=/, '') }
+			: { searchTerm: searchParam(quicksearch) }
+	}
 
 	async function loadChunk(params: {
 		offset: number
@@ -101,7 +109,7 @@ export async function s3TableOps(
 				csvSeparator: csvOptions.csvSeparator,
 				offset: data.offset,
 				limit: data.limit,
-				searchTerm: data.searchTerm,
+				...appSearch(params.quicksearch ?? '', params.columnFilters),
 				sortCol: data.sortCol,
 				sortDesc: data.sortDesc
 			}
@@ -120,8 +128,11 @@ export async function s3TableOps(
 	const colDefs: ColumnDef[] = head.columns.map((field, i) => ({
 		field,
 		datatype: datatypeOf(head.column_types?.[i]),
-		// The server cannot read a struct, map or union as text to filter it.
-		filterable: !app && !/^(Struct|Map|Union)/.test(head.column_types?.[i] ?? ''),
+		// The server cannot read a struct, map or union as text to filter it. The app routes only
+		// match a substring, so there only text columns take a filter.
+		filterable: app
+			? datatypeOf(head.column_types?.[i]) === 'text'
+			: !/^(Struct|Map|Union)/.test(head.column_types?.[i] ?? ''),
 		defaultvalue: '',
 		isprimarykey: false,
 		isidentity: ColumnIdentity.No,
@@ -131,13 +142,14 @@ export async function s3TableOps(
 
 	const ops: IDbTableOps = {
 		dbType: 'duckdb',
-		tableKey: source.fileKey.split('/').pop() ?? source.fileKey,
+		// Named after the file without its extension: the table's CSV export appends `.csv`.
+		tableKey: (source.fileKey.split('/').pop() ?? source.fileKey).replace(/\.[^.]+$/, ''),
 		colDefs,
 		getCount: async ({ quicksearch, columnFilters }) => {
 			if (appCommon) {
 				const res = await AppService.appLoadTableCount({
 					...appCommon,
-					searchTerm: searchParam(quicksearch)
+					...appSearch(quicksearch, columnFilters)
 				})
 				return res.count ?? 0
 			}

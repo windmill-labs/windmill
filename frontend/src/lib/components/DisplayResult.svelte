@@ -213,7 +213,10 @@
 		if (serverTableFormat(key)) return 'table'
 		if (['.png', '.jpeg', '.jpg', '.webp'].some((ext) => key.endsWith(ext))) return 'image'
 		if (key.endsWith('.pdf')) return 'pdf'
-		if (key.endsWith('.txt') || key.endsWith('.log')) return 'text'
+		// Fetched on display, unlike an image, so not for a viewer who cannot read the file (a
+		// logged-out public page).
+		if (!$userStore && !appPath) return undefined
+		if (/\.(txt|log)$/i.test(key)) return 'text'
 		if (isMarkdownFile(key)) return 'markdown'
 		return undefined
 	}
@@ -351,7 +354,8 @@
 	let is_render_all = $state(false)
 	let download_as_csv = $state(false)
 	function inferResultKind(result: any) {
-		if (typeof result === 'string' && result.match(/s3:\/\/[^/]*\/.+/)) {
+		// Anchored: a sentence that mentions an `s3://` URI is a plain string.
+		if (typeof result === 'string' && result.match(/^s3:\/\/[^/]*\/.+/)) {
 			largeObject = false
 			return 's3object'
 		}
@@ -530,6 +534,8 @@
 
 	let jsonViewer: Drawer | undefined = $state()
 	let s3FileViewer: S3FilePicker | undefined = $state()
+	// The file browser is only mounted with the result's controls.
+	let canExplore = $derived(!!$userStore && !disableExpand && !noControls)
 
 	function checkIfHasBigInt(result: any) {
 		if (typeof result === 'number' && Number.isInteger(result) && !Number.isSafeInteger(result)) {
@@ -897,8 +903,8 @@
 					}}
 				>
 					{#snippet children({ item })}
-						<ToggleButton size="xs" value="pretty" label="Pretty" icon={Highlighter} {item} />
-						<ToggleButton size="xs" value="json" label="JSON" icon={Braces} {item} />
+						<ToggleButton value="pretty" label="Pretty" icon={Highlighter} {item} />
+						<ToggleButton value="json" label="JSON" icon={Braces} {item} />
 					{/snippet}
 				</ToggleButtonGroup>
 			</div>
@@ -945,11 +951,11 @@
 						>
 							{#snippet children({ item })}
 								{#if ['table-col', 'table-row', 'table-row-object'].includes(resultKind ?? '')}
-									<ToggleButton size="xs" value="table" label="Table" icon={Table2} {item} />
+									<ToggleButton size="sm" value="table" label="Table" icon={Table2} {item} />
 								{:else}
-									<ToggleButton size="xs" value="pretty" label="Pretty" icon={Highlighter} {item} />
+									<ToggleButton size="sm" value="pretty" label="Pretty" icon={Highlighter} {item} />
 								{/if}
-								<ToggleButton size="xs" value="json" label="JSON" icon={Braces} {item} />
+								<ToggleButton size="sm" value="json" label="JSON" icon={Braces} {item} />
 							{/snippet}
 						</ToggleButtonGroup>
 					{/if}
@@ -1241,7 +1247,7 @@
 										{s3object}
 										{workspaceId}
 										{appPath}
-										onExplore={$userStore ? () => s3FileViewer?.open?.(s3object) : undefined}
+										onExplore={canExplore ? () => s3FileViewer?.open?.(s3object) : undefined}
 										markdownSource={s3PreviewKind(s3object.s3) === 'markdown'
 											? markdownSourceKeys.includes(s3object.s3)
 											: undefined}
@@ -1273,7 +1279,7 @@
 												{s3object}
 												{workspaceId}
 												{appPath}
-												onExplore={$userStore ? () => s3FileViewer?.open?.(s3object) : undefined}
+												onExplore={canExplore ? () => s3FileViewer?.open?.(s3object) : undefined}
 												previewOpen={collapsible ? previewOpen : undefined}
 												onTogglePreview={() => {
 													seeS3PreviewFileFromList = previewOpen ? '' : s3object?.s3

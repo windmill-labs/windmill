@@ -165,7 +165,6 @@
 
 	// ── Filters ──────────────────────────────────────────────────────────────
 	let filterSchema = $derived(buildDbTableFilterSchema(columns))
-	let hasColumnFilters = $derived(Object.values(filterSchema.schema).some((f) => !f.hidden))
 	let filters: Record<string, any> = $state({})
 	let quicksearch = $derived(unescapeFreeText(String(filters[FREE_TEXT_KEY] ?? '')))
 	let filterWhere = $derived(
@@ -1055,7 +1054,7 @@
 			dropdownOffsetY={1}
 			schema={filterSchema.schema}
 			bind:value={filters}
-			placeholder={compact || !hasColumnFilters ? 'Search' : 'Search, or filter by column...'}
+			placeholder={compact ? 'Search' : 'Search, or filter by column...'}
 		/>
 		<div class="flex shrink-0 items-center gap-2 text-xs text-secondary">
 			{@render toolbar?.()}

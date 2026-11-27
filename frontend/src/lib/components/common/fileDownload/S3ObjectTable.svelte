@@ -1,10 +1,11 @@
 <script lang="ts">
-	import { ChevronDown, Loader2, PanelTop } from 'lucide-svelte'
+	import { ChevronDown, FileDown, Loader2, PanelTop } from 'lucide-svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import { Button } from '$lib/components/common'
 	import type { IDbTableOps } from '$lib/components/dbOps'
 	import { s3TableOps, serverTableFormat } from '$lib/components/s3TableOps'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import { downloadViaClient, shouldDownloadViaClient } from '$lib/utils/downloadFile'
 
 	interface Props {
 		s3object: { s3: string; storage?: string; presigned?: string; disable_download?: boolean }
@@ -35,7 +36,17 @@
 	let csvHasHeader = $state(true)
 	/** The separator the server guessed while none is picked. */
 	let detectedSeparator: string | undefined = $state(undefined)
-	let isCsv = $derived(serverTableFormat(s3object.s3) === 'csv')
+	// JSON lines are read through the CSV route too, but have no separator or header row.
+	let isCsv = $derived(/\.(csv|tsv)$/i.test(s3object.s3))
+	let isParquet = $derived(serverTableFormat(s3object.s3) === 'parquet')
+	let workspace = $derived(workspaceId ?? $operatingWorkspace!)
+	// The server converts the whole file; the table's own export only has the rows it loaded.
+	let parquetCsvPath = $derived(
+		appPath
+			? `/w/${workspace}/apps_u/download_s3_parquet_file_as_csv/${appPath}?file_key=${encodeURIComponent(s3object.s3)}${s3object.storage ? `&storage=${s3object.storage}` : ''}${s3object.presigned ? `&${s3object.presigned}` : ''}`
+			: `/w/${workspace}/job_helpers/download_s3_parquet_file_as_csv?file_key=${encodeURIComponent(s3object.s3)}${s3object.storage ? `&storage=${s3object.storage}` : ''}`
+	)
+	let parquetCsvName = $derived((s3object.s3.split('/').pop() ?? 'download') + '.csv')
 	let width = $state(0)
 	let separator = $derived(
 		CSV_SEPARATORS.find((s) => s.value === (csvSeparator ?? detectedSeparator))
@@ -78,7 +89,7 @@
 
 	let table = $derived(
 		s3TableOps({
-			workspace: workspaceId ?? $operatingWorkspace!,
+			workspace,
 			fileKey: s3object.s3,
 			storage: s3object.storage,
 			csvSeparator,
@@ -96,13 +107,13 @@
 		items={separatorItems}
 		placement="bottom-end"
 		fixedHeight={false}
-		triggerLabel="Separator: {separator?.name ?? 'detecting'}{csvSeparator === undefined
-			? ' (detected)'
-			: ''}"
+		triggerLabel={separator
+			? `Separator: ${separator.name}${csvSeparator === undefined ? ' (detected)' : ''}`
+			: 'Separator: detect automatically'}
 		class="h-7 px-2 gap-1 rounded-md text-xs text-primary hover:bg-surface-hover"
 	>
 		{#snippet buttonReplacement()}
-			<span class="font-mono">{separator?.short ?? '…'}</span>
+			<span class={separator ? 'font-mono' : ''}>{separator?.short ?? 'Auto'}</span>
 			<ChevronDown size={14} />
 		{/snippet}
 	</DropdownV2>
@@ -121,6 +132,42 @@
 	<div class="w-px h-5 border-l"></div>
 {/snippet}
 
+{#snippet parquetControls()}
+	{#if shouldDownloadViaClient()}
+		<Button
+			variant="subtle"
+			unifiedSize="sm"
+			iconOnly
+			startIcon={{ icon: FileDown }}
+			title="Download the whole file as CSV"
+			onClick={() => downloadViaClient(parquetCsvPath, parquetCsvName)}
+		/>
+	{:else}
+		<Button
+			variant="subtle"
+			unifiedSize="sm"
+			iconOnly
+			startIcon={{ icon: FileDown }}
+			title="Download the whole file as CSV"
+			href="/api{parquetCsvPath}"
+			download={parquetCsvName}
+		/>
+	{/if}
+	<div class="w-px h-5 border-l"></div>
+{/snippet}
+
+<!-- The storage reports an empty file as a failed range read. -->
+{#snippet loadError(e: any)}
+	{@const message = String(e?.body ?? e?.message ?? e)}
+	{#if /Range started at 0 and ended at 0/.test(message)}
+		<div class="p-3 text-xs text-secondary">This file is empty.</div>
+	{:else}
+		<div class="p-3 text-xs text-red-600 dark:text-red-400 break-words">
+			Could not read this file as a table: {message}
+		</div>
+	{/if}
+{/snippet}
+
 <div class="overflow-hidden" style="height: {height}px" bind:clientWidth={width} data-interactive>
 	{#await table}
 		<div class="flex h-full items-center justify-center gap-1 text-2xs text-secondary">
@@ -129,8 +176,12 @@
 	{:then t}
 		<t.DBTable
 			dbTableOps={t.ops}
-			disableDownload={s3object.disable_download}
-			toolbar={isCsv ? csvControls : undefined}
+			disableDownload={s3object.disable_download || isParquet}
+			toolbar={isCsv
+				? csvControls
+				: isParquet && !s3object.disable_download
+					? parquetControls
+					: undefined}
 			compact={width < COMPACT_WIDTH}
 		/>
 	{:catch e}
@@ -139,8 +190,6 @@
 				{@render csvControls()}
 			</div>
 		{/if}
-		<div class="p-3 text-xs text-red-600 dark:text-red-400 break-words">
-			Could not read this file as a table: {e?.body ?? e?.message ?? e}
-		</div>
+		{@render loadError(e)}
 	{/await}
 </div>
