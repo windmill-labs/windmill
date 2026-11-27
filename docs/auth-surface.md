@@ -78,8 +78,9 @@ Symbols, not line numbers, are cited: they drift less.
   Losing it follows the owner without help from the caller: the deferred trigger
   `password_superadmin_demote_tokens` clears the column on every token of an address that, at
   commit, no longer has a superadmin `password` row (demotion, deletion, an import's
-  delete-and-reinsert), and evicts each through `notify_token_invalidation`. Gaining it does not:
-  a promotion path updates the tokens itself, leaving MCP ones alone.
+  delete-and-reinsert), and evicts each through `notify_token_invalidation`. An email change does
+  not fire it, since SCIM's rename leaves the tokens under the old address. Gaining it does not
+  follow either: a promotion path updates the tokens itself, leaving MCP ones alone.
 - **Every superadmin route refuses a job token**: `require_super_admin`
   (`windmill-api-auth/src/lib.rs`) errors on `authed.job_id.is_some()`. A script that needs
   `users/create`, `tokens/impersonate`, `set_login_type`, … must use a dedicated superadmin user

@@ -1,11 +1,10 @@
 -- A token's `super_admin` column is what grants it superadmin power at auth time, so it must not
--- outlive the owner's: whatever path demotes, renames or deletes a superadmin `password` row,
--- that address's tokens lose the flag. Deferred to commit and judged on the committed state, so a
--- path that deletes and re-inserts the rows (the global user import) demotes only the addresses
--- that come back without superadmin, and a rename finds no tokens left under the old address.
+-- outlive the owner's: whatever path demotes or deletes a superadmin `password` row, that
+-- address's tokens lose the flag. Deferred to commit and judged on the committed state, so a path
+-- that deletes and re-inserts the rows (the global user import) demotes only the addresses that
+-- come back without superadmin. An email change is not a demotion and does not fire: SCIM's
+-- rename moves the account but leaves its tokens under the old address.
 -- Promotion is left to the application, which deliberately does not elevate MCP tokens.
--- Tokens with no `password` row at all (dedicated worker and runner group subprocesses) are
--- never matched, since the trigger fires only for a row that was a superadmin.
 CREATE OR REPLACE FUNCTION demote_tokens_of_demoted_owner()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -35,17 +34,17 @@ REVOKE EXECUTE ON FUNCTION demote_tokens_of_demoted_owner() FROM PUBLIC;
 
 DROP TRIGGER IF EXISTS password_superadmin_demote_tokens ON password;
 CREATE CONSTRAINT TRIGGER password_superadmin_demote_tokens
-AFTER UPDATE OF super_admin, email OR DELETE ON password
+AFTER UPDATE OF super_admin OR DELETE ON password
 DEFERRABLE INITIALLY DEFERRED
 FOR EACH ROW
 WHEN (OLD.super_admin)
 EXECUTE FUNCTION demote_tokens_of_demoted_owner();
 
--- Tokens already left with the flag by an owner who lost it, or whose account is gone. The
--- subprocess tokens a dedicated worker or runner group mints for itself are superadmin by
--- design and have no account.
+-- Tokens already left with the flag by an owner who lost it. A token whose address has no
+-- `password` row is left alone: a SCIM rename and the subprocesses of dedicated workers and
+-- runner groups both produce one, and cannot be told apart from a deleted account's.
 UPDATE token t SET super_admin = false
- WHERE t.super_admin
-   AND NOT EXISTS (SELECT 1 FROM password p WHERE p.email = t.email AND p.super_admin)
-   AND NOT COALESCE(t.label IN ('dedicated_worker', 'runner_group')
-                    AND t.email = t.label || '@windmill.dev', false);
+  FROM password p
+ WHERE p.email = t.email
+   AND t.super_admin
+   AND NOT p.super_admin;

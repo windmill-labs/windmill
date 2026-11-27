@@ -478,12 +478,10 @@ async fn test_trigger_notify_token_invalidation(db: Pool<Postgres>) {
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
 async fn test_token_superadmin_follows_owner_demotion(db: Pool<Postgres>) {
     let token_is_superadmin = || async {
-        sqlx::query_scalar::<_, bool>(
-            "SELECT super_admin FROM token WHERE token_prefix = 'SECRET_TOK'",
-        )
-        .fetch_one(&db)
-        .await
-        .unwrap()
+        sqlx::query_scalar::<_, bool>("SELECT super_admin FROM token WHERE token = 'SECRET_TOKEN'")
+            .fetch_one(&db)
+            .await
+            .unwrap()
     };
     let reinsert = |super_admin: bool| {
         let db = db.clone();
