@@ -24,6 +24,8 @@
 	import ClipboardPanel from '../details/ClipboardPanel.svelte'
 	import McpAccessPicker, { type McpAccess } from '../mcp/McpAccessPicker.svelte'
 	import MultiSelect from '../select/MultiSelect.svelte'
+	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
 	const operatingWorkspace = useOperatingWorkspace()
@@ -64,10 +66,11 @@
 	let pickedExpiration = $state<number | undefined>(undefined)
 	// A token is bound to one workspace unless the user picks all of them: a bound token reaches
 	// only that workspace's routes, none of the instance-level ones.
-	const ALL_WORKSPACES = '__all_workspaces__'
-	const initialTokenWorkspace = () =>
-		defaultNewTokenWorkspace ?? $operatingWorkspace ?? ALL_WORKSPACES
-	let newTokenWorkspace = $state<string>(untrack(initialTokenWorkspace))
+	const initialTokenWorkspace = () => defaultNewTokenWorkspace ?? $operatingWorkspace
+	let newTokenWorkspace = $state<string | undefined>(untrack(initialTokenWorkspace))
+	let newTokenReach = $state<'workspace' | 'all'>(
+		untrack(initialTokenWorkspace) ? 'workspace' : 'all'
+	)
 	// The owner's admin and superadmin rights are carried only when asked for.
 	let carryAdmin = $state(false)
 	let carrySuperAdmin = $state(false)
@@ -210,6 +213,7 @@
 		mcpCreationMode = false
 		resetExpirationOnModeChange()
 		newTokenWorkspace = initialTokenWorkspace()
+		newTokenReach = newTokenWorkspace ? 'workspace' : 'all'
 		newMcpToken = undefined
 		readOnly = false
 		if (mcpLabelAutofilled) {
@@ -299,17 +303,14 @@
 	const tokenWorkspaceId = $derived(
 		mcpCreationMode
 			? mcpBoundWorkspace
-			: newTokenWorkspace === ALL_WORKSPACES
+			: newTokenReach === 'all'
 				? undefined
 				: newTokenWorkspace
 	)
 	// Offered to who holds admin rights here; the server holds the token within the owner's
 	// rights in each workspace, so this only hides a switch that would do nothing.
 	const canCarryAdmin = $derived(!!$userStore?.is_admin || !!$superadmin)
-	const tokenWorkspaceItems = $derived([
-		...workspaces.map((w) => ({ label: w.name, value: w.id })),
-		{ label: 'All workspaces', value: ALL_WORKSPACES }
-	])
+	const tokenWorkspaceItems = $derived(workspaces.map((w) => ({ label: w.name, value: w.id })))
 	const workspacesScope = $derived(
 		mcpCreationMode && !mcpAllWorkspaces && mcpWorkspaces.length > 1
 			? `mcp:workspaces:${mcpWorkspaces.join(',')}`
@@ -611,25 +612,39 @@
 					{/if}
 				</div>
 
-				{#if !lockWorkspace}
-					<div class="flex flex-col gap-1">
-						<span class="text-xs font-semibold text-emphasis">Workspace</span>
-						<Select
-							bind:value={newTokenWorkspace}
-							inputClass="w-full"
-							items={tokenWorkspaceItems}
-						/>
-						<p class="text-2xs text-hint">
-							{#if tokenWorkspaceId == undefined}
-								Works in every workspace you are a member of, and on instance-level endpoints. The
-								CLI needs this.
-							{:else}
-								Works only in this workspace. Instance-level endpoints refuse it.
-							{/if}
-						</p>
-					</div>
-				{/if}
 			</div>
+
+			{#if !lockWorkspace}
+				<div class="mt-4 flex flex-col gap-1">
+					<span class="text-xs font-semibold text-emphasis">Works in</span>
+					<div class="flex flex-row flex-wrap items-center gap-2">
+						<ToggleButtonGroup bind:selected={newTokenReach} allowEmpty={false}>
+							{#snippet children({ item })}
+								<ToggleButton {item} value="workspace" label="One workspace" />
+								<ToggleButton {item} value="all" label="All workspaces (instance-wide)" />
+							{/snippet}
+						</ToggleButtonGroup>
+						{#if newTokenReach === 'workspace'}
+							<div class="min-w-48">
+								<Select
+									bind:value={newTokenWorkspace}
+									placeholder="Pick a workspace"
+									inputClass="w-full"
+									items={tokenWorkspaceItems}
+								/>
+							</div>
+						{/if}
+					</div>
+					<p class="text-2xs text-hint">
+						{#if newTokenReach === 'all'}
+							Works in every workspace you are a member of, and on instance-level endpoints. The CLI
+							needs this.
+						{:else}
+							Works only in this workspace. Other workspaces and instance-level endpoints refuse it.
+						{/if}
+					</p>
+				</div>
+			{/if}
 
 			{#if canCarryAdmin || $superadmin}
 				<div class="mt-4 flex flex-col gap-2">
@@ -701,7 +716,11 @@
 						Cancel
 					</Button>
 				{/if}
-				<Button on:click={() => createToken()} variant="accent">New token</Button>
+				<Button
+					on:click={() => createToken()}
+					disabled={!lockWorkspace && newTokenReach === 'workspace' && !newTokenWorkspace}
+					variant="accent">New token</Button
+				>
 			</div>
 		{/if}
 	</div>
