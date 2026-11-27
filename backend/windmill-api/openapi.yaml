@@ -4221,6 +4221,36 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/workspaces/hub_access:
+    post:
+      operationId: updateWorkspaceHubAccess
+      summary: Replace the workspace's Hub access list
+      description: The Hub integrations whose approved scripts members without code may use in this workspace. `null` follows the instance's list; a list replaces it, and an empty one allows nothing. Requires workspace admin privileges.
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - hub_access
+              properties:
+                hub_access:
+                  nullable: true
+                  allOf:
+                    - $ref: "#/components/schemas/HubAccessList"
+      responses:
+        "200":
+          description: Hub access list updated
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/workspaces/compare/{target_workspace_id}:
     get:
       operationId: compareWorkspaces
@@ -10429,6 +10459,12 @@ paths:
                       description: the label the hub curates for the integration, null or absent where it names none
                       type: string
                       nullable: true
+                    approved_scripts:
+                      description: how many standalone scripts of the integration are approved, of every kind, absent on a hub that does not count them
+                      type: integer
+                    read_only_scripts:
+                      description: how many of the approved scripts are read-only, absent on a hub that does not count them
+                      type: integer
                   required:
                     - name
 
@@ -41105,6 +41141,17 @@ components:
       enum: [none, compose, full]
       description: How much of a kind of runnable a role may author. `compose` assembles already-deployed runnables with no code of one's own.
 
+    HubAccess:
+      type: string
+      enum: [read, write]
+      description: What a role without code may do with the Hub scripts of one integration. `read` allows only versions the Hub approved as read-only; `write` implies `read`.
+
+    HubAccessList:
+      type: object
+      description: Hub integrations (lowercased) whose approved scripts a role without `code` may name, with the level allowed. A key may not contain `/`.
+      additionalProperties:
+        $ref: "#/components/schemas/HubAccess"
+
     RoleVisibility:
       type: object
       description: Pages a role sees. Not enforced.
@@ -41143,6 +41190,8 @@ components:
           description: Fork the workspace.
         visibility:
           $ref: "#/components/schemas/RoleVisibility"
+        hub:
+          $ref: "#/components/schemas/HubAccessList"
       required: [code, flows, apps, manage_schedules, manage_triggers, run, fork, visibility]
 
     RoleCapabilitiesPatch:
@@ -41214,6 +41263,13 @@ components:
             $ref: "#/components/schemas/EffectiveRole"
         overrides:
           $ref: "#/components/schemas/RoleOverrides"
+        hub_access:
+          nullable: true
+          description: The workspace's own Hub access list, null while it follows `instance_hub_access`.
+          allOf:
+            - $ref: "#/components/schemas/HubAccessList"
+        instance_hub_access:
+          $ref: "#/components/schemas/HubAccessList"
         custom_roles_enabled:
           type: boolean
           description: Whether this workspace may add roles of its own.
@@ -41222,7 +41278,7 @@ components:
           nullable: true
         my_capabilities:
           $ref: "#/components/schemas/RoleCapabilities"
-      required: [roles, overrides, custom_roles_enabled, my_capabilities]
+      required: [roles, overrides, instance_hub_access, custom_roles_enabled, my_capabilities]
 
     WorkspaceComparison:
       type: object

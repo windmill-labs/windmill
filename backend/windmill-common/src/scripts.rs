@@ -22,7 +22,7 @@ use backon::ConstantBuilder;
 use backon::{BackoffBuilder, Retryable};
 use regex::Regex;
 
-use crate::utils::{parse_hub_id, StripPath};
+use crate::utils::{calculate_hash, parse_hub_id, StripPath};
 
 /// The tag a script's dependency job runs on, given the script's own tag; `None` leaves it to
 /// `push`'s default (the language tag). Every relock of a script must use this, or a relock
@@ -247,6 +247,17 @@ pub async fn get_full_hub_script_by_path(
     get_full_hub_script_by_id(parse_hub_id(path.to_path(), "hub/")?, http_client, db).await
 }
 
+/// The name a version is cached under. Private Hubs number their scripts alike, so theirs carry
+/// the Hub: what [`crate::jobs::check_can_name_runnables`] read from the configured Hub must not
+/// admit a script cached from another. Public ones keep the bare id, which images ship.
+fn hub_cache_name(hub_base_url: &str, version: i32) -> String {
+    if version < PRIVATE_HUB_MIN_VERSION {
+        version.to_string()
+    } else {
+        format!("{version}-{}", &calculate_hash(hub_base_url)[..16])
+    }
+}
+
 /// Performs no authorization and uses the instance's Hub credentials and shared cache: the caller
 /// must already have decided this user may run or read this script.
 pub async fn get_full_hub_script_by_id(
@@ -257,7 +268,9 @@ pub async fn get_full_hub_script_by_id(
     // A cache entry that cannot be read or parsed counts as a miss rather than an error:
     // a truncated write leaves a file that exists but deserializes to nothing, and refetching
     // it is always preferable to failing the job push it was read for.
-    let cache_path = format!("{}/{version}", *HUB_CACHE_DIR);
+    let hub_base_url = (**HUB_BASE_URL.load()).clone();
+    let cache_name = hub_cache_name(&hub_base_url, version);
+    let cache_path = format!("{}/{cache_name}", *HUB_CACHE_DIR);
     let cached = match tokio::fs::read_to_string(&cache_path).await {
         Ok(content) => serde_json::from_str::<HubScript>(&content)
             .inspect_err(|e| {
@@ -276,10 +289,10 @@ pub async fn get_full_hub_script_by_id(
         return Ok(script);
     }
 
-    let script = fetch_hub_script(version, http_client, db).await?;
+    let script = fetch_hub_script(&hub_base_url, version, http_client, db).await?;
     if let Err(e) = crate::worker::write_file(
         &HUB_CACHE_DIR,
-        &version.to_string(),
+        &cache_name,
         &serde_json::to_string(&script).map_err(to_anyhow)?,
     ) {
         tracing::error!("failed to write hub script {version} to cache: {e}");
@@ -290,12 +303,11 @@ pub async fn get_full_hub_script_by_id(
 }
 
 async fn fetch_hub_script(
+    hub_base_url: &str,
     id: i32,
     http_client: &reqwest::Client,
     db: Option<&DB>,
 ) -> crate::error::Result<HubScript> {
-    let hub_base_url = (**HUB_BASE_URL.load()).clone();
-
     let response = (|| async {
         let response = http_get_from_hub(
             http_client,

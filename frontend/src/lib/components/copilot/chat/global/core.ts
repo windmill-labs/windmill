@@ -2449,7 +2449,7 @@ export function getInstructions(
 	external = false,
 	/** The session cannot run a flow preview, which an agent's test run is. */
 	untestable = false,
-	/** The role has code, which the server requires to add a hub path. */
+	/** The role has code, so it may add any hub path. The Hub access list is not offered here. */
 	hub = true
 ): string | Promise<string> {
 	switch (subject) {

@@ -57,12 +57,14 @@ app rather than telling them why. Both integration tests assert the status for t
 ## Hub paths in triggers and schedules
 
 Whatever write rights they hold, a member without `code` cannot save a new Hub path into a trigger,
-a schedule or a WebSocket capture config (`check_new_hub_paths`). Paths already saved keep working,
+a schedule or a WebSocket capture config (`check_new_hub_paths`), unless the Hub
+access list allows that script (see `docs/workspace-roles.md`, "Hub scripts", for the list and its
+refusal reasons). Paths already saved keep working,
 and are not rechecked when the trigger or schedule is edited, even when the edit moves one between
 a trigger's fields (an error handler to the main script) or among a schedule's handlers; a handler
 cannot take the schedule's Hub target. The edit makes the editor its run-as identity unless they
 may keep the stored one (admins, `wm_deployers`), so a saved Hub path then runs as the editor, with
-the arguments they save: accepted so that rows a member with `code` set up stay editable, since the
+the arguments they save: accepted so that rows set up by a member who could name the path stay editable, since the
 choice of which Hub code runs stays with that member.
 
 ## Drafts

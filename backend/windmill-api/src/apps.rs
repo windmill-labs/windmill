@@ -2494,19 +2494,19 @@ pub(crate) async fn validate_operator_composed_app(
     let referenced = check_operator_composed_app(write, raw_app, value, policy)?;
     // A Hub path has no workspace row to be readable in: it is held to the rule for naming one.
     let mut in_workspace = Vec::with_capacity(referenced.len());
+    let mut hub_runnables = vec![];
     for (kind, path) in referenced {
         if kind != AppRunnableKind::Agent {
             let runnable = RunnableRef::from_path(&path, kind == AppRunnableKind::Flow)?;
             if runnable.path().starts_with("hub/") {
-                windmill_api_auth::composed::check_builder_can_name_hub(
-                    &runnable, authed, db, w_id,
-                )
-                .await?;
+                hub_runnables.push(runnable);
                 continue;
             }
         }
         in_workspace.push((kind, path));
     }
+    windmill_api_auth::composed::check_builder_can_name_hub(&hub_runnables, authed, db, w_id)
+        .await?;
     require_runnables_readable(authed, db, user_db, w_id, in_workspace).await
 }
 

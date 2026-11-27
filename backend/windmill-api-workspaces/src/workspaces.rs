@@ -650,14 +650,15 @@ async fn resolve_new_member_role(
         None if operator => windmill_common::roles::OPERATOR_ROLE.to_string(),
         None => windmill_common::roles::default_role_name(roles.iter().map(|r| r.name.as_str())),
     };
-    let caps = roles
+    let code = roles
         .iter()
         .find(|r| r.name == name)
         .ok_or_else(|| {
             Error::BadRequest(format!("role `{name}` is not defined in workspace {w_id}"))
         })?
-        .capabilities;
-    Ok((name, !caps.code))
+        .capabilities
+        .code;
+    Ok((name, !code))
 }
 
 /// The role is one choice stored as two flags; both set would show as admin in the UI while the
@@ -8156,28 +8157,27 @@ async fn fork_roles(db: &DB, parent_workspace_id: &str) -> Result<ForkRoles> {
     let mut out = ForkRoles { from: vec![], to: vec![], to_operator: vec![] };
     for role in roles.iter() {
         let to = mapping.get(&role.name).unwrap_or(&role.name);
-        let caps = roles
+        let code = roles
             .iter()
             .find(|r| &r.name == to)
-            .map(|r| r.capabilities)
-            .unwrap_or(windmill_common::roles::RoleCapabilities::NONE);
+            .is_some_and(|r| r.capabilities.code);
         out.from.push(role.name.clone());
         out.to.push(to.clone());
-        out.to_operator.push(!caps.code);
+        out.to_operator.push(!code);
     }
     Ok(out)
 }
 
-/// Give the fork the parent's workspace-only roles and overrides, so a role carried into the fork
-/// means there what it means in the parent.
+/// Give the fork the parent's workspace-only roles, overrides and Hub access list, so a role carried
+/// into the fork means there what it means in the parent.
 async fn copy_workspace_roles(
     tx: &mut Transaction<'_, Postgres>,
     source_workspace_id: &str,
     target_workspace_id: &str,
 ) -> Result<()> {
     sqlx::query!(
-        "UPDATE workspace_settings SET role_overrides =
-            (SELECT role_overrides FROM workspace_settings WHERE workspace_id = $2)
+        "UPDATE workspace_settings SET (role_overrides, hub_access) =
+            (SELECT role_overrides, hub_access FROM workspace_settings WHERE workspace_id = $2)
          WHERE workspace_id = $1",
         target_workspace_id,
         source_workspace_id,
@@ -15950,6 +15950,7 @@ pub enum SettingsEdit {
     OperatorSettings,
     /// Body: the workspace's role overrides as a whole, `{ "<role>": { label?, capabilities } }`.
     RoleOverrides,
+    HubAccess,
     Datatable,
     SlackCommand,
     SetSlackOAuth,
@@ -16016,6 +16017,10 @@ pub async fn apply_settings_edit(
         }
         RoleOverrides => {
             crate::workspace_roles::update_role_overrides(a, p, d, settings_edit_body(edit, body)?)
+                .await?
+        }
+        HubAccess => {
+            crate::workspace_roles::update_hub_access(a, p, d, settings_edit_body(edit, body)?)
                 .await?
         }
         Datatable => {

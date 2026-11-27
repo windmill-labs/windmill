@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE workspace_settings SET (role_overrides, hub_access) =\n            (SELECT role_overrides, hub_access FROM workspace_settings WHERE workspace_id = $2)\n         WHERE workspace_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "17fca8d19f4e243eb7863efdb102efd37f0e83f38d65576ff9ba0a54e5305de6"
+}

@@ -49,6 +49,7 @@ write a secret you were not given: keep the placeholder.
 | `default_scripts` | `{ order?, hidden?, default_script_content? }` for the script language picker. |
 | `deploy_ui` | `{ include_path?, include_type? }`: what the deploy-to-workspace UI offers. |
 | `role_overrides` | `{ <role>: { label?, capabilities, workspace_only? } }`: the workspace's overrides of the instance's roles, and with `workspace_only: true` a role of this workspace only (Enterprise). A role the value omits loses its override. Overriding a role the instance does not define is refused. Edit operator rights in `role_overrides.operator`. |
+| `hub_access` | `{ <Hub integration>: read \| write }`: the Hub scripts members without code may use, replacing the instance's list. `null` uses the instance's list; `{}` allows none. |
 | `operator_settings` | Legacy view of the `operator` role, kept for older servers: page visibility flags (`runs`, `schedules`, `resources`, `variables`, `assets`, `audit_logs`, `groups`, `folders`, `workers`, `triggers`) and write rights (`manage_schedules`, `manage_triggers`, `builder_flows`, `builder_apps`). Not applied when the document also states `role_overrides`. |
 | `mute_critical_alerts` | Mute the workspace's critical alerts. |
 | `slack_team_id`, `slack_name` | Read only: set by connecting Slack on the settings page. |
@@ -72,7 +73,7 @@ only show them, `-y` to skip the question, `--replace` to clear what the file om
 With `includeSettings: true` in `wmill.yaml`, `wmill sync pull` writes the document to
 `settings.yaml`, secrets encrypted with the workspace key (plaintext only with `plainSecrets`), and
 `wmill sync push` applies it. Unlike a partial apply, a push treats the file as the whole
-document: a setting the file omits is cleared, except `operator_settings`, `role_overrides`, `color`, the auto-invite
+document: a setting the file omits is cleared, except `operator_settings`, `role_overrides`, `hub_access`, `color`, the auto-invite
 instance groups, and the keys `ducklake`, `dbt_warehouses`, `deploy_ui`, `teams_command_script`,
 `public_app_execution_limit_per_minute`, `guest_jwt_public_key`, `guest_jwt_jwks_url`,
 `error_handler_fallback_to_instance_alerts` and

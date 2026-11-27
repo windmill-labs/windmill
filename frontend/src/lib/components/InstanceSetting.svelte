@@ -24,6 +24,7 @@
 	import AgentWorkloadIdentityIssuers from './instanceSettings/AgentWorkloadIdentityIssuers.svelte'
 	import McpExternalIdp from './instanceSettings/McpExternalIdp.svelte'
 	import OtelAuditLogsSettings from './instanceSettings/OtelAuditLogsSettings.svelte'
+	import HubAccessSetting from './instanceSettings/HubAccessSetting.svelte'
 	import WorkspaceRolesSetting from './instanceSettings/WorkspaceRolesSetting.svelte'
 	import SmtpSettings from './instanceSettings/SmtpSettings.svelte'
 	import SecretBackendConfig from './instanceSettings/SecretBackendConfig.svelte'
@@ -52,6 +53,8 @@
 		oauths?: Record<string, any>
 		warning?: string
 		markSettingSaved?: (key: string) => void
+		/** The settings as saved, without the page's edits. */
+		initialValues?: Record<string, any>
 	}
 
 	let {
@@ -62,7 +65,8 @@
 		openSmtpSettings,
 		oauths,
 		warning,
-		markSettingSaved
+		markSettingSaved,
+		initialValues
 	}: Props = $props()
 	const dispatch = createEventDispatcher()
 
@@ -356,6 +360,14 @@
 		<RetentionPeriodOverrides {values} disabled={!$enterpriseLicense || loading} />
 	{:else if setting.fieldType == 'workspace_roles'}
 		<WorkspaceRolesSetting {values} {loading} unlicensed={!$enterpriseLicense} />
+	{:else if setting.fieldType == 'hub_access'}
+		<HubAccessSetting
+			{values}
+			{initialValues}
+			{loading}
+			unlicensed={!$enterpriseLicense}
+			ceBuild={version.includes('CE')}
+		/>
 	{:else}
 		<SettingCard
 			label={setting.key === 'disable_stats'

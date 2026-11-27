@@ -11,7 +11,10 @@
 //! computed at authentication from the role, never from `usr.operator` alone: every gate fast-paths
 //! on it, so a stale flag would let a restricted member through.
 
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::{BTreeMap, HashMap},
+    sync::Arc,
+};
 
 use quick_cache::sync::Cache;
 use serde::{Deserialize, Serialize};
@@ -19,7 +22,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     db::Authable,
     error::{Error, Result},
-    global_settings::WORKSPACE_ROLES_SETTING,
+    global_settings::{HUB_ACCESS_SETTING, WORKSPACE_ROLES_SETTING},
     DB,
 };
 
@@ -39,6 +42,86 @@ pub enum AuthorLevel {
     /// `docs/operator-builder-rights.md`.
     Compose,
     Full,
+}
+
+/// What a role without `code` may do with the Hub scripts of one integration. `Write` implies
+/// `Read`: `Read` allows only versions the Hub approved as read-only. See
+/// [`crate::jobs::check_can_name_runnable`].
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[serde(rename_all = "snake_case")]
+pub enum HubAccess {
+    Read,
+    Write,
+}
+
+/// Hub integrations, lowercased, whose approved scripts a role without `code` may name.
+pub type HubAccessList = BTreeMap<String, HubAccess>;
+
+/// A [`HubAccessList`] that every role of a workspace shares. Capabilities are cloned several
+/// times per request, so they hold a pointer rather than their own copy of up to every Hub
+/// integration. Reads, compares and serializes as the list itself.
+#[derive(Clone, Debug, Default)]
+pub struct SharedHubAccess(Option<Arc<HubAccessList>>);
+
+impl SharedHubAccess {
+    pub const EMPTY: Self = Self(None);
+}
+
+impl From<HubAccessList> for SharedHubAccess {
+    fn from(list: HubAccessList) -> Self {
+        Self((!list.is_empty()).then(|| Arc::new(list)))
+    }
+}
+
+impl std::ops::Deref for SharedHubAccess {
+    type Target = HubAccessList;
+    fn deref(&self) -> &HubAccessList {
+        static EMPTY: HubAccessList = BTreeMap::new();
+        self.0.as_deref().unwrap_or(&EMPTY)
+    }
+}
+
+impl PartialEq for SharedHubAccess {
+    fn eq(&self, other: &Self) -> bool {
+        **self == **other
+    }
+}
+
+impl Eq for SharedHubAccess {}
+
+impl std::hash::Hash for SharedHubAccess {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        (**self).hash(state)
+    }
+}
+
+impl Serialize for SharedHubAccess {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> std::result::Result<S::Ok, S::Error> {
+        (**self).serialize(s)
+    }
+}
+
+impl<'de> Deserialize<'de> for SharedHubAccess {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> std::result::Result<Self, D::Error> {
+        HubAccessList::deserialize(d).map(Self::from)
+    }
+}
+
+/// Parses and normalizes a [`HUB_ACCESS_SETTING`] or `workspace_settings.hub_access` value.
+/// Lowercased, since the Hub holds both `Slack` and `slack`. `/` is refused: it is reserved for
+/// per-script keys, `<integration>/<ask_id>`.
+pub fn parse_hub_access(value: &serde_json::Value) -> Result<HubAccessList> {
+    let raw: BTreeMap<String, HubAccess> = serde_json::from_value(value.clone())
+        .map_err(|e| Error::BadRequest(format!("invalid Hub access list: {e}")))?;
+    let mut out = HubAccessList::new();
+    for (k, v) in raw {
+        if k.is_empty() || k.contains('/') || out.insert(k.to_lowercase(), v).is_some() {
+            return Err(Error::BadRequest(format!(
+                "invalid or repeated Hub integration `{k}`"
+            )));
+        }
+    }
+    Ok(out)
 }
 
 /// Pages a role sees. Not enforced: hiding a page never stopped an API call, and the enforced
@@ -84,12 +167,12 @@ impl RoleVisibility {
     };
 }
 
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct RoleCapabilities {
     /// Author scripts and run code of one's own on a worker: script previews, dependency jobs,
     /// dynamic selects, resolving a job's code, data table migrations. `Full` flows or apps
     /// require it, since both carry inline code. Previews also need `run`. Also required to name
-    /// a Hub script or flow at run time (preset handlers excepted), see
+    /// a Hub script or flow at run time (preset handlers excepted, and scripts `hub` lists), see
     /// [`crate::jobs::check_can_name_runnable`].
     pub code: bool,
     pub flows: AuthorLevel,
@@ -105,6 +188,10 @@ pub struct RoleCapabilities {
     /// by every layer, it is granted exactly to an unrestricted role (see [`Self::resolve`]).
     pub fork: bool,
     pub visibility: RoleVisibility,
+    /// The Hub scripts a role without `code` may name. Not a setting of the role: filled in from
+    /// the workspace's [`HubAccessList`] by [`workspace_roles`], and empty on a role with `code`.
+    #[serde(default)]
+    pub hub: SharedHubAccess,
 }
 
 impl RoleCapabilities {
@@ -117,6 +204,7 @@ impl RoleCapabilities {
         run: true,
         fork: true,
         visibility: RoleVisibility::ALL,
+        hub: SharedHubAccess::EMPTY,
     };
 
     /// The `operator` role as it stood before roles were configurable, and the base any other
@@ -130,6 +218,7 @@ impl RoleCapabilities {
         run: true,
         fork: false,
         visibility: RoleVisibility::ALL,
+        hub: SharedHubAccess::EMPTY,
     };
 
     /// For a restricted caller whose role cannot be resolved: a guest, a removed member's job, a
@@ -143,6 +232,7 @@ impl RoleCapabilities {
         run: false,
         fork: false,
         visibility: RoleVisibility::NONE,
+        hub: SharedHubAccess::EMPTY,
     };
 
     /// What a role named `name` holds before any configuration applies.
@@ -159,7 +249,7 @@ impl RoleCapabilities {
     /// left out: it only hides pages, and must not turn a full author into an operator for the
     /// raw `is_operator` checks, job permissions and credential caches keyed on it.
     pub fn is_restricted(&self) -> bool {
-        Self { visibility: RoleVisibility::ALL, fork: true, ..*self } != Self::FULL
+        Self { visibility: RoleVisibility::ALL, fork: true, ..self.clone() } != Self::FULL
     }
 
     /// Whether the role authors deployable artifacts and so costs a full seat rather than half.
@@ -643,6 +733,50 @@ pub async fn load_role_overrides<'c, E: sqlx::PgExecutor<'c>>(
     }
 }
 
+/// The Hub access lists that meet in a workspace.
+pub struct HubAccessLists {
+    pub instance: HubAccessList,
+    /// `None` follows the instance; an empty list allows nothing.
+    pub workspace: Option<HubAccessList>,
+}
+
+impl HubAccessLists {
+    pub fn effective(self) -> HubAccessList {
+        self.workspace.unwrap_or(self.instance)
+    }
+}
+
+/// A stored list that does not parse allows nothing. Reads as the server: the caller must already
+/// be a member of `workspace_id`, or act for the server itself.
+pub async fn load_hub_access(
+    conn: &mut sqlx::PgConnection,
+    workspace_id: &str,
+) -> Result<HubAccessLists> {
+    let (instance, workspace): (Option<serde_json::Value>, Option<serde_json::Value>) =
+        sqlx::query_as(
+            "SELECT (SELECT value FROM global_settings WHERE name = $1),
+                    (SELECT hub_access FROM workspace_settings WHERE workspace_id = $2)",
+        )
+        .bind(HUB_ACCESS_SETTING)
+        .bind(workspace_id)
+        .fetch_one(conn)
+        .await?;
+    let parse = |v: Option<serde_json::Value>| {
+        v.filter(|v| !v.is_null()).map(|v| {
+            parse_hub_access(&v).unwrap_or_else(|e| {
+                tracing::error!("ignoring invalid Hub access list: {e:#}");
+                HubAccessList::new()
+            })
+        })
+    };
+    // As for the instance's roles, a CE build has none.
+    let instance = instance.filter(|_| custom_roles_built());
+    Ok(HubAccessLists {
+        instance: parse(instance).unwrap_or_default(),
+        workspace: parse(workspace),
+    })
+}
+
 fn cached_workspace_roles(workspace_id: &str) -> Option<Arc<Vec<EffectiveRole>>> {
     let now = chrono::Utc::now().timestamp();
     WORKSPACE_ROLES
@@ -651,8 +785,8 @@ fn cached_workspace_roles(workspace_id: &str) -> Option<Arc<Vec<EffectiveRole>>>
         .map(|(r, _)| r)
 }
 
-/// The roles of `workspace_id`. Cached 60s; `role_overrides` writes and the instance setting drop
-/// the entry on every replica.
+/// The roles of `workspace_id`. Cached 60s; `role_overrides` and `hub_access` writes and the instance
+/// settings drop the entry on every replica.
 ///
 /// Call it before opening an RLS transaction: on a cache miss it takes a connection from the root
 /// pool, and a second pooled connection held alongside a transaction self-deadlocks on a
@@ -674,7 +808,12 @@ pub async fn workspace_roles_on(
     }
     let instance = instance_roles_on(&mut *conn).await?;
     let overrides = load_role_overrides(&mut *conn, workspace_id).await?;
-    let roles = Arc::new(effective_roles(&instance, &overrides)?);
+    let hub = SharedHubAccess::from(load_hub_access(&mut *conn, workspace_id).await?.effective());
+    let mut roles = effective_roles(&instance, &overrides)?;
+    for role in roles.iter_mut().filter(|r| !r.capabilities.code) {
+        role.capabilities.hub = hub.clone();
+    }
+    let roles = Arc::new(roles);
     WORKSPACE_ROLES.insert(
         workspace_id.to_string(),
         (
@@ -719,9 +858,7 @@ pub async fn member_is_restricted(
         .await?
         .iter()
         .find(|r| r.name == name)
-        .map(|r| r.capabilities)
-        .unwrap_or(RoleCapabilities::NONE)
-        .is_restricted())
+        .map_or(true, |r| r.capabilities.is_restricted()))
 }
 
 /// [`member_is_restricted`] for a caller holding no connection.
@@ -819,8 +956,8 @@ pub fn invalidate_workspace_roles_cache(workspace_id: &str) {
 pub const ROLE_OVERRIDES_CHANGE_CHANNEL: &str = "notify_role_overrides_change";
 
 /// Tells every replica to drop its cached roles for the workspace. Call it in the transaction
-/// that writes `role_overrides`: a replica that missed it keeps authorizing whatever the workspace
-/// just withdrew until its entry expires.
+/// that writes `role_overrides` or `hub_access`: a replica that missed it keeps authorizing whatever
+/// the workspace just withdrew until its entry expires.
 pub async fn notify_role_overrides_change(
     conn: &mut sqlx::PgConnection,
     workspace_id: &str,
@@ -961,6 +1098,28 @@ pub async fn validate_instance_roles_write(
     Ok(())
 }
 
+/// Checks a write of [`HUB_ACCESS_SETTING`] before it is stored. Every writer of the setting must
+/// call it, the declarative config sync included. Without a license the stored list is frozen:
+/// it can be cleared or written back unchanged.
+pub async fn validate_instance_hub_access_write(db: &DB, value: &serde_json::Value) -> Result<()> {
+    if value.is_null() {
+        return Ok(());
+    }
+    let next = parse_hub_access(value)?;
+    if custom_roles_enabled() {
+        return Ok(());
+    }
+    let current =
+        crate::global_settings::load_value_from_global_settings(db, HUB_ACCESS_SETTING).await?;
+    if next.is_empty() || current.and_then(|v| parse_hub_access(&v).ok()) == Some(next) {
+        return Ok(());
+    }
+    Err(Error::BadRequest(
+        "changing the instance's Hub scripts requires a valid Windmill Enterprise Edition license"
+            .to_string(),
+    ))
+}
+
 /// Side effects of a stored `workspace_roles` write, owed by every writer. The seat table is read
 /// by billing on every replica, so it is rebuilt here rather than on the notify that drops the
 /// role caches.
@@ -1090,6 +1249,27 @@ mod tests {
         assert!(!op.capabilities.visibility.workers);
         assert!(op.capabilities.visibility.folders);
         assert!(op.capabilities.is_author());
+    }
+
+    #[test]
+    fn hub_access_list_is_the_workspaces_own_or_the_instances() {
+        let parse = |v| parse_hub_access(&v);
+        let instance = parse(serde_json::json!({"Slack": "read"})).unwrap();
+        assert_eq!(instance.get("slack"), Some(&HubAccess::Read));
+        for bad in [
+            serde_json::json!({"slack/12": "read"}),
+            serde_json::json!({"": "read"}),
+            serde_json::json!({"Slack": "read", "slack": "write"}),
+            serde_json::json!({"slack": "none"}),
+        ] {
+            assert!(parse(bad.clone()).is_err(), "{bad}");
+        }
+        let effective =
+            |workspace| HubAccessLists { instance: instance.clone(), workspace }.effective();
+        assert_eq!(effective(None), instance);
+        assert_eq!(effective(Some(HubAccessList::new())), HubAccessList::new());
+        let own = parse(serde_json::json!({"gmail": "write"})).unwrap();
+        assert_eq!(effective(Some(own.clone())), own);
     }
 
     #[test]

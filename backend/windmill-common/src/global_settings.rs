@@ -495,6 +495,9 @@ pub const ALERT_CONFIG_SETTING: &str = "alert_job_queue_waiting";
 /// The instance's workspace roles (EE), a list of `crate::roles::RoleDefinition`.
 pub const WORKSPACE_ROLES_SETTING: &str = "workspace_roles";
 
+/// The instance's default `crate::roles::HubAccessList` (EE), which a workspace may replace.
+pub const HUB_ACCESS_SETTING: &str = "hub_access";
+
 // Workspace fairness (Enterprise): caps any single workspace at
 // `workspace_fairness_max_percent`% of the shared worker pool once it has been
 // occupying it for more than `workspace_fairness_duration_secs` seconds. See

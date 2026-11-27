@@ -302,7 +302,8 @@
 			: []
 	)
 
-	// The server adds a hub path only for a role that has code, whatever its flows level.
+	// Whatever its flows level, a role needs code to add any hub path. The Hub access list, which the
+	// server also accepts, is not offered here.
 	let showHub = $derived($roleCaps.code)
 
 	// Every result row lives in one keyboard index space, and hovering a row moves that index, so

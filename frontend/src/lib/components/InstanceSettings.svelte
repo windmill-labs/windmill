@@ -1209,6 +1209,7 @@
 						{loading}
 						{setting}
 						{values}
+						{initialValues}
 						{markSettingSaved}
 						{version}
 						{oauths}

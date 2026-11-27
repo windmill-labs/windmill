@@ -57,8 +57,9 @@ permissions:
   it as whoever it runs as: `validate_operator_composed_flow` re-checks each path under the
   caller's RLS. This is the general case; the one below is on top of it, not instead of it.
   A Hub step has no workspace row to read, so it is collected apart and held to the run-time rule
-  for naming a Hub path (`check_can_name_runnable`) against the builder: Hub steps follow the
-  `code` capability, and preset handlers are allowed to every role.
+  for naming a Hub path (`check_can_name_runnable`) against the builder: Hub steps need
+  the `code` capability or the Hub access list (`docs/workspace-roles.md`, "Hub scripts"), and preset
+  handlers are allowed to every role.
 - **the `(path, hash)` of every version-pinned step**. A step carrying a `hash` is dispatched by
   that hash alone, with the path beside it never consulted, so a readable path paired with another
   script's hash still runs that other script.
@@ -92,7 +93,7 @@ that function.
 The same reasoning applies to a builder-authored app, with one extra step. `execute_component`
 resolves the runnable it runs on the root handle, so `validate_operator_composed_app` checks every
 referenced path under the caller's RLS and holds a Hub one to `check_can_name_runnable`, as in a
-flow, so Hub steps follow the `code` capability. For a script it checks the version a
+flow, so Hub steps need `code` or the Hub access list. For a script it checks the version a
 run would pick: grants are per version, and a path reused after its versions were archived starts
 with none while the archived ones keep theirs. But it has to check **two** surfaces,
 because they are not the same list: the policy's `script/<path>`, `flow/<path>` and

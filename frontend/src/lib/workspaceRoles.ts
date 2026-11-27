@@ -41,6 +41,9 @@ const ALL_VISIBLE: RoleVisibility = {
 	workers: true
 }
 
+export const HUB_ACCESS_DESCRIPTION =
+	'Members whose role cannot write code may use the approved Hub scripts of these integrations. Read allows only the scripts the Hub marks read-only.'
+
 // Mirror `RoleCapabilities::FULL` and `RoleCapabilities::OPERATOR` in `windmill_common::roles`.
 export const FULL_CAPABILITIES: RoleCapabilities = {
 	code: true,

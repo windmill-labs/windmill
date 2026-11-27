@@ -1,5 +1,5 @@
 //! A Hub path saved into a trigger or a schedule is checked when it is chosen, against the member
-//! saving it: refused without `code`, and only on the paths the save changes.
+//! saving it: refused without `code` or the Hub access list, and only on the paths the save changes.
 
 use serde_json::{json, Value};
 use sqlx::{Pool, Postgres};
@@ -10,7 +10,7 @@ const OP: &str = "OPERATOR_TOKEN";
 const HUB: &str = "hub/990000802/test/echo";
 const OTHER_HUB: &str = "hub/990000803/test/echo";
 const PRESET: &str = "hub/2431/slack/schedule-error-handler-slack";
-const REFUSAL: &str = "Hub scripts and flows require a role that can write code";
+const REFUSAL: &str = "Your role may not use this Hub script";
 
 #[cfg(feature = "http_trigger")]
 fn http(path: &str, script_path: &str, error_handler: Option<&str>) -> Value {

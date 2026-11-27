@@ -127,7 +127,7 @@ impl ApiAuthed {
             folders: &self.folders,
             scopes: &self.scopes,
             token_prefix: &self.token_prefix,
-            capabilities: self.capabilities,
+            capabilities: self.capabilities.clone(),
         }
     }
 
@@ -240,7 +240,7 @@ impl Authable for ApiAuthed {
     }
 
     fn capabilities(&self) -> Option<RoleCapabilities> {
-        self.capabilities
+        self.capabilities.clone()
     }
 
     fn groups(&self) -> &[String] {

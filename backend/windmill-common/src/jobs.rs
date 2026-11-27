@@ -177,28 +177,105 @@ impl ChosenBy {
     }
 }
 
-/// Refuses a Hub script or flow named by a member whose role cannot write code, preset handlers
-/// excepted. Gated on the path, not `hub_id()`: a flow at `hub/123` has none.
+/// [`check_can_name_runnables`] for a single one.
 pub async fn check_can_name_runnable(
     origin: &RunOrigin<'_>,
     runnable: &RunnableRef,
     db: &DB,
     w_id: &str,
 ) -> error::Result<()> {
+    check_can_name_runnables(origin, std::slice::from_ref(runnable), db, w_id)
+        .await
+        .map_err(|(_, e)| e)
+}
+
+/// Refuses a Hub script or flow named by a member whose role cannot write code, preset handlers
+/// excepted. Gated on the path, not `hub_id()`: a flow at `hub/123` has none. A role without code
+/// may still name a Hub script that the workspace's Hub access list allows, as the Hub reports it:
+/// approved, in a listed integration, and read-only unless it is listed at `write`.
+///
+/// The error comes with the runnable it is about, if it is about one. Pass all that one request
+/// names together: the Hub is asked about them at once, and a caller may hold a transaction meanwhile.
+pub async fn check_can_name_runnables<'r>(
+    origin: &RunOrigin<'_>,
+    runnables: &'r [RunnableRef],
+    db: &DB,
+    w_id: &str,
+) -> std::result::Result<(), (Option<&'r RunnableRef>, Error)> {
+    use crate::roles::HubAccess;
     let RunOrigin::NamedBy(authed) = origin else {
         return Ok(());
     };
-    if !runnable.path().starts_with("hub/")
-        || runnable.preset_handler().is_some()
-        || crate::roles::caller_capabilities(db, w_id, authed)
-            .await?
-            .code
-    {
+    let named: Vec<&'r RunnableRef> = runnables
+        .iter()
+        .filter(|r| r.path().starts_with("hub/") && r.preset_handler().is_none())
+        .collect();
+    if named.is_empty() {
         return Ok(());
     }
-    Err(Error::PermissionDenied(
-        "Hub scripts and flows require a role that can write code. Ask a developer to deploy it to the workspace.".to_string(),
-    ))
+    let caps = crate::roles::caller_capabilities(db, w_id, authed)
+        .await
+        .map_err(|e| (None, e))?;
+    if caps.code {
+        return Ok(());
+    }
+    let refuse = |r: &'r RunnableRef, reason: String| Err((Some(r), Error::PermissionDenied(reason)));
+    let mut scripts = Vec::with_capacity(named.len());
+    for r in named {
+        match r.hub_id() {
+            Some(id) if !r.is_flow() && !caps.hub.is_empty() => scripts.push((r, id)),
+            _ => {
+                let reason = if r.is_flow() {
+                    "Hub flows require a role that can write code. Ask a developer to deploy it to the workspace."
+                } else {
+                    "Your role may not use this Hub script. Ask an admin to allow its integration, or a developer to deploy it to the workspace."
+                };
+                return refuse(r, reason.to_string());
+            }
+        }
+    }
+    let mut ids: Vec<i32> = scripts.iter().map(|(_, id)| *id).collect();
+    ids.sort_unstable();
+    ids.dedup();
+    let metas = match crate::utils::hub_script_meta(&ids).await {
+        Ok(metas) => metas,
+        Err(Error::BadGateway(e)) => {
+            return Err((
+                None,
+                Error::PermissionDenied(format!("Could not check approvals on the Hub: {e}.")),
+            ))
+        }
+        Err(e) => return Err((None, e)),
+    };
+    for (r, id) in scripts {
+        let Some(meta) = metas.get(&id) else {
+            return refuse(r, format!("Hub script version {id} is not on the Hub."));
+        };
+        let app = &meta.app;
+        match caps.hub.get(&app.to_lowercase()) {
+            Some(HubAccess::Write) => {}
+            Some(HubAccess::Read) if meta.read_only => {}
+            Some(HubAccess::Read) => {
+                return refuse(
+                    r,
+                    format!("This Hub script can write to `{app}` and your role may only use its read-only scripts. Ask an admin to allow writing, or a developer to deploy this one to the workspace."),
+                )
+            }
+            _ => {
+                return refuse(
+                    r,
+                    format!("Your role may not use the Hub scripts of `{app}`. Ask an admin to allow them, or a developer to deploy this one to the workspace."),
+                )
+            }
+        }
+        if !(meta.script_approved && meta.version_ever_approved) {
+            return refuse(
+                r,
+                format!("Hub script version {id} is not approved on the Hub, so your role cannot use it."),
+            );
+        }
+    }
+    Ok(())
 }
 
 pub async fn script_path_to_payload<'e>(

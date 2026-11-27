@@ -81,6 +81,7 @@ struct SettingsRow {
     slack_oauth_client_secret: Option<String>,
     ducklake: Option<Value>,
     dbt_warehouses: Option<Value>,
+    hub_access: Option<Value>,
     deploy_ui: Option<Value>,
     teams_command_script: Option<String>,
     public_app_execution_limit_per_minute: Option<i32>,
@@ -356,7 +357,7 @@ pub async fn load_settings_document(
              ai_config, large_file_storage,
              git_sync, default_app, default_scripts, workspace.name AS name, mute_critical_alerts,
              color, operator_settings, datatable, slack_team_id, slack_name, slack_command_script,
-             slack_oauth_client_id, slack_oauth_client_secret, ducklake, dbt_warehouses, deploy_ui,
+             slack_oauth_client_id, slack_oauth_client_secret, ducklake, dbt_warehouses, hub_access, deploy_ui,
              teams_command_script, public_app_execution_limit_per_minute,
              guest_jwt_public_key, guest_jwt_jwks_url, error_handler_fallback_to_instance_alerts,
              add_admins_and_developers_to_forks
@@ -417,7 +418,7 @@ pub async fn load_settings_document(
     // In the order `wmill sync pull` has always written settings.yaml. A key that predates the
     // document and is not marked `always` is written only when set, as it always was; a key
     // added since is always written, so a pulled file states it and from then on manages it.
-    let entries: [(&str, Option<Value>, bool); 33] = [
+    let entries: [(&str, Option<Value>, bool); 34] = [
         ("auto_invite", row.auto_invite, false),
         ("webhook", webhook.map(Value::String), false),
         ("webhook_events", row.webhook_events.map(|e| json!(e)), true),
@@ -442,6 +443,7 @@ pub async fn load_settings_document(
         ("color", row.color.map(Value::String), false),
         ("operator_settings", operator_settings, false),
         ("role_overrides", Some(role_overrides), true),
+        ("hub_access", row.hub_access, true),
         (
             "datatable",
             windmill_common::workspaces::strip_datatable_permissions(row.datatable),
@@ -764,6 +766,7 @@ const KNOWN_KEYS: &[&str] = &[
     "color",
     "operator_settings",
     "role_overrides",
+    "hub_access",
     "datatable",
     "slack_team_id",
     "slack_name",
@@ -1643,6 +1646,21 @@ fn plan_document(
         dbt,
         Target::Edit(SettingsEdit::DbtWarehouses),
         |v| json!({ "dbt_warehouses": v }),
+    );
+
+    // Normalized, so a list spelled as the endpoint would not store it is no change.
+    let hub_access = p
+        .managed("hub_access")
+        .map(|v| match v {
+            Value::Null => Ok(Value::Null),
+            v => roles::parse_hub_access(&v).map(|list| json!(list)),
+        })
+        .transpose()?;
+    p.simple(
+        "hub_access",
+        hub_access,
+        Target::Edit(SettingsEdit::HubAccess),
+        |v| json!({ "hub_access": v }),
     );
 
     let deploy_ui = p.managed("deploy_ui");

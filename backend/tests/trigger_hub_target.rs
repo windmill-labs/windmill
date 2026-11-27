@@ -16,7 +16,7 @@ async fn hub_target_with_retry_runs_its_preprocessor(db: Pool<Postgres>) -> anyh
     initialize_tracing().await;
     let server = ApiServer::start(db.clone()).await?;
 
-    let version = "990000004";
+    let version = "9990004";
     let hub_dir = &*windmill_common::worker::HUB_CACHE_DIR;
     tokio::fs::create_dir_all(hub_dir).await?;
     tokio::fs::write(
