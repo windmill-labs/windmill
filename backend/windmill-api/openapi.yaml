@@ -34104,6 +34104,16 @@ components:
           description: IPs or CIDRs the token may be used from; absent when it may be used from anywhere.
           items:
             type: string
+        admin:
+          type: boolean
+          description: |
+            The token carries workspace admin rights: it was minted with them and its owner is an
+            admin of the workspace it is bound to (any workspace when unbound). Set by /users/tokens/list.
+        super_admin:
+          type: boolean
+          description: |
+            The token carries superadmin rights: it was minted with them (a session always is) and
+            its owner is a superadmin. Set by /users/tokens/list.
       required:
         - token_prefix
         - created_at

@@ -335,6 +335,8 @@ pub struct TruncatedToken {
     pub read_only: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub allowed_ips: Option<Vec<String>>,
+    pub admin: bool,
+    pub super_admin: bool,
 }
 
 // NewToken is re-exported from windmill-api-auth above
@@ -4091,6 +4093,9 @@ struct ListTokenQuery {
     exclude_ephemeral: Option<bool>,
 }
 
+/// `admin` and `super_admin` report the rights a token carries: its opt-in flag (a session
+/// always opts in to superadmin) and what its owner holds, so a member's token is never
+/// listed as admin because of the column's default.
 async fn list_tokens(
     Extension(db): Extension<DB>,
     ApiAuthed { email, .. }: ApiAuthed,
@@ -4101,10 +4106,16 @@ async fn list_tokens(
     let rows = if query.exclude_ephemeral.unwrap_or(false) {
         sqlx::query_as!(
             TruncatedToken,
-            "SELECT label, token_prefix, expiration, created_at, \
-             last_used_at, scopes, workspace_id, read_only, allowed_ips::text[] AS allowed_ips \
-             FROM token WHERE email = $1 AND (label != 'ephemeral-script' OR label IS NULL)
-             ORDER BY created_at DESC LIMIT $2 OFFSET $3",
+            "SELECT t.label, t.token_prefix, t.expiration, t.created_at, t.last_used_at, t.scopes, \
+               t.workspace_id, t.read_only, t.allowed_ips::text[] AS allowed_ips, \
+               (t.admin AND EXISTS (SELECT 1 FROM usr u WHERE u.email = t.email AND u.is_admin \
+                   AND NOT u.disabled AND (t.workspace_id IS NULL OR u.workspace_id = t.workspace_id))) \
+                   AS \"admin!\", \
+               ((t.super_admin OR t.label = 'session') \
+                   AND COALESCE((SELECT p.super_admin FROM password p WHERE p.email = t.email), false)) \
+                   AS \"super_admin!\" \
+             FROM token t WHERE t.email = $1 AND (t.label != 'ephemeral-script' OR t.label IS NULL)
+             ORDER BY t.created_at DESC LIMIT $2 OFFSET $3",
             email,
             per_page as i64,
             offset as i64,
@@ -4114,10 +4125,16 @@ async fn list_tokens(
     } else {
         sqlx::query_as!(
             TruncatedToken,
-            "SELECT label, token_prefix, expiration, created_at, \
-            last_used_at, scopes, workspace_id, read_only, allowed_ips::text[] AS allowed_ips \
-            FROM token WHERE email = $1
-            ORDER BY created_at DESC LIMIT $2 OFFSET $3",
+            "SELECT t.label, t.token_prefix, t.expiration, t.created_at, t.last_used_at, t.scopes, \
+               t.workspace_id, t.read_only, t.allowed_ips::text[] AS allowed_ips, \
+               (t.admin AND EXISTS (SELECT 1 FROM usr u WHERE u.email = t.email AND u.is_admin \
+                   AND NOT u.disabled AND (t.workspace_id IS NULL OR u.workspace_id = t.workspace_id))) \
+                   AS \"admin!\", \
+               ((t.super_admin OR t.label = 'session') \
+                   AND COALESCE((SELECT p.super_admin FROM password p WHERE p.email = t.email), false)) \
+                   AS \"super_admin!\" \
+             FROM token t WHERE t.email = $1
+             ORDER BY t.created_at DESC LIMIT $2 OFFSET $3",
             email,
             per_page as i64,
             offset as i64,

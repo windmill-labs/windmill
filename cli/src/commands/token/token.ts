@@ -7,7 +7,13 @@ import * as log from "../../core/log.ts";
 import { mergeConfigWithConfigFile } from "../../core/conf.ts";
 import { resolveWorkspace } from "../../core/context.ts";
 import * as wmill from "../../../gen/services.gen.ts";
+import type { TruncatedToken } from "../../../gen/types.gen.ts";
 import { formatTimestamp } from "../../utils/utils.ts";
+
+function access(t: TruncatedToken): string {
+  const level = t.super_admin ? "superadmin" : t.admin ? "admin" : "member";
+  return t.read_only ? `${level}, read-only` : level;
+}
 
 async function list(opts: GlobalOptions & { json?: boolean }) {
   if (opts.json) log.setSilent(true);
@@ -26,7 +32,7 @@ async function list(opts: GlobalOptions & { json?: boolean }) {
       return;
     }
     new Table()
-      .header(["Prefix", "Label", "Created At", "Last Used", "Expiration", "Scopes"])
+      .header(["Prefix", "Label", "Created At", "Last Used", "Expiration", "Workspace", "Access", "Scopes"])
       .padding(2)
       .border(true)
       .body(
@@ -36,6 +42,8 @@ async function list(opts: GlobalOptions & { json?: boolean }) {
           formatTimestamp(t.created_at),
           formatTimestamp(t.last_used_at),
           t.expiration ? formatTimestamp(t.expiration) : "never",
+          t.workspace_id ?? "all",
+          access(t),
           t.scopes && t.scopes.length > 0 ? t.scopes.join(" ") : "unscoped",
         ])
       )

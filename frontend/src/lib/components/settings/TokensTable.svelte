@@ -21,12 +21,7 @@
 		onTokenCreated: (token: string) => void
 	}
 
-	let {
-		defaultNewTokenLabel,
-		defaultNewTokenWorkspace,
-		scopes,
-		onTokenCreated
-	}: Props = $props()
+	let { defaultNewTokenLabel, defaultNewTokenWorkspace, scopes, onTokenCreated }: Props = $props()
 
 	// --- Local State ---
 	let tokens = $state<TruncatedToken[]>([])
@@ -176,6 +171,7 @@
 					<th>Prefix</th>
 					<th>Label</th>
 					<th>Expiration</th>
+					<th>Access</th>
 					<th>Scopes</th>
 					<th></th>
 				</tr>
@@ -183,7 +179,7 @@
 			{#snippet body()}
 				<tbody>
 					{#if tokens && tokens.length > 0}
-						{#each tokens as { token_prefix, expiration, label, scopes, workspace_id, read_only, allowed_ips } (token_prefix)}
+						{#each tokens as { token_prefix, expiration, label, scopes, workspace_id, read_only, allowed_ips, admin, super_admin } (token_prefix)}
 							{@const badge = expirationBadge(expiration, label)}
 							<tr>
 								<td class="w-32 text-xs text-primary">{token_prefix}****</td>
@@ -193,6 +189,22 @@
 										{displayDate(expiration ?? '')}
 										{#if badge}
 											<Badge color={badge.color} small>{badge.text}</Badge>
+										{/if}
+									</div>
+								</td>
+								<td class="whitespace-nowrap text-xs text-secondary">
+									<div class="flex items-center gap-1.5">
+										<span
+											title={workspace_id
+												? `Usable only in workspace ${workspace_id}`
+												: 'Usable in every workspace you are a member of'}
+										>
+											{workspace_id ?? 'All workspaces'}
+										</span>
+										{#if super_admin}
+											<Badge color="red" small>Superadmin</Badge>
+										{:else if admin}
+											<Badge color="indigo" small>Admin</Badge>
 										{/if}
 									</div>
 								</td>
