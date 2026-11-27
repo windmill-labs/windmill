@@ -106,18 +106,15 @@
 			<ChevronDown size={14} />
 		{/snippet}
 	</DropdownV2>
-	<!-- The app-scoped routes always read the first row as the header. -->
-	{#if !appPath}
-		<Button
-			variant="subtle"
-			unifiedSize="sm"
-			iconOnly
-			startIcon={{ icon: PanelTop }}
-			selected={csvHasHeader}
-			title={csvHasHeader ? 'First row is the header' : 'First row is data'}
-			onClick={() => (csvHasHeader = !csvHasHeader)}
-		/>
-	{/if}
+	<Button
+		variant="subtle"
+		unifiedSize="sm"
+		iconOnly
+		startIcon={{ icon: PanelTop }}
+		selected={csvHasHeader}
+		title={csvHasHeader ? 'First row is the header' : 'First row is data'}
+		onClick={() => (csvHasHeader = !csvHasHeader)}
+	/>
 	<div class="w-px h-5 border-l"></div>
 {/snippet}
 

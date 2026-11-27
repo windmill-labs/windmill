@@ -18,8 +18,7 @@ export type S3TableSource = {
 	s3ResourcePath?: string
 	csvSeparator?: string
 	csvHasHeader?: boolean
-	/** Read through a deployed app's `apps_u/*` routes, which take no column filters and
-	 * no header flag. */
+	/** Read through a deployed app's `apps_u/*` routes. */
 	app?: { path: string; presigned?: string }
 }
 
@@ -70,7 +69,7 @@ export async function s3TableOps(
 		format === 'csv'
 			? {
 					csvSeparator: source.csvSeparator,
-					csvHasHeader: app ? undefined : source.csvHasHeader
+					csvHasHeader: source.csvHasHeader
 				}
 			: {}
 	const filtersParam = (columnFilters: Record<string, unknown> | undefined) =>
@@ -85,8 +84,7 @@ export async function s3TableOps(
 		orderBy?: string
 		isDesc?: boolean
 	}): Promise<Chunk> {
-		const data = {
-			...common,
+		const args = {
 			...csvOptions,
 			offset: params.offset,
 			limit: params.limit,
@@ -96,19 +94,12 @@ export async function s3TableOps(
 			sortDesc: params.isDesc
 		}
 		if (appCommon) {
-			const appData = {
-				...appCommon,
-				csvSeparator: csvOptions.csvSeparator,
-				offset: data.offset,
-				limit: data.limit,
-				searchTerm: data.searchTerm,
-				sortCol: data.sortCol,
-				sortDesc: data.sortDesc
-			}
+			const appData = { ...appCommon, ...args }
 			return (await (format === 'parquet'
 				? AppService.appLoadParquetPreview(appData)
 				: AppService.appLoadCsvPreview(appData))) as Chunk
 		}
+		const data = { ...common, ...args }
 		return (await (format === 'parquet'
 			? HelpersService.loadParquetPreview(data)
 			: HelpersService.loadCsvPreview(data))) as Chunk
@@ -121,7 +112,7 @@ export async function s3TableOps(
 		field,
 		datatype: datatypeOf(head.column_types?.[i]),
 		// The server cannot read a struct, map or union as text to filter it.
-		filterable: !app && !/^(Struct|Map|Union)/.test(head.column_types?.[i] ?? ''),
+		filterable: !/^(Struct|Map|Union)/.test(head.column_types?.[i] ?? ''),
 		defaultvalue: '',
 		isprimarykey: false,
 		isidentity: ColumnIdentity.No,
@@ -134,19 +125,14 @@ export async function s3TableOps(
 		tableKey: source.fileKey.split('/').pop() ?? source.fileKey,
 		colDefs,
 		getCount: async ({ quicksearch, columnFilters }) => {
-			if (appCommon) {
-				const res = await AppService.appLoadTableCount({
-					...appCommon,
-					searchTerm: searchParam(quicksearch)
-				})
-				return res.count ?? 0
-			}
-			const res = await HelpersService.loadTableRowCount({
-				...common,
+			const args = {
 				...csvOptions,
 				searchTerm: searchParam(quicksearch),
 				filters: filtersParam(columnFilters)
-			})
+			}
+			const res = appCommon
+				? await AppService.appLoadTableCount({ ...appCommon, ...args })
+				: await HelpersService.loadTableRowCount({ ...common, ...args })
 			return res.count ?? 0
 		},
 		getRows: async ({
