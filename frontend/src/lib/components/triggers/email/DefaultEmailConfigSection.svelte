@@ -10,7 +10,7 @@
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import { base32 } from 'rfc4648'
 	import { emptyString } from '$lib/utils'
-	import UserSettings from '$lib/components/UserSettings.svelte'
+	import TokensDrawer from '$lib/components/account/TokensDrawer.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
@@ -37,7 +37,7 @@
 		isFlow?: boolean
 		runnableVersion?: string | undefined
 		path: string
-		userSettings: UserSettings
+		userSettings: TokensDrawer
 		emailDomain?: string | null
 		email?: string
 	}

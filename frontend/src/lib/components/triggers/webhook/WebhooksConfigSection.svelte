@@ -18,7 +18,7 @@
 	import { apiBaseUrl } from '$lib/apiBaseUrl.svelte'
 	import TriggerTokens from '../TriggerTokens.svelte'
 	import { userStore } from '$lib/stores'
-	import UserSettings from '../../UserSettings.svelte'
+	import TokensDrawer from '$lib/components/account/TokensDrawer.svelte'
 	import { generateRandomString } from '$lib/utils'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
@@ -89,7 +89,7 @@
 	let surface = $state('http') as 'http' | 'sdk'
 	let example = $state('rest') as 'rest' | 'curl' | 'fetch'
 	let promptOpen = $state(false)
-	let userSettings: UserSettings | undefined = $state()
+	let userSettings: TokensDrawer | undefined = $state()
 	let requestType = $state(DEFAULT_WEBHOOK_TYPE) as 'async' | 'sync' | 'sync_sse'
 	let callMethod = $state('post') as 'get' | 'post'
 	let runnableId = $state('path') as 'runnableVersion' | 'path'
@@ -335,10 +335,10 @@ done`
 	}
 </script>
 
-<UserSettings
+<TokensDrawer
 	bind:this={userSettings}
-	on:tokenCreated={(e) => {
-		token = e.detail
+	onTokenCreated={(newToken) => {
+		token = newToken
 		triggerTokens?.listTokens()
 	}}
 	newTokenWorkspace={wsId}

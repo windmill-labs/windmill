@@ -83,8 +83,12 @@ Symbols, not line numbers, are cited: they drift less.
   account holds, since a session carries them all. A job started by such a token runs with its
   capped `is_admin` (and a `$WM_TOKEN` cannot reach `tokens/create`); but what the token deploys
   or schedules runs later as its owner (`fetch_authed_from_permissioned_as`), with every right of
-  the account, as with scoped tokens. A promotion to superadmin leaves existing
-  tokens as they are; a demotion strips it from every non-session token. The MCP OAuth approve
+  the account, as with scoped tokens. Losing superadmin follows the owner without
+  help from the caller: the deferred trigger `password_superadmin_demote_tokens` clears the column
+  on every token of an address that, at commit, no longer has a superadmin `password` row
+  (demotion, deletion, an import's delete-and-reinsert), and evicts each through
+  `notify_token_invalidation`. An email change does not fire it, since SCIM's rename leaves the
+  tokens under the old address. A promotion grants it to no existing token. The MCP OAuth approve
   stores the `super_admin` request on its code and refresh rows, and each exchange re-checks
   `password`. A new path minting a token must ask the same questions, or it reaches a different
   set of workspaces than the others.
