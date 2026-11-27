@@ -1721,6 +1721,9 @@ pub(super) async fn show_item(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
     if let Some(edit_url) = edit_url.as_ref().filter(|e| Some(*e) != page_url.as_ref()) {
         text.push_str(&format!("\nEdit: {edit_url}"));
     }
+    if let Some(runs_url) = &runs_url {
+        text.push_str(&format!("\nWhat it runs: {runs_url}"));
+    }
     text.push_str(&format!("\n{}", super::views::CARD_NOTE));
     ctx.set_view(
         "windmill/item",

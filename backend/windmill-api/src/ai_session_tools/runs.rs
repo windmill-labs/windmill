@@ -2369,14 +2369,22 @@ async fn read_run(ctx: &Ctx<'_>, args: &Value, card: bool) -> ToolResult {
                 .filter_map(|e| e["job_id"].as_str())
                 .last();
             let live = match running {
-                Some(step) => log_tail(ctx, step, 400).await.map(|(tail, _)| tail),
-                None => logs.map(|(tail, _)| tail),
+                Some(step) => log_tail(ctx, step, 400).await,
+                None => logs,
             };
-            if let Some(line) = live
-                .as_deref()
-                .and_then(|l| l.lines().rev().find(|l| !l.trim().is_empty()))
-            {
-                details.insert("live_log".into(), js_head(line.trim(), 300).into());
+            if let Some((tail, tail_cut)) = &live {
+                let lines: Vec<&str> = tail.lines().collect();
+                let last = lines.iter().rposition(|l| !l.trim().is_empty());
+                if let Some((i, line)) = last.map(|i| (i, lines[i])) {
+                    // The tail's first line starts where the read did, often mid-line.
+                    let lead = if *tail_cut && i == 0 { "…" } else { "" };
+                    let line = line.trim();
+                    let head = js_head(line, 300);
+                    if head.len() < line.len() {
+                        details.insert("live_log_cut".into(), true.into());
+                    }
+                    details.insert("live_log".into(), format!("{lead}{head}").into());
+                }
             }
         }
         match big_image_result(ctx, id, job, entries.first()).await {
@@ -2577,10 +2585,13 @@ fn run_text(run: &Map<String, Value>) -> String {
     };
     if let Some((label, value)) = preview {
         let head = js_head(value, TEXT_PREVIEW_CHARS);
+        let flag = |key: &str| run.get(key) == Some(&Value::Bool(true));
         let cut = head.len() < value.len()
-            || (finished
-                && value != TOO_BIG_TEXT
-                && run.get("result_cut") == Some(&Value::Bool(true)));
+            || if finished {
+                value != TOO_BIG_TEXT && flag("result_cut")
+            } else {
+                flag("live_log_cut")
+            };
         lines.push(format!("{label}: {head}{}", if cut { "…" } else { "" }));
     }
     if let Some(url) = text("url") {
@@ -2605,7 +2616,11 @@ fn runs_text(runs: &[Value]) -> String {
         }
     }
     let counts: Vec<String> = counts.iter().map(|(s, n)| format!("{n} {s}")).collect();
-    let mut lines = vec![format!("{} run(s): {}.", runs.len(), counts.join(", "))];
+    let mut lines = vec![if counts.is_empty() {
+        "0 run(s).".to_string()
+    } else {
+        format!("{} run(s): {}.", runs.len(), counts.join(", "))
+    }];
     for run in runs {
         let what = run["path"]
             .as_str()
