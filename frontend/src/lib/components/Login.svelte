@@ -49,8 +49,6 @@
 		TOTP_REQUIRED,
 		TOTP_SETUP_REQUIRED
 	} from '$lib/loginError'
-	import TotpAuthenticator from './settings/TotpAuthenticator.svelte'
-	import TotpRecoveryCodes from './settings/TotpRecoveryCodes.svelte'
 	import { parseAccountSettingsHash } from './sidebar/settings'
 	import Badge from './common/badge/Badge.svelte'
 	import {
@@ -898,7 +896,11 @@
 					Logging in with your password now also asks for a code from your authenticator app.
 				</p>
 			</div>
-			<TotpRecoveryCodes codes={enrollCodes} bind:saved={enrollSaved} />
+			<!-- Loaded on demand: the login page every visitor gets stays free of the QR encoder
+				and the code highlighter, which only these screens use. -->
+			{#await import('./settings/TotpRecoveryCodes.svelte') then { default: TotpRecoveryCodes }}
+				<TotpRecoveryCodes codes={enrollCodes} bind:saved={enrollSaved} />
+			{/await}
 			<Button onClick={finishLogin} variant="accent" unifiedSize="lg" disabled={!enrollSaved}>
 				Continue
 			</Button>
@@ -926,7 +928,9 @@
 				{/if}
 			</div>
 			{#if enrollSetup}
-				<TotpAuthenticator setup={enrollSetup} />
+				{#await import('./settings/TotpAuthenticator.svelte') then { default: TotpAuthenticator }}
+					<TotpAuthenticator setup={enrollSetup} />
+				{/await}
 			{/if}
 			<div bind:this={fieldsEl} class="space-y-1 {shake ? 'motion-safe:animate-shake' : ''}">
 				<label for={totpId} class="block text-xs font-semibold text-emphasis">
