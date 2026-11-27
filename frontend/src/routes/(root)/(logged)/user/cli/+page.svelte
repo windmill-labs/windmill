@@ -5,7 +5,8 @@
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import { Button } from '$lib/components/common'
 	import Select from '$lib/components/select/Select.svelte'
-	import { userStore, usersWorkspaceStore, workspaceStore } from '$lib/stores'
+	import Toggle from '$lib/components/Toggle.svelte'
+	import { superadmin, userStore, usersWorkspaceStore, workspaceStore } from '$lib/stores'
 	import { parseMaxTokenExpirationDays } from '$lib/tokenExpiration'
 
 	let port = $state(Number(page.url.searchParams.get('port')))
@@ -54,6 +55,12 @@
 		return picked === 0 || picked > ceilingDays ? ceilingDays : picked
 	})
 
+	// The CLI works across workspaces and instance-level endpoints, so its token is not bound to
+	// one; the owner's admin and superadmin rights are carried only when asked for.
+	let carryAdmin = $state(false)
+	let carrySuperAdmin = $state(false)
+	const isAdminSomewhere = $derived(!!$userStore?.is_admin || !!$superadmin)
+
 	async function authorizeToken(): Promise<void> {
 		const username = $userStore?.username
 		// `cli-login:` is reserved in `is_user_token` (windmill-common): the CLI signs in again on
@@ -66,7 +73,9 @@
 		const newToken = await UserService.createToken({
 			requestBody: {
 				label,
-				expiration
+				expiration,
+				admin: carryAdmin,
+				super_admin: carrySuperAdmin
 			}
 		})
 
@@ -94,6 +103,32 @@
 			Once it expires, the CLI asks you to sign in again.
 		</p>
 	</div>
+	{#if (isAdminSomewhere && !carrySuperAdmin) || $superadmin}
+		<div class="flex flex-col gap-2 pt-4">
+			{#if isAdminSomewhere && !carrySuperAdmin}
+				<Toggle
+					bind:checked={carryAdmin}
+					options={{
+						right: 'Workspace admin rights',
+						rightTooltip:
+							'Needed to sync workspace settings, users and groups. Off, the CLI acts as a regular member of your workspaces.'
+					}}
+					size="xs"
+				/>
+			{/if}
+			{#if $superadmin}
+				<Toggle
+					bind:checked={carrySuperAdmin}
+					options={{
+						right: 'Superadmin rights',
+						rightTooltip:
+							'Needed for instance commands such as `wmill instance push`. Off, the CLI cannot reach instance settings or workspaces you are not a member of.'
+					}}
+					size="xs"
+				/>
+			{/if}
+		</div>
+	{/if}
 	<div class="flex flex-row justify-around pt-4 gap-x-1">
 		<Button variant="default" destructive unifiedSize="lg" href="/">Decline</Button>
 		<Button variant="accent" unifiedSize="lg" onClick={authorizeToken}>Authorize</Button>

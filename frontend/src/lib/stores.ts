@@ -121,7 +121,9 @@ export const usersWorkspaceStore = writable<UserWorkspaceList | undefined>(undef
 export const NON_MEMBER_USERNAME = 'superadmin'
 export const superadmin = writable<string | false | undefined>(undefined)
 export const devopsRole = writable<string | false | undefined>(undefined)
-export const lspTokenStore = writable<string | undefined>(undefined)
+export const lspTokenStore = writable<{ workspace: string; token: string } | undefined>(
+	undefined
+)
 export const hubBaseUrlStore = writable<string>(DEFAULT_HUB_BASE_URL)
 // Whether the store above is the instance's answer or still the default it was seeded with.
 // It reads as the public hub either way, which is fine for a link and wrong for anything

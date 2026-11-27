@@ -69,12 +69,22 @@ Symbols, not line numbers, are cited: they drift less.
   `ephemeral-` prefix needs no other change (keep it clear of `is_server_minted_label` if minted
   through `tokens/create`); a new prefix also goes into the SQL and Svelte mirrors that function's
   doc lists.
-- **A token's `super_admin` column is what lets it into a workspace its owner is not a member
-  of**, and makes a workspace-less MCP token list every workspace. `create_token_internal` copies
-  it from `password` for every token except an MCP one (an `mcp:` scope), which carries it only
-  when the request sets `super_admin`; the MCP OAuth approve stores the same request on its code
-  and refresh rows, and each exchange re-checks `password`. A new path minting an MCP token must
-  ask the same question, or it reaches a different set of workspaces than the other two.
+- **A token carries its owner's superadmin and workspace admin rights only when minted with
+  them** (`token.super_admin`, `token.admin`). `super_admin` lets a token into a workspace its
+  owner is not a member of and makes a workspace-less MCP token list every workspace; on any row
+  but a session it also decides the superadmin routes, which otherwise key off the account's
+  email: the auth lookup sets `ApiAuthed::super_admin_withheld`, read by `require_super_admin`,
+  `is_super_admin_authed` and `require_devops_role`, and `admin = false` caps `is_admin` there
+  (`admin_withheld`, also read by the cross-workspace `usr.is_admin` checks). `POST
+  /users/tokens/create` and `tokens/impersonate` withhold both unless the request sets them;
+  `create_token_internal` called directly (server-side mints) inherits them from the owner,
+  except for an MCP token's superadmin. Either way a token never gets rights the minting
+  credential withholds, and `GET /users/refresh_token` refuses one that withholds rights the
+  account holds, since a session carries them all. A promotion to superadmin leaves existing
+  tokens as they are; a demotion strips it from every non-session token. The MCP OAuth approve
+  stores the `super_admin` request on its code and refresh rows, and each exchange re-checks
+  `password`. A new path minting a token must ask the same questions, or it reaches a different
+  set of workspaces than the others.
 - **Every superadmin route refuses a job token**: `require_super_admin`
   (`windmill-api-auth/src/lib.rs`) errors on `authed.job_id.is_some()`. A script that needs
   `users/create`, `tokens/impersonate`, `set_login_type`, … must use a dedicated superadmin user

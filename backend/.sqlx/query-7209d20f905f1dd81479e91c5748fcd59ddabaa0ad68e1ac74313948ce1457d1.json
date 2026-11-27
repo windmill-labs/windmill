@@ -1,0 +1,25 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO token\n            (token_hash, token_prefix, token, email, label, expiration, super_admin, scopes, workspace_id, read_only, allowed_ips, admin)\n            SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::text[]::cidr[], $12\n            WHERE $9::varchar IS NULL OR NOT EXISTS(\n                SELECT 1 FROM workspace WHERE id = $9 AND deleted = true\n            )",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Timestamptz",
+        "Bool",
+        "TextArray",
+        "Varchar",
+        "Bool",
+        "TextArray",
+        "Bool"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "7209d20f905f1dd81479e91c5748fcd59ddabaa0ad68e1ac74313948ce1457d1"
+}

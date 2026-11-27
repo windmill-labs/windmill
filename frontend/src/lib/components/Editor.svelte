@@ -1984,14 +1984,22 @@
 	})
 
 	async function genRoot(hostname: string) {
-		let token = $lspTokenStore
+		const workspace = $operatingWorkspace ?? ''
+		const cached = $lspTokenStore
+		let token = cached?.workspace === workspace ? cached.token : undefined
 		if (!token) {
 			let expiration = new Date()
 			expiration.setHours(expiration.getHours() + 72)
 			const newToken = await UserService.createToken({
-				requestBody: { label: 'Ephemeral lsp token', expiration: expiration.toISOString() }
+				requestBody: {
+					label: 'Ephemeral lsp token',
+					expiration: expiration.toISOString(),
+					workspace_id: workspace || undefined,
+					// It reads the scripts an import names as the editing user would, admin included.
+					admin: true
+				}
 			})
-			$lspTokenStore = newToken
+			$lspTokenStore = { workspace, token: newToken }
 			token = newToken
 		}
 		let root = hostname + '/api/scripts_u/tokened_raw/' + $operatingWorkspace + '/' + token

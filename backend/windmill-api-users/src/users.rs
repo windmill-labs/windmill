@@ -777,8 +777,17 @@ async fn whoami(
     authed: ApiAuthed,
 ) -> JsonResult<UserInfo> {
     let is_guest = windmill_api_auth::scopes::has_guest_sentinel(authed.scopes.as_deref());
-    let ApiAuthed { username, email, is_admin, is_operator, groups, folders, mcp_client, .. } =
-        authed;
+    let ApiAuthed {
+        username,
+        email,
+        is_admin,
+        is_operator,
+        groups,
+        folders,
+        mcp_client,
+        super_admin_withheld,
+        ..
+    } = authed;
     // A guest would otherwise fall through to the non-member branch below and be
     // handed a `superadmin` role. Answer it here, as the operator-shaped identity it is.
     if is_guest {
@@ -809,8 +818,14 @@ async fn whoami(
     if let Some(user) = user.filter(|u| u.email == email) {
         // The frontend gates pages on `operator`, so it reports what `caller_capabilities`
         // decides rather than the raw column: an admin (or superadmin) whose row still carries
-        // `operator` holds everything.
-        let user = UserInfo { operator: is_operator && !is_admin, ..user };
+        // `operator` holds everything. Admin and superadmin are the credential's, which a token
+        // may withhold.
+        let user = UserInfo {
+            operator: is_operator && !is_admin,
+            is_admin,
+            is_super_admin: user.is_super_admin && !super_admin_withheld,
+            ..user
+        };
         // An external MCP token brings its own groups, which the request and the jobs it starts
         // act with, so report those rather than the stored memberships.
         if mcp_client.is_some() {
@@ -858,7 +873,7 @@ async fn whoami(
 
 async fn global_whoami(
     Extension(db): Extension<DB>,
-    ApiAuthed { email, .. }: ApiAuthed,
+    ApiAuthed { email, super_admin_withheld, .. }: ApiAuthed,
     Tokened { token }: Tokened,
 ) -> JsonResult<GlobalUserInfo> {
     let user = sqlx::query_as!(
@@ -872,7 +887,11 @@ async fn global_whoami(
     .map_err(|e| Error::internal_err(format!("fetching global identity: {e:#}")))?;
 
     if let Some(user) = user {
-        Ok(Json(user))
+        // The credential's rights, which a token may withhold.
+        Ok(Json(GlobalUserInfo {
+            super_admin: user.super_admin && !super_admin_withheld,
+            ..user
+        }))
     } else if std::env::var("SUPERADMIN_SECRET").ok() == Some(token) {
         Ok(Json(GlobalUserInfo {
             email: email.clone(),
@@ -1605,10 +1624,10 @@ async fn update_user(
         )
         .execute(&mut *tx)
         .await?;
-        // Update super_admin flag on non-session tokens (webhooks, API tokens, etc.)
+        // A demotion strips superadmin from every other token; a promotion grants it to none,
+        // since a token carries superadmin rights only when it was minted asking for them.
         sqlx::query!(
-            "UPDATE token SET super_admin = $1 WHERE email = $2 AND label != 'session'
-                 AND (NOT $1 OR NOT EXISTS (SELECT 1 FROM unnest(scopes) s WHERE s LIKE 'mcp:%'))",
+            "UPDATE token SET super_admin = false WHERE email = $2 AND label != 'session' AND NOT $1",
             sa,
             &email_to_update
         )
@@ -1673,8 +1692,7 @@ async fn update_user(
                     .execute(&mut *tx)
                     .await?;
                     sqlx::query!(
-                        "UPDATE token SET super_admin = $1 WHERE email = $2 AND label != 'session'
-                 AND (NOT $1 OR NOT EXISTS (SELECT 1 FROM unnest(scopes) s WHERE s LIKE 'mcp:%'))",
+                        "UPDATE token SET super_admin = false WHERE email = $2 AND label != 'session' AND NOT $1",
                         sa,
                         &email_to_update
                     )
@@ -3008,6 +3026,27 @@ async fn refresh_token(
             "A token restricted to IP addresses cannot be exchanged for a session".to_string(),
         ));
     }
+    // A session carries every right of the account, so a token withholding some may not be
+    // exchanged for one while the account holds them.
+    if authed.admin_withheld || authed.super_admin_withheld {
+        let lifts_withheld = sqlx::query_scalar!(
+            "SELECT ($2 AND EXISTS(SELECT 1 FROM usr WHERE email = $1 AND is_admin))
+                OR ($3 AND COALESCE((SELECT super_admin FROM password WHERE email = $1), false))",
+            &authed.email,
+            authed.admin_withheld,
+            authed.super_admin_withheld,
+        )
+        .fetch_one(&db)
+        .await?
+        .unwrap_or(true);
+        if lifts_withheld {
+            return Err(Error::NotAuthorized(
+                "A token without its owner's admin or superadmin rights cannot be exchanged for \
+                 a session"
+                    .to_string(),
+            ));
+        }
+    }
     let t_hash = windmill_common::auth::hash_token(&token);
     // Only a live, non-impersonation row may be exchanged for a session: an impersonation must
     // end at its 24h expiry, not become a renewable service-account session billed as active.
@@ -3356,6 +3395,11 @@ async fn create_token(
         ));
     }
 
+    // A token asked for here carries its owner's admin and superadmin rights only when the
+    // request says so; server-side mints call `create_token_internal`, where `None` inherits.
+    token_config.super_admin = Some(token_config.super_admin.unwrap_or(false));
+    token_config.admin = Some(token_config.admin.unwrap_or(false));
+
     windmill_api_auth::ensure_scopes_within_caller(&authed, token_config.scopes.as_deref())?;
     // Mirrors the MCP OAuth approve: a scoped token cannot mint superadmin access it may lack.
     if token_config.super_admin == Some(true)
@@ -3437,13 +3481,25 @@ async fn impersonate(
     .fetch_optional(&db)
     .await?
     .unwrap_or(false);
-    let expiration = cap_token_expiration(&db, &impersonated, None, new_token.expiration).await?;
+    // As on `tokens/create`: the impersonated account's rights are carried only when asked.
+    let is_super_admin = is_super_admin && new_token.super_admin == Some(true);
+    let expiration = cap_token_expiration(
+        &db,
+        &impersonated,
+        new_token.workspace_id.as_deref(),
+        new_token.expiration,
+    )
+    .await?;
     let mut tx = db.begin().await?;
 
-    sqlx::query!(
+    let rows = sqlx::query!(
         "INSERT INTO token
-            (token_hash, token_prefix, token, email, label, expiration, super_admin, allowed_ips)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8::text[]::cidr[])",
+            (token_hash, token_prefix, token, email, label, expiration, super_admin, allowed_ips,
+             workspace_id, admin)
+            SELECT $1, $2, $3, $4, $5, $6, $7, $8::text[]::cidr[], $9, $10
+            WHERE $9::varchar IS NULL OR NOT EXISTS(
+                SELECT 1 FROM workspace WHERE id = $9 AND deleted = true
+            )",
         t_hash,
         t_prefix,
         plaintext as Option<&str>,
@@ -3451,10 +3507,17 @@ async fn impersonate(
         new_token.label,
         expiration,
         is_super_admin,
-        allowed_ips.as_deref()
+        allowed_ips.as_deref(),
+        new_token.workspace_id,
+        new_token.admin == Some(true),
     )
     .execute(&mut *tx)
     .await?;
+    if rows.rows_affected() == 0 {
+        return Err(Error::BadRequest(
+            "Cannot create a token for an archived workspace".to_string(),
+        ));
+    }
 
     windmill_api_auth::register_token_expiry_notification(
         &mut *tx,

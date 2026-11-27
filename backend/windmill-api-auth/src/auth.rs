@@ -451,6 +451,8 @@ impl AuthCache {
                     mcp_client: None,
                     capabilities: None,
                     allowed_ips: None,
+                    admin_withheld: false,
+                    super_admin_withheld: false,
                 };
                 AUTH_CACHE.insert(
                     key,
@@ -499,6 +501,8 @@ impl AuthCache {
                             mcp_client: claims.mcp_client,
                             capabilities: None,
                             allowed_ips: None,
+                            admin_withheld: false,
+                            super_admin_withheld: false,
                         };
                         // Fail closed: a `job_id` claim that does not parse must reject
                         // the token rather than resolve to `None`, which would clear the
@@ -539,7 +543,7 @@ impl AuthCache {
                         AND (expiration > NOW() OR expiration IS NULL)
                         AND (workspace_id IS NULL OR workspace_id = $2)
                     RETURNING owner, email, super_admin, scopes, label, read_only,
-                        allowed_ips::text[] AS allowed_ips",
+                        allowed_ips::text[] AS allowed_ips, admin",
                     t_hash,
                     w_id.as_ref(),
                 )
@@ -554,6 +558,7 @@ impl AuthCache {
                             x.read_only,
                         ),
                         x.allowed_ips,
+                        x.admin,
                     )
                 })
                 .fetch_optional(&self.db)
@@ -561,7 +566,11 @@ impl AuthCache {
                 .ok()
                 .flatten();
 
-                if let Some((user, allowed_ips)) = user_o {
+                if let Some((user, allowed_ips, token_admin)) = user_o {
+                    let admin_withheld = !token_admin;
+                    // A session always stands for the account as it is; any other row carries
+                    // superadmin rights only if it was minted with them.
+                    let super_admin_withheld = !user.2 && !is_session_label(user.4.as_deref());
                     let allowed_ips = crate::token_ip_allowlist_oss::load_allowed_ips(allowed_ips);
                     let authed_o = {
                         match user {
@@ -599,7 +608,12 @@ impl AuthCache {
                                                         )
                                                         .await
                                                         .unwrap_or(true);
-                                                    Some((r.is_admin, restricted && !r.is_admin))
+                                                    // A withheld admin acts as a member that
+                                                    // is not restricted, not as an operator.
+                                                    Some((
+                                                        r.is_admin && token_admin,
+                                                        restricted && !r.is_admin,
+                                                    ))
                                                 }
                                                 None => None,
                                             }
@@ -638,6 +652,8 @@ impl AuthCache {
                                                 mcp_client: None,
                                                 capabilities: None,
                                                 allowed_ips: None,
+                                                admin_withheld: false,
+                                                super_admin_withheld: false,
                                             })
                                         } else {
                                             tracing::warn!(
@@ -695,6 +711,8 @@ impl AuthCache {
                                                 mcp_client: None,
                                                 capabilities: None,
                                                 allowed_ips: None,
+                                                admin_withheld: false,
+                                                super_admin_withheld: false,
                                             })
                                         } else {
                                             tracing::warn!(
@@ -782,7 +800,7 @@ impl AuthCache {
                                             Some(ApiAuthed {
                                                 email,
                                                 username,
-                                                is_admin: is_admin || super_admin,
+                                                is_admin: (is_admin && token_admin) || super_admin,
                                                 is_operator,
                                                 groups,
                                                 folders,
@@ -797,6 +815,8 @@ impl AuthCache {
                                                 mcp_client: None,
                                                 capabilities: None,
                                                 allowed_ips: None,
+                                                admin_withheld: false,
+                                                super_admin_withheld: false,
                                             })
                                         }
                                         None if super_admin => {
@@ -825,6 +845,8 @@ impl AuthCache {
                                                     mcp_client: None,
                                                     capabilities: None,
                                                     allowed_ips: None,
+                                                    admin_withheld: false,
+                                                    super_admin_withheld: false,
                                                 }),
                                                 Err(e) => {
                                                     tracing::error!(
@@ -866,6 +888,8 @@ impl AuthCache {
                                                 mcp_client: None,
                                                 capabilities: None,
                                                 allowed_ips: None,
+                                                admin_withheld: false,
+                                                super_admin_withheld: false,
                                             })
                                         }
                                         None => None,
@@ -889,13 +913,20 @@ impl AuthCache {
                                         mcp_client: None,
                                         capabilities: None,
                                         allowed_ips: None,
+                                        admin_withheld: false,
+                                        super_admin_withheld: false,
                                     })
                                 }
                             }
                             _ => None,
                         }
                     };
-                    let authed_o = authed_o.map(|authed| ApiAuthed { allowed_ips, ..authed });
+                    let authed_o = authed_o.map(|authed| ApiAuthed {
+                        allowed_ips,
+                        admin_withheld,
+                        super_admin_withheld,
+                        ..authed
+                    });
                     if let Some(authed) = authed_o.as_ref() {
                         AUTH_CACHE.insert(
                             key,
@@ -933,6 +964,8 @@ impl AuthCache {
                         mcp_client: None,
                         capabilities: None,
                         allowed_ips: None,
+                        admin_withheld: false,
+                        super_admin_withheld: false,
                     };
                     Some(OptJobAuthed { authed, job_id: None })
                 } else {
@@ -1380,6 +1413,8 @@ fn no_auth_admin_authed() -> ApiAuthed {
         mcp_client: None,
         capabilities: None,
         allowed_ips: None,
+        admin_withheld: false,
+        super_admin_withheld: false,
     }
 }
 

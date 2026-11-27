@@ -3,6 +3,7 @@
 	import {
 		enterpriseLicense,
 		superadmin,
+		userStore,
 		userWorkspaces,
 		usersWorkspaceStore,
 		type UserWorkspace
@@ -61,7 +62,15 @@
 	let mcpScopes = $state<string[]>(['mcp:all'])
 	// What the user picked; `newTokenExpiration` is that pick held within the ceiling.
 	let pickedExpiration = $state<number | undefined>(undefined)
-	let newTokenWorkspace = $state<string | undefined>(untrack(() => defaultNewTokenWorkspace))
+	// A token is bound to one workspace unless the user picks all of them: a bound token reaches
+	// only that workspace's routes, none of the instance-level ones.
+	const ALL_WORKSPACES = '__all_workspaces__'
+	const initialTokenWorkspace = () =>
+		defaultNewTokenWorkspace ?? $operatingWorkspace ?? ALL_WORKSPACES
+	let newTokenWorkspace = $state<string>(untrack(initialTokenWorkspace))
+	// The owner's admin and superadmin rights are carried only when asked for.
+	let carryAdmin = $state(false)
+	let carrySuperAdmin = $state(false)
 	// The workspaces an MCP token reaches. One binds the token to it; several leave it unbound
 	// and are listed in its scopes; all of them leaves it unbound with no list, so it also
 	// reaches the workspaces its owner joins later.
@@ -200,7 +209,7 @@
 	function exitMcpMode() {
 		mcpCreationMode = false
 		resetExpirationOnModeChange()
-		newTokenWorkspace = defaultNewTokenWorkspace
+		newTokenWorkspace = initialTokenWorkspace()
 		newMcpToken = undefined
 		readOnly = false
 		if (mcpLabelAutofilled) {
@@ -247,7 +256,8 @@
 					scopes: tokenScopes,
 					workspace_id: tokenWorkspaceId,
 					read_only: mcpMode ? false : readOnly,
-					super_admin: mcpMode && mcpSuperAdmin,
+					super_admin: mcpMode ? mcpSuperAdmin : carrySuperAdmin,
+					admin: carryAdmin,
 					allowed_ips:
 						$enterpriseLicense && !mcpMode && allowedIps.length > 0 ? allowedIps : undefined
 				} as NewToken
@@ -286,7 +296,20 @@
 		!mcpAllWorkspaces && mcpWorkspaces.length === 1 ? mcpWorkspaces[0] : undefined
 	)
 	const mcpReachesWorkspaces = $derived(mcpAllWorkspaces || mcpWorkspaces.length > 0)
-	const tokenWorkspaceId = $derived(mcpCreationMode ? mcpBoundWorkspace : newTokenWorkspace)
+	const tokenWorkspaceId = $derived(
+		mcpCreationMode
+			? mcpBoundWorkspace
+			: newTokenWorkspace === ALL_WORKSPACES
+				? undefined
+				: newTokenWorkspace
+	)
+	// Offered to who holds admin rights here; the server holds the token within the owner's
+	// rights in each workspace, so this only hides a switch that would do nothing.
+	const canCarryAdmin = $derived(!!$userStore?.is_admin || !!$superadmin)
+	const tokenWorkspaceItems = $derived([
+		...workspaces.map((w) => ({ label: w.name, value: w.id })),
+		{ label: 'All workspaces', value: ALL_WORKSPACES }
+	])
 	const workspacesScope = $derived(
 		mcpCreationMode && !mcpAllWorkspaces && mcpWorkspaces.length > 1
 			? `mcp:workspaces:${mcpWorkspaces.join(',')}`
@@ -326,7 +349,7 @@
 	// The workspace used to browse scripts/flows/endpoints in the scope picker: the first
 	// picked one, or the current one for a token reaching all of them.
 	const scopeWorkspaceId = $derived(
-		(mcpCreationMode && !mcpAllWorkspaces ? mcpWorkspaces[0] : newTokenWorkspace) ||
+		(mcpCreationMode && !mcpAllWorkspaces ? mcpWorkspaces[0] : tokenWorkspaceId) ||
 			$operatingWorkspace ||
 			''
 	)
@@ -370,6 +393,9 @@
 			bind:access={() => mcpAccess, setMcpAccess}
 		>
 			{#snippet afterAccess()}
+				{#if canCarryAdmin && !mcpSuperAdmin}
+					{@render adminToggle()}
+				{/if}
 				{#if $superadmin}
 					<Toggle
 						bind:checked={() => mcpSuperAdmin, setMcpSuperAdmin}
@@ -416,6 +442,18 @@
 			</Button>
 		</div>
 	</div>
+{/snippet}
+
+{#snippet adminToggle()}
+	<Toggle
+		bind:checked={carryAdmin}
+		options={{
+			right: 'Workspace admin rights',
+			rightTooltip:
+				'The token carries your admin rights in the workspaces it reaches. Off, it acts as a regular member there.'
+		}}
+		size="xs"
+	/>
 {/snippet}
 
 {#snippet mcpWorkspacePicker()}
@@ -572,7 +610,45 @@
 						</p>
 					{/if}
 				</div>
+
+				{#if !lockWorkspace}
+					<div class="flex flex-col gap-1">
+						<span class="text-xs font-semibold text-emphasis">Workspace</span>
+						<Select
+							bind:value={newTokenWorkspace}
+							inputClass="w-full"
+							items={tokenWorkspaceItems}
+						/>
+						<p class="text-2xs text-hint">
+							{#if tokenWorkspaceId == undefined}
+								Works in every workspace you are a member of, and on instance-level endpoints. The
+								CLI needs this.
+							{:else}
+								Works only in this workspace. Instance-level endpoints refuse it.
+							{/if}
+						</p>
+					</div>
+				{/if}
 			</div>
+
+			{#if canCarryAdmin || $superadmin}
+				<div class="mt-4 flex flex-col gap-2">
+					{#if canCarryAdmin && !carrySuperAdmin}
+						{@render adminToggle()}
+					{/if}
+					{#if $superadmin}
+						<Toggle
+							bind:checked={carrySuperAdmin}
+							options={{
+								right: 'Superadmin rights',
+								rightTooltip:
+									'The token carries your superadmin rights: admin in every workspace of the instance and access to instance settings. Off, it acts with your membership in each workspace only.'
+							}}
+							size="xs"
+						/>
+					{/if}
+				</div>
+			{/if}
 
 			{#if $enterpriseLicense}
 				<div class="mt-4 flex flex-col gap-1">
