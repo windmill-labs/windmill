@@ -80,7 +80,10 @@ Symbols, not line numbers, are cited: they drift less.
   `create_token_internal` called directly (server-side mints) inherits them from the owner,
   except for an MCP token's superadmin. Either way a token never gets rights the minting
   credential withholds, and `GET /users/refresh_token` refuses one that withholds rights the
-  account holds, since a session carries them all. A promotion to superadmin leaves existing
+  account holds, since a session carries them all. A job started by such a token runs with its
+  capped `is_admin` (and a `$WM_TOKEN` cannot reach `tokens/create`); but what the token deploys
+  or schedules runs later as its owner (`fetch_authed_from_permissioned_as`), with every right of
+  the account, as with scoped tokens. A promotion to superadmin leaves existing
   tokens as they are; a demotion strips it from every non-session token. The MCP OAuth approve
   stores the `super_admin` request on its code and refresh rows, and each exchange re-checks
   `password`. A new path minting a token must ask the same questions, or it reaches a different

@@ -642,7 +642,7 @@
 							options={{
 								right: 'Superadmin rights',
 								rightTooltip:
-									'The token carries your superadmin rights: admin in every workspace of the instance and access to instance settings. Off, it acts with your membership in each workspace only.'
+									'The token carries your superadmin rights: admin in every workspace it reaches, including ones you are not a member of. Instance settings also need All workspaces. Off, it acts with your membership in each workspace only.'
 							}}
 							size="xs"
 						/>

@@ -59,6 +59,13 @@ async function create(
   const workspaceId = opts.allWorkspaces
     ? undefined
     : (await resolveWorkspace(opts)).workspaceId;
+  if (opts.superadmin && workspaceId) {
+    log.warn(
+      "The token is bound to workspace " +
+        workspaceId +
+        ": instance-level endpoints will refuse it. Pass --all-workspaces for instance commands."
+    );
+  }
 
   const token = await wmill.createToken({
     requestBody: {
