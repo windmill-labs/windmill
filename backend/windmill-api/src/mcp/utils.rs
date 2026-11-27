@@ -426,6 +426,14 @@ pub fn substitute_path_params(
     args_map: &serde_json::Map<String, Value>,
     path_schema: &Option<Value>,
 ) -> BackendResult<String> {
+    // Global tools carry no workspace, and multi-workspace mode passes an empty one.
+    if path.contains("{workspace}") && !crate::ai_session_tools::is_plain_workspace_id(workspace_id)
+    {
+        return Err(ErrorData::invalid_params(
+            "Invalid workspace_id: only letters, digits, '_' and '-' are allowed".to_string(),
+            None,
+        ));
+    }
     let mut path_template = path.replace("{workspace}", workspace_id);
 
     if let Some(schema) = path_schema {
@@ -1321,6 +1329,20 @@ mod tests {
             result.is_err(),
             "traversal payload must be rejected before URL substitution"
         );
+
+        args.insert("path".to_string(), json!("x"));
+        for workspace in ["x/../../settings/global/jwt_secret?", "a%2F..", "a.b", ""] {
+            assert!(
+                substitute_path_params(
+                    "/w/{workspace}/resources/get/{path}",
+                    workspace,
+                    &args,
+                    &path_schema,
+                )
+                .is_err(),
+                "workspace {workspace:?} must be rejected"
+            );
+        }
     }
 
     #[test]

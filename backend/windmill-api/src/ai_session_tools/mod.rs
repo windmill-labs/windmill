@@ -510,6 +510,16 @@ const INSTANCE_ROUTES: &[&str] = &[
     "/workspaces/users",
 ];
 
+/// Whether `w_id` has the shape of a workspace id (the `workspace.proper_id` alphabet).
+/// A caller-supplied workspace is spliced into API URLs, where `/`, `.`, `?` or `%`
+/// would move the call to another route.
+pub(crate) fn is_plain_workspace_id(w_id: &str) -> bool {
+    !w_id.is_empty()
+        && w_id
+            .chars()
+            .all(|c| c.is_alphanumeric() || c == '-' || c == '_')
+}
+
 /// The URL of an API call, refused unless it lands on the route its handler wrote.
 ///
 /// The JWT behind a call carries the caller's full rights, and paths embed arguments a
@@ -529,11 +539,8 @@ fn guarded_url(
         .strip_prefix("/w/")
         .and_then(|rest| rest.strip_prefix(w_id))
         .is_some_and(|rest| rest.starts_with('/'));
-    let workspace_is_plain = w_id
-        .chars()
-        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
     if path.contains('#')
-        || !workspace_is_plain
+        || !is_plain_workspace_id(w_id)
         || !(in_workspace || INSTANCE_ROUTES.iter().any(|r| route.starts_with(r)))
     {
         return Err(refused());
