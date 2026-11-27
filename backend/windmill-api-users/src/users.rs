@@ -3208,13 +3208,19 @@ async fn refresh_token(
 
     let mut tx = db.begin().await?;
 
-    let super_admin = sqlx::query_scalar!(
-        "SELECT super_admin FROM password WHERE email = $1 AND disabled = false",
+    let account = sqlx::query!(
+        "SELECT super_admin, login_type = 'password' AND totp_secret IS NULL AS \"lacks_totp!\"
+         FROM password WHERE email = $1 AND disabled = false",
         &authed.email
     )
     .fetch_optional(&mut *tx)
-    .await?
-    .unwrap_or(false);
+    .await?;
+    // A session from before the instance required a second factor is not renewed, so it ends
+    // within one session lifetime and the next login goes through the setup.
+    if crate::totp::required() && account.as_ref().is_some_and(|a| a.lacks_totp) {
+        return Err(Error::BadRequest(crate::totp::TOTP_SETUP_REQUIRED.to_string()));
+    }
+    let super_admin = account.is_some_and(|a| a.super_admin);
 
     let new_token = create_session_token(
         &authed.email,

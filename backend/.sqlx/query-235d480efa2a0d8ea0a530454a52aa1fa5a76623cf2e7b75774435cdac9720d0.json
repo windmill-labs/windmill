@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT super_admin, login_type = 'password' AND totp_secret IS NULL AS \"lacks_totp!\"\n         FROM password WHERE email = $1 AND disabled = false",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "super_admin",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 1,
+        "name": "lacks_totp!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      null
+    ]
+  },
+  "hash": "235d480efa2a0d8ea0a530454a52aa1fa5a76623cf2e7b75774435cdac9720d0"
+}

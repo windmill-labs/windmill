@@ -876,7 +876,7 @@ export const settings: Record<string, Setting[]> = {
 			description:
 				'Password logins ask for a code from an authenticator app. Users without two-factor authentication set it up at their next login.',
 			tooltip:
-				'Users cannot turn it off while this is on. OAuth and SAML logins are not affected: enforce two-factor authentication at the identity provider. Sessions that already exist stay valid until they expire.',
+				'Users cannot turn it off while this is on. OAuth and SAML logins are not affected: enforce two-factor authentication at the identity provider. Sessions that already exist are no longer renewed for users without it, so they end within 3 days by default.',
 			key: 'require_totp',
 			fieldType: 'boolean',
 			storage: 'setting',

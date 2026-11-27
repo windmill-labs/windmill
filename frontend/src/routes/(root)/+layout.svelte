@@ -14,6 +14,8 @@
 	} from '$lib/stores'
 	import { getUserExt } from '$lib/user'
 	import { sendUserToast } from '$lib/toast'
+	import { loginErrorDetail, TOTP_SETUP_REQUIRED } from '$lib/loginError'
+	import { USER_SETTINGS_HASH } from '$lib/components/sidebar/settings'
 	import { switchWorkspace } from '$lib/storeUtils'
 	import { forgetForkParent, getRememberedForkParent } from '$lib/forkParentMemory'
 	import { onDestroy, onMount } from 'svelte'
@@ -206,6 +208,26 @@
 		}
 	}
 
+	// The instance now requires two-factor authentication and this account has none: the
+	// session is no longer renewed. Said once per page, with the way to keep it.
+	let totpSetupWarned = false
+	async function refreshSession(): Promise<void> {
+		try {
+			await UserService.refreshUserToken({ ifExpiringInLessThanS: 30 * 60 })
+		} catch (e) {
+			if (loginErrorDetail(e) !== TOTP_SETUP_REQUIRED) throw e
+			if (totpSetupWarned) return
+			totpSetupWarned = true
+			sendUserToast(
+				'This instance now requires two-factor authentication. Set it up to stay logged in: your session ends within 30 minutes otherwise.',
+				'warning',
+				[{ label: 'Set up', callback: () => (location.hash = USER_SETTINGS_HASH) }],
+				undefined,
+				30000
+			)
+		}
+	}
+
 	let interval: number | undefined = undefined
 	onMount(() => {
 		window.onunhandledrejection = (event: PromiseRejectionEvent) => {
@@ -283,7 +305,7 @@
 		if (page.url.pathname != '/user/login') {
 			setUserWorkspaceStore().catch((e) => console.error('could not load workspace list', e))
 			loadUser()
-			UserService.refreshUserToken({ ifExpiringInLessThanS: 30 * 60 })
+			refreshSession()
 		}
 
 		let i = 0
@@ -295,7 +317,7 @@
 				if (i % 3 == 0) {
 					console.debug('Refreshing user token')
 					// every 15 minutes check if session token is expiring in less than 30min
-					await UserService.refreshUserToken({ ifExpiringInLessThanS: 30 * 60 })
+					await refreshSession()
 				}
 
 				try {
