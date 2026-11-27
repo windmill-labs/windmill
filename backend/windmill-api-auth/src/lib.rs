@@ -1472,6 +1472,17 @@ pub async fn create_token_internal(
     )
     .await;
 
+    let grant = TokenAuditGrant {
+        label: token_config.label.as_deref(),
+        expiration: token_config.expiration,
+        scopes: token_config.scopes.as_deref(),
+        workspace_id: token_config.workspace_id.as_deref(),
+        read_only: token_config.read_only.unwrap_or(false),
+        allowed_ips: allowed_ips.as_deref(),
+        admin: carries_admin,
+        super_admin: is_super_admin,
+    }
+    .params();
     audit_log(
         &mut *tx,
         authed,
@@ -1479,7 +1490,7 @@ pub async fn create_token_internal(
         ActionKind::Create,
         &"global",
         Some(t_prefix),
-        None,
+        Some(audit_params(&grant)),
     )
     .instrument(tracing::info_span!("token", email = &authed.email))
     .await?;
@@ -1515,6 +1526,41 @@ pub async fn register_token_expiry_notification(
     {
         tracing::error!("Failed to register token expiry notification: {}", e);
     }
+}
+
+/// What a minted token row holds, recorded on its creation's audit entry. Token edits record
+/// their fields' values before and after, so a token's history can be replayed from this.
+pub struct TokenAuditGrant<'a> {
+    pub label: Option<&'a str>,
+    pub expiration: Option<chrono::DateTime<chrono::Utc>>,
+    pub scopes: Option<&'a [String]>,
+    pub workspace_id: Option<&'a str>,
+    pub read_only: bool,
+    pub allowed_ips: Option<&'a [String]>,
+    pub admin: bool,
+    pub super_admin: bool,
+}
+
+impl TokenAuditGrant<'_> {
+    /// Each value JSON-encoded, so a `null` (none, never, anywhere) stays distinct from `""`.
+    pub fn params(&self) -> Vec<(&'static str, String)> {
+        let j = |v: serde_json::Value| v.to_string();
+        vec![
+            ("label", j(serde_json::json!(self.label))),
+            ("expiration", j(serde_json::json!(self.expiration))),
+            ("scopes", j(serde_json::json!(self.scopes))),
+            ("workspace_id", j(serde_json::json!(self.workspace_id))),
+            ("read_only", j(serde_json::json!(self.read_only))),
+            ("allowed_ips", j(serde_json::json!(self.allowed_ips))),
+            ("admin", j(serde_json::json!(self.admin))),
+            ("super_admin", j(serde_json::json!(self.super_admin))),
+        ]
+    }
+}
+
+/// Audit parameters from owned values, as `audit_log` takes them.
+pub fn audit_params<'a>(params: &'a [(&'a str, String)]) -> HashMap<&'a str, &'a str> {
+    params.iter().map(|(k, v)| (*k, v.as_str())).collect()
 }
 
 /// Replace a token's pending expiry notification after its expiration changed, so a token
@@ -1698,6 +1744,24 @@ pub fn require_path_read_access_for_preview(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ip_nets_within_holds_lists_to_the_outer_networks() {
+        let nets = |v: &[&str]| v.iter().map(|x| x.parse().unwrap()).collect::<Vec<IpNet>>();
+        let outer = nets(&["10.0.0.0/8", "192.168.1.0/24"]);
+        assert!(ip_nets_within(
+            &outer,
+            Some(&nets(&["10.1.2.3/32", "192.168.1.0/25"]))
+        ));
+        assert!(!ip_nets_within(&outer, Some(&nets(&["10.0.0.0/7"]))));
+        assert!(!ip_nets_within(
+            &outer,
+            Some(&nets(&["10.1.0.0/16", "172.16.0.0/12"]))
+        ));
+        // Usable from anywhere lies within no list.
+        assert!(!ip_nets_within(&outer, None));
+        assert!(!ip_nets_within(&[], Some(&nets(&["10.0.0.1/32"]))));
+    }
 
     fn authed_with_scopes(scopes: Option<Vec<&str>>) -> ApiAuthed {
         ApiAuthed {

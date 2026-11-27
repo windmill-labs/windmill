@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE token t SET label = $1\n           FROM token old\n          WHERE old.token_hash = t.token_hash\n            AND t.email = $2 AND t.token_prefix = $3\n            AND (t.label IS NULL OR (\n                 t.label <> 'session'\n                 AND t.label <> 'guest_session'\n                 AND lower(t.label) NOT LIKE 'ephemeral%'\n                 AND t.label <> 'debugger-token'\n                 AND t.label NOT LIKE 'mcp-oauth-%'\n                 AND NOT starts_with(t.label, 'embed_app:')\n                 AND NOT starts_with(t.label, 'sdk_app:')\n                 AND NOT starts_with(t.label, 'impersonation:')\n                 AND NOT starts_with(t.label, 'cli-login:')\n                 AND NOT starts_with(t.label, 'remote-deploy:')\n             ))\n          RETURNING t.token_prefix, old.label AS previous_label",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "token_prefix",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "previous_label",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      true
+    ]
+  },
+  "hash": "6141c832d916e87dfb353ac73ae4d06088cbdbac4f1a8e7859adfed4c6f64dac"
+}

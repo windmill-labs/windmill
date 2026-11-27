@@ -3533,6 +3533,18 @@ async fn impersonate(
     )
     .await;
 
+    let mut params = windmill_api_auth::TokenAuditGrant {
+        label: new_token.label.as_deref(),
+        expiration,
+        scopes: None,
+        workspace_id: new_token.workspace_id.as_deref(),
+        read_only: false,
+        allowed_ips: allowed_ips.as_deref(),
+        admin: new_token.admin == Some(true),
+        super_admin: is_super_admin,
+    }
+    .params();
+    params.push(("impersonated", impersonated.clone()));
     audit_log(
         &mut *tx,
         &authed,
@@ -3540,7 +3552,7 @@ async fn impersonate(
         ActionKind::Delete,
         &"global",
         Some(t_prefix),
-        Some([("impersonated", &format!("{impersonated}")[..])].into()),
+        Some(windmill_api_auth::audit_params(&params)),
     )
     .instrument(tracing::info_span!("token", email = &impersonated))
     .await?;
@@ -4295,6 +4307,7 @@ async fn update_token_scopes(
     let prefix = token_prefix;
 
     let scopes_json = serde_json::to_string(&req.scopes).unwrap_or_default();
+    let previous_json = serde_json::to_string(&token.scopes).unwrap_or_default();
     audit_log(
         &mut *tx,
         &authed,
@@ -4302,7 +4315,13 @@ async fn update_token_scopes(
         ActionKind::Update,
         &"global",
         Some(&prefix),
-        Some([("scopes", scopes_json.as_str())].into()),
+        Some(
+            [
+                ("scopes", scopes_json.as_str()),
+                ("previous_scopes", previous_json.as_str()),
+            ]
+            .into(),
+        ),
     )
     .await?;
 
@@ -4475,8 +4494,31 @@ async fn update_token_limits(
         .await?;
     }
 
-    let expiration_json = serde_json::to_string(&expiration).unwrap_or_default();
-    let ips_json = serde_json::to_string(&new_ips_text).unwrap_or_default();
+    let j = |v: serde_json::Value| v.to_string();
+    let changed: Vec<&str> = [
+        req.expiration.is_some().then_some("expiration"),
+        req.allowed_ips.is_some().then_some("allowed_ips"),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+    let mut params = vec![
+        ("changed", j(serde_json::json!(changed))),
+        ("expiration", j(serde_json::json!(expiration))),
+        (
+            "previous_expiration",
+            j(serde_json::json!(token.expiration)),
+        ),
+        ("allowed_ips", j(serde_json::json!(new_ips_text))),
+        (
+            "previous_allowed_ips",
+            j(serde_json::json!(token.allowed_ips)),
+        ),
+    ];
+    // Shortened by `max_token_expiration_days`.
+    if let Some(requested) = req.expiration.filter(|r| *r != expiration) {
+        params.push(("requested_expiration", j(serde_json::json!(requested))));
+    }
     audit_log(
         &mut *tx,
         &authed,
@@ -4484,13 +4526,7 @@ async fn update_token_limits(
         ActionKind::Update,
         &"global",
         Some(&token_prefix),
-        Some(
-            [
-                ("expiration", expiration_json.as_str()),
-                ("allowed_ips", ips_json.as_str()),
-            ]
-            .into(),
-        ),
+        Some(windmill_api_auth::audit_params(&params)),
     )
     .await?;
     tx.commit().await?;
@@ -4542,34 +4578,38 @@ async fn update_token_label(
     // load-bearing labels described above. This SQL mirrors the canonical
     // `windmill_common::auth::is_user_token`; keep the two in sync (note the
     // case-insensitive `ephemeral` match).
-    let updated: Option<String> = sqlx::query_scalar!(
-        "UPDATE token SET label = $1
-           WHERE email = $2 AND token_prefix = $3
-             AND (label IS NULL OR (
-                 label <> 'session'
-                 AND label <> 'guest_session'
-                 AND lower(label) NOT LIKE 'ephemeral%'
-                 AND label <> 'debugger-token'
-                 AND label NOT LIKE 'mcp-oauth-%'
-                 AND NOT starts_with(label, 'embed_app:')
-                 AND NOT starts_with(label, 'sdk_app:')
-                 AND NOT starts_with(label, 'impersonation:')
-                 AND NOT starts_with(label, 'cli-login:')
-                 AND NOT starts_with(label, 'remote-deploy:')
+    // `old` is the row as it stood before this statement, for the audit entry.
+    let updated = sqlx::query!(
+        "UPDATE token t SET label = $1
+           FROM token old
+          WHERE old.token_hash = t.token_hash
+            AND t.email = $2 AND t.token_prefix = $3
+            AND (t.label IS NULL OR (
+                 t.label <> 'session'
+                 AND t.label <> 'guest_session'
+                 AND lower(t.label) NOT LIKE 'ephemeral%'
+                 AND t.label <> 'debugger-token'
+                 AND t.label NOT LIKE 'mcp-oauth-%'
+                 AND NOT starts_with(t.label, 'embed_app:')
+                 AND NOT starts_with(t.label, 'sdk_app:')
+                 AND NOT starts_with(t.label, 'impersonation:')
+                 AND NOT starts_with(t.label, 'cli-login:')
+                 AND NOT starts_with(t.label, 'remote-deploy:')
              ))
-           RETURNING token_prefix",
+          RETURNING t.token_prefix, old.label AS previous_label",
         req.label.as_deref(),
         &authed.email,
         &token_prefix,
     )
     .fetch_optional(&mut *tx)
-    .await?;
-
-    let prefix = updated.ok_or_else(|| {
+    .await?
+    .ok_or_else(|| {
         Error::NotFound(format!(
             "token {token_prefix} not found, not owned by user, or not editable"
         ))
     })?;
+    let prefix = updated.token_prefix;
+    let previous_label = updated.previous_label.unwrap_or_default();
 
     audit_log(
         &mut *tx,
@@ -4578,7 +4618,13 @@ async fn update_token_label(
         ActionKind::Update,
         &"global",
         Some(&prefix),
-        Some([("label", req.label.as_deref().unwrap_or(""))].into()),
+        Some(
+            [
+                ("label", req.label.as_deref().unwrap_or("")),
+                ("previous_label", previous_label.as_str()),
+            ]
+            .into(),
+        ),
     )
     .await?;
 
