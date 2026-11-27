@@ -9,6 +9,7 @@
 		open: boolean
 		gitRepoResourcePath: string
 		uiState: SettingsObject
+		repoSetup?: { promotion: boolean; auto_pull: boolean }
 		onSuccess?: () => void
 		isNewConnection?: boolean
 		onSaveWithoutInit?: () => void
@@ -18,6 +19,7 @@
 		open = $bindable(false),
 		gitRepoResourcePath,
 		uiState,
+		repoSetup,
 		onSuccess,
 		isNewConnection = false,
 		onSaveWithoutInit
@@ -46,7 +48,7 @@
 
 	{#if open}
 		{#key gitRepoResourcePath}
-			<GitPushPreview bind:this={push} {gitRepoResourcePath} {uiState} {onSuccess} />
+			<GitPushPreview bind:this={push} {gitRepoResourcePath} {uiState} {repoSetup} {onSuccess} />
 		{/key}
 	{/if}
 

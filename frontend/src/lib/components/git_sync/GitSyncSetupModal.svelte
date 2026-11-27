@@ -402,6 +402,10 @@
 							bind:this={push}
 							gitRepoResourcePath={draft.git_repo_resource_path}
 							uiState={draft.settings}
+							repoSetup={{
+								promotion: draft.use_individual_branch === true,
+								auto_pull: draft.auto_pull?.enabled === true
+							}}
 							onApplyStateChange={(v) => (applying = v)}
 							onSuccess={() => {
 								initialized = true

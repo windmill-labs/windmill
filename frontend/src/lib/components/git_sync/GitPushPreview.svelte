@@ -19,13 +19,16 @@ buttons — the setup dialog puts them in its own footer, the standalone modal i
 	interface Props {
 		gitRepoResourcePath: string
 		uiState: SettingsObject
+		/** How the repository is set up, for the README the first push writes into a repository
+		 *  that has none. Passed in because a new repository's settings are saved after that push. */
+		repoSetup?: { promotion: boolean; auto_pull: boolean }
 		onSuccess?: () => void
 		/** Told when a push starts and ends, so a host that can outlive this component knows a
 		 *  push is in flight — this one is destroyed the moment its dialog closes. */
 		onApplyStateChange?: (applying: boolean) => void
 	}
 
-	let { gitRepoResourcePath, uiState, onSuccess, onApplyStateChange }: Props = $props()
+	let { gitRepoResourcePath, uiState, repoSetup, onSuccess, onApplyStateChange }: Props = $props()
 
 	let previewJobId = $state<string | null>(null)
 	let previewJobStatus = $state<'running' | 'success' | 'failure' | undefined>(undefined)
@@ -94,7 +97,8 @@ wmill sync pull --workspace ${$workspaceStore} --repository ${gitRepoResourcePat
 				repo_url_resource_path: gitRepoResourcePath,
 				dry_run: isDryRun,
 				pull: false,
-				settings_json: JSON.stringify(uiState)
+				settings_json: JSON.stringify(uiState),
+				readme: { instance_url: apiBaseUrl('cli'), ...repoSetup }
 			}
 
 			const jobId = await JobService.runScriptByPath({

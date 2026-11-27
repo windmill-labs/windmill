@@ -78,6 +78,10 @@
 			extra_include_path: repo.settings.extra_include_path,
 			include_type: repo.settings.include_type
 		}}
+		repoSetup={{
+			promotion: repo.use_individual_branch === true,
+			auto_pull: repo.auto_pull?.enabled === true
+		}}
 		isNewConnection={isNewConnection}
 		onSuccess={handlePushSuccess}
 		onSaveWithoutInit={isNewConnection ? () => handleSaveWithoutInit(idx) : undefined}
