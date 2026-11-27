@@ -136,15 +136,20 @@ pub(super) async fn call_session_tool(
         CallToolResult::success(content)
     };
     if let Some((key, view)) = ctx.view.lock().unwrap().take() {
-        // Only the card calls `load_card`, so only the card reads its `structuredContent`.
-        result.structured_content = Some(if name == tools::LOAD_CARD {
-            json!({ key: view.clone() })
-        } else {
-            call
-        });
+        result.structured_content = Some(structured_content(name, call, key, &view));
         result.meta = Some(MetaObject(Map::from_iter([(key.to_string(), view)])));
     }
     Ok(result)
+}
+
+/// Codex's and ChatGPT's models read `structuredContent`, so a show tool's names only its
+/// call. `load_card`'s holds the card data: only the card calls it.
+fn structured_content(name: &str, call: Value, key: &str, view: &Value) -> Value {
+    if name == tools::LOAD_CARD {
+        json!({ key: view })
+    } else {
+        call
+    }
 }
 
 #[cfg(test)]
@@ -181,6 +186,20 @@ mod tests {
             .map(|tool| tool.name.to_string())
             .collect();
         assert_eq!(app_only, [tools::LOAD_CARD]);
+    }
+
+    #[test]
+    fn only_load_card_puts_card_data_in_structured_content() {
+        let call = json!({ "tool": "show_run", "workspace_id": "w", "arguments": { "id": "1" } });
+        let view = json!({ "status": "success", "logs": "tick" });
+        assert_eq!(
+            structured_content("show_run", call.clone(), "windmill/run", &view),
+            call
+        );
+        assert_eq!(
+            structured_content(tools::LOAD_CARD, call, "windmill/run", &view),
+            json!({ "windmill/run": view })
+        );
     }
 
     /// The ChatGPT directory wants every hint explicit, and Claude's a title on every tool.

@@ -2187,7 +2187,7 @@ pub(super) async fn show_deploy_review(ctx: &Ctx<'_>, args: &Value) -> ToolResul
         return Ok("No drafts to review: nothing differs from the deployed state.".to_string());
     }
     let mut text = format!(
-        "Showing {} draft(s) to the user, {reviewable} with a diff they can deploy from the card. Nothing was deployed: you are told when the user deploys one.",
+        "{} draft(s) to review, {reviewable} with a diff to deploy. Nothing was deployed. Where the card is drawn, the user deploys from it and you are told when they do.",
         items.len()
     );
     if total > items.len() {
@@ -2202,7 +2202,7 @@ pub(super) async fn show_deploy_review(ctx: &Ctx<'_>, args: &Value) -> ToolResul
         .collect();
     if !rest.is_empty() {
         text.push_str(&format!(
-            " No Deploy is offered for {} (nothing to deploy, or not deployable from the card).",
+            " Nothing to deploy for {} (no change, or not deployable this way).",
             rest.join(", ")
         ));
     }
