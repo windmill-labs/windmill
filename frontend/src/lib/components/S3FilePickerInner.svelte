@@ -18,7 +18,8 @@
 		FileArchive,
 		FilePlay,
 		FileAudio,
-		Table2
+		Table2,
+		Eye
 	} from 'lucide-svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import TextInput from './text_input/TextInput.svelte'
@@ -71,6 +72,7 @@
 	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
 	import FileUploadModal from './common/fileUpload/FileUploadModal.svelte'
 	import S3FilePreview from './S3FilePreview.svelte'
+	import { isMarkdownFile } from './common/fileDownload/FileTextPreview.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
@@ -211,6 +213,7 @@
 		| undefined = $state(undefined)
 
 	let viewMode: 'table' | 'text' = $state('table')
+	let markdownView: 'rendered' | 'text' = $state('rendered')
 	/** The selected file, when it can be shown as a table. Its own requests can't read
 	 * files behind a custom listing (git repos), so those keep the text preview. */
 	let tableSource = $derived.by(() => {
@@ -791,6 +794,8 @@
 		// the same key, so comparing keys would let an older request speak for a newer one.
 		const requestId = ++metadataRequestId
 		fileInfoLoading = true
+		// Each file opens rendered, as the separator resets per file.
+		markdownView = 'rendered'
 		let fileMetadataRaw: LoadFileMetadataResponse
 		try {
 			fileMetadataRaw = await loadFileMetadataRequest({
@@ -1441,6 +1446,18 @@
 								<ToggleButton value="text" label="Text" icon={FileText} small {item} />
 							{/snippet}
 						</ToggleButtonGroup>
+					{:else if isMarkdownFile(fileMetadata.fileKey)}
+						<ToggleButtonGroup
+							noWFull
+							selected={markdownView}
+							onSelected={(v) => (markdownView = v)}
+							class="shrink-0"
+						>
+							{#snippet children({ item })}
+								<ToggleButton value="rendered" label="Rendered" icon={Eye} small {item} />
+								<ToggleButton value="text" label="Text" icon={FileText} small {item} />
+							{/snippet}
+						</ToggleButtonGroup>
 					{/if}
 					{#if filePreview?.contentType === 'Csv'}
 						<div class="flex items-center gap-4 shrink-0 text-xs text-secondary">
@@ -1553,6 +1570,7 @@
 					{loadFileMetadataRequest}
 					class="flex-1 min-h-0"
 					csvOptions={{ separator: csvSeparatorChar, hasHeader: csvHasHeader }}
+					markdownSource={markdownView === 'text'}
 					bodyClass="bg-transparent px-3"
 				/>
 			{/if}

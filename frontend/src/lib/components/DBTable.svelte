@@ -63,7 +63,7 @@
 	import type { IDbTableOps } from './dbOps'
 	import type { TableEditorForeignKey } from './apps/components/display/dbtable/tableEditor'
 	import type { ColumnDef } from './apps/components/display/dbtable/utils'
-	import { untrack } from 'svelte'
+	import { untrack, type Snippet } from 'svelte'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 	import FilterSearchbar from './FilterSearchbar.svelte'
 	import {
@@ -111,6 +111,14 @@
 		onNewColumn?: () => void
 		/** Hides the button that downloads the loaded rows, for a file whose owner disabled downloads. */
 		disableDownload?: boolean
+		/** The caller's own controls, placed in the toolbar before the row count. */
+		toolbar?: Snippet
+		/** For a narrow container: a short search placeholder, a smaller row count and an
+		 * icon-only Columns button. */
+		compact?: boolean
+		/** The search bar's filters at mount, for a caller that keeps them across remounts. */
+		initialFilters?: Record<string, any>
+		onFiltersChange?: (filters: Record<string, any>) => void
 	}
 	let {
 		dbTableOps,
@@ -121,7 +129,11 @@
 		layoutStorageKey,
 		joinTargets,
 		onNewColumn,
-		disableDownload = false
+		disableDownload = false,
+		toolbar,
+		compact = false,
+		initialFilters,
+		onFiltersChange
 	}: Props = $props()
 
 	const storedLayout = untrack(() =>
@@ -162,13 +174,25 @@
 
 	// ── Filters ──────────────────────────────────────────────────────────────
 	let filterSchema = $derived(buildDbTableFilterSchema(columns))
-	let filters: Record<string, any> = $state({})
+	// Kept filters can name a column this table no longer has (a file reread with another
+	// separator or header row), and the search bar throws on a key its schema lacks.
+	let filters: Record<string, any> = $state(
+		untrack(() =>
+			Object.fromEntries(
+				Object.entries(initialFilters ?? {}).filter(([key]) => key in filterSchema.schema)
+			)
+		)
+	)
 	let quicksearch = $derived(unescapeFreeText(String(filters[FREE_TEXT_KEY] ?? '')))
 	let filterWhere = $derived(
 		renderDbTableFilters(filters, filterSchema, columns, dbTableOps.dbType)
 	)
 	let columnFilters = $derived(columnFiltersOf(filters, filterSchema))
 	let hasFilters = $derived(!!quicksearch || !!filterWhere)
+	function setFilters(next: Record<string, any>) {
+		filters = next
+		onFiltersChange?.(next)
+	}
 	/** The column whose header filter is open, and the value typed there. A header filter
 	 * writes the same entry the search bar does, so each shows the other's filter. */
 	let headerFilter: { column: string; draft: string } | undefined = $state(undefined)
@@ -179,7 +203,7 @@
 		const trimmed = draft.trim()
 		const value = trimmed ? (boolean ? trimmed === 'true' : trimmed) : undefined
 		if (value === current) return
-		filters = value === undefined ? rest : { ...rest, [key]: value }
+		setFilters(value === undefined ? rest : { ...rest, [key]: value })
 	}
 	/** Filters as the reader types; a half-typed comparison such as `>` matches no row. */
 	function typeHeaderFilter(key: string, draft: string) {
@@ -1151,25 +1175,36 @@
 />
 
 <div class="h-full relative flex flex-col">
-	<div class="flex justify-between items-center bg-surface-input pr-2">
+	<!-- Wraps the toolbar under the search once both no longer fit on one line. -->
+	<div class="flex flex-wrap justify-between items-center bg-surface-input pr-2">
 		<FilterSearchbar
-			class="grow rounded-none !border-0"
+			class="grow basis-40 min-w-0 rounded-none !border-0"
 			size="lg"
 			searchIconPosition="left"
 			dropdownMaxWidth={480}
 			dropdownOffsetY={1}
 			schema={filterSchema.schema}
-			bind:value={filters}
-			placeholder="Search, or filter by column..."
+			bind:value={() => filters, setFilters}
+			placeholder={compact ? 'Search' : 'Search, or filter by column...'}
 		/>
-		<div class="flex shrink-0 items-center gap-2 text-xs text-secondary">
+		<div class="flex shrink-0 items-center gap-2 ml-auto text-xs text-secondary">
+			{@render toolbar?.()}
 			{#if totalRows > 0 && endRow !== 0}
-				<span class="whitespace-nowrap">
-					{Math.min(firstVisible + 1, totalRows)}–{Math.min(lastVisible, totalRows)}
-					{#if rowCount !== undefined || endRow !== undefined}
-						of {endRow ?? rowCount} rows
-					{/if}
-				</span>
+				{#if compact}
+					<span
+						class="whitespace-nowrap text-2xs text-hint"
+						title="Rows {Math.min(firstVisible + 1, totalRows)}–{Math.min(lastVisible, totalRows)}"
+					>
+						{endRow ?? rowCount ?? totalRows} rows
+					</span>
+				{:else}
+					<span class="whitespace-nowrap">
+						{Math.min(firstVisible + 1, totalRows)}–{Math.min(lastVisible, totalRows)}
+						{#if rowCount !== undefined || endRow !== undefined}
+							of {endRow ?? rowCount} rows
+						{/if}
+					</span>
+				{/if}
 			{/if}
 			{#if !disableDownload}
 				<Button
@@ -1193,8 +1228,9 @@
 							startIcon={{ icon: Columns3 }}
 							selected={hidden.length > 0}
 							nonCaptureEvent
-							title="Choose the columns to show"
+							title={compact && hidden.length ? columnsLabel : 'Choose the columns to show'}
 							btnClasses="max-w-64"
+							iconOnly={compact}
 						>
 							<span class="truncate">{hidden.length ? columnsLabel : 'Columns'}</span>
 						</Button>

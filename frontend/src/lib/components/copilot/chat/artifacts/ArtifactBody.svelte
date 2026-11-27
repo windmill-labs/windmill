@@ -20,9 +20,19 @@
 		 * the chat's, which also needs the chat context the shared pages do not have.
 		 */
 		pre?: Component<any>
+		/** The background the top fade blends into, as a Tailwind `from-*` class. */
+		fadeFrom?: string
+		/** Padding above and below the rendered document. */
+		docPadding?: string
 	}
 
-	let { content, source, pre }: Props = $props()
+	let {
+		content,
+		source,
+		pre,
+		fadeFrom = 'from-surface-tertiary',
+		docPadding = 'pb-16 pt-8'
+	}: Props = $props()
 
 	// The shared chain (raw HTML re-parsed, then sanitized) rather than a chat-only one, because
 	// this body also renders what another member wrote. Renderers merge in order, so the chat's
@@ -49,10 +59,9 @@
 {:else}
 	<!-- Pinned under the header, fades scrolled-under content instead of hard-clipping it.
 	     The negative margin cancels its flow height so it overlays instead of pushing. -->
-	<div class="sticky top-0 z-10 h-4 -mb-4 bg-gradient-to-b from-surface-tertiary to-transparent"
-	></div>
+	<div class="sticky top-0 z-10 h-4 -mb-4 bg-gradient-to-b {fadeFrom} to-transparent"></div>
 	<div class="wm-doc-frame">
-		<div class="wm-doc pb-16 pt-8">
+		<div class="wm-doc {docPadding}">
 			<Markdown md={content} {plugins} />
 		</div>
 	</div>
