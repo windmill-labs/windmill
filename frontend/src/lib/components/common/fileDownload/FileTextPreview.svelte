@@ -14,8 +14,6 @@
 <script lang="ts">
 	import { Code, Eye, Loader2 } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
-	import { Highlight } from 'svelte-highlight'
-	import { json as jsonLanguage } from 'svelte-highlight/languages'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 
@@ -26,8 +24,6 @@
 		readLimit: number
 		/** Rendered as the session renders a markdown artifact, with a switch to its source. */
 		markdown?: boolean
-		/** Highlighted as JSON, and indented when the whole file was read. */
-		json?: boolean
 		/** Fill the parent's height, whose padding then sets the margins, instead of capping the
 		 * text at 384px with margins of its own. Drawn flat on `surface-input` either way. */
 		fill?: boolean
@@ -40,7 +36,6 @@
 		content,
 		readLimit,
 		markdown = false,
-		json = false,
 		fill = false,
 		markdownSource = undefined
 	}: Props = $props()
@@ -50,14 +45,6 @@
 	let truncated = $derived(new TextEncoder().encode(content).length >= readLimit)
 	let shown = $derived(truncated ? dropPartialLastLine(content) : content)
 	let source = $derived(markdown && showSource)
-	let jsonCode = $derived.by(() => {
-		if (!json || truncated) return shown
-		try {
-			return JSON.stringify(JSON.parse(content), null, 2)
-		} catch {
-			return content
-		}
-	})
 	// The source editor fills its box, so the box needs a height rather than a cap.
 	let boxSize = $derived(fill ? 'flex-1 min-h-0' : source ? 'h-96' : 'max-h-96')
 </script>
@@ -104,11 +91,7 @@
 		</div>
 	{:else}
 		<div class={twMerge('overflow-auto', fill ? '' : 'px-3 py-2', boxSize)}>
-			{#if json}
-				<Highlight language={jsonLanguage} code={jsonCode} class="text-xs" />
-			{:else}
-				<pre class="text-xs font-mono text-primary whitespace-pre">{shown}</pre>
-			{/if}
+			<pre class="text-xs font-mono text-primary whitespace-pre">{shown}</pre>
 		</div>
 	{/if}
 	{#if truncated}

@@ -209,7 +209,7 @@
 
 	function s3PreviewKind(
 		key: unknown
-	): 'table' | 'image' | 'pdf' | 'text' | 'markdown' | 'json' | undefined {
+	): 'table' | 'image' | 'pdf' | 'text' | 'markdown' | undefined {
 		if (typeof key !== 'string') return undefined
 		// Previews read the file with the viewer's rights: a logged-out viewer outside an app (a
 		// public run page) has none, and gets the download only.
@@ -219,7 +219,6 @@
 		if (key.endsWith('.pdf')) return 'pdf'
 		if (/\.(txt|log)$/i.test(key)) return 'text'
 		if (isMarkdownFile(key)) return 'markdown'
-		if (/\.json$/i.test(key)) return 'json'
 		return undefined
 	}
 
@@ -538,9 +537,6 @@
 	let s3FileViewer: S3FilePicker | undefined = $state()
 	// The file browser is only mounted with the result's controls.
 	let canExplore = $derived(!!$userStore && !disableExpand && !noControls)
-	let isS3Result = $derived(
-		!forceJson && (resultKind === 's3object' || resultKind === 's3object-list')
-	)
 
 	function checkIfHasBigInt(result: any) {
 		if (typeof result === 'number' && Number.isInteger(result) && !Number.isSafeInteger(result)) {
@@ -889,13 +885,12 @@
 				<Module.default allowFullscreen source={s3DisplayUrl(s3object)} />
 			{/await}
 		</div>
-	{:else if kind === 'text' || kind === 'markdown' || kind === 'json'}
+	{:else if kind === 'text' || kind === 'markdown'}
 		<S3TextPreview
 			{s3object}
 			{workspaceId}
 			{appPath}
 			markdown={kind === 'markdown'}
-			json={kind === 'json'}
 			markdownSource={markdownSourceKeys.includes(s3object.s3)}
 		/>
 	{/if}
@@ -991,11 +986,6 @@
 							{/snippet}
 						</ToggleButtonGroup>
 					{/if}
-					{#if isS3Result && resultKind === 's3object-list'}
-						<span class="whitespace-nowrap text-xs text-secondary">
-							{result.length} S3 object{result.length === 1 ? '' : 's'}
-						</span>
-					{/if}
 				</div>
 
 				<div class="text-secondary text-xs flex gap-2.5 z-10 items-center">
@@ -1012,7 +1002,6 @@
 							{nodeId}
 							{result}
 							{disableTooltips}
-							downloadLabel={isS3Result ? 'Download JSON' : undefined}
 							on:open-drawer={() => openDrawer()}
 						/>
 					{/if}
@@ -1275,12 +1264,12 @@
 					{/if}
 				{:else if !forceJson && resultKind === 's3object'}
 					{@const s3object = parseS3Object(result) as typeof result}
-					<div class="h-full w-full">
+					<div class="h-full w-full pt-2">
 						{#if typeof s3object?.s3 === 'string'}
-							<!-- The result panel is the card: the file sits under the panel's own header, which
-							     downloads the whole result, then its preview below a separator. -->
-							<div class="mt-2 border-t">
-								<div class="py-2">
+							<!-- One card: the header, then the preview flush below a separator, as in the S3
+							     file browser. -->
+							<div class="rounded-md border bg-surface overflow-hidden">
+								<div class="px-3 py-2">
 									<S3ObjectHeader
 										{s3object}
 										{workspaceId}
@@ -1303,16 +1292,16 @@
 						{/if}
 					</div>
 				{:else if !forceJson && resultKind === 's3object-list'}
-					<div class="h-full w-full">
-						<div class="flex flex-col">
-							<div class="mt-2 border-t divide-y">
+					<div class="h-full w-full pt-2">
+						<div class="flex flex-col gap-2">
+							<div class="rounded-md border bg-surface divide-y overflow-hidden">
 								{#each result as _s3object, index}
 									{@const s3object = parseS3Object(_s3object) as typeof _s3object}
 									{@const kind = s3PreviewKind(s3object?.s3)}
 									{@const collapsible = kind !== undefined && kind !== 'pdf'}
 									{@const previewOpen = s3ListOpen.includes(index)}
 									<div class="flex flex-col">
-										<div class="py-2">
+										<div class="px-3 py-2">
 											<S3ObjectHeader
 												{s3object}
 												{workspaceId}
