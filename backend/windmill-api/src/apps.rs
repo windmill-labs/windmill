@@ -6331,6 +6331,9 @@ struct AppLoadCountQuery {
     search_col: Option<String>,
     search_term: Option<String>,
     storage: Option<String>,
+    csv_separator: Option<String>,
+    csv_has_header: Option<bool>,
+    filters: Option<String>,
 }
 
 #[cfg(feature = "parquet")]
@@ -6343,9 +6346,9 @@ impl AppLoadCountQuery {
                 search_term: self.search_term,
                 storage: self.storage,
                 s3_resource_path: None,
-                csv_separator: None,
-                csv_has_header: None,
-                filters: None,
+                csv_separator: self.csv_separator,
+                csv_has_header: self.csv_has_header,
+                filters: self.filters,
             },
         )
     }
@@ -6363,6 +6366,8 @@ struct AppLoadPreviewQuery {
     search_term: Option<String>,
     storage: Option<String>,
     csv_separator: Option<String>,
+    csv_has_header: Option<bool>,
+    filters: Option<String>,
 }
 
 #[cfg(feature = "parquet")]
@@ -6380,8 +6385,8 @@ impl AppLoadPreviewQuery {
                 storage: self.storage,
                 csv_separator: self.csv_separator,
                 s3_resource_path: None,
-                csv_has_header: None,
-                filters: None,
+                csv_has_header: self.csv_has_header,
+                filters: self.filters,
             },
         )
     }

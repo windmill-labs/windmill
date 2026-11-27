@@ -17,6 +17,9 @@
 	const MAX_AUTO_COL_WIDTH = 400
 	// Header padding plus its sort and key icons.
 	const HEADER_CHROME = 48
+	// The filter button in a filterable column's header, with its margin.
+	const HEADER_FILTER_WIDTH = 24
+	const HEADER_FILTER_DEBOUNCE = 300
 	const CELL_PADDING = 18
 	// A double click starts with a click: following a foreign key waits this long
 	// so the double click can edit the cell instead.
@@ -43,6 +46,7 @@
 		Columns3,
 		EyeOff,
 		Download,
+		Filter,
 		KeyRound,
 		Link,
 		Merge,
@@ -105,6 +109,8 @@
 		joinTargets?: DbJoinTarget[]
 		/** Offered from the add-column button: adding a column to the table itself. */
 		onNewColumn?: () => void
+		/** Hides the button that downloads the loaded rows, for a file whose owner disabled downloads. */
+		disableDownload?: boolean
 	}
 	let {
 		dbTableOps,
@@ -114,7 +120,8 @@
 		onRowFilterApplied,
 		layoutStorageKey,
 		joinTargets,
-		onNewColumn
+		onNewColumn,
+		disableDownload = false
 	}: Props = $props()
 
 	const storedLayout = untrack(() =>
@@ -162,6 +169,24 @@
 	)
 	let columnFilters = $derived(columnFiltersOf(filters, filterSchema))
 	let hasFilters = $derived(!!quicksearch || !!filterWhere)
+	/** The column whose header filter is open, and the value typed there. A header filter
+	 * writes the same entry the search bar does, so each shows the other's filter. */
+	let headerFilter: { column: string; draft: string } | undefined = $state(undefined)
+	let headerFilterTimer: ReturnType<typeof setTimeout> | undefined
+	function setHeaderFilter(key: string, boolean: boolean, draft: string) {
+		clearTimeout(headerFilterTimer)
+		const { [key]: current, ...rest } = filters
+		const trimmed = draft.trim()
+		const value = trimmed ? (boolean ? trimmed === 'true' : trimmed) : undefined
+		if (value === current) return
+		filters = value === undefined ? rest : { ...rest, [key]: value }
+	}
+	/** Filters as the reader types; a half-typed comparison such as `>` matches no row. */
+	function typeHeaderFilter(key: string, draft: string) {
+		if (headerFilter) headerFilter.draft = draft
+		clearTimeout(headerFilterTimer)
+		headerFilterTimer = setTimeout(() => setHeaderFilter(key, false, draft), HEADER_FILTER_DEBOUNCE)
+	}
 
 	$effect(() => {
 		const f = rowFilter
@@ -398,7 +423,10 @@
 		const next = { ...widths }
 		for (const col of columns) {
 			if (only ? !only.includes(col.field) : sizedColumns.has(col.field)) continue
-			let w = textWidth(col.field, `600 12px ${family}`) + HEADER_CHROME
+			let w =
+				textWidth(col.field, `600 12px ${family}`) +
+				HEADER_CHROME +
+				(filterSchema.keyOfColumn[col.field] ? HEADER_FILTER_WIDTH : 0)
 			for (const row of rows) {
 				const text = formatCell(row[col.field]).slice(0, 200) || 'NULL'
 				w = Math.max(w, textWidth(text, `400 12px ${family}`) + CELL_PADDING)
@@ -922,6 +950,94 @@
 	{/if}
 {/snippet}
 
+{#snippet headerFilterButton(col: ColumnDef, key: string)}
+	{@const boolean = dbColumnKind(col.datatype) === 'boolean'}
+	{@const number = dbColumnKind(col.datatype) === 'number'}
+	{@const active = filters[key] !== undefined && filters[key] !== ''}
+	{@const open = headerFilter?.column === col.field}
+	<Popover
+		floatingConfig={{ strategy: 'fixed', placement: 'bottom-start' }}
+		bind:isOpen={
+			() => open,
+			(isOpen) => {
+				if (isOpen) headerFilter = { column: col.field, draft: active ? String(filters[key]) : '' }
+				else if (open) headerFilter = undefined
+			}
+		}
+		class={twMerge(
+			'mr-1 flex h-5 w-5 shrink-0 items-center justify-center rounded hover:bg-surface-hover',
+			active || open
+				? 'text-accent'
+				: 'text-secondary opacity-0 group-hover/header:opacity-100 focus-visible:opacity-100'
+		)}
+		triggerAttrs={{
+			'aria-label': `Filter ${col.field}`,
+			title: active ? `Filtered: ${filters[key]}` : `Filter ${col.field}`
+		}}
+	>
+		{#snippet trigger()}
+			<Filter size={12} />
+		{/snippet}
+		{#snippet content()}
+			<div class="flex w-64 flex-col gap-2 p-3">
+				<span class="truncate text-xs font-semibold text-emphasis">Filter {col.field}</span>
+				{#if boolean}
+					<Select
+						items={[
+							{ label: 'true', value: 'true' },
+							{ label: 'false', value: 'false' }
+						]}
+						bind:value={
+							() => headerFilter?.draft || undefined,
+							(v) => {
+								if (headerFilter) headerFilter.draft = v ?? ''
+								setHeaderFilter(key, true, v ?? '')
+							}
+						}
+						placeholder="Value"
+						size="sm"
+					/>
+				{:else}
+					<TextInput
+						bind:value={
+							() => headerFilter?.draft ?? '', (v) => typeHeaderFilter(key, String(v ?? ''))
+						}
+						size="sm"
+						inputProps={{
+							placeholder: number ? '10, >10, <=5' : 'Contains',
+							'aria-label': `Filter ${col.field}`,
+							onkeydown: (e: KeyboardEvent) => {
+								if (e.key !== 'Enter') return
+								setHeaderFilter(key, false, headerFilter?.draft ?? '')
+								headerFilter = undefined
+							}
+						}}
+					/>
+					<span class="text-2xs text-secondary">
+						{number
+							? 'A number, or a comparison: =, >, >=, <, <=, !='
+							: 'Rows whose value contains this text. Start with = for an exact match.'}
+					</span>
+				{/if}
+				{#if active}
+					<div class="flex justify-end">
+						<Button
+							variant="subtle"
+							unifiedSize="sm"
+							onClick={() => {
+								setHeaderFilter(key, boolean, '')
+								headerFilter = undefined
+							}}
+						>
+							Clear
+						</Button>
+					</div>
+				{/if}
+			</div>
+		{/snippet}
+	</Popover>
+{/snippet}
+
 {#snippet addColumnHeader()}
 	{#if canAddColumn}
 		<div
@@ -1055,14 +1171,16 @@
 					{/if}
 				</span>
 			{/if}
-			<Button
-				startIcon={{ icon: Download }}
-				variant="subtle"
-				unifiedSize="sm"
-				iconOnly
-				title="Download loaded rows as CSV"
-				onClick={downloadCsv}
-			/>
+			{#if !disableDownload}
+				<Button
+					startIcon={{ icon: Download }}
+					variant="subtle"
+					unifiedSize="sm"
+					iconOnly
+					title="Download loaded rows as CSV"
+					onClick={downloadCsv}
+				/>
+			{/if}
 			<div class="flex" bind:this={columnsAnchor}>
 				<Popover
 					floatingConfig={{ strategy: 'fixed', placement: 'bottom-end' }}
@@ -1214,7 +1332,7 @@
 							{/if}
 							<div
 								class={twMerge(
-									'relative shrink-0 flex items-center border-r',
+									'group/header relative shrink-0 flex items-center border-r',
 									// Above the other header cells, whose resize handles sit at z-10.
 									pin ? 'sticky z-20 bg-surface-tertiary dark:bg-surface-input' : '',
 									// The pinned block's edge against the scrolling columns is a pixel thicker.
@@ -1251,6 +1369,9 @@
 										<Icon size={12} class="shrink-0 text-secondary" />
 									{/if}
 								</button>
+								{#if filterSchema.keyOfColumn[col.field]}
+									{@render headerFilterButton(col, filterSchema.keyOfColumn[col.field])}
+								{/if}
 								<!-- svelte-ignore a11y_no_static_element_interactions -->
 								<div
 									class="absolute -right-1 top-0 bottom-0 w-2 z-10 cursor-col-resize hover:bg-border-selected/50"
