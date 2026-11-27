@@ -139,6 +139,10 @@ async fn test_single_job_read_authorization(db: Pool<Postgres>) -> anyhow::Resul
             "completed/get_result_maybe",
             format!("completed/get_result_maybe/{VICTIM}"),
         ),
+        (
+            "completed/get_result_shape",
+            format!("completed/get_result_shape/{VICTIM}"),
+        ),
         ("get_args", format!("get_args/{VICTIM}")),
         ("get_logs", format!("get_logs/{VICTIM}")),
         (
@@ -1223,6 +1227,83 @@ async fn test_single_job_read_authorization(db: Pool<Postgres>) -> anyhow::Resul
         reqwest::StatusCode::FORBIDDEN,
         "viewer must not force-cancel up into a flow they cannot see (got {status}): {body}"
     );
+
+    Ok(())
+}
+
+/// `get_result_shape` outlines a result too large to send inline: the viewer draws one row per
+/// listed element and reads each one through `get_result?json_path=<path>.<index>`, so the cap,
+/// the element order and the path handling are what it relies on.
+#[sqlx::test(fixtures("base"))]
+async fn test_result_shape(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let job = "99999999-9999-9999-9999-999999999999";
+    sqlx::query(
+        "INSERT INTO v2_job (id, workspace_id, created_by, permissioned_as, permissioned_as_email,
+             kind, script_lang, tag)
+         VALUES ($1::uuid, 'test-workspace', 'test-user', 'u/test-user', 'test@windmill.dev',
+             'script', 'bun', 'bun')",
+    )
+    .bind(job)
+    .execute(&db)
+    .await?;
+    sqlx::query(
+        "INSERT INTO v2_job_completed (id, workspace_id, duration_ms, status, result)
+         SELECT $1::uuid, 'test-workspace', 1, 'success'::job_status, jsonb_build_object(
+             'render_all',
+             (SELECT jsonb_agg(CASE WHEN i = 1 THEN jsonb_build_object('png', 'aGVsbG8=')
+                 ELSE jsonb_build_object('n', i) END ORDER BY i)
+              FROM generate_series(1, 105) AS i))",
+    )
+    .bind(job)
+    .execute(&db)
+    .await?;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let base = format!(
+        "http://localhost:{}/api/w/test-workspace/jobs_u/completed/get_result_shape/{job}",
+        server.addr.port()
+    );
+    let shape = |query: &'static str| {
+        let url = format!("{base}{query}");
+        async move {
+            let resp = client()
+                .get(url)
+                .header("Authorization", "Bearer SECRET_TOKEN")
+                .send()
+                .await
+                .expect("request");
+            (resp.status(), resp.text().await.expect("body"))
+        }
+    };
+
+    let (status, body) = shape("").await;
+    assert_eq!(status, 200, "{body}");
+    let root: serde_json::Value = serde_json::from_str(&body)?;
+    assert_eq!(root["type"], "object");
+    assert_eq!(root["keys"], serde_json::json!(["render_all"]));
+    assert!(root.get("items").is_none(), "{body}");
+
+    let (status, body) = shape("?json_path=render_all").await;
+    assert_eq!(status, 200, "{body}");
+    let list: serde_json::Value = serde_json::from_str(&body)?;
+    assert_eq!(list["type"], "array");
+    assert_eq!(list["item_count"], 105);
+    let items = list["items"].as_array().expect("items");
+    assert_eq!(items.len(), 100);
+    assert_eq!(items[0]["keys"], serde_json::json!(["png"]));
+    assert_eq!(items[0]["length"], r#"{"png": "aGVsbG8="}"#.len());
+    assert_eq!(items[1]["keys"], serde_json::json!(["n"]));
+
+    let (status, body) = shape("?json_path=render_all.0").await;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&body)?["keys"],
+        serde_json::json!(["png"])
+    );
+
+    let (status, body) = shape("?json_path=missing").await;
+    assert_eq!(status, 404, "{body}");
 
     Ok(())
 }
