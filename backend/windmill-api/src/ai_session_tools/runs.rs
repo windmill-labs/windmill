@@ -2493,11 +2493,133 @@ pub(super) async fn show_run(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
             }
         }
     }
-    let status = run["status"].as_str().unwrap_or("running").to_string();
+    let text = run_text(&run);
     ctx.set_view("windmill/run", Value::Object(run));
-    Ok(format!(
-        "Showing run {id} ({status}) to the user as a live card."
-    ))
+    Ok(text)
+}
+
+/// Result or log head a show tool's text carries: the rest stays in the card.
+const TEXT_PREVIEW_CHARS: usize = 300;
+
+fn is_finished(status: &str) -> bool {
+    !matches!(status, "running" | "queued" | "suspended")
+}
+
+/// "1.2 s", "3 min 05 s": a run's duration as the run page reads it.
+fn duration_text(ms: f64) -> String {
+    match ms {
+        ms if ms < 1000.0 => format!("{ms:.0} ms"),
+        ms if ms < 120_000.0 => format!("{:.1} s", ms / 1000.0),
+        ms => {
+            let s = (ms / 1000.0).round() as u64;
+            format!("{} min {:02} s", s / 60, s % 60)
+        }
+    }
+}
+
+/// What ran, from a run's card: `bash preview`, `python3 script f/x/y "Sync users"`.
+fn run_kind_text(run: &Map<String, Value>) -> String {
+    let text = |key: &str| {
+        run.get(key)
+            .and_then(Value::as_str)
+            .filter(|s| !s.is_empty())
+    };
+    let kind = match text("job_kind").unwrap_or("job") {
+        "flowpreview" => "flow preview",
+        kind => kind,
+    };
+    let mut out = match text("language").filter(|_| kind != "flow" && kind != "flow preview") {
+        Some(language) => format!("{language} {kind}"),
+        None => kind.to_string(),
+    };
+    if !kind.contains("preview") {
+        if let Some(path) = text("path") {
+            out.push_str(&format!(" {path}"));
+        }
+        if let Some(summary) = text("summary") {
+            out.push_str(&format!(" \"{summary}\""));
+        }
+    }
+    out
+}
+
+fn run_text(run: &Map<String, Value>) -> String {
+    let text = |key: &str| {
+        run.get(key)
+            .and_then(Value::as_str)
+            .filter(|s| !s.is_empty())
+    };
+    let id = text("id").unwrap_or_default();
+    let status = text("status").unwrap_or("running");
+    let finished = is_finished(status);
+    let took = run
+        .get("duration_ms")
+        .and_then(Value::as_f64)
+        .filter(|_| finished)
+        .map(|ms| format!(" in {}", duration_text(ms)))
+        .unwrap_or_default();
+    let by = text("created_by")
+        .map(|who| format!(", by {who}"))
+        .unwrap_or_default();
+    let mut lines = vec![format!(
+        "Run {id}: {status}{took} ({}{by}).",
+        run_kind_text(run)
+    )];
+    let preview = if finished {
+        let label = if matches!(status, "failure" | "canceled") {
+            "Error"
+        } else {
+            "Result"
+        };
+        text("result").map(|r| (label, r))
+    } else {
+        text("live_log").map(|log| ("Last log", log))
+    };
+    if let Some((label, value)) = preview {
+        let head = js_head(value, TEXT_PREVIEW_CHARS);
+        let cut = head.len() < value.len()
+            || (finished
+                && value != TOO_BIG_TEXT
+                && run.get("result_cut") == Some(&Value::Bool(true)));
+        lines.push(format!("{label}: {head}{}", if cut { "…" } else { "" }));
+    }
+    if let Some(url) = text("url") {
+        lines.push(format!("Open: {url}"));
+    }
+    lines.push(if finished {
+        super::views::CARD_NOTE.to_string()
+    } else {
+        "This text is the run's state when show_run was called and does not update. Where the client draws cards, the card refreshes itself until the run finishes. To check on the run, call get_run, not show_run again.".to_string()
+    });
+    lines.join("\n")
+}
+
+/// A count by status, then one line per run.
+fn runs_text(runs: &[Value]) -> String {
+    let mut counts: Vec<(&str, usize)> = Vec::new();
+    for run in runs {
+        let status = run["status"].as_str().unwrap_or("running");
+        match counts.iter_mut().find(|(s, _)| *s == status) {
+            Some((_, n)) => *n += 1,
+            None => counts.push((status, 1)),
+        }
+    }
+    let counts: Vec<String> = counts.iter().map(|(s, n)| format!("{n} {s}")).collect();
+    let mut lines = vec![format!("{} run(s): {}.", runs.len(), counts.join(", "))];
+    for run in runs {
+        let what = run["path"]
+            .as_str()
+            .filter(|p| !p.is_empty())
+            .or(run["job_kind"].as_str())
+            .unwrap_or("job");
+        lines.push(format!(
+            "- {} {what} {} {}",
+            run["id"].as_str().unwrap_or_default(),
+            run["status"].as_str().unwrap_or("running"),
+            run["url"].as_str().unwrap_or_default()
+        ));
+    }
+    lines.join("\n")
 }
 
 /// Runs `show_runs` draws at most: each is one job read.
@@ -2540,13 +2662,14 @@ pub(super) async fn show_runs(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
         "windmill/runs",
         json!({ "workspace": ctx.w_id, "runs": runs, "url": ctx.page_url("/runs") }),
     );
-    let mut text = format!("Showing {} run(s) to the user as a table.", runs.len());
+    let mut text = runs_text(&runs);
     if ids.len() > shown.len() {
-        text.push_str(&format!(" Only the first {MAX_RUNS_SHOWN} are shown."));
+        text.push_str(&format!("\nOnly the first {MAX_RUNS_SHOWN} are shown."));
     }
     if !missing.is_empty() {
-        text.push_str(&format!(" Not found: {}.", missing.join(", ")));
+        text.push_str(&format!("\nNot found: {}.", missing.join(", ")));
     }
+    text.push_str("\nShown as a table where the client draws cards.");
     Ok(text)
 }
 
@@ -2559,6 +2682,8 @@ const CARD_ITERATIONS: usize = 10;
 const CARD_IMAGE_CHARS: usize = 1_000_000;
 /// What the job read returns in place of a result too big to send.
 const TOO_BIG: &str = "WINDMILL_TOO_BIG";
+/// The card's `result` for a result too large to store.
+const TOO_BIG_TEXT: &str = "Too large to show here.";
 const CARD_STEP_RESULT_CHARS: usize = 300;
 const CARD_ARGS_CHARS: usize = 4000;
 const CARD_LOG_CHARS: i64 = 3000;
@@ -2829,6 +2954,9 @@ fn run_card(id: &str, job: Option<&Value>) -> Map<String, Value> {
     run.insert("id".into(), id.into());
     run.entry("status").or_insert("running".into());
     if let Some(job) = job {
+        if let Some(language) = job.get("language").filter(|l| l.is_string()) {
+            run.insert("language".into(), language.clone());
+        }
         let too_big = job.get("result").is_some_and(|r| r == TOO_BIG);
         let result = job.get("result").filter(|r| !r.is_null() && !too_big);
         // An agent returns its answer inside the envelope of its conversation: the card shows
@@ -2845,7 +2973,7 @@ fn run_card(id: &str, job: Option<&Value>) -> Map<String, Value> {
         }
         let result = envelope.map(|e| &e["output"]).or(result);
         if too_big {
-            run.insert("result".into(), "Too large to show here.".into());
+            run.insert("result".into(), TOO_BIG_TEXT.into());
             run.insert("result_cut".into(), true.into());
         }
         let error = result
@@ -3050,6 +3178,49 @@ fn step_result(response: &Value, step: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // The text is all a client that draws no card shows of a run: it must carry the outcome
+    // and the link, and a running run must not invite the model to poll by showing it again.
+    #[test]
+    fn show_run_text_summarizes_the_card() {
+        let card = |v: Value| v.as_object().unwrap().clone();
+        let done = card(json!({
+            "id": "01a2", "status": "success", "duration_ms": 60123, "job_kind": "preview",
+            "language": "bash", "created_by": "admin", "result": "done after 60 s",
+            "url": "https://wm.test/run/01a2?workspace=cards", "logs": "a log line",
+        }));
+        assert_eq!(
+            run_text(&done),
+            "Run 01a2: success in 60.1 s (bash preview, by admin).\n\
+             Result: done after 60 s\n\
+             Open: https://wm.test/run/01a2?workspace=cards\n\
+             Shown as a card where the client draws cards."
+        );
+        let failed = card(json!({
+            "id": "01a3", "status": "failure", "duration_ms": 1500, "job_kind": "script",
+            "language": "python3", "path": "f/x/sync", "summary": "Sync users",
+            "result": format!("TypeError: {}", "x".repeat(400)),
+        }));
+        let text = run_text(&failed);
+        assert!(text.starts_with(
+            "Run 01a3: failure in 1.5 s (python3 script f/x/sync \"Sync users\").\nError: TypeError: xxx"
+        ));
+        assert!(text.contains("x…\n"), "{text}");
+        let running = card(json!({
+            "id": "01a4", "status": "running", "duration_ms": 10, "job_kind": "flow",
+            "path": "f/x/etl", "live_log": "step 2", "result": "stale",
+        }));
+        let text = run_text(&running);
+        assert!(text.starts_with("Run 01a4: running (flow f/x/etl).\nLast log: step 2\n"));
+        assert!(
+            text.ends_with(
+                "This text is the run's state when show_run was called and does not update. \
+                 Where the client draws cards, the card refreshes itself until the run finishes. \
+                 To check on the run, call get_run, not show_run again."
+            ),
+            "{text}"
+        );
+    }
 
     // The chat settles a run's arguments in the browser with `job_args.ts`, read against the
     // same cases by `runArgsCases.test.ts`.

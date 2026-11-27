@@ -9,7 +9,24 @@ use serde_json::Value;
 
 use super::{deploy, runs, workspace, Ctx, SessionAccess, ToolResult};
 
-pub(super) const TOOLS: &[&str] = &["show_run", "show_runs", "show_deploy_review", "show_item"];
+pub(super) const TOOLS: &[&str] = &[
+    "show_run",
+    "show_runs",
+    "show_deploy_review",
+    "show_item",
+    LOAD_CARD,
+];
+
+/// The card's own read of what a show tool shows. Claude hands a card the result's
+/// `structuredContent` but not its `_meta`, while Codex's and ChatGPT's models read
+/// `structuredContent`, where a flow's card data (up to ~36k chars) would cost context on
+/// every show call. So a show tool's `structuredContent` names only the call, and the card
+/// loads its data through this tool, which no host lists to the model (`visibility: ["app"]`).
+pub(crate) const LOAD_CARD: &str = "load_card";
+
+/// The last line of each tool's text. The text is all a client that draws no card shows, and
+/// all the model reads in any client: the card's data rides in `_meta`, which neither reads.
+pub(super) const CARD_NOTE: &str = "Shown as a card where the client draws cards.";
 
 /// The review card's one action deploys, which only a full token may do: such a token is
 /// neither offered the tool nor answered when it calls it by name.
@@ -18,6 +35,19 @@ pub(crate) fn allowed(name: &str, access: SessionAccess) -> bool {
 }
 
 pub(super) async fn call(ctx: &Ctx<'_>, name: &str, args: &Value) -> ToolResult {
+    if name != LOAD_CARD {
+        return show(ctx, name, args).await;
+    }
+    match args.get("tool").and_then(Value::as_str) {
+        Some(tool) if tool != LOAD_CARD && TOOLS.contains(&tool) => {
+            let arguments = args.get("arguments").cloned().unwrap_or(Value::Null);
+            show(ctx, tool, &arguments).await
+        }
+        _ => Err(format!("{LOAD_CARD} takes the name of a show tool.")),
+    }
+}
+
+async fn show(ctx: &Ctx<'_>, name: &str, args: &Value) -> ToolResult {
     if !allowed(name, ctx.access) {
         return Err(format!(
             "{name} shows drafts to deploy, and this session cannot deploy."
@@ -35,11 +65,24 @@ pub(super) async fn call(ctx: &Ctx<'_>, name: &str, args: &Value) -> ToolResult 
 /// Each tool as `(name, description, input schema)`. All only read: the review card's
 /// Deploy button calls `deploy_workspace_item`, which the token's own access gates.
 #[cfg(feature = "mcp")]
-pub(crate) fn definitions() -> [(&'static str, &'static str, Value); 4] {
+pub(crate) fn definitions() -> [(&'static str, &'static str, Value); 5] {
     [
         (
+            LOAD_CARD,
+            "Load the data a Windmill card shows. Only the card calls it.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "tool": { "type": "string", "enum": ["show_run", "show_runs", "show_deploy_review", "show_item"] },
+                    "arguments": { "type": "object", "description": "The show tool's arguments, without workspace_id." }
+                },
+                "required": ["tool", "arguments"],
+                "additionalProperties": false
+            }),
+        ),
+        (
             "show_run",
-            "Show a run to the user as a live card in the conversation: status, result, steps and logs, refreshing until it finishes, with a link to it in Windmill and a button to cancel it while it runs. Call it after starting a run the user asked for, or when they ask to see one. Do not call it for runs you start to check your own work: read those with get_run.",
+            "Show a run to the user as a live card in the conversation: status, result, steps and logs, refreshing until it finishes, with a link to it in Windmill and a button to cancel it while it runs. Call it after starting a run the user asked for, or when they ask to see one, and once per run: the card refreshes itself. Do not call it for runs you start to check your own work: read those with get_run.",
             json!({
                 "type": "object",
                 "properties": {
