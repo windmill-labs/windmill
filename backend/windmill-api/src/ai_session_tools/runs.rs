@@ -2586,7 +2586,7 @@ fn run_text(run: &Map<String, Value>) -> String {
     lines.push(if finished {
         super::views::CARD_NOTE.to_string()
     } else {
-        "Shown as a card that refreshes itself until the run finishes, where the client draws cards: to follow it yourself, call get_run, not show_run again.".to_string()
+        "This text is the run's state when show_run was called and does not update. Where the client draws cards, the card refreshes itself until the run finishes. To check on the run, call get_run, not show_run again.".to_string()
     });
     lines.join("\n")
 }
@@ -3208,7 +3208,11 @@ mod tests {
         let text = run_text(&running);
         assert!(text.starts_with("Run 01a4: running (flow f/x/etl).\nLast log: step 2\n"));
         assert!(
-            text.ends_with("call get_run, not show_run again."),
+            text.ends_with(
+                "This text is the run's state when show_run was called and does not update. \
+                 Where the client draws cards, the card refreshes itself until the run finishes. \
+                 To check on the run, call get_run, not show_run again."
+            ),
             "{text}"
         );
     }
