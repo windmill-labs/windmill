@@ -39,6 +39,8 @@ fn outsider() -> ApiAuthed {
         mcp_client: None,
         capabilities: Some(windmill_common::roles::RoleCapabilities::FULL),
         allowed_ips: None,
+        admin_withheld: false,
+        super_admin_withheld: false,
     }
 }
 

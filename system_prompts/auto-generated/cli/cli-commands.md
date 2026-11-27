@@ -701,6 +701,9 @@ Manage API tokens
 - `token create` - Create a new API token
   - `--label <label:string>` - Token label
   - `--expiration <expiration:string>` - Token expiration (ISO 8601 timestamp)
+  - `--all-workspaces` - Do not bind the token to the current workspace: it then reaches every workspace you are a member of and instance-level endpoints
+  - `--admin` - Carry your workspace admin rights (off by default)
+  - `--superadmin` - Carry your superadmin rights (off by default)
 - `token delete <token_prefix:string>` - Delete a token by its prefix
 
 ### trash
@@ -760,6 +763,8 @@ user related commands
 - `user create-token` - Create a new API token for the authenticated user
   - `--email <email:string>` - Specify credentials to use for authentication. This will not be stored. It will only be used to exchange for a token with the API server, which will not be stored either.
   - `--password <password:string>` - Specify credentials to use for authentication. This will not be stored. It will only be used to exchange for a token with the API server, which will not be stored either.
+  - `--admin` - Carry your workspace admin rights (off by default)
+  - `--superadmin` - Carry your superadmin rights (off by default)
 
 ### variable
 

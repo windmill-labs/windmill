@@ -1206,7 +1206,7 @@ pub async fn rotate_webhook_token(
     use windmill_common::utils::rd_string;
 
     let old = match sqlx::query!(
-        "SELECT email, workspace_id, super_admin, owner, allowed_ips::text[] AS allowed_ips
+        "SELECT email, workspace_id, super_admin, owner, allowed_ips::text[] AS allowed_ips, admin
          FROM token WHERE token_hash = $1",
         old_token_hash
     )
@@ -1238,8 +1238,8 @@ pub async fn rotate_webhook_token(
         .map(|d| Utc::now() + d);
 
     sqlx::query!(
-        "INSERT INTO token (token_hash, token_prefix, token, email, label, super_admin, scopes, workspace_id, owner, expiration, allowed_ips)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::text[]::cidr[])",
+        "INSERT INTO token (token_hash, token_prefix, token, email, label, super_admin, scopes, workspace_id, owner, expiration, allowed_ips, admin)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::text[]::cidr[], $12)",
         new_hash,
         new_prefix,
         plaintext as Option<&str>,
@@ -1251,6 +1251,7 @@ pub async fn rotate_webhook_token(
         old.owner,
         new_expiration,
         old.allowed_ips.as_deref(),
+        old.admin,
     )
     .execute(db)
     .await?;

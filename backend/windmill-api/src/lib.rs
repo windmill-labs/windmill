@@ -423,6 +423,8 @@ async fn inject_agent_authed(
                 mcp_client: None,
                 capabilities: None,
                 allowed_ips: None,
+                admin_withheld: false,
+                super_admin_withheld: false,
             },
             job_id: None,
         });

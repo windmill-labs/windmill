@@ -12,7 +12,7 @@
 		value: string[] | null
 		/** Read-only flag; also forwarded to McpScopeSelector to filter incompatible
 		 *  endpoints/runnables. Two-way bound so the inline toggle below the
-		 *  "Limit token permissions" switch (and the MCP variant) writes back. */
+		 *  "Restrict to specific scopes" switch (and the MCP variant) writes back. */
 		readOnly?: boolean
 	}
 
@@ -63,12 +63,17 @@
 		<Toggle
 			bind:checked={limited}
 			options={{
-				right: 'Limit token permissions',
+				right: 'Restrict to specific scopes',
 				rightTooltip:
-					'When off, the token has full API access. Turn on to restrict it to specific scopes.'
+					'When off, the token can call any endpoint its rights allow. Turn on to allow only the scopes you pick: this narrows what the token can do, never widens it.'
 			}}
 			size="xs"
 		/>
+		{#if limited && standardScopes.length === 0}
+			<p class="text-2xs text-yellow-600 dark:text-yellow-400">
+				Pick at least one scope: with none picked, the token is not restricted.
+			</p>
+		{/if}
 		{#if limited}
 			<ScopeSelector bind:selectedScopes={standardScopes} workspaceId={workspaceId || undefined}>
 				{#snippet topSlot()}

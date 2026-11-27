@@ -16,7 +16,7 @@ use std::sync::LazyLock;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
-use windmill_common::auth::create_jwt_token;
+use windmill_common::auth::create_jwt_token_withholding;
 
 use crate::db::ApiAuthed;
 
@@ -704,7 +704,7 @@ pub(crate) async fn mint_caller_jwt(
     // uncapped token that satisfies require_super_admin / require_devops_role.
     // A browser caller stays a session: runs, trigger history and schedules attribute a
     // session's actions to the UI, and anything else to the API (`webhook`).
-    create_jwt_token(
+    create_jwt_token_withholding(
         windmill_common::db::Authed::from(api_authed.clone()),
         workspace_id,
         3600,
@@ -712,6 +712,7 @@ pub(crate) async fn mint_caller_jwt(
         api_authed.is_session_token.then(|| "session".to_string()),
         None,
         scopes,
+        (api_authed.admin_withheld, api_authed.super_admin_withheld),
     )
     .await
 }

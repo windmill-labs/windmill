@@ -275,6 +275,7 @@ pub async fn get_critical_alerts(
         &authed.username,
         &authed.email,
         authed.job_id.is_some(),
+        authed.super_admin_withheld,
         &db,
     )
     .await?;
@@ -298,6 +299,7 @@ pub async fn acknowledge_critical_alert(
         &authed.username,
         &authed.email,
         authed.job_id.is_some(),
+        authed.super_admin_withheld,
         &db,
     )
     .await?;
