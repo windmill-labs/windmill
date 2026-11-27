@@ -1,5 +1,30 @@
 # Changelog
 
+## [1.887.0](https://github.com/windmill-labs/windmill/compare/v1.886.0...v1.887.0) (2026-11-27)
+
+
+### Features
+
+* add native totp two-factor authentication for password login ([#12620](https://github.com/windmill-labs/windmill/issues/12620)) ([f52c117](https://github.com/windmill-labs/windmill/commit/f52c117e76c4b39265e4d5b3f8304934dce3f0c0))
+* add token introspection endpoint and token test UI ([#12702](https://github.com/windmill-labs/windmill/issues/12702)) ([55aec82](https://github.com/windmill-labs/windmill/commit/55aec82102bca445fa91a2d6b926a8a68f953527))
+* connect native trigger accounts through the resource connect flow ([#12352](https://github.com/windmill-labs/windmill/issues/12352)) ([9643ba0](https://github.com/windmill-labs/windmill/commit/9643ba09a4c2a10172e2b4227f9c00f8c46662f5))
+* edit token expiration and allowed IPs, widen only as far as mintable ([#12703](https://github.com/windmill-labs/windmill/issues/12703)) ([b2f3986](https://github.com/windmill-labs/windmill/commit/b2f3986f9430147eab8fb36d47c091124824de0e))
+* edit token scopes from the CLI and show token access in token lists ([#12694](https://github.com/windmill-labs/windmill/issues/12694)) ([7e79229](https://github.com/windmill-labs/windmill/commit/7e79229aa4731cf0fbf108ab946fa6b7b651d5d5))
+* flag risky tokens and add a superadmin token review ([#12693](https://github.com/windmill-labs/windmill/issues/12693)) ([51e9017](https://github.com/windmill-labs/windmill/commit/51e9017c67481e334c529387db442be2002a287c))
+* make new tokens workspace-bound and rights-free unless opted in ([#12695](https://github.com/windmill-labs/windmill/issues/12695)) ([f5644d7](https://github.com/windmill-labs/windmill/commit/f5644d7f431f7c566302645fd2e0e94970ea3376))
+* split account settings into profile, tokens, AI and MCP drawers ([#12691](https://github.com/windmill-labs/windmill/issues/12691)) ([46cf750](https://github.com/windmill-labs/windmill/commit/46cf7509fabb8464a75d5651b2ef6c0be83d81a4))
+* stop a loop once a failure threshold of iterations has failed ([#12686](https://github.com/windmill-labs/windmill/issues/12686)) ([0496abb](https://github.com/windmill-labs/windmill/commit/0496abbad8e494b6ae2eff0d72661c6b9534b179))
+
+
+### Bug Fixes
+
+* apply token read-only flag to HTTP route calls ([#12690](https://github.com/windmill-labs/windmill/issues/12690)) ([f1edefa](https://github.com/windmill-labs/windmill/commit/f1edefa132b6b5a7e6ba9475749027aa315895d3))
+* **cli:** accept Windows separators in strict-folder-boundaries test ([#12689](https://github.com/windmill-labs/windmill/issues/12689)) ([443ea15](https://github.com/windmill-labs/windmill/commit/443ea155a155dd2e76d7583b0ba48e6cd15d788c))
+* copy the shown error from AI chat tool cards ([#12698](https://github.com/windmill-labs/windmill/issues/12698)) ([5b3a40b](https://github.com/windmill-labs/windmill/commit/5b3a40b1a428a508b3472b1756a37cea33e869ef))
+* demote a token's superadmin when its owner loses it ([#12692](https://github.com/windmill-labs/windmill/issues/12692)) ([3ec14c7](https://github.com/windmill-labs/windmill/commit/3ec14c7ed2b1ff1283c69197522a5b79e3970a77))
+* **frontend:** open non-raster images in a new tab as PNG ([#12697](https://github.com/windmill-labs/windmill/issues/12697)) ([de2cd55](https://github.com/windmill-labs/windmill/commit/de2cd55b338d48de055f134e304dfbe10c3ca29e))
+* rerun recovered iterations in failed-only restarts ([#12657](https://github.com/windmill-labs/windmill/issues/12657)) ([57ad72b](https://github.com/windmill-labs/windmill/commit/57ad72b28aaf9386eb552443379addb7d3b00777))
+
 ## [1.886.0](https://github.com/windmill-labs/windmill/compare/v1.885.0...v1.886.0) (2026-11-26)
 
 
