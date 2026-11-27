@@ -98,8 +98,17 @@
 	let editWrappers: Record<string, HTMLDivElement> = $state({})
 	let activeOnly = $state(false)
 
+	// Who has two-factor authentication, fetched beside the list. Undefined on a build without
+	// two-factor support, which hides the column.
+	let totp = $state<{ required: boolean; users: Set<string> } | undefined>(undefined)
+
 	async function listUsers(activeOnly: boolean): Promise<void> {
-		users = await UserService.listUsersAsSuperAdmin({ perPage: 100000, activeOnly: activeOnly })
+		const [list, enabled] = await Promise.all([
+			UserService.listUsersAsSuperAdmin({ perPage: 100000, activeOnly: activeOnly }),
+			UserService.listTotpEnabledUsers().catch(() => undefined)
+		])
+		users = list
+		totp = enabled && { required: enabled.required, users: new Set(enabled.users) }
 	}
 
 	$effect(() => {
@@ -437,6 +446,9 @@
 												{/if}
 												<Cell head>Name</Cell>
 												<Cell head>Auth</Cell>
+												{#if totp}
+													<Cell head>2FA</Cell>
+												{/if}
 												{#if activeOnly}
 													<Cell head>Kind</Cell>
 												{/if}
@@ -510,6 +522,17 @@
 															><span title={login_type} class="truncate block">{login_type}</span
 															></Cell
 														>
+														{#if totp}
+															<Cell>
+																{#if login_type != 'password'}
+																	<span class="text-secondary">–</span>
+																{:else if totp.users.has(email)}
+																	On
+																{:else}
+																	<span class="text-secondary">Off</span>
+																{/if}
+															</Cell>
+														{/if}
 														{#if activeOnly}
 															<Cell>
 																<span>
@@ -679,6 +702,8 @@
 																			value={name}
 																			{username}
 																			{email}
+																			totpEnabled={totp?.users.has(email) ?? false}
+																			totpRequired={totp?.required ?? false}
 																			on:refresh={() => {
 																				listUsers(activeOnly)
 																			}}
@@ -768,7 +793,8 @@
 														<Cell
 															colspan={5 +
 																(automateUsernameCreation ? 1 : 0) +
-																(activeOnly ? 1 : 0)}
+																(activeOnly ? 1 : 0) +
+																(totp ? 1 : 0)}
 														>
 															<Button
 																variant="subtle"
