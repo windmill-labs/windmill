@@ -3,7 +3,7 @@
 	import TableCustom from '$lib/components/TableCustom.svelte'
 	import { displayDate } from '$lib/utils'
 	import { enterpriseLicense } from '$lib/stores'
-	import { UserService, type TokenRiskCounts, type TruncatedToken } from '$lib/gen'
+	import { UserService, type TokenRisk, type TokenRiskCounts, type TruncatedToken } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import CreateToken from './CreateToken.svelte'
 	import EditTokenScopesModal from './EditTokenScopesModal.svelte'
@@ -22,12 +22,7 @@
 		onTokenCreated: (token: string) => void
 	}
 
-	let {
-		defaultNewTokenLabel,
-		defaultNewTokenWorkspace,
-		scopes,
-		onTokenCreated
-	}: Props = $props()
+	let { defaultNewTokenLabel, defaultNewTokenWorkspace, scopes, onTokenCreated }: Props = $props()
 
 	// --- Local State ---
 	let tokens = $state<TruncatedToken[]>([])
@@ -105,6 +100,11 @@
 	// Over all the user's tokens, not only the page shown.
 	let riskCounts: TokenRiskCounts | undefined = $state(undefined)
 	let riskSummary = $derived(tokenRiskSummary(riskCounts))
+
+	// The access column already shows a token's workspace and rights.
+	function rowBadgeRisks(risks: TokenRisk[]): TokenRisk[] {
+		return risks.filter((r) => r === 'never_expires' || r === 'unused')
+	}
 
 	function handleTokenCreated(token: string) {
 		onTokenCreated(token)
@@ -194,6 +194,7 @@
 					<th>Prefix</th>
 					<th>Label</th>
 					<th>Expiration</th>
+					<th>Access</th>
 					<th>Scopes</th>
 					<th></th>
 				</tr>
@@ -201,18 +202,16 @@
 			{#snippet body()}
 				<tbody>
 					{#if tokens && tokens.length > 0}
-						{#each tokens as token (token.token_prefix)}
-							{@const { token_prefix, expiration, label, scopes, workspace_id, read_only, allowed_ips } =
-								token}
+						{#each tokens as { token_prefix, expiration, label, scopes, workspace_id, read_only, allowed_ips, admin, super_admin, risks } (token_prefix)}
+							{@const rowRisks = rowBadgeRisks(risks)}
 							{@const badge = expirationBadge(expiration, label)}
-							{@const risks = token.risks}
 							<tr>
 								<td class="w-32 text-xs text-primary">{token_prefix}****</td>
 								<td class="min-w-0 max-w-40 text-xs text-primary">
 									<div class="truncate">{label ?? ''}</div>
-									{#if risks.length > 0}
+									{#if rowRisks.length > 0}
 										<div class="flex flex-wrap gap-1 mt-0.5">
-											{#each risks as risk (risk)}
+											{#each rowRisks as risk (risk)}
 												<span title={TOKEN_RISK_INFO[risk].tooltip}>
 													<Badge color={TOKEN_RISK_INFO[risk].color} small>
 														{TOKEN_RISK_INFO[risk].badge}
@@ -227,6 +226,22 @@
 										{displayDate(expiration ?? '')}
 										{#if badge}
 											<Badge color={badge.color} small>{badge.text}</Badge>
+										{/if}
+									</div>
+								</td>
+								<td class="whitespace-nowrap text-xs text-secondary">
+									<div class="flex items-center gap-1.5">
+										<span
+											title={workspace_id
+												? `Usable only in workspace ${workspace_id}`
+												: 'Usable in every workspace you are a member of'}
+										>
+											{workspace_id ?? 'All workspaces'}
+										</span>
+										{#if super_admin}
+											<Badge color="red" small>Superadmin</Badge>
+										{:else if admin}
+											<Badge color="indigo" small>Admin</Badge>
 										{/if}
 									</div>
 								</td>

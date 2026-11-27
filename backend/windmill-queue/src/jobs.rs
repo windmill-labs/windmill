@@ -9013,6 +9013,7 @@ fn create_restarted_module(
                     index: branch_or_iteration_n - 1,
                     itered: None,
                     itered_len: None,
+                    failure_threshold: None,
                 }),
                 flow_jobs: Some(new_flow_jobs),
                 flow_jobs_success: new_flow_jobs_success,

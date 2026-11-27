@@ -76,14 +76,13 @@ pub(crate) async fn create_failed_only_module(
     )
     .fetch_all(db)
     .await?;
-    // An iteration recovered by the error handler completed as a failure but is recorded
-    // as a success of the step, so it is kept too.
-    let recorded_success = module.flow_jobs_success().unwrap_or_default();
+    // Kept only by the completed status the parallel step judges its own success by: an
+    // iteration recovered by the error handler is stored as failed, so keeping it would fail
+    // the restarted step again.
     let flow_jobs: Vec<Uuid> = original_jobs
         .iter()
-        .enumerate()
-        .map(|(i, job)| {
-            if succeeded.contains(job) || recorded_success.get(i) == Some(&Some(true)) {
+        .map(|job| {
+            if succeeded.contains(job) {
                 *job
             } else {
                 Uuid::nil()
@@ -139,7 +138,12 @@ pub(crate) async fn create_failed_only_module(
     Ok(FlowStatusModule::InProgress {
         id: module.id(),
         job: Uuid::nil(),
-        iterator: is_loop.then(|| FlowIterator { index: kept, itered, itered_len: Some(n) }),
+        iterator: is_loop.then(|| FlowIterator {
+            index: kept,
+            itered,
+            itered_len: Some(n),
+            failure_threshold: None,
+        }),
         flow_jobs_success: Some(
             flow_jobs
                 .iter()

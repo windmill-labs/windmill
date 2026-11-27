@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE variable v SET account = NULL FROM variable o\n             WHERE o.workspace_id = v.workspace_id AND o.path = v.path\n               AND v.workspace_id = $1 AND v.path = $2 AND v.account IS NOT NULL\n             RETURNING o.account",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "account",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "f4ad11395351f78b603ee5aab3b20eca2960c29af676f78c16847e4a0a6fc199"
+}

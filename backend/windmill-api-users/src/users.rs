@@ -344,6 +344,8 @@ pub struct TruncatedToken {
     pub read_only: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub allowed_ips: Option<Vec<String>>,
+    pub admin: bool,
+    pub super_admin: bool,
     pub risks: Vec<String>,
 }
 
@@ -4101,6 +4103,9 @@ struct ListTokenQuery {
     exclude_ephemeral: Option<bool>,
 }
 
+/// `admin` and `super_admin` report the rights a token carries: its opt-in flag (a session
+/// always opts in to superadmin) and what its owner holds, so a member's token is never
+/// listed as admin because of the column's default.
 async fn list_tokens(
     Extension(db): Extension<DB>,
     ApiAuthed { email, .. }: ApiAuthed,
@@ -4113,7 +4118,8 @@ async fn list_tokens(
             TruncatedToken,
             r#"SELECT label, token_prefix AS "token_prefix!", expiration,
              created_at AS "created_at!", last_used_at AS "last_used_at!", scopes, workspace_id,
-             read_only AS "read_only!", allowed_ips::text[] AS allowed_ips, risks AS "risks!"
+             read_only AS "read_only!", allowed_ips::text[] AS allowed_ips,
+             admin AS "admin!", super_admin AS "super_admin!", risks AS "risks!"
              FROM token_risk WHERE email = $1 AND (label != 'ephemeral-script' OR label IS NULL)
              ORDER BY created_at DESC LIMIT $2 OFFSET $3"#,
             email,
@@ -4127,7 +4133,8 @@ async fn list_tokens(
             TruncatedToken,
             r#"SELECT label, token_prefix AS "token_prefix!", expiration,
             created_at AS "created_at!", last_used_at AS "last_used_at!", scopes, workspace_id,
-            read_only AS "read_only!", allowed_ips::text[] AS allowed_ips, risks AS "risks!"
+            read_only AS "read_only!", allowed_ips::text[] AS allowed_ips,
+             admin AS "admin!", super_admin AS "super_admin!", risks AS "risks!"
             FROM token_risk WHERE email = $1
             ORDER BY created_at DESC LIMIT $2 OFFSET $3"#,
             email,

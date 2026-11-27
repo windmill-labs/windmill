@@ -142,7 +142,7 @@
 		const confirmed = await confirmationModal.ask({
 			title: `Remove the ${displayName} configuration?`,
 			confirmationText: 'Remove',
-			children: `This deletes the workspace's ${displayName} OAuth app, every ${displayName} account connected through it and all ${displayName} triggers, which stop receiving events. This action cannot be undone.`
+			children: `This deletes the workspace's ${displayName} OAuth app and all ${displayName} triggers, which stop receiving events. Resources connected through the app stay, but their tokens stop refreshing until they are reconnected. This action cannot be undone.`
 		})
 		if (!confirmed) return
 

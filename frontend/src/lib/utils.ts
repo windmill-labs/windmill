@@ -828,8 +828,7 @@ export async function copyToClipboard(value?: string, sendToast = true): Promise
 		textArea.select()
 
 		try {
-			document.execCommand('copy')
-			success = true
+			success = document.execCommand('copy')
 		} catch (error) {
 			// ignore (success = false)
 		} finally {

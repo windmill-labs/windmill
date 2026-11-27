@@ -152,13 +152,19 @@ where
     if !paths.iter().any(|p| p == path) {
         paths.push(path.to_string());
     }
+    // A variable a reconnect moved to another account is skipped; the account's other variables
+    // and its rotated refresh token are still saved.
+    let mut moved = false;
     let mut stored = Ok(());
     for p in &paths {
-        stored =
-            crate::secret_backend_ext::store_oauth_token_value(db, w_id, p, &token.access_token)
-                .await;
-        if stored.is_err() {
-            break;
+        match crate::secret_backend_ext::store_oauth_token_value(db, w_id, p, id, &token.access_token)
+            .await
+        {
+            Ok(written) => moved |= !written && p == path,
+            Err(e) => {
+                stored = Err(e);
+                break;
+            }
         }
     }
     sqlx::query!(
@@ -177,6 +183,9 @@ where
     .await?;
     stored?;
 
+    if moved {
+        return current_token(db, w_id, path).await;
+    }
     Ok(token.access_token)
 }
 

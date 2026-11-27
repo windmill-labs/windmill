@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT label, token_prefix AS \"token_prefix!\", expiration,\n            created_at AS \"created_at!\", last_used_at AS \"last_used_at!\", scopes, workspace_id,\n            read_only AS \"read_only!\", allowed_ips::text[] AS allowed_ips, risks AS \"risks!\"\n            FROM token_risk WHERE email = $1\n            ORDER BY created_at DESC LIMIT $2 OFFSET $3",
+  "query": "SELECT label, token_prefix AS \"token_prefix!\", expiration,\n             created_at AS \"created_at!\", last_used_at AS \"last_used_at!\", scopes, workspace_id,\n             read_only AS \"read_only!\", allowed_ips::text[] AS allowed_ips,\n             admin AS \"admin!\", super_admin AS \"super_admin!\", risks AS \"risks!\"\n             FROM token_risk WHERE email = $1 AND (label != 'ephemeral-script' OR label IS NULL)\n             ORDER BY created_at DESC LIMIT $2 OFFSET $3",
   "describe": {
     "columns": [
       {
@@ -50,6 +50,16 @@
       },
       {
         "ordinal": 9,
+        "name": "admin!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 10,
+        "name": "super_admin!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 11,
         "name": "risks!",
         "type_info": "TextArray"
       }
@@ -71,8 +81,10 @@
       true,
       true,
       null,
+      true,
+      true,
       true
     ]
   },
-  "hash": "a668e22c45faa8f80d5799fbd7d80d2543f43a8a3b0356ebf446f60d01f41945"
+  "hash": "7c70080e4d6248c9593ebfe8c3c3a09252f353124ddad863100f3598f6241fb1"
 }

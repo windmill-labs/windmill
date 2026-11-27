@@ -704,6 +704,10 @@ Manage API tokens
   - `--all-workspaces` - Do not bind the token to the current workspace: it then reaches every workspace you are a member of and instance-level endpoints
   - `--admin` - Carry your workspace admin rights (off by default)
   - `--superadmin` - Carry your superadmin rights (off by default)
+  - `--scope <scope:string>` - Restrict the token to this scope (e.g. jobs:run, scripts:read:f/folder/*). Repeatable. Omit for no scope restriction.
+- `token update-scopes <token_prefix:string>` - Replace the scopes of one of your tokens, by its prefix
+  - `--scope <scope:string>` - Scope the token is restricted to (e.g. jobs:run, scripts:read:f/folder/*). Repeatable; replaces all existing scopes.
+  - `--clear` - Remove every scope restriction (the token keeps its workspace binding and admin/superadmin rights)
 - `token delete <token_prefix:string>` - Delete a token by its prefix
 
 ### trash

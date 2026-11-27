@@ -302,7 +302,10 @@
       { "value": "https://www.googleapis.com/auth/admin.directory.orgunit", "label": "Read and manage organizational units" },
       { "value": "https://www.googleapis.com/auth/admin.directory.orgunit.readonly", "label": "Read organizational units" },
       { "value": "https://www.googleapis.com/auth/admin.directory.user.security", "label": "Manage user security settings" },
-      { "value": "https://www.googleapis.com/auth/admin.reports.audit.readonly", "label": "Read audit logs (login, admin, Drive, token activity)" }
+      { "value": "https://www.googleapis.com/auth/admin.reports.audit.readonly", "label": "Read audit logs (login, admin, Drive, token activity)" },
+      { "value": "https://www.googleapis.com/auth/drive.readonly", "label": "Read Drive files" },
+      { "value": "https://www.googleapis.com/auth/calendar.readonly", "label": "Read calendars" },
+      { "value": "https://www.googleapis.com/auth/calendar.events", "label": "Read and manage calendar events" }
     ],
     "extra_params": {
       "access_type": "offline",
