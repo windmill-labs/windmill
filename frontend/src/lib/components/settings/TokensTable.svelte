@@ -2,7 +2,9 @@
 	import { untrack } from 'svelte'
 	import TableCustom from '$lib/components/TableCustom.svelte'
 	import { displayDate } from '$lib/utils'
-	import { enterpriseLicense } from '$lib/stores'
+	import { enterpriseLicense, workspaceStore } from '$lib/stores'
+	import CollapseLink from '../CollapseLink.svelte'
+	import TokenInspector from './TokenInspector.svelte'
 	import { UserService, type TokenRisk, type TokenRiskCounts, type TruncatedToken } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import CreateToken from './CreateToken.svelte'
@@ -34,10 +36,13 @@
 				label: string | undefined
 				scopes: string[] | undefined
 				workspaceId: string | undefined
+				expiration: string | undefined
+				allowedIps: string[] | undefined
 		  }
 		| undefined
 	>(undefined)
 	let editModalOpen = $state(false)
+	let testOpen = $state(false)
 
 	$effect(() => {
 		listTokens()
@@ -125,13 +130,17 @@
 		tokenPrefix: string,
 		tokenLabel: string | undefined,
 		tokenScopes: string[] | undefined,
-		tokenWorkspaceId: string | undefined
+		tokenWorkspaceId: string | undefined,
+		tokenExpiration: string | undefined,
+		tokenAllowedIps: string[] | undefined
 	) {
 		editingToken = {
 			prefix: tokenPrefix,
 			label: tokenLabel,
 			scopes: tokenScopes,
-			workspaceId: tokenWorkspaceId
+			workspaceId: tokenWorkspaceId,
+			expiration: tokenExpiration,
+			allowedIps: tokenAllowedIps
 		}
 		editModalOpen = true
 	}
@@ -275,7 +284,9 @@
 													token_prefix,
 													label ?? undefined,
 													scopes ?? undefined,
-													workspace_id ?? undefined
+													workspace_id ?? undefined,
+													expiration ?? undefined,
+													allowed_ips ?? undefined
 												)}
 											size="xs"
 											startIcon={{ icon: Pen }}
@@ -312,6 +323,16 @@
 			{/if}
 		</div>
 	</div>
+	<div class="mt-4">
+		<CollapseLink text="Test a token" bind:open={testOpen}>
+			<div class="text-xs text-secondary mb-2">
+				See who a token acts as, what it is scoped to and whether it can call a route{$workspaceStore
+					? ` in ${$workspaceStore}`
+					: ''}.
+			</div>
+			<TokenInspector workspace={$workspaceStore} />
+		</CollapseLink>
+	</div>
 </div>
 
 <EditTokenScopesModal
@@ -321,5 +342,7 @@
 	labelEditable={isUserToken(editingToken?.label)}
 	initialScopes={editingToken?.scopes}
 	tokenWorkspaceId={editingToken?.workspaceId}
+	initialExpiration={editingToken?.expiration}
+	initialAllowedIps={editingToken?.allowedIps}
 	onSaved={listTokens}
 />

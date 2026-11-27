@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE password SET totp_secret = $2, totp_last_step = $3, totp_recovery_codes = $4\n             WHERE email = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int8",
+        "TextArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d5f86d08766c4dfee235b2a3c001b912ca690f498c1c3e2113d7b5bc9823c87d"
+}

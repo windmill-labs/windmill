@@ -25,6 +25,24 @@ Symbols, not line numbers, are cited: they drift less.
   access-token row, then its grant, the order the trigger also follows. A new path that writes a
   user's tokens and may revoke must lock that row first too. `leave_workspace` deletes no tokens
   and revokes nothing; `leave_instance` deletes every token of the account, as `delete_user` does.
+- **Two-factor (TOTP) guards `POST /auth/login` only** (`windmill-api-users/src/totp_ee.rs`,
+  with a stub in `totp_oss.rs`; a build without `enterprise` allows it for one user). The
+  password is checked first, so "Two-factor code required" tells only someone who knows the
+  password that a code is needed. Every other way into a session skips it on purpose: OAuth and
+  SAML (the provider owns the second factor), login links (minted by a superadmin, who can reset
+  the second factor anyway, and never for a superadmin or devops account), and `GET /users/refresh_token` (a session already exists).
+  Authenticator codes are single-use (`totp_last_step`), and so are the ten recovery codes, stored
+  as salted argon2 hashes (a code carries about 52 bits, too few for a plain digest) and are
+  accepted wherever a code is. Wrong codes are capped per account at 5 a minute on the
+  `password` row, so the cap holds across servers; the caller commits the count even when it
+  refuses the code. Without that cap, a known password leaves a 6-digit code as the only barrier.
+  Enrolling (`setup`) asks for the password again, so a stolen session cannot add its own
+  authenticator and lock the owner out of password login. A superadmin removes a lost second
+  factor with `POST /users/totp/reset/{user}`. The secret is
+  encrypted under the `admins` workspace key, and rotating that key re-encrypts it
+  (`set_encryption_key`); a secret left under an old key locks its user out. The global user
+  export leaves it out, as its files end up in git: an overwrite keeps the second factor of every
+  account it reinstates, and a push to another instance arrives without one.
 - **Sessions** are `token` rows with `label='session'` plus the HttpOnly `token` cookie, minted only
   by `create_session_token` (`windmill-api-users/src/users.rs`). `GET /api/users/refresh_token`
   mints one for any non-job token but returns plain text, no redirect.
@@ -43,6 +61,12 @@ Symbols, not line numbers, are cited: they drift less.
   (`tokens/risk_counts_as_super_admin`) in CE, its list (`tokens/list_as_super_admin`, cursor-paged
   on `(last_used_at, token_prefix)`) and `tokens/delete_as_super_admin/{email}/{prefix}` in EE
   (`users_ee.rs`); `frontend/src/lib/components/settings/tokenRisks.ts` only words the flags.
+- **`GET /api/tokens/introspect`** describes the credential presenting it, never one named in
+  the request, and resolves it in the handler rather than through `ApiAuthed`: the route layer
+  would refuse a scoped token there, and a workspace-bound one resolves on no global route. Its
+  route verdict is `check_route_layer` (`windmill-api-auth/src/auth.rs`), the function the auth
+  extractor runs, plus the runnable scope of the run-by-path endpoints (`run_by_path_scope`); a
+  handler that checks a scope of its own and is missing there gets an over-reported "allowed".
 - **`max_token_expiration_days`** caps `POST /users/tokens/create` and `tokens/impersonate`, by
   shortening the stored expiration (`cap_token_expiration`), never by refusing: `wmill user
   create-token` and the editor's language-server token pick a lifetime without reading the
@@ -99,6 +123,21 @@ Symbols, not line numbers, are cited: they drift less.
   stores the `super_admin` request on its code and refresh rows, and each exchange re-checks
   `password`. A new path minting a token must ask the same questions, or it reaches a different
   set of workspaces than the others.
+- **Editing a token widens it only as far as the caller could mint it**
+  (`tokens/update_scopes`, `tokens/update_limits` for expiration and `allowed_ips`). Narrowing is
+  always allowed; a change that widens any of them (scopes outside the stored ones, a later or
+  removed expiration, networks outside the stored list or none) must leave a token
+  `ensure_grant_within_caller` accepts: scopes within the caller's, no superadmin unless the caller
+  is unscoped and carries it, no admin the caller withholds, networks within the caller's. A later
+  expiration goes through `cap_token_expiration`, and changing it re-registers the expiry warning.
+  Only user tokens (`is_user_token`) take limit edits, and only they or an MCP OAuth sign-in widen
+  scopes: a system token is minted narrow for wherever it is handed. Every job token is refused,
+  since `$WM_TOKEN` is unscoped and narrowing breaks whatever holds the token.
+- **A token's history replays from the audit log.** `users.token.create` and `users.impersonate`
+  record everything the row holds (`TokenAuditGrant`), and each edit records its fields before and
+  after (`update_limits` also which fields were asked for, and the requested expiration when the
+  ceiling shortened it). A new token path or column must keep both, or the chain breaks. Not
+  audited: the superadmin-demotion trigger, the expired-token sweep, and refused edits.
 - **Every superadmin route refuses a job token**: `require_super_admin`
   (`windmill-api-auth/src/lib.rs`) errors on `authed.job_id.is_some()`. A script that needs
   `users/create`, `tokens/impersonate`, `set_login_type`, … must use a dedicated superadmin user

@@ -1,0 +1,65 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT token_hash, label, scopes, super_admin, admin,\n                  allowed_ips::text[] AS allowed_ips, expiration, workspace_id\n             FROM token\n            WHERE email = $1 AND token_prefix = $2\n              AND (expiration IS NULL OR expiration > now())\n            FOR UPDATE",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "token_hash",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "label",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "scopes",
+        "type_info": "TextArray"
+      },
+      {
+        "ordinal": 3,
+        "name": "super_admin",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 4,
+        "name": "admin",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 5,
+        "name": "allowed_ips",
+        "type_info": "TextArray"
+      },
+      {
+        "ordinal": 6,
+        "name": "expiration",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 7,
+        "name": "workspace_id",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      false,
+      false,
+      null,
+      true,
+      true
+    ]
+  },
+  "hash": "8f7b47cc91a6d520cf40787382f5d511eb8c9f096a7ef0fd9c13db8a88be0cf9"
+}

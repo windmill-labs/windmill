@@ -1,0 +1,47 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT totp_secret, totp_pending_secret, totp_last_step, totp_recovery_codes,\n                (totp_failed_attempts >= $2 AND totp_failed_since > now() - interval '1 minute')\n                    AS \"locked!\"\n         FROM password WHERE email = $1 FOR UPDATE",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "totp_secret",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "totp_pending_secret",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "totp_last_step",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "totp_recovery_codes",
+        "type_info": "TextArray"
+      },
+      {
+        "ordinal": 4,
+        "name": "locked!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      true,
+      true,
+      true,
+      true,
+      null
+    ]
+  },
+  "hash": "08cc5c57fb76a392fc32c9122e32d8c33945f8e20daf9242e1de8f4f4ef5546e"
+}

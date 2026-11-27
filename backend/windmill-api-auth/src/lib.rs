@@ -615,7 +615,16 @@ pub fn ensure_scopes_within_caller(
     authed: &ApiAuthed,
     requested_scopes: Option<&[String]>,
 ) -> error::Result<()> {
-    if let Some(caller_restrictions) = scope_restrictions(authed.scopes.as_deref()) {
+    ensure_scopes_within(authed.scopes.as_deref(), requested_scopes)
+}
+
+/// Whether a credential holding `holder_scopes` covers `requested_scopes`, by the rules of
+/// [`ensure_scopes_within_caller`].
+pub fn ensure_scopes_within(
+    holder_scopes: Option<&[String]>,
+    requested_scopes: Option<&[String]>,
+) -> error::Result<()> {
+    if let Some(caller_restrictions) = scope_restrictions(holder_scopes) {
         let Some(requested_restrictions) = scope_restrictions(requested_scopes) else {
             return Err(Error::PermissionDenied(
                 "A scope-restricted token cannot create or update a token with broader (unscoped) \
@@ -682,7 +691,7 @@ pub fn ensure_scopes_within_caller(
     // not be able to mint or rescope a credential that drops or widens the fence
     // — even if the caller has no other scope restrictions (filter_tags-only
     // tokens otherwise look "unscoped" to `scope_restrictions`).
-    if let Some(caller_tags) = first_filter_tags(authed.scopes.as_deref()) {
+    if let Some(caller_tags) = first_filter_tags(holder_scopes) {
         let Some(requested_tags) = first_filter_tags(requested_scopes) else {
             return Err(Error::PermissionDenied(
                 "A token restricted by if_jobs:filter_tags cannot mint or rescope a token that \
@@ -702,6 +711,54 @@ pub fn ensure_scopes_within_caller(
     }
 
     Ok(())
+}
+
+/// What a stored token grants, as a token edit leaves it.
+pub struct TokenGrant<'a> {
+    pub scopes: Option<&'a [String]>,
+    pub super_admin: bool,
+    pub admin: bool,
+    pub allowed_ips: Option<&'a [IpNet]>,
+}
+
+/// Refuse a token edit that widens the token beyond what `authed` could mint through
+/// `tokens/create` right now. Widening a token in place is then never stronger than minting a
+/// new one: the scopes, the admin and superadmin rights and the IP allowlist are each held to
+/// the caller's, as minting holds them.
+pub fn ensure_grant_within_caller(authed: &ApiAuthed, grant: &TokenGrant) -> error::Result<()> {
+    ensure_scopes_within_caller(authed, grant.scopes)?;
+    let caller_scoped = authed
+        .scopes
+        .as_deref()
+        .is_some_and(|s| s.iter().any(|x| !x.starts_with("if_jobs:filter_tags:")));
+    if grant.super_admin && (caller_scoped || authed.super_admin_withheld) {
+        return Err(Error::NotAuthorized(
+            "Only an unscoped token carrying superadmin rights can widen a superadmin token"
+                .to_string(),
+        ));
+    }
+    if grant.admin && authed.admin_withheld {
+        return Err(Error::NotAuthorized(
+            "A token withholding workspace admin rights cannot widen a token carrying them"
+                .to_string(),
+        ));
+    }
+    if let Some(caller) = authed.allowed_ips.as_deref() {
+        if !ip_nets_within(caller, grant.allowed_ips) {
+            return Err(Error::PermissionDenied(
+                "A token restricted to IP addresses cannot widen a token beyond the networks it \
+                 may be used from itself"
+                    .to_string(),
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Whether every network of `inner` lies within `outer`. `None` (usable from anywhere) lies
+/// within no list.
+pub fn ip_nets_within(outer: &[IpNet], inner: Option<&[IpNet]>) -> bool {
+    inner.is_some_and(|nets| nets.iter().all(|n| outer.iter().any(|o| o.contains(n))))
 }
 
 /// Tags from the first `if_jobs:filter_tags:<a,b,...>` scope, matching the
@@ -1415,6 +1472,17 @@ pub async fn create_token_internal(
     )
     .await;
 
+    let grant = TokenAuditGrant {
+        label: token_config.label.as_deref(),
+        expiration: token_config.expiration,
+        scopes: token_config.scopes.as_deref(),
+        workspace_id: token_config.workspace_id.as_deref(),
+        read_only: token_config.read_only.unwrap_or(false),
+        allowed_ips: allowed_ips.as_deref(),
+        admin: carries_admin,
+        super_admin: is_super_admin,
+    }
+    .params();
     audit_log(
         &mut *tx,
         authed,
@@ -1422,7 +1490,7 @@ pub async fn create_token_internal(
         ActionKind::Create,
         &"global",
         Some(t_prefix),
-        None,
+        Some(audit_params(&grant)),
     )
     .instrument(tracing::info_span!("token", email = &authed.email))
     .await?;
@@ -1458,6 +1526,59 @@ pub async fn register_token_expiry_notification(
     {
         tracing::error!("Failed to register token expiry notification: {}", e);
     }
+}
+
+/// What a minted token row holds, recorded on its creation's audit entry. Token edits record
+/// their fields' values before and after, so a token's history can be replayed from this.
+pub struct TokenAuditGrant<'a> {
+    pub label: Option<&'a str>,
+    pub expiration: Option<chrono::DateTime<chrono::Utc>>,
+    pub scopes: Option<&'a [String]>,
+    pub workspace_id: Option<&'a str>,
+    pub read_only: bool,
+    pub allowed_ips: Option<&'a [String]>,
+    pub admin: bool,
+    pub super_admin: bool,
+}
+
+impl TokenAuditGrant<'_> {
+    /// Each value JSON-encoded, so a `null` (none, never, anywhere) stays distinct from `""`.
+    pub fn params(&self) -> Vec<(&'static str, String)> {
+        let j = |v: serde_json::Value| v.to_string();
+        vec![
+            ("label", j(serde_json::json!(self.label))),
+            ("expiration", j(serde_json::json!(self.expiration))),
+            ("scopes", j(serde_json::json!(self.scopes))),
+            ("workspace_id", j(serde_json::json!(self.workspace_id))),
+            ("read_only", j(serde_json::json!(self.read_only))),
+            ("allowed_ips", j(serde_json::json!(self.allowed_ips))),
+            ("admin", j(serde_json::json!(self.admin))),
+            ("super_admin", j(serde_json::json!(self.super_admin))),
+        ]
+    }
+}
+
+/// Audit parameters from owned values, as `audit_log` takes them.
+pub fn audit_params<'a>(params: &'a [(&'a str, String)]) -> HashMap<&'a str, &'a str> {
+    params.iter().map(|(k, v)| (*k, v.as_str())).collect()
+}
+
+/// Replace a token's pending expiry notification after its expiration changed, so a token
+/// extended after its warning went out is warned again before the new date.
+pub async fn reset_token_expiry_notification(
+    tx: &mut sqlx::PgConnection,
+    token_hash: &str,
+    label: Option<&str>,
+    expiration: Option<chrono::DateTime<chrono::Utc>>,
+) -> Result<()> {
+    sqlx::query!(
+        "DELETE FROM token_expiry_notification WHERE token_hash = $1",
+        token_hash
+    )
+    .execute(&mut *tx)
+    .await?;
+    register_token_expiry_notification(tx, token_hash, label, expiration).await;
+    Ok(())
 }
 
 // ------------ Permission helpers ------------
@@ -1623,6 +1744,24 @@ pub fn require_path_read_access_for_preview(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ip_nets_within_holds_lists_to_the_outer_networks() {
+        let nets = |v: &[&str]| v.iter().map(|x| x.parse().unwrap()).collect::<Vec<IpNet>>();
+        let outer = nets(&["10.0.0.0/8", "192.168.1.0/24"]);
+        assert!(ip_nets_within(
+            &outer,
+            Some(&nets(&["10.1.2.3/32", "192.168.1.0/25"]))
+        ));
+        assert!(!ip_nets_within(&outer, Some(&nets(&["10.0.0.0/7"]))));
+        assert!(!ip_nets_within(
+            &outer,
+            Some(&nets(&["10.1.0.0/16", "172.16.0.0/12"]))
+        ));
+        // Usable from anywhere lies within no list.
+        assert!(!ip_nets_within(&outer, None));
+        assert!(!ip_nets_within(&[], Some(&nets(&["10.0.0.1/32"]))));
+    }
 
     fn authed_with_scopes(scopes: Option<Vec<&str>>) -> ApiAuthed {
         ApiAuthed {

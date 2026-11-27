@@ -1364,7 +1364,7 @@ pub fn transform_old_scope_to_new_scope(scopes: Option<&mut Vec<String>>) {
     }
 }
 
-fn maybe_get_workspace_id_from_path(path_vec: &[&str]) -> Option<String> {
+pub fn maybe_get_workspace_id_from_path(path_vec: &[&str]) -> Option<String> {
     let workspace_id = if path_vec.len() >= 4 && path_vec[0] == "" && path_vec[2] == "w" {
         Some(path_vec[3].to_owned())
     } else if path_vec.len() >= 5
@@ -1484,66 +1484,18 @@ pub async fn resolve_opt_job_authed(
             if let Some(mut opt_job_authed) = resolved {
                 let path = original_uri.path();
                 let method = parts.method.as_str();
-                if workspace_id.is_none() && opt_job_authed.job_id.is_some() {
-                    if let Err(err) = crate::scopes::check_job_token_for_global_route(path, method)
-                    {
-                        return Err((err, parts));
-                    }
+                if let Err(err) = check_route_layer(
+                    &cache.db,
+                    &mut opt_job_authed,
+                    workspace_id.as_deref(),
+                    path,
+                    method,
+                )
+                .await
+                {
+                    return Err((err, parts));
                 }
-                let own_job_runtime_route = match opt_job_authed.job_id {
-                    Some(job_id) if opt_job_authed.authed.scopes.is_some() => {
-                        crate::scopes::is_own_job_runtime_route(path, method, job_id)
-                            || match crate::scopes::flow_run_read_route_job(path, method) {
-                                Some(target) => {
-                                    job_in_same_flow_run(&cache.db, job_id, target).await
-                                }
-                                None => false,
-                            }
-                    }
-                    _ => false,
-                };
-                let authed = &mut opt_job_authed.authed;
-                if authed.scopes.is_some() && !own_job_runtime_route {
-                    transform_old_scope_to_new_scope(authed.scopes.as_mut());
-                    if let Some(w_id) = workspace_id.as_deref() {
-                        expand_filter_tags_for_dev_workspace(
-                            &cache.db,
-                            w_id,
-                            authed.scopes.as_mut(),
-                        )
-                        .await;
-                    }
-
-                    if let Err(err) = crate::scopes::check_scopes_for_route(
-                        authed.scopes.as_deref(),
-                        path,
-                        method,
-                    ) {
-                        return Err((err, parts));
-                    }
-                }
-                if authed.read_only {
-                    // MCP transport runs over POST (streamable HTTP / SSE handshake),
-                    // so the middleware can't safely reject mutating methods on it —
-                    // the MCP runner itself filters out write tools and rejects
-                    // mutating tool calls for read-only tokens. Narrow to the actual
-                    // transport endpoints: anything else under `/api/mcp/*` (OAuth
-                    // approve, token exchange, client registration) must still go
-                    // through the read-only check, otherwise a read-only token
-                    // could approve an OAuth flow that mints a new non-read-only
-                    // token.
-                    let is_mcp_transport = path == "/api/mcp/gateway"
-                        || path == "/api/mcp"
-                        || (path.starts_with("/api/mcp/w/")
-                            && (path.ends_with("/mcp")
-                                || path.ends_with("/sse")
-                                || path.ends_with("/list_tools")));
-                    if !is_mcp_transport {
-                        if let Err(err) = crate::scopes::check_read_only_for_route(path, method) {
-                            return Err((err, parts));
-                        }
-                    }
-                }
+                let authed = &opt_job_authed.authed;
                 parts.extensions.insert(authed.clone());
 
                 Span::current().record("username", &authed.username.as_str());
@@ -1576,6 +1528,62 @@ pub async fn resolve_opt_job_authed(
     }
     BRUTE_FORCE_COUNTER.increment().await;
     Err((Error::NotAuthorized("Unauthorized".to_string()), parts))
+}
+
+/// The route checks every request passes before its handler runs: job-token confinement,
+/// scopes and `read_only`. `workspace_id` is the request's workspace, `None` on a global route.
+/// Normalizes `opt_job_authed`'s scopes in place, as handlers then read them. Token
+/// introspection calls this to report a verdict, so a check added to the route layer belongs
+/// here rather than beside the call in `resolve_opt_job_authed`.
+pub async fn check_route_layer(
+    db: &DB,
+    opt_job_authed: &mut OptJobAuthed,
+    workspace_id: Option<&str>,
+    path: &str,
+    method: &str,
+) -> windmill_common::error::Result<()> {
+    if workspace_id.is_none() && opt_job_authed.job_id.is_some() {
+        crate::scopes::check_job_token_for_global_route(path, method)?;
+    }
+    let own_job_runtime_route = match opt_job_authed.job_id {
+        Some(job_id) if opt_job_authed.authed.scopes.is_some() => {
+            crate::scopes::is_own_job_runtime_route(path, method, job_id)
+                || match crate::scopes::flow_run_read_route_job(path, method) {
+                    Some(target) => job_in_same_flow_run(db, job_id, target).await,
+                    None => false,
+                }
+        }
+        _ => false,
+    };
+    let authed = &mut opt_job_authed.authed;
+    if authed.scopes.is_some() && !own_job_runtime_route {
+        transform_old_scope_to_new_scope(authed.scopes.as_mut());
+        if let Some(w_id) = workspace_id {
+            expand_filter_tags_for_dev_workspace(db, w_id, authed.scopes.as_mut()).await;
+        }
+        crate::scopes::check_scopes_for_route(authed.scopes.as_deref(), path, method)?;
+    }
+    if authed.read_only {
+        // MCP transport runs over POST (streamable HTTP / SSE handshake),
+        // so the middleware can't safely reject mutating methods on it —
+        // the MCP runner itself filters out write tools and rejects
+        // mutating tool calls for read-only tokens. Narrow to the actual
+        // transport endpoints: anything else under `/api/mcp/*` (OAuth
+        // approve, token exchange, client registration) must still go
+        // through the read-only check, otherwise a read-only token
+        // could approve an OAuth flow that mints a new non-read-only
+        // token.
+        let is_mcp_transport = path == "/api/mcp/gateway"
+            || path == "/api/mcp"
+            || (path.starts_with("/api/mcp/w/")
+                && (path.ends_with("/mcp")
+                    || path.ends_with("/sse")
+                    || path.ends_with("/list_tools")));
+        if !is_mcp_transport {
+            crate::scopes::check_read_only_for_route(path, method)?;
+        }
+    }
+    Ok(())
 }
 
 /// Returns the override and whether it names the token's *label* rather than the entity that

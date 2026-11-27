@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE token SET scopes = $1 WHERE token_hash = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "TextArray",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "ef655ad80f51c7b5ac50090db46c96e9143a2867c8ac50e6dd8937e24fefb38e"
+}

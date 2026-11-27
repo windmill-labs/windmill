@@ -1,0 +1,38 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM password RETURNING email, totp_secret, totp_last_step, totp_recovery_codes",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "email",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "totp_secret",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "totp_last_step",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "totp_recovery_codes",
+        "type_info": "TextArray"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "4c100853478519e794d05fe6070acfe8ddb246ceaed99e9e25f6bd34b105c6de"
+}
