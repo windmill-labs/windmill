@@ -19,11 +19,9 @@
 	import {
 		ClipboardCopy,
 		Download,
-		PanelRightOpen,
 		Table2,
 		Braces,
 		Highlighter,
-		ArrowDownFromLine,
 		Database,
 		FileText,
 		Image,
@@ -40,16 +38,18 @@
 	import Markdown from 'svelte-exmarkdown'
 	import { markdownProse } from './markdownProse'
 	import Toggle from './Toggle.svelte'
-	import FileDownload from './common/fileDownload/FileDownload.svelte'
+	import S3ObjectHeader from './common/fileDownload/S3ObjectHeader.svelte'
+	import S3TextPreview from './common/fileDownload/S3TextPreview.svelte'
 
-	import ParqetTableRenderer from './ParqetCsvTableRenderer.svelte'
+	import S3ObjectTable from './common/fileDownload/S3ObjectTable.svelte'
+	import { serverTableFormat } from './s3TableOps'
+	import { isMarkdownFile } from './common/fileDownload/FileTextPreview.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import MapResult from './MapResult.svelte'
 	import ChartResult from './display/ChartResult.svelte'
 	import { isChartResult } from './display/displayCatalog'
 	import { convertJsonToCsv } from './table/tableUtils'
-	import Tooltip from './Tooltip.svelte'
 	import HighlightTheme from './HighlightTheme.svelte'
 	import type { DisplayResultUi } from './custom_ui'
 	import { getContext, hasContext, createEventDispatcher, onDestroy, untrack } from 'svelte'
@@ -177,7 +177,6 @@
 		loading = false,
 		growVertical = false
 	}: Props = $props()
-	let s3FileDisplayRawMode = $state(false)
 	/** What a max-iterations failure got through before it gave up, if this is one.
 	 *  Empty for a run that failed before the worker tagged anything, and for one
 	 *  that predates the tags reaching this payload at all — in which case the
@@ -206,6 +205,18 @@
 			url += `&${s3object.presigned}`
 		}
 		return url
+	}
+
+	function s3PreviewKind(
+		key: unknown
+	): 'table' | 'image' | 'pdf' | 'text' | 'markdown' | undefined {
+		if (typeof key !== 'string') return undefined
+		if (serverTableFormat(key)) return 'table'
+		if (['.png', '.jpeg', '.jpg', '.webp'].some((ext) => key.endsWith(ext))) return 'image'
+		if (key.endsWith('.pdf')) return 'pdf'
+		if (key.endsWith('.txt') || key.endsWith('.log')) return 'text'
+		if (isMarkdownFile(key)) return 'markdown'
+		return undefined
 	}
 
 	function isTableRow(result: any): boolean {
@@ -429,7 +440,7 @@
 	let download_as_csv = $state(false)
 	function inferResultKind(result: any) {
 		if (typeof result === 'string' && result.match(/s3:\/\/[^/]*\/.+/)) {
-			largeObject = true
+			largeObject = false
 			return 's3object'
 		}
 		try {
@@ -753,6 +764,13 @@
 	let globalForceJson: boolean = $state(false)
 
 	let seeS3PreviewFileFromList = $state('')
+	/** Keys of the markdown files shown as their source rather than rendered. */
+	let markdownSourceKeys: string[] = $state([])
+	function setMarkdownSource(key: string, source: boolean) {
+		markdownSourceKeys = source
+			? [...markdownSourceKeys, key]
+			: markdownSourceKeys.filter((k) => k !== key)
+	}
 
 	const disableTooltips = hasContext('disableTooltips')
 		? getContext('disableTooltips') === true
@@ -898,6 +916,43 @@
 	let dbtRun = $derived(parseDbtRun(result))
 </script>
 
+{#snippet s3Preview(s3object: {
+	s3: string
+	storage?: string
+	presigned?: string
+	disable_download?: boolean
+})}
+	{@const kind = s3PreviewKind(s3object?.s3)}
+	{#if kind === 'table'}
+		<S3ObjectTable {s3object} {workspaceId} {appPath} />
+	{:else if kind === 'image'}
+		<div class="h-full p-3">
+			<ExpandableImage
+				alt="Preview of {s3object?.s3}"
+				title={s3object?.s3}
+				class="w-auto h-full"
+				src={s3DisplayUrl(s3object)}
+			/>
+		</div>
+	{:else if kind === 'pdf'}
+		<div class="h-96 overflow-hidden" data-interactive>
+			{#await import('$lib/components/display/PdfViewer.svelte')}
+				<Loader2 class="animate-spin" />
+			{:then Module}
+				<Module.default allowFullscreen source={s3DisplayUrl(s3object)} />
+			{/await}
+		</div>
+	{:else if kind === 'text' || kind === 'markdown'}
+		<S3TextPreview
+			{s3object}
+			{workspaceId}
+			{appPath}
+			markdown={kind === 'markdown'}
+			markdownSource={markdownSourceKeys.includes(s3object.s3)}
+		/>
+	{/if}
+{/snippet}
+
 <HighlightTheme />
 
 {#if dataTests}
@@ -932,8 +987,8 @@
 					}}
 				>
 					{#snippet children({ item })}
-						<ToggleButton value="pretty" label="Pretty" icon={Highlighter} {item} />
-						<ToggleButton value="json" label="JSON" icon={Braces} {item} />
+						<ToggleButton size="xs" value="pretty" label="Pretty" icon={Highlighter} {item} />
+						<ToggleButton size="xs" value="json" label="JSON" icon={Braces} {item} />
 					{/snippet}
 				</ToggleButtonGroup>
 			</div>
@@ -972,7 +1027,7 @@
 					class="text-primary text-sm flex flex-row gap-2 items-center"
 					bind:clientHeight={resultHeaderHeight}
 				>
-					{#if !hideAsJson && !['json', 's3object'].includes(resultKind ?? '') && typeof result === 'object'}<ToggleButtonGroup
+					{#if !hideAsJson && resultKind !== 'json' && (typeof result === 'object' || resultKind === 's3object')}<ToggleButtonGroup
 							selected={forceJson ? 'json' : resultKind?.startsWith('table-') ? 'table' : 'pretty'}
 							on:selected={(ev) => {
 								forceJson = ev.detail === 'json'
@@ -980,11 +1035,11 @@
 						>
 							{#snippet children({ item })}
 								{#if ['table-col', 'table-row', 'table-row-object'].includes(resultKind ?? '')}
-									<ToggleButton size="sm" value="table" label="Table" icon={Table2} {item} />
+									<ToggleButton size="xs" value="table" label="Table" icon={Table2} {item} />
 								{:else}
-									<ToggleButton size="sm" value="pretty" label="Pretty" icon={Highlighter} {item} />
+									<ToggleButton size="xs" value="pretty" label="Pretty" icon={Highlighter} {item} />
 								{/if}
-								<ToggleButton size="sm" value="json" label="JSON" icon={Braces} {item} />
+								<ToggleButton size="xs" value="json" label="JSON" icon={Braces} {item} />
 							{/snippet}
 						</ToggleButtonGroup>
 					{/if}
@@ -1266,170 +1321,67 @@
 					{/if}
 				{:else if !forceJson && resultKind === 's3object'}
 					{@const s3object = parseS3Object(result) as typeof result}
-					<div
-						class="h-full w-full {typeof s3object?.s3 === 'string' &&
-						s3object?.s3?.endsWith('.parquet')
-							? 'h-min-[600px]'
-							: ''}"
-					>
-						<div class="flex flex-col gap-2">
-							<Toggle
-								class="flex"
-								bind:checked={s3FileDisplayRawMode}
-								size="xs"
-								options={{ right: 'Raw S3 object' }}
-							/>
-
-							{#if s3FileDisplayRawMode}
-								<Highlight
-									class=""
-									language={json}
-									code={toJsonStr(s3object).replace(/\\n/g, '\n')}
-								/>
-								{#if $userStore}
-									<button
-										class="text-secondary underline text-2xs whitespace-nowrap"
-										onclick={() => {
-											s3FileViewer?.open?.(s3object)
-										}}
-										><span class="flex items-center gap-1"
-											><PanelRightOpen size={12} />object store explorer<Tooltip
-												>Require admin privilege or "S3 resource details and content can be accessed
-												by all users of this workspace" of S3 Storage to be set in the workspace
-												settings</Tooltip
-											></span
-										>
-									</button>
-								{/if}
-							{:else if !s3object?.disable_download}
-								<FileDownload {workspaceId} {s3object} {appPath} />
-								{#if $userStore}
-									<button
-										class="text-secondary underline text-2xs whitespace-nowrap"
-										onclick={() => {
-											s3FileViewer?.open?.(s3object)
-										}}
-										><span class="flex items-center gap-1"
-											><PanelRightOpen size={12} />object store explorer<Tooltip
-												>Require admin privilege or "S3 resource details and content can be accessed
-												by all users of this workspace" of S3 Storage to be set in the workspace
-												settings</Tooltip
-											></span
-										>
-									</button>
-								{/if}
-							{/if}
-						</div>
+					<div class="h-full w-full pt-2">
 						{#if typeof s3object?.s3 === 'string'}
-							{#if s3object?.s3?.endsWith('.parquet') || s3object?.s3?.endsWith('.csv')}
-								{#key s3object.s3}
-									<ParqetTableRenderer
-										disable_download={s3object?.disable_download}
+							<!-- One card: the header, then the preview flush below a separator, as in the S3
+							     file browser. -->
+							<div class="rounded-md border bg-surface overflow-hidden">
+								<div class="px-3 py-2">
+									<S3ObjectHeader
+										{s3object}
 										{workspaceId}
 										{appPath}
-										s3resource={s3object?.s3}
-										storage={s3object?.storage}
-										presigned={s3object?.presigned}
-									/>
-								{/key}
-							{:else if s3object?.s3?.endsWith('.png') || s3object?.s3?.endsWith('.jpeg') || s3object?.s3?.endsWith('.jpg') || s3object?.s3?.endsWith('.webp')}
-								<div class="h-full mt-2">
-									<ExpandableImage
-										alt="preview rendered"
-										title={s3object?.s3}
-										class="w-auto h-full"
-										src={s3DisplayUrl(s3object)}
+										onExplore={$userStore ? () => s3FileViewer?.open?.(s3object) : undefined}
+										markdownSource={s3PreviewKind(s3object.s3) === 'markdown'
+											? markdownSourceKeys.includes(s3object.s3)
+											: undefined}
+										onMarkdownSource={(source) => setMarkdownSource(s3object.s3, source)}
 									/>
 								</div>
-							{:else if s3object?.s3?.endsWith('.pdf')}
-								<div class="h-96 mt-2 border">
-									{#await import('$lib/components/display/PdfViewer.svelte')}
-										<Loader2 class="animate-spin" />
-									{:then Module}
-										<Module.default allowFullscreen source={s3DisplayUrl(s3object)} />
-									{/await}
-								</div>
-							{/if}
+								{#if s3PreviewKind(s3object.s3)}
+									<div class="border-t">
+										{#key s3object.s3}
+											{@render s3Preview(s3object)}
+										{/key}
+									</div>
+								{/if}
+							</div>
 						{/if}
 					</div>
 				{:else if !forceJson && resultKind === 's3object-list'}
-					<div class="h-full w-full">
+					<div class="h-full w-full pt-2">
 						<div class="flex flex-col gap-2">
-							<Toggle
-								class="flex mt-1"
-								bind:checked={s3FileDisplayRawMode}
-								size="xs"
-								options={{ right: 'Raw S3 object' }}
-							/>
-							{#each result as _s3object}
-								{@const s3object = parseS3Object(_s3object) as typeof _s3object}
-								{#if s3FileDisplayRawMode}
-									<Highlight
-										class=""
-										language={json}
-										code={toJsonStr(s3object).replace(/\\n/g, '\n')}
-									/>
-									<button
-										class="text-primary text-2xs whitespace-nowrap"
-										onclick={() => {
-											s3FileViewer?.open?.(s3object)
-										}}
-										><span class="flex items-center gap-1"
-											><PanelRightOpen size={12} />open preview</span
-										>
-									</button>
-								{:else if !s3object?.disable_download}
-									<FileDownload {workspaceId} {s3object} {appPath} />
-								{:else}
-									<div class="flex text-primary pt-2">{s3object?.s3} (download disabled)</div>
-								{/if}
-								{#if s3object?.s3?.endsWith('.parquet') || s3object?.s3?.endsWith('.csv')}
-									{#if seeS3PreviewFileFromList == s3object?.s3}
-										<ParqetTableRenderer
-											disable_download={s3object?.disable_download}
-											{workspaceId}
-											{appPath}
-											s3resource={s3object?.s3}
-											storage={s3object?.storage}
-											presigned={s3object?.presigned}
-										/>{:else}
-										<button
-											class="text-primary whitespace-nowrap flex gap-2 items-center"
-											onclick={() => {
-												seeS3PreviewFileFromList = s3object?.s3
-											}}
-											>open table preview <ArrowDownFromLine />
-										</button>
-									{/if}
-								{:else if s3object?.s3?.endsWith('.png') || s3object?.s3?.endsWith('.jpeg') || s3object?.s3?.endsWith('.jpg') || s3object?.s3?.endsWith('.webp')}
-									{#if seeS3PreviewFileFromList == s3object?.s3}
-										<div class="h-full mt-2">
-											<ExpandableImage
-												alt="preview rendered"
-												title={s3object?.s3}
-												class="w-auto h-full"
-												src={s3DisplayUrl(s3object)}
+							<div class="rounded-md border bg-surface divide-y overflow-hidden">
+								{#each result as _s3object}
+									{@const s3object = parseS3Object(_s3object) as typeof _s3object}
+									{@const kind = s3PreviewKind(s3object?.s3)}
+									{@const collapsible = kind !== undefined && kind !== 'pdf'}
+									{@const previewOpen = seeS3PreviewFileFromList == s3object?.s3}
+									<div class="flex flex-col">
+										<div class="px-3 py-2">
+											<S3ObjectHeader
+												{s3object}
+												{workspaceId}
+												{appPath}
+												onExplore={$userStore ? () => s3FileViewer?.open?.(s3object) : undefined}
+												previewOpen={collapsible ? previewOpen : undefined}
+												onTogglePreview={() => {
+													seeS3PreviewFileFromList = previewOpen ? '' : s3object?.s3
+												}}
+												markdownSource={kind === 'markdown' && previewOpen
+													? markdownSourceKeys.includes(s3object.s3)
+													: undefined}
+												onMarkdownSource={(source) => setMarkdownSource(s3object.s3, source)}
 											/>
 										</div>
-									{:else}
-										<button
-											class="text-primary whitespace-nowrap flex gap-2 items-center"
-											onclick={() => {
-												seeS3PreviewFileFromList = s3object?.s3
-											}}
-											>open image preview <ArrowDownFromLine />
-										</button>
-									{/if}
-								{:else if s3object?.s3?.endsWith('.pdf')}
-									<div class="h-96 mt-2 border" data-interactive>
-										{#await import('$lib/components/display/PdfViewer.svelte')}
-											<Loader2 class="animate-spin" />
-										{:then Module}
-											<Module.default allowFullscreen source={s3DisplayUrl(s3object)} />
-										{/await}
+										{#if kind !== undefined && (!collapsible || previewOpen)}
+											<div class="border-t">
+												{@render s3Preview(s3object)}
+											</div>
+										{/if}
 									</div>
-								{/if}
-							{/each}
+								{/each}
+							</div>
 						</div>
 					</div>
 				{:else if !forceJson && resultKind === 'aiagent'}

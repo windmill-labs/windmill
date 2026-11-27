@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { Download } from 'lucide-svelte'
+	import { Button } from '$lib/components/common'
 	import { downloadViaClient, shouldDownloadViaClient } from '$lib/utils/downloadFile'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
@@ -26,27 +27,27 @@
 		}${appPath && s3object?.presigned ? `&${s3object?.presigned}` : ''}`
 	)
 	let href = $derived(`/api${apiPath}`)
-
-	const sharedClass = `relative center-center flex w-full text-center font-normal text-primary text-sm
-border border-dashed border-gray-400 hover:border-blue-500
-focus-within:border-blue-500 hover:bg-blue-50 dark:hover:bg-frost-900 focus-within:bg-blue-50
-duration-200 rounded-lg p-1 gap-2`
 </script>
 
 {#if s3object && s3object?.s3}
 	{#if shouldDownloadViaClient()}
-		<button class={sharedClass} onclick={() => downloadViaClient(apiPath, filename)}>
-			<Download />
-			<span>
-				{s3object?.storage ? `s3://${s3object.storage}/${s3object.s3}` : `s3:///${s3object.s3}`}
-			</span>
-		</button>
+		<Button
+			variant="default"
+			unifiedSize="sm"
+			startIcon={{ icon: Download }}
+			onClick={() => downloadViaClient(apiPath, filename)}
+		>
+			Download
+		</Button>
 	{:else}
-		<a class={sharedClass} {href} download={filename}>
-			<Download />
-			<span>
-				{s3object?.storage ? `s3://${s3object.storage}/${s3object.s3}` : `s3:///${s3object.s3}`}
-			</span>
-		</a>
+		<Button
+			variant="default"
+			unifiedSize="sm"
+			startIcon={{ icon: Download }}
+			{href}
+			download={filename}
+		>
+			Download
+		</Button>
 	{/if}
 {/if}

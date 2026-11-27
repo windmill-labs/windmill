@@ -16,7 +16,7 @@
 		disabled?: boolean
 		selectedColor?: string | undefined
 		small?: boolean
-		size?: 'sm' | 'md' | 'lg'
+		size?: 'xs' | 'sm' | 'md' | 'lg'
 		iconProps?: Record<string, any>
 		showTooltipIcon?: boolean
 		documentationLink?: string | undefined
@@ -72,7 +72,7 @@
 	<button
 		{id}
 		{disabled}
-		aria-label={shortLabel ? label : undefined}
+		aria-label={shortLabel ? label : iconOnly ? (label ?? tooltip) : undefined}
 		class={twMerge(
 			'group rounded-md transition-all font-normal flex gap-1 flex-row items-center justify-center border text-xs',
 			horizontalPadding,
