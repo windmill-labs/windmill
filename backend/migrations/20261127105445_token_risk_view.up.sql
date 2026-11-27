@@ -34,13 +34,21 @@ LEFT JOIN (
 ) a ON a.email = t.email
 CROSS JOIN LATERAL (
     SELECT
+        -- A job token, or a label only the server can mint (`is_server_minted_label`).
         (t.job IS NOT NULL
-            OR t.label IN ('session', 'guest_session', 'debugger-token')
-            OR lower(t.label) LIKE 'ephemeral%'
+            OR t.label IN ('session', 'guest_session', 'ephemeral-script')
+            OR starts_with(t.label, 'ephemeral-webhook-')
+            OR starts_with(t.label, 'ephemeral-script-end-user-')
             OR starts_with(t.label, 'mcp-oauth-')
-            OR starts_with(t.label, 'embed_app:')
-            OR starts_with(t.label, 'sdk_app:')
-            OR starts_with(t.label, 'impersonation:')) IS TRUE AS self_managed,
+            -- `tokens/create` accepts these labels too, so only a lifetime as short as the
+            -- system's own (72h for the editor's language server at most) proves the token is
+            -- one of those rather than a long-lived token borrowing the label.
+            OR ((t.label = 'debugger-token'
+                    OR lower(t.label) LIKE 'ephemeral%'
+                    OR starts_with(t.label, 'embed_app:')
+                    OR starts_with(t.label, 'sdk_app:')
+                    OR starts_with(t.label, 'impersonation:'))
+                AND t.expiration <= t.created_at + interval '3 days')) IS TRUE AS self_managed,
         NOT t.read_only
             AND NOT EXISTS (SELECT 1 FROM unnest(t.scopes) s WHERE NOT starts_with(s, 'if_jobs:filter_tags:'))
             AS unrestricted

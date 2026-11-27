@@ -81,28 +81,28 @@ async fn test_token_risk_rules(db: Pool<Postgres>) -> anyhow::Result<()> {
         assert_eq!(&risks(&db, prefix).await, expected, "{prefix}");
     }
 
-    // Tokens the server manages on its own carry no flag, however risky they look.
-    for (i, label) in [
-        "session",
-        "ephemeral-script",
-        "mcp-oauth-x",
-        "impersonation:a",
-        "sdk_app:f",
-    ]
-    .iter()
-    .enumerate()
-    {
+    // Tokens the server manages on its own carry no flag, however risky they look: a label
+    // only the server mints, or a system label `tokens/create` also accepts on a token as
+    // short-lived as the system's own. The same label on a long-lived token proves nothing.
+    let managed: &[(&str, &str, bool)] = &[
+        ("session", "expiration = NULL", true),
+        ("ephemeral-script", "expiration = NULL", true),
+        ("mcp-oauth-x", "expiration = NULL", true),
+        ("impersonation:a", "expiration = created_at + interval '24 hours'", true),
+        ("Ephemeral lsp token", "expiration = created_at + interval '72 hours'", true),
+        ("debugger-token", "expiration = NULL", false),
+        ("sdk_app:f", "expiration = created_at + interval '30 days'", false),
+    ];
+    for (i, (label, expiration, exempt)) in managed.iter().enumerate() {
         let prefix = format!("managed-{i}");
         insert_token(&db, &prefix, admin).await;
         update(
             &db,
             &prefix,
-            &format!(
-                "label = '{label}', expiration = NULL, workspace_id = NULL, super_admin = true"
-            ),
+            &format!("label = '{label}', {expiration}, workspace_id = NULL, super_admin = true"),
         )
         .await;
-        assert_eq!(risks(&db, &prefix).await, Vec::<String>::new(), "{label}");
+        assert_eq!(risks(&db, &prefix).await.is_empty(), *exempt, "{label}");
     }
     Ok(())
 }

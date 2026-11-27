@@ -33,10 +33,13 @@
 	let deleting = $state(false)
 	// Drops a response that a newer filter or search has overtaken.
 	let requestId = 0
+	// The last row the server returned, which the shown list may have dropped as a repeat: a
+	// cursor taken from the shown list would stall on a page of repeats.
+	let cursor: TokenForReview | undefined = undefined
 
 	async function load(more: boolean) {
 		const id = ++requestId
-		const last = more ? tokens[tokens.length - 1] : undefined
+		const last = more ? cursor : undefined
 		loading = true
 		try {
 			const page = await UserService.listTokensAsSuperAdmin({
@@ -57,6 +60,7 @@
 			} else {
 				tokens = page.tokens
 			}
+			if (page.tokens.length > 0) cursor = page.tokens[page.tokens.length - 1]
 			if (page.counts) counts = page.counts
 			hasMore = page.tokens.length === perPage
 			loadFailed = false
