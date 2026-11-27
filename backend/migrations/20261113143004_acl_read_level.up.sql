@@ -35,6 +35,16 @@ BEGIN
     END LOOP;
 END $$;
 
+-- Its folder write check is the same read of a grant: patched in place rather than restated whole.
+DO $$
+DECLARE def TEXT := pg_get_functiondef('list_ws_specific_versions'::regproc);
+BEGIN
+    IF position('t.value::boolean IS true' IN def) = 0 THEN
+        RAISE EXCEPTION 'list_ws_specific_versions no longer reads folder grants as expected';
+    END IF;
+    EXECUTE replace(def, 't.value::boolean IS true', $r$t.value IN ('true', 'write')$r$);
+END $$;
+
 -- Whether any of `principals` holds a grant in `extra_perms` of a runnable that includes running.
 CREATE FUNCTION acl_grants_run(extra_perms JSONB, principals TEXT[])
 RETURNS BOOLEAN LANGUAGE sql IMMUTABLE AS $$

@@ -64,3 +64,30 @@ async fn pairs_prod_and_dev_without_plain_forks(db: Pool<Postgres>) {
     assert_eq!(versions("lwd").await, vec!["lwd", "lwp"]);
     assert_eq!(versions("lwf").await, vec!["lwd", "lwf", "lwp"]);
 }
+
+/// A member's folder grants are read for each workspace of the chain, a view-only one included.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn reads_a_view_only_folder_grant(db: Pool<Postgres>) {
+    insert_ws(&db, "lwp").await;
+    sqlx::query(
+        "INSERT INTO usr (workspace_id, email, username, is_admin, role) \
+         VALUES ('lwp', 'test2@windmill.dev', 'test-user-2', false, 'User')",
+    )
+    .execute(&db)
+    .await
+    .expect("add member");
+    sqlx::query(
+        "INSERT INTO folder (workspace_id, name, display_name, owners, extra_perms) \
+         VALUES ('lwp', 'x', 'x', '{}', '{\"u/test-user-2\": \"read\"}')",
+    )
+    .execute(&db)
+    .await
+    .expect("add folder");
+
+    sqlx::query_scalar::<_, String>(
+        "SELECT ws FROM list_ws_specific_versions('lwp', 'test2@windmill.dev', 'resource', 'u/admin/shared')",
+    )
+    .fetch_all(&db)
+    .await
+    .expect("call list_ws_specific_versions");
+}

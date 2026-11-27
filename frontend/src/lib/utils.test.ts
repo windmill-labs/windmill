@@ -10,7 +10,8 @@ import {
 	getQueryStmtCountHeuristic,
 	isJobResolvable,
 	parseDbInputFromAssetSyntax,
-	apiErrorMessage
+	apiErrorMessage,
+	canRun
 } from './utils'
 
 // Mirrors the backend invariant that only failed or canceled rows can carry a resolution;
@@ -598,5 +599,32 @@ describe('apiErrorMessage', () => {
 
 	it('handles a plain Error', () => {
 		expect(apiErrorMessage(new Error('boom'))).toBe('boom')
+	})
+})
+
+// Mirrors `require_can_run`: run is the union of a caller's grants, and only `'read'` withholds it.
+describe('canRun', () => {
+	const user = (o: object = {}) =>
+		({
+			username: 'bob',
+			is_admin: false,
+			is_super_admin: false,
+			pgroups: ['g/ops'],
+			folders_read: ['vo'],
+			folders_view_only: ['vo'],
+			...o
+		}) as any
+	it('withholds run when every grant is view-only', () => {
+		expect(canRun('f/vo/s', { 'u/bob': 'read' }, user())).toBe(false)
+		expect(canRun('f/vo/s', {}, user())).toBe(false)
+	})
+	it('runs on any grant that runs, whichever folder grant there is', () => {
+		expect(canRun('f/vo/s', { 'g/ops': false }, user())).toBe(true)
+		expect(canRun('f/vo/s', { 'u/bob': 'run' }, user())).toBe(true)
+		expect(canRun('f/vo/s', {}, user({ folders_view_only: [] }))).toBe(true)
+	})
+	it('runs what the user or their group owns', () => {
+		expect(canRun('u/bob/s', {}, user())).toBe(true)
+		expect(canRun('g/ops/s', {}, user())).toBe(true)
 	})
 })

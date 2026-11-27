@@ -10742,8 +10742,32 @@ async fn run_preview_flow_job(
     // jobs:run scope so a narrowly-scoped token cannot escape its scope. See run_preview_script.
     check_scopes(&authed, || format!("jobs:run"))?;
     require_path_read_access_for_preview(&authed, &raw_flow.path)?;
-    require_preview_label_runnable(&db, &authed, &w_id, RunnableAclKind::Flow, &raw_flow.path)
-        .await?;
+    // A saved agent's test run is this preview of its one-step flow, labelled `<agent>.chat`, as
+    // `job_runnables` recognizes it.
+    let agent_label = (raw_flow.value.modules.len() == 1
+        && raw_flow.value.modules[0].id == "__wm_agent_root")
+        .then(|| {
+            raw_flow
+                .path
+                .as_deref()
+                .map(|p| p.strip_suffix(".chat").unwrap_or(p).to_string())
+        });
+    match agent_label {
+        Some(label) => {
+            require_preview_label_runnable(&db, &authed, &w_id, RunnableAclKind::Agent, &label)
+                .await?
+        }
+        None => {
+            require_preview_label_runnable(
+                &db,
+                &authed,
+                &w_id,
+                RunnableAclKind::Flow,
+                &raw_flow.path,
+            )
+            .await?
+        }
+    }
     // Step restrictions apply to a preview as they do to a deployed run, so they are checked
     // the same way: an invalid entry or an older worker would leave a step unrestricted.
     if windmill_common::scopes::validate_flow_step_job_token_scopes(&raw_flow.value)? {

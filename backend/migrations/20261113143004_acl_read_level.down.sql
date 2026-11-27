@@ -1,5 +1,11 @@
 DROP FUNCTION acl_grants_run(JSONB, TEXT[]);
 
+DO $$
+BEGIN
+    EXECUTE replace(pg_get_functiondef('list_ws_specific_versions'::regproc),
+        $r$t.value IN ('true', 'write')$r$, 't.value::boolean IS true');
+END $$;
+
 -- Back to booleans, so the casts below hold: a view-only grant becomes a read grant, which runs.
 DO $$
 DECLARE t TEXT;
