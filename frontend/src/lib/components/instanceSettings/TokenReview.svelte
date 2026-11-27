@@ -18,6 +18,7 @@
 		TOKEN_RISKS
 	} from '$lib/components/settings/tokenRisks'
 	import { MCP_SESSION } from '$lib/components/mcp/McpAccessPicker.svelte'
+	import { enterpriseLicense } from '$lib/stores'
 
 	const perPage = 100
 
@@ -37,6 +38,17 @@
 	// cursor taken from the shown list would stall on a page of repeats.
 	let cursor: TokenForReview | undefined = undefined
 
+	async function loadCounts() {
+		try {
+			counts = await UserService.getTokenRiskCountsAsSuperAdmin()
+			loadFailed = false
+		} catch (e) {
+			loadFailed = true
+			sendUserToast(`Failed to count tokens: ${e}`, true)
+		}
+	}
+	loadCounts()
+
 	async function load(more: boolean) {
 		const id = ++requestId
 		const last = more ? cursor : undefined
@@ -53,28 +65,22 @@
 			if (more) {
 				// A token used since the previous page moved behind the cursor and comes back.
 				const seen = new Set(tokens.map((t) => `${t.email}:${t.token_prefix}`))
-				tokens = [
-					...tokens,
-					...page.tokens.filter((t) => !seen.has(`${t.email}:${t.token_prefix}`))
-				]
+				tokens = [...tokens, ...page.filter((t) => !seen.has(`${t.email}:${t.token_prefix}`))]
 			} else {
-				tokens = page.tokens
+				tokens = page
 			}
-			if (page.tokens.length > 0) cursor = page.tokens[page.tokens.length - 1]
-			if (page.counts) counts = page.counts
-			hasMore = page.tokens.length === perPage
-			loadFailed = false
+			if (page.length > 0) cursor = page[page.length - 1]
+			hasMore = page.length === perPage
 		} catch (e) {
 			if (id !== requestId) return
-			loadFailed = true
 			sendUserToast(`Failed to load tokens: ${e}`, true)
 		} finally {
 			if (id === requestId) loading = false
 		}
 	}
 
-	watch([() => flagFilter, () => debouncedSearch.current], () => {
-		load(false)
+	watch([() => $enterpriseLicense, () => flagFilter, () => debouncedSearch.current], () => {
+		if ($enterpriseLicense) load(false)
 	})
 
 	let riskSummary = $derived(tokenRiskSummary(counts))
@@ -134,100 +140,107 @@
 	</div>
 {/if}
 
-<div class="flex flex-row gap-2 items-center mb-2">
-	<TextInput
-		inputProps={{ placeholder: 'Search by email or label' }}
-		bind:value={search}
-		class="w-60"
-	/>
-	<Select items={flagItems} bind:value={flagFilter} class="w-52" />
-</div>
+{#if !$enterpriseLicense}
+	<Alert type="info" size="xs" title="The token list requires Enterprise Edition">
+		With an Enterprise license, this page lists every user's tokens, filters them by flag, owner
+		or label, and deletes any of them.
+	</Alert>
+{:else}
+	<div class="flex flex-row gap-2 items-center mb-2">
+		<TextInput
+			inputProps={{ placeholder: 'Search by email or label' }}
+			bind:value={search}
+			class="w-60"
+		/>
+		<Select items={flagItems} bind:value={flagFilter} class="w-52" />
+	</div>
 
-<DataTable loading={loading && tokens.length === 0}>
-	<Head>
-		<tr>
-			<Cell head first>Owner</Cell>
-			<Cell head>Token</Cell>
-			<Cell head>Flags</Cell>
-			<Cell head>Workspace</Cell>
-			<Cell head>Scopes</Cell>
-			<Cell head>Last used</Cell>
-			<Cell head>Expiration</Cell>
-			<Cell head last></Cell>
-		</tr>
-	</Head>
-	<tbody>
-		{#each tokens as token, i (`${token.email}:${token.token_prefix}`)}
-			<tr class={i % 2 === 0 ? 'bg-surface-tertiary' : 'bg-surface'}>
-				<Cell first><span class="text-xs">{token.email ?? '-'}</span></Cell>
-				<Cell>
-					<div class="flex flex-col">
-						<span class="font-mono text-xs">{token.token_prefix}****</span>
-						<span class="text-2xs text-secondary truncate max-w-40" title={token.label ?? ''}
-							>{token.label ?? ''}</span
-						>
-					</div>
-				</Cell>
-				<Cell>
-					<div class="flex flex-wrap gap-1">
-						{#if token.read_only}
-							<Badge color="blue" small>Read-only</Badge>
-						{/if}
-						{#each token.risks as risk (risk)}
-							<span title={TOKEN_RISK_INFO[risk].tooltip}>
-								<Badge color={TOKEN_RISK_INFO[risk].color} small
-									>{TOKEN_RISK_INFO[risk].badge}</Badge
-								>
-							</span>
-						{/each}
-					</div>
-				</Cell>
-				<Cell><span class="text-xs">{token.workspace_id ?? 'All'}</span></Cell>
-				<Cell>
-					<span class="text-xs truncate max-w-48 block" title={shownScopes(token.scopes)}
-						>{shownScopes(token.scopes) || '-'}</span
-					>
-				</Cell>
-				<Cell><span class="whitespace-nowrap text-xs">{displayDate(token.last_used_at)}</span></Cell
-				>
-				<Cell>
-					<span class="whitespace-nowrap text-xs"
-						>{token.expiration ? displayDate(token.expiration) : 'Never'}</span
-					>
-				</Cell>
-				<Cell last>
-					<Button
-						variant="subtle"
-						destructive
-						unifiedSize="xs"
-						title="Delete token"
-						startIcon={{ icon: Trash }}
-						iconOnly
-						disabled={!token.email}
-						onclick={() => (toDelete = token)}
-					/>
-				</Cell>
+	<DataTable loading={loading && tokens.length === 0}>
+		<Head>
+			<tr>
+				<Cell head first>Owner</Cell>
+				<Cell head>Token</Cell>
+				<Cell head>Flags</Cell>
+				<Cell head>Workspace</Cell>
+				<Cell head>Scopes</Cell>
+				<Cell head>Last used</Cell>
+				<Cell head>Expiration</Cell>
+				<Cell head last></Cell>
 			</tr>
-		{:else}
-			{#if !loading}
-				<tr>
-					<Cell first last colspan={8}>
-						<span class="text-secondary italic text-xs">
-							{flagFilter === 'all' ? 'No tokens' : 'No token has this flag'}
-						</span>
+		</Head>
+		<tbody>
+			{#each tokens as token, i (`${token.email}:${token.token_prefix}`)}
+				<tr class={i % 2 === 0 ? 'bg-surface-tertiary' : 'bg-surface'}>
+					<Cell first><span class="text-xs">{token.email ?? '-'}</span></Cell>
+					<Cell>
+						<div class="flex flex-col">
+							<span class="font-mono text-xs">{token.token_prefix}****</span>
+							<span class="text-2xs text-secondary truncate max-w-40" title={token.label ?? ''}
+								>{token.label ?? ''}</span
+							>
+						</div>
+					</Cell>
+					<Cell>
+						<div class="flex flex-wrap gap-1">
+							{#if token.read_only}
+								<Badge color="blue" small>Read-only</Badge>
+							{/if}
+							{#each token.risks as risk (risk)}
+								<span title={TOKEN_RISK_INFO[risk].tooltip}>
+									<Badge color={TOKEN_RISK_INFO[risk].color} small
+										>{TOKEN_RISK_INFO[risk].badge}</Badge
+									>
+								</span>
+							{/each}
+						</div>
+					</Cell>
+					<Cell><span class="text-xs">{token.workspace_id ?? 'All'}</span></Cell>
+					<Cell>
+						<span class="text-xs truncate max-w-48 block" title={shownScopes(token.scopes)}
+							>{shownScopes(token.scopes) || '-'}</span
+						>
+					</Cell>
+					<Cell><span class="whitespace-nowrap text-xs">{displayDate(token.last_used_at)}</span></Cell
+					>
+					<Cell>
+						<span class="whitespace-nowrap text-xs"
+							>{token.expiration ? displayDate(token.expiration) : 'Never'}</span
+						>
+					</Cell>
+					<Cell last>
+						<Button
+							variant="subtle"
+							destructive
+							unifiedSize="xs"
+							title="Delete token"
+							startIcon={{ icon: Trash }}
+							iconOnly
+							disabled={!token.email}
+							onclick={() => (toDelete = token)}
+						/>
 					</Cell>
 				</tr>
-			{/if}
-		{/each}
-	</tbody>
-</DataTable>
+			{:else}
+				{#if !loading}
+					<tr>
+						<Cell first last colspan={8}>
+							<span class="text-secondary italic text-xs">
+								{flagFilter === 'all' ? 'No tokens' : 'No token has this flag'}
+							</span>
+						</Cell>
+					</tr>
+				{/if}
+			{/each}
+		</tbody>
+	</DataTable>
 
-{#if hasMore}
-	<div class="flex justify-center mt-2">
-		<Button variant="default" unifiedSize="sm" {loading} onclick={() => load(true)}>
-			Load more
-		</Button>
-	</div>
+	{#if hasMore}
+		<div class="flex justify-center mt-2">
+			<Button variant="default" unifiedSize="sm" {loading} onclick={() => load(true)}>
+				Load more
+			</Button>
+		</div>
+	{/if}
 {/if}
 
 <ConfirmationModal

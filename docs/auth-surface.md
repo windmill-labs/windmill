@@ -39,9 +39,10 @@ Symbols, not line numbers, are cited: they drift less.
 - **Token risk flags** (rights the token was minted with and no scope narrows, not bound to a
   workspace, no expiration, unused 90 days) are computed once, by the `token_risk` view, which also
   marks the tokens the server expires or renews on its own (`self_managed`, no flags). The user's
-  `tokens/list` and `tokens/risk_counts` and the superadmin review (`tokens/list_as_super_admin`,
-  cursor-paged on `(last_used_at, token_prefix)`, and `tokens/delete_as_super_admin/{email}/{prefix}`)
-  read it; `frontend/src/lib/components/settings/tokenRisks.ts` only words the flags.
+  `tokens/list` and `tokens/risk_counts` and the superadmin review read it: its counts
+  (`tokens/risk_counts_as_super_admin`) in CE, its list (`tokens/list_as_super_admin`, cursor-paged
+  on `(last_used_at, token_prefix)`) and `tokens/delete_as_super_admin/{email}/{prefix}` in EE
+  (`users_ee.rs`); `frontend/src/lib/components/settings/tokenRisks.ts` only words the flags.
 - **`max_token_expiration_days`** caps `POST /users/tokens/create` and `tokens/impersonate`, by
   shortening the stored expiration (`cap_token_expiration`), never by refusing: `wmill user
   create-token` and the editor's language-server token pick a lifetime without reading the

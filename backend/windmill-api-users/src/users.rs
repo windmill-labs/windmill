@@ -147,6 +147,10 @@ pub fn global_service() -> Router {
         .route("/tokens/list", get(list_tokens))
         .route("/tokens/risk_counts", get(token_risk_counts))
         .route(
+            "/tokens/risk_counts_as_super_admin",
+            get(token_risk_counts_as_super_admin),
+        )
+        .route(
             "/tokens/list_as_super_admin",
             get(list_tokens_as_super_admin),
         )
@@ -4191,6 +4195,21 @@ async fn token_risk_counts(
     )))
 }
 
+/// Instance-wide counts, for the token review's summary.
+async fn token_risk_counts_as_super_admin(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+) -> JsonResult<TokenRiskCounts> {
+    require_super_admin(&db, &authed).await?;
+    let rows =
+        sqlx::query!("SELECT r AS risk, count(*) AS n FROM token_risk, unnest(risks) r GROUP BY r")
+            .fetch_all(&db)
+            .await?;
+    Ok(Json(TokenRiskCounts::from_rows(
+        rows.into_iter().map(|r| (r.risk, r.n)).collect(),
+    )))
+}
+
 #[derive(FromRow, Serialize)]
 pub struct TokenForReview {
     pub email: Option<String>,
@@ -4205,84 +4224,27 @@ pub struct TokenForReview {
     pub risks: Vec<String>,
 }
 
-#[derive(Serialize)]
-pub struct TokenReviewPage {
-    /// Instance-wide, on the first page only (no cursor).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub counts: Option<TokenRiskCounts>,
-    pub tokens: Vec<TokenForReview>,
-}
-
 #[derive(Deserialize)]
-struct TokenReviewQuery {
+pub struct TokenReviewQuery {
     /// A risk to narrow to, `all` for every token, or none for any risk.
-    flag: Option<String>,
-    search: Option<String>,
-    per_page: Option<usize>,
+    pub flag: Option<String>,
+    pub search: Option<String>,
+    pub per_page: Option<usize>,
     /// The last row of the previous page. A cursor rather than an offset, since the order
     /// moves as tokens are used: an offset would skip rows that move behind it.
-    after_last_used_at: Option<chrono::DateTime<chrono::Utc>>,
-    after_token_prefix: Option<String>,
+    pub after_last_used_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub after_token_prefix: Option<String>,
 }
 
-/// Every user's tokens, stalest first, except those the server manages on its own
-/// (`token_risk.self_managed`).
 async fn list_tokens_as_super_admin(
     Extension(db): Extension<DB>,
     authed: ApiAuthed,
     Query(query): Query<TokenReviewQuery>,
-) -> JsonResult<TokenReviewPage> {
+) -> JsonResult<Vec<TokenForReview>> {
     require_super_admin(&db, &authed).await?;
-    let per_page = query.per_page.unwrap_or(100).clamp(1, 1000) as i64;
-    let search = query
-        .search
-        .filter(|s| !s.trim().is_empty())
-        .map(|s| s.trim().to_lowercase());
-    let cursor = match (query.after_last_used_at, query.after_token_prefix) {
-        (Some(at), Some(prefix)) => Some((at, prefix)),
-        (None, None) => None,
-        _ => {
-            return Err(Error::BadRequest(
-                "after_last_used_at and after_token_prefix go together".to_string(),
-            ))
-        }
-    };
-    let tokens = sqlx::query_as!(
-        TokenForReview,
-        r#"SELECT email, label, token_prefix AS "token_prefix!", expiration,
-             created_at AS "created_at!", last_used_at AS "last_used_at!", scopes, workspace_id,
-             read_only AS "read_only!", risks AS "risks!"
-           FROM token_risk
-           WHERE NOT self_managed
-             AND CASE WHEN $1::text IS NULL THEN cardinality(risks) > 0
-                      WHEN $1 = 'all' THEN true
-                      ELSE $1 = ANY(risks) END
-             AND ($2::text IS NULL OR strpos(lower(email), $2) > 0
-                  OR strpos(lower(COALESCE(label, '')), $2) > 0)
-             AND ($3::timestamptz IS NULL OR (last_used_at, token_prefix) > ($3, $4::text))
-           ORDER BY last_used_at, token_prefix
-           LIMIT $5"#,
-        query.flag,
-        search,
-        cursor.as_ref().map(|c| c.0),
-        cursor.as_ref().map(|c| c.1.clone()),
-        per_page,
-    )
-    .fetch_all(&db)
-    .await?;
-    let counts = if cursor.is_none() {
-        let rows = sqlx::query!(
-            "SELECT r AS risk, count(*) AS n FROM token_risk, unnest(risks) r GROUP BY r"
-        )
-        .fetch_all(&db)
-        .await?;
-        Some(TokenRiskCounts::from_rows(
-            rows.into_iter().map(|r| (r.risk, r.n)).collect(),
-        ))
-    } else {
-        None
-    };
-    Ok(Json(TokenReviewPage { counts, tokens }))
+    Ok(Json(
+        crate::users_oss::list_tokens_as_super_admin(&db, query).await?,
+    ))
 }
 
 async fn delete_token_as_super_admin(
@@ -4291,35 +4253,7 @@ async fn delete_token_as_super_admin(
     Path((email, token_prefix)): Path<(String, String)>,
 ) -> Result<String> {
     require_super_admin(&db, &authed).await?;
-    let mut tx = db.begin().await?;
-
-    let deleted = sqlx::query_scalar!(
-        "DELETE FROM token WHERE email = $1 AND token_prefix = $2 RETURNING token_prefix",
-        email,
-        token_prefix
-    )
-    .fetch_all(&mut *tx)
-    .await?;
-    if deleted.is_empty() {
-        return Err(Error::NotFound(format!(
-            "no token with prefix {token_prefix} for {email}"
-        )));
-    }
-
-    audit_log(
-        &mut *tx,
-        &authed,
-        "users.token.delete",
-        ActionKind::Delete,
-        &"global",
-        Some(&token_prefix),
-        Some([("owner", email.as_str())].into()),
-    )
-    .await?;
-    tx.commit().await?;
-    windmill_api_auth::invalidate_token_from_cache(&token_prefix);
-
-    Ok(format!("deleted token {token_prefix}***** of {email}"))
+    crate::users_oss::delete_token_as_super_admin(&db, &authed, &email, &token_prefix).await
 }
 
 /// Ends a user's MCP OAuth connections (only those bound to `workspace_id` when given),

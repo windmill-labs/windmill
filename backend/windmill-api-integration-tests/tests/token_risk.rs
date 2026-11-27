@@ -1,5 +1,5 @@
-//! The `token_risk` view flags what a token review looks at, and the superadmin review pages
-//! through it with a cursor, so a token used between two pages is not skipped.
+//! The `token_risk` view flags what a token review looks at, and the superadmin review (EE)
+//! pages through it with a cursor, so a token used between two pages is not skipped.
 
 use sqlx::{Pool, Postgres, Row};
 use windmill_test_utils::*;
@@ -107,6 +107,7 @@ async fn test_token_risk_rules(db: Pool<Postgres>) -> anyhow::Result<()> {
     Ok(())
 }
 
+#[cfg(feature = "private")]
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
 async fn test_token_review_cursor_survives_use(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
@@ -136,9 +137,8 @@ async fn test_token_review_cursor_survives_use(db: Pool<Postgres>) -> anyhow::Re
         .await?
         .json()
         .await?;
-    let a = &first["tokens"][0];
+    let a = &first[0];
     assert_eq!(a["token_prefix"], "page-a");
-    assert!(first["counts"]["never_expires"].as_i64().unwrap() >= 3);
 
     // page-a is used before the next page is read, which moves it to the end of the order:
     // an offset would now skip page-b.
@@ -156,7 +156,6 @@ async fn test_token_review_cursor_survives_use(db: Pool<Postgres>) -> anyhow::Re
         .await?
         .json()
         .await?;
-    assert_eq!(next["tokens"][0]["token_prefix"], "page-b");
-    assert!(next.get("counts").is_none());
+    assert_eq!(next[0]["token_prefix"], "page-b");
     Ok(())
 }
