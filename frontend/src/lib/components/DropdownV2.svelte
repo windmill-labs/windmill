@@ -46,6 +46,10 @@
 		size?: ButtonType.UnifiedSize
 		btnText?: string
 		buttonReplacement?: import('svelte').Snippet
+		/** The trigger's accessible name and tooltip, for a `buttonReplacement` without text
+		 * that names it. The replacement renders inside the trigger button, so it must not be a
+		 * button itself. */
+		triggerLabel?: string
 		// In customMenu mode the snippet receives the melt-ui `item` action store
 		// (so consumers can wrap rows in <MenuItem> for arrow-key navigation + aria)
 		// and `builders` (so they can compose melt submenus, e.g. via DropdownSubmenuItem).
@@ -81,6 +85,7 @@
 		btnText = '',
 		btnId = undefined,
 		buttonReplacement,
+		triggerLabel = undefined,
 		menu,
 		maxHeight = undefined
 	}: Props = $props()
@@ -181,6 +186,8 @@
 		}
 	}}
 	id={btnId}
+	aria-label={triggerLabel}
+	title={triggerLabel}
 	data-menu
 >
 	{#if buttonReplacement}
