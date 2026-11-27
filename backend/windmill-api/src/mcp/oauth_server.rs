@@ -891,6 +891,12 @@ async fn oauth_approve_inner(
             "A token restricted to IP addresses cannot approve an MCP client".to_string(),
         ));
     }
+    // The exchanged token carries the owner's admin rights, so approving would lift the cap.
+    if authed.admin_withheld {
+        return Err(Error::NotAuthorized(
+            "A token without its owner's admin rights cannot approve an MCP client".to_string(),
+        ));
+    }
 
     let caller_restricted = authed
         .scopes

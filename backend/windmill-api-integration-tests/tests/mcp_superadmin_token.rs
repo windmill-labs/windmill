@@ -118,6 +118,20 @@ async fn test_mcp_token_super_admin_is_opt_in(db: Pool<Postgres>) -> anyhow::Res
         "an MCP token without superadmin access cannot approve one that has it"
     );
 
+    let without_admin = http
+        .post(format!("{base}/users/tokens/create"))
+        .bearer_auth("SECRET_TOKEN")
+        .json(&json!({ "label": "api" }))
+        .send()
+        .await?
+        .text()
+        .await?;
+    assert_eq!(
+        approve(&without_admin, false).await?.status(),
+        401,
+        "a token withholding its owner's admin rights cannot approve a token that carries them"
+    );
+
     http.post(format!("{base}/users/update/test@windmill.dev"))
         .bearer_auth("SECRET_TOKEN")
         .json(&json!({ "is_super_admin": true }))

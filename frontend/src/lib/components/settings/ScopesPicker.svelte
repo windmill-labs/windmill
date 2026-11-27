@@ -69,6 +69,11 @@
 			}}
 			size="xs"
 		/>
+		{#if limited && standardScopes.length === 0}
+			<p class="text-2xs text-yellow-600 dark:text-yellow-400">
+				Pick at least one scope: with none picked, the token is not restricted.
+			</p>
+		{/if}
 		{#if limited}
 			<ScopeSelector bind:selectedScopes={standardScopes} workspaceId={workspaceId || undefined}>
 				{#snippet topSlot()}
