@@ -56,9 +56,13 @@ function isSession(label: string | undefined): boolean {
 	return label === 'session' || label === 'guest_session'
 }
 
-/** A token narrowed by scopes or read-only mode does not carry its owner's full rights. */
+/**
+ * A token narrowed by scopes or read-only mode does not carry its owner's full rights. A job tag
+ * filter alone does not narrow it: the backend reads such a token as unscoped
+ * (`windmill-api-auth/src/scopes.rs`).
+ */
 function isUnrestricted(t: TokenRiskFields): boolean {
-	return !t.read_only && (t.scopes ?? []).length === 0
+	return !t.read_only && !(t.scopes ?? []).some((s) => !s.startsWith('if_jobs:filter_tags:'))
 }
 
 export function tokenRisks(t: TokenRiskFields, now: Date = new Date()): TokenRisk[] {

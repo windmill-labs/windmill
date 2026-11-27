@@ -30,6 +30,9 @@ describe('tokenRisks', () => {
 		const owner = { owner_super_admin: true, owner_workspace_admin: true }
 		expect(tokenRisks({ ...base, ...owner, scopes: ['jobs:read'] }, now)).toEqual([])
 		expect(tokenRisks({ ...base, ...owner, read_only: true }, now)).toEqual([])
+		expect(tokenRisks({ ...base, ...owner, scopes: ['if_jobs:filter_tags:prod'] }, now)).toEqual([
+			'superadmin'
+		])
 	})
 
 	it('leaves login sessions out', () => {
