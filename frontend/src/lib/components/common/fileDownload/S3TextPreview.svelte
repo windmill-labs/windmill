@@ -62,6 +62,9 @@
 		}
 	}
 
+	// The storage reports an empty file as a failed range read.
+	const EMPTY_FILE = /Range started at 0 and ended at 0/
+
 	let preview = $derived(load(s3object.s3, s3object.storage, s3object.presigned))
 </script>
 
@@ -71,7 +74,9 @@
 	</div>
 {:then { res, readLimit }}
 	{#if res.content_type === 'Unknown' || !res.content}
-		<div class="px-3 py-2 text-2xs text-secondary">{res.msg || 'No preview available.'}</div>
+		<div class="px-3 py-2 text-2xs text-secondary">
+			{EMPTY_FILE.test(res.msg ?? '') ? 'This file is empty.' : res.msg || 'No preview available.'}
+		</div>
 	{:else}
 		<FileTextPreview content={res.content} {readLimit} {markdown} {markdownSource} />
 	{/if}
