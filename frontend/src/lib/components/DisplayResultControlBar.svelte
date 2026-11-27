@@ -16,6 +16,7 @@
 		nodeId?: string | undefined
 		result: any
 		disableTooltips?: boolean
+		disableExpand?: boolean
 	}
 
 	let {
@@ -25,7 +26,8 @@
 		jobId = undefined,
 		nodeId = undefined,
 		result,
-		disableTooltips = false
+		disableTooltips = false,
+		disableExpand = false
 	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
@@ -86,7 +88,9 @@
 	<button onclick={() => copyToClipboard(toJsonStr(result))}>
 		<ClipboardCopy size={14} />
 	</button>
-	<button onclick={() => dispatch('open-drawer')}>
-		<Expand size={14} />
-	</button>
+	{#if !disableExpand}
+		<button onclick={() => dispatch('open-drawer')}>
+			<Expand size={14} />
+		</button>
+	{/if}
 </div>

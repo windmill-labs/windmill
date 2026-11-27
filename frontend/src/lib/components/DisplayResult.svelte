@@ -21,14 +21,16 @@
 		Download,
 		Table2,
 		Braces,
+		Brackets,
 		Highlighter,
 		Database,
 		Eye,
-		EyeOff,
 		FileImage,
 		FileText,
 		Loader2
 	} from 'lucide-svelte'
+	import Tooltip from './Tooltip.svelte'
+	import MeltTooltip from './meltComponents/Tooltip.svelte'
 	import DataTestsResult from './DataTestsResult.svelte'
 	import Portal from '$lib/components/Portal.svelte'
 	import DisplayResultControlBar from './DisplayResultControlBar.svelte'
@@ -42,7 +44,6 @@
 	import Toggle from './Toggle.svelte'
 	import S3ObjectHeader from './common/fileDownload/S3ObjectHeader.svelte'
 	import ResultItemHeader from './common/fileDownload/ResultItemHeader.svelte'
-	import Tooltip from './Tooltip.svelte'
 	import S3TextPreview from './common/fileDownload/S3TextPreview.svelte'
 
 	import S3ObjectTable from './common/fileDownload/S3ObjectTable.svelte'
@@ -330,24 +331,37 @@
 		item_count?: number
 		items?: { length: number; keys?: string[] }[]
 	}
-	/** A part of a large result offered on its own: the whole result when it is one image, or
-	 *  each element of a list holding images. */
-	type TooBigPart = { path: string; index?: number; length: number; imageKind?: string }
-	let tooBigInfo = $state<
-		{ apiPath: string; length: number; parts: TooBigPart[]; moreCount: number } | undefined
-	>(undefined)
-	// An image is read only on a click: a view is mounted for every loop iteration stepped
-	// through and every run card of a chat, and each would download it. A hidden image is kept,
-	// as a hidden S3 preview stays mounted. Tied to the result it was read from, so a new
-	// result never shows the previous one's.
-	let tooBigPreviews = $state<{ apiPath?: string; open: string[]; srcs: Record<string, string> }>({
-		open: [],
-		srcs: {}
-	})
-	let loadingTooBigParts = $state<string[]>([])
-	function tooBigPreviewsOf(apiPath: string) {
-		return tooBigPreviews.apiPath === apiPath ? tooBigPreviews : { apiPath, open: [], srcs: {} }
+	/** A part of a large result: the image of an image result (read under its key and wrapped
+	 *  back), or an element of a `render_all`. */
+	type TooBigPart = {
+		path: string
+		index?: number
+		length: number
+		imageKind?: string
+		wrap?: string
 	}
+	/** `render_all` elements read per click, and listed before the rest are counted */
+	const TOO_BIG_PAGE_SIZE = 10
+	type TooBigShape = {
+		length: number
+		/** The image of an image result, or the `render_all` elements the shape lists (the first 100) */
+		parts: TooBigPart[]
+		/** Element count, when the result is a list or a `render_all` */
+		itemCount?: number
+		renderAll?: boolean
+	}
+	let tooBigInfo = $state<({ apiPath: string } & TooBigShape) | undefined>(undefined)
+	// Read only on a click: a view is mounted for every loop iteration stepped through and every
+	// run card of a chat, and each would download the result. Tied to the result it was read
+	// from, so a new result never shows the previous one's elements.
+	type TooBigLoaded = {
+		apiPath?: string
+		shape?: TooBigShape
+		/** The `render_all` elements read so far */
+		values: unknown[]
+		loading: boolean
+	}
+	let tooBigLoaded = $state<TooBigLoaded>({ values: [], loading: false })
 	function imageKindOf(keys: string[] | undefined): string | undefined {
 		return keys?.length === 1 && IMG_KINDS.includes(keys[0]) ? keys[0] : undefined
 	}
@@ -362,49 +376,37 @@
 		)
 		return r.ok ? r.json() : undefined
 	}
-	async function readTooBigShape(
-		workspace: string,
-		id: string
-	): Promise<{ length: number; parts: TooBigPart[]; moreCount: number } | undefined> {
+	async function readTooBigShape(workspace: string, id: string): Promise<TooBigShape | undefined> {
 		const root = await fetchResultShape(workspace, id)
 		if (!root) return
 		const rootImage = imageKindOf(root.keys)
 		if (rootImage) {
 			return {
 				length: root.length,
-				parts: [{ path: rootImage, length: root.length, imageKind: rootImage }],
-				moreCount: 0
+				parts: [{ path: rootImage, length: root.length, imageKind: rootImage, wrap: rootImage }]
 			}
 		}
-		const listPath =
-			root.type === 'array'
-				? ''
-				: root.keys?.length === 1 && root.keys[0] === 'render_all'
-					? 'render_all'
-					: undefined
-		const list =
-			listPath === undefined
-				? undefined
-				: listPath
-					? await fetchResultShape(workspace, id, listPath)
-					: root
-		const items = list?.items ?? []
-		if (!items.some((item) => imageKindOf(item.keys))) {
-			return { length: root.length, parts: [], moreCount: 0 }
+		// Only a `render_all` is split into its elements, as it is drawn element by element when
+		// small. A bare list is drawn as a table, which needs every row, so it loads whole.
+		if (!(root.keys?.length === 1 && root.keys[0] === 'render_all')) {
+			return {
+				length: root.length,
+				parts: [],
+				itemCount: root.type === 'array' ? root.item_count : undefined
+			}
 		}
-		const prefix = listPath ? `${listPath}.` : ''
+		const list = await fetchResultShape(workspace, id, 'render_all')
+		const items = list?.items ?? []
 		return {
 			length: root.length,
-			parts: items.map((item, index) => {
-				const imageKind = imageKindOf(item.keys)
-				return {
-					path: `${prefix}${index}${imageKind ? `.${imageKind}` : ''}`,
-					index,
-					length: item.length,
-					imageKind
-				}
-			}),
-			moreCount: (list?.item_count ?? items.length) - items.length
+			itemCount: list?.item_count ?? items.length,
+			renderAll: true,
+			parts: items.map((item, index) => ({
+				path: `render_all.${index}`,
+				index,
+				length: item.length,
+				imageKind: imageKindOf(item.keys)
+			}))
 		}
 	}
 	function formatSize(chars: number): string {
@@ -412,59 +414,51 @@
 			? `${(chars / 1_000_000).toFixed(1)} MB`
 			: `${Math.max(1, Math.round(chars / 1000))} KB`
 	}
-	async function readTooBigImage(apiPath: string, part: TooBigPart): Promise<string> {
-		const field = contentOrRootString(
-			(await fetchResultAt(apiPath, part.path)) as Parameters<typeof contentOrRootString>[0]
-		)
-		if (!field) throw new Error(`the result has no ${part.imageKind} content`)
-		return field
+	/** Size of the `render_all` elements `from` to `to`, when the shape lists them all */
+	function tooBigPageSize(shape: TooBigShape, from: number, to: number): number | undefined {
+		if (shape.parts.length < to) return undefined
+		return shape.parts.slice(from, to).reduce((n, p) => n + p.length, 0)
 	}
-	async function toggleTooBigPart(apiPath: string, part: TooBigPart) {
-		const current = tooBigPreviewsOf(apiPath)
-		if (current.open.includes(part.path)) {
-			tooBigPreviews = { ...current, open: current.open.filter((p) => p !== part.path) }
-			return
-		}
-		if (current.srcs[part.path]) {
-			tooBigPreviews = { ...current, open: [...current.open, part.path] }
-			return
-		}
-		loadingTooBigParts = [...loadingTooBigParts, part.path]
+	/** Reads the whole result, its image, or the next page of its `render_all`, and draws what was
+	 *  read in place of the placeholder, as a result under the limit is drawn (Pretty/JSON toggle
+	 *  included). A new result from the parent wins. */
+	async function loadTooBig(apiPath: string, shape: TooBigShape | undefined) {
+		const current: TooBigLoaded =
+			tooBigLoaded.apiPath === apiPath
+				? tooBigLoaded
+				: { apiPath, shape, values: [], loading: false }
+		if (current.loading) return
+		tooBigLoaded = { ...current, loading: true }
 		try {
-			const field = await readTooBigImage(apiPath, part)
-			// Sanitized whatever `markupTrust` says: the image viewer's "Open in new tab"
-			// loads the data as a document on Windmill's origin, where an SVG's scripts run.
-			const src =
-				part.imageKind === 'svg'
-					? `data:image/svg+xml;charset=utf-8,${encodeURIComponent(
-							DOMPurify.sanitize(field, { USE_PROFILES: { svg: true, svgFilters: true } })
-						)}`
-					: `data:image/${part.imageKind};base64,${field}`
-			if (resultApiPath !== apiPath) return
-			const now = tooBigPreviewsOf(apiPath)
-			tooBigPreviews = {
-				apiPath,
-				open: [...now.open, part.path],
-				srcs: { ...now.srcs, [part.path]: src }
+			let next: unknown
+			let values = current.values
+			if (shape?.renderAll && shape.itemCount !== undefined) {
+				const from = values.length
+				const to = Math.min(shape.itemCount, from + TOO_BIG_PAGE_SIZE)
+				const page = await Promise.all(
+					Array.from({ length: to - from }, (_, i) =>
+						fetchResultAt(apiPath, `render_all.${from + i}`)
+					)
+				)
+				values = [...values, ...page]
+				next = { render_all: values }
+			} else {
+				const part = shape?.parts[0]
+				const value = part
+					? await fetchResultAt(apiPath, part.path)
+					: await fetchViaClient(apiPath).then((r) => {
+							if (!r.ok) throw new Error(`${r.status} ${r.statusText}`)
+							return r.json()
+						})
+				next = part?.wrap ? { [part.wrap]: value } : value
 			}
+			if (resultApiPath !== apiPath || tooBigLoaded.apiPath !== apiPath) return
+			tooBigLoaded = { ...tooBigLoaded, values }
+			result = next
 		} catch (e) {
-			sendUserToast(`Could not show the image: ${e instanceof Error ? e.message : e}`, true)
+			sendUserToast(`Could not load the result: ${e instanceof Error ? e.message : e}`, true)
 		} finally {
-			loadingTooBigParts = loadingTooBigParts.filter((p) => p !== part.path)
-		}
-	}
-	async function downloadTooBigPart(apiPath: string, part: TooBigPart) {
-		const name = `${filename ?? 'result'}${part.index !== undefined ? `-${part.index + 1}` : ''}.${part.imageKind}`
-		try {
-			const field = await readTooBigImage(apiPath, part)
-			downloadBlob(
-				part.imageKind === 'svg'
-					? new Blob([field], { type: 'image/svg+xml' })
-					: new Blob([base64ToBytes(field)]),
-				name
-			)
-		} catch (e) {
-			sendUserToast(`Download failed: ${e instanceof Error ? e.message : e}`, true)
+			if (tooBigLoaded.apiPath === apiPath) tooBigLoaded = { ...tooBigLoaded, loading: false }
 		}
 	}
 	function base64ToBytes(content: string): Uint8Array<ArrayBuffer> {
@@ -1086,36 +1080,72 @@
 {:else if is_render_all}
 	<div class="flex flex-col w-full gap-2">
 		{#if !noControls}
-			<div class="text-primary text-sm">
-				<ToggleButtonGroup
-					selected={globalForceJson ? 'json' : 'pretty'}
-					on:selected={(ev) => {
-						globalForceJson = ev.detail === 'json'
-					}}
-				>
-					{#snippet children({ item })}
-						<ToggleButton value="pretty" label="Pretty" icon={Highlighter} {item} />
-						<ToggleButton value="json" label="JSON" icon={Braces} {item} />
-					{/snippet}
-				</ToggleButtonGroup>
-			</div>
-		{/if}
-		<div class="flex flex-col w-full gap-10">
-			{#each result['render_all'] as res}
-				<DisplayResult
-					{noControls}
-					result={res}
-					{markupTrust}
+			<div class="flex flex-row items-center justify-between gap-2">
+				<div class="text-primary text-sm">
+					<ToggleButtonGroup
+						selected={globalForceJson ? 'json' : 'pretty'}
+						on:selected={(ev) => {
+							globalForceJson = ev.detail === 'json'
+						}}
+					>
+						{#snippet children({ item })}
+							<ToggleButton value="pretty" label="Pretty" icon={Highlighter} {item} />
+							<ToggleButton value="json" label="JSON" icon={Braces} {item} />
+						{/snippet}
+					</ToggleButtonGroup>
+				</div>
+				<DisplayResultControlBar
+					{customUi}
 					{filename}
-					{disableExpand}
+					{workspaceId}
 					{jobId}
 					{nodeId}
-					{workspaceId}
-					{appPath}
-					forceJson={globalForceJson}
-					hideAsJson={true}
+					{result}
+					{disableTooltips}
+					{disableExpand}
+					on:open-drawer={() => openDrawer()}
 				/>
+			</div>
+		{/if}
+		<div class="flex flex-col w-full gap-3">
+			{#each result['render_all'] as res}
+				<!-- Drops the 160px floor a result pane keeps, so a short element hugs its content -->
+				<div class="rounded-md border p-3 min-w-0 overflow-x-auto [&>div]:min-h-0">
+					<DisplayResult
+						{noControls}
+						result={res}
+						{markupTrust}
+						{filename}
+						{disableExpand}
+						{jobId}
+						{nodeId}
+						{workspaceId}
+						{appPath}
+						forceJson={globalForceJson}
+						hideAsJson={true}
+					/>
+				</div>
 			{/each}
+			{#if tooBigLoaded.apiPath === resultApiPath && tooBigLoaded.shape?.itemCount !== undefined && tooBigLoaded.values.length < tooBigLoaded.shape.itemCount}
+				{@const shape = tooBigLoaded.shape}
+				{@const done = tooBigLoaded.values.length}
+				{@const next = Math.min(shape.itemCount ?? 0, done + TOO_BIG_PAGE_SIZE)}
+				{@const nextSize = tooBigPageSize(shape, done, next)}
+				<div class="flex flex-row flex-wrap items-center justify-center gap-3 py-2">
+					<span class="text-xs text-secondary">{done} of {shape.itemCount} loaded</span>
+					<Button
+						variant="default"
+						unifiedSize="sm"
+						disabled={tooBigLoaded.loading}
+						startIcon={{ icon: tooBigLoaded.loading ? Loader2 : Eye }}
+						onclick={() => {
+							if (resultApiPath) loadTooBig(resultApiPath, shape)
+						}}
+					>
+						Load {next - done} more{nextSize ? ` (${formatSize(nextSize)})` : ''}
+					</Button>
+				</div>
+			{/if}
 		</div>
 	</div>
 {:else if resultKind === 'nondisplayable'}
@@ -1527,141 +1557,183 @@
 						{#if largeObject}
 							{@const notSent = result === 'WINDMILL_TOO_BIG'}
 							{@const info = tooBigInfo?.apiPath === resultApiPath ? tooBigInfo : undefined}
-							{@const previews =
-								tooBigPreviews.apiPath === resultApiPath ? tooBigPreviews : undefined}
+							{@const loaded = tooBigLoaded.apiPath === resultApiPath ? tooBigLoaded : undefined}
 							{@const size = notSent ? info?.length : loadedResultBytes / 2}
-							{@const hasOtherAction = !!info?.parts.length || !!tooBigFilename || download_as_csv}
-							<div
-								class="mt-2 mb-2 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md bg-surface-secondary px-2 py-1 [container-type:inline-size]"
-							>
-								<span class="text-secondary">
-									{#if tooBigFilename}<FileText size={14} />{:else}<Braces size={14} />{/if}
-								</span>
-								<span class="text-xs text-emphasis">
-									{#if tooBigFilename}{tooBigFilename}{:else if download_as_csv}Table{:else}JSON
-										result{/if}
-								</span>
-								{#if size}
-									<span class="text-2xs text-secondary">{formatSize(size)}</span>
-								{/if}
-								{#if notSent}
-									<span class="hidden text-2xs text-secondary [@container(min-width:480px)]:inline"
-										>Too large to load automatically</span
+							<!-- Not beside this component's own toolbar, whose download icon saves the same JSON. An
+								external toolbar may have no download (the flow output picker's mock), so it keeps it. -->
+							{@const toolbarDownloads =
+								toolbarLocation === 'self' && customUi?.disableDownload !== true}
+							{#snippet downloadJson(variant: 'default' | 'subtle')}
+								{#if resultApiPath && shouldDownloadViaClient()}
+									<Button
+										onclick={() => downloadViaClient(resultApiPath!, resultDownloadName)}
+										startIcon={{ icon: Download }}
+										{variant}
+										unifiedSize="sm"
 									>
+										Download JSON
+									</Button>
+								{:else}
+									<Button
+										href={resultDownloadHref}
+										download={resultDownloadName}
+										startIcon={{ icon: Download }}
+										{variant}
+										unifiedSize="sm"
+									>
+										Download JSON
+									</Button>
 								{/if}
-								<Tooltip
-									small
-									documentationLink="https://www.windmill.dev/docs/core_concepts/persistent_storage#object-storage-for-large-data-s3-r2-minio-azure-blob"
+							{/snippet}
+							{#if notSent}
+								<!-- One placeholder for any result over the limit: the elements of a `render_all`,
+									or the whole result as one row. Loading draws it as a result under the limit. -->
+								{@const parts = info?.parts ?? []}
+								{@const count = info?.renderAll ? (info.itemCount ?? 0) : 0}
+								{@const firstPage = Math.min(count, TOO_BIG_PAGE_SIZE)}
+								{@const loadSize = info?.renderAll ? tooBigPageSize(info, 0, firstPage) : size}
+								<div
+									class="mt-2 mb-2 rounded-md border border-dashed px-4 py-6 flex flex-col items-center gap-4"
 								>
-									Large results are slow to load and display. Write them to object storage and
-									return <code>{'{ "s3": "path/to/key" }'}</code> to have them previewed by type.
-								</Tooltip>
-								<div class="ml-auto flex flex-wrap items-center gap-1">
-									{#if tooBigFilename && resultApiPath}
-										<Button
-											onclick={() => downloadTooBigFile(resultApiPath!, tooBigFilename!)}
-											disabled={downloadingTooBigFile}
-											startIcon={{ icon: Download }}
-											variant="default"
-											unifiedSize="xs"
-										>
-											Download
-										</Button>
-									{/if}
-									{#if download_as_csv}
-										<Button
-											onclick={() =>
-												downloadBlob(
-													new Blob([convertJsonToCsv(result)], { type: 'text/csv;charset=utf-8;' }),
-													'data.csv'
-												)}
-											startIcon={{ icon: Download }}
-											variant="default"
-											unifiedSize="xs"
-										>
-											Download CSV
-										</Button>
-									{/if}
-									{#if resultApiPath && shouldDownloadViaClient()}
-										<Button
-											onclick={() => downloadViaClient(resultApiPath!, resultDownloadName)}
-											startIcon={{ icon: Download }}
-											variant={hasOtherAction ? 'subtle' : 'default'}
-											unifiedSize="xs"
-										>
-											Download JSON
-										</Button>
-									{:else}
-										<Button
-											href={resultDownloadHref}
-											download={resultDownloadName}
-											startIcon={{ icon: Download }}
-											variant={hasOtherAction ? 'subtle' : 'default'}
-											unifiedSize="xs"
-										>
-											Download JSON
-										</Button>
-									{/if}
-								</div>
-							</div>
-							{#if info?.parts.length}
-								<!-- One row per part, as the S3 object list draws one per object. -->
-								<div class="mb-2 rounded-md border bg-surface divide-y overflow-hidden">
-									{#each info.parts as part (part.path)}
-										{@const open = !!previews?.open.includes(part.path)}
-										{@const src = previews?.srcs[part.path]}
-										{@const loading = loadingTooBigParts.includes(part.path)}
-										<div class="flex flex-col">
-											<div class="px-3 py-2">
-												<ResultItemHeader
-													icon={part.imageKind ? FileImage : Braces}
-													title={part.imageKind ? `${part.imageKind.toUpperCase()} image` : 'JSON'}
+									{#snippet partRows(rows: TooBigPart[])}
+										{#each rows as part (part.path)}
+											{@const Icon = part.imageKind ? FileImage : Braces}
+											<li class="flex flex-row items-center gap-2 text-xs">
+												<Icon size={16} class="shrink-0 text-secondary" />
+												<span class="font-medium text-emphasis"
+													>{part.imageKind ? `${part.imageKind.toUpperCase()} image` : 'JSON'}</span
 												>
-													{#snippet subtitle()}
-														{part.index !== undefined
-															? `Item ${part.index + 1} · `
-															: ''}{formatSize(part.length)}
-													{/snippet}
-													{#snippet actions()}
-														{#if part.imageKind}
-															<Button
-																variant="subtle"
-																unifiedSize="sm"
-																disabled={loading}
-																startIcon={{ icon: loading ? Loader2 : open ? EyeOff : Eye }}
-																onclick={() => toggleTooBigPart(info.apiPath, part)}
-															>
-																{open ? 'Hide preview' : 'Preview'}
-															</Button>
-															<Button
-																variant="default"
-																unifiedSize="sm"
-																startIcon={{ icon: Download }}
-																onclick={() => downloadTooBigPart(info.apiPath, part)}
-															>
-																Download
-															</Button>
-														{/if}
-													{/snippet}
-												</ResultItemHeader>
-											</div>
-											{#if src}
-												<div class="border-t h-full p-3" class:hidden={!open}>
-													<ExpandableImage
-														alt="{part.imageKind} rendered"
-														class="w-auto h-full"
-														{src}
-													/>
-												</div>
+												<span class="text-secondary">{formatSize(part.length)}</span>
+											</li>
+										{/each}
+									{/snippet}
+									<ul class="flex flex-col gap-1.5">
+										{#if parts.length}
+											{@render partRows(parts.slice(0, TOO_BIG_PAGE_SIZE))}
+											{#if Math.max(parts.length, count) > TOO_BIG_PAGE_SIZE}
+												{@const rest = parts.slice(TOO_BIG_PAGE_SIZE)}
+												{@const images = rest.filter((p) => p.imageKind).length}
+												{@const json = rest.length - images}
+												<!-- The shape lists the first 100 elements: the rest are only counted -->
+												{@const unlisted = Math.max(
+													0,
+													count - Math.max(parts.length, TOO_BIG_PAGE_SIZE)
+												)}
+												<li class="text-xs text-secondary pl-6">
+													<MeltTooltip
+														placement="bottom-start"
+														class="underline decoration-dotted cursor-default"
+													>
+														+{[
+															images ? `${images} ${images === 1 ? 'image' : 'images'}` : '',
+															json ? `${json} JSON` : '',
+															unlisted ? `${unlisted} more` : ''
+														]
+															.filter(Boolean)
+															.join(', ')}
+														{#snippet text()}
+															<ul class="flex flex-col gap-1.5">
+																{@render partRows(rest)}
+															</ul>
+														{/snippet}
+													</MeltTooltip>
+												</li>
 											{/if}
-										</div>
-									{/each}
-									{#if info.moreCount > 0}
-										<div class="px-3 py-2 text-2xs text-secondary">
-											{info.moreCount} more {info.moreCount === 1 ? 'item' : 'items'}, in the JSON
-											download
-										</div>
-									{/if}
+										{:else}
+											{@const Icon = tooBigFilename
+												? FileText
+												: info?.itemCount !== undefined
+													? Brackets
+													: Braces}
+											<li class="flex flex-row items-center gap-2 text-xs">
+												<Icon size={16} class="shrink-0 text-secondary" />
+												<span class="font-medium text-emphasis"
+													>{tooBigFilename ??
+														(info?.itemCount !== undefined
+															? `List of ${info.itemCount} ${info.itemCount === 1 ? 'item' : 'items'}`
+															: 'JSON')}</span
+												>
+												{#if size}
+													<span class="text-secondary">{formatSize(size)}</span>
+												{/if}
+											</li>
+										{/if}
+									</ul>
+									<div class="flex flex-row flex-wrap justify-center gap-2">
+										<Button
+											variant="default"
+											unifiedSize="sm"
+											disabled={!resultApiPath || loaded?.loading}
+											startIcon={{ icon: loaded?.loading ? Loader2 : Eye }}
+											onclick={() => {
+												if (!resultApiPath) return
+												loadTooBig(resultApiPath, info)
+											}}
+										>
+											{count > TOO_BIG_PAGE_SIZE
+												? `Load first ${TOO_BIG_PAGE_SIZE}`
+												: count > 1
+													? 'Load all'
+													: 'Load'}{loadSize ? ` (${formatSize(loadSize)})` : ''}
+										</Button>
+										{#if tooBigFilename && resultApiPath}
+											<Button
+												onclick={() => downloadTooBigFile(resultApiPath!, tooBigFilename!)}
+												disabled={downloadingTooBigFile}
+												startIcon={{ icon: Download }}
+												variant="subtle"
+												unifiedSize="sm"
+											>
+												Download
+											</Button>
+										{/if}
+										{#if !toolbarDownloads}
+											{@render downloadJson('subtle')}
+										{/if}
+									</div>
+									<span class="text-2xs text-secondary">
+										Over the 90 KB display limit
+										<Tooltip
+											small
+											documentationLink="https://www.windmill.dev/docs/core_concepts/persistent_storage#object-storage-for-large-data-s3-r2-minio-azure-blob"
+										>
+											This result is over the 90 KB display limit: it is stored with the job but not
+											sent with it. Write large outputs to object storage and return
+											<code>{'{ "s3": "path/to/key" }'}</code>: the job then keeps only the path,
+											and the file is previewed by type.
+										</Tooltip>
+									</span>
+								</div>
+							{:else}
+								<div class="mt-2 mb-2 rounded-md border overflow-hidden">
+									<div class="px-3 py-2 bg-surface">
+										<ResultItemHeader icon={Braces} title={download_as_csv ? 'Table' : 'JSON'}>
+											{#snippet subtitle()}
+												{size ? formatSize(size) : ''}
+											{/snippet}
+											{#snippet actions()}
+												{#if download_as_csv}
+													<Button
+														onclick={() =>
+															downloadBlob(
+																new Blob([convertJsonToCsv(result)], {
+																	type: 'text/csv;charset=utf-8;'
+																}),
+																'data.csv'
+															)}
+														startIcon={{ icon: Download }}
+														variant="default"
+														unifiedSize="sm"
+													>
+														Download CSV
+													</Button>
+												{/if}
+												{#if !toolbarDownloads}
+													{@render downloadJson(download_as_csv ? 'subtle' : 'default')}
+												{/if}
+											{/snippet}
+										</ResultItemHeader>
+									</div>
 								</div>
 							{/if}
 						{/if}
@@ -1705,62 +1777,63 @@
 			<div class="text-primary text-xs">No result: {toJsonStr(result)}</div>
 		{/if}
 	</div>
+{/if}
 
-	{#if !disableExpand && !noControls}
-		<Drawer bind:this={jsonViewer} bind:open={drawerOpen} size="900px">
-			<DrawerContent title="Expanded Result" on:close={jsonViewer.closeDrawer}>
-				{#snippet actions()}
-					{#if customUi?.disableDownload !== true}
-						{#if resultApiPath && shouldDownloadViaClient()}
-							<Button
-								on:click={() => downloadViaClient(resultApiPath!, resultDownloadName)}
-								startIcon={{ icon: Download }}
-								variant="subtle"
-								unifiedSize="md"
-							>
-								Download
-							</Button>
-						{:else}
-							<Button
-								download={resultDownloadName}
-								href={resultDownloadHref}
-								startIcon={{ icon: Download }}
-								variant="subtle"
-								unifiedSize="md"
-							>
-								Download
-							</Button>
-						{/if}
+<!-- Outside the result kinds above, so a `render_all` can expand too -->
+{#if !disableExpand && !noControls}
+	<Drawer bind:this={jsonViewer} bind:open={drawerOpen} size="900px">
+		<DrawerContent title="Expanded Result" on:close={jsonViewer.closeDrawer}>
+			{#snippet actions()}
+				{#if customUi?.disableDownload !== true}
+					{#if resultApiPath && shouldDownloadViaClient()}
+						<Button
+							on:click={() => downloadViaClient(resultApiPath!, resultDownloadName)}
+							startIcon={{ icon: Download }}
+							variant="subtle"
+							unifiedSize="md"
+						>
+							Download
+						</Button>
+					{:else}
+						<Button
+							download={resultDownloadName}
+							href={resultDownloadHref}
+							startIcon={{ icon: Download }}
+							variant="subtle"
+							unifiedSize="md"
+						>
+							Download
+						</Button>
 					{/if}
-					<Button
-						on:click={() => copyToClipboard(toJsonStr(result))}
-						variant="subtle"
-						unifiedSize="md"
-						startIcon={{
-							icon: ClipboardCopy
-						}}
-					>
-						Copy to clipboard
-					</Button>
-				{/snippet}
-				<DisplayResult
-					{noControls}
-					{result}
-					{markupTrust}
-					{filename}
-					{jobId}
-					{nodeId}
-					{workspaceId}
-					{appPath}
-					{hideAsJson}
-					{forceJson}
-					disableExpand={true}
-				/>
-			</DrawerContent>
-		</Drawer>
+				{/if}
+				<Button
+					on:click={() => copyToClipboard(toJsonStr(result))}
+					variant="subtle"
+					unifiedSize="md"
+					startIcon={{
+						icon: ClipboardCopy
+					}}
+				>
+					Copy to clipboard
+				</Button>
+			{/snippet}
+			<DisplayResult
+				{noControls}
+				{result}
+				{markupTrust}
+				{filename}
+				{jobId}
+				{nodeId}
+				{workspaceId}
+				{appPath}
+				{hideAsJson}
+				{forceJson}
+				disableExpand={true}
+			/>
+		</DrawerContent>
+	</Drawer>
 
-		<Portal name="s3filepicker">
-			<S3FilePicker bind:this={s3FileViewer} readOnlyMode={true} />
-		</Portal>
-	{/if}
+	<Portal name="s3filepicker">
+		<S3FilePicker bind:this={s3FileViewer} readOnlyMode={true} />
+	</Portal>
 {/if}
