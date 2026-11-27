@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT 1 FROM variable WHERE path = $1 AND workspace_id = $2 FOR UPDATE",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "?column?",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "756524a33cf4923bb0b2a037930faf2f63e8b74389fd543d3b1fbea114706bbd"
+}

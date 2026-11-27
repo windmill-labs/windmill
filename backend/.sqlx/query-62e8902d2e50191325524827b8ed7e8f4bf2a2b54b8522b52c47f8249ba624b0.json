@@ -1,0 +1,47 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT v.path, r.created_by AS \"owner?\", false AS \"workspace!\", a.scopes AS \"scopes?\",\n           NULL::text[] AS \"missing_scopes?\"\n         FROM variable v\n         JOIN resource r ON r.workspace_id = v.workspace_id AND r.path = v.path\n         LEFT JOIN account a ON a.workspace_id = v.workspace_id AND a.id = v.account\n         WHERE v.workspace_id = $1 AND r.resource_type = $2\n         ORDER BY v.path",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "owner?",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "workspace!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 3,
+        "name": "scopes?",
+        "type_info": "TextArray"
+      },
+      {
+        "ordinal": 4,
+        "name": "missing_scopes?",
+        "type_info": "TextArray"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      null,
+      true,
+      null
+    ]
+  },
+  "hash": "62e8902d2e50191325524827b8ed7e8f4bf2a2b54b8522b52c47f8249ba624b0"
+}

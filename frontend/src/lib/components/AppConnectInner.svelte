@@ -17,6 +17,7 @@
 		ResourceService,
 		WorkspaceService,
 		VariableService,
+		WorkspaceIntegrationService,
 		type TokenResponse,
 		type ResourceType
 	} from '$lib/gen'
@@ -54,7 +55,7 @@
 	import ResourcePathHint from './ResourcePathHint.svelte'
 	import SchemaForm from './SchemaForm.svelte'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
-	import type { NativeConnect } from './triggers/native/utils'
+	import { NATIVE_TRIGGER_SERVICES, serviceForResourceType } from './triggers/native/utils'
 	import { aiResourceTypeAlternative } from './copilot/aiResourceProvider'
 
 	const operatingWorkspace = useOperatingWorkspace()
@@ -76,11 +77,11 @@
 		 * Opt-in: without it this flow still refuses to write over anything.
 		 */
 		fillPath?: string
-		/**
-		 * Connect a native trigger account: only the path is asked, and `connect` runs the
-		 * popup through the trigger service's OAuth app, whose callback saves the connection.
-		 */
-		native?: NativeConnect
+		/** Scopes the caller needs, requested instead of the provider's defaults. */
+		requiredScopes?: string[]
+		/** Connect through the workspace's OAuth app when it has one: a trigger's connection, or a
+		 * reconnect of one made through it. Other connections use the instance's clients. */
+		viaWorkspaceApp?: boolean
 		/** What the caller's primary button does on the current step. */
 		actionLabel?: string
 		/** Whether the caller should offer Back on the current step. */
@@ -96,7 +97,8 @@
 		express = false,
 		workspace = undefined,
 		fillPath = undefined,
-		native = undefined,
+		requiredScopes = [],
+		viaWorkspaceApp = false,
 		actionLabel = $bindable(),
 		canGoBack = $bindable()
 	}: Props = $props()
@@ -131,7 +133,14 @@
 	let filter = $state('')
 	let value: string = $state('')
 	let valueToken: TokenResponse | undefined = undefined
-	let connects: string[] | undefined = $state(undefined)
+	let instanceConnects: string[] | undefined = $state(undefined)
+	/** Resource types with a workspace OAuth app, which only trigger connections go through. */
+	let workspaceApps: string[] = $state([])
+	let connects = $derived(
+		instanceConnects && viaWorkspaceApp
+			? [...new Set([...instanceConnects, ...workspaceApps])]
+			: instanceConnects
+	)
 	/** Per-provider instance-entry metadata, keyed by provider name. */
 	let connectsInfo: Record<
 		string,
@@ -154,6 +163,12 @@
 	// (e.g. `docusign_sandbox`) used to look up credentials/URLs at runtime
 	// and stored on `account.client` so token refresh hits the right endpoint.
 	let connectClient: string = $state('')
+	/** The workspace app's service when the current connection goes through it. */
+	let workspaceAppService = $derived(
+		viaWorkspaceApp && workspaceApps.includes(connectClient)
+			? serviceForResourceType(connectClient)
+			: undefined
+	)
 	let connectsManual: { key: string; img?: string; instructions: string[] }[] | undefined =
 		$state(undefined)
 	let resourceTypeDescriptions: Record<string, string> = $state({})
@@ -318,7 +333,7 @@
 			? defaultCcScopes()
 			: useUserToken
 				? [...(registryEntry()?.user_scope_options ?? []), ...(registryEntry()?.user_scopes ?? [])]
-				: [...(registryEntry()?.scope_options ?? []), ...instanceScopes]
+				: [...(registryEntry()?.scope_options ?? []), ...instanceScopes, ...requiredScopes]
 	)
 
 	/** Their slice of the resource type's schema, so they render with the type's own
@@ -353,6 +368,7 @@
 	 * sign-in the registry declares but the instance holds no client for is listed disabled,
 	 * so the user learns it exists and who can turn it on. */
 	let methodOptions = $derived.by(() => {
+		if (workspaceAppService) return [{ method: 'auth_code' as ConnectMethod, disabled: false }]
 		const signIn = isSharedConnect(connectClient) && !authCodeUnavailable
 		const opts: { method: ConnectMethod; disabled: boolean }[] = []
 		if (signIn || (registryEntry()?.grant_types?.includes('authorization_code') ?? false)) {
@@ -430,7 +446,11 @@
 			? defaultCcScopes()
 			: useUserToken
 				? (registryEntry()?.user_scopes ?? [])
-				: instanceScopes
+				: // A trigger's connection, or a reconnect, asks for what its caller needs rather
+					// than the provider's defaults, meant for scripts (Google's are admin directory ones).
+					requiredScopes.length > 0
+					? [...new Set(requiredScopes)]
+					: instanceScopes
 	}
 
 	function backTarget(s: number): number {
@@ -438,7 +458,7 @@
 	}
 	function canBackFrom(s: number): boolean {
 		const t = backTarget(s)
-		return !native && !express && t > 0 && (t > 1 || !openedOnType)
+		return !express && t > 0 && (t > 1 || !openedOnType)
 	}
 
 	/** Clear CC inputs and scopes so a previous selection never leaks into a new one */
@@ -488,13 +508,6 @@
 	let pathError = $state('')
 
 	export async function open(rt?: string) {
-		if (native) {
-			resourceType = rt ?? ''
-			manual = false
-			path = ''
-			step = 5
-			return
-		}
 		openedOnType = !!rt
 		if (!rt) {
 			loadResourceTypes()
@@ -566,16 +579,24 @@
 	}
 
 	async function loadConnects() {
-		if (!connects) {
+		if (!instanceConnects) {
+			const apps = WorkspaceIntegrationService.listNativeTriggerWorkspaceApps({
+				workspace: effectiveWorkspace
+			})
+				.then((services) => services.map((s) => NATIVE_TRIGGER_SERVICES[s].resourceType))
+				// Absent from builds without integration triggers.
+				.catch(() => [] as string[])
 			try {
 				const list = (await OauthService.listOauthConnects()).filter(
 					(x) => x.name != 'supabase_wizard'
 				)
-				connects = list.map((x) => x.name)
 				connectsInfo = Object.fromEntries(list.map((x) => [x.name, x]))
+				workspaceApps = await apps
+				instanceConnects = list.map((x) => x.name)
 			} catch (e) {
-				connects = []
 				connectsInfo = {}
+				workspaceApps = await apps
+				instanceConnects = []
 				console.error('Error loading OAuth connects', e)
 			}
 		}
@@ -588,7 +609,7 @@
 	// provider, not a registry entry.
 	run(() => {
 		isGoogleSignin =
-			(step == 3 || (!!native && step == 5)) &&
+			step == 3 &&
 			!manual &&
 			!useClientCredentials &&
 			(resourceType == 'google' ||
@@ -615,14 +636,14 @@
 							clientSecret.trim() == '' ||
 							(!!ccInstanceMeta && ccInstance.trim() == '')))) ||
 			step == 4 ||
-			(step == 5 && (pathError != '' || (!!native && !path))) ||
+			(step == 5 && pathError != '') ||
 			// The manual form's own validity: it must not hold Next once the form is left.
 			(step == 3 && manual && !isValid)
 	})
 
 	run(() => {
 		canGoBack = canBackFrom(step)
-		actionLabel = native || (step == 3 && !manual) ? 'Connect' : step <= 2 ? 'Next' : 'Save'
+		actionLabel = step == 3 && !manual ? 'Connect' : step <= 2 ? 'Next' : 'Save'
 	})
 
 	export async function loadResourceTypes() {
@@ -756,6 +777,12 @@
 
 	/** Reads what the provider offers; `selectMethod` then sets the grant and its scopes. */
 	async function getScopesAndParams() {
+		if (workspaceAppService) {
+			instanceScopes = registryEntry()?.scopes ?? []
+			extra_params = []
+			supportsClientCredentials = false
+			return
+		}
 		if (!connects?.includes(connectClient)) {
 			// No instance OAuth client: defaults come from the static registry instead.
 			instanceScopes = registryEntry()?.scopes ?? []
@@ -804,16 +831,6 @@
 		}
 	}
 	export async function next() {
-		if (native) {
-			step = 4
-			try {
-				await native.connect(path)
-				dispatch('close')
-			} catch {
-				step = 5
-			}
-			return
-		}
 		if (step == 1) {
 			linkedSecrets = []
 			// The OAuth path fills `resourceFields` into the same map, and fields typed into
@@ -902,19 +919,31 @@
 				 * Requires user interaction and consent
 				 * Opens popup for user to authenticate with OAuth provider
 				 */
-				const url = new URL(`/api/oauth/connect/${connectClient}`, window.location.origin)
-				// An empty `scopes` still overrides the instance's bot scopes.
-				url.searchParams.append('scopes', useUserToken ? '' : scopes.join('+'))
-				if (useUserToken) {
-					url.searchParams.append('user_scope', scopes.join(','))
-				}
-				if (extra_params.length > 0) {
-					extra_params.forEach(([key, value]) => url.searchParams.append(key, value))
+				let url: string
+				if (workspaceAppService) {
+					try {
+						url = await WorkspaceIntegrationService.generateNativeTriggerServiceConnectUrl({
+							workspace: effectiveWorkspace,
+							serviceName: workspaceAppService,
+							requestBody: { scopes }
+						})
+					} catch (e: any) {
+						sendUserToast(`Could not start the connection: ${e.body ?? e.message}`, true)
+						return
+					}
+				} else {
+					const instanceUrl = new URL(`/api/oauth/connect/${connectClient}`, window.location.origin)
+					// An empty `scopes` still overrides the instance's bot scopes.
+					instanceUrl.searchParams.append('scopes', useUserToken ? '' : scopes.join('+'))
+					if (useUserToken) {
+						instanceUrl.searchParams.append('user_scope', scopes.join(','))
+					}
+					extra_params.forEach(([key, value]) => instanceUrl.searchParams.append(key, value))
+					url = instanceUrl.toString()
 				}
 				window.addEventListener('message', popupListener)
 				window.addEventListener('storage', handleStorageEvent)
-				console.log('opening popup', url.toString())
-				window.open(url.toString(), '_blank', 'popup=true')
+				window.open(url, '_blank', 'popup=true')
 				step += 1
 			}
 		} else {
@@ -923,12 +952,17 @@
 				throw Error('Path is not set')
 			}
 			// Check if variable paths already exist
+			// Reconnecting an OAuth resource fills it at its own path, and its token variable takes
+			// the new token and account in place, keeping its sharing.
+			let reconnecting = false
 			if (!manual || linkedSecrets.length <= 1) {
 				const exists = await VariableService.existsVariable({
 					workspace: effectiveWorkspace,
 					path
 				})
-				if (exists) {
+				if (exists && !manual && !!valueToken && !!fillPath && path === fillPath) {
+					reconnecting = true
+				} else if (exists) {
 					throw Error(`Variable at path ${path} already exists. Delete it or pick another path`)
 				}
 			} else {
@@ -959,6 +993,7 @@
 			// its value replaced with credentials for a different provider, while keeping its
 			// own type — destroying a working resource that has nothing to do with the import.
 			const filling = exists && !!fillPath && path === fillPath
+			let occupantValue: Record<string, any> | undefined
 			if (filling) {
 				// Fails closed. Only a read that succeeds and answers with exactly this type
 				// permits the write — a failed read, a missing type, or any other type all
@@ -967,9 +1002,12 @@
 				// and could not run.
 				let occupantType: string | undefined
 				try {
-					occupantType = (
-						await ResourceService.getResource({ workspace: effectiveWorkspace, path })
-					)?.resource_type
+					const occupant = await ResourceService.getResource({
+						workspace: effectiveWorkspace,
+						path
+					})
+					occupantType = occupant?.resource_type
+					occupantValue = occupant?.value as Record<string, any> | undefined
 				} catch (e: any) {
 					throw Error(
 						`Could not read what is already at ${path} (${e?.body ?? e?.message ?? e}), ` +
@@ -1021,11 +1059,15 @@
 			}
 
 			let accountData: any = undefined
-			if (valueToken?.expires_in != undefined) {
+			// A workspace app's token keeps an account even when it never expires (GitHub): the
+			// account records the app, which a reconnect must go through again. It never refreshes.
+			if (valueToken?.expires_in != undefined || (valueToken && workspaceAppService)) {
 				accountData = {
 					refresh_token: valueToken.refresh_token ?? '',
-					expires_in: valueToken.expires_in,
-					client: connectClient,
+					expires_in: valueToken.expires_in ?? 100 * 365 * 24 * 3600,
+					// A workspace app's token refreshes through the app, found by its service.
+					client: workspaceAppService ?? connectClient,
+					is_workspace_integration: !!workspaceAppService,
 					grant_type: valueToken.grant_type || 'authorization_code'
 				}
 
@@ -1078,10 +1120,17 @@
 						ws_specific: wsSpecific
 					}
 					if (accountData) {
-						// Creates the variable with the account it refreshes through, in one transaction.
+						// Creates the variable with the account it refreshes through, in one transaction,
+						// or on reconnect swaps both into the existing variable.
 						await OauthService.createAccount({
 							workspace: effectiveWorkspace,
-							requestBody: { ...accountData, variable: tokenVariable }
+							requestBody: { ...accountData, variable: tokenVariable, replace: reconnecting }
+						})
+					} else if (reconnecting) {
+						await VariableService.updateVariable({
+							workspace: effectiveWorkspace,
+							path,
+							requestBody: { value, unlink_account: true }
 						})
 					} else {
 						await VariableService.createVariable({
@@ -1141,7 +1190,11 @@
 				await ResourceService.updateResource({
 					workspace: effectiveWorkspace,
 					path,
-					requestBody: { value: resourceValue, description }
+					// A reconnected resource keeps its fields and description; the import's stub has
+					// neither.
+					requestBody: reconnecting
+						? { value: { ...occupantValue, ...resourceValue } }
+						: { value: resourceValue, description }
 				})
 			} else {
 				await ResourceService.createResource({
@@ -1290,7 +1343,7 @@
 	<!-- Only once a provider with a real choice of method is picked: with manual entry as the
 	     only way in, the form is the whole flow and a stepper would only add noise. -->
 	{#snippet wizardSteps()}
-		{#if !native && methodStepShown}
+		{#if methodStepShown}
 			<div class="shrink-0 mb-6 flex justify-center">
 				<Stepper
 					tabs={manual
@@ -1398,7 +1451,7 @@
 					onSynced={async () => {
 						connectsManual = undefined
 						await loadResourceTypes()
-						connects = undefined
+						instanceConnects = undefined
 						await loadConnects()
 					}}
 				/>
@@ -1638,56 +1691,47 @@
 		<Label label="Path">
 			<Path
 				initialPath=""
-				namePlaceholder={native?.defaultName ?? defaultName}
-				fullNamePlaceholder={native?.defaultName}
+				namePlaceholder={defaultName}
 				bind:error={pathError}
 				bind:path
 				kind="resource"
 			/>
 		</Label>
-		{#if native}
-			<p class="text-xs text-secondary">
-				The account is saved as a resource and its token as a variable at this path. Anyone who can
-				read them can create triggers that act as this account.
-			</p>
-		{:else}
-			<LabelsInput bind:labels class="-mt-5" />
-			{#if deployTo}
-				<Label
-					label="Workspace specific"
-					tooltip="Prevents this resource from being deployed to prod/staging"
-				>
-					<Toggle bind:checked={wsSpecific} />
-				</Label>
-			{/if}
-			<!-- Not for express or `fillPath`, which save as soon as the token arrives: the fields
-		     are then filled by editing the resource. -->
-			{#if step == 5 && !manual && !express && !fillPath && resourceFields.length > 0}
-				<Label
-					label="Connection details"
-					tooltip="Saved on the resource with the token, and editable later"
-					class="mt-6"
-				>
-					<SchemaForm onlyMaskPassword noDelete schema={resourceFieldsSchema} bind:args />
-				</Label>
-			{/if}
-			{#if apiTokenApps[resourceType] || !manual}
-				<ul class="mt-6">
-					<li class="text-xs text-primary font-normal">
-						1. A secret variable containing the {apiTokenApps[resourceType]?.linkedSecret ??
-							'token'}
-						<span class="font-semibold text-emphasis">{truncateRev(value, 5, '*****')}</span>
-						will be stored a
-						<span class="font-mono whitespace-nowrap text-emphasis">{path}</span>.
-					</li>
-					<li class="mt-2 text-xs text-primary font-normal">
-						2. The resource containing that token will be stored at the same path <span
-							class="font-mono whitespace-nowrap text-emphasis">{path}</span
-						>. The Variable and Resource will be "linked together", they will be deleted and renamed
-						together.
-					</li></ul
-				>
-			{/if}
+		<LabelsInput bind:labels class="-mt-5" />
+		{#if deployTo}
+			<Label
+				label="Workspace specific"
+				tooltip="Prevents this resource from being deployed to prod/staging"
+			>
+				<Toggle bind:checked={wsSpecific} />
+			</Label>
+		{/if}
+		<!-- Not for express or `fillPath`, which save as soon as the token arrives: the fields
+	     are then filled by editing the resource. -->
+		{#if step == 5 && !manual && !express && !fillPath && resourceFields.length > 0}
+			<Label
+				label="Connection details"
+				tooltip="Saved on the resource with the token, and editable later"
+				class="mt-6"
+			>
+				<SchemaForm onlyMaskPassword noDelete schema={resourceFieldsSchema} bind:args />
+			</Label>
+		{/if}
+		{#if apiTokenApps[resourceType] || !manual}
+			<ul class="mt-6">
+				<li class="text-xs text-primary font-normal">
+					1. A secret variable containing the {apiTokenApps[resourceType]?.linkedSecret ?? 'token'}
+					<span class="font-semibold text-emphasis">{truncateRev(value, 5, '*****')}</span>
+					will be stored a
+					<span class="font-mono whitespace-nowrap text-emphasis">{path}</span>.
+				</li>
+				<li class="mt-2 text-xs text-primary font-normal">
+					2. The resource containing that token will be stored at the same path <span
+						class="font-mono whitespace-nowrap text-emphasis">{path}</span
+					>. The Variable and Resource will be "linked together", they will be deleted and renamed
+					together.
+				</li></ul
+			>
 		{/if}
 	{/if}
 {/if}
