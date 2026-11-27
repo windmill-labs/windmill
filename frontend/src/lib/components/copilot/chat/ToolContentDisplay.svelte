@@ -75,13 +75,12 @@
 	const canCopy = $derived(!!error || (hasContent && content !== ''))
 
 	async function copyToClipboard() {
-		if (!canCopy) return
+		const text = error ? String(error) : formatJson($state.snapshot(content))
+		// The helper refuses an empty string, which would read as a failed copy.
+		if (!canCopy || !text) return
 		// The shared helper falls back to execCommand where `navigator.clipboard` is missing
 		// (plain-HTTP hosts other than localhost). Its success toast is off: the check icon says it.
-		const ok = await writeClipboard(
-			error ? String(error) : formatJson($state.snapshot(content)),
-			false
-		)
+		const ok = await writeClipboard(text, false)
 		if (ok) {
 			copied = true
 			setTimeout(() => (copied = false), 1500)
