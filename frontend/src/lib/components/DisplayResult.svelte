@@ -698,21 +698,32 @@
 			mounted: s3ListMounted.includes(index) ? s3ListMounted : [...s3ListMounted, index]
 		}
 	}
+	// The two below are also tied to the result: a rerun that writes the same key is a new file,
+	// and must not open with the previous run's filters or separator.
 	/** Keys of the markdown files shown as their source rather than rendered. */
-	let markdownSourceKeys: string[] = $state([])
+	let markdownSource: { result: unknown; keys: string[] } = $state.raw({
+		result: undefined,
+		keys: []
+	})
+	let markdownSourceKeys = $derived(markdownSource.result === result ? markdownSource.keys : [])
 	// Not reactive: filled while rendering, each entry holding its own state.
-	const s3TableViews = new Map<string, S3TableView>()
+	let s3TableViews: { result: unknown; views: Map<string, S3TableView> } = {
+		result: undefined,
+		views: new Map()
+	}
 	// Keyed by storage too: the same key in two storages is two files.
 	function s3TableView(s3object: { s3: string; storage?: string }) {
+		if (s3TableViews.result !== result) s3TableViews = { result, views: new Map() }
 		const key = `${s3object.storage ?? ''}\u0000${s3object.s3}`
-		let view = s3TableViews.get(key)
-		if (!view) s3TableViews.set(key, (view = new S3TableView()))
+		let view = s3TableViews.views.get(key)
+		if (!view) s3TableViews.views.set(key, (view = new S3TableView()))
 		return view
 	}
 	function setMarkdownSource(key: string, source: boolean) {
-		markdownSourceKeys = source
-			? [...markdownSourceKeys, key]
-			: markdownSourceKeys.filter((k) => k !== key)
+		markdownSource = {
+			result,
+			keys: source ? [...markdownSourceKeys, key] : markdownSourceKeys.filter((k) => k !== key)
+		}
 	}
 
 	const disableTooltips = hasContext('disableTooltips')
