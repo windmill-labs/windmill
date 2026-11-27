@@ -112,6 +112,9 @@
 		/** For a narrow container: a short search placeholder, a smaller row count and an
 		 * icon-only Columns button. */
 		compact?: boolean
+		/** The search bar's filters at mount, for a caller that keeps them across remounts. */
+		initialFilters?: Record<string, any>
+		onFiltersChange?: (filters: Record<string, any>) => void
 	}
 	let {
 		dbTableOps,
@@ -124,7 +127,9 @@
 		onNewColumn,
 		disableDownload = false,
 		toolbar,
-		compact = false
+		compact = false,
+		initialFilters,
+		onFiltersChange
 	}: Props = $props()
 
 	const storedLayout = untrack(() =>
@@ -165,7 +170,7 @@
 
 	// ── Filters ──────────────────────────────────────────────────────────────
 	let filterSchema = $derived(buildDbTableFilterSchema(columns))
-	let filters: Record<string, any> = $state({})
+	let filters: Record<string, any> = $state(untrack(() => initialFilters) ?? {})
 	let quicksearch = $derived(unescapeFreeText(String(filters[FREE_TEXT_KEY] ?? '')))
 	let filterWhere = $derived(
 		renderDbTableFilters(filters, filterSchema, columns, dbTableOps.dbType)
@@ -1054,7 +1059,13 @@
 			dropdownMaxWidth={480}
 			dropdownOffsetY={1}
 			schema={filterSchema.schema}
-			bind:value={filters}
+			bind:value={
+				() => filters,
+				(v) => {
+					filters = v
+					onFiltersChange?.(v)
+				}
+			}
 			placeholder={compact ? 'Search' : 'Search, or filter by column...'}
 		/>
 		<div class="flex shrink-0 items-center gap-2 ml-auto text-xs text-secondary">

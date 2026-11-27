@@ -10,15 +10,24 @@
 		useOperatingWorkspace
 	} from '$lib/components/operatingWorkspace.svelte'
 	import { downloadViaClient, shouldDownloadViaClient } from '$lib/utils/downloadFile'
+	import { S3TableView } from './s3TableView.svelte'
 
 	interface Props {
 		s3object: { s3: string; storage?: string; presigned?: string; disable_download?: boolean }
 		workspaceId?: string | undefined
 		/** Set in a deployed app: the file is read through the app-scoped `apps_u/*` routes. */
 		appPath?: string | undefined
+		/** The reader's settings, kept by the caller across remounts; local when not passed. */
+		view?: S3TableView
 	}
 
-	let { s3object, workspaceId = undefined, appPath = undefined }: Props = $props()
+	let {
+		s3object,
+		workspaceId = undefined,
+		appPath = undefined,
+		view: viewProp = undefined
+	}: Props = $props()
+	let view = $derived(viewProp ?? new S3TableView())
 
 	const operatingWorkspace = useOperatingWorkspace()
 	// DBTable loads no rows without an operating workspace, and a public app sets none.
@@ -38,8 +47,6 @@
 	const ROW_HEIGHT = 34
 	const SCROLLBAR = 12
 
-	let csvSeparator: string | undefined = $state(undefined)
-	let csvHasHeader = $state(true)
 	/** The control that changed the table: the reloaded table remounts it, and it takes the
 	 * focus back. */
 	let refocus: 'separator' | 'header' | undefined = $state(undefined)
@@ -65,23 +72,23 @@
 	let parquetCsvName = $derived((s3object.s3.split('/').pop() ?? 'download') + '.csv')
 	let width = $state(0)
 	let separator = $derived(
-		CSV_SEPARATORS.find((s) => s.value === (csvSeparator ?? detectedSeparator))
+		CSV_SEPARATORS.find((s) => s.value === (view.separator ?? detectedSeparator))
 	)
 	let separatorItems = $derived([
 		...CSV_SEPARATORS.map((s) => ({
 			displayName: s.short === s.name ? s.name : `${s.name} ${s.short}`,
 			action: () => {
 				refocus = 'separator'
-				csvSeparator = s.value
+				view.separator = s.value
 			}
 		})),
-		...(csvSeparator !== undefined
+		...(view.separator !== undefined
 			? [
 					{
 						displayName: 'Detect automatically',
 						action: () => {
 							refocus = 'separator'
-							csvSeparator = undefined
+							view.separator = undefined
 						}
 					}
 				]
@@ -119,8 +126,8 @@
 			workspace,
 			fileKey: s3object.s3,
 			storage: s3object.storage,
-			csvSeparator,
-			csvHasHeader,
+			csvSeparator: view.separator,
+			csvHasHeader: view.hasHeader,
 			app: appPath ? { path: appPath, presigned: s3object.presigned } : undefined
 		}).then((t) => {
 			// A table superseded while loading must not label the current one.
@@ -139,7 +146,7 @@
 			placement="bottom-end"
 			fixedHeight={false}
 			triggerLabel={separator
-				? `Separator: ${separator.name}${csvSeparator === undefined ? ' (detected)' : ''}`
+				? `Separator: ${separator.name}${view.separator === undefined ? ' (detected)' : ''}`
 				: 'Separator: detect automatically'}
 			class="h-7 px-2 gap-1 rounded-md text-xs text-primary hover:bg-surface-hover"
 		>
@@ -157,11 +164,11 @@
 				unifiedSize="sm"
 				iconOnly
 				startIcon={{ icon: PanelTop }}
-				selected={csvHasHeader}
-				title={csvHasHeader ? 'First row is the header' : 'First row is data'}
+				selected={view.hasHeader}
+				title={view.hasHeader ? 'First row is the header' : 'First row is data'}
 				onClick={() => {
 					refocus = 'header'
-					csvHasHeader = !csvHasHeader
+					view.hasHeader = !view.hasHeader
 				}}
 			/>
 		</span>
@@ -213,6 +220,8 @@
 	{:then t}
 		<t.DBTable
 			dbTableOps={t.ops}
+			initialFilters={view.filters}
+			onFiltersChange={(f) => (view.filters = f)}
 			disableDownload={s3object.disable_download || isParquet}
 			toolbar={isCsv
 				? csvControls

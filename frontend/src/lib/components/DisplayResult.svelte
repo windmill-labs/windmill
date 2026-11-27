@@ -40,6 +40,7 @@
 	import S3TextPreview from './common/fileDownload/S3TextPreview.svelte'
 
 	import S3ObjectTable from './common/fileDownload/S3ObjectTable.svelte'
+	import { S3TableView } from './common/fileDownload/s3TableView.svelte'
 	import { serverTableFormat } from './s3TableOps'
 	import { isMarkdownFile } from './common/fileDownload/FileTextPreview.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
@@ -682,6 +683,13 @@
 	let seeS3PreviewFileFromList = $state('')
 	/** Keys of the markdown files shown as their source rather than rendered. */
 	let markdownSourceKeys: string[] = $state([])
+	// Not reactive: filled while rendering, each entry holding its own state.
+	const s3TableViews = new Map<string, S3TableView>()
+	function s3TableView(key: string) {
+		let view = s3TableViews.get(key)
+		if (!view) s3TableViews.set(key, (view = new S3TableView()))
+		return view
+	}
 	function setMarkdownSource(key: string, source: boolean) {
 		markdownSourceKeys = source
 			? [...markdownSourceKeys, key]
@@ -840,7 +848,7 @@
 })}
 	{@const kind = s3PreviewKind(s3object?.s3)}
 	{#if kind === 'table'}
-		<S3ObjectTable {s3object} {workspaceId} {appPath} />
+		<S3ObjectTable {s3object} {workspaceId} {appPath} view={s3TableView(s3object.s3)} />
 	{:else if kind === 'image'}
 		<div class="h-full p-3">
 			<ExpandableImage
