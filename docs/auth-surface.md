@@ -52,7 +52,10 @@ Symbols, not line numbers, are cited: they drift less.
   enrollment. Sessions minted before the setting was turned on stay valid until they expire.
   Until an account enrolls, its password is its only factor: whoever logs in with it first
   enrolls their own authenticator, so a password already stolen is not protected, and the owner
-  needs a superadmin `reset` to recover.
+  needs a superadmin `reset` to recover. Turning the factor on (in settings or at login), off,
+  regenerating its recovery codes and a superadmin `reset` each email the account's owner when
+  SMTP is set up (`totp_ee::notify`), after the change has committed, so a change made with a
+  stolen password or session reaches the owner.
 - **Sessions** are `token` rows with `label='session'` plus the HttpOnly `token` cookie, minted only
   by `create_session_token` (`windmill-api-users/src/users.rs`). `GET /api/users/refresh_token`
   mints one for any non-job token but returns plain text, no redirect.

@@ -41,3 +41,11 @@ pub async fn finish_setup(
 ) -> Result<Option<Vec<String>>> {
     unavailable()
 }
+
+#[cfg(not(feature = "private"))]
+pub enum TotpChange {
+    Enabled,
+}
+
+#[cfg(not(feature = "private"))]
+pub fn notify(_email: &str, _change: TotpChange) {}

@@ -3122,6 +3122,7 @@ async fn login_totp_enable(
         return Err(reject_totp_code(tx, &account.email).await);
     };
     start_password_session(tx, &account, cookies).await?;
+    crate::totp::notify(&account.email, crate::totp::TotpChange::Enabled);
     Ok(Json(LoginRecoveryCodes { recovery_codes }))
 }
 

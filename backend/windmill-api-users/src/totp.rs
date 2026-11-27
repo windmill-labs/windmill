@@ -1,9 +1,13 @@
 //! Native TOTP second factor for password logins. The implementation is in `totp_ee`.
 
 #[cfg(feature = "private")]
-pub use crate::totp_ee::{begin_setup, check_login_code, finish_setup, service};
+pub use crate::totp_ee::{
+    begin_setup, check_login_code, finish_setup, notify, service, TotpChange,
+};
 #[cfg(not(feature = "private"))]
-pub use crate::totp_oss::{begin_setup, check_login_code, finish_setup, service};
+pub use crate::totp_oss::{
+    begin_setup, check_login_code, finish_setup, notify, service, TotpChange,
+};
 
 pub const TOTP_REQUIRED: &str = "Two-factor code required";
 pub const TOTP_INVALID: &str = "Invalid two-factor code";
