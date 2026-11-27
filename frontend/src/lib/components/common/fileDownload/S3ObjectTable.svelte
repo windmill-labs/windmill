@@ -92,19 +92,18 @@
 </script>
 
 {#snippet csvControls()}
-	<DropdownV2 items={separatorItems} placement="bottom-end">
+	<DropdownV2
+		items={separatorItems}
+		placement="bottom-end"
+		fixedHeight={false}
+		triggerLabel="Separator: {separator?.name ?? 'detecting'}{csvSeparator === undefined
+			? ' (detected)'
+			: ''}"
+		class="h-7 px-2 gap-1 rounded-md text-xs text-primary hover:bg-surface-hover"
+	>
 		{#snippet buttonReplacement()}
-			<Button
-				nonCaptureEvent
-				variant="subtle"
-				unifiedSize="sm"
-				endIcon={{ icon: ChevronDown }}
-				title="Separator: {separator?.name ?? 'detecting'}{csvSeparator === undefined
-					? ' (detected)'
-					: ''}"
-			>
-				<span class="font-mono">{separator?.short ?? '…'}</span>
-			</Button>
+			<span class="font-mono">{separator?.short ?? '…'}</span>
+			<ChevronDown size={14} />
 		{/snippet}
 	</DropdownV2>
 	<!-- The app-scoped routes always read the first row as the header. -->
