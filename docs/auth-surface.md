@@ -36,8 +36,9 @@ Symbols, not line numbers, are cited: they drift less.
   expiry or another login changes or drops it. A session revoked server-side keeps its hint,
   so until `whoami` answers that browser still renders as its own last user.
 - **`tokens/impersonate`** (superadmin) returns a multi-use token and sets no cookie.
-- **Token risk flags** (no expiration, unused 90 days, admin or superadmin rights the token was minted
-  with and no scope narrows) are computed in one place, `frontend/src/lib/components/settings/tokenRisks.ts`,
+- **Token risk flags** (no expiration, unused 90 days, not bound to a workspace, admin or superadmin
+  rights the token was minted with and no scope narrows; tokens the server expires or renews on its
+  own are exempt, `isSelfManagedToken`) are computed in one place, `frontend/src/lib/components/settings/tokenRisks.ts`,
   for both the user's Tokens section and the superadmin Token review tab
   (`tokens/list_as_super_admin`, `tokens/delete_as_super_admin/{email}/{prefix}`). The server
   only supplies the rights the token carries: `super_admin` is the token's own column, and

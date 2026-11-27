@@ -145,7 +145,10 @@ pub fn global_service() -> Router {
             post(update_token_label),
         )
         .route("/tokens/list", get(list_tokens))
-        .route("/tokens/list_as_super_admin", get(list_tokens_as_super_admin))
+        .route(
+            "/tokens/list_as_super_admin",
+            get(list_tokens_as_super_admin),
+        )
         .route(
             "/tokens/delete_as_super_admin/{email}/{token_prefix}",
             delete(delete_token_as_super_admin),
@@ -4156,8 +4159,9 @@ pub struct TokenForReview {
     pub workspace_admin: bool,
 }
 
-/// Every user's long-lived tokens, stalest first. Login sessions and ephemeral job tokens
-/// are left out: they expire on their own and would drown the tokens worth reviewing.
+/// Every user's long-lived tokens, stalest first. Tokens the server mints and expires or renews
+/// on its own (sessions, job, app, MCP OAuth, impersonation) are left out: they would drown the
+/// tokens worth reviewing. The label list mirrors `isSelfManagedToken` in `tokenRisks.ts`.
 async fn list_tokens_as_super_admin(
     Extension(db): Extension<DB>,
     authed: ApiAuthed,
@@ -4174,8 +4178,12 @@ async fn list_tokens_as_super_admin(
                  AND (token.workspace_id IS NULL OR usr.workspace_id = token.workspace_id))) AS "workspace_admin!"
            FROM token
            WHERE job IS NULL
-             AND (label IS NULL OR (label NOT IN ('session', 'guest_session')
-                  AND label NOT ILIKE 'ephemeral%'))
+             AND (label IS NULL OR (label NOT IN ('session', 'guest_session', 'debugger-token')
+                  AND lower(label) NOT LIKE 'ephemeral%'
+                  AND NOT starts_with(label, 'mcp-oauth-')
+                  AND NOT starts_with(label, 'embed_app:')
+                  AND NOT starts_with(label, 'sdk_app:')
+                  AND NOT starts_with(label, 'impersonation:')))
            ORDER BY last_used_at ASC, token_prefix
            LIMIT $1 OFFSET $2"#,
         per_page as i64,

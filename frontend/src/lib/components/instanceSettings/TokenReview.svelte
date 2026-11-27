@@ -3,7 +3,7 @@
 	import Head from '$lib/components/table/Head.svelte'
 	import Cell from '$lib/components/table/Cell.svelte'
 	import SettingsPageHeader from '$lib/components/settings/SettingsPageHeader.svelte'
-	import Toggle from '$lib/components/Toggle.svelte'
+	import Select from '$lib/components/select/Select.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import { Alert, Badge, Button } from '$lib/components/common'
@@ -16,6 +16,7 @@
 		tokenRisks,
 		tokenRiskSummary,
 		TOKEN_RISK_INFO,
+		TOKEN_RISKS,
 		type TokenRisk
 	} from '$lib/components/settings/tokenRisks'
 	import { MCP_SESSION } from '$lib/components/mcp/McpAccessPicker.svelte'
@@ -25,7 +26,7 @@
 	let tokens: TokenForReview[] = $state([])
 	let loading = $state(false)
 	let loadFailed = $state(false)
-	let riskyOnly = $state(true)
+	let flagFilter: TokenRisk | 'any' | 'all' = $state('any')
 	let filter = $state('')
 	let toDelete: TokenForReview | undefined = $state(undefined)
 	let deleting = $state(false)
@@ -66,13 +67,23 @@
 			.map((token) => ({ token, risks: tokenRisks(token, now) }))
 			.filter(
 				({ token, risks }) =>
-					(!riskyOnly || risks.length > 0) &&
+					(flagFilter === 'all' ||
+						(flagFilter === 'any' ? risks.length > 0 : risks.includes(flagFilter))) &&
 					(!q ||
 						(token.email ?? '').toLowerCase().includes(q) ||
 						(token.label ?? '').toLowerCase().includes(q))
 			)
 	})
-	let riskSummary = $derived(tokenRiskSummary(countTokenRisks(tokens)))
+	let riskCounts = $derived(countTokenRisks(tokens))
+	let riskSummary = $derived(tokenRiskSummary(riskCounts))
+	let flagItems = $derived([
+		{ value: 'any', label: 'Any flag' },
+		...TOKEN_RISKS.map((r) => ({
+			value: r,
+			label: `${TOKEN_RISK_INFO[r].badge} (${riskCounts[r]})`
+		})),
+		{ value: 'all', label: 'All tokens' }
+	])
 
 	function shownScopes(scopes: string[] | undefined): string {
 		return (scopes ?? []).filter((s) => s !== MCP_SESSION).join(', ')
@@ -101,7 +112,7 @@
 
 <SettingsPageHeader
 	title="Token review"
-	description="API tokens of every user on the instance, least recently used first. Login sessions and job tokens are left out: they expire on their own."
+	description="API tokens of every user on the instance, least recently used first. Tokens the server expires or renews on its own (login sessions, job, app, MCP and impersonation tokens) are left out."
 />
 
 {#if riskSummary.length > 0}
@@ -126,14 +137,7 @@
 		bind:value={filter}
 		class="w-60"
 	/>
-	<Toggle
-		bind:checked={riskyOnly}
-		options={{
-			left: 'Only tokens to review',
-			leftTooltip:
-				'Tokens that never expire, have not been used in a long time, or carry the full rights of an admin or superadmin'
-		}}
-	/>
+	<Select items={flagItems} bind:value={flagFilter} class="w-52" />
 </div>
 
 <DataTable {loading}>
@@ -202,7 +206,7 @@
 				<tr>
 					<Cell first last colspan={8}>
 						<span class="text-secondary italic text-xs">
-							{riskyOnly ? 'No token needs a review' : 'No tokens'}
+							{flagFilter === 'all' ? 'No tokens' : 'No token has this flag'}
 						</span>
 					</Cell>
 				</tr>
