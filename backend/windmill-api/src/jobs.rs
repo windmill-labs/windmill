@@ -291,7 +291,10 @@ pub fn workspaced_service() -> Router {
         )
         .route("/add_batch_jobs/{n}", post(add_batch_jobs))
         .route("/run/preview_flow", post(run_preview_flow_job))
-        .route("/run/flow_test/{*path}", post(crate::flow_test::run_flow_test))
+        .route(
+            "/run/flow_test/{*path}",
+            post(crate::flow_test::run_flow_test),
+        )
         .route("/run/agent/{*path}", post(crate::agent_runs::run_agent))
         .route(
             "/run_wait_result/preview_flow",
@@ -471,6 +474,10 @@ pub fn workspace_unauthed_service() -> Router {
         .route("/get_flow_debug_info/{id}", get(get_flow_job_debug_info))
         .route("/completed/get/{id}", get(get_completed_job))
         .route("/completed/get_result/{id}", get(get_completed_job_result))
+        .route(
+            "/completed/get_result_shape/{id}",
+            get(get_completed_job_result_shape),
+        )
         .route(
             "/completed/get_result_maybe/{id}",
             get(get_completed_job_result_maybe),
@@ -10998,7 +11005,8 @@ pub(crate) async fn push_preview_flow_job(
             "UPDATE v2_job_status SET flow_status = jsonb_set(flow_status, '{test_subflows}', $2)
              WHERE id = $1",
             uuid,
-            sqlx::types::Json(test_subflows) as sqlx::types::Json<HashMap<String, serde_json::Value>>
+            sqlx::types::Json(test_subflows)
+                as sqlx::types::Json<HashMap<String, serde_json::Value>>
         )
         .execute(&mut *tx)
         .await?;
@@ -12635,6 +12643,127 @@ async fn get_completed_job_result(
     .await?;
 
     Ok(Json(raw_result.result).into_response())
+}
+
+/// Elements listed by `get_result_shape`; the rest of a longer list is counted only.
+const RESULT_SHAPE_MAX_ITEMS: i64 = 100;
+/// Keys listed per object by `get_result_shape`.
+const RESULT_SHAPE_MAX_KEYS: i64 = 20;
+
+#[derive(Deserialize)]
+struct ResultShapeQuery {
+    json_path: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+struct ResultShapeItem {
+    length: i32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    keys: Option<Vec<String>>,
+}
+
+#[derive(Serialize)]
+struct ResultShape {
+    #[serde(rename = "type")]
+    type_: String,
+    length: i32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    keys: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    item_count: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    items: Option<Vec<ResultShapeItem>>,
+}
+
+/// The outline of a result too large to send inline: its JSON length, its keys, and the same
+/// for each element of a list, so a viewer can offer each part without reading the whole.
+async fn get_completed_job_result_shape(
+    OptViewToken(view_token): OptViewToken,
+    OptAuthed(opt_authed): OptAuthed,
+    opt_tokened: OptTokened,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, id)): Path<(String, Uuid)>,
+    Query(ResultShapeQuery { json_path }): Query<ResultShapeQuery>,
+) -> JsonResult<ResultShape> {
+    let tags = opt_authed
+        .as_ref()
+        .map(|authed| get_scope_tags(authed))
+        .flatten();
+    let path: Vec<&str> = json_path
+        .as_deref()
+        .filter(|p| !p.is_empty())
+        .map(|p| p.split('.').collect())
+        .unwrap_or_default();
+    let row = sqlx::query!(
+        r#"WITH v AS (
+                SELECT c.result #> $3 AS r, created_by
+                FROM v2_job_completed c JOIN v2_job USING (id)
+                WHERE c.id = $1 AND c.workspace_id = $2 AND ($4::text[] IS NULL OR tag = ANY($4))
+            )
+            SELECT
+                created_by AS "created_by!",
+                jsonb_typeof(r) AS "type",
+                length(r::text) AS "length",
+                CASE WHEN jsonb_typeof(r) = 'object' THEN
+                    ARRAY(SELECT jsonb_object_keys(r) LIMIT $6)
+                END AS "keys",
+                CASE WHEN jsonb_typeof(r) = 'array' THEN jsonb_array_length(r) END AS "item_count",
+                CASE WHEN jsonb_typeof(r) = 'array' THEN (
+                    SELECT jsonb_agg(jsonb_build_object(
+                        'length', length(e::text),
+                        'keys', CASE WHEN jsonb_typeof(e) = 'object' THEN
+                            to_jsonb(ARRAY(SELECT jsonb_object_keys(e) LIMIT $6))
+                        END
+                    ) ORDER BY i)
+                    FROM jsonb_array_elements(r) WITH ORDINALITY AS t(e, i)
+                    WHERE i <= $5
+                ) END AS "items: sqlx::types::Json<Vec<ResultShapeItem>>"
+            FROM v"#,
+        id,
+        &w_id,
+        &path as &[&str],
+        tags.as_ref().map(|v| v.as_slice()) as Option<&[&str]>,
+        RESULT_SHAPE_MAX_ITEMS,
+        RESULT_SHAPE_MAX_KEYS,
+    )
+    .fetch_optional(&db)
+    .await?;
+    let row = not_found_if_none(row, "Completed Job", id.to_string())?;
+
+    require_opt_authed_job_read_access(
+        &db,
+        &user_db,
+        &opt_authed,
+        &w_id,
+        &id,
+        &row.created_by,
+        view_token.as_deref(),
+    )
+    .await?;
+
+    let Some(type_) = row.r#type else {
+        return Err(Error::NotFound(format!(
+            "no value at {} in the result of job {id}",
+            json_path.unwrap_or_default()
+        )));
+    };
+    log_job_view(
+        &db,
+        opt_authed.as_ref(),
+        opt_tokened.token.as_deref(),
+        &w_id,
+        &id,
+    )
+    .await?;
+
+    Ok(Json(ResultShape {
+        type_,
+        length: row.length.unwrap_or(0),
+        keys: row.keys,
+        item_count: row.item_count,
+        items: row.items.map(|items| items.0),
+    }))
 }
 
 #[derive(Deserialize)]

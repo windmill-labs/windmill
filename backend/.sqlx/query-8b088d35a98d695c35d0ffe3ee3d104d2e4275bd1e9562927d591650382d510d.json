@@ -1,0 +1,57 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH v AS (\n                SELECT c.result #> $3 AS r, created_by\n                FROM v2_job_completed c JOIN v2_job USING (id)\n                WHERE c.id = $1 AND c.workspace_id = $2 AND ($4::text[] IS NULL OR tag = ANY($4))\n            )\n            SELECT\n                created_by AS \"created_by!\",\n                jsonb_typeof(r) AS \"type\",\n                length(r::text) AS \"length\",\n                CASE WHEN jsonb_typeof(r) = 'object' THEN\n                    ARRAY(SELECT jsonb_object_keys(r) LIMIT $6)\n                END AS \"keys\",\n                CASE WHEN jsonb_typeof(r) = 'array' THEN jsonb_array_length(r) END AS \"item_count\",\n                CASE WHEN jsonb_typeof(r) = 'array' THEN (\n                    SELECT jsonb_agg(jsonb_build_object(\n                        'length', length(e::text),\n                        'keys', CASE WHEN jsonb_typeof(e) = 'object' THEN\n                            to_jsonb(ARRAY(SELECT jsonb_object_keys(e) LIMIT $6))\n                        END\n                    ) ORDER BY i)\n                    FROM jsonb_array_elements(r) WITH ORDINALITY AS t(e, i)\n                    WHERE i <= $5\n                ) END AS \"items: sqlx::types::Json<Vec<ResultShapeItem>>\"\n            FROM v",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "created_by!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "type",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "length",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 3,
+        "name": "keys",
+        "type_info": "TextArray"
+      },
+      {
+        "ordinal": 4,
+        "name": "item_count",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 5,
+        "name": "items: sqlx::types::Json<Vec<ResultShapeItem>>",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "TextArray",
+        "TextArray",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "8b088d35a98d695c35d0ffe3ee3d104d2e4275bd1e9562927d591650382d510d"
+}

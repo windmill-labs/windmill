@@ -19512,6 +19512,64 @@ paths:
             application/json:
               schema: {}
 
+  /w/{workspace}/jobs_u/completed/get_result_shape/{id}:
+    get:
+      summary: get the outline of a completed job's result
+      description: |
+        The JSON length and keys of a completed job's result, or of the value at `json_path`
+        in it, and the same for each of the first 100 elements of a list. Lets a viewer offer
+        the parts of a result too large to send inline without reading all of it.
+      operationId: getCompletedJobResultShape
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/JobId"
+        - name: json_path
+          description: dot-separated path into the result, as for getCompletedJobResult
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: result outline
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  type:
+                    type: string
+                    description: the JSON type of the value (object, array, string, ...)
+                  length:
+                    type: integer
+                    description: characters in the value's JSON text
+                  keys:
+                    type: array
+                    description: up to 20 of the keys, for an object
+                    items:
+                      type: string
+                  item_count:
+                    type: integer
+                    description: the number of elements, for a list
+                  items:
+                    type: array
+                    description: the first 100 elements, for a list
+                    items:
+                      type: object
+                      properties:
+                        length:
+                          type: integer
+                        keys:
+                          type: array
+                          items:
+                            type: string
+                      required:
+                        - length
+                required:
+                  - type
+                  - length
+
   /w/{workspace}/jobs_u/completed/get_result_maybe/{id}:
     get:
       summary: get completed job result if job is completed

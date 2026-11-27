@@ -13,6 +13,7 @@
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import FileDownload from './FileDownload.svelte'
+	import ResultItemHeader from './ResultItemHeader.svelte'
 
 	interface Props {
 		s3object: { s3: string; storage?: string; disable_download?: boolean; presigned?: string }
@@ -53,17 +54,12 @@
 	)
 </script>
 
-<!-- Wraps the actions onto their own line before the file name gets too narrow to read. -->
-<div class="flex flex-row flex-wrap items-center gap-x-3 gap-y-2 min-w-0">
-	<FileIcon size={20} class="shrink-0 text-secondary" />
-	<div class="flex flex-col min-w-20 flex-1">
-		<span class="text-xs font-semibold text-emphasis truncate" title={filename}>{filename}</span>
-		<span class="text-2xs text-secondary truncate" title={key}>
-			S3 object{#if s3object?.storage}&nbsp;in {s3object.storage}{/if} ·
-			<span class="font-mono">{key}</span>
-		</span>
-	</div>
-	<div class="flex flex-row items-center gap-1 shrink-0 ml-auto">
+<ResultItemHeader icon={FileIcon} title={filename} subtitleTooltip={key}>
+	{#snippet subtitle()}
+		S3 object{#if s3object?.storage}&nbsp;in {s3object.storage}{/if} ·
+		<span class="font-mono">{key}</span>
+	{/snippet}
+	{#snippet actions()}
 		{#if markdownSource !== undefined && onMarkdownSource}
 			<ToggleButtonGroup
 				noWFull
@@ -109,5 +105,5 @@
 		{:else}
 			<FileDownload {workspaceId} {s3object} {appPath} />
 		{/if}
-	</div>
-</div>
+	{/snippet}
+</ResultItemHeader>

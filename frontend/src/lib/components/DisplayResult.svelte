@@ -23,8 +23,10 @@
 		Braces,
 		Highlighter,
 		Database,
+		Eye,
+		EyeOff,
+		FileImage,
 		FileText,
-		Image,
 		Loader2
 	} from 'lucide-svelte'
 	import DataTestsResult from './DataTestsResult.svelte'
@@ -39,6 +41,7 @@
 	import { markdownProse } from './markdownProse'
 	import Toggle from './Toggle.svelte'
 	import S3ObjectHeader from './common/fileDownload/S3ObjectHeader.svelte'
+	import ResultItemHeader from './common/fileDownload/ResultItemHeader.svelte'
 	import Tooltip from './Tooltip.svelte'
 	import S3TextPreview from './common/fileDownload/S3TextPreview.svelte'
 
@@ -305,103 +308,157 @@
 			},
 			() => {}
 		)
-		// `nodeId` reads a flow step's collected results, which are never one image.
+		// `nodeId` reads a flow step's collected results, which have no row of their own.
 		if (workspaceId && jobId && !nodeId) {
-			probeTooBigResult(workspaceId, jobId).then(
-				(probe) => {
-					if (!stale && probe) tooBigInfo = { apiPath, ...probe }
+			readTooBigShape(workspaceId, jobId).then(
+				(shape) => {
+					if (!stale && shape) tooBigInfo = { apiPath, ...shape }
 				},
 				() => {}
 			)
 		}
 		return () => (stale = true)
 	})
+	type ResultShape = {
+		type: string
+		length: number
+		keys?: string[]
+		item_count?: number
+		items?: { length: number; keys?: string[] }[]
+	}
+	/** A part of a large result offered on its own: the whole result when it is one image, or
+	 *  each element of a list holding images. */
+	type TooBigPart = { path: string; index?: number; length: number; imageKind?: string }
+	let tooBigInfo = $state<
+		{ apiPath: string; length: number; parts: TooBigPart[]; moreCount: number } | undefined
+	>(undefined)
 	// An image is read only on a click: a view is mounted for every loop iteration stepped
-	// through and every run card of a chat, and each would download it.
-	let tooBigInfo = $state<{ apiPath: string; length: number; imageKind?: string } | undefined>(
-		undefined
-	)
-	/** The image read on request, keyed by the path it was read from so a new result never
-	 *  shows the previous one's. */
-	let shownTooBigImage = $state<{ apiPath: string; src: string } | undefined>(undefined)
-	let loadingTooBigImage = $state(false)
-	/** The length of a result's JSON, and its image kind if its first key is one, read from
-	 *  its head alone. */
-	async function probeTooBigResult(
+	// through and every run card of a chat, and each would download it. One is kept at a time,
+	// keyed by the result it was read from so a new result never shows the previous one's.
+	let openTooBigPart = $state<{ apiPath: string; path: string; src: string } | undefined>(undefined)
+	let loadingTooBigPart = $state<string | undefined>(undefined)
+	function imageKindOf(keys: string[] | undefined): string | undefined {
+		return keys?.length === 1 && IMG_KINDS.includes(keys[0]) ? keys[0] : undefined
+	}
+	async function fetchResultShape(
+		workspace: string,
+		id: string,
+		jsonPath?: string
+	): Promise<ResultShape | undefined> {
+		const query = jsonPath ? `?json_path=${jsonPath}` : ''
+		const r = await fetchViaClient(
+			appendViewToken(`/w/${workspace}/jobs_u/completed/get_result_shape/${id}${query}`)
+		)
+		return r.ok ? r.json() : undefined
+	}
+	async function readTooBigShape(
 		workspace: string,
 		id: string
-	): Promise<{ length: number; imageKind?: string } | undefined> {
-		// The probe walks the job's whole tree, reading every descendant's result: flows and
-		// workflow-as-code jobs, whose children are known, are not asked. A script starting jobs
-		// through the SDK still is: nothing on the job says it has children.
-		const job = await fetchViaClient(
-			appendViewToken(`/w/${workspace}/jobs_u/get/${id}?no_logs=true`)
-		)
-		if (!job.ok) return
-		const { job_kind, workflow_as_code_status } = await job.json()
-		if (!SINGLE_JOB_KINDS.includes(job_kind) || workflow_as_code_status) return
-		const r = await fetchViaClient(
-			appendViewToken(`/w/${workspace}/jobs_u/get_flow_all_results/${id}?max_result_len=16`)
-		)
-		if (!r.ok) return
-		const entries: { job_id: string; result_prefix?: string; result_length?: number }[] =
-			(await r.json()).entries ?? []
-		const root = entries.find((e) => e.job_id === id)
-		if (!root?.result_length) return
-		const kind = root.result_prefix?.match(/^\{"(\w+)"/)?.[1]
+	): Promise<{ length: number; parts: TooBigPart[]; moreCount: number } | undefined> {
+		const root = await fetchResultShape(workspace, id)
+		if (!root) return
+		const rootImage = imageKindOf(root.keys)
+		if (rootImage) {
+			return {
+				length: root.length,
+				parts: [{ path: rootImage, length: root.length, imageKind: rootImage }],
+				moreCount: 0
+			}
+		}
+		const listPath =
+			root.type === 'array'
+				? ''
+				: root.keys?.length === 1 && root.keys[0] === 'render_all'
+					? 'render_all'
+					: undefined
+		const list =
+			listPath === undefined
+				? undefined
+				: listPath
+					? await fetchResultShape(workspace, id, listPath)
+					: root
+		const items = list?.items ?? []
+		if (!items.some((item) => imageKindOf(item.keys))) {
+			return { length: root.length, parts: [], moreCount: 0 }
+		}
+		const prefix = listPath ? `${listPath}.` : ''
 		return {
-			length: root.result_length,
-			imageKind: kind && IMG_KINDS.includes(kind) ? kind : undefined
+			length: root.length,
+			parts: items.map((item, index) => {
+				const imageKind = imageKindOf(item.keys)
+				return {
+					path: `${prefix}${index}${imageKind ? `.${imageKind}` : ''}`,
+					index,
+					length: item.length,
+					imageKind
+				}
+			}),
+			moreCount: (list?.item_count ?? items.length) - items.length
 		}
 	}
-	const SINGLE_JOB_KINDS = [
-		'script',
-		'preview',
-		'script_hub',
-		'flowscript',
-		'appscript',
-		'unassigned_script'
-	]
 	function formatSize(chars: number): string {
 		return chars >= 1_000_000
 			? `${(chars / 1_000_000).toFixed(1)} MB`
 			: `${Math.max(1, Math.round(chars / 1000))} KB`
 	}
-	async function showTooBigImage(image: { apiPath: string; kind: string }) {
-		loadingTooBigImage = true
+	async function readTooBigImage(apiPath: string, part: TooBigPart): Promise<string> {
+		const field = contentOrRootString(
+			(await fetchResultAt(apiPath, part.path)) as Parameters<typeof contentOrRootString>[0]
+		)
+		if (!field) throw new Error(`the result has no ${part.imageKind} content`)
+		return field
+	}
+	async function toggleTooBigPart(apiPath: string, part: TooBigPart) {
+		if (openTooBigPart?.apiPath === apiPath && openTooBigPart.path === part.path) {
+			openTooBigPart = undefined
+			return
+		}
+		loadingTooBigPart = part.path
 		try {
-			const field = contentOrRootString(
-				(await fetchResultAt(image.apiPath, image.kind)) as Parameters<
-					typeof contentOrRootString
-				>[0]
-			)
-			if (!field) throw new Error(`the result has no ${image.kind} content`)
+			const field = await readTooBigImage(apiPath, part)
 			// Sanitized whatever `markupTrust` says: the image viewer's "Open in new tab"
 			// loads the data as a document on Windmill's origin, where an SVG's scripts run.
 			const src =
-				image.kind === 'svg'
+				part.imageKind === 'svg'
 					? `data:image/svg+xml;charset=utf-8,${encodeURIComponent(
 							DOMPurify.sanitize(field, { USE_PROFILES: { svg: true, svgFilters: true } })
 						)}`
-					: `data:image/${image.kind};base64,${field}`
-			shownTooBigImage = { apiPath: image.apiPath, src }
+					: `data:image/${part.imageKind};base64,${field}`
+			openTooBigPart = { apiPath, path: part.path, src }
 		} catch (e) {
 			sendUserToast(`Could not show the image: ${e instanceof Error ? e.message : e}`, true)
 		} finally {
-			loadingTooBigImage = false
+			loadingTooBigPart = undefined
 		}
+	}
+	async function downloadTooBigPart(apiPath: string, part: TooBigPart) {
+		const name = `${filename ?? 'result'}${part.index !== undefined ? `-${part.index + 1}` : ''}.${part.imageKind}`
+		try {
+			const field = await readTooBigImage(apiPath, part)
+			downloadBlob(
+				part.imageKind === 'svg'
+					? new Blob([field], { type: 'image/svg+xml' })
+					: new Blob([base64ToBytes(field)]),
+				name
+			)
+		} catch (e) {
+			sendUserToast(`Download failed: ${e instanceof Error ? e.message : e}`, true)
+		}
+	}
+	function base64ToBytes(content: string): Uint8Array<ArrayBuffer> {
+		const bin = atob(content)
+		// Filled byte by byte: a per-character array is several times the file's size
+		const bytes = new Uint8Array(bin.length)
+		for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
+		return bytes
 	}
 	async function downloadTooBigFile(apiPath: string, name: string) {
 		downloadingTooBigFile = true
 		try {
 			const content = await fetchResultAt(apiPath, 'file.content')
 			if (typeof content !== 'string' || !content) throw new Error('the result has no file content')
-			const bin = atob(content)
-			// Filled byte by byte: a per-character array is several times the file's size
-			const bytes = new Uint8Array(bin.length)
-			for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
 			// A blob, not a data: URL, which browsers cap well below a large file's size
-			downloadBlob(new Blob([bytes]), name)
+			downloadBlob(new Blob([base64ToBytes(content)]), name)
 		} catch (e) {
 			sendUserToast(`Download failed: ${e instanceof Error ? e.message : e}`, true)
 		} finally {
@@ -1423,27 +1480,24 @@
 						{#if largeObject}
 							{@const notSent = result === 'WINDMILL_TOO_BIG'}
 							{@const info = tooBigInfo?.apiPath === resultApiPath ? tooBigInfo : undefined}
-							{@const imageKind = info?.imageKind}
-							{@const shownImage =
-								shownTooBigImage?.apiPath === resultApiPath ? shownTooBigImage : undefined}
+							{@const openPart =
+								openTooBigPart?.apiPath === resultApiPath ? openTooBigPart : undefined}
 							{@const size = notSent ? info?.length : loadedResultBytes / 2}
-							{@const hasOtherAction = !!imageKind || !!tooBigFilename || download_as_csv}
+							{@const hasOtherAction = !!info?.parts.length || !!tooBigFilename || download_as_csv}
 							<div
 								class="mt-2 mb-2 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md bg-surface-secondary px-2 py-1 [container-type:inline-size]"
 							>
 								<span class="text-secondary">
-									{#if imageKind}<Image size={14} />{:else if tooBigFilename}<FileText
-											size={14}
-										/>{:else}<Braces size={14} />{/if}
+									{#if tooBigFilename}<FileText size={14} />{:else}<Braces size={14} />{/if}
 								</span>
 								<span class="text-xs text-emphasis">
-									{#if imageKind}{imageKind.toUpperCase()} image{:else if tooBigFilename}{tooBigFilename}{:else if download_as_csv}Table{:else}JSON
+									{#if tooBigFilename}{tooBigFilename}{:else if download_as_csv}Table{:else}JSON
 										result{/if}
 								</span>
 								{#if size}
 									<span class="text-2xs text-secondary">{formatSize(size)}</span>
 								{/if}
-								{#if notSent && !shownImage}
+								{#if notSent}
 									<span class="hidden text-2xs text-secondary [@container(min-width:480px)]:inline"
 										>Too large to load automatically</span
 									>
@@ -1456,17 +1510,6 @@
 									return <code>{'{ "s3": "path/to/key" }'}</code> to have them previewed by type.
 								</Tooltip>
 								<div class="ml-auto flex flex-wrap items-center gap-1">
-									{#if imageKind && !shownImage && info}
-										<Button
-											onclick={() => showTooBigImage({ apiPath: info.apiPath, kind: imageKind })}
-											disabled={loadingTooBigImage}
-											startIcon={{ icon: loadingTooBigImage ? Loader2 : Image }}
-											variant="default"
-											unifiedSize="xs"
-										>
-											Show image
-										</Button>
-									{/if}
 									{#if tooBigFilename && resultApiPath}
 										<Button
 											onclick={() => downloadTooBigFile(resultApiPath!, tooBigFilename!)}
@@ -1514,13 +1557,63 @@
 									{/if}
 								</div>
 							</div>
-							{#if shownImage}
-								<div class="h-full mb-2">
-									<ExpandableImage
-										alt="{imageKind ?? 'image'} rendered"
-										class="w-auto h-full"
-										src={shownImage.src}
-									/>
+							{#if info?.parts.length}
+								<!-- One row per part, as the S3 object list draws one per object. -->
+								<div class="mb-2 rounded-md border bg-surface divide-y overflow-hidden">
+									{#each info.parts as part (part.path)}
+										{@const open = openPart?.path === part.path}
+										{@const loading = loadingTooBigPart === part.path}
+										<div class="flex flex-col">
+											<div class="px-3 py-2">
+												<ResultItemHeader
+													icon={part.imageKind ? FileImage : Braces}
+													title={part.imageKind ? `${part.imageKind.toUpperCase()} image` : 'JSON'}
+												>
+													{#snippet subtitle()}
+														{part.index !== undefined
+															? `Item ${part.index + 1} · `
+															: ''}{formatSize(part.length)}
+													{/snippet}
+													{#snippet actions()}
+														{#if part.imageKind}
+															<Button
+																variant="subtle"
+																unifiedSize="sm"
+																disabled={loading}
+																startIcon={{ icon: loading ? Loader2 : open ? EyeOff : Eye }}
+																onclick={() => toggleTooBigPart(info.apiPath, part)}
+															>
+																{open ? 'Hide preview' : 'Preview'}
+															</Button>
+															<Button
+																variant="default"
+																unifiedSize="sm"
+																startIcon={{ icon: Download }}
+																onclick={() => downloadTooBigPart(info.apiPath, part)}
+															>
+																Download
+															</Button>
+														{/if}
+													{/snippet}
+												</ResultItemHeader>
+											</div>
+											{#if open && openPart}
+												<div class="border-t h-full p-3">
+													<ExpandableImage
+														alt="{part.imageKind} rendered"
+														class="w-auto h-full"
+														src={openPart.src}
+													/>
+												</div>
+											{/if}
+										</div>
+									{/each}
+									{#if info.moreCount > 0}
+										<div class="px-3 py-2 text-2xs text-secondary">
+											{info.moreCount} more {info.moreCount === 1 ? 'item' : 'items'}, in the JSON
+											download
+										</div>
+									{/if}
 								</div>
 							{/if}
 						{/if}
