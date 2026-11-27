@@ -77,7 +77,7 @@
 	async function copyToClipboard() {
 		if (!canCopy) return
 		// The shared helper falls back to execCommand where `navigator.clipboard` is missing
-		// (plain-HTTP hosts other than localhost) and toasts a failure instead of swallowing it.
+		// (plain-HTTP hosts other than localhost). Its success toast is off: the check icon says it.
 		const ok = await writeClipboard(
 			error ? String(error) : formatJson($state.snapshot(content)),
 			false
