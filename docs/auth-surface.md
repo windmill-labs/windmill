@@ -36,6 +36,11 @@ Symbols, not line numbers, are cited: they drift less.
   expiry or another login changes or drops it. A session revoked server-side keeps its hint,
   so until `whoami` answers that browser still renders as its own last user.
 - **`tokens/impersonate`** (superadmin) returns a multi-use token and sets no cookie.
+- **Token risk flags** (no expiration, unused 90 days, an unscoped token of an admin or
+  superadmin) are computed in one place, `frontend/src/lib/components/settings/tokenRisks.ts`,
+  for both the user's Tokens section and the superadmin Token review tab
+  (`tokens/list_as_super_admin`, `tokens/delete_as_super_admin/{email}/{prefix}`). The server
+  only supplies the owner's privilege (`owner_super_admin`, `owner_workspace_admin`).
 - **`max_token_expiration_days`** caps `POST /users/tokens/create` and `tokens/impersonate`, by
   shortening the stored expiration (`cap_token_expiration`), never by refusing: `wmill user
   create-token` and the editor's language-server token pick a lifetime without reading the

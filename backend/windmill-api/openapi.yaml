@@ -7741,6 +7741,50 @@ paths:
                 items:
                   $ref: "#/components/schemas/TruncatedToken"
 
+  /users/tokens/list_as_super_admin:
+    get:
+      summary: list every user's long-lived tokens, least recently used first (superadmin only)
+      operationId: listTokensAsSuperAdmin
+      tags:
+        - user
+      parameters:
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+      responses:
+        "200":
+          description: tokens to review
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TokenForReview"
+
+  /users/tokens/delete_as_super_admin/{email}/{token_prefix}:
+    delete:
+      summary: delete another user's token (superadmin only)
+      operationId: deleteTokenAsSuperAdmin
+      tags:
+        - user
+      parameters:
+        - name: email
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: token_prefix
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: delete token
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /oidc/signing_status:
     get:
       summary: what signs OIDC tokens and the keys the JWKS serves (ee only, superadmin)
@@ -34104,11 +34148,57 @@ components:
           description: IPs or CIDRs the token may be used from; absent when it may be used from anywhere.
           items:
             type: string
+        owner_super_admin:
+          type: boolean
+          description: the token's owner is a superadmin
+        owner_workspace_admin:
+          type: boolean
+          description: the token's owner is an admin of its workspace, or of any workspace when it is not bound to one
       required:
         - token_prefix
         - created_at
         - last_used_at
         - read_only
+        - owner_super_admin
+        - owner_workspace_admin
+
+    TokenForReview:
+      type: object
+      properties:
+        email:
+          type: string
+        label:
+          type: string
+        expiration:
+          type: string
+          format: date-time
+        token_prefix:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        last_used_at:
+          type: string
+          format: date-time
+        scopes:
+          type: array
+          items:
+            type: string
+        workspace_id:
+          type: string
+        read_only:
+          type: boolean
+        owner_super_admin:
+          type: boolean
+        owner_workspace_admin:
+          type: boolean
+      required:
+        - token_prefix
+        - created_at
+        - last_used_at
+        - read_only
+        - owner_super_admin
+        - owner_workspace_admin
 
     ExternalJwtToken:
       type: object

@@ -145,6 +145,11 @@ pub fn global_service() -> Router {
             post(update_token_label),
         )
         .route("/tokens/list", get(list_tokens))
+        .route("/tokens/list_as_super_admin", get(list_tokens_as_super_admin))
+        .route(
+            "/tokens/delete_as_super_admin/{email}/{token_prefix}",
+            delete(delete_token_as_super_admin),
+        )
         .route("/tokens/impersonate", post(impersonate))
         .route("/login_links", post(create_login_link))
         .route(
@@ -335,6 +340,8 @@ pub struct TruncatedToken {
     pub read_only: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub allowed_ips: Option<Vec<String>>,
+    pub owner_super_admin: bool,
+    pub owner_workspace_admin: bool,
 }
 
 // NewToken is re-exported from windmill-api-auth above
@@ -4038,10 +4045,13 @@ async fn list_tokens(
     let rows = if query.exclude_ephemeral.unwrap_or(false) {
         sqlx::query_as!(
             TruncatedToken,
-            "SELECT label, token_prefix, expiration, created_at, \
-             last_used_at, scopes, workspace_id, read_only, allowed_ips::text[] AS allowed_ips \
+            r#"SELECT label, token_prefix, expiration, created_at,
+             last_used_at, scopes, workspace_id, read_only, allowed_ips::text[] AS allowed_ips,
+             COALESCE((SELECT super_admin FROM password WHERE password.email = token.email), false) AS "owner_super_admin!",
+             EXISTS (SELECT 1 FROM usr WHERE usr.email = token.email AND usr.is_admin
+                 AND (token.workspace_id IS NULL OR usr.workspace_id = token.workspace_id)) AS "owner_workspace_admin!"
              FROM token WHERE email = $1 AND (label != 'ephemeral-script' OR label IS NULL)
-             ORDER BY created_at DESC LIMIT $2 OFFSET $3",
+             ORDER BY created_at DESC LIMIT $2 OFFSET $3"#,
             email,
             per_page as i64,
             offset as i64,
@@ -4051,10 +4061,13 @@ async fn list_tokens(
     } else {
         sqlx::query_as!(
             TruncatedToken,
-            "SELECT label, token_prefix, expiration, created_at, \
-            last_used_at, scopes, workspace_id, read_only, allowed_ips::text[] AS allowed_ips \
+            r#"SELECT label, token_prefix, expiration, created_at,
+            last_used_at, scopes, workspace_id, read_only, allowed_ips::text[] AS allowed_ips,
+            COALESCE((SELECT super_admin FROM password WHERE password.email = token.email), false) AS "owner_super_admin!",
+            EXISTS (SELECT 1 FROM usr WHERE usr.email = token.email AND usr.is_admin
+                AND (token.workspace_id IS NULL OR usr.workspace_id = token.workspace_id)) AS "owner_workspace_admin!"
             FROM token WHERE email = $1
-            ORDER BY created_at DESC LIMIT $2 OFFSET $3",
+            ORDER BY created_at DESC LIMIT $2 OFFSET $3"#,
             email,
             per_page as i64,
             offset as i64,
@@ -4063,6 +4076,88 @@ async fn list_tokens(
         .await?
     };
     Ok(Json(rows))
+}
+
+#[derive(FromRow, Serialize)]
+pub struct TokenForReview {
+    pub email: Option<String>,
+    pub label: Option<String>,
+    pub token_prefix: String,
+    pub expiration: Option<chrono::DateTime<chrono::Utc>>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub last_used_at: chrono::DateTime<chrono::Utc>,
+    pub scopes: Option<Vec<String>>,
+    pub workspace_id: Option<String>,
+    pub read_only: bool,
+    pub owner_super_admin: bool,
+    pub owner_workspace_admin: bool,
+}
+
+/// Every user's long-lived tokens, stalest first. Login sessions and ephemeral job tokens
+/// are left out: they expire on their own and would drown the tokens worth reviewing.
+async fn list_tokens_as_super_admin(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+    Query(pagination): Query<Pagination>,
+) -> JsonResult<Vec<TokenForReview>> {
+    require_super_admin(&db, &authed).await?;
+    let (per_page, offset) = paginate(pagination);
+    let rows = sqlx::query_as!(
+        TokenForReview,
+        r#"SELECT email, label, token_prefix, expiration, created_at, last_used_at, scopes,
+             workspace_id, read_only,
+             COALESCE((SELECT super_admin FROM password WHERE password.email = token.email), false) AS "owner_super_admin!",
+             EXISTS (SELECT 1 FROM usr WHERE usr.email = token.email AND usr.is_admin
+                 AND (token.workspace_id IS NULL OR usr.workspace_id = token.workspace_id)) AS "owner_workspace_admin!"
+           FROM token
+           WHERE job IS NULL
+             AND (label IS NULL OR (label NOT IN ('session', 'guest_session')
+                  AND label NOT ILIKE 'ephemeral%'))
+           ORDER BY last_used_at ASC, token_prefix
+           LIMIT $1 OFFSET $2"#,
+        per_page as i64,
+        offset as i64,
+    )
+    .fetch_all(&db)
+    .await?;
+    Ok(Json(rows))
+}
+
+async fn delete_token_as_super_admin(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+    Path((email, token_prefix)): Path<(String, String)>,
+) -> Result<String> {
+    require_super_admin(&db, &authed).await?;
+    let mut tx = db.begin().await?;
+
+    let deleted = sqlx::query_scalar!(
+        "DELETE FROM token WHERE email = $1 AND token_prefix = $2 RETURNING token_prefix",
+        email,
+        token_prefix
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+    if deleted.is_empty() {
+        return Err(Error::NotFound(format!(
+            "no token with prefix {token_prefix} for {email}"
+        )));
+    }
+
+    audit_log(
+        &mut *tx,
+        &authed,
+        "users.token.delete",
+        ActionKind::Delete,
+        &"global",
+        Some(&token_prefix),
+        Some([("owner", email.as_str())].into()),
+    )
+    .await?;
+    tx.commit().await?;
+    windmill_api_auth::invalidate_token_from_cache(&token_prefix);
+
+    Ok(format!("deleted token {token_prefix}***** of {email}"))
 }
 
 /// Ends a user's MCP OAuth connections (only those bound to `workspace_id` when given),

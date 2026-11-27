@@ -1,0 +1,83 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT email, label, token_prefix, expiration, created_at, last_used_at, scopes,\n             workspace_id, read_only,\n             COALESCE((SELECT super_admin FROM password WHERE password.email = token.email), false) AS \"owner_super_admin!\",\n             EXISTS (SELECT 1 FROM usr WHERE usr.email = token.email AND usr.is_admin\n                 AND (token.workspace_id IS NULL OR usr.workspace_id = token.workspace_id)) AS \"owner_workspace_admin!\"\n           FROM token\n           WHERE job IS NULL\n             AND (label IS NULL OR (label NOT IN ('session', 'guest_session')\n                  AND label NOT ILIKE 'ephemeral%'))\n           ORDER BY last_used_at ASC, token_prefix\n           LIMIT $1 OFFSET $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "email",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "label",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "token_prefix",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "expiration",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 4,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 5,
+        "name": "last_used_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 6,
+        "name": "scopes",
+        "type_info": "TextArray"
+      },
+      {
+        "ordinal": 7,
+        "name": "workspace_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 8,
+        "name": "read_only",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 9,
+        "name": "owner_super_admin!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 10,
+        "name": "owner_workspace_admin!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      true,
+      true,
+      false,
+      true,
+      false,
+      false,
+      true,
+      true,
+      false,
+      null,
+      null
+    ]
+  },
+  "hash": "a5a2274ae271ec73da93526ecd2f793172a12eb23da5944de4626926f31b01ed"
+}
