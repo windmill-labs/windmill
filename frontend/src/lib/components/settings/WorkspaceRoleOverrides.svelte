@@ -23,6 +23,7 @@
 		VISIBILITY_KEYS
 	} from '$lib/workspaceRoles'
 	import { ChevronDown, ChevronRight, Plus, RotateCcw, SaveIcon, Trash2 } from 'lucide-svelte'
+	import { untrack } from 'svelte'
 	import { SvelteMap } from 'svelte/reactivity'
 
 	interface Props {
@@ -36,21 +37,10 @@
 
 	// Maps, not objects: a role name is any slug, `constructor` and `__proto__` included.
 	const draft = new SvelteMap<string, RoleOverride>()
-	let loadedFrom: WorkspaceRoles | undefined = undefined
 	const open = new SvelteMap<string, boolean>()
 	let newRoleName = $state('')
 	let confirmSeatOpen = $state(false)
 	let saving = $state(false)
-
-	$effect(() => {
-		if (data && data !== loadedFrom) {
-			loadedFrom = data
-			draft.clear()
-			for (const [name, o] of Object.entries(data.overrides ?? {})) {
-				draft.set(name, structuredClone($state.snapshot(o)))
-			}
-		}
-	})
 
 	const instanceRoles = $derived((data?.roles ?? []).filter((r) => r.source === 'instance'))
 	const workspaceOnlyNames = $derived(
@@ -116,7 +106,10 @@
 		].join(' · ')
 	}
 
-	/** The overrides to store: instance roles left as the instance has them are dropped. */
+	/**
+	 * The overrides to store: instance roles left as the instance has them are dropped. Sorted, as
+	 * `dirty` compares them as text and the server lists them in any order.
+	 */
 	function cleaned(entries: Iterable<[string, RoleOverride]>): RoleOverrides {
 		const out: [string, RoleOverride][] = []
 		for (const [name, v] of entries) {
@@ -131,15 +124,24 @@
 				}
 			])
 		}
-		return Object.fromEntries(out)
+		return Object.fromEntries(out.sort(([a], [b]) => (a < b ? -1 : 1)))
 	}
 
 	const cleanedDraft = $derived(cleaned(draft))
 
-	const dirty = $derived(
-		data != undefined &&
-			JSON.stringify(cleanedDraft) !== JSON.stringify(cleaned(Object.entries(data.overrides)))
-	)
+	const stored = $derived(data && JSON.stringify(cleaned(Object.entries(data.overrides))))
+	const dirty = $derived(stored !== undefined && JSON.stringify(cleanedDraft) !== stored)
+
+	$effect(() => {
+		// Only when the overrides changed: saving the Hub scripts reloads `data` too.
+		if (stored === undefined) return
+		untrack(() => {
+			draft.clear()
+			for (const [name, o] of Object.entries(data?.overrides ?? {})) {
+				draft.set(name, structuredClone($state.snapshot(o)))
+			}
+		})
+	})
 
 	const errors = $derived.by(() => {
 		const e: Record<string, string> = Object.create(null)

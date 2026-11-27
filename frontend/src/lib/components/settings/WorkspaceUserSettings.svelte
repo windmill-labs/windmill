@@ -5,6 +5,7 @@
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import WorkspaceRoleOverrides from '$lib/components/settings/WorkspaceRoleOverrides.svelte'
+	import WorkspaceHubAccess from '$lib/components/settings/WorkspaceHubAccess.svelte'
 	import RolePicker from '$lib/components/settings/RolePicker.svelte'
 	import {
 		defaultRoleName,
@@ -1072,7 +1073,14 @@
 <div class="pt-12"></div>
 
 {#if $workspaceStore}
-	<WorkspaceRoleOverrides workspace={$workspaceStore} data={workspaceRoles} onSaved={loadRoles} />
+	<!-- Unsaved edits must not follow a workspace switch: Save would write them to the new one. -->
+	{#key $workspaceStore}
+		<WorkspaceRoleOverrides workspace={$workspaceStore} data={workspaceRoles} onSaved={loadRoles} />
+
+		<div class="pt-12"></div>
+
+		<WorkspaceHubAccess workspace={$workspaceStore} data={workspaceRoles} onSaved={loadRoles} />
+	{/key}
 {/if}
 
 <div class="pt-12"></div>

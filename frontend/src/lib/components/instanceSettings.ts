@@ -85,6 +85,7 @@ export interface Setting {
 		| 'agent_workload_identity_issuers'
 		| 'mcp_external_idp'
 		| 'workspace_roles'
+		| 'hub_access'
 	storage: SettingStorage
 	advancedToggle?: {
 		label: string
@@ -693,6 +694,12 @@ export const settings: Record<string, Setting[]> = {
 			storage: 'setting',
 			ee_only: 'Custom workspace roles are only available in the EE version',
 			validate: workspaceRolesErrors
+		},
+		{
+			label: 'Hub scripts',
+			key: 'hub_access',
+			fieldType: 'hub_access',
+			storage: 'setting'
 		}
 	],
 	'Managed Postgres': [
