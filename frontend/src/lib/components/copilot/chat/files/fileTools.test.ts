@@ -6,7 +6,7 @@ vi.mock('../shared', () => ({
 	createToolDef: (_schema: unknown, name: string, description: string) => ({ name, description })
 }))
 
-import { resultImages, searchFilesTool } from './fileTools'
+import { imagesAtPath, resultImages, searchFilesTool } from './fileTools'
 import type { AttachedFile, AttachedFilesStore } from './attachedFiles.svelte'
 
 /** Minimal store stub mirroring the real lookup contract (id first, then
@@ -162,5 +162,24 @@ describe('resultImages', () => {
 		expect(resultImages({ s3: 'data.parquet' })).toEqual([])
 		expect(resultImages({ png: 42 })).toEqual([])
 		expect(resultImages('png')).toEqual([])
+	})
+})
+
+describe('imagesAtPath', () => {
+	// A list of inline images, which resultImages alone does not open.
+	const result = { charts: [{ png: 'AAA' }, { jpeg: { content: 'BBB' } }], files: ['s3://x/c.png'] }
+
+	it('opens the image a path points at, by its object or its base64 field', () => {
+		expect(imagesAtPath(result, ['charts', 1])).toEqual([{ format: 'jpeg', path: ['charts', 1] }])
+		expect(imagesAtPath(result, ['charts', 0, 'png'])).toEqual([
+			{ format: 'png', path: ['charts', 0] }
+		])
+		expect(imagesAtPath(result, ['files', 0])).toEqual([{ s3: { s3: 'c.png', storage: 'x' } }])
+	})
+
+	it('finds nothing where the path leads off the result', () => {
+		expect(imagesAtPath(result, ['charts', 5])).toEqual([])
+		expect(imagesAtPath(result, ['charts', 0, 'png', 'deeper'])).toEqual([])
+		expect(imagesAtPath('text', [0])).toEqual([])
 	})
 })

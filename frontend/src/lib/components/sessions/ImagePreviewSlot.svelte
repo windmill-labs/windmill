@@ -5,6 +5,7 @@
 	import { asImageBlob, imageContentKey } from '../copilot/chat/files/imageFiles'
 	import type { ImageSource } from './previewRouter'
 	import { resource } from 'runed'
+	import { onDestroy } from 'svelte'
 	import { JobService } from '$lib/gen'
 
 	interface Props {
@@ -54,9 +55,17 @@
 			: undefined
 	)
 
-	// Never revoked: a linked file's blob refers to its bytes on disk or in IndexedDB, so an
-	// object URL left behind holds a URL entry, not the image.
-	const blobUrl = $derived(blob ? URL.createObjectURL(blob) : undefined)
+	// A live object URL keeps its blob's backing data (an unlinked file's IndexedDB copy
+	// included) until revoked, so each one is released when the next replaces it and on unmount.
+	let lastUrl: string | undefined
+	const blobUrl = $derived.by(() => {
+		if (lastUrl) URL.revokeObjectURL(lastUrl)
+		lastUrl = blob ? URL.createObjectURL(blob) : undefined
+		return lastUrl
+	})
+	onDestroy(() => {
+		if (lastUrl) URL.revokeObjectURL(lastUrl)
+	})
 
 	// An inline result is fetched again from its job: the tab keeps only the job's address.
 	const resultImage = resource(

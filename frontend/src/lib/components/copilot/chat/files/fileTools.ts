@@ -234,13 +234,29 @@ const showImageSchema = z.object({
 	step_id: z
 		.string()
 		.optional()
-		.describe('With job_id on a flow: the step whose result holds the image, by its id.')
+		.describe('With job_id on a flow: the step whose result holds the image, by its id.'),
+	path: z
+		.array(z.union([z.string(), z.number()]))
+		.optional()
+		.describe(
+			'With job_id: keys and list indexes from the root of the result (of the step, with step_id) to the image, e.g. [2] or ["charts", 0, "png"]. Without it, every image the result holds is shown.'
+		),
+	s3: z
+		.object({
+			s3: z.string().describe('The object key, e.g. "charts/plot.png".'),
+			storage: z
+				.string()
+				.optional()
+				.describe('The secondary storage holding it, when not the workspace default.')
+		})
+		.optional()
+		.describe('An S3 image object, as a result holds it: `{ s3, storage? }`.')
 })
 
 const showImageToolDef = createToolDef(
 	showImageSchema,
 	'show_image',
-	'Show an image to the user in the side-panel preview next to the chat, where they can zoom and pan it. Pass `file` for an image the user attached (png, jpeg, gif, webp, avif, bmp, ico or svg), or `job_id` (and `step_id` for a flow step) for the images in a job result: inline png, jpeg or gif, S3 image objects, and each `render_all` item. You cannot see the image yourself: this only displays it to the user.'
+	'Show an image to the user in the side-panel preview next to the chat, where they can zoom and pan it. Pass exactly one of: `file` for an image the user attached (png, jpeg, gif, webp, avif, bmp, ico or svg); `job_id` (and `step_id` for a flow step) for a job result, showing every image it holds (inline png, jpeg or gif, S3 image objects, each `render_all` item), or with `path` only the image at that place in the result, read with get_run first; or `s3` for an S3 image object. Call it again to show more images. You cannot see the image yourself: this only displays it to the user.'
 )
 
 const RESULT_IMAGE_FORMATS: ImageResultFormat[] = ['png', 'jpeg', 'gif']
@@ -280,23 +296,43 @@ export function resultImages(value: unknown, path: ResultPath = []): ResultImage
 	return format ? [{ format, path }] : []
 }
 
+/** The images at `path` inside a result. A path may end on the image's base64 field
+ * (`[0, "png"]`), which names the same image as the object holding it. */
+export function imagesAtPath(result: unknown, path: ResultPath): ResultImage[] {
+	const last = path.at(-1)
+	const at =
+		typeof last === 'string' && (RESULT_IMAGE_FORMATS as string[]).includes(last)
+			? path.slice(0, -1)
+			: path
+	let value = result
+	for (const key of at) {
+		if (!value || typeof value !== 'object') return []
+		value = (value as Record<string | number, unknown>)[key]
+	}
+	return resultImages(value, at)
+}
+
 async function showResultImages(
 	openImage: (source: ImageSource, label: string) => void,
 	workspace: string,
 	jobId: string,
-	stepId: string | undefined
+	stepId: string | undefined,
+	path: ResultPath | undefined
 ): Promise<string> {
+	const what = `job ${jobId}${stepId ? ` step ${stepId}` : ''}`
 	let result: unknown
 	try {
 		result = stepId
 			? await JobService.resultById({ workspace, flowJobId: jobId, nodeId: stepId })
 			: await JobService.getCompletedJobResult({ workspace, id: jobId })
 	} catch (e) {
-		return `Could not load the result of job ${jobId}${stepId ? ` step ${stepId}` : ''}: ${e instanceof Error ? e.message : String(e)}`
+		return `Could not load the result of ${what}: ${e instanceof Error ? e.message : String(e)}`
 	}
-	const images = resultImages(result)
+	const images = path?.length ? imagesAtPath(result, path) : resultImages(result)
 	if (images.length === 0) {
-		return `The result of job ${jobId}${stepId ? ` step ${stepId}` : ''} holds no image.`
+		return path?.length
+			? `Nothing at ${JSON.stringify(path)} in the result of ${what} is an image. Read the result with get_run to find the image's path.`
+			: `The result of ${what} holds no image.`
 	}
 	const base = stepId ? `${stepId} result` : `Result ${jobId.slice(-8)}`
 	for (const image of images) {
@@ -335,10 +371,28 @@ export const showImageTool: SessionTool<{}> = {
 		const openImage = h?.openImage
 		if (!openImage) return 'Images can only be shown inside an AI session.'
 		const parsed = showImageSchema.parse(args)
-		if (parsed.job_id) {
+		const given = [parsed.file, parsed.job_id, parsed.s3].filter((v) => v !== undefined).length
+		if (given !== 1) {
+			return 'Pass exactly one of `file` (an attached image), `job_id` (a job result) or `s3` (an S3 image object).'
+		}
+		if (!parsed.job_id && (parsed.step_id || parsed.path)) {
+			return '`step_id` and `path` locate an image in a job result: pass them with `job_id`.'
+		}
+		if (parsed.job_id || parsed.s3) {
 			const workspace = h?.operatingWorkspace ?? get(workspaceStore)
-			if (!workspace) return 'No workspace to load the job from.'
-			return showResultImages(openImage, workspace, parsed.job_id, parsed.step_id)
+			if (!workspace) return 'No workspace to load the image from.'
+			if (parsed.job_id) {
+				return showResultImages(openImage, workspace, parsed.job_id, parsed.step_id, parsed.path)
+			}
+			const s3 = parsed.s3!
+			if (!isS3ImageKey(s3.s3)) {
+				return `"${s3.s3}" is not an image the viewer can show (png, jpeg or webp).`
+			}
+			openImage(
+				{ kind: 'url', url: s3ImagePreviewUrl(workspace, s3) },
+				s3.s3.split('/').pop() || s3.s3
+			)
+			return `Showing "${s3.s3}" in the preview panel.`
 		}
 		if (!parsed.file) return 'Pass `file` for an attached image or `job_id` for a job result.'
 		const store = storeFrom(helpers)
