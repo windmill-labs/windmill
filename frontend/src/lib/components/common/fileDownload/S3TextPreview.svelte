@@ -10,6 +10,7 @@
 		/** Set in a deployed app: the file is read through the app-scoped `apps_u/*` route. */
 		appPath?: string | undefined
 		markdown?: boolean
+		json?: boolean
 		/** Markdown shown as its source; the caller renders the switch. */
 		markdownSource?: boolean
 	}
@@ -19,6 +20,7 @@
 		workspaceId = undefined,
 		appPath = undefined,
 		markdown = false,
+		json = false,
 		markdownSource = undefined
 	}: Props = $props()
 
@@ -73,7 +75,7 @@
 	{#if res.content_type === 'Unknown' || !res.content}
 		<div class="px-3 py-2 text-2xs text-secondary">{res.msg || 'No preview available.'}</div>
 	{:else}
-		<FileTextPreview content={res.content} {readLimit} {markdown} {markdownSource} />
+		<FileTextPreview content={res.content} {readLimit} {markdown} {json} {markdownSource} />
 	{/if}
 {:catch e}
 	<div class="px-3 py-2 text-2xs text-red-500 break-all">

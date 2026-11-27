@@ -16,6 +16,8 @@
 		nodeId?: string | undefined
 		result: any
 		disableTooltips?: boolean
+		/** Shown beside the download icon, when the result holds other downloads of its own. */
+		downloadLabel?: string
 	}
 
 	let {
@@ -25,7 +27,8 @@
 		jobId = undefined,
 		nodeId = undefined,
 		result,
-		disableTooltips = false
+		disableTooltips = false,
+		downloadLabel = undefined
 	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
@@ -54,21 +57,21 @@
 	{#if customUi?.disableDownload !== true}
 		{#if resultApiPath && shouldDownloadViaClient()}
 			<button
-				class="text-current"
+				class="text-current flex items-center gap-1 text-xs"
 				onclick={() => downloadViaClient(resultApiPath!, downloadName)}
-				aria-label="Download result"
+				aria-label={downloadLabel ? undefined : 'Download result'}
 			>
-				<Download size={14} />
+				<Download size={14} />{downloadLabel ?? ''}
 			</button>
 		{:else}
 			<a
 				download={downloadName}
-				class="text-current"
+				class="text-current flex items-center gap-1 text-xs"
 				href={resultApiPath
 					? `/api${resultApiPath}`
 					: `data:text/json;charset=utf-8,${encodeURIComponent(toJsonStr(result))}`}
 			>
-				<Download size={14} />
+				<Download size={14} />{downloadLabel ?? ''}
 			</a>
 		{/if}
 	{/if}

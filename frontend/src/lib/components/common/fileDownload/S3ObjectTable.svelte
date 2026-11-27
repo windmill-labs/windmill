@@ -96,13 +96,12 @@
 	])
 
 	/** Rows in the whole file, kept while a search narrows them so the table keeps its height. */
-	let totalRows: number | undefined = $state(undefined)
 	let height = $derived(
-		totalRows === undefined
+		view.totalRows === undefined
 			? 240
 			: Math.min(
 					600,
-					Math.max(180, TOOLBAR_HEIGHT + HEADER_HEIGHT + totalRows * ROW_HEIGHT + SCROLLBAR)
+					Math.max(180, TOOLBAR_HEIGHT + HEADER_HEIGHT + view.totalRows * ROW_HEIGHT + SCROLLBAR)
 				)
 	)
 
@@ -112,7 +111,7 @@
 			getCount: async (params) => {
 				const n = await ops.getCount(params)
 				const filtered = !!params.quicksearch || Object.keys(params.columnFilters ?? {}).length > 0
-				if (!filtered) totalRows = n
+				if (!filtered) view.totalRows = n
 				return n
 			}
 		}
