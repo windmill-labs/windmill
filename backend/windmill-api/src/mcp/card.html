@@ -385,8 +385,14 @@
     const named = result?.structuredContent?.tool;
     return { ...(named ? {} : result?.structuredContent), ...result?._meta };
   }
-  function load(tool, { workspace_id, ...args }) {
-    return callTool('load_card', { workspace_id, tool, arguments: args });
+  // A host that refuses a card's call to an app-only tool still answers the show tool, whose
+  // `_meta` carries the same data.
+  async function load(tool, { workspace_id, ...args }) {
+    try {
+      return await callTool('load_card', { workspace_id, tool, arguments: args });
+    } catch {
+      return callTool(tool, { workspace_id, ...args });
+    }
   }
   function el(tag, props = {}, ...children) {
     const node = document.createElement(tag);
