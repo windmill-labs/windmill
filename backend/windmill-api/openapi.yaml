@@ -17630,6 +17630,7 @@ paths:
           in: query
           schema:
             type: string
+        - $ref: "#/components/parameters/TablePreviewFilters"
         - $ref: "#/components/parameters/S3Sig"
         - $ref: "#/components/parameters/S3Exp"
       responses:
@@ -17684,6 +17685,8 @@ paths:
           in: query
           schema:
             type: string
+        - $ref: "#/components/parameters/TablePreviewCsvHasHeader"
+        - $ref: "#/components/parameters/TablePreviewFilters"
         - $ref: "#/components/parameters/S3Sig"
         - $ref: "#/components/parameters/S3Exp"
       responses:
@@ -17718,6 +17721,12 @@ paths:
           in: query
           schema:
             type: string
+        - name: csv_separator
+          in: query
+          schema:
+            type: string
+        - $ref: "#/components/parameters/TablePreviewCsvHasHeader"
+        - $ref: "#/components/parameters/TablePreviewFilters"
         - $ref: "#/components/parameters/S3Sig"
         - $ref: "#/components/parameters/S3Exp"
       responses:
