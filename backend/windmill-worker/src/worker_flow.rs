@@ -6600,20 +6600,7 @@ async fn compute_next_flow_transform(
             //         }
             //         _ => None,
             //     }
-            let failure_threshold = loop_failure_threshold(
-                skip_failures,
-                failure_threshold.as_ref(),
-                status_module,
-                module,
-                flow_job,
-                status,
-                previous_id,
-                arc_last_job_result.clone(),
-                arc_flow_job_args.clone(),
-                flow_env,
-                client,
-            )
-            .await?;
+            let (last_result, flow_args) = (arc_last_job_result.clone(), arc_flow_job_args.clone());
             // A failed-only restart reruns on the restarted run's items, never re-evaluating
             // the iterator, so each kept result stays paired with its item.
             let next_loop_status = if let Some(slots) = &failed_only {
@@ -6641,6 +6628,26 @@ async fn compute_next_flow_transform(
                     client,
                     &parallel,
                     db,
+                )
+                .await?
+            };
+
+            // Only once the loop has items: a percentage threshold of an empty list is 0.
+            let failure_threshold = if matches!(next_loop_status, ForLoopStatus::EmptyIterator) {
+                None
+            } else {
+                loop_failure_threshold(
+                    skip_failures,
+                    failure_threshold.as_ref(),
+                    status_module,
+                    module,
+                    flow_job,
+                    status,
+                    previous_id,
+                    last_result,
+                    flow_args,
+                    flow_env,
+                    client,
                 )
                 .await?
             };

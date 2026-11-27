@@ -5520,7 +5520,26 @@ async fn test_loop_failure_threshold(db: Pool<Postgres>) -> anyhow::Result<()> {
             .run_until_complete(&db, false, port)
             .await;
     let while_iterations = iteration_statuses(while_loop.id).await?;
+    // A percentage of an empty list is 0, which an empty loop never evaluates.
+    let empty_flow: FlowValue = serde_json::from_value(json!({
+        "modules": [{
+            "id": "loop",
+            "value": {
+                "type": "forloopflow",
+                "iterator": { "type": "static", "value": [] },
+                "skip_failures": true,
+                "failure_threshold": { "type": "javascript", "expr": "Math.ceil([].length * 0.1)" },
+                "modules": [],
+            },
+        }],
+    }))
+    .unwrap();
+    let empty_loop =
+        RunJob::from(JobPayload::RawFlow { value: empty_flow, path: None, restarted_from: None })
+            .run_until_complete(&db, false, port)
+            .await;
     server.close().await.unwrap();
+    assert!(empty_loop.success, "{:?}", empty_loop.json_result());
 
     for job in [&sequential, &parallel, &while_loop] {
         assert!(!job.success, "reaching the threshold must fail the flow");
