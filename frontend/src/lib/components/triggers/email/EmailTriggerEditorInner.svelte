@@ -1,4 +1,5 @@
 <script lang="ts">
+	import type { ExtraPerms } from '$lib/gen'
 	import { Button } from '$lib/components/common'
 	import {
 		clearPageDrawerAnchor,
@@ -87,7 +88,7 @@
 	let drawerLoading = $state(true)
 	let showLoader = $state(false)
 	let permsPath = $state<string | undefined>(undefined)
-	let permsForWrite = $state<Record<string, boolean> | undefined>(undefined)
+	let permsForWrite = $state<ExtraPerms | undefined>(undefined)
 	// The acting user in the operating workspace arrives asynchronously, and an unknown user
 	// refuses — so the editor stays read-only until the lookup lands, which is the safe answer.
 	const can_write = $derived(
@@ -95,7 +96,7 @@
 			? editRights.roleCanAuthor('trigger')
 			: editRights.canEditItem('trigger', permsPath, permsForWrite)
 	)
-	let extraPerms = $state<Record<string, boolean> | undefined>(undefined)
+	let extraPerms = $state<ExtraPerms | undefined>(undefined)
 	let errorHandler = $state(handlerDraftFromStored('error', undefined))
 	const storedErrorHandler = $derived(handlerDraftToStored(errorHandler))
 	const error_handler_path = $derived(storedErrorHandler.path)

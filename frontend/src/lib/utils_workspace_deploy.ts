@@ -1,3 +1,4 @@
+import type { ExtraPerms } from '$lib/gen'
 import {
 	AppService,
 	AzureTriggerService,
@@ -719,7 +720,7 @@ export async function createFolderIfAbsent(
 		const folder = await FolderService.getFolder({ workspace: workspaceFrom, name })
 		const rules = folder.default_permissioned_as ?? []
 		const owners = folder.owners ?? []
-		const acl = Object.entries((folder.extra_perms ?? {}) as Record<string, boolean>)
+		const acl = Object.entries((folder.extra_perms ?? {}) as ExtraPerms)
 		const translate = await principalTranslator(workspaceFrom, workspaceTo)
 
 		const unresolvableRule = rules.map((r) => r.permissioned_as).find((p) => !translate(p))

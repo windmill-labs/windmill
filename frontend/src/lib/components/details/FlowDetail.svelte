@@ -157,7 +157,7 @@
 	)
 	// Unknown until the acting user resolves: the form offers a run meanwhile.
 	const viewOnly = $derived(
-		!!flow && !!actingUser && !canRun(flow.path, flow.extra_perms, flow.view_only, actingUser)
+		!!flow && !!actingUser && !canRun(flow.path, flow.extra_perms, actingUser)
 	)
 	const promptForAi = $derived((flow?.schema?.prompt_for_ai as string | undefined) ?? '')
 	let shareModal: ShareModal | undefined = $state()

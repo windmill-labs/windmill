@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { FolderService, GranularAclService, GroupService, UserService } from '$lib/gen'
-	import type { Folder } from '$lib/gen'
+	import type { ExtraPerms, Folder } from '$lib/gen'
 	import { Button } from '$lib/components/common'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import Select from '$lib/components/select/Select.svelte'
@@ -13,7 +13,7 @@
 	import AccessHelp from './AccessHelp.svelte'
 	import { untrack } from 'svelte'
 	import { sendUserToast } from '$lib/toast'
-	import { isOwner } from '$lib/utils'
+	import { aclWrites, isOwner } from '$lib/utils'
 	import { DEMO_RESTRICTION_HINT, isDemoWorkspaceRestricted } from '$lib/cloud'
 	import { useScheduleLock, useTriggerLock } from '$lib/operatorWriteRights'
 	import {
@@ -86,8 +86,7 @@
 	let canEdit = $derived(own && !inUseMode && !restricted && !writeLock)
 
 	let folder: Folder | undefined = $state()
-	let saved: Record<string, boolean> = $state({})
-	let viewOnly: string[] = $state([])
+	let saved: ExtraPerms = $state({})
 	// Every user and group of the workspace, for the Add people picker: loaded on its first use,
 	// since it grows with the workspace and most opens of this list add no one.
 	let principals: string[] | undefined = $state()
@@ -110,10 +109,10 @@
 	}
 	let ownRows: ListRow[] = $derived(
 		Object.entries(members)
-			.map(([name, write]) => ({
+			.map(([name, grant]) => ({
 				name,
-				write,
-				viewOnly: !write && viewOnly.includes(name),
+				write: aclWrites(grant),
+				viewOnly: grant === 'read',
 				source: 'Extra permission',
 				editable: true
 			}))
@@ -177,23 +176,11 @@
 
 	async function loadAcls() {
 		if (pending !== undefined) return
-		const [acls, vo] = await Promise.all([
-			GranularAclService.getGranularAcls({
-				workspace: $operatingWorkspace!,
-				path,
-				kind: kind as any
-			}),
-			// Not gated on `runLevel`, which for a resource is only known once it has loaded.
-			kind === 'script' || kind === 'flow' || kind === 'resource'
-				? GranularAclService.getGranularAclsViewOnly({
-						workspace: $operatingWorkspace!,
-						path,
-						kind: kind as any
-					})
-				: Promise.resolve([])
-		])
-		saved = acls
-		viewOnly = vo
+		saved = await GranularAclService.getGranularAcls({
+			workspace: $operatingWorkspace!,
+			path,
+			kind: kind as any
+		})
 		loadGroupSizes()
 	}
 

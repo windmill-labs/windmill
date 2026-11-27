@@ -27,6 +27,7 @@
 	import { onMount, tick, untrack } from 'svelte'
 	import Select from './select/Select.svelte'
 	import { safeSelectItems } from './select/utils.svelte'
+	import { aclWrites } from '$lib/utils'
 	import TextInput from './text_input/TextInput.svelte'
 	import PermissionHistory from './PermissionHistory.svelte'
 	import { Minimatch } from 'minimatch'
@@ -345,15 +346,14 @@
 	}
 
 	function getRole(x: string): Role {
-		const viewer = x in (folder?.extra_perms ?? {})
-		const writer = viewer && (folder?.extra_perms ?? {})[x]
+		const grant = (folder?.extra_perms ?? {})[x]
 		const owner = folder?.owners?.includes(x)
 
 		if (owner) {
 			return 'admin'
-		} else if (writer) {
+		} else if (aclWrites(grant)) {
 			return 'writer'
-		} else if ((folder?.view_only ?? []).includes(x)) {
+		} else if (grant === 'read') {
 			return 'viewer'
 		} else {
 			return 'runner'
@@ -515,9 +515,11 @@
 						default_permissioned_as: next.defaultPermissionedAs,
 						owners: next.perms.filter((p) => p.role === 'admin').map((p) => p.owner_name),
 						extra_perms: Object.fromEntries(
-							next.perms.map((p) => [p.owner_name, p.role === 'writer' || p.role === 'admin'])
-						),
-						view_only: next.perms.filter((p) => p.role === 'viewer').map((p) => p.owner_name)
+							next.perms.map((p) => [
+								p.owner_name,
+								p.role === 'viewer' ? 'read' : p.role === 'writer' || p.role === 'admin'
+							])
+						)
 					}
 				})
 				sendUserToast(`Folder ${name} created`)

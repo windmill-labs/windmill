@@ -137,11 +137,11 @@ fn items_query() -> String {
             (split_part(i.path, '/', 1) = 'u' AND split_part(i.path, '/', 2) = s.usr) AS own,
             CASE WHEN split_part(i.path, '/', 1) = 'g' AND split_part(i.path, '/', 2) = ANY(s.groups)
                 THEN split_part(i.path, '/', 2) END AS path_group,
-            (i.extra_perms ->> ('u/' || s.usr))::boolean AS user_grant,
+            (i.extra_perms ->> ('u/' || s.usr)) IN ('true', 'write') AS user_grant,
             ARRAY(SELECT substr(e.key, 3) FROM jsonb_each_text(i.extra_perms) e
                 WHERE e.key = ANY(s.pgroups) ORDER BY e.key) AS group_read,
             ARRAY(SELECT substr(e.key, 3) FROM jsonb_each_text(i.extra_perms) e
-                WHERE e.key = ANY(s.pgroups) AND e.value::boolean ORDER BY e.key) AS group_write,
+                WHERE e.key = ANY(s.pgroups) AND e.value IN ('true', 'write') ORDER BY e.key) AS group_write,
             CASE WHEN split_part(i.path, '/', 1) = 'f' AND split_part(i.path, '/', 2) = ANY(s.fr)
                 THEN split_part(i.path, '/', 2) END AS folder,
             (split_part(i.path, '/', 1) = 'f' AND split_part(i.path, '/', 2) = ANY(s.fw)) AS folder_write

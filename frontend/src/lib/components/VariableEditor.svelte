@@ -1,4 +1,5 @@
 <script lang="ts">
+	import type { ExtraPerms } from '$lib/gen'
 	import { VariableService, WorkspaceService, type ListableVariable } from '$lib/gen'
 	import { createEventDispatcher, onDestroy, untrack } from 'svelte'
 	import { Button } from './common'
@@ -99,7 +100,7 @@
 	// deliberately unsupported: too unlikely to be worth guarding every read.
 	let initialStates: Record<string, VariableState> = $state({})
 	let existedInitially: Record<string, boolean> = $state({})
-	let extraPerms: Record<string, Record<string, boolean>> = $state({})
+	let extraPerms: Record<string, ExtraPerms> = $state({})
 	let oauthLinked: Record<string, boolean> = $state({})
 	let selected: string | undefined = $state(undefined)
 	let pathError = $state('')
@@ -163,7 +164,7 @@
 		if (!perms || !acting.resolved(selected)) return undefined
 		return canEditVariableIn(selected, perms)
 	})
-	function canEditVariableIn(ws: string, perms: Record<string, boolean>): boolean {
+	function canEditVariableIn(ws: string, perms: ExtraPerms): boolean {
 		const user = acting.in(ws)
 		const caps = capabilitiesIn(
 			user,

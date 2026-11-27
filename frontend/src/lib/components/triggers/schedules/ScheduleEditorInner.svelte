@@ -1,4 +1,5 @@
 <script lang="ts">
+	import type { ExtraPerms } from '$lib/gen'
 	import { Alert, Badge, Button, ButtonType } from '$lib/components/common'
 	import {
 		clearPageDrawerAnchor,
@@ -104,7 +105,7 @@
 	let drawerLoading = $state(true)
 	let showLoading = $state(false)
 	let initialConfig = $state<Record<string, any> | undefined>(undefined)
-	let extraPerms: Record<string, boolean> = $state({})
+	let extraPerms: ExtraPerms = $state({})
 	// Path the permissions above were loaded for — the verdict is about the schedule as
 	// stored, not about a rename being typed into the form. `undefined` until a config has
 	// been loaded, when there is no deployed schedule to deny access to.

@@ -230,8 +230,8 @@ pub fn invalidate_run_perms_cache() {
 }
 
 /// Whether the caller may start `path`, as opposed to only reading it. Readers run unless every
-/// grant they read it through is view-only (`view_only` of the item or of its folder): run is the
-/// union of the grants, as read and write are. Call it on top of the read check the fetch of the
+/// grant they read it through is `"read"` (on the item or on its folder): run is the union of the
+/// grants, as read and write are. Call it on top of the read check the fetch of the
 /// runnable already does, and of the role's `run` capability, which stays the ceiling.
 pub async fn require_can_run(
     db: &DB,
@@ -274,20 +274,20 @@ pub async fn require_can_run(
         "WITH item AS (
             -- The newest version only: a script reusing a retired path starts with no grants,
             -- and the retired versions' must not run it.
-            (SELECT extra_perms, view_only FROM script
+            (SELECT extra_perms FROM script
                 WHERE $5 = 'script' AND workspace_id = $1 AND path = $2
                 ORDER BY created_at DESC LIMIT 1)
-            UNION ALL SELECT extra_perms, view_only FROM flow
+            UNION ALL SELECT extra_perms FROM flow
                 WHERE $5 = 'flow' AND workspace_id = $1 AND path = $2
-            UNION ALL SELECT extra_perms, view_only FROM resource
+            UNION ALL SELECT extra_perms FROM resource
                 WHERE $5 = 'resource' AND workspace_id = $1 AND path = $2
         )
         SELECT EXISTS (
-            SELECT 1 FROM item WHERE acl_grants_run(item.extra_perms, item.view_only, $4)
+            SELECT 1 FROM item WHERE acl_grants_run(item.extra_perms, $4)
         ) OR EXISTS (
             SELECT 1 FROM folder f
             WHERE f.workspace_id = $1 AND f.name = $3
-                AND (f.owners::text[] && $4 OR acl_grants_run(f.extra_perms, f.view_only, $4))
+                AND (f.owners::text[] && $4 OR acl_grants_run(f.extra_perms, $4))
         ) AS \"can_run!\"",
         w_id,
         path,
@@ -372,6 +372,11 @@ impl PermsCache {
     }
 }
 
+/// Whether an `extra_perms` value grants write: `true` or `"write"`.
+pub fn acl_writes(v: &serde_json::Value) -> bool {
+    v.as_bool().unwrap_or(false) || v.as_str() == Some("write")
+}
+
 /// Check a user's access level against an `extra_perms` JSONB object.
 ///
 /// Returns `None` if the user has no matching entry (no access).
@@ -390,7 +395,7 @@ pub fn check_extra_perms(
         format!("{PERMISSIONED_AS_USER_PREFIX}{username}")
     };
     if let Some(v) = extra_perms.get(&user_key) {
-        return Some(v.as_bool().unwrap_or(false));
+        return Some(acl_writes(v));
     }
 
     // Check group permissions — return highest access level found
@@ -404,7 +409,7 @@ pub fn check_extra_perms(
         };
         if let Some(v) = extra_perms.get(&key) {
             found = true;
-            if v.as_bool().unwrap_or(false) {
+            if acl_writes(v) {
                 write = true;
                 break;
             }
@@ -785,7 +790,7 @@ pub async fn get_folders_for_user<'e, E: sqlx::PgExecutor<'e>>(
         .collect::<Vec<_>>();
     perms.insert(0, format!("u/{}", username));
     let folders = sqlx::query!(
-        "SELECT name, (EXISTS (SELECT 1 FROM (SELECT key, value FROM jsonb_each_text(extra_perms) WHERE key = ANY($1)) t  WHERE value::boolean IS true)) as write, $1 && owners::text[] as owner  FROM folder
+        "SELECT name, (EXISTS (SELECT 1 FROM (SELECT key, value FROM jsonb_each_text(extra_perms) WHERE key = ANY($1)) t  WHERE value IN ('true', 'write'))) as write, $1 && owners::text[] as owner  FROM folder
         WHERE extra_perms ?| $1  AND workspace_id = $2",
         &perms[..],
         w_id,
@@ -814,8 +819,8 @@ pub async fn get_view_only_folders_for_user<'e, E: sqlx::PgExecutor<'e>>(
     perms.push(format!("u/{}", username));
     let folders = sqlx::query_scalar!(
         "SELECT name FROM folder
-        WHERE workspace_id = $2 AND extra_perms ?| $1 AND cardinality(view_only) > 0
-            AND NOT owners::text[] && $1 AND NOT acl_grants_run(extra_perms, view_only, $1)",
+        WHERE workspace_id = $2 AND extra_perms ?| $1
+            AND NOT owners::text[] && $1 AND NOT acl_grants_run(extra_perms, $1)",
         &perms[..],
         w_id,
     )

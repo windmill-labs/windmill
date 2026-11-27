@@ -1,4 +1,5 @@
 <script lang="ts">
+	import type { ExtraPerms } from '$lib/gen'
 	import type { Schema } from '$lib/common'
 	import {
 		GitSyncService,
@@ -268,7 +269,7 @@
 	function canEditResourceIn(
 		ws: string,
 		path: string,
-		extraPerms: Record<string, boolean> | undefined
+		extraPerms: ExtraPerms | undefined
 	): boolean {
 		const user = acting.in(ws)
 		const caps = capabilitiesIn(

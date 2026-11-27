@@ -1,4 +1,5 @@
 <script lang="ts">
+	import type { ExtraPerms } from '$lib/gen'
 	/*
 	 * WIN-2006: shared in-workspace app viewer (low-code AND raw). Renders the app
 	 * through the same PublicAppFrame -> PublicApp machinery the public viewer uses,
@@ -67,9 +68,7 @@
 	/** The app's own permissions, kept apart from the verdict: `loadPerms` resolves before the
 	 * acting user's `whoami` does in a workspace that is not the navigation one, and a verdict
 	 * computed there would stick at "cannot write" with nothing to recompute it. */
-	let appPerms = $state<{ path: string; extraPerms: Record<string, boolean> } | undefined>(
-		undefined
-	)
+	let appPerms = $state<{ path: string; extraPerms: ExtraPerms } | undefined>(undefined)
 	/** Raw vs low-code, read from the app itself rather than from the route:
 	 * both kinds render here and either route serves either kind (links to a raw
 	 * app point at /apps/get all over the app), so only the app can say which

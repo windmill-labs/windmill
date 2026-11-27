@@ -270,7 +270,7 @@ export async function pushGroup(
 
     // only consider extra_perms that concern actual members of the group
     const admins = Object.entries(remoteGroup.extra_perms ?? {})
-      .filter(([k, v]) => v && remoteGroup.members?.includes(k.slice(2)))
+      .filter(([k, v]) => (v === true || v === "write") && remoteGroup.members?.includes(k.slice(2)))
       .map(([k, _]) => k)
       .sort();
     group = {

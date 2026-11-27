@@ -2,8 +2,7 @@ import { deepEqual } from 'fast-equals'
 import type { FolderDefaultPermissionedAs } from '$lib/gen'
 
 /** What a member may hold on a folder. `admin` is the `owners` array server-side; `writer`
- *  and `runner` are the `true`/`false` entries of `extra_perms`, and `viewer` a `false` entry
- *  also listed in `view_only`. */
+ *  `runner` and `viewer` are the `true`, `false` and `'read'` entries of `extra_perms`. */
 export type FolderRole = 'viewer' | 'runner' | 'writer' | 'admin'
 
 export type AclLevel = 'read' | 'run' | 'write'
@@ -49,7 +48,7 @@ export type FolderPermissionCall =
 	/** `removeowner` with a write flag: takes the member out of `owners` and sets their
 	 *  level. The only way down from admin. */
 	| { kind: 'demoteAdmin'; owner: string; write: boolean }
-	/** `acls/add`: sets `extra_perms[owner]` and `view_only`, for a member who is not an admin. */
+	/** `acls/add`: sets `extra_perms[owner]`, for a member who is not an admin. */
 	| { kind: 'setAcl'; owner: string; level: AclLevel }
 	/** Both removals. `removeowner` without a write only drops the member from `owners`,
 	 *  leaving their `extra_perms` entry — alone it demotes an admin rather than removing

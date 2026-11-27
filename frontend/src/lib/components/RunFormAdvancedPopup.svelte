@@ -1,4 +1,5 @@
 <script lang="ts">
+	import type { ExtraPerms } from '$lib/gen'
 	import { SCRIPT_VIEW_SHOW_SCHEDULE_RUN_LATER } from '$lib/consts'
 	import Label from './Label.svelte'
 	import Toggle from './Toggle.svelte'
@@ -21,7 +22,7 @@
 					can_write?: boolean
 					created_at?: string
 					created_by?: string
-					extra_perms?: Record<string, boolean>
+					extra_perms?: ExtraPerms
 			  }
 			| undefined
 		scheduledForStr: string | undefined

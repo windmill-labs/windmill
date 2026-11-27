@@ -1,3 +1,4 @@
+import type { ExtraPerms } from '$lib/gen'
 export type WorkspaceItemKind = 'flow' | 'script' | 'app' | 'agent'
 
 export type WorkspaceItem = {
@@ -20,7 +21,7 @@ export type WorkspaceItem = {
 	 * edits pending". */
 	hasDraft?: boolean
 	/** The item's own sharing, which `canEditItem` reads with the folder rules. */
-	extraPerms?: Record<string, boolean>
+	extraPerms?: ExtraPerms
 }
 
 /** Path to display (and group by) in pickers: the friendly draft path when

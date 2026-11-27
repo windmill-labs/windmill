@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT name FROM folder\n        WHERE workspace_id = $2 AND extra_perms ?| $1\n            AND NOT owners::text[] && $1 AND NOT acl_grants_run(extra_perms, $1)",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "name",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "TextArray",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "41a17f941cf4d97ebbca23a0a206a8dad940c6c19baa2ca4481ed69bb481c83f"
+}

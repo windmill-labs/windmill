@@ -197,10 +197,10 @@ fn items_query(
         sqlb.and_where(format!(
             "(split_part(o.path, '/', 1) = 'u' AND split_part(o.path, '/', 2) = current_setting('session.user') \
              OR split_part(o.path, '/', 1) = 'g' AND split_part(o.path, '/', 2) = ANY(regexp_split_to_array(current_setting('session.groups'), ',')) \
-             OR acl_grants_run(o.extra_perms, o.view_only, {principals}) \
+             OR acl_grants_run(o.extra_perms, {principals}) \
              OR EXISTS (SELECT 1 FROM folder f WHERE split_part(o.path, '/', 1) = 'f' \
                  AND f.workspace_id = o.workspace_id AND f.name = split_part(o.path, '/', 2) \
-                 AND (f.owners::text[] && {principals} OR acl_grants_run(f.extra_perms, f.view_only, {principals}))))"
+                 AND (f.owners::text[] && {principals} OR acl_grants_run(f.extra_perms, {principals}))))"
         ));
     }
 

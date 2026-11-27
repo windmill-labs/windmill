@@ -1,4 +1,5 @@
 <script lang="ts">
+	import type { ExtraPerms } from '$lib/gen'
 	import { Alert, Button } from '$lib/components/common'
 	import {
 		clearPageDrawerAnchor,
@@ -64,7 +65,7 @@
 	let dirtyPath = $state(false)
 	const operatingUser = useOperatingUser()
 	let permsPath = $state<string | undefined>(undefined)
-	let permsForWrite = $state<Record<string, boolean> | undefined>(undefined)
+	let permsForWrite = $state<ExtraPerms | undefined>(undefined)
 	// The acting user in the operating workspace arrives asynchronously, and an unknown user
 	// refuses — so the editor stays read-only until the lookup lands, which is the safe answer.
 	const can_write = $derived(

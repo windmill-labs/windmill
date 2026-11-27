@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { aclWrites } from '$lib/utils'
+	import type { AclValue, ExtraPerms } from '$lib/gen'
 	import { Alert, Drawer, DrawerContent } from '../common'
 	import { VolumeService } from '$lib/gen'
 	import { enterpriseLicense, workspaceStore, userStore } from '$lib/stores'
@@ -68,9 +70,9 @@
 		if ($userStore?.is_admin) return true
 		const username = $userStore?.username
 		if (username === createdBy || `u/${username}` === createdBy) return true
-		if (extraPerms?.[`u/${username}`] === true) return true
+		if (aclWrites(extraPerms?.[`u/${username}`] as AclValue)) return true
 		const pgroups = $userStore?.pgroups ?? []
-		return pgroups.some((g) => extraPerms?.[g] === true)
+		return pgroups.some((g) => aclWrites(extraPerms?.[g] as AclValue))
 	}
 </script>
 
@@ -137,10 +139,7 @@
 						<div class="flex flex-col flex-1 min-w-0">
 							<div class="flex items-center gap-1.5">
 								<span class="text-sm font-medium truncate">{vol.name}</span>
-								<SharedBadge
-									extraPerms={vol.extra_perms as Record<string, boolean>}
-									canWrite={writable}
-								/>
+								<SharedBadge extraPerms={vol.extra_perms as ExtraPerms} canWrite={writable} />
 							</div>
 							<span class="text-2xs text-secondary">
 								{vol.file_count}

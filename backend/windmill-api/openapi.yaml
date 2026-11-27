@@ -24685,12 +24685,7 @@ paths:
                     type: string
                 extra_perms:
                   additionalProperties:
-                    type: boolean
-                view_only:
-                  type: array
-                  description: Principals of `extra_perms` that may view what the folder holds but not run it.
-                  items:
-                    type: string
+                    $ref: "#/components/schemas/AclValue"
                 default_permissioned_as:
                   $ref: '#/components/schemas/FolderDefaultPermissionedAs'
                 labels:
@@ -24734,12 +24729,7 @@ paths:
                     type: string
                 extra_perms:
                   additionalProperties:
-                    type: boolean
-                view_only:
-                  type: array
-                  description: Principals of `extra_perms` that may view what the folder holds but not run it. Omitted keeps the stored list.
-                  items:
-                    type: string
+                    $ref: "#/components/schemas/AclValue"
                 default_permissioned_as:
                   $ref: '#/components/schemas/FolderDefaultPermissionedAs'
                 labels:
@@ -25697,34 +25687,7 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                additionalProperties:
-                  type: boolean
-
-  /w/{workspace}/acls/get_view_only/{kind}/{path}:
-    get:
-      summary: get the principals of the granular acls that may view but not run
-      operationId: getGranularAclsViewOnly
-      tags:
-        - granular_acl
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-        - $ref: "#/components/parameters/Path"
-        - name: kind
-          in: path
-          required: true
-          schema:
-            type: string
-            enum: [script, flow, resource, folder]
-      responses:
-        "200":
-          description: principals with a view-only grant
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  type: string
+                $ref: "#/components/schemas/ExtraPerms"
 
   /w/{workspace}/acls/add/{kind}/{path}:
     post:
@@ -31985,7 +31948,7 @@ components:
         extra_perms:
           type: object
           additionalProperties:
-            type: boolean
+            $ref: "#/components/schemas/AclValue"
         starred:
           type: boolean
         archived:
@@ -32089,12 +32052,7 @@ components:
         extra_perms:
           type: object
           additionalProperties:
-            type: boolean
-        view_only:
-          type: array
-          description: Principals of `extra_perms` that may view but not run it.
-          items:
-            type: string
+            $ref: "#/components/schemas/AclValue"
         lock:
           type: string
         lock_error_logs:
@@ -33542,7 +33500,7 @@ components:
         extra_perms:
           type: object
           additionalProperties:
-            type: boolean
+            $ref: "#/components/schemas/AclValue"
         is_expired:
           type: boolean
         refresh_error:
@@ -34211,12 +34169,7 @@ components:
         extra_perms:
           type: object
           additionalProperties:
-            type: boolean
-        view_only:
-          type: array
-          description: Principals of `extra_perms` that may view but not run it.
-          items:
-            type: string
+            $ref: "#/components/schemas/AclValue"
         created_by:
           type: string
         edited_at:
@@ -34278,12 +34231,7 @@ components:
         extra_perms:
           type: object
           additionalProperties:
-            type: boolean
-        view_only:
-          type: array
-          description: Principals of `extra_perms` that may view but not run it.
-          items:
-            type: string
+            $ref: "#/components/schemas/AclValue"
         is_expired:
           type: boolean
         refresh_error:
@@ -34472,7 +34420,7 @@ components:
         extra_perms:
           type: object
           additionalProperties:
-            type: boolean
+            $ref: "#/components/schemas/AclValue"
           description: Additional permissions for this schedule
         email:
           type: string
@@ -34882,7 +34830,7 @@ components:
           type: object
           description: Additional permissions for this trigger
           additionalProperties:
-            type: boolean
+            $ref: "#/components/schemas/AclValue"
         workspace_id:
           type: string
           description: The workspace this trigger belongs to
@@ -37883,7 +37831,7 @@ components:
         extra_perms:
           type: object
           additionalProperties:
-            type: boolean
+            $ref: "#/components/schemas/AclValue"
       required:
         - name
 
@@ -37971,12 +37919,7 @@ components:
         extra_perms:
           type: object
           additionalProperties:
-            type: boolean
-        view_only:
-          type: array
-          description: Principals of `extra_perms` that may view but not run it.
-          items:
-            type: string
+            $ref: "#/components/schemas/AclValue"
         summary:
           type: string
         created_by:
@@ -38482,7 +38425,17 @@ components:
     ExtraPerms:
       type: object
       additionalProperties:
-        type: boolean
+        $ref: "#/components/schemas/AclValue"
+
+    AclValue:
+      description: >
+        A grant: `true` writes; `false` is the level below write, which runs a script, flow or
+        AI agent and reads anything else; or the level by name. `read` alone views a script,
+        flow, AI agent or folder content without running it.
+      oneOf:
+        - type: boolean
+        - type: string
+          enum: [read, run, write]
 
     FlowMetadata:
       type: object
@@ -38500,11 +38453,6 @@ components:
           type: boolean
         extra_perms:
           $ref: "#/components/schemas/ExtraPerms"
-        view_only:
-          type: array
-          description: Principals of `extra_perms` that may view but not run it.
-          items:
-            type: string
         starred:
           type: boolean
         draft_only:
@@ -38769,7 +38717,7 @@ components:
         extra_perms:
           type: object
           additionalProperties:
-            type: boolean
+            $ref: "#/components/schemas/AclValue"
         starred:
           type: boolean
         edited_at:
@@ -38879,7 +38827,7 @@ components:
         extra_perms:
           type: object
           additionalProperties:
-            type: boolean
+            $ref: "#/components/schemas/AclValue"
         starred:
           type: boolean
         version:
@@ -38937,7 +38885,7 @@ components:
         extra_perms:
           type: object
           additionalProperties:
-            type: boolean
+            $ref: "#/components/schemas/AclValue"
         custom_path:
           type: string
         raw_app:

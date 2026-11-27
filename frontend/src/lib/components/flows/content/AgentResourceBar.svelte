@@ -1,4 +1,5 @@
 <script lang="ts">
+	import type { ExtraPerms } from '$lib/gen'
 	import ResourceDescriptionField from '$lib/components/ResourceDescriptionField.svelte'
 	import { Button, Drawer, DrawerContent } from '$lib/components/common'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
@@ -122,7 +123,7 @@
 		providerPath?: string
 		providerOk: boolean
 		/** The agent's own sharing, to tell whether this user may edit it. */
-		extraPerms?: Record<string, boolean>
+		extraPerms?: ExtraPerms
 		/** The link cannot be read. `missing` (404): nothing exists at the path, the agent having been
 		 *  renamed or deleted. `forbidden` (401/403): it exists and this user is refused it, a folder
 		 *  they cannot read included, which says nothing about whether a run of the flow can read it.
@@ -205,7 +206,7 @@
 				fromDraft: draft != undefined,
 				providerPath,
 				providerOk,
-				extraPerms: (response.extra_perms ?? {}) as Record<string, boolean>
+				extraPerms: (response.extra_perms ?? {}) as ExtraPerms
 			}
 		}
 	)

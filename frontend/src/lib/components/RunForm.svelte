@@ -1,4 +1,5 @@
 <script lang="ts">
+	import type { ExtraPerms } from '$lib/gen'
 	import {
 		computeSharableHash as computeSharableHash,
 		defaultIfEmptyString,
@@ -140,7 +141,7 @@
 					can_write?: boolean
 					created_at?: string
 					created_by?: string
-					extra_perms?: Record<string, boolean>
+					extra_perms?: ExtraPerms
 			  }
 			| undefined
 		/** Set to refuse every write this form can make, and to say so when a run is

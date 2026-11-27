@@ -56,12 +56,25 @@ start further runs through the API either.
 ### View-only grants
 
 The same split exists per folder and per script, flow or AI agent: a read grant can withhold
-running (Viewer, below Runner and Writer). `extra_perms` keeps its `{principal: write}` booleans,
-which every RLS policy and client reads, and the principals whose read grant does not run are
-listed in a `view_only` column of `folder`, `script`, `flow` and `resource`. A grant made without a
-level (`write: false`, every grant from before levels) runs, and RLS is unchanged, so a viewer sees
-the item and, through its folder, its runs. Run is the union of a caller's grants, as read and
-write are: an item-level view-only grant does not withhold what the folder lets them run.
+running (Viewer, below Runner and Writer). It is the value of the principal's `extra_perms` entry:
+
+| Value | Script, flow, agent (`resource`), folder | Every other kind |
+|---|---|---|
+| `true` or `"write"` | write | write |
+| `false` or `"run"` | run | read |
+| `"read"` | view only | read |
+
+Readers (RLS policies, the backend, the frontend, the CLI) accept all five. Writers store `true`
+and `false`, and `"read"` only for a view-only grant, so a client that predates levels keeps
+reading every other grant; one that cannot read `"read"` skips that grant rather than revoking
+or widening it. Storing the names for every grant is a later step: its migration maps `false` to
+`"run"` on the first column and to `"read"` on the second, and it waits until the CLI pinned in
+the git-sync hub scripts reads them. The write policies of `script`, `flow` and `resource` compare
+the value as text (`IN ('true', 'write')`); a `::boolean` cast there fails every writer of a row
+whose own grant is `"read"`. A grant made without a level (`write: false`, every grant from before
+levels) runs, and the read policies only test that the key exists, so a viewer sees the item and,
+through its folder, its runs. Run is the union of a caller's grants, as read and write are: an
+item-level view-only grant does not withhold what the folder lets them run.
 
 `windmill_common::auth::require_can_run` enforces it, on top of the RLS read and of the role's
 `run`, at each place that starts a deployed runnable for a caller: the run routes, restart, cancel
@@ -71,11 +84,9 @@ owner on every fire. A schedule's later runs are not re-checked, as they were ne
 for read either: demoting its owner does not stop it. Flow steps, subflows and agent tools are not
 checked, as only the top-level run needs it. Cancel and run-now take run on the job or on one
 of its `parent_job` ancestors, as cancelling a job stops its descendants; a restart takes run on
-the flow it restarts. Its positive answers are cached, so every write that can take
-run away calls `notify_run_perms_change`; the cache's 60s expiry bounds what that cannot see, such
-as an item deleted and recreated without the grant. Anything that copies one of those rows (a new script
-version, a rename, a fork, a workspace rename) must copy `view_only` too: a copy that drops it
-turns its viewers into runners.
+the nearest of them with a runnable of its own. Its positive answers are cached, so every write
+that can take run away calls `notify_run_perms_change`; the cache's 60s expiry bounds what that
+cannot see, such as an item deleted and recreated without the grant.
 
 Unlike `fork`, withdrawing `run` makes a role restricted: it is an enforced gate on hot routes,
 and the fast path is what spares every unrestricted caller a role lookup on each run. It does not

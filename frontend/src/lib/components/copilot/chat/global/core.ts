@@ -3562,7 +3562,7 @@ export const globalTools: SessionTool<{}>[] = [
 		def: createToolDef(
 			readWorkspaceItemSchema,
 			'read_workspace_item',
-			'Read one workspace item or draft. Prefers your draft when one exists; pass version: "deployed" to read the deployed state instead. A deployed item carries extraPerms (a draft does not; pass version: "deployed" for it): who it is shared with beyond its owner, as u/<user> or g/<group> → true (write) or false (read-only). A folder returns its owners and extraPerms; a group returns its members and extraPerms (who may manage it). For a folder or group, path is its name. A g/<group> entry grants every member of that group (g/all is everyone), and workspace admins can read and write every folder and item whatever these lists say.'
+			'Read one workspace item or draft. Prefers your draft when one exists; pass version: "deployed" to read the deployed state instead. A deployed item carries extraPerms (a draft does not; pass version: "deployed" for it): who it is shared with beyond its owner, as u/<user> or g/<group> → true (write), false (read; on a script, flow, agent or folder also run) or "read" (view only: sees it and its runs, cannot run it). A folder returns its owners and extraPerms; a group returns its members and extraPerms (who may manage it). For a folder or group, path is its name. A g/<group> entry grants every member of that group (g/all is everyone), and workspace admins can read and write every folder and item whatever these lists say.'
 		),
 		planModeSafe: true,
 		fn: async ({ args, workspace, toolId, toolCallbacks }) => {

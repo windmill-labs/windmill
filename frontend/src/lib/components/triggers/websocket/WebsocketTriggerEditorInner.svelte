@@ -1,4 +1,5 @@
 <script lang="ts">
+	import type { ExtraPerms } from '$lib/gen'
 	import { Alert, Button } from '$lib/components/common'
 	import {
 		clearPageDrawerAnchor,
@@ -133,7 +134,7 @@
 	let heartbeat_state_field = $state('')
 	let dirtyPath = $state(false)
 	let permsPath = $state<string | undefined>(undefined)
-	let permsForWrite = $state<Record<string, boolean> | undefined>(undefined)
+	let permsForWrite = $state<ExtraPerms | undefined>(undefined)
 	// The acting user in the operating workspace arrives asynchronously, and an unknown user
 	// refuses — so the editor stays read-only until the lookup lands, which is the safe answer.
 	const can_write = $derived(
@@ -915,7 +916,12 @@
 					/>
 				{/snippet}
 				<div class="flex flex-col gap-6">
-					<TriggerFilters bind:filters bind:filterLogic bind:runOnFilterError disabled={!can_write} />
+					<TriggerFilters
+						bind:filters
+						bind:filterLogic
+						bind:runOnFilterError
+						disabled={!can_write}
+					/>
 					<div class="min-h-96">
 						<Tabs bind:selected={optionTabSelected}>
 							<Tab value="error_handler" label="Error Handler" />

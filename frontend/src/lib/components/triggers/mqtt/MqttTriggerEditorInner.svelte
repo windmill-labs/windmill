@@ -1,4 +1,5 @@
 <script lang="ts">
+	import type { ExtraPerms } from '$lib/gen'
 	import { untrack } from 'svelte'
 	import {
 		clearPageDrawerAnchor,
@@ -113,7 +114,7 @@
 	let mode = $state<TriggerMode>('enabled')
 	let dirtyPath = $state(false)
 	let permsPath = $state<string | undefined>(undefined)
-	let permsForWrite = $state<Record<string, boolean> | undefined>(undefined)
+	let permsForWrite = $state<ExtraPerms | undefined>(undefined)
 	// The acting user in the operating workspace arrives asynchronously, and an unknown user
 	// refuses — so the editor stays read-only until the lookup lands, which is the safe answer.
 	const can_write = $derived(

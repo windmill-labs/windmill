@@ -112,8 +112,6 @@ export interface ScriptFile {
   // (see applyExtraPermsDiff) — never through create_script — so a perm-only
   // change never bumps the script hash/version.
   extra_perms?: Record<string, boolean>;
-  // Principals of `extra_perms` that may view the script but not run it.
-  view_only?: string[];
 }
 
 /**
@@ -734,8 +732,6 @@ export async function handleFile(
             remotePath.replaceAll(SEP, "/"),
             (typed as any)?.extra_perms,
             (remote as any)?.extra_perms,
-            (typed as any)?.view_only,
-            (remote as any)?.view_only,
           );
           return true;
         }
@@ -791,8 +787,6 @@ export async function handleFile(
       remotePath.replaceAll(SEP, "/"),
       (typed as any)?.extra_perms,
       (remote as any)?.extra_perms,
-      (typed as any)?.view_only,
-      (remote as any)?.view_only,
     );
 
     return true;

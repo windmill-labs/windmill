@@ -116,7 +116,7 @@
 	let viewOnly = $derived(
 		!!grants.current &&
 			!!operatingUser.current &&
-			!canRun(path, grants.current.extra_perms, grants.current.view_only, operatingUser.current)
+			!canRun(path, grants.current.extra_perms, operatingUser.current)
 	)
 
 	// Recorded once the agent is in: a path with nothing deployed never loads one. Not from a

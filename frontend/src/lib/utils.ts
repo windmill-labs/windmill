@@ -9,7 +9,16 @@
 import { deepEqual } from 'fast-equals'
 import { type UserExt } from './stores'
 import { sendUserToast } from './toast'
-import type { CompletedJob, Job, RunnableKind, Script, ScriptLang, Retry } from './gen'
+import type {
+	AclValue,
+	CompletedJob,
+	ExtraPerms,
+	Job,
+	RunnableKind,
+	Script,
+	ScriptLang,
+	Retry
+} from './gen'
 import type { EnumType, SchemaProperty } from './common'
 import type { Schema } from './common'
 export { sendUserToast }
@@ -1102,11 +1111,17 @@ export function deepMergeWithPriority<T>(target: T, source: T): T {
 	return merged
 }
 
-export function canWrite(
-	path: string,
-	extra_perms: Record<string, boolean>,
-	user?: UserExt
-): boolean {
+/** Whether an `extra_perms` grant writes: `true` or `'write'`. */
+export function aclWrites(grant: AclValue | undefined): boolean {
+	return grant === true || grant === 'write'
+}
+
+/** Whether an `extra_perms` grant of a script, flow, AI agent or folder runs: all but `'read'`. */
+export function aclRuns(grant: AclValue | undefined): boolean {
+	return grant !== undefined && grant !== 'read'
+}
+
+export function canWrite(path: string, extra_perms: ExtraPerms, user?: UserExt): boolean {
 	if (user?.is_admin || user?.is_super_admin) {
 		return true
 	}
@@ -1118,10 +1133,10 @@ export function canWrite(
 		return true
 	}
 	let userOwner = `u/${user.username}`
-	if (keys.includes(userOwner) && extra_perms?.[userOwner]) {
+	if (keys.includes(userOwner) && aclWrites(extra_perms?.[userOwner])) {
 		return true
 	}
-	if (user.pgroups.findIndex((x) => keys.includes(x) && extra_perms?.[x]) != -1) {
+	if (user.pgroups.findIndex((x) => keys.includes(x) && aclWrites(extra_perms?.[x])) != -1) {
 		return true
 	}
 	if (user.folders.findIndex((x) => path.startsWith('f/' + x + '/') && user.folders[x]) != -1) {
@@ -1133,14 +1148,9 @@ export function canWrite(
 
 /**
  * Whether the user may start `path` rather than only view it: they run unless every grant they
- * read it through is view-only. Mirrors `require_can_run` on the server, which enforces it.
+ * read it through is `'read'`. Mirrors `require_can_run` on the server, which enforces it.
  */
-export function canRun(
-	path: string,
-	extra_perms: Record<string, boolean> | undefined,
-	view_only: string[] | undefined,
-	user?: UserExt
-): boolean {
+export function canRun(path: string, extra_perms: ExtraPerms | undefined, user?: UserExt): boolean {
 	if (!user) {
 		return false
 	}
@@ -1154,11 +1164,7 @@ export function canRun(
 		return true
 	}
 	const perms = extra_perms ?? {}
-	if (
-		[`u/${user.username}`, ...user.pgroups].some(
-			(p) => p in perms && (perms[p] || !(view_only ?? []).includes(p))
-		)
-	) {
+	if ([`u/${user.username}`, ...user.pgroups].some((p) => aclRuns(perms[p]))) {
 		return true
 	}
 	const folder = path.startsWith('f/') ? path.split('/')[1] : undefined

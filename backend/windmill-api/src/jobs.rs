@@ -2414,7 +2414,6 @@ async fn require_preview_label_runnable(
 /// A job, or one of its `parent_job` ancestors, as its ACL names what it runs.
 struct JobRunnable {
     id: Uuid,
-    depth: i32,
     created_by: String,
     target: Option<(RunnableAclKind, String)>,
 }
@@ -2434,7 +2433,7 @@ async fn job_runnables(db: &DB, w_id: &str, ids: &[Uuid]) -> error::Result<Vec<J
                     JOIN chain c ON j.id = c.parent_job AND j.workspace_id = $2
                     WHERE c.depth < 100
             )
-            SELECT c.origin AS "id!", c.depth AS "depth!", j.created_by AS "created_by!",
+            SELECT c.origin AS "id!", j.created_by AS "created_by!",
                 CASE WHEN a.agent THEN regexp_replace(j.runnable_path, '\.chat$', '')
                     ELSE j.runnable_path END AS runnable_path,
                 CASE
@@ -2470,17 +2469,13 @@ async fn job_runnables(db: &DB, w_id: &str, ids: &[Uuid]) -> error::Result<Vec<J
                 Some("flow") => Some(RunnableAclKind::Flow),
                 _ => None,
             };
-            JobRunnable {
-                id: r.id,
-                depth: r.depth,
-                created_by: r.created_by,
-                target: kind.zip(r.runnable_path),
-            }
+            JobRunnable { id: r.id, created_by: r.created_by, target: kind.zip(r.runnable_path) }
         })
         .collect())
 }
 
-/// `require_can_run` on what the job itself runs, for a route that starts it again.
+/// `require_can_run` on what the job runs, for a route that starts it again: its own runnable,
+/// or for a branch or loop child, which has none, the nearest ancestor's.
 #[cfg(feature = "enterprise")]
 async fn require_can_run_job(
     db: &DB,
@@ -2488,10 +2483,12 @@ async fn require_can_run_job(
     w_id: &str,
     id: Uuid,
 ) -> error::Result<()> {
-    for job in job_runnables(db, w_id, &[id]).await? {
-        if let (0, Some((kind, path))) = (job.depth, job.target) {
-            require_can_run(db, &authed.to_authed_ref(), w_id, kind, &path).await?;
-        }
+    let nearest = job_runnables(db, w_id, &[id])
+        .await?
+        .into_iter()
+        .find_map(|job| job.target);
+    if let Some((kind, path)) = nearest {
+        require_can_run(db, &authed.to_authed_ref(), w_id, kind, &path).await?;
     }
     Ok(())
 }

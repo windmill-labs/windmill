@@ -60,9 +60,6 @@ pub struct Folder {
     pub display_name: String,
     pub owners: Vec<String>,
     pub extra_perms: serde_json::Value,
-    /// Principals of `extra_perms` that may view but not run what the folder holds.
-    #[serde(default)]
-    pub view_only: Vec<String>,
     pub summary: Option<String>,
     pub created_by: Option<String>,
     pub edited_at: Option<chrono::DateTime<chrono::Utc>>,
@@ -78,7 +75,6 @@ pub struct NewFolder {
     pub display_name: Option<String>,
     pub owners: Option<Vec<String>>,
     pub extra_perms: Option<serde_json::Value>,
-    pub view_only: Option<Vec<String>>,
     pub default_permissioned_as: Option<serde_json::Value>,
     pub labels: Option<Vec<String>>,
 }
@@ -89,9 +85,6 @@ pub struct UpdateFolder {
     pub display_name: Option<String>,
     pub owners: Option<Vec<String>>,
     pub extra_perms: Option<serde_json::Value>,
-    /// `None` keeps the stored list: git sync posts a folder file whole, and one written before
-    /// view-only grants existed must not turn every viewer into a runner.
-    pub view_only: Option<Vec<String>>,
     pub default_permissioned_as: Option<serde_json::Value>,
     pub labels: Option<Vec<String>>,
 }
@@ -122,7 +115,7 @@ async fn list_folders(
     let allowed = build_scope_path_predicate(&authed, "folders", "read");
     let rows = sqlx::query_as!(
         Folder,
-        "SELECT workspace_id, name, display_name, owners, extra_perms, view_only, summary, created_by, edited_at, default_permissioned_as, labels FROM folder WHERE workspace_id = $1 ORDER BY name asc LIMIT $2 OFFSET $3",
+        "SELECT workspace_id, name, display_name, owners, extra_perms, summary, created_by, edited_at, default_permissioned_as, labels FROM folder WHERE workspace_id = $1 ORDER BY name asc LIMIT $2 OFFSET $3",
         w_id,
         per_page as i64,
         offset as i64
@@ -320,6 +313,7 @@ async fn create_folder(
         .unwrap_or_else(|| serde_json::Value::Object(serde_json::Map::new()));
 
     if extra_perms.is_object() {
+        normalize_acl_values(&mut extra_perms)?;
         let extra_mut = extra_perms.as_object_mut().unwrap();
         for o in &owners {
             extra_mut.insert(o.clone(), serde_json::json!(true));
@@ -338,7 +332,7 @@ async fn create_folder(
     if let Err(e) =
     sqlx::query_as!(
         Folder,
-        "INSERT INTO folder (workspace_id, name, display_name, owners, extra_perms, view_only, summary, created_by, edited_at, default_permissioned_as, labels) VALUES ($1, $2, $3, $4, $5, $10, $6, $7, now(), $8, $9)",
+        "INSERT INTO folder (workspace_id, name, display_name, owners, extra_perms, summary, created_by, edited_at, default_permissioned_as, labels) VALUES ($1, $2, $3, $4, $5, $6, $7, now(), $8, $9)",
         w_id,
         ng.name,
         ng.display_name.unwrap_or(ng.name.clone()),
@@ -347,12 +341,7 @@ async fn create_folder(
         ng.summary,
         authed.username,
         default_permissioned_as,
-        ng.labels.as_deref().filter(|l| !l.is_empty()) as Option<&[String]>,
-        &ng.view_only
-            .unwrap_or_default()
-            .into_iter()
-            .filter(|p| extra_perms.get(p) == Some(&serde_json::json!(false)))
-            .collect::<Vec<_>>(),
+        ng.labels.as_deref().filter(|l| !l.is_empty()) as Option<&[String]>
     )
     .execute(&mut *tx)
     .await {
@@ -461,11 +450,7 @@ async fn update_folder(
 
     // update_folder can also grant permissions (owners / extra_perms / default_permissioned_as),
     // so it is a sharing path and must honor the demo-workspace sharing restriction.
-    if ng.owners.is_some()
-        || ng.extra_perms.is_some()
-        || ng.view_only.is_some()
-        || ng.default_permissioned_as.is_some()
-    {
+    if ng.owners.is_some() || ng.extra_perms.is_some() || ng.default_permissioned_as.is_some() {
         crate::check_demo_workspace_restriction(&authed, &w_id, "Sharing")?;
     }
 
@@ -519,31 +504,17 @@ async fn update_folder(
             )),
         );
     }
-    if let Some(extra_perms) = ng.extra_perms {
+    if let Some(mut extra_perms) = ng.extra_perms {
         if !extra_perms.is_object() {
             return Err(windmill_common::error::Error::BadRequest(format!(
                 "extra_perms must be an object, received {}",
                 extra_perms.to_string()
             )));
         }
+        normalize_acl_values(&mut extra_perms)?;
         sqlb.set(
             "extra_perms",
             "?".bind(&serde_json::to_string(&extra_perms).map_err(to_anyhow)?),
-        );
-    }
-
-    let view_only_changed = ng.view_only.is_some();
-    if let Some(view_only) = ng.view_only.as_ref() {
-        sqlb.set(
-            "view_only",
-            "?".bind(&format!(
-                "{{{}}}",
-                view_only
-                    .iter()
-                    .map(|x| format!("\"{}\"", x.replace('\\', "\\\\").replace('"', "\\\"")))
-                    .collect::<Vec<_>>()
-                    .join(","),
-            )),
         );
     }
 
@@ -597,8 +568,7 @@ async fn update_folder(
         for o in nfolder.owners {
             if !extra_perms
                 .get(&o)
-                .and_then(|x| x.as_bool())
-                .unwrap_or(false)
+                .is_some_and(windmill_common::auth::acl_writes)
             {
                 return Err(windmill_common::error::Error::BadRequest(format!(
                     "Owner {} would not have permission to write to folder and that is an invalid state",
@@ -631,12 +601,11 @@ async fn update_folder(
         )
         .await?;
     }
-    if extra_perms_changed || view_only_changed {
+    if extra_perms_changed {
         log_folder_permission_change(&mut *tx, &w_id, &name, &authed.username, "update_acl", None)
             .await?;
-        prune_view_only(&mut *tx, &w_id, &name).await?;
     }
-    if owners_changed || extra_perms_changed || view_only_changed {
+    if owners_changed || extra_perms_changed {
         windmill_common::auth::notify_run_perms_change(&mut *tx).await?;
     }
     if default_permissioned_as_changed {
@@ -655,7 +624,7 @@ async fn update_folder(
     }
 
     tx.commit().await?;
-    if owners_changed || extra_perms_changed || view_only_changed {
+    if owners_changed || extra_perms_changed {
         windmill_common::auth::invalidate_run_perms_cache();
     }
 
@@ -686,7 +655,7 @@ pub async fn get_folderopt<'c>(
 ) -> Result<Option<Folder>> {
     let folderopt = sqlx::query_as!(
         Folder,
-        "SELECT workspace_id, name, display_name, owners, extra_perms, view_only, summary, created_by, edited_at, default_permissioned_as, labels FROM folder WHERE name = $1 AND workspace_id = $2",
+        "SELECT workspace_id, name, display_name, owners, extra_perms, summary, created_by, edited_at, default_permissioned_as, labels FROM folder WHERE name = $1 AND workspace_id = $2",
         name,
         w_id
     )
@@ -928,7 +897,6 @@ async fn add_owner(
     .bind(&owner)
     .fetch_optional(&mut *tx)
     .await?;
-    prune_view_only(&mut *tx, &w_id, &name).await?;
 
     audit_log(
         &mut *tx,
@@ -1013,7 +981,7 @@ async fn remove_owner(
     if let Some(write) = write {
         let old_write = sqlx::query_scalar::<_, Option<bool>>(
             "UPDATE folder SET extra_perms = jsonb_set(extra_perms, array[$4]::text[], to_jsonb($1), \
-             true) FROM (SELECT (extra_perms->>$4)::boolean as old_val FROM folder WHERE name = $2 AND workspace_id = $3) old \
+             true) FROM (SELECT (extra_perms->>$4) IN ('true', 'write') as old_val FROM folder WHERE name = $2 AND workspace_id = $3) old \
              WHERE name = $2 AND workspace_id = $3 RETURNING old.old_val"
         )
         .bind(write)
@@ -1030,7 +998,6 @@ async fn remove_owner(
                 owner, name, write
             ));
         }
-        prune_view_only(&mut *tx, &w_id, &name).await?;
     }
 
     audit_log(
@@ -1104,18 +1071,22 @@ pub async fn log_folder_permission_change<'c, E: sqlx::Executor<'c, Database = P
     Ok(())
 }
 
-/// Keeps in `view_only` only principals still holding a read grant, so replacing a folder's
-/// grants cannot leave a stale entry that a later read grant would silently pick up.
-async fn prune_view_only(tx: &mut sqlx::PgConnection, w_id: &str, name: &str) -> Result<()> {
-    sqlx::query!(
-        "UPDATE folder SET view_only = ARRAY(
-            SELECT v FROM unnest(view_only) v WHERE extra_perms->>v = 'false'
-        ) WHERE name = $1 AND workspace_id = $2",
-        name,
-        w_id
-    )
-    .execute(tx)
-    .await?;
+/// Accepts each grant as `true`, `false`, `"read"`, `"run"` or `"write"`, and stores it the way
+/// `/acls/add` does: booleans for run and write, which every client reads, `"read"` otherwise.
+fn normalize_acl_values(extra_perms: &mut serde_json::Value) -> Result<()> {
+    for (owner, v) in extra_perms.as_object_mut().into_iter().flatten() {
+        *v = match &*v {
+            serde_json::Value::Bool(_) => continue,
+            serde_json::Value::String(l) if l == "read" => continue,
+            serde_json::Value::String(l) if l == "run" => serde_json::json!(false),
+            serde_json::Value::String(l) if l == "write" => serde_json::json!(true),
+            _ => {
+                return Err(error::Error::BadRequest(format!(
+                    "Invalid grant for {owner}: {v}, expected true, false, \"read\", \"run\" or \"write\""
+                )))
+            }
+        };
+    }
     Ok(())
 }
 

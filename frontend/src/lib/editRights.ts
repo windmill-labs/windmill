@@ -1,3 +1,4 @@
+import type { ExtraPerms } from '$lib/gen'
 import type { RoleCapabilities } from '$lib/gen'
 import type { UserExt } from '$lib/stores'
 import { canWrite } from '$lib/utils'
@@ -81,7 +82,7 @@ export function buildsAnything(caps: RoleCapabilities): boolean {
 export function canDraftItem(
 	kind: EditKind,
 	path: string,
-	extraPerms: Record<string, boolean> | undefined,
+	extraPerms: ExtraPerms | undefined,
 	user: UserExt | undefined,
 	caps: RoleCapabilities
 ): boolean {
@@ -93,7 +94,7 @@ export function canDraftItem(
 export function canEditItem(
 	kind: EditKind,
 	path: string,
-	extraPerms: Record<string, boolean> | undefined,
+	extraPerms: ExtraPerms | undefined,
 	user: UserExt | undefined,
 	caps: RoleCapabilities
 ): boolean {

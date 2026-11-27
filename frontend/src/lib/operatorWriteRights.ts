@@ -1,3 +1,4 @@
+import type { ExtraPerms } from '$lib/gen'
 import { getContext, setContext } from 'svelte'
 import { derived, fromStore, get, readable, toStore, type Readable } from 'svelte/store'
 import type { RoleCapabilities } from '$lib/gen'
@@ -39,10 +40,10 @@ export function useEditRights(workspace?: () => string | undefined) {
 			return caps()
 		},
 		roleCanAuthor: (kind: string) => open() && roleCanAuthor(kind, caps()),
-		canEditItem: (kind: string, path: string, extraPerms: Record<string, boolean> | undefined) =>
+		canEditItem: (kind: string, path: string, extraPerms: ExtraPerms | undefined) =>
 			open() && canEditItem(kind, path, extraPerms, user.current, caps()),
 		roleCanDraft: (kind: string) => open() && roleCanDraft(kind, caps()),
-		canDraftItem: (kind: string, path: string, extraPerms: Record<string, boolean> | undefined) =>
+		canDraftItem: (kind: string, path: string, extraPerms: ExtraPerms | undefined) =>
 			open() && canDraftItem(kind, path, extraPerms, user.current, caps()),
 		/** This hook looks the user up on its own, so an editor that retries a failed lookup on
 		 *  its acting user (`forgetFailures`) must retry this one too, or it stays read-only. */

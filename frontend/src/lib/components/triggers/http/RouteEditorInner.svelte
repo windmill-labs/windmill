@@ -1,4 +1,5 @@
 <script lang="ts">
+	import type { ExtraPerms } from '$lib/gen'
 	import { Button } from '$lib/components/common'
 	import {
 		clearPageDrawerAnchor,
@@ -153,7 +154,7 @@
 	let variable_path = $state('')
 	let signature_options_type = $state<'custom_script' | 'custom_signature'>('custom_signature')
 	let permsPath = $state<string | undefined>(undefined)
-	let permsForWrite = $state<Record<string, boolean> | undefined>(undefined)
+	let permsForWrite = $state<ExtraPerms | undefined>(undefined)
 	// The acting user in the operating workspace arrives asynchronously, and an unknown user
 	// refuses — so the editor stays read-only until the lookup lands, which is the safe answer.
 	const can_write = $derived(
@@ -161,7 +162,7 @@
 			? editRights.roleCanAuthor('trigger')
 			: editRights.canEditItem('trigger', permsPath, permsForWrite)
 	)
-	let extraPerms = $state<Record<string, boolean> | undefined>(undefined)
+	let extraPerms = $state<ExtraPerms | undefined>(undefined)
 	let summary: string | undefined = $state()
 	let routeDescription: string | undefined = $state()
 	let errorHandler = $state(handlerDraftFromStored('error', undefined))

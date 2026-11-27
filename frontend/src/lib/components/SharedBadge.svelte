@@ -1,11 +1,13 @@
 <script lang="ts">
+	import { aclWrites } from '$lib/utils'
+	import type { ExtraPerms } from '$lib/gen'
 	import { userStore } from '$lib/stores'
 	import { Users } from 'lucide-svelte'
 	import Badge from './common/badge/Badge.svelte'
 	import Popover from './Popover.svelte'
 
 	interface Props {
-		extraPerms?: Record<string, boolean>
+		extraPerms?: ExtraPerms
 		canWrite: boolean
 	}
 
@@ -26,14 +28,16 @@
 			let extraPermsKeys = Object.keys(extraPerms ?? {})
 
 			if (pusername in extraPermsKeys) {
-				if (extraPerms?.[pusername]) {
+				if (aclWrites(extraPerms?.[pusername])) {
 					kd = 'write'
 				} else {
 					kd = 'read'
 				}
 				rson = 'This item was shared to you personally'
 			} else {
-				let writeGroup = pgroups.find((x) => extraPermsKeys.includes(x) && extraPerms?.[x])
+				let writeGroup = pgroups.find(
+					(x) => extraPermsKeys.includes(x) && aclWrites(extraPerms?.[x])
+				)
 				if (writeGroup) {
 					kd = 'write'
 					rson = `This item was write shared to the group ${writeGroup} which you are a member of`

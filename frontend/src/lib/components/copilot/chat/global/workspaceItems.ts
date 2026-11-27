@@ -1,3 +1,4 @@
+import type { ExtraPerms } from '$lib/gen'
 import type {
 	AzureTriggerData,
 	CreateResource,
@@ -156,7 +157,7 @@ export type WorkspaceItem = {
 	/** Who a deployed item is shared with beyond its path owner, as `u/<user>` /
 	 * `g/<group>` → true for write, false for read-only. A draft has no permissions of
 	 * its own, so a draft read leaves it unset rather than reporting the item unshared. */
-	extraPerms?: Record<string, boolean>
+	extraPerms?: ExtraPerms
 	isDraft: boolean
 	isLiveDraft?: boolean
 }

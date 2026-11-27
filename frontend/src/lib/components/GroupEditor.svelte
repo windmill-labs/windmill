@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { aclWrites } from '$lib/utils'
+	import type { ExtraPerms } from '$lib/gen'
 	import {
 		GranularAclService,
 		GroupService,
@@ -86,7 +88,7 @@
 		isDemoWorkspaceRestricted($operatingWorkspace, actingUser?.is_admin, actingUser?.is_super_admin)
 	)
 
-	let groupPerms = $state<Record<string, boolean> | undefined>(undefined)
+	let groupPerms = $state<ExtraPerms | undefined>(undefined)
 	// A verdict that does not come from a loaded group: a new one is writable, one that failed
 	// to load is not.
 	let writeVerdict = $state<boolean | undefined>(undefined)
@@ -218,7 +220,7 @@
 				members: Array.from(
 					new Set(
 						Object.entries(group?.extra_perms ?? {})
-							.filter(([k, v]) => k.startsWith('u/') && v)
+							.filter(([k, v]) => k.startsWith('u/') && aclWrites(v))
 							.map(([k, _]) => k.split('/')[1])
 							.concat(group?.members ?? [])
 					)
@@ -238,7 +240,7 @@
 	}
 
 	function getRole(x: string): GroupRole {
-		const manages = 'u/' + x in (group?.extra_perms ?? {}) && (group?.extra_perms ?? {})['u/' + x]
+		const manages = aclWrites((group?.extra_perms ?? {})['u/' + x])
 		const belongs = group?.members?.includes(x)
 
 		if (manages && belongs) {

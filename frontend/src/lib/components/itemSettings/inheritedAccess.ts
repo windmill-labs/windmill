@@ -1,4 +1,5 @@
-import type { Folder } from '$lib/gen'
+import type { ExtraPerms, Folder } from '$lib/gen'
+import { aclWrites } from '$lib/utils'
 
 export type AccessRow = {
 	/** `u/name` or `g/name`. */
@@ -52,12 +53,13 @@ export function ownerLabel(path: string): string {
 export function accessLostByMove(
 	from: InheritedAccess | undefined,
 	to: InheritedAccess | undefined,
-	members: Record<string, boolean>,
+	members: ExtraPerms,
 	groupMembers: Record<string, string[]> = {}
 ): { lost: string[]; demoted: string[] } | undefined {
 	if (!from || !to || from.note !== undefined || to.note !== undefined) return undefined
 	const after = new Map<string, boolean>(to.rows.map((r) => [r.name, r.write]))
-	for (const [name, write] of Object.entries(members)) after.set(name, after.get(name) || write)
+	for (const [name, grant] of Object.entries(members))
+		after.set(name, after.get(name) || aclWrites(grant))
 	for (const [name, write] of [...after]) {
 		for (const username of groupMembers[name] ?? []) {
 			after.set(`u/${username}`, after.get(`u/${username}`) || write)
@@ -93,10 +95,10 @@ export function inheritedAccess(
 		const owners = folder.owners.map((owner) => ({ name: owner, write: true })).sort(byName)
 		const members = Object.entries(folder.extra_perms ?? {})
 			.filter(([member]) => !folder.owners.includes(member))
-			.map(([member, write]) => ({
+			.map(([member, grant]) => ({
 				name: member,
-				write: !!write,
-				viewOnly: !write && (folder.view_only ?? []).includes(member)
+				write: aclWrites(grant),
+				...(grant === 'read' ? { viewOnly: true } : {})
 			}))
 			.sort(byName)
 		return { source, rows: [...owners, ...members] }

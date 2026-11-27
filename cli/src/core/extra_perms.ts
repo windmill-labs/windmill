@@ -5,7 +5,20 @@ import type { AddGranularAclsData } from "../../gen/types.gen.ts";
 
 export type ExtraPermsKind = AddGranularAclsData["kind"];
 
-type PermsMap = Record<string, boolean>;
+type Level = "read" | "run" | "write";
+type PermsMap = Record<string, Level>;
+
+/** Kinds whose read grant does not include running: there `false` is "run" and `"read"` views
+ *  only. Elsewhere `false` and `"read"` are the same read grant. */
+const RUN_LEVEL_KINDS: string[] = ["script", "flow", "resource", "folder"];
+
+/** A grant as the level it gives: `true` or `"write"`, `false` or `"run"`, or `"read"`. */
+function levelOf(value: unknown, runLevel: boolean): Level | undefined {
+  if (value === true || value === "write") return "write";
+  if (value === false || value === "run") return runLevel ? "run" : "read";
+  if (value === "read") return "read";
+  return undefined;
+}
 
 type Normalized = {
   perms: PermsMap;
@@ -17,7 +30,7 @@ type Normalized = {
   malformedTop: boolean;
 };
 
-function normalize(value: unknown, source: string): Normalized {
+function normalize(value: unknown, source: string, runLevel: boolean): Normalized {
   const perms: PermsMap = {};
   const invalidOwners = new Set<string>();
 
@@ -30,7 +43,7 @@ function normalize(value: unknown, source: string): Normalized {
     if (value !== undefined && value !== null) {
       log.error(
         colors.red(
-          `extra_perms: ${source} is not a {owner: boolean} map — skipping ACL sync to avoid clobbering remote ACLs`,
+          `extra_perms: ${source} is not a {owner: grant} map — skipping ACL sync to avoid clobbering remote ACLs`,
         ),
       );
       return { perms, invalidOwners, malformedTop: true };
@@ -40,8 +53,9 @@ function normalize(value: unknown, source: string): Normalized {
 
   const invalidList: string[] = [];
   for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-    if (typeof v === "boolean") {
-      perms[k] = v;
+    const level = levelOf(v, runLevel);
+    if (level !== undefined) {
+      perms[k] = level;
     } else {
       invalidOwners.add(k);
       invalidList.push(k);
@@ -50,7 +64,7 @@ function normalize(value: unknown, source: string): Normalized {
   if (invalidList.length > 0) {
     log.error(
       colors.red(
-        `extra_perms: ${invalidList.length} invalid entry/entries in ${source} (non-boolean value, treating as "no opinion"): ${invalidList.join(", ")}`,
+        `extra_perms: ${invalidList.length} invalid entry/entries in ${source} (not true, false, "read", "run" or "write", treating as "no opinion"): ${invalidList.join(", ")}`,
       ),
     );
   }
@@ -104,11 +118,6 @@ export async function applyExtraPermsDiff(
   path: string,
   local: unknown,
   remote: unknown,
-  /** `view_only` of the yaml: the read grants that do not include running. Absent is "no
-   *  opinion" on that distinction, like an absent `extra_perms`, so a file written before it
-   *  existed neither promotes nor demotes anyone. */
-  localViewOnly?: unknown,
-  remoteViewOnly?: unknown,
 ): Promise<number> {
   // Absent local field = "no opinion" — never call /acls/* in this case.
   // Crucially, this protects users who don't track ACLs in source from having
@@ -117,33 +126,22 @@ export async function applyExtraPermsDiff(
     return 0;
   }
 
-  const localN = normalize(local, "local yaml");
+  const runLevel = RUN_LEVEL_KINDS.includes(kind);
+  const localN = normalize(local, "local yaml", runLevel);
   // Top-level malformed (array, primitive, etc.) → treat as "no opinion" so a
   // typo in yaml can never silently revoke every remote ACL.
   if (localN.malformedTop) {
     return 0;
   }
-  const remoteN = normalize(remote, "remote response");
+  const remoteN = normalize(remote, "remote response", runLevel);
 
   const localPerms = localN.perms;
   const remotePerms = remoteN.perms;
 
-  const localVO = Array.isArray(localViewOnly)
-    ? new Set(localViewOnly.filter((x): x is string => typeof x === "string"))
-    : undefined;
-  const remoteVO = new Set(
-    Array.isArray(remoteViewOnly)
-      ? remoteViewOnly.filter((x): x is string => typeof x === "string")
-      : [],
-  );
-
-  const toGrant: Array<[string, boolean, "read" | "run" | undefined]> = [];
-  for (const [owner, write] of Object.entries(localPerms)) {
-    const level = write || !localVO ? undefined : localVO.has(owner) ? "read" : "run";
-    const levelDrift =
-      level !== undefined && owner in remotePerms && (level === "read") !== remoteVO.has(owner);
-    if (!(owner in remotePerms) || remotePerms[owner] !== write || levelDrift) {
-      toGrant.push([owner, write, level]);
+  const toGrant: Array<[string, Level]> = [];
+  for (const [owner, level] of Object.entries(localPerms)) {
+    if (remotePerms[owner] !== level) {
+      toGrant.push([owner, level]);
     }
   }
 
@@ -160,14 +158,18 @@ export async function applyExtraPermsDiff(
   }
 
   let calls = 0;
-  for (const [owner, write, level] of toGrant) {
-    const access = write ? "write" : level === "read" ? "view only" : "read";
+  for (const [owner, level] of toGrant) {
+    const access = level === "read" && runLevel ? "view only" : level;
     try {
       await wmill.addGranularAcls({
         workspace,
         kind,
         path,
-        requestBody: level ? { owner, write, level } : { owner, write },
+        // Run and write as the `write` flag every server reads; `level` only for view-only.
+        requestBody:
+          level === "read" && runLevel
+            ? { owner, write: false, level }
+            : { owner, write: level === "write" },
       });
       log.info(
         colors.green(

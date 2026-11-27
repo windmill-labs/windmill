@@ -88,7 +88,6 @@ const KINDS: [&str; 21] = [
 pub fn workspaced_service() -> Router {
     Router::new()
         .route("/get/{*path}", get(get_granular_acls))
-        .route("/get_view_only/{*path}", get(get_granular_acls_view_only))
         .route("/add/{*path}", post(add_granular_acl))
         .route("/remove/{*path}", post(remove_granular_acl))
 }
@@ -102,8 +101,8 @@ pub enum AclLevel {
     Write,
 }
 
-/// Kinds whose ACL tells reading from running (`view_only`). On every other kind a read grant is
-/// all there is.
+/// Kinds whose ACL tells reading from running, with a `"read"` value. On every other kind `false`
+/// is all a reader gets.
 const RUN_LEVEL_KINDS: [&str; 4] = ["script", "flow", "resource", "folder"];
 
 #[derive(Serialize, Deserialize)]
@@ -212,25 +211,22 @@ async fn add_granular_acl(
     // DeployedObject::RawApp so the worker writes back `<path>.raw_app.json`.
     let table = if kind == "raw_app" { "app" } else { kind };
     // SAFETY: `kind` has been validated against the `KINDS` allowlist before reaching this function.
-    let set_view_only = if has_run_level {
-        ", view_only = CASE WHEN $6 THEN array_append(array_remove(view_only, $5), $5) \
-         ELSE array_remove(view_only, $5) END"
-    } else {
-        ""
+    // Run and write stay `false` and `true`, which every client reads; only the level they
+    // could not express is a string.
+    let value = match level {
+        AclLevel::Read => serde_json::json!("read"),
+        _ => serde_json::json!(level == AclLevel::Write),
     };
-    let sql = format!(
-        "UPDATE {table} SET extra_perms = jsonb_set(extra_perms, $1, to_jsonb($2), \
-         true){set_view_only} WHERE {identifier} = $3 AND workspace_id = $4 RETURNING extra_perms"
-    );
-    let mut query = sqlx::query_scalar::<_, serde_json::Value>(&sql)
-        .bind(vec![owner.clone()])
-        .bind(write.unwrap_or(false))
-        .bind(path)
-        .bind(&w_id);
-    if has_run_level {
-        query = query.bind(&owner).bind(level == AclLevel::Read);
-    }
-    let obj_o = query.fetch_optional(&mut *tx).await?;
+    let obj_o = sqlx::query_scalar::<_, serde_json::Value>(&format!(
+        "UPDATE {table} SET extra_perms = jsonb_set(extra_perms, $1, $2, \
+         true) WHERE {identifier} = $3 AND workspace_id = $4 RETURNING extra_perms"
+    ))
+    .bind(vec![owner.clone()])
+    .bind(value)
+    .bind(path)
+    .bind(&w_id)
+    .fetch_optional(&mut *tx)
+    .await?;
 
     let _ = not_found_if_none(obj_o, &kind, &path)?;
 
@@ -465,19 +461,14 @@ async fn remove_granular_acl(
     // LIMIT 1: `script` shares (workspace_id, path) across versions, so `old` can
     // return >1 row, which would break the scalar subquery in RETURNING.
     let has_run_level = RUN_LEVEL_KINDS.contains(&kind);
-    let unset_view_only = if has_run_level {
-        ", view_only = array_remove(view_only, $1)"
-    } else {
-        ""
-    };
     let obj_o = sqlx::query_scalar::<_, bool>(&format!(
         "WITH old AS (
             SELECT extra_perms->$1 as old_write FROM {table}
             WHERE {identifier} = $2 AND workspace_id = $3 AND extra_perms ? $1
         )
-        UPDATE {table} SET extra_perms = extra_perms - $1{unset_view_only}
+        UPDATE {table} SET extra_perms = extra_perms - $1
         WHERE {identifier} = $2 AND workspace_id = $3 AND extra_perms ? $1
-        RETURNING (SELECT old_write FROM old LIMIT 1)::bool"
+        RETURNING (SELECT old_write FROM old LIMIT 1) IN ('true', '\"write\"')"
     ))
     .bind(&owner)
     .bind(path)
@@ -675,35 +666,4 @@ async fn get_granular_acls(
     tx.commit().await?;
 
     Ok(Json(obj))
-}
-
-/// The principals of `/acls/get` whose read grant does not include running: empty for every kind
-/// without a run level.
-async fn get_granular_acls_view_only(
-    authed: ApiAuthed,
-    Extension(user_db): Extension<UserDB>,
-    Path((w_id, path)): Path<(String, StripPath)>,
-) -> JsonResult<Vec<String>> {
-    let path = path.to_path();
-    let (kind, path) = path
-        .split_once('/')
-        .ok_or_else(|| Error::BadRequest("Invalid path or kind".to_string()))?;
-    if !KINDS.contains(&kind) {
-        return Err(Error::BadRequest("Invalid kind".to_string()));
-    }
-    if !RUN_LEVEL_KINDS.contains(&kind) {
-        return Ok(Json(vec![]));
-    }
-    let identifier = if kind == "folder" { "name" } else { "path" };
-    let mut tx = user_db.begin(&authed).await?;
-    // SAFETY: `kind` is one of `RUN_LEVEL_KINDS`.
-    let view_only = sqlx::query_scalar::<_, Vec<String>>(&format!(
-        "SELECT view_only FROM {kind} WHERE {identifier} = $1 AND workspace_id = $2 LIMIT 1"
-    ))
-    .bind(path)
-    .bind(w_id)
-    .fetch_optional(&mut *tx)
-    .await?;
-    tx.commit().await?;
-    Ok(Json(not_found_if_none(view_only, &kind, &path)?))
 }

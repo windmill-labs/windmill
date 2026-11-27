@@ -47,6 +47,12 @@ async fn test_view_only_grants(db: Pool<Postgres>) -> anyhow::Result<()> {
     let admin = client_for("SECRET_TOKEN");
     let viewer = client_for("SECRET_TOKEN_2"); // test-user-2
     let runner = client_for("SECRET_TOKEN_3"); // test-user-3
+    // Before any request of theirs: the groups of a token are cached.
+    sqlx::query(
+        "INSERT INTO usr_to_group (workspace_id, group_, usr) VALUES ('test-workspace', 'all', 'test-user-2')",
+    )
+    .execute(&db)
+    .await?;
 
     assert_eq!(
         post(&admin, port, "folders/create", json!({"name": "vo"})).await?,
@@ -238,6 +244,27 @@ async fn test_view_only_grants(db: Pool<Postgres>) -> anyhow::Result<()> {
         post(&runner, port, "jobs/run/p/u/test-user/own", json!({})).await?,
         403
     );
+    // A personal view-only grant beside a group's write grant: the write policies read it
+    // without failing on it.
+    for grant in [
+        json!({"owner": "g/all", "write": true}),
+        json!({"owner": "u/test-user-2", "level": "read"}),
+    ] {
+        assert_eq!(
+            post(&admin, port, "acls/add/script/u/test-user/own", grant).await?,
+            200
+        );
+    }
+    let deployed: serde_json::Value = admin
+        .get(format!(
+            "http://localhost:{port}/api/w/{WS}/scripts/get/p/u/test-user/own"
+        ))
+        .send()
+        .await?
+        .json()
+        .await?;
+    let next = bash_script("u/test-user/own", deployed["hash"].as_str());
+    assert_eq!(post(&viewer, port, "scripts/create", next).await?, 201);
 
     Ok(())
 }

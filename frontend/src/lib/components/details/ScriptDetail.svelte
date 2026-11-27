@@ -185,10 +185,7 @@
 	// Unknown until the acting user resolves: the form offers a run meanwhile, as it would to
 	// anyone the server then lets through.
 	const viewOnly = $derived(
-		!isHubScript &&
-			!!script &&
-			!!actingUser &&
-			!canRun(script.path, script.extra_perms, script.view_only, actingUser)
+		!isHubScript && !!script && !!actingUser && !canRun(script.path, script.extra_perms, actingUser)
 	)
 	const editRights = useEditRights()
 	const caps = $derived(editRights.capabilities)

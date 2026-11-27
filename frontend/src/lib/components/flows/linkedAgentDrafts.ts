@@ -1,3 +1,4 @@
+import type { ExtraPerms } from '$lib/gen'
 import {
 	ResourceService,
 	type FlowModule,
@@ -126,7 +127,7 @@ export interface LinkedAgentDraft {
 	/** No deployed row at this path, so deploying has to create rather than update. */
 	noDeployed: boolean
 	/** Of the deployed resource, for `agentDraftCanWrite`. */
-	extraPerms: Record<string, boolean>
+	extraPerms: ExtraPerms
 }
 
 /** Whether `user`, holding a role with `caps`, may write this agent's resource.
