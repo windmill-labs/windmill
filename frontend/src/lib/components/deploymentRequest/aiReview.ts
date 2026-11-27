@@ -1,6 +1,10 @@
-import type { AIProviderModel, WorkspaceItemDiff } from '$lib/gen'
+import type { WorkspaceItemDiff } from '$lib/gen'
 import type { CopilotInfo } from '$lib/aiStore'
-import { getNonStreamingCompletion } from '$lib/components/copilot/lib'
+import { getStreamedCompletionText } from '$lib/components/copilot/lib'
+import {
+	resolveRequestReasoning,
+	type ReasoningProviderModel
+} from '$lib/components/copilot/reasoningRegistry'
 import { getItemValue } from '$lib/utils_workspace_deploy'
 import type { Kind } from '$lib/utils_deployable'
 import {
@@ -9,7 +13,6 @@ import {
 } from '$lib/components/copilot/chat/folderInstructions'
 import {
 	instructionsCovering,
-	MAX_OUTPUT_TOKENS,
 	parseReviewAnswer,
 	renderItemValue,
 	REVIEW_INSTRUCTIONS_RESOURCE_TYPE,
@@ -186,8 +189,8 @@ export async function reviewChanges(
 	scope: ReviewScope,
 	abortController: AbortController,
 	options?: {
-		/** Defaults to the workspace default of `info`, or without it to the last pick. */
-		model?: AIProviderModel
+		/** Defaults to the workspace default of `info`. Without either, the last pick is sent. */
+		model?: ReasoningProviderModel
 		/** The reviewed workspace's AI config, when it is not the tab's. */
 		info?: CopilotInfo
 	}
@@ -220,7 +223,7 @@ export async function reviewChanges(
 
 	const instructions = await instructionsPromise
 	if (abortController.signal.aborted) throw new Error('aborted')
-	const answer = await getNonStreamingCompletion(
+	const answer = await getStreamedCompletionText(
 		[
 			{ role: 'system', content: reviewSystemPrompt(subject) + instructions.text },
 			{
@@ -236,8 +239,8 @@ export async function reviewChanges(
 		// Bound to the reviewed workspace: without `workspace` the call goes through whichever
 		// workspace the app has switched to by the time the item reads finish.
 		{
-			maxTokensCap: MAX_OUTPUT_TOKENS,
 			forceModelProvider: options?.model,
+			reasoningEffort: options?.model && resolveRequestReasoning(options.model),
 			workspace: workspaceId,
 			info: options?.info
 		}

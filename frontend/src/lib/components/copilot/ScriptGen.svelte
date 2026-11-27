@@ -22,10 +22,14 @@
 	import { AlertTriangle, Ban, Check, ExternalLink, HistoryIcon, Wand2, X } from 'lucide-svelte'
 	import { fade } from 'svelte/transition'
 	import { isInitialCode } from '$lib/script_helpers'
-	import { twMerge } from 'tailwind-merge'
 	import { onDestroy, type ComponentProps } from 'svelte'
 	import ProviderModelSelector from './chat/ProviderModelSelector.svelte'
-	import { copilotInfo } from '$lib/aiStore'
+	import {
+		copilotInfo,
+		scriptGenModel,
+		setScriptGenModelPick,
+		tryResolveModelFor
+	} from '$lib/aiStore'
 
 	interface Props {
 		// props
@@ -62,6 +66,7 @@
 	let generatedCode = writable<string>('')
 	let dbSchema: DBSchema | undefined = $state(undefined)
 	let abortController: AbortController | undefined = $state(undefined)
+	let model = $derived(tryResolveModelFor($copilotInfo, $scriptGenModel))
 	let blockPopupOpen = $state(false)
 	let mode: 'gen' | 'edit' = $state('gen')
 
@@ -71,34 +76,19 @@
 		trimmedDesc = funcDesc.trim()
 	})
 	async function callCopilot() {
-		if (mode === 'edit') {
-			await copilot(
-				{
-					// @ts-ignore
-					language: transformer && lang === 'frontend' ? 'transformer' : lang!,
-					description: trimmedDesc,
-					code: editor?.getCode() || '',
-					dbSchema: dbSchema,
-					type: 'edit',
-					workspace: $workspaceStore!
-				},
-				generatedCode,
-				abortController!
-			)
-		} else {
-			await copilot(
-				{
-					// @ts-ignore
-					language: transformer && lang === 'frontend' ? 'transformer' : lang!,
-					description: trimmedDesc,
-					dbSchema: dbSchema,
-					type: 'gen',
-					workspace: $workspaceStore!
-				},
-				generatedCode,
-				abortController!
-			)
-		}
+		await copilot(
+			{
+				// @ts-ignore
+				language: transformer && lang === 'frontend' ? 'transformer' : lang!,
+				description: trimmedDesc,
+				dbSchema: dbSchema,
+				workspace: $workspaceStore!,
+				...(mode === 'edit' ? { type: 'edit', code: editor?.getCode() || '' } : { type: 'gen' })
+			},
+			generatedCode,
+			abortController!,
+			{ forceModelProvider: model }
+		)
 	}
 
 	function handleAiButtonClick() {
@@ -132,13 +122,13 @@
 			showDiff()
 			funcDesc = ''
 		} catch (err) {
-			if (!abortController?.signal.aborted) {
-				if (err?.message) {
-					sendUserToast('Failed to generate code: ' + err.message, true)
-				} else {
-					sendUserToast('Failed to generate code', true)
-					console.error(err)
-				}
+			if (abortController?.signal.aborted) {
+				clear()
+			} else if (err?.message) {
+				sendUserToast('Failed to generate code: ' + err.message, true)
+			} else {
+				sendUserToast('Failed to generate code', true)
+				console.error(err)
 			}
 		} finally {
 			genLoading = false
@@ -364,39 +354,38 @@
 			]
 		}}
 		disabled={blockPopupOpen}
+		onClose={() => {
+			// Escape or a click on the overlay closes the box mid-request, taking its Stop with it.
+			if (blockPopupOpen) abortController?.abort()
+		}}
 	>
 		{#snippet trigger()}
 			{#if inlineScript}
 				<Button
-					size="xs"
-					color={genLoading ? 'red' : 'light'}
-					btnClasses={twMerge(genLoading ? '!px-3 z-[5000]' : '!px-2')}
-					propagateEvent={!genLoading}
-					on:click={genLoading ? () => abortController?.abort() : handleAiButtonClick}
+					unifiedSize="sm"
+					variant="subtle"
+					btnClasses="!px-2"
+					disabled={genLoading}
+					on:click={handleAiButtonClick}
 					bind:element={button}
 					iconOnly
 					title="Generate code from prompt"
-					startIcon={genLoading ? { icon: Ban } : { icon: Wand2, classes: 'text-ai' }}
+					startIcon={{ icon: Wand2, classes: 'text-ai' }}
 					{...btnProps}
 				/>
 			{:else}
 				<Button
 					title="Generate code from prompt"
-					btnClasses={twMerge('!font-medium', genLoading ? 'z-[5000]' : 'text-ai')}
-					size="xs"
-					color={genLoading ? 'red' : 'light'}
-					spacingSize="md"
-					startIcon={genLoading ? { icon: Ban } : { icon: Wand2 }}
-					propagateEvent={!genLoading}
-					on:click={genLoading ? () => abortController?.abort() : handleAiButtonClick}
+					btnClasses="!font-medium text-ai"
+					unifiedSize="sm"
+					variant="subtle"
+					startIcon={{ icon: Wand2 }}
+					disabled={genLoading}
+					on:click={handleAiButtonClick}
 					bind:element={button}
 					{...btnProps}
 				>
-					{#if genLoading}
-						Stop
-					{:else}
-						AI Gen
-					{/if}
+					AI Gen
 				</Button>
 			{/if}
 		{/snippet}
@@ -412,18 +401,24 @@
 							<LoadingIcon />
 						{/if}
 					</div>
+					<div class="flex justify-end pt-2">
+						<Button
+							unifiedSize="sm"
+							variant="default"
+							startIcon={{ icon: Ban }}
+							onClick={() => abortController?.abort()}
+						>
+							Stop
+						</Button>
+					</div>
 				{:else if $copilotInfo.enabled}
 					<div class="flex flex-col gap-4">
-						<div class="flex flex-row justify-between items-center w-96 gap-2">
-							<ToggleButtonGroup class="w-auto shrink-0 h-auto" bind:selected={mode}>
-								{#snippet children({ item })}
-									<ToggleButton value={'gen'} label="Generate from scratch" class="px-2" {item} />
-									<ToggleButton value={'edit'} label="Edit existing code" class="px-2" {item} />
-								{/snippet}
-							</ToggleButtonGroup>
-
-							<ProviderModelSelector />
-						</div>
+						<ToggleButtonGroup class="w-auto self-start h-auto" bind:selected={mode}>
+							{#snippet children({ item })}
+								<ToggleButton value={'gen'} label="Generate from scratch" class="px-2" {item} />
+								<ToggleButton value={'edit'} label="Edit existing code" class="px-2" {item} />
+							{/snippet}
+						</ToggleButtonGroup>
 						<div class="flex w-96 items-start">
 							<textarea
 								bind:this={input}
@@ -455,6 +450,9 @@
 								iconOnly
 								startIcon={{ icon: Wand2 }}
 							/>
+						</div>
+						<div class="flex w-96 justify-end items-center gap-1 -mt-3">
+							<ProviderModelSelector {model} onPick={setScriptGenModelPick} />
 						</div>
 						{#if promptHistory.length > 0}
 							<div class="w-96 flex flex-col gap-1">

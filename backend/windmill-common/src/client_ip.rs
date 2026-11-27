@@ -1,5 +1,6 @@
 //! The address a request comes from, for decisions that must not be spoofable (per-IP rate
-//! limits, token IP allowlists).
+//! limits) and for the address audit entries record (`request_origin`). Both read it here, so
+//! they never disagree about one request.
 //!
 //! Forwarding headers are believed only when the TCP peer is in `TRUSTED_PROXIES`. Then either
 //! `CLIENT_IP_HEADER` names the one header the edge in front writes authoritatively, or
@@ -11,24 +12,24 @@ use std::net::{IpAddr, SocketAddr};
 use std::sync::LazyLock;
 
 use axum::extract::{ConnectInfo, FromRequestParts};
-use axum::http::{request::Parts, HeaderMap, HeaderName};
-use ipnet::IpNet;
+use axum::http::{request::Parts, Extensions, HeaderMap, HeaderName};
+pub use ipnet::IpNet;
 
-/// Loopback, private and link-local networks: where a reverse proxy in front of Windmill
-/// usually connects from. Anything else in front (a CDN, a public load balancer) must be listed
-/// in `TRUSTED_PROXIES`, or its own address is taken as the client's. Job code on the same
-/// network is trusted too, so a deployment where jobs can reach the server directly should list
-/// its proxy's exact address instead.
-const DEFAULT_TRUSTED_PROXIES: &[&str] = &[
-    "127.0.0.0/8",
-    "::1/128",
-    "10.0.0.0/8",
-    "172.16.0.0/12",
-    "192.168.0.0/16",
-    "169.254.0.0/16",
-    "fc00::/7",
-    "fe80::/10",
-];
+/// Loopback only on a self-hosted instance: it is often reached directly from a private network,
+/// whose clients could otherwise name any address they like. A reverse proxy on a private
+/// address must be listed in `TRUSTED_PROXIES`, or its own address is taken as the client's.
+const DEFAULT_TRUSTED_PROXIES: &[&str] = &["127.0.0.0/8", "::1/128"];
+/// Added on cloud, where every request arrives through our own load balancer.
+const CLOUD_TRUSTED_PROXIES: &[&str] =
+    &["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "fc00::/7"];
+
+fn default_trusted_proxies(cloud_hosted: bool) -> String {
+    let mut nets = DEFAULT_TRUSTED_PROXIES.to_vec();
+    if cloud_hosted {
+        nets.extend(CLOUD_TRUSTED_PROXIES);
+    }
+    nets.join(",")
+}
 
 pub struct ClientIpConfig {
     pub trusted: Vec<IpNet>,
@@ -42,7 +43,7 @@ pub struct ClientIpConfig {
 pub static CLIENT_IP_CONFIG: LazyLock<ClientIpConfig> = LazyLock::new(|| {
     let trusted = match std::env::var("TRUSTED_PROXIES") {
         Ok(v) => parse_trusted_proxies(&v),
-        Err(_) => parse_trusted_proxies(&DEFAULT_TRUSTED_PROXIES.join(",")),
+        Err(_) => parse_trusted_proxies(&default_trusted_proxies(*crate::worker::CLOUD_HOSTED)),
     };
     let header = std::env::var("CLIENT_IP_HEADER")
         .ok()
@@ -91,11 +92,15 @@ impl<S: Send + Sync> FromRequestParts<S> for ClientIp {
 }
 
 pub fn client_ip_of_parts(parts: &Parts) -> Option<IpAddr> {
-    let peer = parts
-        .extensions
+    client_ip_of(&parts.extensions, &parts.headers)
+}
+
+/// The same, for a handler holding the whole `Request` rather than its parts.
+pub fn client_ip_of(extensions: &Extensions, headers: &HeaderMap) -> Option<IpAddr> {
+    let peer = extensions
         .get::<ConnectInfo<SocketAddr>>()
         .map(|c| c.0.ip())?;
-    Some(resolve_client_ip(peer, &parts.headers, &CLIENT_IP_CONFIG))
+    Some(resolve_client_ip(peer, headers, &CLIENT_IP_CONFIG))
 }
 
 /// An IPv4 client of a dual-stack listener arrives as `::ffff:a.b.c.d`; compare it as IPv4 so
@@ -194,8 +199,17 @@ mod tests {
         }
     }
 
+    /// Cloud's default, which trusts the private ranges most cases here put a proxy on.
     fn defaults() -> ClientIpConfig {
-        cfg(&DEFAULT_TRUSTED_PROXIES.join(","), None)
+        cfg(&default_trusted_proxies(true), None)
+    }
+
+    #[test]
+    fn self_hosted_default_trusts_only_loopback() {
+        let c = cfg(&default_trusted_proxies(false), None);
+        let h = headers(&[("x-forwarded-for", b"5.5.5.5")]);
+        assert_eq!(resolve_client_ip(ip("10.0.0.1"), &h, &c), ip("10.0.0.1"));
+        assert_eq!(resolve_client_ip(ip("127.0.0.1"), &h, &c), ip("5.5.5.5"));
     }
 
     #[test]

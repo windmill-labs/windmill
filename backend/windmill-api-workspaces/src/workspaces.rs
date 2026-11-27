@@ -14469,6 +14469,7 @@ async fn load_workspace_authed(
             credential_expiry: base_authed.credential_expiry,
             mcp_client: base_authed.mcp_client.clone(),
             capabilities: None,
+            allowed_ips: None,
         });
     };
 
@@ -14511,6 +14512,7 @@ async fn load_workspace_authed(
         credential_expiry: base_authed.credential_expiry,
         mcp_client: base_authed.mcp_client.clone(),
         capabilities: None,
+        allowed_ips: None,
     })
 }
 

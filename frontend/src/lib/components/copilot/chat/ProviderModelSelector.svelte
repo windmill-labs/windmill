@@ -2,14 +2,8 @@
 	import { ChevronDown, Brain } from 'lucide-svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
-	import {
-		COPILOT_SESSION_MODEL_SETTING_NAME,
-		COPILOT_SESSION_PROVIDER_SETTING_NAME,
-		COPILOT_SESSION_REASONING_SETTING_NAME
-	} from '$lib/stores'
-	import { storeLocalSetting } from '$lib/utils'
-	import { copilotInfo, copilotSessionModel, tryResolveModelFor } from '$lib/aiStore'
-	import type { AIProvider } from '$lib/gen'
+	import { copilotInfo } from '$lib/aiStore'
+	import type { AIProvider, AIProviderModel } from '$lib/gen'
 	import {
 		getReasoningCapability,
 		resolveEffectiveReasoning,
@@ -17,14 +11,25 @@
 		type ReasoningProviderModel
 	} from '../reasoningRegistry'
 
+	interface Props {
+		/** The model a request would send, as resolved from the pick. */
+		model: ReasoningProviderModel | undefined
+		onPick: (pick: ReasoningProviderModel) => void
+		/** The models offered, when they are not the tab's workspace's (an AI session's). */
+		models?: AIProviderModel[]
+	}
+
+	let { model, onPick, models }: Props = $props()
+	let offered = $derived(models ?? $copilotInfo.aiModels)
+
 	let providerModel = $derived(
-		(tryResolveModelFor($copilotInfo, $copilotSessionModel) ?? {
+		(model ?? {
 			model: 'No model',
 			provider: 'No provider'
 		}) as ReasoningProviderModel
 	)
 
-	let multipleModels = $derived($copilotInfo.aiModels.length > 1)
+	let multipleModels = $derived(offered.length > 1)
 
 	let capability = $derived(
 		getReasoningCapability(providerModel.provider as AIProvider, providerModel.model)
@@ -35,25 +40,17 @@
 	let effortLabel = $derived(currentEffort ?? REASONING_OFF)
 
 	function selectReasoning(value: string) {
-		const reasoning = value === REASONING_OFF ? REASONING_OFF : value
-		$copilotSessionModel = {
-			...providerModel,
-			provider: providerModel.provider as AIProvider,
-			reasoning
-		}
 		// Pin the current model selection so the reasoning choice persists with it.
-		storeLocalSetting(COPILOT_SESSION_MODEL_SETTING_NAME, providerModel.model)
-		storeLocalSetting(COPILOT_SESSION_PROVIDER_SETTING_NAME, providerModel.provider)
-		storeLocalSetting(COPILOT_SESSION_REASONING_SETTING_NAME, reasoning)
+		onPick({ ...providerModel, reasoning: value })
 	}
 </script>
 
 {#if multipleModels}
 	<DropdownV2
 		items={() =>
-			$copilotInfo.aiModels.map((m) => ({
+			offered.map((m) => ({
 				displayName: m.model,
-				selected: m.model === providerModel.model,
+				selected: m.model === providerModel.model && m.provider === providerModel.provider,
 				action: () => {
 					// Carry the effort onto the new model only if it supports that level
 					// ('off' only where the model can truly disable); otherwise drop it so
@@ -64,10 +61,7 @@
 						carried === REASONING_OFF
 							? cap.canDisable
 							: carried !== undefined && cap.levels.includes(carried)
-					$copilotSessionModel = { ...m, ...(keep ? { reasoning: carried } : {}) }
-					storeLocalSetting(COPILOT_SESSION_MODEL_SETTING_NAME, m.model)
-					storeLocalSetting(COPILOT_SESSION_PROVIDER_SETTING_NAME, m.provider)
-					storeLocalSetting(COPILOT_SESSION_REASONING_SETTING_NAME, keep ? carried : undefined)
+					onPick({ ...m, ...(keep ? { reasoning: carried } : {}) })
 				}
 			}))}
 		placement="bottom-end"

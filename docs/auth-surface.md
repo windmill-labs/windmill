@@ -75,6 +75,12 @@ Symbols, not line numbers, are cited: they drift less.
   when the request sets `super_admin`; the MCP OAuth approve stores the same request on its code
   and refresh rows, and each exchange re-checks `password`. A new path minting an MCP token must
   ask the same question, or it reaches a different set of workspaces than the other two.
+  Losing it follows the owner without help from the caller: the deferred trigger
+  `password_superadmin_demote_tokens` clears the column on every token of an address that, at
+  commit, no longer has a superadmin `password` row (demotion, deletion, an import's
+  delete-and-reinsert), and evicts each through `notify_token_invalidation`. An email change does
+  not fire it, since SCIM's rename leaves the tokens under the old address. Gaining it does not
+  follow either: a promotion path updates the tokens itself, leaving MCP ones alone.
 - **Every superadmin route refuses a job token**: `require_super_admin`
   (`windmill-api-auth/src/lib.rs`) errors on `authed.job_id.is_some()`. A script that needs
   `users/create`, `tokens/impersonate`, `set_login_type`, … must use a dedicated superadmin user
@@ -234,12 +240,32 @@ Symbols, not line numbers, are cited: they drift less.
   `"true"` enables it when set.
 - **The client IP** (`windmill-common/src/client_ip.rs`, the `ClientIp` extractor) is the TCP
   peer unless that peer is in `TRUSTED_PROXIES` (comma-separated CIDRs; unset means loopback,
-  private and link-local ranges; `none` trusts nothing). Behind a trusted peer, `X-Forwarded-For`
+  plus the private ranges on cloud; empty or `none` trusts nothing). Audit entries record the
+  same address (`request_origin.rs` calls it), so a login refusal and its audit row agree. A
+  self-hosted instance behind a reverse proxy on a private address must list that proxy, or
+  the proxy is every request's client: trusting private ranges by default would let anyone on
+  the network in front name any address. Behind a trusted peer, `X-Forwarded-For`
   is read from the right up to the first untrusted hop, or, with `CLIENT_IP_HEADER` set, only that
   header (`CloudFront-Viewer-Address`, `CF-Connecting-IP`, an nginx `X-Real-IP`). `X-Real-IP` is
   never read implicitly: Caddy and most ingresses pass a client's own through. A CDN in front of
   the load balancer (CloudFront on app.windmill.dev) needs `CLIENT_IP_HEADER` or its ranges in
-  `TRUSTED_PROXIES`, or its edge address is the client. The private-range default also trusts
-  job containers that can reach the server directly; such a deployment should list its proxy's
-  exact address. Only the main API server carries the peer: a router called without connect
+  `TRUSTED_PROXIES`, or its edge address is the client. On cloud, the private-range default
+  also trusts job containers that can reach the server directly. Only the main API server carries the peer: a router called without connect
   info (tests, internal dispatch) sees `None`, and per-IP decisions skip or refuse it.
+- **`token.allowed_ips`** is EE. A CE build drops a stored list when it loads the token, so it
+  neither checks the list nor passes it on, and refuses a request that sets one. An EE build
+  keeps enforcing stored lists when its license lapses; only setting a new one needs a valid
+  license. The rest of this bullet describes an EE build. The column (`cidr[]`, `NULL` =
+  anywhere) restricts where a token row may be
+  used. `AuthCache::get_opt_job_authed` takes the request's client IP and refuses the token
+  outside its networks, or when the IP is unknown, so every path that resolves a request's
+  token passes that request's `ClientIp` (MCP's multi-workspace mode carries it in
+  `McpToken`). The list rides on the cached `ApiAuthed`, checked per request, never folded
+  into the cache entry. A restricted token cannot lift its restriction: every mint from the
+  caller's identity holds the new row within the caller's networks (the caller's list when
+  none is asked for). That is `create_token_internal` (`tokens/create`, app SDK and embed
+  tokens, native trigger webhook tokens, which then only work from those networks),
+  `tokens/impersonate` and service-account impersonation. `refresh_token`, the MCP OAuth
+  approve and `login_links` refuse a restricted caller, since what they lead to is a session
+  with no restriction. Not inherited, by design: a job's `WM_TOKEN` (a JWT; starting the job
+  already passed the check) and JWTs the server mints for its own loopback calls.

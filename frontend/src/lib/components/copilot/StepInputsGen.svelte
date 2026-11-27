@@ -264,7 +264,7 @@ input_name2: expression2
 						{:else}
 							Enable step input completion in the{' '}
 							<a
-								href="#user-settings"
+								href="#user-settings-ai"
 								class="inline-flex flex-row items-center gap-1"
 								onclick={(e) => {
 									if (!isNewTabClick(e)) close()

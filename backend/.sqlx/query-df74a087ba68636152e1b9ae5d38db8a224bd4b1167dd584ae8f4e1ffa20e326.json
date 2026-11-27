@@ -1,0 +1,72 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT label, token_prefix, expiration, created_at, last_used_at, scopes, workspace_id, read_only, allowed_ips::text[] AS allowed_ips FROM token WHERE email = $1\n            ORDER BY created_at DESC LIMIT $2 OFFSET $3",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "label",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "token_prefix",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "expiration",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 3,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 4,
+        "name": "last_used_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 5,
+        "name": "scopes",
+        "type_info": "TextArray"
+      },
+      {
+        "ordinal": 6,
+        "name": "workspace_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 7,
+        "name": "read_only",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 8,
+        "name": "allowed_ips",
+        "type_info": "TextArray"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      true,
+      false,
+      true,
+      false,
+      false,
+      true,
+      true,
+      false,
+      null
+    ]
+  },
+  "hash": "df74a087ba68636152e1b9ae5d38db8a224bd4b1167dd584ae8f4e1ffa20e326"
+}

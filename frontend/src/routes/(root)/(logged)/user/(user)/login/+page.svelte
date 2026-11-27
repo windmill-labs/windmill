@@ -23,6 +23,7 @@
 	import { refreshSuperadmin } from '$lib/refreshUser'
 	import { isValidLogoutRedirect, toSameOriginRelativePath } from '$lib/logoutRedirect'
 	import { confirmPendingLoginMethod } from '$lib/lastLoginMethod'
+	import { parseAccountSettingsHash } from '$lib/components/sidebar/settings'
 
 	const email = page.url.searchParams.get('email') ?? ''
 	const password = page.url.searchParams.get('password') ?? ''
@@ -113,8 +114,8 @@
 				// See (root)/+layout.svelte for why /projects/import skips the picker.
 			} else if (rd?.startsWith('/user/workspaces') || rd?.startsWith('/projects/import')) {
 				goto(rd)
-			} else if (rd == '/#user-settings') {
-				goto(`/user/workspaces#user-settings`)
+			} else if (rd && rd.startsWith('/#') && parseAccountSettingsHash(rd.slice(1))) {
+				goto(`/user/workspaces${rd.slice(1)}`)
 			} else {
 				goto(`/user/workspaces${rd ? `?rd=${encodeURIComponent(rd)}` : ''}`)
 			}

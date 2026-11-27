@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.885.0
+  version: 1.886.0
   title: Windmill API
 
   contact:
@@ -36,6 +36,26 @@ paths:
       responses:
         "200":
           description: git version of backend
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /client_ip:
+    get:
+      summary: get the caller's IP address
+      description: |
+        The address of the client making the request, as Windmill resolves it for per-IP checks such
+        as token IP allowlists: forwarding headers are believed only from the proxies in
+        TRUSTED_PROXIES. Behind a proxy that is not listed, this is the proxy's address. Empty when
+        the server cannot tell.
+      operationId: getClientIp
+      tags:
+        - settings
+      security: []
+      responses:
+        "200":
+          description: the caller's IP address
           content:
             text/plain:
               schema:
@@ -34079,6 +34099,11 @@ components:
           type: string
         read_only:
           type: boolean
+        allowed_ips:
+          type: array
+          description: IPs or CIDRs the token may be used from; absent when it may be used from anywhere.
+          items:
+            type: string
       required:
         - token_prefix
         - created_at
@@ -34215,6 +34240,15 @@ components:
             For an MCP token (an `mcp:` scope) owned by a superadmin: carry the owner's
             superadmin rights, reaching every workspace rather than only their
             memberships. Ignored for other tokens, which always carry them.
+        allowed_ips:
+          type: array
+          description: |
+            IPs or CIDRs (IPv4 or IPv6) the token may be used from; omit to allow any.
+            A request from elsewhere is refused as unauthenticated. A token that is itself
+            restricted can only create tokens within its own networks, and creates one
+            restricted to them when this is omitted.
+          items:
+            type: string
 
     NewTokenImpersonate:
       type: object
@@ -34228,6 +34262,11 @@ components:
           type: string
         workspace_id:
           type: string
+        allowed_ips:
+          type: array
+          description: IPs or CIDRs the token may be used from; omit to allow any.
+          items:
+            type: string
       required:
         - impersonate_email
 
