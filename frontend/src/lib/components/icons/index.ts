@@ -337,6 +337,7 @@ import ZabbixIcon from './ZabbixIcon.svelte'
 import EricssonIcon from './EricssonIcon.svelte'
 import LinkupIcon from './LinkupIcon.svelte'
 import SapIcon from './SapIcon.svelte'
+import AceDataCloudIcon from './AceDataCloudIcon.svelte'
 import type { Component } from 'svelte'
 /**
  * ./triggers/ holds desaturated variants of some marks in this folder, used by the four
@@ -367,6 +368,7 @@ import type { Component } from 'svelte'
  */
 
 export const APP_TO_ICON_COMPONENT = {
+	ace_data_cloud: AceDataCloudIcon,
 	postgresql: PostgresIcon,
 	mysql: Mysql,
 	smtp: Mail,
