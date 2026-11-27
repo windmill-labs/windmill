@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { enterpriseLicense, userStore } from '$lib/stores'
-	import UserSettings from '../../UserSettings.svelte'
+	import TokensDrawer from '$lib/components/account/TokensDrawer.svelte'
 	import { generateRandomString } from '$lib/utils'
 	import HighlightTheme from '../../HighlightTheme.svelte'
 	import Alert from '../../common/alert/Alert.svelte'
@@ -14,7 +14,7 @@
 
 	const operatingWorkspace = useOperatingWorkspace()
 
-	let userSettings: UserSettings | undefined = $state(undefined)
+	let userSettings: TokensDrawer | undefined = $state(undefined)
 	interface Props {
 		token: string
 		scopes?: string[]
@@ -52,10 +52,10 @@
 
 <HighlightTheme />
 
-<UserSettings
+<TokensDrawer
 	bind:this={userSettings}
-	on:tokenCreated={(e) => {
-		token = e.detail
+	onTokenCreated={(newToken) => {
+		token = newToken
 		triggerTokens?.listTokens()
 	}}
 	newTokenWorkspace={$operatingWorkspace}

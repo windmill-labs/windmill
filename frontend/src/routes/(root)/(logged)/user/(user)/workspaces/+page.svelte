@@ -19,12 +19,11 @@
 	} from '$lib/stores'
 	import { Button, Skeleton } from '$lib/components/common'
 	import Toggle from '$lib/components/Toggle.svelte'
-	import UserSettings from '$lib/components/UserSettings.svelte'
+	import AccountSettingsDrawers from '$lib/components/account/AccountSettingsDrawers.svelte'
 	import SuperadminSettings from '$lib/components/SuperadminSettings.svelte'
 	import WindmillIcon from '$lib/components/icons/WindmillIcon.svelte'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
-	import { USER_SETTINGS_HASH } from '$lib/components/sidebar/settings'
-	import { switchWorkspace } from '$lib/storeUtils'
+		import { switchWorkspace } from '$lib/storeUtils'
 	import {
 		GitFork,
 		Settings,
@@ -60,7 +59,7 @@
 	let workspaceHasForks = $state(false)
 	let workspaceTreeView: WorkspaceTreeView | undefined = $state(undefined)
 
-	let userSettings: UserSettings | undefined = $state()
+	let userSettings: AccountSettingsDrawers | undefined = $state()
 	let superadminSettings: SuperadminSettings | undefined = $state()
 
 	// Sanitized here rather than at each hand-off below: all four send an absolute `rd` to
@@ -79,10 +78,7 @@
 	})
 
 	run(() => {
-		if (userSettings && $page.url.hash.startsWith(USER_SETTINGS_HASH)) {
-			const mcpMode = $page.url.hash.includes('-mcp')
-			userSettings.openDrawer(mcpMode)
-		}
+		userSettings?.openFromHash($page.url.hash)
 	})
 
 	async function loadInvites() {
@@ -550,7 +546,7 @@
 						dropdownItems={[
 							{
 								label: 'User settings',
-								onClick: () => userSettings?.openDrawer(),
+								onClick: () => userSettings?.open('profile'),
 								icon: User
 							},
 							{ label: 'Log out', onClick: () => logout(), icon: LogOut }
@@ -562,7 +558,7 @@
 					<Button
 						variant="default"
 						unifiedSize="sm"
-						onClick={() => userSettings?.openDrawer()}
+						onClick={() => userSettings?.open('profile')}
 						startIcon={{ icon: Settings }}
 						dropdownItems={[{ label: 'Log out', onClick: () => logout(), icon: LogOut }]}
 					>
@@ -583,4 +579,4 @@
 		</p>
 	</div>
 </div> -->
-<UserSettings bind:this={userSettings} showMcpMode={true} />
+<AccountSettingsDrawers bind:this={userSettings} />
