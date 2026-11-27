@@ -354,11 +354,6 @@ export function formatTimestamp(ts: string): string {
   return new Date(ts).toISOString().replace("T", " ").substring(0, 19);
 }
 
-/**
- * "<status text>: <body>" for an error thrown by the generated API client,
- * undefined for anything else. Backend source references such as
- * `(flows.rs:1400)` are stripped from the body.
- */
 /** Whether the server refused the request's credential (HTTP 401). */
 export function isUnauthorized(e: unknown): boolean {
   return (
@@ -379,6 +374,11 @@ export const BOUND_TOKEN_HINT =
   "commands refuse it: log in again and pick 'All workspaces' on the login page, or create " +
   "one with `wmill token create --all-workspaces`.";
 
+/**
+ * "<status text>: <body>" for an error thrown by the generated API client,
+ * undefined for anything else. Backend source references such as
+ * `(flows.rs:1400)` are stripped from the body.
+ */
 export function apiErrorMessage(e: unknown): string | undefined {
   if (!(e && typeof e === "object" && "name" in e && e.name === "ApiError")) {
     return undefined;

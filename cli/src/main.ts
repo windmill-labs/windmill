@@ -338,7 +338,7 @@ async function main() {
     if (apiError !== undefined) {
       log.error("Server failed. " + apiError);
       if (isUnauthorized(e)) {
-        log.info(BOUND_TOKEN_HINT);
+        log.infoStderr(BOUND_TOKEN_HINT);
       }
     } else if (networkError !== undefined) {
       log.error(networkError);

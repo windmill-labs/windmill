@@ -357,7 +357,7 @@ export async function add(
     return;
   }
   while (!token) {
-    token = await loginInteractive(remote);
+    token = await loginInteractive(remote, workspaceId);
   }
 
   setClient(
@@ -626,7 +626,7 @@ async function login(opts: GlobalOptions, workspaceName?: string) {
     log.info(
       `Signing in again to ${workspace.workspaceId} on ${workspace.remote} for profile ${workspace.name}`
     );
-    token = await loginInteractive(workspace.remote);
+    token = await loginInteractive(workspace.remote, workspace.workspaceId);
   }
   if (!token) {
     log.info(colors.red.bold("! Login failed, the profile was left unchanged."));

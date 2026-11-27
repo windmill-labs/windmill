@@ -60,11 +60,11 @@
 	// Instance-wide by default: `wmill workspace add`, `workspace list/fork` and `instance`
 	// commands call instance-level endpoints, which a workspace-bound token is refused on. The
 	// owner's admin and superadmin rights are carried only when asked for.
+	// Binding is offered only for the workspace the CLI names (`&workspace=`): the CLI files the
+	// token under that profile, so a token bound to any other workspace would be refused there.
+	// An older CLI, or `wmill instance`, names none and gets an instance-wide token.
+	const cliWorkspace = page.url.searchParams.get('workspace') || undefined
 	let reach = $state<'workspace' | 'all'>('all')
-	let boundWorkspace = $state<string | undefined>(untrack(() => $workspaceStore))
-	const workspaceItems = $derived(
-		($usersWorkspaceStore?.workspaces ?? []).map((w) => ({ label: w.name, value: w.id }))
-	)
 	let carryAdmin = $state(false)
 	let carrySuperAdmin = $state(false)
 	const isAdminSomewhere = $derived(!!$userStore?.is_admin || !!$superadmin)
@@ -82,14 +82,22 @@
 			requestBody: {
 				label,
 				expiration,
-				workspace_id: reach === 'workspace' ? boundWorkspace : undefined,
+				workspace_id: reach === 'workspace' ? cliWorkspace : undefined,
 				admin: carryAdmin,
 				super_admin: carrySuperAdmin
 			}
 		})
 
 		const url =
-			scheme + '://' + host + ':' + port + '?token=' + newToken + '&workspace=' + $workspaceStore
+			scheme +
+			'://' +
+			host +
+			':' +
+			port +
+			'?token=' +
+			newToken +
+			'&workspace=' +
+			(cliWorkspace ?? $workspaceStore)
 		window.location.href = url
 	}
 </script>
@@ -112,36 +120,26 @@
 			Once it expires, the CLI asks you to sign in again.
 		</p>
 	</div>
-	<div class="flex flex-col gap-1 pt-4">
-		<span class="text-xs font-semibold text-emphasis">Works in</span>
-		<div class="flex flex-row flex-wrap items-center gap-2">
+	{#if cliWorkspace}
+		<div class="flex flex-col gap-1 pt-4">
+			<span class="text-xs font-semibold text-emphasis">Works in</span>
 			<ToggleButtonGroup bind:selected={reach} allowEmpty={false}>
 				{#snippet children({ item })}
 					<ToggleButton {item} value="all" label="All workspaces (instance-wide)" />
-					<ToggleButton {item} value="workspace" label="One workspace" />
+					<ToggleButton {item} value="workspace" label={`Only ${cliWorkspace}`} />
 				{/snippet}
 			</ToggleButtonGroup>
-			{#if reach === 'workspace'}
-				<div class="min-w-48">
-					<Select
-						bind:value={boundWorkspace}
-						placeholder="Pick a workspace"
-						inputClass="w-full"
-						items={workspaceItems}
-					/>
-				</div>
-			{/if}
+			<p class="text-2xs text-hint">
+				{#if reach === 'all'}
+					Needed for <code>wmill workspace add</code>, <code>workspace list</code>/<code>fork</code>
+					and <code>instance</code> commands.
+				{:else}
+					Enough to sync {cliWorkspace}; commands that reach other workspaces or the instance are
+					refused.
+				{/if}
+			</p>
 		</div>
-		<p class="text-2xs text-hint">
-			{#if reach === 'all'}
-				Needed for <code>wmill workspace add</code>, <code>workspace list</code>/<code>fork</code>
-				and <code>instance</code> commands.
-			{:else}
-				Enough to sync this one workspace; commands that reach other workspaces or the instance
-				are refused.
-			{/if}
-		</p>
-	</div>
+	{/if}
 	{#if (isAdminSomewhere && !carrySuperAdmin) || $superadmin}
 		<div class="flex flex-col gap-2 pt-4">
 			{#if isAdminSomewhere && !carrySuperAdmin}
@@ -173,8 +171,7 @@
 		<Button
 			variant="accent"
 			unifiedSize="lg"
-			onClick={authorizeToken}
-			disabled={reach === 'workspace' && !boundWorkspace}>Authorize</Button
+			onClick={authorizeToken}>Authorize</Button
 		>
 	</div>
 </CenteredModal>
