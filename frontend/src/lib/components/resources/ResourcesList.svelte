@@ -2,6 +2,10 @@
 	import { getLocalDraftHint } from '$lib/localDraftHints.svelte'
 	import { page } from '$app/state'
 	import oauthConnectRegistry from '$oauth_connect_registry'
+	import {
+		NATIVE_TRIGGER_SERVICES,
+		serviceForResourceType
+	} from '$lib/components/triggers/native/utils'
 	import { isNewTabClick } from '$lib/navigation'
 	import AppConnect from '$lib/components/AppConnectDrawer.svelte'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
@@ -69,6 +73,7 @@
 		Link,
 		Palette,
 		Pen,
+		Plug,
 		Plus,
 		RotateCw,
 		Save,
@@ -205,6 +210,7 @@
 	let appConnect: AppConnect | undefined = $state(undefined)
 	let supabaseConnect: SupabaseConnect | undefined = $state(undefined)
 	let deleteConfirmedCallback: (() => void) | undefined = $state(undefined)
+	let reconnectConfirm: { path: string; reconnect: () => void } | undefined = $state(undefined)
 	let deleteIsLinked = $state(false)
 	let deletePath = $state('')
 	let loading = $state({
@@ -888,6 +894,26 @@
 	</div>
 </ConfirmationModal>
 
+<ConfirmationModal
+	open={Boolean(reconnectConfirm)}
+	title="Reconnect resource"
+	confirmationText="Reconnect"
+	type="reload"
+	on:canceled={() => {
+		reconnectConfirm = undefined
+	}}
+	on:confirmed={() => {
+		reconnectConfirm?.reconnect()
+		reconnectConfirm = undefined
+	}}
+>
+	<span>
+		Once reconnected, every script, flow and trigger using
+		<span class="font-semibold break-all">{reconnectConfirm?.path}</span> acts as the account you sign
+		in with.
+	</span>
+</ConfirmationModal>
+
 <DeployWorkspaceDrawer bind:this={deploymentDrawer} />
 
 <Drawer bind:this={inferrer} size="800px">
@@ -1280,7 +1306,7 @@
 							</Head>
 							<tbody class="divide-y bg-surface">
 								{#if filteredItems}
-									{#each filteredItems as { path, description, resource_type, extra_perms, workspace_id, is_oauth, is_linked, account, refresh_error, is_expired, grant_type, scopes, marked, is_refreshed, labels, inherited_labels, ws_specific, draft_only, is_draft }}
+									{#each filteredItems as { path, description, resource_type, extra_perms, workspace_id, is_oauth, is_linked, account, refresh_error, is_expired, grant_type, scopes, client, is_workspace_integration, marked, is_refreshed, labels, inherited_labels, ws_specific, draft_only, is_draft }}
 										{@const hasDraft =
 											getLocalDraftHint($operatingWorkspace, 'resource', path) ?? is_draft}
 										{@const canWrite =
@@ -1397,7 +1423,11 @@
 																		<div>
 																			Latest exchange of the refresh token did not succeed. Error: {refresh_error}
 																		</div>
-																		{@render oauthIdentity(resource_type, grant_type)}
+																		{@render oauthIdentity(
+																			resource_type,
+																			grant_type,
+																			is_workspace_integration
+																		)}
 																		{@render oauthScopes(resource_type, scopes)}
 																	{/snippet}
 																</Popover>
@@ -1414,7 +1444,11 @@
 																			this variable is fetched or you can request is to be refreshed
 																			in the dropdown on the right.
 																		</div>
-																		{@render oauthIdentity(resource_type, grant_type)}
+																		{@render oauthIdentity(
+																			resource_type,
+																			grant_type,
+																			is_workspace_integration
+																		)}
 																		{@render oauthScopes(resource_type, scopes)}
 																	{/snippet}
 																</Popover>
@@ -1429,7 +1463,11 @@
 																			The resource was connected through OAuth and the token is not
 																			expired.
 																		</div>
-																		{@render oauthIdentity(resource_type, grant_type)}
+																		{@render oauthIdentity(
+																			resource_type,
+																			grant_type,
+																			is_workspace_integration
+																		)}
 																		{@render oauthScopes(resource_type, scopes)}
 																	{/snippet}
 																</Popover>
@@ -1519,6 +1557,34 @@
 																	}
 																}
 															},
+															...(is_oauth
+																? [
+																		{
+																			displayName: 'Reconnect',
+																			icon: Plug,
+																			disabled: !canWrite || !showCreateButtons,
+																			// A workspace app's account names its service, not a client.
+																			action: () => {
+																				const reconnect = () =>
+																					appConnect?.open?.(
+																						client?.endsWith('_sandbox') ? client : resource_type,
+																						path,
+																						scopes ?? [],
+																						is_workspace_integration ?? false
+																					)
+																				// Everyone using a shared resource acts as whoever reconnects it.
+																				if (
+																					path.startsWith('f/') ||
+																					Object.keys(extra_perms ?? {}).length > 0
+																				) {
+																					reconnectConfirm = { path, reconnect }
+																				} else {
+																					reconnect()
+																				}
+																			}
+																		}
+																	]
+																: []),
 															...(account != undefined
 																? [
 																		{
@@ -1717,11 +1783,24 @@
 
 <!-- Slack's bot and user tokens both come from the sign-in flow, so its grant does not
      say whose identity the token carries. -->
-{#snippet oauthIdentity(resourceType: string, grantType: string | undefined)}
+{#snippet oauthIdentity(
+	resourceType: string,
+	grantType: string | undefined,
+	viaWorkspaceApp: boolean | undefined
+)}
 	{#if grantType === 'client_credentials'}
 		<div class="mt-2">Connected as an app, with client credentials.</div>
 	{:else if !(oauthConnectRegistry as Record<string, any>)[resourceType]?.user_scopes}
 		<div class="mt-2">Connected as the user who connected it, with authorization code.</div>
+	{/if}
+	{@const service = viaWorkspaceApp ? serviceForResourceType(resourceType) : undefined}
+	{#if service}
+		<div class="mt-2">
+			Connected through the workspace's own {NATIVE_TRIGGER_SERVICES[service].serviceDisplayName} app
+			(Workspace settings → Integration triggers).
+		</div>
+	{:else if grantType !== 'client_credentials'}
+		<div class="mt-2">Connected through the instance's OAuth client.</div>
 	{/if}
 {/snippet}
 

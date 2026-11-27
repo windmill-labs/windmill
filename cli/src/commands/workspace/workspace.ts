@@ -1,5 +1,5 @@
 import { writeFile, open as fsOpen } from "node:fs/promises";
-import { readTextFile } from "../../utils/utils.ts";
+import { isUnauthorized, readTextFile } from "../../utils/utils.ts";
 import process from "node:process";
 import { GlobalOptions } from "../../types.ts";
 import type { WorkspaceEntryConfig } from "../../core/conf.ts";
@@ -28,6 +28,16 @@ export interface Workspace {
   workspaceId: string;
   name: string;
   token: string;
+}
+
+/** Whether the current client's token is accepted in `workspaceId`. */
+async function worksInWorkspace(workspaceId: string): Promise<boolean> {
+  try {
+    await wmill.whoami({ workspace: workspaceId });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export async function allWorkspaces(
@@ -347,7 +357,7 @@ export async function add(
     return;
   }
   while (!token) {
-    token = await loginInteractive(remote);
+    token = await loginInteractive(remote, workspaceId);
   }
 
   setClient(
@@ -360,10 +370,16 @@ export async function add(
       requestBody: { id: workspaceId },
     });
   } catch (e) {
-    log.info(
-      colors.red.bold("! Credentials or instance is invalid. Aborting.")
-    );
-    throw e;
+    // A token bound to one workspace is refused on this instance-level route. If it works in
+    // the workspace being added, that workspace exists.
+    if (isUnauthorized(e) && (await worksInWorkspace(workspaceId))) {
+      alreadyExists = true;
+    } else {
+      log.info(
+        colors.red.bold("! Credentials or instance is invalid. Aborting.")
+      );
+      throw e;
+    }
   }
   if (opts.create) {
     if (!alreadyExists) {
@@ -549,6 +565,106 @@ export async function removeWorkspace(
 
 async function remove(_opts: GlobalOptions, name: string) {
   await removeWorkspace(name, false, _opts);
+}
+
+const CLI_LOGIN_TOKEN_LABEL_PREFIX = "cli-login:";
+
+// Only a token the CLI's own browser login minted is revoked: a token pasted into the profile may
+// also be used elsewhere (CI, another machine), so deleting it could break more than this profile.
+async function revokeCliLoginToken(token: string): Promise<boolean> {
+  const prefix = token.substring(0, 10);
+  const perPage = 100;
+  for (let page = 1; page <= 50; page++) {
+    const tokens = await wmill.listTokens({ excludeEphemeral: true, page, perPage });
+    const match = tokens.find((t) => t.token_prefix === prefix);
+    if (match) {
+      if (!match.label?.startsWith(CLI_LOGIN_TOKEN_LABEL_PREFIX)) {
+        return false;
+      }
+      await wmill.deleteToken({ tokenPrefix: prefix });
+      return true;
+    }
+    if (tokens.length < perPage) {
+      return false;
+    }
+  }
+  return false;
+}
+
+async function login(opts: GlobalOptions, workspaceName?: string) {
+  const workspace = workspaceName
+    ? await getWorkspaceByName(workspaceName, opts.configDir)
+    : await getActiveWorkspace(opts);
+  if (!workspace) {
+    log.info(
+      colors.red.bold(
+        workspaceName
+          ? `! Workspace profile ${workspaceName} does not exist locally`
+          : "! No active workspace profile. Add one with 'wmill workspace add'."
+      )
+    );
+    return process.exit(1);
+  }
+  if (
+    opts.baseUrl &&
+    new URL(opts.baseUrl).toString() !== new URL(workspace.remote).toString()
+  ) {
+    log.info(
+      colors.red.bold(
+        `! --base-url ${opts.baseUrl} does not match profile ${workspace.name} (${workspace.remote}). Use 'wmill workspace add' for another instance.`
+      )
+    );
+    return process.exit(1);
+  }
+
+  let token = await tryGetLoginInfo(opts);
+  if (!token) {
+    if (!(process.stdin.isTTY ?? false)) {
+      log.info("Not a TTY, can't login interactively. Pass the token in --token");
+      return process.exit(1);
+    }
+    log.info(
+      `Signing in again to ${workspace.workspaceId} on ${workspace.remote} for profile ${workspace.name}`
+    );
+    token = await loginInteractive(workspace.remote, workspace.workspaceId);
+  }
+  if (!token) {
+    log.info(colors.red.bold("! Login failed, the profile was left unchanged."));
+    return process.exit(1);
+  }
+
+  const remote = workspace.remote.substring(0, workspace.remote.length - 1);
+  setClient(token, remote);
+  try {
+    await wmill.whoami({ workspace: workspace.workspaceId });
+  } catch (e) {
+    log.info(
+      colors.red.bold(
+        `! The new token cannot access workspace ${workspace.workspaceId}, the profile was left unchanged.`
+      )
+    );
+    throw e;
+  }
+
+  const oldToken = workspace.token;
+  await addWorkspace({ ...workspace, token }, opts);
+
+  // `wmill instance pull --include-workspaces` copies one token into the instance profile and
+  // every workspace profile it creates: revoking it would sign all the others out.
+  const { allInstances } = await import("../instance/instance.ts");
+  const stillReferenced =
+    (await allWorkspaces(opts.configDir)).some((w) => w.token === oldToken) ||
+    (await allInstances()).some((i) => i.token === oldToken);
+  if (oldToken && oldToken !== token && !stillReferenced) {
+    try {
+      if (await revokeCliLoginToken(oldToken)) {
+        log.info("Revoked the profile's previous token.");
+      }
+    } catch {
+      // Already expired or deleted, or owned by another user: nothing left to revoke.
+    }
+  }
+  log.info(colors.green.underline(`Successfully signed in again for profile ${workspace.name}`));
 }
 
 async function whoami(_opts: GlobalOptions) {
@@ -937,6 +1053,13 @@ const command = new Command()
   .description("Remove a workspace")
   .arguments("<workspace_name:string>")
   .action(remove as any)
+  .command("login")
+  .complete("workspace", async () => (await allWorkspaces()).map((x) => x.name))
+  .description(
+    "Sign in again for a workspace profile (default: the active one) and replace its token, e.g. to extend one about to expire. The previous token is revoked when the CLI's browser login created it."
+  )
+  .arguments("[workspace_name:string:workspace]")
+  .action(login as any)
   .command("whoami")
   .description("Show the currently active user")
   .action(whoami as any)

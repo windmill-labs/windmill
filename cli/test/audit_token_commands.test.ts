@@ -165,6 +165,49 @@ describe("token command", () => {
     });
   });
 
+  test("token create --scope + update-scopes", async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      await setupWorkspaceProfile(backend);
+      const scopesOf = async () => {
+        const r = await backend.runCLICommand(["token", "list", "--json"], tempDir);
+        return JSON.parse(r.stdout).find((t: any) => t.label === "cli-scoped-token");
+      };
+
+      // A scope carrying a comma must survive as one scope.
+      const created = await backend.runCLICommand(
+        [
+          "token", "create", "--label", "cli-scoped-token",
+          "--scope", "jobs:run", "--scope", "mcp:workspaces:a,b",
+        ],
+        tempDir
+      );
+      expect(created.code).toEqual(0);
+      const token = await scopesOf();
+      expect(token.scopes).toEqual(["jobs:run", "mcp:workspaces:a,b"]);
+
+      const narrowed = await backend.runCLICommand(
+        ["token", "update-scopes", token.token_prefix, "--scope", "scripts:read"],
+        tempDir
+      );
+      expect(narrowed.code).toEqual(0);
+      expect((await scopesOf()).scopes).toEqual(["scripts:read"]);
+
+      const noFlag = await backend.runCLICommand(
+        ["token", "update-scopes", token.token_prefix],
+        tempDir
+      );
+      expect(noFlag.code).not.toEqual(0);
+      expect((await scopesOf()).scopes).toEqual(["scripts:read"]);
+
+      const cleared = await backend.runCLICommand(
+        ["token", "update-scopes", token.token_prefix, "--clear"],
+        tempDir
+      );
+      expect(cleared.code).toEqual(0);
+      expect((await scopesOf()).scopes ?? null).toBeNull();
+    });
+  });
+
   test("default action (wmill token) lists tokens", async () => {
     await withTestBackend(async (backend, tempDir) => {
       await setupWorkspaceProfile(backend);

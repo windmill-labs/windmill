@@ -67,7 +67,7 @@
 	import LocalDraftBanner from '$lib/components/LocalDraftBanner.svelte'
 	import TriggerSuspendedJobsAlert from '../TriggerSuspendedJobsAlert.svelte'
 	import TriggerSuspendedJobsModal from '../TriggerSuspendedJobsModal.svelte'
-	import UserSettings from '$lib/components/UserSettings.svelte'
+	import TokensDrawer from '$lib/components/account/TokensDrawer.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import {
 		useOperatingUser,
@@ -183,7 +183,7 @@
 
 	let suspendedJobsModal = $state<TriggerSuspendedJobsModal | null>(null)
 	let originalConfig = $state<NewHttpTrigger | undefined>(undefined)
-	let userSettings = $state<UserSettings | undefined>(undefined)
+	let userSettings = $state<TokensDrawer | undefined>(undefined)
 
 	let hasChanged = $derived(!deepEqual(getRouteConfig(), originalConfig ?? {}))
 	let scopes = $derived(['http_triggers:read:' + path])
@@ -555,7 +555,7 @@
 {/if}
 
 {#if authentication_method === 'windmill'}
-	<UserSettings
+	<TokensDrawer
 		bind:this={userSettings}
 		newTokenWorkspace={wsId}
 		newTokenLabel={`http-${actingUser?.username ?? 'superadmin'}-${generateRandomString(4)}`}

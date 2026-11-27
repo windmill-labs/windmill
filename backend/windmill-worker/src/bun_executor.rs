@@ -20,11 +20,11 @@ use windmill_queue::{append_logs, CanceledBy, MiniPulledJob, PrecomputedAgentInf
 use crate::{
     check_no_network_jailed,
     common::{
-        build_command_with_isolation, create_args_and_out_file, get_reserved_variables,
-        parse_npm_config, read_file, read_file_content, read_result, resolve_nsjail_timeout,
-        resolve_nsjail_tmp_mount_block, resolve_nsjail_tmpfs_size_bytes, script_envars,
-        start_child_process, write_file_binary, MaybeLock, OccupancyMetrics, StreamNotifier,
-        DEV_CONF_NSJAIL,
+        build_command_with_isolation, create_args_and_out_file,
+        get_reserved_and_workspace_variables, get_reserved_variables, parse_npm_config, read_file,
+        read_file_content, read_result, resolve_nsjail_timeout, resolve_nsjail_tmp_mount_block,
+        resolve_nsjail_tmpfs_size_bytes, script_envars, start_child_process, write_file_binary,
+        MaybeLock, OccupancyMetrics, StreamNotifier, DEV_CONF_NSJAIL,
     },
     get_proxy_envs_for_lang, get_run_proxy_envs,
     handle_child::handle_child,
@@ -74,6 +74,33 @@ pub const RELATIVE_BUN_LOADER: &str = include_str!("../loader.bun.js");
 pub const RELATIVE_BUN_LOADER: &str = include_str!("../loader.bun.windows.js");
 
 pub const RELATIVE_BUN_BUILDER: &str = include_str!("../loader_builder.bun.js");
+
+/// Fill in the relative-import loader. `current_path` is not always a stored,
+/// `proper_id`-checked path (a Hub path keeps whatever follows its id, a preview path is
+/// request-supplied): it is written as a JS string literal in place of the quoted
+/// placeholder, and last, so no other placeholder expands inside it.
+fn render_relative_loader(
+    w_id: &str,
+    base_internal_url: &str,
+    token: &str,
+    current_path: &str,
+    raw_get_endpoint: &str,
+    temp_script_refs: &Option<HashMap<String, String>>,
+) -> Result<String> {
+    let temp_refs_json = temp_script_refs
+        .as_ref()
+        .and_then(|m| serde_json::to_string(m).ok())
+        .unwrap_or_else(|| "null".to_string());
+    let current_path = serde_json::to_string(&crate::common::use_flow_root_path(current_path))
+        .map_err(|e| error::Error::internal_err(format!("encoding job path: {e}")))?;
+    Ok(RELATIVE_BUN_LOADER
+        .replace("W_ID", w_id)
+        .replace("BASE_INTERNAL_URL", base_internal_url)
+        .replace("TOKEN", token)
+        .replace("RAW_GET_ENDPOINT", raw_get_endpoint)
+        .replace("TEMP_SCRIPT_REFS_PLACEHOLDER", &temp_refs_json)
+        .replace("\"CURRENT_PATH\"", &current_path))
+}
 
 const NSJAIL_CONFIG_RUN_BUN_CONTENT: &str = include_str!("../nsjail/run.bun.config.proto");
 const NSJAIL_CONFIG_INSTALL_BUN_CONTENT: &str = include_str!("../nsjail/install.bun.config.proto");
@@ -479,21 +506,14 @@ pub async fn gen_bun_lockfile(
         gen_bunfig(job_dir, job_id, w_id, db).await?;
         write_file(job_dir, "package.json", package_json_content.as_str())?;
     } else {
-        let temp_refs_json = temp_script_refs
-            .as_ref()
-            .and_then(|m| serde_json::to_string(m).ok())
-            .unwrap_or_else(|| "null".to_string());
-
-        let loader = RELATIVE_BUN_LOADER
-            .replace("W_ID", w_id)
-            .replace("BASE_INTERNAL_URL", base_internal_url)
-            .replace("TOKEN", token)
-            .replace(
-                "CURRENT_PATH",
-                &crate::common::use_flow_root_path(script_path),
-            )
-            .replace("RAW_GET_ENDPOINT", "raw")
-            .replace("TEMP_SCRIPT_REFS_PLACEHOLDER", &temp_refs_json);
+        let loader = render_relative_loader(
+            w_id,
+            base_internal_url,
+            token,
+            script_path,
+            "raw",
+            temp_script_refs,
+        )?;
 
         write_file(
             &job_dir,
@@ -659,7 +679,7 @@ async fn gen_bunfig(
     job_id: &Uuid,
     w_id: &str,
     db: Option<&Connection>,
-) -> Result<()> {
+) -> Result<Option<&'static str>> {
     let npmrc = if let Some(conn) = db {
         read_ee_registry_with_workspace_override(
             NPMRC.read().await.clone(),
@@ -720,17 +740,20 @@ pub(crate) const BUN_CONFIG_FILE: &str = "bunfig.toml";
 ///
 /// Shared with the debugger's `prepare-deps`, which resolves the same settings without a
 /// database (see `prepare_deps.rs`), so the two install paths configure bun identically.
+///
+/// Returns the name of the file written, if any: the job's modules are written into the job
+/// dir under their own names, so a `.npmrc` or `bunfig.toml` there is not necessarily ours.
 pub(crate) fn write_bun_registry_config(
     job_dir: &str,
     npmrc: Option<String>,
     registry: Option<String>,
     bunfig_install_scopes: Option<String>,
-) -> Result<()> {
+) -> Result<Option<&'static str>> {
     if let Some(ref npmrc_content) = npmrc {
         if !npmrc_content.trim().is_empty() {
             tracing::debug!("Writing .npmrc for bun from npmrc setting");
             write_file(job_dir, BUN_NPMRC_FILE, npmrc_content)?;
-            return Ok(());
+            return Ok(Some(BUN_NPMRC_FILE));
         }
     }
 
@@ -764,8 +787,9 @@ registry = {}
         );
         tracing::debug!("Writing bunfig.toml ({} bytes)", bunfig_toml.len());
         let _ = write_file(&job_dir, BUN_CONFIG_FILE, &bunfig_toml)?;
+        return Ok(Some(BUN_CONFIG_FILE));
     }
-    Ok(())
+    Ok(None)
 }
 
 /// An nsjail bind mount of `path` onto itself, skipped when the host path is missing.
@@ -836,7 +860,17 @@ fn expand_npmrc_value(value: &str, home: &str, envs: &HashMap<String, String>) -
 
 /// TLS files the install is pointed at (CA bundles, registry client certificates) live
 /// outside the jail's mounts: bind them in, read-only, so private registries keep working.
-fn install_ca_mounts(job_dir: &str, home: &str, envs: &HashMap<String, String>) -> String {
+///
+/// Every path named here is visible to the install's lifecycle scripts, so only the operator
+/// names one: the worker's env, its HOME config, and `registry_file`, the job dir file the
+/// worker just wrote from the registry settings. Any other `.npmrc` or `bunfig.toml` in the
+/// job dir is the job's own and is never read for mounts.
+fn install_ca_mounts(
+    job_dir: &str,
+    registry_file: Option<&str>,
+    home: &str,
+    envs: &HashMap<String, String>,
+) -> String {
     const CA_ENVS: [&str; 4] = [
         "NODE_EXTRA_CA_CERTS",
         "SSL_CERT_FILE",
@@ -851,12 +885,12 @@ fn install_ca_mounts(job_dir: &str, home: &str, envs: &HashMap<String, String>) 
         .map(|(_, v)| v.trim().to_string());
     // `.npmrc` lines and bunfig's `[install] cafile = "…"` share the `key = value` shape.
     let from_config = [
-        format!("{job_dir}/{BUN_NPMRC_FILE}"),
-        format!("{home}/.npmrc"),
-        format!("{job_dir}/{BUN_CONFIG_FILE}"),
-        format!("{home}/.bunfig.toml"),
+        registry_file.map(|f| format!("{job_dir}/{f}")),
+        Some(format!("{home}/.npmrc")),
+        Some(format!("{home}/.bunfig.toml")),
     ]
     .into_iter()
+    .flatten()
     .filter_map(|f| fs::read_to_string(f).ok())
     .flat_map(|content| {
         content
@@ -907,9 +941,77 @@ fn check_install_output(path: &str, name: &str) -> Result<bool> {
     }
 }
 
+/// Move what a jailed install left as `name` at `src` into the job dir, in place of what is
+/// there, refusing anything but what an install leaves under that name.
+async fn take_install_output(src: &str, job_dir: &str, name: &str) -> Result<()> {
+    let dst = format!("{job_dir}/{name}");
+    match fs::symlink_metadata(&dst) {
+        Ok(m) if m.is_dir() => tokio::fs::remove_dir_all(&dst).await?,
+        Ok(_) => tokio::fs::remove_file(&dst).await?,
+        Err(_) => {}
+    }
+    if fs::symlink_metadata(src).is_ok() {
+        fs::rename(src, &dst)?;
+        // Checked once out of the jail's mounts, where no jail can swap it.
+        if let Err(e) = check_install_output(&dst, name) {
+            let _ = fs::remove_file(&dst);
+            return Err(e);
+        }
+    }
+    Ok(())
+}
+
+/// The bun cache of one jailed install, in the job dir (inside [`BUN_INSTALL_COPY`] when
+/// the install runs there).
+///
+/// bun installs a cached package as found, without checking it against the lockfile's
+/// integrity hash, and what an install leaves in its cache depends on the job (its
+/// lifecycle scripts run with it writable, its lockfile names the tarballs). Each jail
+/// starts from an empty cache so that no install depends on another job's.
+const BUN_JAIL_CACHE: &str = ".wm-bun-cache";
+
+/// The copy of the job dir that a jailed install which cannot be staged gets in its place.
+/// The worker writes, reads and mounts many names of the job dir after the install
+/// (args.json, result.json, main.ts, shared, ...), so no install jail writes the job dir
+/// itself.
+const BUN_INSTALL_COPY: &str = ".wm-install";
+
+/// Make `path` a new, empty directory. Whatever is at that name (a module file, a leftover
+/// of a failed install) is removed, a symlink never followed.
+fn new_empty_dir(path: &str) -> std::io::Result<()> {
+    match fs::symlink_metadata(path) {
+        Ok(m) if m.is_dir() => fs::remove_dir_all(path)?,
+        Ok(_) => fs::remove_file(path)?,
+        Err(_) => {}
+    }
+    fs::create_dir(path)
+}
+
+/// Copy the regular files and directories of `src` into the existing directory `dst`,
+/// leaving out the entries of `src` named in `skip`. A symlink is left out, never followed.
+fn copy_for_install(
+    src: &std::path::Path,
+    dst: &std::path::Path,
+    skip: &[&str],
+) -> std::io::Result<()> {
+    for entry in fs::read_dir(src)? {
+        let entry = entry?;
+        let (name, typ) = (entry.file_name(), entry.file_type()?);
+        if skip.iter().any(|s| name == *s) {
+            continue;
+        }
+        if typ.is_dir() {
+            fs::create_dir(dst.join(&name))?;
+            copy_for_install(&entry.path(), &dst.join(name), &[])?;
+        } else if typ.is_file() {
+            fs::copy(entry.path(), dst.join(name))?;
+        }
+    }
+    Ok(())
+}
+
 /// Registry configuration bun reads from the install dir. It can hold an auth token, so
-/// a staged install gets it bind-mounted read-only from the job dir instead of a copy in
-/// the cache, which every later install jail mounts.
+/// a staged install gets it bind-mounted read-only from the job dir instead of a copy.
 const BUN_REGISTRY_FILES: [&str; 2] = [BUN_CONFIG_FILE, BUN_NPMRC_FILE];
 
 /// Open a directory without following a symlink at `path`.
@@ -943,14 +1045,13 @@ fn remove_entry_detached(dir: Arc<fs::File>, name: String) {
     }
 }
 
-/// A directory for one jailed bun install inside the bun cache, removed when dropped.
+/// A directory for one jailed bun install inside its bun cache, removed when dropped.
 ///
-/// The jail binds the job dir and the cache as two mounts, and link(2) fails across
-/// mounts, so bun would copy every file out of the cache instead of hardlinking it.
-/// Installing here and renaming node_modules into the job dir keeps the hardlinks.
+/// link(2) fails across mounts, so bun hardlinks out of its cache only into an install dir
+/// on the same mount. Installing here, with the cache as the jail's one mount, and renaming
+/// node_modules into the job dir keeps the hardlinks without giving the jail the job dir.
 ///
-/// Every install jail can write the cache, so any path through it may since have become a
-/// symlink. The worker reaches this dir only through descriptors opened without following
+/// The install jail writes the cache, so any path through it may become a symlink. The worker reaches this dir only through descriptors opened without following
 /// links before the jail runs ([`Self::entry`]); `path` is for the jail config alone.
 struct BunStagingDir {
     #[cfg(unix)]
@@ -1090,8 +1191,7 @@ fn bun_staging_dir(cache_dir: &str, job_dir: &str) -> Option<BunStagingDir> {
         let dir = open_dir_nofollow(&format!("{root_fd}/{name}")).ok()?;
         let path = format!("{root_path}/{name}");
         let staging = BunStagingDir { root, dir, name, path };
-        // A jail sharing the cache can list the new dir and plant a symlink in it before
-        // the worker writes there: every file is created new, never opened as found.
+        // Every file is created new, never opened as found.
         let create_new = |path: &str| {
             fs::OpenOptions::new()
                 .write(true)
@@ -1270,6 +1370,8 @@ pub async fn install_bun_lockfile(
         .unwrap_or_else(|| HOME_ENV.clone());
     let npm_logs_dir = format!("{job_dir}/{NPM_LOGS_DIR}");
     let npm_logs_dir_flag = format!("--logs-dir={npm_logs_dir}");
+    // Where the worker finds that log: elsewhere when the jail runs in a copy of the job dir.
+    let mut npm_logs_dir = npm_logs_dir.clone();
     let mut args = vec!["install"];
     // A bun flag: npm 12 rejects unknown cli flags instead of warning.
     if !npm_mode {
@@ -1363,10 +1465,15 @@ pub async fn install_bun_lockfile(
         }
     }
 
-    if !has_file {
-        gen_bunfig(job_dir, job_id, w_id, db).await?;
-    }
+    let registry_file = if has_file {
+        Some(BUN_NPMRC_FILE)
+    } else {
+        gen_bunfig(job_dir, job_id, w_id, db).await?
+    };
 
+    // The path in the jail: a copy of the job dir, when the install runs in one, is bound at
+    // the job dir's path.
+    let jail_cache = format!("{job_dir}/{BUN_JAIL_CACHE}");
     let make_cmd = |extra_args: &[String]| {
         let mut cmd = if sandboxed {
             let mut cmd = Command::new(NSJAIL_PATH.as_str());
@@ -1380,6 +1487,10 @@ pub async fn install_bun_lockfile(
             .envs(PROXY_ENVS.clone())
             .envs(&common_bun_proc_envs)
             .envs(&*crate::worker::WHITELIST_ENVS);
+        // After the envs above: none of them may point a jailed bun at another cache.
+        if sandboxed && !npm_mode {
+            cmd.env("BUN_INSTALL_CACHE_DIR", &jail_cache);
+        }
         if let Some(registry) = registry_env.as_ref() {
             cmd.env("NPM_CONFIG_REGISTRY", registry);
         }
@@ -1398,6 +1509,7 @@ pub async fn install_bun_lockfile(
         .collect();
 
     let mut staging = None;
+    let mut install_copy = None;
     if sandboxed {
         // Bind-mounted into the jail, so they must exist before nsjail builds the mount
         // tree.
@@ -1405,8 +1517,8 @@ pub async fn install_bun_lockfile(
         if npm_mode {
             let _ = std::fs::create_dir_all(format!("{home}/.npm"));
         } else {
-            std::fs::create_dir_all(&*BUN_CACHE_DIR)?;
-            staging = bun_staging_dir(&BUN_CACHE_DIR, job_dir);
+            new_empty_dir(&jail_cache)?;
+            staging = bun_staging_dir(&jail_cache, job_dir);
         }
         let install_dir = staging.as_ref().map_or(job_dir, |s| s.path.as_str());
         let bind = |src: &str, dst: &str, rw: bool| {
@@ -1414,15 +1526,11 @@ pub async fn install_bun_lockfile(
                 "mount {{\n    src: \"{src}\"\n    dst: \"{dst}\"\n    is_bind: true\n    rw: {rw}\n}}\n"
             )
         };
-        // npm never reads the bun cache, and its install scripts get no write to it.
-        let mut install_mounts = if npm_mode {
-            String::new()
-        } else {
-            bind(&BUN_CACHE_DIR, &BUN_CACHE_DIR, true)
-        };
+        let mut install_mounts = String::new();
         match staging.as_ref() {
-            // After the cache bind: these land inside it.
             Some(s) => {
+                install_mounts.push_str(&bind(&jail_cache, &jail_cache, true));
+                // After the cache bind: these land inside it.
                 for f in BUN_REGISTRY_FILES {
                     let src = format!("{job_dir}/{f}");
                     if fs::symlink_metadata(&src).is_ok_and(|m| m.is_file()) {
@@ -1430,7 +1538,25 @@ pub async fn install_bun_lockfile(
                     }
                 }
             }
-            None => install_mounts.push_str(&bind(job_dir, job_dir, true)),
+            // The install needs the job's files at the job dir's path: it gets a copy of them
+            // there, with its cache inside so that bun still hardlinks. node_modules is left
+            // out: the install writes its own, as a staged one does.
+            None => {
+                let copy = format!("{job_dir}/{BUN_INSTALL_COPY}");
+                new_empty_dir(&copy)?;
+                copy_for_install(
+                    job_dir.as_ref(),
+                    copy.as_ref(),
+                    &[BUN_INSTALL_COPY, BUN_JAIL_CACHE, "node_modules"],
+                )?;
+                if !npm_mode {
+                    let _ = fs::remove_dir_all(&jail_cache);
+                    fs::create_dir(format!("{copy}/{BUN_JAIL_CACHE}"))?;
+                }
+                install_mounts.push_str(&bind(&copy, job_dir, true));
+                npm_logs_dir = format!("{copy}/{NPM_LOGS_DIR}");
+                install_copy = Some(copy);
+            }
         }
         let nsjail_timeout = match db {
             Some(conn) => resolve_nsjail_timeout(conn, w_id, *job_id, None).await,
@@ -1456,7 +1582,7 @@ pub async fn install_bun_lockfile(
                 .replace("{TRACING_PROXY_CA_CERT_PATH}", &*TRACING_PROXY_CA_CERT_PATH)
                 .replace(
                     "{CA_MOUNT}",
-                    &install_ca_mounts(job_dir, &home, &install_envs),
+                    &install_ca_mounts(job_dir, registry_file, &home, &install_envs),
                 )
                 .replace("#{DEV}", DEV_CONF_NSJAIL)
                 .replace(
@@ -1557,32 +1683,20 @@ pub async fn install_bun_lockfile(
     }
     result?;
 
+    // The jail never had the job dir. Leave it as an install in place would have: what the
+    // install wrote or kept replaces the job dir's copy, what it removed is removed there
+    // too. Nothing else the jail wrote reaches the job dir.
     if let Some(staging) = staging {
-        // Leave the job dir as an install in place would have: what bun wrote or kept
-        // replaces the job dir's copy, what it removed is removed there too.
         for f in BUN_INSTALL_OUTPUTS {
-            let src = staging.entry(f);
-            let dst = format!("{job_dir}/{f}");
-            match fs::symlink_metadata(&dst) {
-                Ok(m) if m.is_dir() => tokio::fs::remove_dir_all(&dst).await?,
-                Ok(_) => tokio::fs::remove_file(&dst).await?,
-                Err(_) => {}
-            }
-            if fs::symlink_metadata(&src).is_ok() {
-                fs::rename(&src, &dst)?;
-                // Checked once out of the cache, where no other jail can swap it.
-                if let Err(e) = check_install_output(&dst, f) {
-                    let _ = fs::remove_file(&dst);
-                    return Err(e);
-                }
-            }
+            take_install_output(&staging.entry(f), job_dir, f).await?;
         }
-    } else if sandboxed {
-        // The jail could write the job dir: what the worker reads or mounts from it next
-        // must still be what an install leaves there.
+        drop(staging);
+        let _ = tokio::fs::remove_dir_all(&jail_cache).await;
+    } else if let Some(copy) = install_copy {
         for f in BUN_JOB_DIR_OUTPUTS {
-            check_install_output(&format!("{job_dir}/{f}"), f)?;
+            take_install_output(&format!("{copy}/{f}"), job_dir, f).await?;
         }
+        let _ = tokio::fs::remove_dir_all(&copy).await;
     }
 
     if has_file {
@@ -1611,21 +1725,14 @@ pub async fn build_loader(
 ) -> Result<()> {
     // Use forward slashes in JS strings to avoid backslash escape issues on Windows
     let job_dir_js = job_dir.replace('\\', "/");
-    let temp_refs_json = temp_script_refs
-        .as_ref()
-        .and_then(|m| serde_json::to_string(m).ok())
-        .unwrap_or_else(|| "null".to_string());
-
-    let loader = RELATIVE_BUN_LOADER
-        .replace("W_ID", w_id)
-        .replace("BASE_INTERNAL_URL", base_internal_url)
-        .replace("TOKEN", token)
-        .replace(
-            "CURRENT_PATH",
-            &crate::common::use_flow_root_path(current_path),
-        )
-        .replace("RAW_GET_ENDPOINT", "raw_unpinned")
-        .replace("TEMP_SCRIPT_REFS_PLACEHOLDER", &temp_refs_json);
+    let loader = render_relative_loader(
+        w_id,
+        base_internal_url,
+        token,
+        current_path,
+        "raw_unpinned",
+        temp_script_refs,
+    )?;
 
     if mode == LoaderMode::Node {
         write_file(
@@ -2247,7 +2354,10 @@ pub async fn compute_bundle_local_and_remote_path(
     temp_script_refs: &Option<HashMap<String, String>>,
     modules: Option<&HashMap<String, windmill_common::scripts::ScriptModule>>,
 ) -> (String, String) {
-    let mut input_src = format!("{inner_content}{lock}",);
+    // The loader inlines workspace scripts the import list cannot see (`import()`,
+    // `require()`, bare specifiers) from the job's workspace, relative to its path: a bundle
+    // is only ever the one of that workspace and path.
+    let mut input_src = format!("{w_id}\0{script_path}\0{inner_content}{lock}");
 
     if let Some(db) = db {
         // The bundle inlines the whole transitive relative-import closure, so a
@@ -2995,8 +3105,13 @@ try {{
             Ok(()) as Result<()>
         };
         let reserved_variables_f = async {
-            let vars =
-                get_reserved_variables(job, &client.token, conn, parent_runnable_path).await?;
+            // A native script is evaluated in the worker: no process is started with these.
+            let vars = if annotation.native {
+                get_reserved_and_workspace_variables(job, &client.token, conn, parent_runnable_path)
+                    .await?
+            } else {
+                get_reserved_variables(job, &client.token, conn, parent_runnable_path).await?
+            };
             Ok(vars) as Result<HashMap<String, String>>
         };
         let (_, reserved_variables) = tokio::try_join!(args_and_out_f, reserved_variables_f)?;
@@ -3788,14 +3903,22 @@ pub async fn handle_wac_v2_output(
             // The input a task with a runnable of its own is pushed with; the parent re-run gets
             // the parent's. Both the tag check and the push build it here, so the check resolves
             // `$args[...]` against what the child actually receives.
+            //
+            // These are values the workflow computed, and the SDK spreads a single object
+            // argument into them: an object forwarded from the workflow's own input lands key
+            // by key at the top level of the child's args, so the reserved control keys are
+            // dropped here as they are from the workflow's input.
             let own_args = |step: &WacStepDispatch| -> HashMap<String, Box<RawValue>> {
-                step.args
+                let mut args = step
+                    .args
                     .iter()
                     .map(|(k, v)| {
                         let raw = serde_json::value::to_raw_value(v).unwrap();
                         (k.clone(), raw)
                     })
-                    .collect()
+                    .collect();
+                windmill_common::jobs::sanitize_untrusted_args(&mut args);
+                args
             };
             let mut children: Vec<ResolvedChild> = Vec::with_capacity(num_steps);
             for step in &steps {
@@ -5615,6 +5738,137 @@ export function main(x: number) { return x; }"#;
         // An absent map and an empty one are the same script, so they share a slot.
         assert_eq!(key_for(None).await, key_for(Some(&HashMap::new())).await);
         assert_ne!(key_for(None).await, attacker);
+    }
+
+    /// The loader inlines workspace imports the key's import list does not see, from the
+    /// job's own workspace and relative to its path.
+    #[tokio::test]
+    async fn bundle_cache_key_separates_workspace_and_path() {
+        let key = |w_id: &'static str, path: &'static str| async move {
+            compute_bundle_local_and_remote_path(
+                "export async function main() { return (await import('./f.ts')).f(); }",
+                "{}\n//bun.lock\n<empty>",
+                path,
+                None,
+                w_id,
+                &None,
+                None,
+            )
+            .await
+            .1
+        };
+        let base = key("w1", "u/a/s").await;
+        assert_eq!(base, key("w1", "u/a/s").await);
+        assert_ne!(base, key("w2", "u/a/s").await);
+        assert_ne!(base, key("w1", "u/b/s").await);
+    }
+
+    /// A path that is not a stored one (a Hub path's tail, a preview's) stays a string
+    /// literal in the loader.
+    #[test]
+    fn loader_current_path_stays_a_string_literal() {
+        for path in [
+            "u/alice/script",
+            r#"hub/1/x";y();""#,
+            "hub/1/x\\\";y();//\nz()",
+            "hub/1/TEMP_SCRIPT_REFS_PLACEHOLDER",
+        ] {
+            let refs = Some(HashMap::from([("u/a/b".to_string(), "h".to_string())]));
+            let loader =
+                render_relative_loader("w", "http://localhost:8000", "t", path, "raw", &refs)
+                    .unwrap();
+            let literal = loader
+                .lines()
+                .find_map(|l| l.trim().strip_prefix("const current_path = "))
+                .and_then(|l| l.strip_suffix(';'))
+                .unwrap_or_else(|| panic!("no current_path line for {path:?}"));
+            assert_eq!(serde_json::from_str::<String>(literal).unwrap(), path);
+            assert_eq!(loader.lines().count(), RELATIVE_BUN_LOADER.lines().count());
+        }
+    }
+
+    /// A job's modules are written into the job dir under their own names, `.npmrc` and
+    /// `bunfig.toml` included: only the one the worker wrote may name host paths to mount.
+    #[test]
+    fn install_ca_mounts_ignores_registry_config_the_worker_did_not_write() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (job, home) = (tmp.path().join("job"), tmp.path().join("home"));
+        for d in [&job, &home] {
+            fs::create_dir_all(d).unwrap();
+        }
+        fs::write(
+            job.join(BUN_NPMRC_FILE),
+            "//registry.example/:certfile=/job/npmrc.pem\n",
+        )
+        .unwrap();
+        fs::write(
+            job.join(BUN_CONFIG_FILE),
+            "[install]\ncafile = \"/job/bunfig.pem\"\n",
+        )
+        .unwrap();
+        fs::write(home.join(".npmrc"), "cafile=/operator/ca.pem\n").unwrap();
+        let (job, home) = (job.to_str().unwrap(), home.to_str().unwrap());
+        let envs = HashMap::new();
+
+        let mounts = install_ca_mounts(job, None, home, &envs);
+        assert!(mounts.contains("\"/operator/ca.pem\""), "{mounts}");
+        assert!(!mounts.contains("/job/"), "{mounts}");
+
+        let mounts = install_ca_mounts(job, Some(BUN_NPMRC_FILE), home, &envs);
+        assert!(mounts.contains("\"/job/npmrc.pem\""), "{mounts}");
+        assert!(!mounts.contains("/job/bunfig.pem"), "{mounts}");
+    }
+
+    /// An install that cannot be staged runs in a copy of the job dir: no symlink of the job
+    /// dir reaches the jail, and of what the jail leaves only real install outputs come back.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn bun_install_copy_keeps_symlinks_out_of_the_jail_and_of_the_job_dir() {
+        use std::os::unix::fs::symlink;
+        let tmp = tempfile::tempdir().unwrap();
+        let (job, outside) = (tmp.path().join("job"), tmp.path().join("outside"));
+        for d in [&job.join("packages/x"), &job.join("node_modules"), &outside] {
+            fs::create_dir_all(d).unwrap();
+        }
+        fs::write(job.join("package.json"), "{}").unwrap();
+        fs::write(job.join("packages/x/index.ts"), "export {}").unwrap();
+        symlink(&outside, job.join("shared")).unwrap();
+        symlink(&outside, job.join("packages/x/link")).unwrap();
+
+        let copy = job.join(BUN_INSTALL_COPY);
+        new_empty_dir(copy.to_str().unwrap()).unwrap();
+        copy_for_install(&job, &copy, &[BUN_INSTALL_COPY, "node_modules"]).unwrap();
+        assert!(copy.join("packages/x/index.ts").is_file());
+        for left_out in [
+            "shared",
+            "packages/x/link",
+            "node_modules",
+            BUN_INSTALL_COPY,
+        ] {
+            assert!(
+                fs::symlink_metadata(copy.join(left_out)).is_err(),
+                "{left_out}"
+            );
+        }
+
+        // What a lifecycle script can do in the jail.
+        fs::write(copy.join("package.json"), "changed").unwrap();
+        symlink(&outside, copy.join("node_modules")).unwrap();
+        symlink(&outside, copy.join("args.json")).unwrap();
+
+        let (job_dir, copy) = (job.to_str().unwrap(), copy.to_str().unwrap());
+        take_install_output(&format!("{copy}/package.json"), job_dir, "package.json")
+            .await
+            .unwrap();
+        assert_eq!(
+            fs::read_to_string(job.join("package.json")).unwrap(),
+            "changed"
+        );
+        take_install_output(&format!("{copy}/node_modules"), job_dir, "node_modules")
+            .await
+            .unwrap_err();
+        assert!(fs::symlink_metadata(job.join("node_modules")).is_err());
+        assert!(fs::symlink_metadata(job.join("args.json")).is_err());
     }
 
     /// Build a codebase tar in memory; `link` adds a symlink entry named after a file the

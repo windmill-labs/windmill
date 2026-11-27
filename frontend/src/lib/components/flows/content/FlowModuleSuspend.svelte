@@ -181,6 +181,22 @@
 					<Toggle
 						size="xs"
 						textClass="text-xs font-normal text-primary"
+						disabled={!flowModule.suspend}
+						checked={Boolean(flowModule.suspend?.show_on_home)}
+						options={{
+							right: "List on approvers' home",
+							rightTooltip:
+								'A run waiting on this step shows on the home page of everyone who can approve it. Leave off when the request is sent through Slack, Discord or email.'
+						}}
+						on:change={(e) => {
+							if (flowModule.suspend) {
+								flowModule.suspend.show_on_home = e.detail
+							}
+						}}
+					/>
+					<Toggle
+						size="xs"
+						textClass="text-xs font-normal text-primary"
 						options={{
 							right: 'Continue on disapproval/timeout',
 							rightTooltip: `Instead of failing the flow and bubbling up the error, continue to the next step which would allow to put a branchone right after to handle both cases separately. 

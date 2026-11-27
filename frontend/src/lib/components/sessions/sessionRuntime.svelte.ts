@@ -43,8 +43,6 @@ import {
 } from '$lib/components/raw_apps/templates'
 import { capabilitiesInWorkspace, workspaceListLoaded } from '$lib/operatorWriteRights'
 import { random_adj } from '$lib/components/random_positive_adjetive'
-import { copilotWorkspace } from '$lib/aiStore'
-import { loadCopilot } from '$lib/components/copilot/loadCopilot'
 import { emptySchema, userPathPrefix, type StateStore } from '$lib/utils'
 import { localRunEnded, localRunStarted, runHeldElsewhere } from './sessionSync.svelte'
 import {
@@ -52,9 +50,11 @@ import {
 	getEffectiveWorkspaceId,
 	markSessionStateChanged,
 	materializeTransient,
+	pickSessionModel,
 	sessionState,
 	setGeneratedSessionSummary,
 	setSessionChatId,
+	setSessionModel,
 	setSessionPreviewCollapsed,
 	setSessionPreviewSize,
 	setSessionTabs,
@@ -394,6 +394,9 @@ function createRuntime(session: Session): SessionRuntime {
 	manager.sessionId = session.id
 	manager.workMode = session.workMode ?? AIWorkMode.BUILD
 	manager.onWorkModeChanged = (mode) => setSessionWorkMode(session.id, mode)
+	manager.modelPickResolver = () => sessionState.sessions.find((x) => x.id === session.id)?.model
+	manager.onModelPicked = (model) => pickSessionModel(session.id, model)
+	manager.onModelSettled = (model, replaced) => setSessionModel(session.id, model, replaced)
 	manager.directInResolver = () => sessionState.sessions.find((x) => x.id === session.id)?.direct_in
 	manager.workingInResolver = () => {
 		const s = sessionState.sessions.find((x) => x.id === session.id)
@@ -525,16 +528,6 @@ function createRuntime(session: Session): SessionRuntime {
 			throw new Error(
 				'the session workspace could not be created or committed (fork creation may have failed)'
 			)
-		}
-		// The composer may have been enabled by a previous workspace's copilot
-		// config (copilotInfo is global). getCurrentModel() reads it when the
-		// request builds just after this hook, so load the committed workspace's
-		// config first — otherwise a send right after switching workspaces could
-		// pick the old provider/model while the proxy + tools target the new one.
-		// SessionWrapper's active-session load usually already did this; skip the
-		// fetch when it matches (a staged fork commits to a fresh id its load missed).
-		if (get(copilotWorkspace) !== committed) {
-			await loadCopilot(committed)
 		}
 	}
 	manager.afterFirstTurnSaved = () => generateAndApplySessionSummary(session.id, manager)

@@ -189,6 +189,7 @@ export function main() {
                     parallel: false,
                     squash: None,
                     iteration_label: None,
+                    failure_threshold: None,
                     parallelism: None,
                     modules: vec![flow_module(
                         "c",
@@ -533,6 +534,7 @@ export function main() {
                 parallel: false,
                 squash: None,
                 iteration_label: None,
+                failure_threshold: None,
                 parallelism: None,
                 modules: vec![
                     // For each category, compute results using base_values
@@ -983,6 +985,7 @@ export function main() {
                     parallel: true,
                     squash: None,
                     iteration_label: None,
+                    failure_threshold: None,
                     parallelism: None,
                     modules: vec![flow_module(
                         "process",
@@ -1901,6 +1904,7 @@ export function main() {
                     parallel: false,
                     squash: None,
                     iteration_label: None,
+                    failure_threshold: None,
                     parallelism: None,
                     modules: vec![
                         // Step b: generate inner items based on category
@@ -2544,6 +2548,7 @@ export function main() {
                 parallelism: None,
                 squash: None,
                 iteration_label: None,
+                failure_threshold: None,
             },
         )],
         flow_env: Some(flow_env),
@@ -3310,6 +3315,7 @@ export function main(i: number) {
                 parallelism: None,
                 squash: None,
                 iteration_label: None,
+                failure_threshold: None,
             },
         );
         m.stop_after_all_iters_if = Some(windmill_common::flows::StopAfterIf {
@@ -3412,6 +3418,7 @@ export function main(i: number) {
                 parallelism: None,
                 squash: None,
                 iteration_label: None,
+                failure_threshold: None,
             },
         );
         m.stop_after_all_iters_if = Some(windmill_common::flows::StopAfterIf {

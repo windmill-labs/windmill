@@ -33,6 +33,8 @@ import { GlobalOptions } from "./types.ts";
 import { OpenAPI } from "../gen/index.ts";
 import {
   apiErrorMessage,
+  BOUND_TOKEN_HINT,
+  isUnauthorized,
   getHeaders,
   networkErrorMessage,
 } from "./utils/utils.ts";
@@ -335,6 +337,9 @@ async function main() {
     const networkError = networkErrorMessage(e);
     if (apiError !== undefined) {
       log.error("Server failed. " + apiError);
+      if (isUnauthorized(e)) {
+        log.infoStderr(BOUND_TOKEN_HINT);
+      }
     } else if (networkError !== undefined) {
       log.error(networkError);
     } else if (e instanceof Error) {

@@ -1,9 +1,15 @@
-import type { DisplayMessage, Tool, ToolDisplayMessage } from './shared'
+import {
+	isActiveRunForm,
+	type DisplayMessage,
+	type TestedItemKind,
+	type Tool,
+	type ToolDisplayMessage
+} from './shared'
 import { DRAFT_CONFLICT_RESULT, DRAFT_SAVE_FAILED_RESULT } from './draftWriteResults'
 import { webSearchResultOf } from './webSearchResult'
 
-// A tool missing from these lists, whose definition does not set `lookup` either, renders as
-// its own row, so a new write never gets hidden by default.
+// A tool missing from these lists, whose definition sets none of `lookup`, `testRun` and
+// `draftWrite`, renders as its own row, so a new write never gets hidden by default.
 
 type EditedItemKind = 'flow' | 'app'
 
@@ -45,25 +51,50 @@ const PATHLESS_FLOW_MODE_TOOLS = new Set([
 	'inspect_inline_script',
 	'get_lint_errors'
 ])
-/** The tool names whose definition sets `lookup` in the chat showing the transcript. A name
- * that chat does not define (a flow's own agent tools) is not one. */
-export type LookupTools = ReadonlySet<string>
+// The edits a test group takes between two runs of a script, besides the flow and app tools
+// above. edit_code is the script editor's own, which acts on the open script.
+const SCRIPT_EDIT_TOOLS = new Set(['write_script', 'edit_script', 'edit_code'])
 
-export function lookupToolNames(tools: Iterable<Tool<any>>): Set<string> {
-	const names = new Set<string>()
-	for (const tool of tools) if (tool.lookup) names.add(tool.def.function.name)
-	return names
+/** What the definitions in the chat showing the transcript declare, by tool name: the tools
+ * that set `lookup`, those that set `testRun` with the kind of item they run, and those that
+ * set `draftWrite` with the noun they count as. A name that chat does not define (a flow's own
+ * agent tools) is none of these. */
+export type GroupingTools = {
+	lookups: ReadonlySet<string>
+	testRuns: ReadonlyMap<string, TestedItemKind>
+	draftWrites: ReadonlyMap<string, string>
 }
+
+export function groupingToolsOf(tools: Iterable<Tool<any>>): GroupingTools {
+	const lookups = new Set<string>()
+	const testRuns = new Map<string, TestedItemKind>()
+	const draftWrites = new Map<string, string>()
+	for (const tool of tools) {
+		const name = tool.def.function.name
+		if (tool.lookup) lookups.add(name)
+		if (tool.testRun) testRuns.set(name, tool.testRun)
+		if (tool.draftWrite) draftWrites.set(name, tool.draftWrite)
+	}
+	return { lookups, testRuns, draftWrites }
+}
+
 export type ToolGroup = {
 	kind: 'group'
-	/** 'edit': edits of one flow or app. 'explore': consecutive lookups of anything.
-	 * 'waiting': calls queued behind the one running or awaiting the user. */
-	groupKind: 'edit' | 'explore' | 'waiting'
+	/** 'edit': edits of one flow or app. 'draft': draft writes of schedules, triggers,
+	 * resources and variables. 'explore': consecutive lookups of anything.
+	 * 'waiting': calls queued behind the one running or awaiting the user. 'test': test runs
+	 * of one item and its edits between them; it always ends on a run, whose card stays shown.
+	 */
+	groupKind: 'edit' | 'draft' | 'explore' | 'waiting' | 'test'
 	/** First call's id, so the group keeps its identity (and expand state) as it grows. */
 	key: string
-	/** Edit groups: the item's path, or '' for the flow open in the editor. */
+	/** Edit and test groups: the item's path, or '' for the item open in the editor. */
 	target: string
+	/** Draft groups: the noun each draft write tool's calls are counted as. */
+	draftNouns?: ReadonlyMap<string, string>
 	entries: { message: DisplayMessage; index: number }[]
+	/** Test groups: the kind of item run, and how many of the entries are its runs. */
+	tested?: { kind: TestedItemKind; runs: number }
 }
 
 export type ChatItem = { kind: 'message'; message: DisplayMessage; index: number } | ToolGroup
@@ -76,21 +107,38 @@ export function chatItemKey(item: ChatItem): string {
 	return `m:${item.index}`
 }
 
+// A row waiting on the user, or refused by plan mode, is a decision the user must see, and so
+// is the user's own refusal; a call held for folder instructions never ran, so it is not a
+// change, a lookup or a run. No group takes these.
+function standsAlone(message: ToolDisplayMessage): boolean {
+	return Boolean(
+		message.needsConfirmation ||
+			message.blockedByPlanMode ||
+			(message.outOfScope && !message.outOfScope.decision) ||
+			message.heldForFolderInstructions ||
+			message.userQuestion ||
+			message.secretRequest ||
+			message.declinedByUser
+	)
+}
+
+// A row with its own card (run, image, sources) is the content itself.
+function hasContentCard(message: ToolDisplayMessage): boolean {
+	return Boolean(
+		message.runForm ||
+			message.inspectedRun ||
+			message.imageUrl ||
+			message.webSearchSources ||
+			(!message.error && webSearchResultOf(message.result))
+	)
+}
+
 function groupableCall(message: DisplayMessage): ToolDisplayMessage | undefined {
 	if (message.role !== 'tool' || !message.toolName) return undefined
-	// A row waiting on the user, or refused by plan mode, is a decision the user must see; a
-	// row with its own card (run, question, diff, image, sources) is the content itself; a call
-	// held for folder instructions never ran, so it is not a change or a lookup.
-	if (message.needsConfirmation || message.blockedByPlanMode) return undefined
-	if (message.outOfScope && !message.outOfScope.decision) return undefined
-	if (message.heldForFolderInstructions) return undefined
-	if (message.runForm || message.inspectedRun || message.userQuestion) return undefined
-	// An app edit's diff covers one file of many, so it stays a row inside the app's group.
+	if (standsAlone(message) || hasContentCard(message)) return undefined
+	// A diff is the content too, but an app edit's diff covers one file of many, so it stays a
+	// row inside the app's group.
 	if (message.codeDiff && EDIT_TOOLS[message.toolName] !== 'app') return undefined
-	if (message.imageUrl || message.webSearchSources) return undefined
-	if (!message.error && webSearchResultOf(message.result)) return undefined
-	// The user's own refusal is a decision, not a failure to fold away.
-	if (message.declinedByUser) return undefined
 	return message
 }
 
@@ -110,25 +158,29 @@ function streamedPath(text: string): string | undefined {
 	}
 }
 
+// No `parameters` at all: a call queued before its arguments reached the row (tools that do
+// not stream them), so its item is not known yet. Arguments without a path mean the open item
+// only for a tool that can be offered without one; any other tool requires a path, so its
+// item is unknown.
+function callPath(call: ToolDisplayMessage, pathless: boolean): string | undefined {
+	if (typeof call.parameters === 'string') return streamedPath(call.parameters)
+	if (call.parameters === undefined) return undefined
+	// Arguments of JSON `null` reach the row too; they name no path.
+	const path = callParams(call).path
+	if (typeof path === 'string') return path
+	return pathless ? '' : undefined
+}
+
+function callParams(call: ToolDisplayMessage): Record<string, unknown> {
+	return typeof call.parameters === 'object' && call.parameters ? call.parameters : {}
+}
+
 function itemMembership(message: DisplayMessage): Membership | undefined {
 	const call = groupableCall(message)
 	if (!call) return undefined
-	const streaming = typeof call.parameters === 'string'
-	const params = streaming ? {} : (call.parameters ?? {})
+	const params = callParams(call)
 	const tool = call.toolName!
-	// No `parameters` at all: a call queued before its arguments reached the row (tools that do
-	// not stream them), so its item is not known yet. Arguments without a path mean the open
-	// flow only for a tool flow mode offers without one; any other tool requires a path, so
-	// its item is unknown.
-	const path = streaming
-		? streamedPath(call.parameters)
-		: call.parameters === undefined
-			? undefined
-			: typeof params.path === 'string'
-				? params.path
-				: PATHLESS_FLOW_MODE_TOOLS.has(tool)
-					? ''
-					: undefined
+	const path = callPath(call, PATHLESS_FLOW_MODE_TOOLS.has(tool))
 	if (Object.hasOwn(EDIT_TOOLS, tool)) return { kind: EDIT_TOOLS[tool], path, edit: true }
 	if (Object.hasOwn(ITEM_READ_TOOLS, tool)) {
 		return { kind: ITEM_READ_TOOLS[tool], path, edit: false }
@@ -146,9 +198,27 @@ function sameItem(a: Membership | undefined, b: Membership): boolean {
 	return a !== undefined && a.kind === b.kind && (a.path === undefined || a.path === b.path)
 }
 
-function isReadCall(message: DisplayMessage, lookups: LookupTools): boolean {
+// An agent is drafted through write_resource but gets its own way in (a preview chip, or an
+// Open agent action), and a group shows only one chip: it stays a row. Read from the
+// arguments, not the chip, which lands only once the save does. `resource_type` streams after
+// the value, so until it has arrived the call may be an agent and joins no group.
+function isNonAgentResourceWrite(call: ToolDisplayMessage): boolean {
+	const type =
+		typeof call.parameters === 'string'
+			? /"resource_type"\s*:\s*"([^"]*)"/.exec(call.parameters)?.[1]
+			: call.parameters?.resource_type
+	return typeof type === 'string' && type !== 'ai_agent'
+}
+
+function isDraftWrite(message: DisplayMessage, tools: GroupingTools): boolean {
 	const call = groupableCall(message)
-	return call !== undefined && lookups.has(call.toolName!)
+	if (call === undefined || !tools.draftWrites.has(call.toolName!)) return false
+	return call.toolName !== 'write_resource' || isNonAgentResourceWrite(call)
+}
+
+function isReadCall(message: DisplayMessage, tools: GroupingTools): boolean {
+	const call = groupableCall(message)
+	return call !== undefined && tools.lookups.has(call.toolName!)
 }
 
 // Thinking between two calls stays inside the group; visible text ends it. The live
@@ -220,7 +290,7 @@ function waitingGroupAt(
 	messages: DisplayMessage[],
 	start: number,
 	previous: ChatItem | undefined,
-	lookups: LookupTools
+	tools: GroupingTools
 ): ToolGroup | undefined {
 	if (!isWaitingCall(messages[start]) || !previous) return undefined
 	const ahead =
@@ -229,7 +299,7 @@ function waitingGroupAt(
 	const end = runEnd(
 		messages,
 		start,
-		(m, j) => isWaitingCall(m) && !kindGroupAt(messages, j, lookups)
+		(m, j) => isWaitingCall(m) && !kindGroupAt(messages, j, tools)
 	)
 	return {
 		kind: 'group',
@@ -240,30 +310,124 @@ function waitingGroupAt(
 	}
 }
 
+type TestedItem = { kind: TestedItemKind; path: string | undefined }
+
+// A run form waiting for the user's arguments is the thing they must act on, so it stays out
+// of every group until it is answered, and so does a run that has not reached its form yet:
+// joining before the form opens would fold the group, then unfold it as the form appears.
+function testRunOf(message: DisplayMessage, tools: GroupingTools): TestedItem | undefined {
+	if (message.role !== 'tool' || !message.toolName) return undefined
+	const kind = tools.testRuns.get(message.toolName)
+	if (!kind) return undefined
+	if (standsAlone(message) || isActiveRunForm(message)) return undefined
+	if (message.isQueued || message.isStreamingArguments) return undefined
+	// Failed with no job result: refused before any job started (an item that does not exist,
+	// arguments that do not parse), so it never ran and its row names no item to group by.
+	if (!message.runForm && message.error !== undefined && message.result === undefined) {
+		return undefined
+	}
+	// test_run_app_runnable runs without a form and nests its inputs under `args`, so its
+	// `path` is the app's.
+	if (kind === 'app') return { kind, path: callPath(message, false) }
+	// The global chat's runs open their form once prepared, so a loading row without one has
+	// not got there yet. The editors' runs never have a form, so they join once settled.
+	if (!message.runForm && message.isLoading) return undefined
+	// A run form replaces the row's `parameters` with the run's arguments, so its item is read
+	// off the form. test_run_code runs the code it is sent, so its runs are all of one item.
+	// The editors' runs act on the open item: their parameters are the run's own inputs, where
+	// a `path` is an argument, not an item.
+	if (message.runForm && kind !== 'code') return { kind, path: message.runForm.path }
+	return { kind, path: '' }
+}
+
+// The kind of item a call edits, for the edits a test group takes and counts. An agent is an
+// `ai_agent` resource, so it is edited through write_resource.
+function testedEditKind(call: ToolDisplayMessage): TestedItemKind | undefined {
+	const tool = call.toolName ?? ''
+	if (Object.hasOwn(EDIT_TOOLS, tool)) return EDIT_TOOLS[tool]
+	if (SCRIPT_EDIT_TOOLS.has(tool)) return 'script'
+	if (tool === 'write_resource' && callParams(call).resource_type === 'ai_agent') return 'agent'
+	return undefined
+}
+
+// An edit or read of the item between two of its runs: what the model changes before running
+// it again. Its diff folds with it, since the next run is what says whether the change worked.
+function touchesTestedItem(message: DisplayMessage, item: TestedItem): boolean {
+	if (message.role !== 'tool' || !message.toolName) return false
+	if (standsAlone(message) || hasContentCard(message)) return false
+	const tool = message.toolName
+	const type = callParams(message).type
+	const kind: TestedItemKind | undefined =
+		testedEditKind(message) ??
+		ITEM_READ_TOOLS[tool] ??
+		(tool === 'read_workspace_item' && (type === 'script' || type === 'flow' || type === 'app')
+			? type
+			: tool === 'read_workspace_item' && message.readsAgent
+				? 'agent'
+				: undefined)
+	if (!kind) return false
+	const path = callPath(message, PATHLESS_FLOW_MODE_TOOLS.has(tool) || tool === 'edit_code')
+	return sameTestedItem(item, { kind, path })
+}
+
+// An editor holds one item, so two pathless calls act on the same one whatever their kind:
+// the script editor's lint check is filed under the flow tools.
+// A call whose path has not arrived yet stays with the group, as in an edit group.
+function sameTestedItem(item: TestedItem, other: TestedItem): boolean {
+	if (item.path === '' && (other.path === '' || other.path === undefined)) return true
+	return other.kind === item.kind && (other.path === undefined || other.path === item.path)
+}
+
+function testGroupAt(
+	messages: DisplayMessage[],
+	start: number,
+	tools: GroupingTools
+): ToolGroup | undefined {
+	const item = testRunOf(messages[start], tools)
+	if (!item || item.path === undefined) return undefined
+	let end = runEnd(messages, start, (m) => {
+		const run = testRunOf(m, tools)
+		return run ? sameTestedItem(item, run) : touchesTestedItem(m, item)
+	})
+	// Edits after the last run are not yet tested, so they are left to group as edits.
+	while (end > start && !testRunOf(messages[end], tools)) end--
+	const runs = messages.slice(start, end + 1).filter((m) => testRunOf(m, tools)).length
+	if (runs < 2) return undefined
+	const group = toolGroup(messages, start, end, 'test', item.path)
+	return group && { ...group, tested: { kind: item.kind, runs } }
+}
+
 // An edit group wins over an explore group: its reads belong to the edits they prepare, so an
 // explore run also stops before a read that starts one. Both win over a waiting row, which
-// stops before either: its header says less than `Edit f/a/flow · 2 changes`.
+// stops before either: its header says less than `Edit f/a/flow · 2 changes`. A test group
+// starts on a run, which no other group takes, so it never competes for a start.
 function kindGroupAt(
 	messages: DisplayMessage[],
 	start: number,
-	lookups: LookupTools
+	tools: GroupingTools
 ): ToolGroup | undefined {
 	const explores = (m: DisplayMessage, j: number) =>
-		isReadCall(m, lookups) && !editGroupAt(messages, j)
+		isReadCall(m, tools) && !editGroupAt(messages, j)
+	const drafts = (m: DisplayMessage) => isDraftWrite(m, tools)
+	const draftGroup = drafts(messages[start])
+		? toolGroup(messages, start, runEnd(messages, start, drafts), 'draft', '')
+		: undefined
 	return (
+		testGroupAt(messages, start, tools) ??
 		editGroupAt(messages, start) ??
-		(isReadCall(messages[start], lookups)
+		(draftGroup && { ...draftGroup, draftNouns: tools.draftWrites }) ??
+		(isReadCall(messages[start], tools)
 			? toolGroup(messages, start, runEnd(messages, start, explores), 'explore', '')
 			: undefined)
 	)
 }
 
-export function groupToolRuns(messages: DisplayMessage[], lookups: LookupTools): ChatItem[] {
+export function groupToolRuns(messages: DisplayMessage[], tools: GroupingTools): ChatItem[] {
 	const items: ChatItem[] = []
 	let i = 0
 	while (i < messages.length) {
 		const group =
-			kindGroupAt(messages, i, lookups) ?? waitingGroupAt(messages, i, items.at(-1), lookups)
+			kindGroupAt(messages, i, tools) ?? waitingGroupAt(messages, i, items.at(-1), tools)
 		if (group) {
 			items.push(group)
 			i = group.entries.at(-1)!.index + 1
@@ -284,6 +448,9 @@ function sameChatItem(a: ChatItem, b: ChatItem): boolean {
 		a.groupKind === b.groupKind &&
 		a.key === b.key &&
 		a.target === b.target &&
+		a.draftNouns === b.draftNouns &&
+		a.tested?.kind === b.tested?.kind &&
+		a.tested?.runs === b.tested?.runs &&
 		a.entries.length === b.entries.length &&
 		a.entries.every((e, i) => e.message === b.entries[i].message && e.index === b.entries[i].index)
 	)
@@ -298,12 +465,12 @@ function sameChatItem(a: ChatItem, b: ChatItem): boolean {
  * in place, for its grouping to update. */
 export function createChatItemGrouper(): (
 	messages: DisplayMessage[],
-	lookups: LookupTools
+	tools: GroupingTools
 ) => ChatItem[] {
 	let settled: DisplayMessage[] = []
 	let settledItems: ChatItem[] = []
-	let settledLookups: LookupTools | undefined
-	return (messages, lookups) => {
+	let settledTools: GroupingTools | undefined
+	return (messages, tools) => {
 		// The live answer only ever comes last, and it can neither join nor end a group
 		// differently than the end of the transcript does, so it is grouped on its own and the
 		// rows before it are not regrouped while it streams.
@@ -311,14 +478,14 @@ export function createChatItemGrouper(): (
 		const live = last?.role === 'assistant' && last.streaming ? last : undefined
 		const n = live ? messages.length - 1 : messages.length
 		if (
-			lookups !== settledLookups ||
+			tools !== settledTools ||
 			n !== settled.length ||
 			settled.some((m, i) => m !== messages[i])
 		) {
 			const previous = new Map(settledItems.map((item) => [chatItemKey(item), item]))
 			settled = messages.slice(0, n)
-			settledLookups = lookups
-			settledItems = groupToolRuns(settled, lookups).map((item) => {
+			settledTools = tools
+			settledItems = groupToolRuns(settled, tools).map((item) => {
 				const before = previous.get(chatItemKey(item))
 				return before && sameChatItem(before, item) ? before : item
 			})
@@ -379,6 +546,16 @@ export type GroupState = 'queued' | 'running' | 'settled'
 // keeps its first kinds legible instead of being cut off by the row's ellipsis.
 const LISTED_KINDS = 3
 
+// What a test group's header names when its runs took no path: the item open in the editor,
+// or for test_run_code the code it was sent.
+const OPEN_ITEM: Record<TestedItemKind, string> = {
+	flow: 'the flow',
+	app: 'the app',
+	script: 'the script',
+	agent: 'the agent',
+	code: 'code'
+}
+
 /** The group's header, e.g. `Edited` + `f/a/flow · 3 changes`,
  * `search workspace 2 times, read 2 workspace item`, `github` + `list issues, get issue 2 times`.
  * `more` holds the kinds left out of `label`. */
@@ -398,6 +575,19 @@ export function groupHeader(
 			more: names.slice(LISTED_KINDS)
 		}
 	}
+	if (group.groupKind === 'test' && group.tested) {
+		const { kind, runs } = group.tested
+		const edits = calls.filter((m) => testedEditKind(m) && !callFailed(m)).length
+		return {
+			prefix: { queued: 'Test', running: 'Testing', settled: 'Tested' }[state],
+			label: [
+				group.target || OPEN_ITEM[kind],
+				plural(runs, 'run'),
+				...(edits ? [plural(edits, 'change')] : [])
+			].join(' · '),
+			more: []
+		}
+	}
 	if (group.groupKind === 'edit') {
 		const edits = calls.filter(
 			(m) => Object.hasOwn(EDIT_TOOLS, m.toolName ?? '') && !callFailed(m)
@@ -405,6 +595,20 @@ export function groupHeader(
 		return {
 			prefix: { queued: 'Edit', running: 'Editing', settled: 'Edited' }[state],
 			label: `${group.target || 'the flow'} · ${plural(edits, 'change')}`,
+			more: []
+		}
+	}
+	if (group.groupKind === 'draft') {
+		const drafted = new Map<string, number>()
+		for (const call of calls) {
+			if (callFailed(call)) continue
+			const kind = group.draftNouns?.get(call.toolName!) ?? 'draft'
+			drafted.set(kind, (drafted.get(kind) ?? 0) + 1)
+		}
+		const kinds = [...drafted].map(([kind, n]) => plural(n, kind))
+		return {
+			prefix: { queued: 'Draft', running: 'Drafting', settled: 'Drafted' }[state],
+			label: kinds.length ? kinds.join(', ') : plural(0, 'draft'),
 			more: []
 		}
 	}

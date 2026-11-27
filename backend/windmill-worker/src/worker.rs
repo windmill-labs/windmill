@@ -137,8 +137,8 @@ use crate::{
     bun_executor::handle_bun_job,
     common::{
         build_args_map, cached_result_path, get_cached_resource_value_if_valid,
-        get_reserved_variables, get_root_job_id, update_worker_ping_for_failed_init_script,
-        OccupancyMetrics,
+        get_reserved_and_workspace_variables, get_root_job_id,
+        update_worker_ping_for_failed_init_script, OccupancyMetrics,
     },
     csharp_executor::handle_csharp_job,
     deno_executor::handle_deno_job,
@@ -6897,7 +6897,8 @@ pub async fn run_language_executor(
         .await;
 
         let mut reserved_variables =
-            get_reserved_variables(job, &client.token, conn, parent_runnable_path).await?;
+            get_reserved_and_workspace_variables(job, &client.token, conn, parent_runnable_path)
+                .await?;
         // Same reason as in `build_nativets_env_code`.
         if windmill_common::worker::TypeScriptAnnotations::parse(&code).no_network {
             reserved_variables.remove("WM_TOKEN");
@@ -6978,6 +6979,13 @@ mount {{
 
     #[allow(unused_mut)]
     let mut envs = build_envs(envs.as_ref())?;
+    // `get_reserved_variables` keeps the workspace's env vars off the process that execs
+    // nsjail: they go, overriding the script's own, to the jailed child only.
+    if is_sandboxing_enabled() {
+        envs.extend(
+            windmill_common::variables::get_cached_workspace_envs(conn, &job.workspace_id).await,
+        );
+    }
     // Signal pipeline context to the script so the wmll.ducklake SDK helpers
     // record materialization state (the grid/backfill) and skip it otherwise.
     if in_pipeline {
@@ -7064,7 +7072,7 @@ mount {{
         states: Vec::new(),
         writable: Vec::new(),
         client: None,
-        lease_renewal: crate::volume_oss::LeaseRenewalGuard(None),
+        lease_renewal: Default::default(),
     };
 
     #[cfg(feature = "parquet")]
@@ -7609,11 +7617,9 @@ mount {{
     // Volume sync-back and lease release
     #[cfg(feature = "parquet")]
     if !volume_setup.states.is_empty() {
-        // Stop lease renewal before sync-back
-        volume_setup.lease_renewal.0.take().map(|h| h.abort());
-
-        if let Some(ref vol_client) = volume_setup.client {
-            if let Connection::Sql(db) = conn {
+        let lease_renewal = std::mem::take(&mut volume_setup.lease_renewal);
+        match (conn, volume_setup.client.as_ref()) {
+            (Connection::Sql(db), Some(vol_client)) => {
                 Box::pin(crate::volume_oss::sync_volumes_sql_worker(
                     &volume_setup.states,
                     &volume_setup.writable,
@@ -7624,23 +7630,25 @@ mount {{
                     worker_name,
                     conn,
                     result.is_ok(),
+                    lease_renewal,
                 ))
                 .await;
             }
-        }
-
-        if let Connection::Http(http) = conn {
-            Box::pin(crate::volume_oss::sync_volumes_http_worker(
-                &volume_setup.states,
-                &volume_setup.writable,
-                http,
-                &job.workspace_id,
-                job.id,
-                worker_name,
-                conn,
-                result.is_ok(),
-            ))
-            .await;
+            (Connection::Http(http), _) => {
+                Box::pin(crate::volume_oss::sync_volumes_http_worker(
+                    &volume_setup.states,
+                    &volume_setup.writable,
+                    http,
+                    &job.workspace_id,
+                    job.id,
+                    worker_name,
+                    conn,
+                    result.is_ok(),
+                    lease_renewal,
+                ))
+                .await;
+            }
+            (Connection::Sql(_), None) => {}
         }
 
         // Clean up absolute-path symlinks created by setup_volume_mount_paths

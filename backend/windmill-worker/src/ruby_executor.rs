@@ -22,7 +22,7 @@ use windmill_queue::{append_logs, CanceledBy, MiniPulledJob};
 
 use crate::{
     common::{
-        build_command_with_isolation, create_args_and_out_file, get_reserved_variables,
+        build_command_with_isolation, create_args_and_out_file, get_reserved_variables, proto_str,
         read_result, resolve_nsjail_timeout, resolve_nsjail_tmp_mount_block, script_envars,
         script_overrides, start_child_process, OccupancyMetrics, DEV_CONF_NSJAIL,
     },
@@ -704,7 +704,7 @@ async fn install<'a>(
                     &job_dir,
                     nsjail_proto,
                     &NSJAIL_CONFIG_DOWNLOAD_RUBY_CONTENT
-                        .replace("{TARGET}", &dependency.path)
+                        .replace("{TARGET}", &proto_str(&dependency.path))
                         .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
                         .replace("{TRACING_PROXY_CA_CERT_PATH}", &*TRACING_PROXY_CA_CERT_PATH)
                         .replace("{TMP_MOUNT_BLOCK}", &nsjail_tmp_mount_block)
@@ -803,11 +803,12 @@ async fn run<'a>(
         let shared_deps = top_level_paths
             .into_iter()
             .map(|pp| {
+                let pp = proto_str(&pp);
                 format!(
                     r#"
 mount {{
-    src: "{pp}"
-    dst: "{pp}"
+    src: {pp}
+    dst: {pp}
     is_bind: true
     rw: false
 }}

@@ -17,7 +17,8 @@ benchmark = []
 parquet = []
 aws_auth = ["dep:aws-sdk-sts", "dep:aws-config"]
 otel = ["dep:opentelemetry-semantic-conventions", "dep:opentelemetry-otlp", "dep:opentelemetry_sdk",
-    "dep:tracing-opentelemetry", "dep:opentelemetry-appender-tracing", "dep:tonic", "dep:opentelemetry"]
+    "dep:tracing-opentelemetry", "dep:opentelemetry-appender-tracing", "dep:tonic", "dep:opentelemetry",
+    "dep:opentelemetry-http", "dep:reqwest_otel"]
 smtp = ["dep:mail-send", "dep:rustls", "dep:tokio-rustls", "dep:rustls-native-certs", "dep:webpki-roots"]
 scoped_cache = []
 cloud = []
@@ -142,6 +143,9 @@ opentelemetry = { workspace = true, optional = true }
 tracing-opentelemetry = { workspace = true, optional = true }
 opentelemetry-appender-tracing = { workspace = true, optional = true }
 tonic = { workspace = true, optional = true }
+opentelemetry-http = { workspace = true, optional = true }
+# The reqwest the OTLP/HTTP exporter is built on, for a client of our own around it.
+reqwest_otel = { package = "reqwest", version = "0.12", features = ["blocking"], optional = true }
 equivalent = "1.0.2"
 
 [dev-dependencies]

@@ -1,0 +1,65 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE token SET last_used_at = now() WHERE\n                        token_hash = $1\n                        AND (expiration > NOW() OR expiration IS NULL)\n                        AND (workspace_id IS NULL OR workspace_id = $2)\n                    RETURNING owner, email, super_admin, scopes, label, read_only,\n                        allowed_ips::text[] AS allowed_ips, admin",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "owner",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "email",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "super_admin",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 3,
+        "name": "scopes",
+        "type_info": "TextArray"
+      },
+      {
+        "ordinal": 4,
+        "name": "label",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 5,
+        "name": "read_only",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 6,
+        "name": "allowed_ips",
+        "type_info": "TextArray"
+      },
+      {
+        "ordinal": 7,
+        "name": "admin",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      true,
+      true,
+      false,
+      true,
+      true,
+      false,
+      null,
+      false
+    ]
+  },
+  "hash": "3c2031a385e80273a15d45d45ede51c89c6fdadfcce19f23c518040e82d1df69"
+}

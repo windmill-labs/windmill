@@ -801,3 +801,83 @@ async fn test_require_isolated_forks(db: Pool<Postgres>) -> anyhow::Result<()> {
 
     Ok(())
 }
+
+#[sqlx::test(fixtures("base"))]
+async fn test_require_sso(db: Pool<Postgres>) -> anyhow::Result<()> {
+    sqlx::raw_sql(
+        "INSERT INTO workspace (id, name, owner) VALUES ('sso-ws', 'sso-ws', 'test-user');
+         INSERT INTO workspace_settings (workspace_id) VALUES ('sso-ws');
+         INSERT INTO group_ (workspace_id, name, summary, extra_perms) VALUES
+             ('sso-ws', 'all', 'All users', '{}');
+         INSERT INTO usr (workspace_id, email, username, is_admin, role) VALUES
+             ('sso-ws', 'test@windmill.dev', 'test-user', true, 'Admin');
+         INSERT INTO password (email, login_type, verified, username) VALUES
+             ('sso@windmill.dev', 'google', true, 'sso-user'),
+             ('pw@windmill.dev', 'password', true, 'pw-user'),
+             ('pw-bypass@windmill.dev', 'password', true, 'pw-bypass')",
+    )
+    .execute(&db)
+    .await?;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let api = format!("http://localhost:{}/api", server.addr.port());
+    let post = |path: String, body: serde_json::Value| {
+        authed(client().post(format!("{api}{path}")), "SECRET_TOKEN").json(&body)
+    };
+    let add = |email: &str| {
+        post(
+            "/w/sso-ws/workspaces/add_user".to_string(),
+            json!({"email": email, "is_admin": false, "operator": false}),
+        )
+    };
+
+    let resp = post(
+        "/w/sso-ws/workspaces/protection_rules".to_string(),
+        json!({"name": "sso", "rules": ["RequireSso"], "bypass_groups": [], "bypass_users": ["pw-bypass"]}),
+    )
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+
+    let resp = add("pw@windmill.dev").send().await?;
+    let status = resp.status();
+    let text = resp.text().await?;
+    assert_eq!(status, 400, "a password account must not join: {text}");
+    assert!(text.contains("requires SSO"), "{text}");
+
+    for email in ["sso@windmill.dev", "pw-bypass@windmill.dev"] {
+        let resp = add(email).send().await?;
+        assert_eq!(resp.status(), 201, "{email}: {}", resp.text().await?);
+    }
+
+    let to_password = |email: &str| {
+        post(
+            format!("/users/set_login_type/{email}"),
+            json!({"login_type": "password"}),
+        )
+    };
+    let resp = to_password("sso@windmill.dev").send().await?;
+    assert_eq!(resp.status(), 400, "{}", resp.text().await?);
+    let login_type: String =
+        sqlx::query_scalar("SELECT login_type FROM password WHERE email = 'sso@windmill.dev'")
+            .fetch_one(&db)
+            .await?;
+    assert_eq!(login_type, "google");
+
+    // A bypasser is not held by the rule.
+    let resp = to_password("pw-bypass@windmill.dev").send().await?;
+    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+
+    // Every new member is in `all`, so bypassing it admits anyone.
+    let resp = post(
+        "/w/sso-ws/workspaces/protection_rules/sso".to_string(),
+        json!({"name": "sso", "rules": ["RequireSso"], "bypass_groups": ["all"], "bypass_users": []}),
+    )
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+    let resp = add("pw@windmill.dev").send().await?;
+    assert_eq!(resp.status(), 201, "{}", resp.text().await?);
+
+    Ok(())
+}

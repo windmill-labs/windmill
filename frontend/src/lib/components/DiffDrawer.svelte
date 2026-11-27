@@ -402,6 +402,7 @@
 							scope={aiReviewScope}
 							source="draft_diff"
 							info={aiChat.loadedSessionAiTarget?.info}
+							defaultModel={aiChat.isSessionChat ? aiChat.currentModel : undefined}
 						/>
 					{/key}
 				</div>

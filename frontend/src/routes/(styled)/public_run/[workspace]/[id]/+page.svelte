@@ -7,10 +7,11 @@
 	import { setViewToken } from '$lib/viewToken'
 	import { setLicense } from '$lib/enterpriseUtils'
 	import { applyDarkModeVariant } from '$lib/darkModeVariant'
-	import { displayDate, isNotFlow, truncateRev } from '$lib/utils'
+	import { displayDate, isNotFlow, truncateRev, type StateStore } from '$lib/utils'
 	import { Alert, Badge, Button, Skeleton } from '$lib/components/common'
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
 	import FlowStatusViewer from '$lib/components/FlowStatusViewer.svelte'
+	import FlowProgressBar from '$lib/components/flows/FlowProgressBar.svelte'
 	import JobArgs from '$lib/components/JobArgs.svelte'
 	import JobLoader from '$lib/components/JobLoader.svelte'
 	import JobStatus from '$lib/components/JobStatus.svelte'
@@ -53,6 +54,9 @@
 	let notfound = $state(false)
 	let loadError: { status?: number; message?: string } | undefined = $state(undefined)
 	let jobLoader: JobLoader | undefined = $state(undefined)
+
+	// Runs nested under the flow that wait for events, filled by the graph as it loads them.
+	let suspendStatus: StateStore<Record<string, { job: Job; nb: number }>> = $state({ val: {} })
 
 	let isFlow = $derived(job != undefined && !isNotFlow(job?.job_kind))
 
@@ -156,7 +160,16 @@
 			</div>
 
 			{#if isFlow}
+				<!-- Drawn from the loaded job alone: it reads nothing the share token does not. -->
+				<FlowProgressBar
+					{job}
+					slim
+					textPosition="bottom"
+					showStepId
+					waitingNested={Object.keys(suspendStatus.val).length > 0}
+				/>
 				<FlowStatusViewer
+					bind:suspendStatus
 					jobId={job.id}
 					initialJob={job}
 					workspaceId={workspace}

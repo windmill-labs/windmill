@@ -67,7 +67,7 @@
 	let css = $state(initCss($app.css?.timeinputcomponent, untrack(() => customCss)))
 	$effect.pre(() => {
 		resolvedConfig.defaultValue
-		!value && untrack(() => handleDefault(resolvedConfig.defaultValue))
+		untrack(() => handleDefault(resolvedConfig.defaultValue))
 	})
 	$effect.pre(() => {
 		if (value) {
@@ -102,6 +102,9 @@
 
 			// At the end, set the validity
 			outputs?.validity.set(isValid)
+		} else {
+			outputs?.result.set(undefined)
+			outputs?.validity.set(true)
 		}
 		fireOnChange()
 	})

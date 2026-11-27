@@ -4,6 +4,7 @@ import {
   globalToolsFor,
   prepareGlobalUserMessage,
 } from "../../../../../frontend/src/lib/components/copilot/chat/global/core";
+import { createCodeSelection } from "../../../../../frontend/src/lib/components/copilot/chat/context";
 import { assembleGlobalSystemMessage } from "../../../../../frontend/src/lib/components/copilot/chat/global/globalAssembly";
 import {
   canBuild,
@@ -23,7 +24,14 @@ import { filterSessionTools } from "../../../../../frontend/src/lib/components/c
 import { usersWorkspaceStore } from "../../../../../frontend/src/lib/stores";
 import { resolveResourceTypeSync } from "../../../../../frontend/src/lib/components/copilot/chat/script/core";
 import { appendPlanModeInstructions } from "../../../../../frontend/src/lib/components/copilot/chat/planMode";
-import type { Tool as ProductionTool } from "../../../../../frontend/src/lib/components/copilot/chat/shared";
+import type {
+  Tool as ProductionTool,
+  ToolCallbacks,
+} from "../../../../../frontend/src/lib/components/copilot/chat/shared";
+import {
+  saveSecretRequest,
+  secretFieldsOf,
+} from "../../../../../frontend/src/lib/components/copilot/chat/secretRequest";
 import { createEvalPlanTools } from "./planModeTools";
 import { createEvalPipelineEditors } from "./evalPipelineEditors";
 import { pipelineTools } from "../../../../../frontend/src/lib/components/copilot/chat/pipeline/core";
@@ -39,7 +47,9 @@ import {
   type EvalPreviewTabFixture,
 } from "./evalPreviewTabs";
 import type {
+  EvalCaseCodeSelection,
   EvalCaseProfile,
+  EvalSecretRequestAnswer,
   ModeRunContext,
   PipelineRunSpec,
 } from "../../../../core/types";
@@ -137,6 +147,7 @@ export interface GlobalEvalOptions {
   // Start in plan mode: the gate refuses every tool without `planModeSafe`, and the two plan
   // tools are offered. Needs sessionChat, which is what plan mode is gated on in production.
   planMode?: boolean;
+  codeSelections?: EvalCaseCodeSelection[];
   // The user's rights, resolved as a session resolves them; unset keeps full access.
   profile?: EvalCaseProfile;
   // Run the pipeline the chat drafted once it is over (`validate.pipelineRun`).
@@ -144,6 +155,7 @@ export interface GlobalEvalOptions {
   model?: string;
   maxIterations?: number;
   userAnswers?: string[];
+  secretRequests?: EvalSecretRequestAnswer[];
   provider?: AIProvider;
   backend: WindmillBackendSettings;
   // Artifacts the session already holds when the run starts.
@@ -151,6 +163,37 @@ export interface GlobalEvalOptions {
   /** Tabs already open in the side panel, including any artifact version the reader pinned. */
   previewTabs?: EvalPreviewTabFixture[];
   runContext?: ModeRunContext;
+}
+
+/** The user's side of the secret card: an answer saves through the card's own save, with a
+ * placeholder for each secret, or dismisses it; a card past the last answer is dismissed. */
+function scriptedSecretCard(
+  answers: EvalSecretRequestAnswer[],
+): NonNullable<ToolCallbacks["requestSecret"]> {
+  const pending = [...answers];
+  return async (_toolId, request) => {
+    const answer = pending.shift();
+    if (!answer || answer.action === "dismiss") return undefined;
+    const outcome = await saveSecretRequest(
+      request,
+      {
+        path: request.path,
+        replace: request.replace ?? false,
+        secrets: Object.fromEntries(
+          secretFieldsOf(request).map((f) => [
+            f.field,
+            `eval-secret-${f.field || "value"}`,
+          ]),
+        ),
+        fields: request.resource && {
+          ...request.resource.value,
+          ...answer.fields,
+        },
+      },
+      new Set(),
+    );
+    return answer.check ? { ...outcome, check: answer.check } : outcome;
+  };
 }
 
 export async function runGlobalEval(
@@ -246,6 +289,9 @@ export async function runGlobalEval(
         pipelineFolders: pipelineEditors?.folders(),
       });
     const baseSystemMessage = assembleSystemMessage();
+    const codeSelections = (options.codeSelections ?? []).map(({ source, ...selection }) =>
+      createCodeSelection(source, selection),
+    );
     const helpers = {
       ...evalArtifacts.helpers,
       // A standalone chat has no session: the tools that behave differently in one (a pipeline
@@ -272,10 +318,12 @@ export async function runGlobalEval(
             }
           : undefined,
       isPlanModeActive: planMode?.isPlanModeActive,
+      requestSecret:
+        options.secretRequests && scriptedSecretCard(options.secretRequests),
       isToolAvailable: (name) =>
         (!pipelineToolNames.has(name) || (pipelineEditors?.folders().length ?? 0) > 0) &&
         (planMode?.isToolAvailable?.(name) ?? true),
-      userMessage: prepareGlobalUserMessage(userPrompt, [], {
+      userMessage: prepareGlobalUserMessage(userPrompt, codeSelections, {
         ...(injectActiveEditorContext ? { workspace: workspaceRoot } : {}),
         activePreview: panel?.activePreview(),
         resourceTypeSync: await resolveResourceTypeSync(workspaceRoot, []),

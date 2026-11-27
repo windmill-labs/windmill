@@ -1,5 +1,6 @@
 import { AI_DECISION_SCHEMA } from '../../flows/flowInfers'
 import type {
+	ChatCompletionContentPart,
 	ChatCompletionFunctionTool,
 	ChatCompletionMessageFunctionToolCall,
 	ChatCompletionMessageParam
@@ -38,11 +39,11 @@ import { get } from 'svelte/store'
 import type { PasteAttachment } from './pasteTokens'
 import { dataUrlToImagePart, type AttachedImage } from './imageUtils'
 import type { AttachedTextFile } from './textFileUtils'
-import type { CodePieceElement, ContextElement, FlowModuleCodePieceElement } from './context'
+import type { ContextElement } from './context'
 import { isUserContextPath } from './context'
 import { workspaceStore } from '$lib/stores'
 import type { ExtendedOpenFlow } from '$lib/components/flows/types'
-import { findModuleInFlow, findModuleInModules } from '$lib/components/flows/flowTree'
+import { findModuleInFlow } from '$lib/components/flows/flowTree'
 import { agentTestInputTransforms } from '$lib/components/flows/agentFormFields'
 import type { FunctionParameters } from 'openai/resources/shared.mjs'
 import { z } from 'zod'
@@ -79,6 +80,7 @@ import type { editor as meditor } from 'monaco-editor'
 import { pendingFolderInstructions, type FolderInstructionsContext } from './folderInstructions'
 import type { WebSearchSource } from './webSearchResult'
 import { runOnServer } from './global/backendSessionTools'
+import { mcpUnavailableMessage } from './global/mcpUnavailable'
 import { isAgentStream } from '../../aiAgentResult'
 
 // Prettify function for code arguments - extracts and formats code from JSON
@@ -354,48 +356,6 @@ export const extractAllModules = (modules: FlowModule[]): FlowModule[] => {
 	})
 }
 
-const applyCodePieceToCodeContext = (codePieces: CodePieceElement[], codeContext: string) => {
-	let code = codeContext.split('\n')
-	let shiftOffset = 0
-	codePieces.sort((a, b) => a.startLine - b.startLine)
-	for (const codePiece of codePieces) {
-		code.splice(codePiece.endLine + shiftOffset, 0, '[#END]')
-		code.splice(codePiece.startLine + shiftOffset - 1, 0, '[#START]')
-		shiftOffset += 2
-	}
-	return code.join('\n')
-}
-
-export function applyCodePiecesToFlowModules(
-	codePieces: FlowModuleCodePieceElement[],
-	flowModules: FlowModule[]
-): FlowModule[] {
-	const moduleCodePieces = new Map<string, FlowModuleCodePieceElement[]>()
-	for (const codePiece of codePieces) {
-		const moduleId = codePiece.id
-		if (!moduleCodePieces.has(moduleId)) {
-			moduleCodePieces.set(moduleId, [])
-		}
-		moduleCodePieces.get(moduleId)!.push(codePiece)
-	}
-
-	// Clone modules to avoid mutation
-	const modifiedModules = JSON.parse(JSON.stringify(flowModules))
-
-	// Apply code pieces to each module
-	for (const [moduleId, pieces] of moduleCodePieces) {
-		const module = findModuleInModules(modifiedModules, moduleId)
-		if (module && module.value.type === 'rawscript' && module.value.content) {
-			module.value.content = applyCodePieceToCodeContext(
-				pieces as unknown as CodePieceElement[],
-				module.value.content
-			)
-		}
-	}
-
-	return modifiedModules
-}
-
 export function buildContextString(selectedContext: ContextElement[]): string {
 	const dbTemplate = `- {title}: SCHEMA: \n{schema}\n`
 	const codeTemplate = `
@@ -427,13 +387,7 @@ export function buildContextString(selectedContext: ContextElement[]): string {
 			codeContext += codeTemplate
 				.replace('{title}', context.title)
 				.replace('{language}', scriptLangToEditorLang(context.lang))
-				.replace(
-					'{code}',
-					applyCodePieceToCodeContext(
-						selectedContext.filter((c) => c.type === 'code_piece'),
-						context.content
-					)
-				)
+				.replace('{code}', context.content)
 		} else if (context.type === 'error') {
 			if (hasError) {
 				throw new Error('Multiple error contexts provided')
@@ -585,6 +539,67 @@ export type UserQuestionDisplay = {
 	canceled?: boolean
 }
 
+/** What the AI asks the user to type into the secret card. The value itself never appears
+ * here or anywhere else in the transcript: the card saves it as a secret variable and the
+ * chat only ever learns the variable's path. */
+export type SecretRequest = {
+	workspace: string
+	/** The resource's path when `resource` is set, else the secret variable's. */
+	path: string
+	/** What the user is giving or connecting, as they would name it ("OpenAI API key",
+	 * "OpenAI"). */
+	label: string
+	description?: string
+	/** The steps to get it at the user's provider, written by the AI as markdown. */
+	helpText?: string
+	/** Set to connect a service: one confirmation saves the secrets and creates the resource. */
+	resource?: SecretRequestResource
+	/** The user asked to replace what is at `path`. Without it, `request_secret` refuses a
+	 * taken path before the card shows. */
+	replace?: boolean
+}
+
+export type SecretRequestResource = {
+	type: string
+	/** The non-secret fields the AI prepared, which the user can correct on the card. */
+	value: Record<string, unknown>
+	/** The fields the user types, each saved as a secret variable the resource references. A
+	 * field without a label is shown by its key (`secretFieldsOf`). */
+	secretFields: { field: string; label?: string }[]
+	/** Set for a type the card can also take as a connection string, which it splits in the
+	 * browser: the user switches between the string and the fields, and `true` opens on the
+	 * string. */
+	connectionString?: boolean
+}
+
+/** `path` is the resource's or the variable's, as in the request; `variables` holds the
+ * secrets. */
+export type SecretRequestOutcome = {
+	path: string
+	replaced: boolean
+	variables: string[]
+	/** The saved resource's connection check, for a type that has one. */
+	check?: { ok: true } | { ok: false; error: string }
+}
+
+/** What the user confirmed on the card. `secrets` is keyed by secret field (`""` for a bare
+ * variable); `fields` is the resource's non-secret value as the user left it. */
+export type SecretSubmission = {
+	path: string
+	replace: boolean
+	/** The user confirmed replacing their own drafts at the paths the card saves to. */
+	replaceDrafts?: boolean
+	secrets: Record<string, string>
+	fields?: Record<string, unknown>
+}
+
+export type SecretRequestDisplay = SecretRequest & {
+	saved?: SecretRequestOutcome
+	canceled?: boolean
+	/** The turn stopped while its save was in flight; the save settles it when it lands. */
+	saving?: boolean
+}
+
 // The single place that understands the legacy answer shape: new code writes
 // selectedChoices, but history persisted before multi-select only has the
 // scalar selectedChoice. Read answers through this so both shapes resolve.
@@ -722,6 +737,7 @@ export type ToolDisplayMessage = {
 	showFade?: boolean
 	actions?: ToolDisplayAction[]
 	userQuestion?: UserQuestionDisplay
+	secretRequest?: SecretRequestDisplay
 	runForm?: RunFormDisplay
 	/** A run this call inspected rather than started, rendered by the same card. The card
 	 * reads its panes from this job, so the user sees its own args and result in full, and its
@@ -831,6 +847,18 @@ export function isActiveUserQuestion(message: DisplayMessage | undefined): boole
 	)
 }
 
+export function isActiveSecretRequest(message: DisplayMessage | undefined): boolean {
+	return Boolean(
+		message &&
+			message.role === 'tool' &&
+			message.secretRequest &&
+			message.isLoading &&
+			!message.error &&
+			!message.secretRequest.saved &&
+			!message.secretRequest.canceled
+	)
+}
+
 export function isActiveRunForm(message: DisplayMessage | undefined): boolean {
 	return Boolean(
 		message &&
@@ -869,7 +897,9 @@ export function pendingUserActionDetail(
 		// A run form is a confirmation carrying arguments, not a question: it parks the
 		// turn the same way, but Run or Cancel resolves it and typing never does — so it
 		// must not claim the answer affordance a pending question offers.
-		if (isActiveRunForm(message)) {
+		// Typing in the composer must never answer a secret card: the composer's text reaches
+		// the model.
+		if (isActiveRunForm(message) || isActiveSecretRequest(message)) {
 			return { action: 'confirmation', toolCallId: message.tool_call_id }
 		}
 		if (
@@ -919,6 +949,12 @@ async function callTool<T>({
 			throw new Error(
 				`${functionName} is not available yet: no pipeline editor is open for this chat. Call open_preview(kind="pipeline", path="<folder>") first and wait for its result; once it reports the editor open, the pipeline tools are callable. Do not fall back to write_script.`
 			)
+		}
+		// The MCP tools exist only in global mode and only while the user has a server
+		// turned on, a per-browser setting change_mode cannot reach.
+		if (/^(search_mcp_tools|call_mcp_(read|write)_tool)$/.test(functionName)) {
+			const server = typeof args?.server === 'string' ? args.server : undefined
+			throw new Error(await mcpUnavailableMessage(workspace, server))
 		}
 		throw new Error(
 			`Unknown tool call: ${functionName}. Probably not in the correct mode, use the change_mode tool to switch to the correct mode.`
@@ -1363,20 +1399,25 @@ export async function processToolCall<T>({
  * id is already answered by its tool result before this non-tool message. The image
  * parts ride the same `image_url` carrier that the provider converters translate.
  */
+/** An image a tool produced, with the line that tells the model what it shows. */
+export type ToolImage = { image: AttachedImage; caption: string }
+
 /** The message that hands tool-produced images to the model, or undefined when
  *  there are none. Split out so a snapshot of a turn still buffering them can
  *  build the same message without draining the buffer the live turn still owns. */
 export function pendingToolImagesMessage(
-	images: AttachedImage[]
+	images: ToolImage[]
 ): ChatCompletionMessageParam | undefined {
 	if (images.length === 0) return undefined
-	return {
-		role: 'user',
-		content: [
-			{ type: 'text', text: 'Screenshot(s) of the app preview:' },
-			...images.map((img) => dataUrlToImagePart(img.dataUrl))
-		]
+	// One batch can mix tools, so each run of images is introduced by its own tool's caption.
+	const content: ChatCompletionContentPart[] = []
+	let caption: string | undefined
+	for (const { image, caption: next } of images) {
+		if (next !== caption) content.push({ type: 'text', text: next })
+		caption = next
+		content.push(dataUrlToImagePart(image.dataUrl))
 	}
+	return { role: 'user', content }
 }
 
 export function appendPendingToolImages(
@@ -1389,6 +1430,9 @@ export function appendPendingToolImages(
 	messages.push(message)
 	addedMessages.push(message)
 }
+
+/** The kind of item a test-run tool runs; `code` is the code sent with the call. */
+export type TestedItemKind = 'script' | 'flow' | 'app' | 'agent' | 'code'
 
 export interface Tool<T> {
 	def: ChatCompletionFunctionTool
@@ -1418,6 +1462,14 @@ export interface Tool<T> {
 	 * lookups. Requires `planModeSafe`, which also admits writes (plan documents, artifacts)
 	 * and a test run; absence keeps the row on its own. */
 	lookup?: boolean
+	/** The noun a draft write of an item with no diff card of its own is counted as, e.g.
+	 * `schedule`: consecutive ones fold into one group, `Drafted 2 schedules, 1 trigger`. A write
+	 * with a diff card leaves it unset, as the diff is what the user reads. */
+	draftWrite?: string
+	/** Test-runs an item of this kind (a step test runs its flow), so the transcript may fold
+	 * consecutive runs of one item, and the edits between them, into one row. A run of the
+	 * deployed version never sets it; absence keeps the row on its own. */
+	testRun?: TestedItemKind
 	/** Shows an item without changing or running it, though not `planModeSafe`: working
 	 * folders never hold it, so the AI can show what it reads in any folder. */
 	viewOnly?: boolean
@@ -1606,6 +1658,12 @@ export interface ToolCallbacks {
 		toolId: string,
 		question: UserQuestionDisplay
 	) => Promise<string[] | undefined>
+	/** Park the loop on the secret card and resolve with the saved variable's path, or
+	 * undefined if the user dismissed it. Wired only where the card can be rendered. */
+	requestSecret?: (
+		toolId: string,
+		request: SecretRequest
+	) => Promise<SecretRequestOutcome | undefined>
 	/** Park the loop on an argument form and resolve with the args the user submitted, or
 	 * undefined if they cancelled. Wired only where the form can be rendered. `autoAccepted`
 	 * says YOLO already answered it with what it opened with, so there is no card to wait on. */
@@ -1637,9 +1695,9 @@ export interface ToolCallbacks {
 	 * appendPendingToolImages) — appending mid-batch would leave sibling tool_call ids
 	 * unanswered before a non-tool message.
 	 */
-	attachToolImage?: (toolId: string, image: AttachedImage) => void
+	attachToolImage?: (toolId: string, image: ToolImage) => void
 	/** Drain every image buffered this batch (insertion order), clearing the buffer. */
-	takePendingToolImages?: () => AttachedImage[]
+	takePendingToolImages?: () => ToolImage[]
 	/** Wired only by the global/sessions chat: delivers the folder instructions
 	 * covering the paths a tool call names, once per conversation. */
 	folderInstructions?: FolderInstructionsContext

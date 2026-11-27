@@ -51,6 +51,7 @@
 	} from '$lib/loginError'
 	import TotpAuthenticator from './settings/TotpAuthenticator.svelte'
 	import TotpRecoveryCodes from './settings/TotpRecoveryCodes.svelte'
+	import { parseAccountSettingsHash } from './sidebar/settings'
 	import Badge from './common/badge/Badge.svelte'
 	import {
 		getLastLoginMethod,
@@ -452,8 +453,8 @@
 				resolvedRd?.startsWith('/projects/import')
 			) {
 				goto(resolvedRd)
-			} else if (resolvedRd == '/#user-settings') {
-				goto(`/user/workspaces#user-settings`)
+			} else if (resolvedRd?.startsWith('/#') && parseAccountSettingsHash(resolvedRd.slice(1))) {
+				goto(`/user/workspaces${resolvedRd.slice(1)}`)
 			} else {
 				goto(`/user/workspaces${resolvedRd ? `?rd=${encodeURIComponent(resolvedRd)}` : ''}`)
 			}

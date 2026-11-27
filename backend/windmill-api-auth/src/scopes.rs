@@ -348,7 +348,7 @@ fn extract_domain_from_route(
 /// exports) and credential minting (`job_view_token`) are deliberately absent — those are
 /// `jobs:read`. Keep by-id read routes here in sync as they are added, or a run token
 /// loses the ability to follow its own run through them.
-const RUN_WHITELISTED_GET_PATHS: [&'static str; 33] = [
+const RUN_WHITELISTED_GET_PATHS: [&'static str; 34] = [
     "jobs_u/get_flow/",
     "jobs_u/get_root_job_id/",
     "jobs_u/get/",
@@ -377,6 +377,7 @@ const RUN_WHITELISTED_GET_PATHS: [&'static str; 33] = [
     "jobs/job_signature/",
     "jobs/wac_approval_urls/",
     "jobs/flow/approval_step_detail/",
+    "jobs/flow/nested_approvals/",
     "jobs/completed/get/",
     "jobs/completed/get_result/",
     "jobs/completed/get_result_maybe/",
@@ -575,7 +576,7 @@ fn resource_metadata_route_allowed(suffix: &str) -> bool {
 /// a direct `require_job_within_read_scope`. `jobs/result_by_id/` is absent because it
 /// resolves a node up through the enclosing flows, past the job the check admitted.
 /// A route added here without that check serves a path-scoped token every job.
-const READ_PATH_SCOPED_BY_ID_PATHS: [&'static str; 26] = [
+const READ_PATH_SCOPED_BY_ID_PATHS: [&'static str; 27] = [
     "jobs_u/get/",
     "jobs_u/get_logs/",
     "jobs_u/get_completed_logs_tail/",
@@ -595,6 +596,7 @@ const READ_PATH_SCOPED_BY_ID_PATHS: [&'static str; 26] = [
     "jobs_u/get_flow/",
     "jobs_u/flow/approval_info/",
     "jobs/flow/approval_step_detail/",
+    "jobs/flow/nested_approvals/",
     "jobs/run_progress/",
     "jobs/flow/user_states/",
     "jobs/completed/get/",

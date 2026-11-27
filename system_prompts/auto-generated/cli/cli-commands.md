@@ -325,6 +325,7 @@ sync local with a remote instance or the opposite (push or pull)
   - `--dry-run` - Perform a dry run without making changes
   - `--skip-users` - Skip pulling users
   - `--skip-settings` - Skip pulling settings
+  - `--show-secrets` - Pull secrets (license key, passwords, tokens) in clear instead of redacted
   - `--skip-configs` - Skip pulling configs (worker groups)
   - `--skip-groups` - Skip pulling instance groups
   - `--include-workspaces` - Also pull workspaces
@@ -347,7 +348,7 @@ sync local with a remote instance or the opposite (push or pull)
 - `instance whoami` - Display information about the currently logged-in user
 - `instance get-config` - Dump the current instance config (global settings + worker configs) as YAML
   - `-o, --output-file <file:string>` - Write YAML to a file instead of stdout
-  - `--show-secrets` - Include sensitive fields (license key, JWT secret) without prompting
+  - `--show-secrets` - Include secrets (license key, passwords, tokens) in clear without prompting
   - `--instance <instance:string>` - Name of the instance, override the active instance
 - `instance connect-slack` - Non-interactively connect Slack at the instance level using a pre-minted bot token (xoxb-...). Produces the same artifacts as the UI OAuth flow: global_settings 'slack' row + encrypted f/slack_bot/global_bot_token variable and resource in the admins workspace.
   - `--bot-token <bot_token:string>` - Slack bot token (xoxb-...)
@@ -372,6 +373,8 @@ Manage jobs (list, inspect, cancel)
 - `job restart <id:string>` - Restart a completed flow at a given top-level step. Prints the new flow job UUID on stdout.
   - `--step <stepId:string>` - Top-level step id to restart the flow from
   - `--iteration <n:number>` - For a top-level branchall or for-loop step, the iteration to restart at
+  - `--failed-only` - For a parallel for-loop or branchall step, rerun only the iterations (branches) that failed, from their first step, keeping the others' results
+  - `--from-failed-step` - With --failed-only, resume each failed iteration (branch) at the step where it failed instead of its first step
 
 ### jobs
 
@@ -698,6 +701,13 @@ Manage API tokens
 - `token create` - Create a new API token
   - `--label <label:string>` - Token label
   - `--expiration <expiration:string>` - Token expiration (ISO 8601 timestamp)
+  - `--all-workspaces` - Do not bind the token to the current workspace: it then reaches every workspace you are a member of and instance-level endpoints
+  - `--admin` - Carry your workspace admin rights (off by default)
+  - `--superadmin` - Carry your superadmin rights (off by default)
+  - `--scope <scope:string>` - Restrict the token to this scope (e.g. jobs:run, scripts:read:f/folder/*). Repeatable. Omit for no scope restriction.
+- `token update-scopes <token_prefix:string>` - Replace the scopes of one of your tokens, by its prefix
+  - `--scope <scope:string>` - Scope the token is restricted to (e.g. jobs:run, scripts:read:f/folder/*). Repeatable; replaces all existing scopes.
+  - `--clear` - Remove every scope restriction (the token keeps its workspace binding and admin/superadmin rights)
 - `token delete <token_prefix:string>` - Delete a token by its prefix
 
 ### trash
@@ -757,6 +767,8 @@ user related commands
 - `user create-token` - Create a new API token for the authenticated user
   - `--email <email:string>` - Specify credentials to use for authentication. This will not be stored. It will only be used to exchange for a token with the API server, which will not be stored either.
   - `--password <password:string>` - Specify credentials to use for authentication. This will not be stored. It will only be used to exchange for a token with the API server, which will not be stored either.
+  - `--admin` - Carry your workspace admin rights (off by default)
+  - `--superadmin` - Carry your superadmin rights (off by default)
 
 ### variable
 
@@ -823,6 +835,7 @@ workspace related commands
   - `--create-workspace-name <workspace_name:string>` - Specify the workspace name. Ignored if --create is not specified or the workspace already exists. Will default to the workspace id.
   - `--create-username <username:string>` - Specify your own username in the newly created workspace. Ignored if --create is not specified, the workspace already exists or automatic username creation is enabled on the instance.
 - `workspace remove <workspace_name:string>` - Remove a workspace
+- `workspace login [workspace_name:string:workspace]` - Sign in again for a workspace profile (default: the active one) and replace its token, e.g. to extend one about to expire. The previous token is revoked when the CLI's browser login created it.
 - `workspace whoami` - Show the currently active user
 - `workspace list` - List local workspace profiles
 - `workspace list-remote` - List workspaces on the remote server that you have access to

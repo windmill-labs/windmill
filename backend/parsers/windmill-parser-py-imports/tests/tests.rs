@@ -158,6 +158,24 @@ def main():
     }
 
     #[test]
+    fn test_recent_stdlib_modules_not_inferred() -> anyhow::Result<()> {
+        let code = "
+import tomllib
+import annotationlib
+from compression import zstd
+import requests
+
+def main():
+    return tomllib.loads(\"a = 1\")
+";
+        assert_eq!(
+            parse_code_for_imports(code, "f/foo/bar")?,
+            vec![auto("requests")]
+        );
+        Ok(())
+    }
+
+    #[test]
     fn test_parse_imports_recent_syntax_before_main() -> anyhow::Result<()> {
         let code = r#"
 import requests

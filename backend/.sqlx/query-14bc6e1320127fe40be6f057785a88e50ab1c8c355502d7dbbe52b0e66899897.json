@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT ($2 AND EXISTS(SELECT 1 FROM usr WHERE email = $1 AND is_admin))\n                OR ($3 AND COALESCE((SELECT super_admin FROM password WHERE email = $1), false))",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "?column?",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Bool",
+        "Bool"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "14bc6e1320127fe40be6f057785a88e50ab1c8c355502d7dbbe52b0e66899897"
+}

@@ -15,7 +15,7 @@
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import { Button } from '$lib/components/common'
 	import { fade } from 'svelte/transition'
-	import type { Item } from '$lib/utils'
+	import { msToCompactDuration, type Item } from '$lib/utils'
 	import AttemptPicker from './AttemptPicker.svelte'
 	import type { StepSettingKey, StepSettingView } from '../flowStepSettings'
 
@@ -25,6 +25,8 @@
 		/** Failed attempts so far. */
 		retries?: number
 		attempts?: RetryAttempts
+		/** In a run, while its concurrency limit holds the step back. */
+		held?: { since?: string; nextCheck?: Date | string }
 		/** Makes each setting's row open that setting in the step's settings panel. */
 		onOpenSetting?: (key: StepSettingKey) => void
 		onOpenChange?: (open: boolean) => void
@@ -34,6 +36,7 @@
 		settings,
 		retries = undefined,
 		attempts = undefined,
+		held = undefined,
 		onOpenSetting,
 		onOpenChange
 	}: Props = $props()
@@ -87,9 +90,26 @@
 	// With nothing else to list, the menu is the attempt list itself, one hover fewer.
 	let attemptsOnly = $derived(!!pickerProps && settings.length === 1)
 
+	// Read as the menu opens: the held time it shows does not tick.
+	let heldDetail = $derived(
+		held?.since && open
+			? ` · held ${msToCompactDuration(Math.max(Date.now() - new Date(held.since).getTime(), 0), 0)}`
+			: held
+				? ' · held'
+				: undefined
+	)
+
 	let items: Item[] = $derived(
 		ordered.map((s) => {
 			const action = onOpenSetting && (() => onOpenSetting(s.key))
+			if (s.key === 'concurrency' && heldDetail)
+				return {
+					displayName: s.label,
+					icon: s.icon,
+					iconColor: '#f97316',
+					detail: s.summary.text + heldDetail,
+					action
+				}
 			if (s.key !== 'retries')
 				return { displayName: s.label, icon: s.icon, detail: s.summary.text, action }
 			if (pickerProps) {
@@ -143,13 +163,14 @@
 				unifiedSize="2xs"
 				wrapperClasses="bg-surface rounded-md"
 				btnClasses="px-2"
-				title="Step settings"
+				title={held ? 'Step settings: held by its concurrency limit' : 'Step settings'}
 			>
 				<span class="flex flex-row items-center gap-1.5">
 					{#each shown as s (s.key)}
 						{@const Icon = s.icon}
 						<span
-							class="flex flex-row items-center gap-0.5 {s.key === 'retries' && retries
+							class="flex flex-row items-center gap-0.5 {(s.key === 'retries' && retries) ||
+							(s.key === 'concurrency' && held)
 								? 'text-orange-500'
 								: ''}"
 						>

@@ -55,12 +55,14 @@ export function createGlobalModeRunner(
           previewTabs: initial?.previewTabs,
           sessionChat: context.evalCase?.runtime?.sessionChat,
           planMode: context.evalCase?.runtime?.planMode,
+          codeSelections: context.evalCase?.runtime?.codeSelections,
           profile: context.evalCase?.runtime?.profile,
           pipelineRun: context.executionOnly
             ? undefined
             : (context.evalCase?.validate as GlobalValidationSpec | undefined)?.pipelineRun,
           maxIterations: context.evalCase?.runtime?.maxTurns,
           userAnswers: context.evalCase?.runtime?.userAnswers,
+          secretRequests: context.evalCase?.runtime?.secretRequests,
           provider: modelConfig.provider,
           model: modelConfig.model,
           backend: backendSettings,

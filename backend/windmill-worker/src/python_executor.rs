@@ -155,7 +155,7 @@ use crate::{
     common::{
         build_command_with_isolation, create_args_and_out_file, get_reserved_variables, proto_str,
         read_file, read_result, render_nsjail_rlimit_as, render_nsjail_rlimit_fsize,
-        resolve_nsjail_timeout, resolve_nsjail_tmp_mount_block, start_child_process,
+        resolve_nsjail_timeout, resolve_nsjail_tmp_mount_block, script_envars, start_child_process,
         OccupancyMetrics, StreamNotifier, DEV_CONF_NSJAIL,
     },
     get_proxy_envs_for_lang, get_run_proxy_envs,
@@ -349,7 +349,10 @@ pub async fn uv_pip_compile(
 
         args.extend(["-p", &py_version_str, "--python-preference", "only-managed"]);
 
-        if no_cache {
+        // The jailed resolution runs package code (sdist build backends), so it gets its own
+        // cache rather than the worker-wide one every later resolution reads wheel metadata
+        // from. uv then keeps a throwaway cache in the jail's /tmp.
+        if no_cache || is_sandboxing_enabled() {
             args.extend(["--no-cache"]);
         }
         let (pip_extra_index_url, pip_index_url) = pip_indexes.urls(job_id, w_id, conn).await;
@@ -388,8 +391,8 @@ pub async fn uv_pip_compile(
         // setup.py). When sandboxing is on, confine that under nsjail exactly
         // like the install and run steps already are — otherwise it runs as the
         // worker, in the worker's namespaces, with the worker's env and tokens
-        // readable. The jail gets network to the index, the job dir and the
-        // shared uv cache writable, and the managed interpreter read-only.
+        // readable. The jail gets network to the index, the job dir writable,
+        // and the managed interpreter read-only.
         let mut child_cmd = if is_sandboxing_enabled() {
             let index_cert_mount = INDEX_CERT
                 .as_ref()
@@ -399,9 +402,6 @@ pub async fn uv_pip_compile(
                     )
                 })
                 .unwrap_or_default();
-            // The cache dir is bind-mounted into the jail, so it must exist before
-            // nsjail builds the mount tree (uv would otherwise create it itself).
-            std::fs::create_dir_all(&*UV_CACHE_DIR)?;
             let nsjail_timeout = resolve_nsjail_timeout(conn, w_id, *job_id, None).await;
             write_file(
                 job_dir,
@@ -409,7 +409,6 @@ pub async fn uv_pip_compile(
                 NSJAIL_CONFIG_LOCK_PY_CONTENT
                     .replace("{TIMEOUT}", &nsjail_timeout)
                     .replace("{JOB_DIR}", job_dir)
-                    .replace("{UV_CACHE_DIR}", &*UV_CACHE_DIR)
                     .replace("{PY_INSTALL_DIR}", &*PY_INSTALL_DIR)
                     .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
                     .replace("{INDEX_CERT_MOUNT}", &index_cert_mount)
@@ -710,6 +709,13 @@ fn is_python_keyword(s: &str) -> bool {
     )
 }
 
+/// Whether a character of the job's path is kept in the module names derived from it, which
+/// are written into the wrapper's `from <dirs> import <name>` line. A Hub path keeps whatever
+/// follows its id and a preview path is request-supplied: any other character becomes `_`.
+fn is_python_module_char(c: char) -> bool {
+    c.is_alphanumeric() || c == '_'
+}
+
 /// Compute the directory (relative to job_dir) where Python writes the main script.
 /// Module files must be placed in this same directory for relative imports to work.
 pub fn compute_python_module_dir(script_path: &str) -> String {
@@ -724,8 +730,11 @@ pub fn compute_python_module_dir(script_path: &str) -> String {
         .clone()
         .take(script_path_splitted.clone().count() - 1)
         .join("/")
-        .replace("-", "_")
-        .replace("@", ".");
+        .replace("@", ".")
+        .replace(
+            |c: char| !is_python_module_char(c) && c != '.' && c != '/',
+            "_",
+        );
     if dirs_full.len() > 0 {
         let dirs = dirs_full.strip_prefix("/").unwrap_or(&dirs_full);
         // This directory is appended to job_dir and written to. Neutralize any
@@ -1146,15 +1155,16 @@ except BaseException as e:
     #[cfg(windows)]
     let additional_python_paths_folders = additional_python_paths_folders.replace(":", ";");
 
-    if jailed {
+    let run_config = if jailed {
         let shared_deps = additional_python_paths
             .into_iter()
             .map(|pp| {
+                let pp = proto_str(&pp);
                 format!(
                     r#"
 mount {{
-    src: "{pp}"
-    dst: "{pp}"
+    src: {pp}
+    dst: {pp}
     is_bind: true
     rw: false
 }}
@@ -1165,10 +1175,8 @@ mount {{
         let module_mounts = python_module_mounts(job_dir, &dirs, modules.as_ref());
         let nsjail_timeout =
             resolve_nsjail_timeout(conn, &job.workspace_id, job.id, job.timeout).await;
-        let _ = write_file(
-            job_dir,
-            "run.config.proto",
-            &NSJAIL_CONFIG_RUN_PYTHON3_CONTENT
+        Some(
+            NSJAIL_CONFIG_RUN_PYTHON3_CONTENT
                 .replace(
                     "{RLIMIT_AS}",
                     &render_nsjail_rlimit_as(NSJAIL_PY_RLIMIT_AS_MB.as_deref(), 4096),
@@ -1188,10 +1196,14 @@ mount {{
                 .replace("{SHARED_DEPENDENCIES}", shared_deps.as_str())
                 .replace("{MODULE_MOUNTS}", &module_mounts)
                 .replace("{GLOBAL_SITE_PACKAGES}", &global_site_packages_path)
-                .replace("{MAIN}", format!("{dirs}/{last}").as_str())
                 .replace(
-                    "{ADDITIONAL_PYTHON_PATHS}",
-                    additional_python_paths_folders.as_str(),
+                    "{MAIN_SRC}",
+                    &proto_str(&format!("{job_dir}/{dirs}/{last}.py")),
+                )
+                .replace("{MAIN_DST}", &proto_str(&format!("/tmp/{dirs}/{last}.py")))
+                .replace(
+                    "{PYTHONPATH}",
+                    &proto_str(&format!("PYTHONPATH={additional_python_paths_folders}")),
                 )
                 .replace("{TRACING_PROXY_CA_CERT_PATH}", &*TRACING_PROXY_CA_CERT_PATH)
                 .replace("#{DEV}", DEV_CONF_NSJAIL)
@@ -1200,10 +1212,11 @@ mount {{
                     &resolve_nsjail_tmp_mount_block(job_dir).await,
                 )
                 .replace("{TIMEOUT}", &nsjail_timeout),
-        )?;
+        )
     } else {
         reserved_variables.insert("PYTHONPATH".to_string(), additional_python_paths_folders);
-    }
+        None
+    };
 
     tracing::info!(
         workspace_id = %job.workspace_id,
@@ -1245,6 +1258,13 @@ mount {{
             ])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
+        let _ = write_file(
+            job_dir,
+            "run.config.proto",
+            &run_config
+                .unwrap_or_default()
+                .replace("{ENVARS}", &script_envars(&envs, &nsjail_cmd, &[])),
+        )?;
         start_child_process(nsjail_cmd, NSJAIL_PATH.as_str(), false).await?
     } else {
         let args = vec!["-u", "-m", "wrapper"];
@@ -1427,9 +1447,8 @@ pub fn compute_py_codegen(content: &str, script_path: &str) -> PyScriptCodegen {
         })
         .last()
         .unwrap()
-        .replace("-", "_")
-        .replace(" ", "_")
-        .to_lowercase();
+        .to_lowercase()
+        .replace(|c: char| !is_python_module_char(c), "_");
     // `last` is lowercased above, so this catches a keyword id in any case.
     let last = if is_python_keyword(&last) {
         format!("_{last}")
@@ -1825,9 +1844,8 @@ async fn prepare_wrapper(
         .clone()
         .last()
         .unwrap()
-        .replace("-", "_")
-        .replace(" ", "_")
-        .to_lowercase();
+        .to_lowercase()
+        .replace(|c: char| !is_python_module_char(c), "_");
     // `last` is lowercased above, so this catches a keyword id in any case.
     let last = if is_python_keyword(&last) {
         format!("_{last}")
@@ -2411,7 +2429,7 @@ async fn spawn_uv_install(
             NSJAIL_CONFIG_DOWNLOAD_PY_CONTENT
                 .replace("{WORKER_DIR}", worker_dir)
                 .replace("{PY_INSTALL_DIR}", &*PY_INSTALL_DIR)
-                .replace("{TARGET_DIR}", &venv_p)
+                .replace("{TARGET_DIR}", &proto_str(venv_p))
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
                 .replace("{TRACING_PROXY_CA_CERT_PATH}", &*TRACING_PROXY_CA_CERT_PATH)
                 .replace("#{DEV}", DEV_CONF_NSJAIL)
@@ -2610,6 +2628,27 @@ fn record_first_field(line: &str) -> Option<String> {
     None
 }
 
+/// First entry under `root` (or `root` itself) that is neither a directory nor
+/// a regular file, without following symlinks.
+fn find_non_regular_entry(root: &Path) -> std::io::Result<Option<std::path::PathBuf>> {
+    if !std::fs::symlink_metadata(root)?.is_dir() {
+        return Ok(Some(root.to_path_buf()));
+    }
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        for entry in std::fs::read_dir(&dir)? {
+            let entry = entry?;
+            let ft = entry.file_type()?;
+            if ft.is_dir() {
+                stack.push(entry.path());
+            } else if !ft.is_file() {
+                return Ok(Some(entry.path()));
+            }
+        }
+    }
+    Ok(None)
+}
+
 /// Verify that every file listed in the wheel's RECORD exists on disk under
 /// `venv_p`. Used as a structural integrity check after both a successful
 /// `pull_from_tar` (object-store cache hit) and a successful local
@@ -2618,6 +2657,23 @@ fn record_first_field(line: &str) -> Option<String> {
 /// on the first integrity issue (no .dist-info, no RECORD, or any listed
 /// path missing on disk).
 async fn verify_wheel_record(venv_p: &str) -> Result<(), String> {
+    // The install jail writes this directory, while the worker reads it outside
+    // the jail (RECORD, postinstall merge, piptar upload, the marker). A wheel
+    // installed with --link-mode=copy holds only directories and regular files:
+    // anything else fails the check before any read below opens it.
+    let root = std::path::PathBuf::from(venv_p);
+    match tokio::task::spawn_blocking(move || find_non_regular_entry(&root)).await {
+        Ok(Ok(None)) => {}
+        Ok(Ok(Some(p))) => {
+            return Err(format!(
+                "{} is neither a directory nor a regular file",
+                p.display()
+            ))
+        }
+        Ok(Err(e)) => return Err(format!("walk {venv_p}: {e}")),
+        Err(e) => return Err(format!("walk {venv_p}: {e}")),
+    }
+
     let mut entries = tokio::fs::read_dir(venv_p)
         .await
         .map_err(|e| format!("read_dir({venv_p}): {e}"))?;
@@ -3894,6 +3950,20 @@ mod tests {
         assert_eq!(compute_python_module_dir("u/@./script"), "u/_");
     }
 
+    /// A Hub path keeps whatever follows its id: its segments reach the wrapper's
+    /// `from <dirs> import <name> as inner_script` line.
+    #[test]
+    fn test_hub_path_tail_yields_module_names_only() {
+        let code = "def main():\n    return 1\n";
+        let cg = compute_py_codegen(code, "hub/123/a\"b/c;d('e').f()#");
+        assert_eq!(cg.module_name, "c_d__e___f___");
+        assert_eq!(cg.module_dir_dot, "hub._123.a_b");
+        assert_eq!(
+            compute_py_codegen(code, "hub/1/app/Send Message-v2").module_name,
+            "send_message_v2"
+        );
+    }
+
     #[test]
     fn test_compute_py_codegen_basic_args() {
         let code = "def main(x: str, y: int):\n    return x\n";
@@ -4013,6 +4083,25 @@ mod tests {
         assert!(verify_wheel_record(dir.path().to_str().unwrap())
             .await
             .is_ok());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn test_verify_wheel_record_err_on_symlink() {
+        let dir = tempfile::tempdir().unwrap();
+        write_fake_wheel(
+            dir.path(),
+            &["pkg/__init__.py"],
+            &[
+                "pkg/__init__.py,sha256=aaa,1",
+                "pkg-1.0.0.dist-info/RECORD,,",
+            ],
+        );
+        std::os::unix::fs::symlink("/etc/hostname", dir.path().join("pkg/linked")).unwrap();
+        let err = verify_wheel_record(dir.path().to_str().unwrap())
+            .await
+            .unwrap_err();
+        assert!(err.contains("linked"), "{err}");
     }
 
     #[tokio::test]

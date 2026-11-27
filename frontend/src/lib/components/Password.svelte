@@ -119,7 +119,8 @@
 				'aria-describedby': describedBy,
 				onblur: (e) => onBlur?.(e),
 				onkeydown: (e) => {
-					if (allowMultiline && e.key === 'Enter') {
+					// A modified Enter is left to the caller, which may submit on it.
+					if (allowMultiline && e.key === 'Enter' && !e.metaKey && !e.ctrlKey) {
 						e.preventDefault()
 						insertAndSwitchToMultiline(e.currentTarget as HTMLInputElement, '\n')
 						return

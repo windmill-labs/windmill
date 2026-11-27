@@ -30,8 +30,7 @@ export function messageDraft(m: { content: string; pastes?: PasteAttachment[] })
 
 /**
  * The ONLY way to read the model-bound / flattened text: paste tokens expanded
- * to their full content. Used by the LLM prepare* path, the inline ⌘K path, and
- * the saved-chat title.
+ * to their full content. Used by the LLM prepare* path and the saved-chat title.
  */
 export function expanded(d: ChatDraft): string {
 	return expandPasteTokens(d.text, d.pastes)

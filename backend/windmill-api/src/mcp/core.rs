@@ -500,12 +500,16 @@ impl McpBackend for WindmillBackend {
 
     async fn resolve_workspace_auth(
         &self,
-        token: &str,
+        token: &McpToken,
         workspace_id: &str,
     ) -> BackendResult<ApiAuthed> {
         let authed = self
             .auth_cache
-            .get_authed(Some(workspace_id.to_string()), token)
+            .get_authed(
+                Some(workspace_id.to_string()),
+                &token.token,
+                token.client_ip,
+            )
             .await
             .ok_or_else(|| {
                 ErrorData::invalid_params(
@@ -758,7 +762,13 @@ pub async fn extract_workspace_from_token(
                             .is_some_and(|s| s.iter().any(|scope| scope.starts_with("mcp:")));
                         if is_mcp {
                             request.extensions_mut().insert(MultiWorkspaceMcp);
-                            request.extensions_mut().insert(McpToken(token));
+                            let client_ip = windmill_common::client_ip::client_ip_of(
+                                request.extensions(),
+                                request.headers(),
+                            );
+                            request
+                                .extensions_mut()
+                                .insert(McpToken { token, client_ip });
                         }
                     }
                 }

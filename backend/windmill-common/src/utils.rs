@@ -367,10 +367,21 @@ pub async fn require_admin_or_devops(
     // branch on a workspace it isn't admin of (GHSA-hfh4-cx4h-3fcr). Workspace admin
     // (`is_admin`) stays allowed — that is the cap ceiling.
     is_job_token: bool,
+    // True when the caller's token withholds its owner's superadmin rights: only the
+    // account's own devops role counts then, not the one a superadmin implies.
+    super_admin_withheld: bool,
     db: &DB,
 ) -> Result<()> {
     if !is_admin {
-        if is_job_token || !is_devops_email(db, email).await? {
+        let is_devops = if super_admin_withheld {
+            sqlx::query_scalar!("SELECT devops FROM password WHERE email = $1", email)
+                .fetch_optional(db)
+                .await?
+                .unwrap_or(false)
+        } else {
+            is_devops_email(db, email).await?
+        };
+        if is_job_token || !is_devops {
             return Err(Error::RequireAdmin(username.to_string()));
         }
     }
@@ -1696,6 +1707,86 @@ pub fn strip_json_nul(serialized: &str) -> Cow<'_, str> {
     // Only whole ASCII backslash-u0000 escapes were removed, so the bytes remain
     // valid UTF-8 (and valid JSON).
     Cow::Owned(String::from_utf8(out).expect("removing a NUL escape preserves valid UTF-8"))
+}
+
+/// The key serde_json's `raw_value` feature reserves: read as a `Value`, an object holding it
+/// first is replaced by the JSON text in its string, parsed again with a fresh nesting limit.
+const RAW_VALUE_TOKEN: &str = "$serde_json::private::RawValue";
+
+/// A `serde_json::Value` read from a request body. Unlike `Value`, it refuses
+/// [`RAW_VALUE_TOKEN`] as a key at any depth, so the value read is the one jsonb stores, and
+/// texts nested in texts stay under serde_json's nesting limit.
+#[derive(Debug, Clone)]
+pub struct PlainValue(pub serde_json::Value);
+
+impl<'de> Deserialize<'de> for PlainValue {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> std::result::Result<Self, D::Error> {
+        use serde::de::{MapAccess, SeqAccess, Visitor};
+        use serde_json::Value;
+
+        struct PlainVisitor;
+        impl<'de> Visitor<'de> for PlainVisitor {
+            type Value = Value;
+
+            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                f.write_str("any JSON value")
+            }
+            fn visit_unit<E>(self) -> std::result::Result<Value, E> {
+                Ok(Value::Null)
+            }
+            fn visit_none<E>(self) -> std::result::Result<Value, E> {
+                Ok(Value::Null)
+            }
+            fn visit_some<D: Deserializer<'de>>(
+                self,
+                d: D,
+            ) -> std::result::Result<Value, D::Error> {
+                PlainValue::deserialize(d).map(|v| v.0)
+            }
+            fn visit_bool<E>(self, v: bool) -> std::result::Result<Value, E> {
+                Ok(v.into())
+            }
+            fn visit_i64<E>(self, v: i64) -> std::result::Result<Value, E> {
+                Ok(v.into())
+            }
+            fn visit_u64<E>(self, v: u64) -> std::result::Result<Value, E> {
+                Ok(v.into())
+            }
+            fn visit_f64<E>(self, v: f64) -> std::result::Result<Value, E> {
+                Ok(serde_json::Number::from_f64(v).map_or(Value::Null, Value::Number))
+            }
+            fn visit_str<E>(self, v: &str) -> std::result::Result<Value, E> {
+                Ok(v.into())
+            }
+            fn visit_string<E>(self, v: String) -> std::result::Result<Value, E> {
+                Ok(v.into())
+            }
+            fn visit_seq<A: SeqAccess<'de>>(
+                self,
+                mut seq: A,
+            ) -> std::result::Result<Value, A::Error> {
+                let mut values = Vec::new();
+                while let Some(v) = seq.next_element::<PlainValue>()? {
+                    values.push(v.0);
+                }
+                Ok(Value::Array(values))
+            }
+            fn visit_map<A: MapAccess<'de>>(
+                self,
+                mut map: A,
+            ) -> std::result::Result<Value, A::Error> {
+                let mut values = serde_json::Map::new();
+                while let Some(k) = map.next_key::<String>()? {
+                    if k == RAW_VALUE_TOKEN {
+                        return Err(A::Error::custom("reserved key"));
+                    }
+                    values.insert(k, map.next_value::<PlainValue>()?.0);
+                }
+                Ok(Value::Object(values))
+            }
+        }
+        deserializer.deserialize_any(PlainVisitor).map(PlainValue)
+    }
 }
 
 /// Prefix of `s` holding at most `max_chars` characters.

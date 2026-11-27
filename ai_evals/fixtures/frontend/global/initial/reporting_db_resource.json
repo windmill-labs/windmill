@@ -1,0 +1,33 @@
+{
+  "user": {
+    "username": "admin",
+    "is_admin": true,
+    "folders": ["evals"],
+    "folders_read": ["evals"]
+  },
+  "workspace": {
+    "variables": [
+      {
+        "path": "f/evals/global/reporting_db",
+        "value": "previous-reporting-password",
+        "is_secret": true,
+        "description": "Password for f/evals/global/reporting_db"
+      }
+    ],
+    "resources": [
+      {
+        "path": "f/evals/global/reporting_db",
+        "resource_type": "postgresql",
+        "description": "Eval reporting database",
+        "value": {
+          "host": "reports-db.internal",
+          "port": 5432,
+          "user": "report_reader",
+          "dbname": "evals_reporting",
+          "sslmode": "require",
+          "password": "$var:f/evals/global/reporting_db"
+        }
+      }
+    ]
+  }
+}

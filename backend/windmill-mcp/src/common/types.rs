@@ -28,9 +28,14 @@ pub struct MultiWorkspaceMcp;
 pub struct NoEndpointTools;
 
 /// Raw bearer token wrapper for Axum extensions. In multi-workspace mode the
-/// runner needs the raw token to re-resolve auth for each requested workspace.
+/// runner needs the raw token to re-resolve auth for each requested workspace,
+/// and the request's client address, which an IP-restricted token is checked
+/// against on every resolution.
 #[derive(Clone, Debug)]
-pub struct McpToken(pub String);
+pub struct McpToken {
+    pub token: String,
+    pub client_ip: Option<std::net::IpAddr>,
+}
 
 /// Summary of a workspace the caller can access, returned by the
 /// `list_workspaces` tool in multi-workspace mode.

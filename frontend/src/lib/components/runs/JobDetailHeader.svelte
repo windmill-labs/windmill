@@ -52,6 +52,12 @@
 		displayPersistentScriptDefinition?: boolean
 		openPersistentScriptDrawer?: () => void
 		concurrencyKey?: string
+		/** When the job was first due, if its concurrency limit held it back. */
+		concurrencyDeferredFrom?: string
+		/** When its concurrency limit let in the job it had held back. */
+		concurrencyReleasedAt?: string
+		/** Why the step the flow is at has not started. */
+		stepWaiting?: 'sleep' | 'concurrency'
 		compact?: boolean
 		extraCompact?: boolean
 		onFilterByConcurrencyKey?: (key: string) => void
@@ -67,6 +73,9 @@
 		displayPersistentScriptDefinition = false,
 		openPersistentScriptDrawer,
 		concurrencyKey,
+		concurrencyDeferredFrom,
+		concurrencyReleasedAt,
+		stepWaiting,
 		compact = false,
 		extraCompact = false,
 		onFilterByConcurrencyKey,
@@ -74,6 +83,8 @@
 		showScriptHashInBadges = false,
 		onResolutionChanged
 	}: Props = $props()
+
+	let heldByConcurrency = $derived(!!concurrencyDeferredFrom && !concurrencyReleasedAt)
 
 	let togglingResolution = $state(false)
 
@@ -386,7 +397,7 @@
 		<div class="flex flex-row flex-wrap justify-between items-center gap-x-4 py-2 px-3">
 			<div class="flex flex-row flex-wrap gap-2 items-center flex-1">
 				{#if job}
-					<JobStatus {job} />
+					<JobStatus {job} {heldByConcurrency} {stepWaiting} />
 					<div class="flex items-baseline gap-1 text-xs">
 						<span class="text-secondary flex-shrink-0">Job ID</span>
 						<span class="text-primary">
@@ -473,7 +484,7 @@
 				<div class="flex flex-wrap items-center gap-3 min-w-0 grow">
 					<!-- Status icon -->
 					<div class="flex-shrink-0">
-						<JobStatusIcon {job} roundedFull />
+						<JobStatusIcon {job} roundedFull {heldByConcurrency} {stepWaiting} />
 					</div>
 
 					<!-- Two-row section: title on top, badges on bottom -->
@@ -511,13 +522,15 @@
 
 						<!-- Job Status -->
 						<div class="flex items-baseline flex-wrap gap-x-2 gap-y-1">
-							<JobStatus {job} />
+							<JobStatus {job} {heldByConcurrency} {stepWaiting} />
 
 							<RunBadges
 								{job}
 								{displayPersistentScriptDefinition}
 								{openPersistentScriptDrawer}
 								{concurrencyKey}
+								{concurrencyDeferredFrom}
+								{concurrencyReleasedAt}
 								{onFilterByConcurrencyKey}
 								showScriptHash={showScriptHashInBadges}
 								large={false}

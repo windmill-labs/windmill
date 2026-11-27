@@ -28,6 +28,9 @@ fn scoped_authed(scopes: Vec<&str>) -> ApiAuthed {
         credential_expiry: None,
         mcp_client: None,
         capabilities: Some(windmill_common::roles::RoleCapabilities::FULL),
+        allowed_ips: None,
+        admin_withheld: false,
+        super_admin_withheld: false,
     }
 }
 

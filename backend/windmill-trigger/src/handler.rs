@@ -13,8 +13,7 @@ use sql_builder::{bind::Bind, SqlBuilder};
 use sqlx::{FromRow, PgConnection};
 use std::fmt::Debug;
 use windmill_api_auth::{
-    build_scope_path_predicate, check_scopes,
-    composed::check_new_hub_paths,
+    build_scope_path_predicate, check_run_scopes, check_scopes, composed::check_new_hub_paths,
     ApiAuthed,
 };
 use windmill_common::{
@@ -597,6 +596,7 @@ async fn create_trigger<T: TriggerCrud>(
         .validate_new(&db, &workspace_id, &new_trigger.config)
         .await?;
     let new = trigger_save_runnables::<T>(&new_trigger)?;
+    check_run_scopes(&authed, &new)?;
     check_new_hub_paths(&new, &[], &authed, &db, &workspace_id).await?;
 
     let mut tx = user_db.begin(&authed).await?;
@@ -872,6 +872,7 @@ async fn update_trigger<T: TriggerCrud>(
         .validate_edit(&db, &workspace_id, &edit_trigger.config, path)
         .await?;
     let new_runnables = trigger_save_runnables::<T>(&edit_trigger)?;
+    check_run_scopes(&authed, &new_runnables)?;
 
     let mut tx = user_db.begin(&authed).await?;
 

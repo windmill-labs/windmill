@@ -19,6 +19,7 @@
 	import { logIterationLabel } from '../iterationLabelTelemetry'
 
 	import InputTransformForm from '$lib/components/InputTransformForm.svelte'
+	import FailureThresholdSetting from './FailureThresholdSetting.svelte'
 	import PropPickerWrapper from '../propPicker/PropPickerWrapper.svelte'
 	import type { PropPickerContext } from '$lib/components/prop_picker'
 	import { useUiIntent } from '$lib/components/copilot/chat/flow/useUiIntent'
@@ -178,6 +179,8 @@
 		'The JavaScript expression that will be evaluated to get the list of items to iterate over. Example: ["banana", "apple", flow_input.my_fruit].'
 	const ITERATION_LABEL_TOOLTIP =
 		'Evaluated for each iteration to name it in the run viewer and the iteration picker, e.g. flow_input.iter.value.name. A failing expression only leaves the iteration unnamed.'
+	const FAILURE_THRESHOLD_TOOLTIP =
+		'Fail the loop, and the flow with it, once this many iterations have failed. A number, or an expression evaluated when the loop starts, e.g. Math.ceil(flow_input.targets.length * 0.1). A parallel loop cancels the iterations not started yet, including those held back by the concurrency limit, and lets the running ones finish: limit concurrent iterations to bound how many are running at that point.'
 	const DEFAULT_PARALLELISM = 4
 	const PARALLELISM_LABEL = 'Limit concurrent iterations'
 	const SQUASH_PARALLEL_CONFLICT =
@@ -321,17 +324,33 @@
 						</PropPickerWrapper>
 					</section>
 					<section class="flex flex-col gap-6">
-						<Toggle
-							size="xs"
-							textClass="text-xs font-normal text-primary"
-							bind:checked={mod.value.skip_failures}
-							options={{
-								right: 'Skip failures',
-								rightTooltip:
-									'If disabled, the flow will fail as soon as one of the iteration fail. Otherwise, the error will be collected as the result of the iteration. Regardless of this setting, if a flow level error handler is defined, it will process the error. (Workspace error handlers will NOT be used to process errors if enabled.)',
-								rightDocumentationLink: 'https://www.windmill.dev/docs/flows/flow_loops'
-							}}
-						/>
+						<div class="flex flex-col gap-2">
+							<Toggle
+								size="xs"
+								textClass="text-xs font-normal text-primary"
+								bind:checked={mod.value.skip_failures}
+								on:change={({ detail }) => {
+									if (!detail) (mod.value as ForloopFlow).failure_threshold = undefined
+								}}
+								options={{
+									right: 'Skip failures',
+									rightTooltip:
+										'If disabled, the flow will fail as soon as one of the iteration fail. Otherwise, the error will be collected as the result of the iteration. Regardless of this setting, if a flow level error handler is defined, it will process the error. (Workspace error handlers will NOT be used to process errors if enabled.)',
+									rightDocumentationLink: 'https://www.windmill.dev/docs/flows/flow_loops'
+								}}
+							/>
+							{#if mod.value.skip_failures}
+								<div class="pl-9" transition:slideDynamic>
+									<FailureThresholdSetting
+										bind:mod
+										{parentModule}
+										{previousModule}
+										tooltip={FAILURE_THRESHOLD_TOOLTIP}
+										documentationLink="https://www.windmill.dev/docs/flows/flow_loops"
+									/>
+								</div>
+							{/if}
+						</div>
 						<Toggle
 							size="xs"
 							textClass="text-xs font-normal text-primary"

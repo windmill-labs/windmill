@@ -16,7 +16,7 @@ use std::sync::LazyLock;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
-use windmill_common::auth::create_jwt_token;
+use windmill_common::auth::create_jwt_token_withholding;
 
 use crate::db::ApiAuthed;
 
@@ -69,6 +69,7 @@ mod instructions;
 mod items;
 mod misc;
 mod runs;
+mod secrets;
 mod settings;
 mod views;
 mod workspace;
@@ -217,7 +218,7 @@ macro_rules! groups {
         }
     };
 }
-groups!(guidance, workspace, items, misc, flows, apps, runs, deploy, data, settings);
+groups!(guidance, workspace, items, misc, flows, apps, runs, deploy, data, settings, secrets);
 
 /// A tool as a client lists it.
 #[cfg(feature = "mcp")]
@@ -479,14 +480,22 @@ impl Ctx<'_> {
             .map_or((page, None), |(p, h)| (p, Some(h)));
         let sep = if page.contains('?') { '&' } else { '?' };
         let hash = hash.map(|h| format!("#{h}")).unwrap_or_default();
+        format!(
+            "{}{page}{sep}workspace={}{hash}",
+            self.base_url(),
+            enc(self.w_id)
+        )
+    }
+
+    /// The instance's address as the user opens it.
+    pub fn base_url(&self) -> String {
         // An instance that never set its base URL holds this placeholder, which no client
         // can open; the host the client reached is the better guess then.
         let base = windmill_common::BASE_URL.load();
-        let base = match self.origin {
-            Some(origin) if base.as_str() == "http://localhost" => origin,
-            _ => base.as_str(),
-        };
-        format!("{base}{page}{sep}workspace={}{hash}", enc(self.w_id))
+        match self.origin {
+            Some(origin) if base.as_str() == "http://localhost" => origin.to_string(),
+            _ => base.as_str().to_string(),
+        }
     }
 }
 
@@ -695,7 +704,7 @@ pub(crate) async fn mint_caller_jwt(
     // uncapped token that satisfies require_super_admin / require_devops_role.
     // A browser caller stays a session: runs, trigger history and schedules attribute a
     // session's actions to the UI, and anything else to the API (`webhook`).
-    create_jwt_token(
+    create_jwt_token_withholding(
         windmill_common::db::Authed::from(api_authed.clone()),
         workspace_id,
         3600,
@@ -703,6 +712,7 @@ pub(crate) async fn mint_caller_jwt(
         api_authed.is_session_token.then(|| "session".to_string()),
         None,
         scopes,
+        (api_authed.admin_withheld, api_authed.super_admin_withheld),
     )
     .await
 }

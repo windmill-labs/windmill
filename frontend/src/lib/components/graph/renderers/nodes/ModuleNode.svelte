@@ -8,10 +8,14 @@
 		StickyNote,
 		PictureInPicture2,
 		Bug,
-		RefreshCw
+		RefreshCw,
+		Gauge,
+		Hourglass,
+		Moon
 	} from 'lucide-svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import NodeWrapper from './NodeWrapper.svelte'
+	import WaitingMark from './WaitingMark.svelte'
 	import AiDecisionNodeBranch from './AiDecisionNodeBranch.svelte'
 	import type { ModuleN } from '../../graphBuilder.svelte'
 	import { jobToGraphModuleState } from '$lib/components/modulesTest.svelte'
@@ -219,6 +223,24 @@
 			: undefined
 	})
 
+	// Live, so it takes the slot of the retried and error handler counts while it lasts.
+	let waitingInside = $derived.by(() => {
+		if (!flowRunStatus?.showsRun || data.editMode || data.module?.value?.type !== 'flow') return
+		const { approval, sleep, concurrency } = flowRunStatus.waitingStepsInside(data.id)
+		if (approval > 0)
+			return {
+				reason: 'approval' as const,
+				label: `${approval === 1 ? 'Approval' : `${approval} approvals`} waiting inside`
+			}
+		if (concurrency > 0)
+			return {
+				reason: 'concurrency' as const,
+				label: `${concurrency} step${concurrency === 1 ? '' : 's'} held by concurrency limit`
+			}
+		if (sleep > 0)
+			return { reason: 'sleep' as const, label: `${sleep} step${sleep === 1 ? '' : 's'} sleeping` }
+	})
+
 	let type = $derived.by(() => {
 		let typ = state?.type
 		if (!typ && flowJobs) {
@@ -319,6 +341,9 @@
 			nodeState={state?.skipped ? '_Skipped' : type}
 			duration_ms={state?.duration_ms}
 			retries={state?.retries}
+			held={type === 'WaitingForExecutor' && state?.waiting_reason === 'concurrency'
+				? { since: state.held_since, nextCheck: state.scheduled_for }
+				: undefined}
 			{flowJobs}
 			{attempts}
 			on:delete={(e) => {
@@ -352,11 +377,61 @@
 				: undefined}
 		/>
 
-		{#await hiddenErrorHandlers}
-			{@render insideBar(retriedInside, undefined)}
-		{:then handlers}
-			{@render insideBar(retriedInside, handlers)}
-		{/await}
+		{#if type === 'WaitingForExecutor' && state?.waiting_reason}
+			<WaitingMark
+				reason={state.waiting_reason}
+				until={state.scheduled_for}
+				concurrencyKey={state.concurrency_key}
+				heldSince={state.held_since}
+				onclick={() => data.module && data.eventHandlers.select(data.module.id)}
+			/>
+		{:else if state?.approval_wait}
+			<WaitingMark
+				reason="approval"
+				approvalWait={state.approval_wait}
+				onclick={() => data.module && data.eventHandlers.select(data.module.id)}
+			/>
+		{/if}
+		{#if waitingInside}
+			<!-- svelte-ignore a11y_no_static_element_interactions -->
+			<div
+				class="nodrag nopan absolute -left-1 top-[calc(100%+3px)] z-10"
+				onpointerdown={(e) => e.stopPropagation()}
+			>
+				<Button
+					variant="subtle"
+					unifiedSize="2xs"
+					startIcon={{
+						icon:
+							waitingInside.reason === 'approval'
+								? Hourglass
+								: waitingInside.reason === 'sleep'
+									? Moon
+									: Gauge,
+						classes:
+							waitingInside.reason === 'approval'
+								? 'text-violet-500'
+								: waitingInside.reason === 'sleep'
+									? ''
+									: 'text-orange-500'
+					}}
+					btnClasses="text-2xs text-secondary gap-1"
+					title="Expand to see the waiting steps"
+					onClick={(e) => {
+						e?.stopPropagation()
+						expandSubflow()
+					}}
+				>
+					{waitingInside.label}
+				</Button>
+			</div>
+		{:else}
+			{#await hiddenErrorHandlers}
+				{@render insideBar(retriedInside, undefined)}
+			{:then handlers}
+				{@render insideBar(retriedInside, handlers)}
+			{/await}
+		{/if}
 
 		{#if (data.module?.value?.type === 'branchall' || data.module?.value?.type === 'branchone') && data.insertable}
 			<div class="absolute -bottom-10 left-1/2 transform -translate-x-1/2 z-10 flex gap-1">

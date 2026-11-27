@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.882.0
+  version: 1.886.0
   title: Windmill API
 
   contact:
@@ -36,6 +36,26 @@ paths:
       responses:
         "200":
           description: git version of backend
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /client_ip:
+    get:
+      summary: get the caller's IP address
+      description: |
+        The address of the client making the request, as Windmill resolves it for per-IP checks such
+        as token IP allowlists: forwarding headers are believed only from the proxies in
+        TRUSTED_PROXIES. Behind a proxy that is not listed, this is the proxy's address. Empty when
+        the server cannot tell.
+      operationId: getClientIp
+      tags:
+        - settings
+      security: []
+      responses:
+        "200":
+          description: the caller's IP address
           content:
             text/plain:
               schema:
@@ -2154,6 +2174,7 @@ paths:
         - setting
       parameters:
         - $ref: "#/components/parameters/Key"
+        - $ref: "#/components/parameters/DangerouslyRevealSecrets"
       responses:
         "200":
           description: status
@@ -2968,6 +2989,8 @@ paths:
       operationId: listGlobalSettings
       tags:
         - setting
+      parameters:
+        - $ref: "#/components/parameters/DangerouslyRevealSecrets"
       responses:
         "200":
           description: list of settings
@@ -3011,6 +3034,8 @@ paths:
       operationId: getInstanceConfig
       tags:
         - setting
+      parameters:
+        - $ref: "#/components/parameters/DangerouslyRevealSecrets"
       responses:
         "200":
           description: full instance configuration
@@ -8563,6 +8588,37 @@ paths:
         "400":
           description: rule with this name already exists
 
+  /w/{workspace}/workspaces/password_login_members:
+    get:
+      summary: list the members other than service accounts that sign in with a password
+      operationId: listPasswordLoginMembers
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: members signing in with a password, with their groups
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  required:
+                    - username
+                    - email
+                    - groups
+                  properties:
+                    username:
+                      type: string
+                    email:
+                      type: string
+                    groups:
+                      type: array
+                      items:
+                        type: string
+
   /w/{workspace}/workspaces/protection_rules/{rule_name}:
     post:
       summary: update an existing protection rule
@@ -9244,6 +9300,12 @@ paths:
                 variable:
                   $ref: "#/components/schemas/CreateVariable"
                   description: "The variable holding this account's access token. It is created with the account, in one transaction and with the same checks as createVariable, and linked to it so it refreshes through it."
+                is_workspace_integration:
+                  type: boolean
+                  description: "Issued by the workspace's own OAuth app, with `client` naming its service (google, github, nextcloud)."
+                replace:
+                  type: boolean
+                  description: "Reconnect: swap the token and account of the existing variable at variable.path in place, keeping its sharing and description."
               required:
                 - refresh_token
                 - expires_in
@@ -9433,13 +9495,21 @@ paths:
                       type: string
                     supports_client_credentials:
                       type: boolean
+                    supports_authorization_code:
+                      type: boolean
+                      description: The instance entry declares the authorization-code grant, so users can sign in with their own account when has_shared_credentials is also true.
                     has_shared_credentials:
                       type: boolean
-                      description: The instance entry holds a client id and secret users can connect with, for sign-in or as a shared service account. Whether client credentials are shared is get_connect's client_credentials_configured.
+                      description: The instance entry holds a client id and secret users can connect with, for sign-in or as a shared service account.
+                    shares_client_credentials:
+                      type: boolean
+                      description: Users may connect as the instance entry's own app with its shared client credentials, with no sign-in.
                   required:
                     - name
                     - supports_client_credentials
+                    - supports_authorization_code
                     - has_shared_credentials
+                    - shares_client_credentials
 
   /oauth/get_connect/{client}:
     get:
@@ -13417,6 +13487,94 @@ paths:
             application/json:
               schema: {}
 
+  /w/{workspace}/jobs/flow/nested_approvals/{job_id}:
+    get:
+      summary: list the approvals given in runs nested under a flow run
+      description: >
+        List the approval steps that runs nested under a flow run (subflows, branch and
+        loop runs, at any depth) went past, with who approved or rejected each and when.
+        The flow run's own approval steps are not listed: they are in its flow status.
+        Only the runs started by a step that can hold an approval step are read: a
+        subflow, or a loop or branch whose steps hold one.
+      operationId: listNestedApprovals
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: job_id
+          in: path
+          required: true
+          description: id of the flow run
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: the nested approval steps, oldest first
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - approvals
+                  - more
+                properties:
+                  approvals:
+                    type: array
+                    items:
+                      type: object
+                      required:
+                        - job_id
+                        - subflows
+                        - step_id
+                        - required_events
+                        - approvers
+                      properties:
+                        job_id:
+                          type: string
+                          format: uuid
+                          description: the nested run the step belongs to
+                        subflows:
+                          type: array
+                          items:
+                            type: string
+                          description: >
+                            ids of the subflow steps leading to the nested run, outermost
+                            first. Step ids are unique across a flow, loop and branch steps
+                            included, so the first one (or the step itself) is a step of
+                            the flow run's own graph
+                        step_id:
+                          type: string
+                        step_summary:
+                          type: string
+                        required_events:
+                          type: integer
+                          description: >
+                            approvals the step required; fewer approvers means it timed out
+                            and the flow continued
+                        approvers:
+                          type: array
+                          items:
+                            type: object
+                            required:
+                              - resume_id
+                              - approver
+                            properties:
+                              resume_id:
+                                type: integer
+                              approver:
+                                type: string
+                              approved_at:
+                                type: string
+                                format: date-time
+                              approved:
+                                type: boolean
+                  more:
+                    type: boolean
+                    description: >
+                      more nested runs than are read, typically a loop with an approval in
+                      every iteration: their approvals are on those runs' own pages
+
   /w/{workspace}/jobs/flow/approval_step_detail/{job_id}/{step_id}:
     get:
       summary: get the approval detail of one step of a flow run
@@ -13527,8 +13685,9 @@ paths:
                   approvals:
                     type: array
                     description: >
-                      approvals received. approved, value and created_at are known only
-                      while the run is live; a finished run keeps approver names alone.
+                      approvals received. approved and value are known only while the run is
+                      live; a finished run keeps approver names and, for approvals recorded
+                      since it was kept, created_at.
                     items:
                       type: object
                       required:
@@ -13547,6 +13706,65 @@ paths:
                           format: date-time
                   error:
                     description: the run's error, when status is not_resumed
+
+  /w/{workspace}/jobs/approvals/waiting:
+    get:
+      summary: list the runs waiting for an approval the caller can give
+      description: >
+        Runs suspended on an approval step the caller can approve, by the same check the
+        approval itself runs, newest first, excluding steps the caller already approved. A
+        step that does not require login is listed only to callers who can read its run.
+      operationId: listWaitingApprovals
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: runs waiting for the caller's approval
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [approvals, total]
+                properties:
+                  approvals:
+                    type: array
+                    description: the most recent of the listed runs, at most 100
+                    items:
+                      type: object
+                      required:
+                        - job_id
+                        - started_by
+                        - created_at
+                        - approvals
+                        - required_approvals
+                      properties:
+                        job_id:
+                          type: string
+                          format: uuid
+                          description: >
+                            the suspended flow run, the one its approval page takes: the root
+                            run, or the branch, loop or subflow run holding the approval step
+                        flow_path:
+                          type: string
+                        flow_summary:
+                          type: string
+                        step_summary:
+                          type: string
+                        started_by:
+                          type: string
+                        created_at:
+                          type: string
+                          format: date-time
+                        approvals:
+                          type: integer
+                          description: approvals received so far
+                        required_approvals:
+                          type: integer
+                  total:
+                    type: integer
+                    description: how many runs are listed in all
 
   /w/{workspace}/jobs/job_view_token/{id}:
     get:
@@ -15574,6 +15792,35 @@ paths:
                     items:
                       type: object
                       additionalProperties: true
+
+  /w/{workspace}/ai_session_tools/secret_request/open:
+    post:
+      summary: read the secret request a request_secret link carries
+      description: The page an MCP client's request_secret link opens reads the card to draw from the link's signed token. Refused when the token is invalid, expired, or made for another user or workspace.
+      operationId: openSecretRequest
+      tags:
+        - ai
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - token
+              properties:
+                token:
+                  type: string
+      responses:
+        "200":
+          description: the card's request
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
 
   /w/{workspace}/ai/sessions/list:
     get:
@@ -17657,6 +17904,12 @@ paths:
                 flow_version:
                   type: integer
                   description: specific flow version to use for restart (optional, uses current version if not specified)
+                failed_only:
+                  type: boolean
+                  description: for a parallel for-loop or branch-all at the restart point (`step_id`, or the last `nested_path` entry), keep the iterations (branches) that succeeded and rerun only the others from their first step, each in its original position. Cannot be combined with an iteration to restart at on that same step.
+                from_failed_step:
+                  type: boolean
+                  description: with `failed_only`, resume each failed iteration (branch) at the step where it failed, keeping the steps before it, rather than rerunning it from its first step.
                 nested_path:
                   type: array
                   description: path of additional steps to descend into AFTER `step_id`. Each entry represents one level of nesting inside the spawned child of the previous level's container (BranchOne / sequential ForLoop iteration / Subflow). When non-empty, the actual restart point is the LAST entry's step_id.
@@ -19730,6 +19983,15 @@ paths:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/JobId"
         - $ref: "#/components/parameters/GetStarted"
+        - name: wait_for_child
+          description: |
+            Set by a job's SDK wait helpers when the calling job is blocked until this job, its
+            child, completes. If every worker of the child's tag is held by such a waiting parent,
+            the child can never start, and the request fails with 409 instead of the wait hanging.
+            Leave unset for a plain status read.
+          in: query
+          schema:
+            type: boolean
 
       responses:
         "200":
@@ -20496,6 +20758,9 @@ paths:
                   flow_summary:
                     type: string
                     description: summary of the flow or workflow the approval belongs to
+                  required_events:
+                    type: integer
+                    description: approvals the step requires; absent for a workflow as code
                   approvers:
                     type: array
                     items:
@@ -20508,6 +20773,11 @@ paths:
                           type: integer
                         approver:
                           type: string
+                        approved_at:
+                          type: string
+                          format: date-time
+                        approved:
+                          type: boolean
                   view_token:
                     type: string
                     description: >-
@@ -20762,6 +21032,11 @@ paths:
                           type: integer
                         approver:
                           type: string
+                        approved_at:
+                          type: string
+                          format: date-time
+                        approved:
+                          type: boolean
                       required:
                         - resume_id
                         - approver
@@ -22253,6 +22528,47 @@ paths:
                 items:
                   $ref: "#/components/schemas/WorkspaceIntegrations"
 
+  /w/{workspace}/native_triggers/integrations/workspace_apps:
+    get:
+      summary: list the services this workspace has its own OAuth app for
+      operationId: listNativeTriggerWorkspaceApps
+      tags:
+        - workspace_integration
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: services with a workspace OAuth app
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/NativeServiceName"
+
+  /w/{workspace}/native_triggers/integrations/{service_name}/required_scopes:
+    get:
+      summary: list the scopes the service's triggers need
+      operationId: getNativeTriggerRequiredScopes
+      tags:
+        - workspace_integration
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: service_name
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/NativeServiceName"
+      responses:
+        "200":
+          description: scopes a connection made for the service's triggers requests
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+
   /w/{workspace}/native_triggers/integrations/{service_name}/exists:
     get:
       summary: check if integrations for a particular service exists
@@ -22304,7 +22620,7 @@ paths:
 
   /w/{workspace}/native_triggers/integrations/{service_name}/generate_connect_url:
     post:
-      summary: generate connect url for native trigger service
+      summary: generate the authorize url of a connect made with the workspace OAuth app
       operationId: generateNativeTriggerServiceConnectUrl
       tags:
         - workspace_integration
@@ -22317,17 +22633,18 @@ paths:
             $ref: "#/components/schemas/NativeServiceName"
       requestBody:
         description: >-
-          Where to save the connection (defaults to u/{caller}/native_{resource_type}). Uses
-          the workspace OAuth client, or the instance one when the instance shares it, and the
-          redirect URI registered on that client.
+          The scopes to request. Uses the workspace's own OAuth app and the redirect URI
+          registered on it; refused when the workspace has none.
         required: true
         content:
           application/json:
             schema:
               type: object
               properties:
-                resource_path:
-                  type: string
+                scopes:
+                  type: array
+                  items:
+                    type: string
       responses:
         "200":
           description: native trigger service connect url
@@ -22461,7 +22778,7 @@ paths:
 
   /w/{workspace}/native_triggers/integrations/{service_name}/callback:
     post:
-      summary: native trigger service oauth callback
+      summary: exchange the code of a connect made with the workspace OAuth app
       operationId: nativeTriggerServiceCallback
       tags:
         - workspace_integration
@@ -22489,11 +22806,11 @@ paths:
                 - state
       responses:
         "200":
-          description: path of the saved connection
+          description: the token, to save like any connected resource
           content:
             application/json:
               schema:
-                type: string
+                $ref: "#/components/schemas/TokenResponse"
 
   /w/{workspace}/native_triggers/{service_name}/create:
     post:
@@ -28015,6 +28332,38 @@ paths:
             application/json:
               schema:
                 type: string
+  /concurrency_groups/{id}/key_status:
+    get:
+      summary: Get a job's concurrency key and whether its limit held it back
+      description: Requires read access to the job, the same as reading the run itself. Returns null when the job has no concurrency key.
+      operationId: getConcurrencyKeyStatus
+      tags:
+        - concurrencyGroups
+      parameters:
+        - $ref: "#/components/parameters/JobId"
+      responses:
+        "200":
+          description: concurrency key and deferral of the given job
+          content:
+            application/json:
+              schema:
+                type: object
+                nullable: true
+                properties:
+                  key:
+                    type: string
+                  deferred_from:
+                    type: string
+                    format: date-time
+                    nullable: true
+                    description: When the job was first due. Set the first time its concurrency limit held it back, and kept after it ran.
+                  released_at:
+                    type: string
+                    format: date-time
+                    nullable: true
+                    description: When the concurrency limit let in a job it had held back, as the time the job was last due. The rest until it started is queue time.
+                required:
+                  - key
   /w/{workspace}/concurrency_groups/list_jobs:
     get:
       summary: Get intervals of job runtime concurrency
@@ -29917,6 +30266,15 @@ components:
       required: true
       schema:
         type: string
+    DangerouslyRevealSecrets:
+      name: dangerously_reveal_secrets
+      description: >
+        Return stored secrets in clear. Without it, every secret is replaced by a
+        placeholder, which a write sending it back unchanged keeps as the stored value.
+      in: query
+      required: false
+      schema:
+        type: boolean
     WorkspaceId:
       name: workspace
       in: path
@@ -31094,6 +31452,10 @@ components:
         muted_on_user_path:
           type: boolean
           default: false
+        muted_on_ui_runs:
+          type: boolean
+          default: false
+          description: Skip jobs started from the UI, whose trigger kind is `ui`. Stored only when true.
 
     SuccessHandlerConfig:
       type: object
@@ -31126,6 +31488,9 @@ components:
         muted_on_user_path:
           type: boolean
           default: false
+        muted_on_ui_runs:
+          type: boolean
+          description: Skip jobs started from the UI, whose trigger kind is `ui`. Omit to leave the stored value untouched.
         fallback_to_instance_alerts:
           type: boolean
           description: Report failed jobs to the instance critical alert channels when no workspace error handler is set. Omit to leave the stored value untouched.
@@ -33907,8 +34272,33 @@ components:
           items:
             type: string
           description: "List of path conflicts that block the offboarding. Empty on success."
+        conflict_items:
+          type: array
+          items:
+            $ref: "#/components/schemas/OffboardPathConflict"
+          description: "The same conflicts as `conflicts`, structured. Empty on success."
         summary:
           $ref: "#/components/schemas/OffboardSummary"
+
+    OffboardPathConflict:
+      type: object
+      properties:
+        workspace_id:
+          type: string
+        kind:
+          type: string
+          description: "Item kind, as its table name (script, flow, app, resource, variable, schedule, eval_dataset, http_trigger, ...)"
+        source_path:
+          type: string
+          description: "The offboarded user's item, under u/{username}/"
+        target_path:
+          type: string
+          description: "The existing item at the reassignment target"
+      required:
+        - workspace_id
+        - kind
+        - source_path
+        - target_path
 
     OffboardSummary:
       type: object
@@ -34014,6 +34404,21 @@ components:
           type: string
         read_only:
           type: boolean
+        allowed_ips:
+          type: array
+          description: IPs or CIDRs the token may be used from; absent when it may be used from anywhere.
+          items:
+            type: string
+        admin:
+          type: boolean
+          description: |
+            The token carries workspace admin rights: it was minted with them and its owner is an
+            admin of the workspace it is bound to (any workspace when unbound). Set by /users/tokens/list.
+        super_admin:
+          type: boolean
+          description: |
+            The token carries superadmin rights: it was minted with them (a session always is) and
+            its owner is a superadmin. Set by /users/tokens/list.
       required:
         - token_prefix
         - created_at
@@ -34138,6 +34543,9 @@ components:
             type: string
         workspace_id:
           type: string
+          description: |
+            Bind the token to this workspace: it is then refused on every other workspace and
+            on instance-level endpoints. Omit for a token that reaches every workspace.
         read_only:
           type: boolean
           description: |
@@ -34147,9 +34555,24 @@ components:
         super_admin:
           type: boolean
           description: |
-            For an MCP token (an `mcp:` scope) owned by a superadmin: carry the owner's
-            superadmin rights, reaching every workspace rather than only their
-            memberships. Ignored for other tokens, which always carry them.
+            Carry the owner's superadmin rights: admin in every workspace, including ones
+            they are not a member of, and the superadmin endpoints. Defaults to false, and
+            is ignored when the owner or the calling token does not hold them.
+        admin:
+          type: boolean
+          description: |
+            Carry the owner's workspace admin rights in the workspaces the token reaches.
+            Defaults to false: the token then acts as a regular member. Ignored when the
+            calling token does not hold them.
+        allowed_ips:
+          type: array
+          description: |
+            IPs or CIDRs (IPv4 or IPv6) the token may be used from; omit to allow any.
+            A request from elsewhere is refused as unauthenticated. A token that is itself
+            restricted can only create tokens within its own networks, and creates one
+            restricted to them when this is omitted.
+          items:
+            type: string
 
     NewTokenImpersonate:
       type: object
@@ -34163,6 +34586,18 @@ components:
           type: string
         workspace_id:
           type: string
+          description: Bind the token to this workspace; omit for a token that reaches every workspace.
+        super_admin:
+          type: boolean
+          description: Carry the impersonated account's superadmin rights. Defaults to false.
+        admin:
+          type: boolean
+          description: Carry the impersonated account's workspace admin rights. Defaults to false.
+        allowed_ips:
+          type: array
+          description: IPs or CIDRs the token may be used from; omit to allow any.
+          items:
+            type: string
       required:
         - impersonate_email
 
@@ -34332,6 +34767,9 @@ components:
             it unchanged; send null to clear it. Changing it re-arms the
             workspace's variable expiration handler.
           format: date-time
+        unlink_account:
+          type: boolean
+          description: Detach the OAuth account the variable refreshes through, deleting it when no other variable uses it.
         labels:
           type: array
           items:
@@ -34454,6 +34892,12 @@ components:
           type: object
         span:
           type: string
+        client_ip:
+          type: string
+          description: Address of the client that made the request. Forwarding headers are believed only from the proxies listed in the TRUSTED_PROXIES environment variable (loopback by default, plus the private ranges on Windmill Cloud), so behind a reverse proxy this is the proxy's address until it is listed. Absent on entries no request stands behind.
+        user_agent:
+          type: string
+          description: User-Agent header of the request.
       required:
         - workspace_id
         - id
@@ -34641,9 +35085,11 @@ components:
         - has_preprocessor
 
     RecentRunStatus:
-      description: a failure someone or something marked as handled is `resolved`, not `failure`
+      description: >
+        a failure someone or something marked as handled is `resolved`, not `failure`; a run
+        waiting for an approval is `suspended`, not `running`
       type: string
-      enum: [success, failure, resolved, canceled, running]
+      enum: [success, failure, resolved, canceled, running, suspended]
 
     RecentRunHiddenItem:
       type: object
@@ -34961,6 +35407,12 @@ components:
           items:
             type: string
           description: OAuth scopes the linked account was connected with
+        client:
+          type: string
+          description: OAuth client the linked account refreshes through
+        is_workspace_integration:
+          type: boolean
+          description: The linked account was connected through the workspace's own OAuth app
         created_by:
           type: string
         edited_at:
@@ -39338,6 +39790,12 @@ components:
         nested:
           $ref: "#/components/schemas/RestartedFrom"
           description: When set, the worker spawns the child for `step_id` as a `RestartedFlow` against `nested.flow_job_id` instead of fresh-launching it.
+        failed_only:
+          type: boolean
+          description: For a parallel for-loop or branch-all at `step_id`, keep the iterations (branches) that succeeded and rerun only the others.
+        from_failed_step:
+          type: boolean
+          description: With `failed_only`, resume each failed iteration (branch) at the step where it failed rather than rerunning it from its first step.
 
     Policy:
       type: object
@@ -41657,6 +42115,7 @@ components:
         - RestrictPublicRunSharing
         - RestrictGuestAppDeployment
         - RequireIsolatedForks
+        - RequireSso
     RuleBypasserGroups:
       type: array
       description: Groups that can bypass this ruleset
@@ -41988,12 +42447,6 @@ components:
         workspace:
           type: boolean
           description: Whether this is the workspace connection, which every member may use
-        managed:
-          type: boolean
-          description: >-
-            Whether the integration trigger connect flow made it. Any other connection is a
-            resource connected from Resources, which triggers can use but only Resources can
-            replace or delete.
         scopes:
           type: array
           nullable: true
@@ -42009,7 +42462,6 @@ components:
       required:
         - path
         - workspace
-        - managed
 
     CreateTriggerResponse:
       type: object

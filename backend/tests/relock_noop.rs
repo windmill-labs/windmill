@@ -1043,3 +1043,48 @@ async fn app_relock_of_every_component_regenerates_a_kept_stale_lock(
 
     Ok(())
 }
+
+/// `app_version.id` is one sequence for the whole instance and an imported job row carries the
+/// `runnable_id` it was given, so a dependency job relocks only a version of its own workspace.
+#[sqlx::test(fixtures("base"))]
+async fn app_dependency_job_leaves_a_version_of_another_workspace_alone(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    let (_client, port, _s) = init_client(db.clone()).await;
+    let mut completed = listen_for_completed_jobs(&db).await;
+
+    sqlx::query("INSERT INTO workspace (id, name, owner) VALUES ('other', 'other', 'test-user')")
+        .execute(&db)
+        .await?;
+    let app_id: i64 = sqlx::query_scalar(
+        "INSERT INTO app (workspace_id, path, summary, policy, versions, extra_perms)
+         VALUES ('other', 'f/rel/app', '', '{}'::jsonb, '{}', '{}'::jsonb) RETURNING id",
+    )
+    .fetch_one(&db)
+    .await?;
+    let foreign: i64 = sqlx::query_scalar(
+        "INSERT INTO app_version (app_id, value, created_by, raw_app)
+         VALUES ($1, $2, 'test-user', true) RETURNING id",
+    )
+    .bind(app_id)
+    .bind(
+        serde_json::json!({ "runnables": { "a": { "type": "inline", "inlineScript": {
+            "content": A, "language": "python3"
+        }}}}),
+    )
+    .fetch_one(&db)
+    .await?;
+
+    in_test_worker(
+        &db,
+        async {
+            push_app_dependency_job(&db, foreign, None).await;
+            wait_for_jobs(&db, &mut completed, 1).await;
+            assert_eq!(app_lock(&db, foreign).await, None);
+        },
+        port,
+    )
+    .await;
+
+    Ok(())
+}

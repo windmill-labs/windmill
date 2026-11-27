@@ -518,11 +518,12 @@ fn test_volume_nsjail_mount() {
 fn test_sync_stats_default() {
     use windmill_worker_volumes::SyncStats;
 
-    let stats = SyncStats { new_size_bytes: 0, file_count: 0, uploaded: 0, skipped: 0 };
+    let stats = SyncStats { new_size_bytes: 0, file_count: 0, uploaded: 0, skipped: 0, deleted: 0 };
     assert_eq!(stats.new_size_bytes, 0);
     assert_eq!(stats.file_count, 0);
     assert_eq!(stats.uploaded, 0);
     assert_eq!(stats.skipped, 0);
+    assert_eq!(stats.deleted, 0);
 }
 
 #[test]

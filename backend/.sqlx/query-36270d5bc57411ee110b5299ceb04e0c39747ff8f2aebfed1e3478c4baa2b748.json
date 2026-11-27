@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE v2_job_queue\n                                 SET canceled_by = $3, canceled_reason = $4, scheduled_for = now(), suspend = 0\n                                 WHERE id = ANY($2) AND workspace_id = $5 AND canceled_by IS NULL\n                                     AND (suspend > 0 OR NOT running)\n                                     AND NOT EXISTS (SELECT 1 FROM v2_job c WHERE c.parent_job = v2_job_queue.id)\n                                     AND (SELECT count(*) FROM v2_job_status s,\n                                             jsonb_array_elements(s.flow_status->'modules'->$6::int->'flow_jobs_success') e\n                                          WHERE s.id = $1 AND e = 'false'::jsonb) >= $7",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "UuidArray",
+        "Varchar",
+        "Text",
+        "Text",
+        "Int4",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "36270d5bc57411ee110b5299ceb04e0c39747ff8f2aebfed1e3478c4baa2b748"
+}

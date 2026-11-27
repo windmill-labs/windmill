@@ -1,21 +1,15 @@
 <script lang="ts">
 	/**
 	 * The session chat's model button: a fixed ChatModelSettings config over the copilot's
-	 * own state — the workspace's configured models, the session's model/effort selection
-	 * and its localStorage pins, the custom-prompt editors, and the free-tier grant.
+	 * own state — the workspace's configured models, the session's model/effort selection,
+	 * the custom-prompt editors, and the free-tier grant.
 	 */
 	import { User, Building2, Settings, ExternalLink } from 'lucide-svelte'
 	import ChatModelSettings from '../ChatModelSettings.svelte'
 	import { carriedReasoning, type ChatModelSettingsConfig } from '../chatModelSettings'
-	import {
-		COPILOT_SESSION_MODEL_SETTING_NAME,
-		COPILOT_SESSION_PROVIDER_SETTING_NAME,
-		COPILOT_SESSION_REASONING_SETTING_NAME
-	} from '$lib/stores'
-	import { storeLocalSetting, type Item } from '$lib/utils'
+	import type { Item } from '$lib/utils'
 	import {
 		applySavedWorkspaceCopilotInfo,
-		copilotSessionModel,
 		getUserCustomPrompts,
 		setUserCustomPrompts
 	} from '$lib/aiStore'
@@ -71,23 +65,16 @@
 			REASONING_OFF,
 			getReasoningCapability(m.provider, m.model)
 		)
-		$copilotSessionModel = { ...m, ...(keep !== undefined ? { reasoning: keep } : {}) }
-		storeLocalSetting(COPILOT_SESSION_MODEL_SETTING_NAME, m.model)
-		storeLocalSetting(COPILOT_SESSION_PROVIDER_SETTING_NAME, m.provider)
-		storeLocalSetting(COPILOT_SESSION_REASONING_SETTING_NAME, keep)
+		aiChatManager.pickModel({ ...m, ...(keep !== undefined ? { reasoning: keep } : {}) })
 	}
 
 	function selectReasoning(value: string) {
-		const reasoning = value === REASONING_OFF ? REASONING_OFF : value
-		$copilotSessionModel = {
+		// With the model, so the reasoning choice persists with it.
+		aiChatManager.pickModel({
 			...providerModel,
 			provider: providerModel.provider as AIProvider,
-			reasoning
-		}
-		// Pin the current model selection so the reasoning choice persists with it.
-		storeLocalSetting(COPILOT_SESSION_MODEL_SETTING_NAME, providerModel.model)
-		storeLocalSetting(COPILOT_SESSION_PROVIDER_SETTING_NAME, providerModel.provider)
-		storeLocalSetting(COPILOT_SESSION_REASONING_SETTING_NAME, reasoning)
+			reasoning: value
+		})
 	}
 
 	// ---- prompt parameters (User / Workspace custom prompts) ----

@@ -160,7 +160,7 @@ pub(super) enum McpMode {
     /// The token has no bound workspace (`workspace_id IS NULL`). Tools take an
     /// explicit `workspace_id` argument; the wrapped value is the raw bearer
     /// token, used to re-resolve auth per requested workspace.
-    Multi(String),
+    Multi(McpToken),
 }
 
 /// Everything a request carries besides its MCP payload.
@@ -207,7 +207,7 @@ impl<B: McpBackend> Runner<B> {
                 tracing::error!("MultiWorkspaceMcp set but McpToken missing");
                 ErrorData::internal_error("MCP token not found for multi-workspace session", None)
             })?;
-            McpMode::Multi(token.0.clone())
+            McpMode::Multi(token.clone())
         } else {
             let workspace_id = http_parts
                 .extensions
@@ -1204,7 +1204,7 @@ impl<B: McpBackend> Runner<B> {
     async fn call_tool_multi(
         &self,
         base_auth: &B::Auth,
-        token: &str,
+        token: &McpToken,
         scope_config: &crate::common::scope::McpScopeConfig,
         read_only: bool,
         name: std::borrow::Cow<'static, str>,

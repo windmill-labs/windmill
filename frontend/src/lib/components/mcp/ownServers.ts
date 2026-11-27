@@ -1,6 +1,7 @@
 import { get } from 'svelte/store'
 import { userStore } from '$lib/stores'
 import { getWorkspaceRole } from '$lib/user'
+import { ResourceService } from '$lib/gen'
 
 /** The principals an `extra_perms` entry can name to grant this user access. */
 export type McpViewer = { username: string | undefined; pgroups: string[] }
@@ -45,4 +46,17 @@ export async function mcpViewer(workspace: string): Promise<McpViewer> {
 		return { username: role.user.username, pgroups: role.user.pgroups ?? [] }
 	}
 	return { username: undefined, pgroups: [] }
+}
+
+/** The workspace's `mcp` resources the chat may list for this viewer, on or off. */
+export async function listVisibleMcpServers(
+	workspace: string
+): Promise<{ path: string; editedAt?: string }[]> {
+	const [resources, viewer] = await Promise.all([
+		ResourceService.listResource({ workspace, resourceType: 'mcp', perPage: MCP_LIST_PER_PAGE }),
+		mcpViewer(workspace)
+	])
+	return resources
+		.filter((r) => isOwnOrSharedMcpPath(r.path, r.extra_perms, viewer))
+		.map((r) => ({ path: r.path, editedAt: r.edited_at }))
 }

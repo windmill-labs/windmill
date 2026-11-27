@@ -4,12 +4,13 @@
 	import { apiErrorMessage, classNames } from '$lib/utils'
 	import { AlertTriangle, CornerDownLeft, Loader2 } from 'lucide-svelte'
 	import { UserService, FolderService } from '$lib/gen'
-	import type { OffboardPreview } from '$lib/gen/types.gen'
+	import type { OffboardPathConflict, OffboardPreview } from '$lib/gen/types.gen'
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import OffboardWorkspaceSection from './OffboardWorkspaceSection.svelte'
-	import { countPaths } from './offboarding-utils'
+	import OffboardConflictList from './OffboardConflictList.svelte'
+	import { countPaths, withoutConflict } from './offboarding-utils'
 
 	type Props = {
 		open: boolean
@@ -24,7 +25,7 @@
 	let preview = $state(undefined as OffboardPreview | undefined)
 	let loading = $state(false)
 	let submitting = $state(false)
-	let conflicts: string[] = $state([])
+	let conflicts: OffboardPathConflict[] = $state([])
 
 	let doReassign = $state(true)
 	let targetKind: 'user' | 'folder' = $state('user')
@@ -117,8 +118,8 @@
 					delete_user: deleteUser
 				}
 			})
-			if (result.conflicts && result.conflicts.length > 0) {
-				conflicts = result.conflicts
+			if (result.conflict_items && result.conflict_items.length > 0) {
+				conflicts = result.conflict_items
 			} else {
 				sendUserToast(
 					deleteUser
@@ -221,17 +222,10 @@
 							{/if}
 
 							{#if conflicts.length > 0}
-								<Alert type="error" title="Path conflicts detected">
-									<p class="text-xs mb-1"
-										>These items already exist at the target. Rename or delete them, or choose a
-										different user/folder.</p
-									>
-									<ul class="text-xs list-disc list-inside max-h-32 overflow-y-auto">
-										{#each conflicts as conflict, i (i)}
-											<li>{conflict}</li>
-										{/each}
-									</ul>
-								</Alert>
+								<OffboardConflictList
+									{conflicts}
+									onResolved={(c) => (conflicts = withoutConflict(conflicts, c))}
+								/>
 							{/if}
 						</div>
 					{/if}

@@ -23,11 +23,13 @@ import {
 	isWebSearchEnabledForProvider,
 	setCopilotInfo,
 	copilotInfo,
+	copilotSessionModel,
 	copilotWorkspace,
 	getWorkspaceCopilotInfo,
 	invalidateWorkspaceCopilotInfo,
 	loadWorkspaceCopilotInfo,
 	applySavedWorkspaceCopilotInfo,
+	tryResolveModelFor,
 	workspaceCopilotInfoFailed
 } from './aiStore'
 
@@ -156,4 +158,14 @@ describe('setCopilotInfo legacy /thinking migration', () => {
 		expect(isWebSearchEnabledForProvider('openai')).toBe(false)
 		expect(isWebSearchEnabledForProvider('anthropic')).toBe(true)
 	})
+})
+
+it("keeps a model pick the tab's workspace does not offer, without sending it there", () => {
+	const pick = { provider: 'anthropic', model: 'fork-only' } as const
+	copilotSessionModel.set(pick)
+	setCopilotInfo(withModel('parent'))
+
+	expect(get(copilotSessionModel)).toEqual(pick)
+	expect(tryResolveModelFor(get(copilotInfo), pick)?.model).toBe('parent')
+	copilotSessionModel.set(undefined)
 })

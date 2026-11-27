@@ -70,7 +70,8 @@ export function findStepPath(modules: FlowModule[], targetId: string): StepPath 
 								stepId: mod.id,
 								type: 'branchall',
 								branchIndex: i,
-								parallel: value.parallel === true
+								// A BranchAll is parallel unless `parallel: false`.
+								parallel: value.parallel !== false
 							},
 							...sub.ancestors
 						]
@@ -125,6 +126,8 @@ export type NestedRestartResult = {
 	/** ForLoop iteration counts keyed by the popup's field key: `'top'` for the
 	 * outer container, `inner-${n}` for `path[n]`. */
 	iterationCounts: Record<string, number>
+	/** The leaf's definition, when its level's modules are loaded. */
+	leafModule: FlowModule | undefined
 }
 
 /**
@@ -200,6 +203,7 @@ export function buildNestedRestartPath(opts: {
 	// nested path. `counts` maps a chain index to that ForLoop's recorded
 	// iteration count.
 	const chain: NestedRestartStep[] = []
+	let leafModule: FlowModule | undefined
 	const counts: Record<number, number> = {}
 	const appendStep = (stepId: string, isForloop: boolean, graphPrefix: string) => {
 		const entry: NestedRestartStep = { step_id: stepId }
@@ -256,8 +260,15 @@ export function buildNestedRestartPath(opts: {
 			appendStep(a.stepId, a.type === 'forloopflow', graphPrefix)
 		}
 		// Subflow boundaries are `Flow{path}` steps (no iteration); only the leaf
-		// can itself be a ForLoop the user wants to restart at an iteration of.
-		appendStep(target, isLeafLevel && path.target.value.type === 'forloopflow', graphPrefix)
+		// can itself be a ForLoop the user wants to restart at an iteration of. A
+		// parallel one is rerun whole or by its failed iterations, never from one.
+		const leafValue = path.target.value
+		appendStep(
+			target,
+			isLeafLevel && leafValue.type === 'forloopflow' && leafValue.parallel !== true,
+			graphPrefix
+		)
+		if (isLeafLevel) leafModule = path.target
 	}
 
 	// Need at least a top container plus the leaf; a lone entry means the leaf is
@@ -276,6 +287,37 @@ export function buildNestedRestartPath(opts: {
 		topStepId: top.step_id,
 		topBranchOrIterationN: top.branch_or_iteration_n,
 		path: rest,
-		iterationCounts
+		iterationCounts,
+		leafModule
 	}
+}
+
+/**
+ * A step inside a parallel ForLoop / BranchAll has no restart point of its own:
+ * its iterations run concurrently, so there is no "before" and "after" to keep
+ * or rerun. Restarting from it restarts the outermost parallel container on its
+ * path. Returns that container's graph node id (prefixed like the selection when
+ * it sits inside an expanded subflow), or `undefined` when there is none.
+ */
+export function outermostParallelContainer(opts: {
+	selectedJobStep: string
+	rawFlowModules: FlowModule[]
+	expandedSubflows: Record<string, { modules: FlowModule[] }>
+}): string | undefined {
+	const parse = parseExpandedSubflowId(opts.selectedJobStep)
+	const boundaries = parse?.subflowSteps ?? []
+	const leaf = parse?.leaf ?? opts.selectedJobStep
+	const graphPrefixFor = (i: number): string =>
+		i === 0 ? '' : 'subflow:' + boundaries.slice(0, i).join(':') + ':'
+	for (let i = 0; i <= boundaries.length; i++) {
+		const modules =
+			i === 0
+				? opts.rawFlowModules
+				: opts.expandedSubflows[graphPrefixFor(i - 1) + boundaries[i - 1]]?.modules
+		if (!modules) return undefined
+		const target = i === boundaries.length ? leaf : boundaries[i]
+		const parallel = findStepPath(modules, target)?.ancestors.find((a) => a.parallel)
+		if (parallel) return graphPrefixFor(i) + parallel.stepId
+	}
+	return undefined
 }

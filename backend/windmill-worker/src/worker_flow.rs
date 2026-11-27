@@ -12,6 +12,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crate::common::{cached_result_path, get_root_job_id, save_in_cache, transform_json};
+use crate::failed_only_restart::FailedOnlySlots;
 use crate::js_eval::{eval_timeout, eval_within, IdContext};
 use crate::worker_utils::get_tag_and_concurrency;
 use crate::{
@@ -40,7 +41,8 @@ use windmill_common::db::Authed;
 use windmill_common::flow_conversations::{add_message_to_conversation_tx, MessageType};
 use windmill_common::flow_status::{
     ApprovalConditions, ContinuedOnError, FlowJobDuration, FlowJobsDuration,
-    FlowStatusModuleWParent, Iterator as FlowIterator, JobResult, MAX_CONTINUED_ON_ERROR,
+    FlowStatusModuleWParent, HomeListing, Iterator as FlowIterator, JobResult,
+    MAX_CONTINUED_ON_ERROR,
 };
 use windmill_common::flows::{add_virtual_items_if_necessary, Branch, FlowNodeId, StopAfterIf};
 use windmill_common::jobs::{
@@ -433,6 +435,20 @@ async fn evaluate_stop_after_all_iters_if(
     Ok(())
 }
 
+const FAILURE_THRESHOLD_ERROR: &str = "FailureThresholdReached";
+const FAILURE_THRESHOLD_CANCELER: &str = "failure threshold";
+
+fn failure_threshold_message(threshold: u32, parallel: bool) -> String {
+    let s = if threshold == 1 { "" } else { "s" };
+    let mut message =
+        format!("Loop stopped after {threshold} failed iteration{s}, its failure threshold");
+    if parallel {
+        message
+            .push_str(". Iterations already running finished; those not yet started were canceled");
+    }
+    message
+}
+
 fn result_has_recover_true(nresult: Arc<Box<RawValue>>) -> bool {
     let recover = serde_json::from_str::<RecoveryObject>(nresult.get());
     return recover.map(|r| r.recover.unwrap_or(false)).unwrap_or(false);
@@ -604,30 +620,41 @@ pub async fn update_flow_status_after_job_completion_internal(
         //     "UPDATE FLOW STATUS 2: {module_step:#?} {module_status:#?} {old_status:#?} "
         // );
 
-        let (is_loop, skip_loop_failures, parallelism, parallel_loop, loop_bounds) =
-            if let FlowStatusModule::InProgress { iterator: Some(_), parallel, .. } = module_status
-            {
-                let value = current_module
-                    .as_ref()
-                    .and_then(|x| x.get_value_with_skip_failures().ok());
-                (
-                    true,
-                    value
-                        .as_ref()
-                        .and_then(|x| x.skip_failures)
-                        .unwrap_or(false),
-                    value.as_ref().and_then(|x| x.parallelism.clone()),
-                    *parallel,
-                    value.map(|x| {
-                        (
-                            x.max_iterations.filter(|m| *m > 0),
-                            x.max_duration_secs.filter(|m| *m > 0),
-                        )
-                    }),
-                )
-            } else {
-                (false, false, None, false, None)
-            };
+        let (
+            is_loop,
+            skip_loop_failures,
+            failure_threshold,
+            parallelism,
+            parallel_loop,
+            loop_bounds,
+        ) = if let FlowStatusModule::InProgress { iterator: Some(iterator), parallel, .. } =
+            module_status
+        {
+            let value = current_module
+                .as_ref()
+                .and_then(|x| x.get_value_with_skip_failures().ok());
+            let skip_failures = value
+                .as_ref()
+                .and_then(|x| x.skip_failures)
+                .unwrap_or(false);
+            (
+                true,
+                skip_failures,
+                iterator
+                    .failure_threshold
+                    .filter(|t| skip_failures && *t > 0),
+                value.as_ref().and_then(|x| x.parallelism.clone()),
+                *parallel,
+                value.map(|x| {
+                    (
+                        x.max_iterations.filter(|m| *m > 0),
+                        x.max_duration_secs.filter(|m| *m > 0),
+                    )
+                }),
+            )
+        } else {
+            (false, false, None, None, false, None)
+        };
 
         let (is_branch_all, parallel_branchall) = match module_status {
             FlowStatusModule::InProgress { branchall: Some(_), parallel, .. } => (true, *parallel),
@@ -783,7 +810,7 @@ pub async fn update_flow_status_after_job_completion_internal(
         // A while loop that reached its iteration or duration bound without its stop condition
         // being met fails. The loop's start is the first iteration's start, which the module
         // status persists, so the duration bound holds across worker restarts.
-        let loop_exhausted_msg = match (module_status, loop_bounds) {
+        let loop_exhausted_msg = || match (module_status, loop_bounds) {
             (
                 FlowStatusModule::InProgress {
                     iterator: Some(FlowIterator { index, .. }),
@@ -801,7 +828,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                     .or_else(|| flow_job_duration.as_ref().map(|d| d.started_at));
                 let elapsed_secs =
                     started_at.map(|s| (chrono::Utc::now() - s).num_milliseconds() as f64 / 1000.0);
-                if max_iterations.is_some_and(|m| iterations >= m as usize) {
+                let message = if max_iterations.is_some_and(|m| iterations >= m as usize) {
                     Some(format!(
                         "While loop reached its maximum of {iterations} iterations without its stop condition being met"
                     ))
@@ -812,18 +839,44 @@ pub async fn update_flow_status_after_job_completion_internal(
                         )),
                         _ => None,
                     }
-                }
+                };
+                message.map(|m| ("LoopExhausted", m))
             }
             _ => None,
         };
-        let loop_exhausted_err = loop_exhausted_msg.as_ref().map(|message| {
+        // A sequential loop stops at the iteration that reaches its failure threshold.
+        let threshold_msg = match module_status {
+            FlowStatusModule::InProgress {
+                flow_jobs: Some(jobs),
+                flow_jobs_success: Some(jobs_success),
+                parallel: false,
+                ..
+            } if !success => failure_threshold.and_then(|threshold| {
+                let failed = jobs
+                    .iter()
+                    .zip(jobs_success)
+                    .filter(|(j, s)| *j != job_id_for_status && **s == Some(false))
+                    .count()
+                    + 1;
+                (failed >= threshold as usize).then(|| {
+                    (
+                        FAILURE_THRESHOLD_ERROR,
+                        failure_threshold_message(threshold, false),
+                    )
+                })
+            }),
+            _ => None,
+        };
+        let mut loop_err_msg = threshold_msg.or_else(loop_exhausted_msg);
+        let loop_error_value = |(name, message): &(&str, String)| {
             Arc::new(to_raw_value(&serde_json::json!({
-                "error": { "name": "LoopExhausted", "message": message }
+                "error": { "name": name, "message": message }
             })))
-        });
+        };
+        let mut loop_err = loop_err_msg.as_ref().map(loop_error_value);
         // skip_failures tolerates failed iterations, not the loop failing as a whole.
-        let skip_loop_failures = skip_loop_failures && loop_exhausted_err.is_none();
-        if loop_exhausted_err.is_some() {
+        let mut skip_loop_failures = skip_loop_failures && loop_err.is_none();
+        if loop_err.is_some() {
             has_triggered_error_handler = false;
         }
 
@@ -902,6 +955,34 @@ pub async fn update_flow_status_after_job_completion_internal(
                                  "error while fetching iterator index: {e:#}"
                              ))
                          })?.ok_or_else(|| Error::internal_err(format!("requiring an index in InProgress for flow {flow} at step {}", old_status.step)))?;
+
+                        // Past the failure threshold, the iterations not started yet are cancelled:
+                        // those no worker has picked up, or that `parallelism` holds back. A
+                        // `suspend` is also an approval, whose iteration already ran a step: the
+                        // child job check keeps it, and any started iteration, out. An iteration a
+                        // worker picked up runs to its end, and the loop fails once all are in.
+                        // The count reads the row this transaction just updated.
+                        if let Some(threshold) = failure_threshold.filter(|_| !success) {
+                            sqlx::query!(
+                                "UPDATE v2_job_queue
+                                 SET canceled_by = $3, canceled_reason = $4, scheduled_for = now(), suspend = 0
+                                 WHERE id = ANY($2) AND workspace_id = $5 AND canceled_by IS NULL
+                                     AND (suspend > 0 OR NOT running)
+                                     AND NOT EXISTS (SELECT 1 FROM v2_job c WHERE c.parent_job = v2_job_queue.id)
+                                     AND (SELECT count(*) FROM v2_job_status s,
+                                             jsonb_array_elements(s.flow_status->'modules'->$6::int->'flow_jobs_success') e
+                                          WHERE s.id = $1 AND e = 'false'::jsonb) >= $7",
+                                flow,
+                                jobs.as_slice(),
+                                FAILURE_THRESHOLD_CANCELER,
+                                format!("the for loop reached its failure threshold of {threshold} failed iterations"),
+                                w_id,
+                                old_status.step,
+                                threshold as i64,
+                            )
+                            .execute(&mut *tx)
+                            .await?;
+                        }
 
                         // let status_for_debug = sqlx::query!(
                         //     "SELECT flow_status FROM v2_job_status WHERE id = $1",
@@ -1023,6 +1104,20 @@ pub async fn update_flow_status_after_job_completion_internal(
                         }
                     }
                     let mut flow_jobs_duration = success_and_durations.1;
+
+                    let threshold_reached = failure_threshold.filter(|t| {
+                        flow_jobs_success.as_ref().is_some_and(|s| {
+                            s.iter().filter(|x| **x == Some(false)).count() >= *t as usize
+                        })
+                    });
+                    if let Some(threshold) = threshold_reached {
+                        loop_err_msg = Some((
+                            FAILURE_THRESHOLD_ERROR,
+                            failure_threshold_message(threshold, true),
+                        ));
+                        loop_err = loop_err_msg.as_ref().map(loop_error_value);
+                        skip_loop_failures = false;
+                    }
                     if let Some(flow_jobs_duration) = flow_jobs_duration.as_mut() {
                         let position = jobs.iter().position(|x| x == job_id_for_status);
                         flow_jobs_duration.set(position, &flow_job_duration);
@@ -1101,6 +1196,7 @@ pub async fn update_flow_status_after_job_completion_internal(
 
                     let new_status = if
                         !(stop_early && stop_early_err_msg.is_some() && !skip_if_stop_early) // if stop_early with error and NOT skip_if_stopped, mark as failure
+                        && loop_err.is_none()
                         && (
                                 skip_loop_failures
                                 || sqlx::query_scalar!(
@@ -1169,7 +1265,7 @@ pub async fn update_flow_status_after_job_completion_internal(
 
                     // for parallel branchall and forloop, we do not want to trigger the error handler again at the forloop/branchall node since it was already triggered at the leaf level
                     // so we want to ignore the has_triggered_error_handler flag at the forloop/branchall node and reset it based on if the node is a success or failure
-                    if !success && flow_value.failure_module.is_some() {
+                    if !success && flow_value.failure_module.is_some() && loop_err.is_none() {
                         has_triggered_error_handler = true;
                     } else {
                         has_triggered_error_handler = false;
@@ -1183,12 +1279,16 @@ pub async fn update_flow_status_after_job_completion_internal(
                     tx.commit().await?;
 
                     if parallelism.is_some() {
+                        // Only a child that has not started yet: one at its first step, or a
+                        // failed-only restart's iteration still at the step it resumes from.
                         sqlx::query!(
                             "UPDATE v2_job_queue q SET suspend = 0
                              FROM v2_job j, v2_job_status f
                              WHERE q.workspace_id = $1 AND q.suspend = $3 AND j.parent_job = $2
                                  AND f.id = j.id AND q.id = j.id
-                                 AND (f.flow_status->'step')::int = 0",
+                                 AND ((f.flow_status->'step')::int = 0
+                                     OR f.flow_status->'modules'->((f.flow_status->'step')::int)->>'id'
+                                         = f.flow_status->'restarted_from'->>'step_id')",
                             w_id,
                             flow,
                             nindex
@@ -1220,7 +1320,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                 }
             }
             FlowStatusModule::InProgress {
-                iterator: Some(FlowIterator { index, itered_len, itered }),
+                iterator: Some(FlowIterator { index, itered_len, itered, .. }),
                 flow_jobs_success,
                 flow_jobs,
                 while_loop,
@@ -1235,7 +1335,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                 (*while_loop || *index + 1 < itered_len)
                     && (success || skip_loop_failures)
                     && !stop_early
-                    && loop_exhausted_err.is_none()
+                    && loop_err.is_none()
             } =>
             {
                 if let Some(jobs) = flow_jobs {
@@ -1363,7 +1463,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                 if (success
                     || (flow_jobs.is_some() && (skip_loop_failures || skip_seq_branch_failure)))
                     && !(stop_early && stop_early_err_msg.is_some() && !skip_if_stop_early)
-                    && loop_exhausted_err.is_none()
+                    && loop_err.is_none()
                 {
                     let is_skipped = (stop_early && skip_if_stop_early)
                         || if current_module.as_ref().is_some_and(|m| m.skip_if.is_some()) {
@@ -1406,7 +1506,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                         evaluate_retry(
                             &retry,
                             &old_status.retry,
-                            loop_exhausted_err.clone().unwrap_or_else(|| result.clone()),
+                            loop_err.clone().unwrap_or_else(|| result.clone()),
                             Marc::new(args),
                             resolved_flow_env.as_deref(),
                             Some(client),
@@ -1422,8 +1522,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                             job: *job_id_for_status,
                         });
                     }
-                    if (stop_early && stop_early_err_msg.is_some()) || loop_exhausted_err.is_some()
-                    {
+                    if (stop_early && stop_early_err_msg.is_some()) || loop_err.is_some() {
                         // if stop_early with error message, we need to set explictely success to false as this function was called with success = true as the job succeeded
                         success = false;
                     }
@@ -1465,8 +1564,8 @@ pub async fn update_flow_status_after_job_completion_internal(
             )));
         }
 
-        if loop_exhausted_err.is_some() {
-            nresult = loop_exhausted_err.clone();
+        if loop_err.is_some() {
+            nresult = loop_err.clone();
         }
 
         let step_counter = if inc_step_counter {
@@ -1879,7 +1978,7 @@ pub async fn update_flow_status_after_job_completion_internal(
             let should_retry = evaluate_retry(
                 retry_config,
                 &old_status.retry,
-                loop_exhausted_err.clone().unwrap_or_else(|| result.clone()),
+                loop_err.clone().unwrap_or_else(|| result.clone()),
                 Marc::new(args),
                 resolved_flow_env.as_deref(),
                 Some(client),
@@ -1980,8 +2079,9 @@ pub async fn update_flow_status_after_job_completion_internal(
 
         let failure_step_recovers = is_failure_step && result_has_recover_true(nresult.clone());
         // An error this flow raises on its own (a stop predicate's error message, a while loop
-        // reaching its bound) is a new failure that no error handler recovered or saw yet.
-        if stop_early_err_msg.is_some() || loop_exhausted_msg.is_some() {
+        // reaching its bound, a for loop reaching its failure threshold) is a new failure that
+        // no error handler recovered or saw yet.
+        if stop_early_err_msg.is_some() || loop_err_msg.is_some() {
             recovered_by_child = false;
         }
 
@@ -3595,6 +3695,7 @@ pub struct ResumeRow {
     pub approver: Option<String>,
     pub approved: bool,
     pub resume_id: i32,
+    pub created_at: chrono::DateTime<chrono::Utc>,
 }
 
 impl ResumeRow {
@@ -3976,6 +4077,25 @@ async fn push_next_flow_job(
         };
     }
 
+    // A failed-only restart's step re-enters as a first entry, its kept slots held here only:
+    // an error before its reruns are queued then fails the step like any other, rather than
+    // reading as a parallel iteration completing.
+    let mut failed_only = FailedOnlySlots::from_status(&status_module);
+    if let Some(slots) = failed_only.as_mut() {
+        slots
+            .load_resumes(db, &flow_job.workspace_id, &status, &status_module.id())
+            .await?;
+        status_module = FlowStatusModule::WaitingForPriorSteps { id: status_module.id() };
+        sqlx::query!(
+            "UPDATE v2_job_status SET flow_status = JSONB_SET(flow_status, ARRAY['modules', $1::TEXT], $2) WHERE id = $3",
+            status.step.to_string(),
+            json!(status_module),
+            flow_job.id,
+        )
+        .execute(db)
+        .await?;
+    }
+
     let fj: mappable_rc::Marc<MiniPulledJob> = flow_job.clone().into();
     let arc_flow_job_args: Marc<HashMap<String, Box<RawValue>>> =
         Marc::map(fj, |x: &MiniPulledJob| {
@@ -4171,7 +4291,7 @@ async fn push_next_flow_job(
             // Query for both step-level resumes (job = step_id) and flow-level resumes (job = flow_id)
             // Flow-level resumes allow pre-approvals that can be consumed by any suspend step
             let resumes = sqlx::query_as::<_, ResumeRow>(
-                 "SELECT value, approver, resume_id, approved FROM resume_job WHERE job = $1 OR job = $2 ORDER BY created_at ASC",
+                 "SELECT value, approver, resume_id, approved, created_at FROM resume_job WHERE job = $1 OR job = $2 ORDER BY created_at ASC",
              )
              .bind(last)
              .bind(flow_job.id)
@@ -4332,7 +4452,9 @@ async fn push_next_flow_job(
                              resume_id: r.resume_id as u16,
                              approver: r
                                  .approver.clone()
-                                 .unwrap_or_else(|| "unknown".to_string())
+                                 .unwrap_or_else(|| "unknown".to_string()),
+                             approved_at: Some(r.created_at),
+                             approved: Some(r.approved),
                          })
                          .collect::<Vec<_>>()
                      ),
@@ -4375,7 +4497,14 @@ async fn push_next_flow_job(
                     json!(FlowStatusModule::WaitingForEvents {
                         id: status_module.id(),
                         count: required_events,
-                        job: last
+                        job: last,
+                        home: (suspend.show_on_home == Some(true)).then(|| HomeListing {
+                            step_summary: usize::try_from(status.step - 1)
+                                .ok()
+                                .and_then(|i| flow.modules.get(i))
+                                .and_then(|m| m.summary.clone())
+                                .filter(|s| !s.is_empty()),
+                        }),
                     }),
                     (required_events.saturating_sub(resume_messages.len() as u16)) as i32,
                     Duration::from_secs(
@@ -4803,6 +4932,7 @@ async fn push_next_flow_job(
         approvers.clone(),
         is_skipped,
         applied_mock.is_some(),
+        failed_only,
     )
     .warn_after_seconds(3)
     .await?;
@@ -4952,6 +5082,15 @@ async fn push_next_flow_job(
             .warn_after_seconds(3)
             .await?;
 
+    // Pushed job `i` fills slot `slots[i]`; the kept slots count as already completed.
+    let failed_only = match &next_status {
+        NextStatus::AllFlowJobs { failed_only: Some(f), .. } => Some(f),
+        _ => None,
+    };
+    let slots = failed_only.map(FailedOnlySlots::rerun_slots);
+    let kept = failed_only.map_or(0, FailedOnlySlots::kept);
+    let n_slots = failed_only.map_or(len, |f| f.flow_jobs.len());
+
     // Evaluated before the push transaction opens, so a slow label never holds it.
     let (has_iteration_label, mut iteration_labels) = match (&next_status, args.as_ref()) {
         (NextStatus::NextLoopIteration { next, .. }, Ok(flow_args)) => {
@@ -4975,9 +5114,10 @@ async fn push_next_flow_job(
             },
             Ok(flow_args),
         ) => {
+            // A failed-only restart stores a label for every slot, the kept ones included.
             let iters = itered
                 .iter()
-                .take(len)
+                .take(n_slots)
                 .enumerate()
                 .map(|(i, v)| to_raw_value(&json!({ "index": i as i32, "value": v })))
                 .collect();
@@ -4992,6 +5132,7 @@ async fn push_next_flow_job(
     let mut tx = db.begin().warn_after_seconds(3).await?;
     let nargs = args.as_ref();
     for (i, mut payload_tag) in job_payloads.into_iter().enumerate() {
+        let slot = slots.as_ref().map_or(i, |s| s[i]);
         // A `FlowNode` here is a branch/loop sub-flow from `payload_from_modules`: it never defines
         // its own `flow_env`, so it inherits exactly this flow's. The mark lives in the child's
         // status, not its definition: a `RawFlow` child's stored definition is replayed by nested
@@ -5142,7 +5283,7 @@ async fn push_next_flow_job(
                     insert_iter_arg(
                         &mut hm,
                         "iter".to_string(),
-                        to_raw_value(&json!({ "index": i as i32, "value": itered[i]})),
+                        to_raw_value(&json!({ "index": slot as i32, "value": itered[slot]})),
                     );
                     let hm = Marc::new(hm);
                     if let Some(input_transforms) = simple_input_transforms {
@@ -5527,6 +5668,7 @@ async fn push_next_flow_job(
 
                 tracing::debug!(id = %flow_job.id, root_id = %job_root, "updating suspend for parallel job {uuid} with parallelism {evaluated_parallelism}");
 
+                // A child suspended at `s` is released when the step's completed count reaches `s`.
                 if i as u16 >= evaluated_parallelism {
                     sqlx::query!(
                         "UPDATE v2_job_queue SET
@@ -5534,7 +5676,7 @@ async fn push_next_flow_job(
                              suspend_until = now() + interval '14 day',
                              running = true
                          WHERE id = $2",
-                        (i as u16 - evaluated_parallelism + 1) as i32,
+                        (kept + i + 1 - evaluated_parallelism as usize) as i32,
                         uuid,
                     )
                     .execute(&mut *inner_tx)
@@ -5635,6 +5777,7 @@ async fn push_next_flow_job(
                     mut flow_jobs_success,
                     mut flow_jobs_duration,
                     flow_jobs_labels,
+                    failure_threshold,
                     ..
                 },
             ..
@@ -5669,6 +5812,7 @@ async fn push_next_flow_job(
                     index,
                     itered: itered_for_status,
                     itered_len: Some(itered_len),
+                    failure_threshold,
                 }),
                 flow_jobs: Some(flow_jobs),
                 flow_jobs_success,
@@ -5684,7 +5828,7 @@ async fn push_next_flow_job(
                 agent_actions_success: None,
             }
         }
-        NextStatus::AllFlowJobs { iterator, branchall, .. } => {
+        NextStatus::AllFlowJobs { iterator, branchall, failed_only, .. } => {
             let iterator_for_status = if let Some(mut iter) = iterator {
                 iter.itered = None; // in parallel for loops, itered is only useful when starting the jobs, no need to store it in status/or the dedicated table
                 Some(iter)
@@ -5692,12 +5836,21 @@ async fn push_next_flow_job(
                 None
             };
 
+            let (flow_jobs, flow_jobs_success, flow_jobs_duration) = match failed_only {
+                Some(f) => f.with_reruns(&uuids),
+                None => (
+                    uuids.clone(),
+                    vec![None; uuids.len()],
+                    FlowJobsDuration::new(uuids.len()),
+                ),
+            };
+
             FlowStatusModule::InProgress {
                 job: flow_job.id,
                 iterator: iterator_for_status,
-                flow_jobs_success: Some(vec![None; uuids.len()]),
-                flow_jobs: Some(uuids.clone()),
-                flow_jobs_duration: Some(FlowJobsDuration::new(uuids.len())),
+                flow_jobs_success: Some(flow_jobs_success),
+                flow_jobs: Some(flow_jobs),
+                flow_jobs_duration: Some(flow_jobs_duration),
                 flow_jobs_labels: has_iteration_label.then_some(iteration_labels),
                 branch_chosen: None,
                 branchall,
@@ -5963,6 +6116,7 @@ struct ForloopNextIteration {
     flow_jobs_duration: Option<FlowJobsDuration>,
     flow_jobs_labels: Option<Vec<Option<String>>>,
     iteration_label: Option<InputTransform>,
+    failure_threshold: Option<u32>,
     new_args: Iter,
     while_loop: bool,
 }
@@ -5995,6 +6149,7 @@ enum NextStatus {
         branchall: Option<BranchAllStatus>,
         iterator: Option<FlowIterator>,
         simple_input_transforms: Option<HashMap<String, InputTransform>>,
+        failed_only: Option<FailedOnlySlots>,
         iteration_label: Option<InputTransform>,
     },
 }
@@ -6078,6 +6233,8 @@ fn nested_restart_payload(
         flow_version: nested.flow_version,
         branch_chosen: nested.branch_chosen,
         nested: nested.nested,
+        failed_only: nested.failed_only,
+        from_failed_step: nested.from_failed_step,
     })
 }
 
@@ -6131,6 +6288,50 @@ pub fn get_path(flow_job: &MiniPulledJob, status: &FlowStatus, module: &FlowModu
     }
 }
 
+/// A loop's `failure_threshold`, evaluated when the loop starts and kept on its iterator, which
+/// later iterations and each iteration's completion read instead of evaluating it again.
+async fn loop_failure_threshold(
+    skip_failures: bool,
+    transform: Option<&InputTransform>,
+    status_module: &FlowStatusModule,
+    module: &FlowModule,
+    flow_job: &MiniPulledJob,
+    status: &FlowStatus,
+    previous_id: &str,
+    last_result: Arc<Box<RawValue>>,
+    flow_args: Marc<HashMap<String, Box<RawValue>>>,
+    flow_env: Option<&HashMap<String, Box<RawValue>>>,
+    client: &AuthedClient,
+) -> error::Result<Option<u32>> {
+    let Some(transform) = transform.filter(|_| skip_failures) else {
+        return Ok(None);
+    };
+    if let FlowStatusModule::InProgress {
+        iterator: Some(FlowIterator { failure_threshold: Some(t), .. }),
+        ..
+    } = status_module
+    {
+        return Ok(Some(*t));
+    }
+    let ctx = get_transform_context(flow_job, previous_id, status);
+    let threshold = evaluate_input_transform::<u32>(
+        transform,
+        last_result,
+        Some(flow_args),
+        flow_env,
+        Some(client),
+        Some(&ctx),
+    )
+    .await?;
+    if threshold == 0 {
+        return Err(Error::BadRequest(format!(
+            "failure threshold of step {} must be at least 1",
+            module.id
+        )));
+    }
+    Ok(Some(threshold))
+}
+
 async fn compute_next_flow_transform(
     arc_flow_job_args: Marc<HashMap<String, Box<RawValue>>>,
     arc_last_job_result: Arc<Box<RawValue>>,
@@ -6149,6 +6350,7 @@ async fn compute_next_flow_transform(
     approvers: Arc<Box<RawValue>>,
     is_skipped: bool,
     mocked: bool,
+    failed_only: Option<FailedOnlySlots>,
 ) -> error::Result<NextFlowTransform> {
     if mocked {
         return Ok(NextFlowTransform::Continue(
@@ -6295,7 +6497,28 @@ async fn compute_next_flow_transform(
                 NextStatus::NextStep,
             ))
         }
-        FlowModuleValue::WhileloopFlow { modules, modules_node, squash, .. } => {
+        FlowModuleValue::WhileloopFlow {
+            modules,
+            modules_node,
+            squash,
+            skip_failures,
+            failure_threshold,
+            ..
+        } => {
+            let failure_threshold = loop_failure_threshold(
+                skip_failures,
+                failure_threshold.as_ref(),
+                status_module,
+                module,
+                flow_job,
+                status,
+                previous_id,
+                arc_last_job_result,
+                arc_flow_job_args,
+                flow_env,
+                client,
+            )
+            .await?;
             // if it's a simple single step flow, we will collapse it as an optimization and need to pass flow_input as an arg
             let is_simple = is_simple_modules(&modules, flow.failure_module.as_ref());
             let (flow_jobs, flow_jobs_success, flow_jobs_duration) = match status_module {
@@ -6326,6 +6549,7 @@ async fn compute_next_flow_transform(
                     flow_jobs_duration: flow_jobs_duration,
                     flow_jobs_labels: None,
                     iteration_label: None,
+                    failure_threshold,
                     new_args: Iter {
                         index: next_loop_idx as i32,
                         value: windmill_common::worker::to_raw_value(&next_loop_idx),
@@ -6351,8 +6575,16 @@ async fn compute_next_flow_transform(
             parallel,
             squash,
             iteration_label,
+            skip_failures,
+            failure_threshold,
             ..
         } => {
+            if failed_only.is_some() && !parallel {
+                return Err(Error::ExecutionErr(format!(
+                    "The for-loop {} is no longer parallel, its failed iterations cannot be rerun on their own",
+                    module.id
+                )));
+            }
             // if it's a simple single step flow, we will collapse it as an optimization and need to pass flow_input as an arg
             let is_simple = !matches!(flow_job.kind, JobKind::FlowPreview)
                 && !parallel
@@ -6368,24 +6600,57 @@ async fn compute_next_flow_transform(
             //         }
             //         _ => None,
             //     }
-            let next_loop_status = next_forloop_status(
-                status_module,
-                by_id,
-                flow_job,
-                previous_id,
-                status,
-                &iterator,
-                arc_last_job_result,
-                resumes,
-                resume,
-                approvers,
-                arc_flow_job_args,
-                flow_env,
-                client,
-                &parallel,
-                db,
-            )
-            .await?;
+            let (last_result, flow_args) = (arc_last_job_result.clone(), arc_flow_job_args.clone());
+            // A failed-only restart reruns on the restarted run's items, never re-evaluating
+            // the iterator, so each kept result stays paired with its item.
+            let next_loop_status = if let Some(slots) = &failed_only {
+                let itered = slots.itered.clone().ok_or_else(|| {
+                    Error::ExecutionErr(format!(
+                        "The items for-loop {} iterated over in the restarted run are missing",
+                        module.id
+                    ))
+                })?;
+                ForLoopStatus::ParallelIteration { itered_len: itered.len(), itered }
+            } else {
+                next_forloop_status(
+                    status_module,
+                    by_id,
+                    flow_job,
+                    previous_id,
+                    status,
+                    &iterator,
+                    arc_last_job_result,
+                    resumes,
+                    resume,
+                    approvers,
+                    arc_flow_job_args,
+                    flow_env,
+                    client,
+                    &parallel,
+                    db,
+                )
+                .await?
+            };
+
+            // Only once the loop has items: a percentage threshold of an empty list is 0.
+            let failure_threshold = if matches!(next_loop_status, ForLoopStatus::EmptyIterator) {
+                None
+            } else {
+                loop_failure_threshold(
+                    skip_failures,
+                    failure_threshold.as_ref(),
+                    status_module,
+                    module,
+                    flow_job,
+                    status,
+                    previous_id,
+                    last_result,
+                    flow_args,
+                    flow_env,
+                    client,
+                )
+                .await?
+            };
 
             match next_loop_status {
                 ForLoopStatus::EmptyIterator => {
@@ -6393,6 +6658,7 @@ async fn compute_next_flow_transform(
                 }
                 ForLoopStatus::NextIteration(mut ns) => {
                     ns.iteration_label = iteration_label;
+                    ns.failure_threshold = failure_threshold;
                     let start_runners = ns.index == 0 && squash.unwrap_or(false);
                     next_loop_iteration(
                         flow,
@@ -6422,7 +6688,7 @@ async fn compute_next_flow_transform(
                     // } else {
 
                     let payloads = (0..itered_len)
-                        .into_iter()
+                        .filter(|&i| failed_only.as_ref().is_none_or(|s| s.reruns(i)))
                         .filter_map(|i| {
                             let Some(payload) = payload_from_modules(
                                 modules.clone(),
@@ -6435,6 +6701,10 @@ async fn compute_next_flow_transform(
                                 true,
                             ) else {
                                 return None;
+                            };
+                            let payload = match &failed_only {
+                                Some(slots) => slots.resume_payload(i, payload),
+                                None => payload,
                             };
                             Some(JobPayloadWithTag {
                                 payload,
@@ -6454,9 +6724,10 @@ async fn compute_next_flow_transform(
                         NextStatus::AllFlowJobs {
                             branchall: None,
                             iterator: Some(FlowIterator {
-                                index: 0,
+                                index: failed_only.as_ref().map_or(0, FailedOnlySlots::kept),
                                 itered_len: Some(itered_len),
                                 itered: Some(itered),
+                                failure_threshold,
                             }),
                             iteration_label,
                             // we removed the is_simple_case for simple_input_transforms
@@ -6471,6 +6742,7 @@ async fn compute_next_flow_transform(
                             //         _ => None,
                             //     }
                             simple_input_transforms: None,
+                            failed_only,
                         },
                     ))
                 }
@@ -6591,6 +6863,22 @@ async fn compute_next_flow_transform(
             ))
         }
         FlowModuleValue::BranchAll { branches, parallel, .. } => {
+            if failed_only.is_some() && !parallel {
+                return Err(Error::ExecutionErr(format!(
+                    "The branch-all {} is no longer parallel, its failed branches cannot be rerun on their own",
+                    module.id
+                )));
+            }
+            if let Some(slots) = failed_only
+                .as_ref()
+                .filter(|s| s.flow_jobs.len() != branches.len())
+            {
+                return Err(Error::ExecutionErr(format!(
+                    "The branch-all now has {} branches but the restarted run had {}, its failed branches cannot be matched",
+                    branches.len(),
+                    slots.flow_jobs.len()
+                )));
+            }
             let (branch_status, flow_jobs, flow_jobs_success, flow_jobs_duration) =
                 match status_module {
                     FlowStatusModule::WaitingForPriorSteps { .. }
@@ -6603,6 +6891,7 @@ async fn compute_next_flow_transform(
                             let payloads: Vec<JobPayloadWithTag> = branches
                                 .into_iter()
                                 .enumerate()
+                                .filter(|(i, _)| failed_only.as_ref().is_none_or(|s| s.reruns(*i)))
                                 .filter_map(|(i, Branch { modules, modules_node, .. })| {
                                     let Some(payload) = payload_from_modules(
                                         modules,
@@ -6615,6 +6904,10 @@ async fn compute_next_flow_transform(
                                         false,
                                     ) else {
                                         return None;
+                                    };
+                                    let payload = match &failed_only {
+                                        Some(slots) => slots.resume_payload(i, payload),
+                                        None => payload,
                                     };
                                     Some(JobPayloadWithTag {
                                         payload,
@@ -6634,9 +6927,15 @@ async fn compute_next_flow_transform(
                             return Ok(NextFlowTransform::Continue(
                                 ContinuePayload::ParallelJobs(payloads),
                                 NextStatus::AllFlowJobs {
-                                    branchall: Some(BranchAllStatus { branch: 0, len }),
+                                    branchall: Some(BranchAllStatus {
+                                        branch: failed_only
+                                            .as_ref()
+                                            .map_or(0, FailedOnlySlots::kept),
+                                        len,
+                                    }),
                                     iterator: None,
                                     simple_input_transforms: None,
+                                    failed_only,
                                     iteration_label: None,
                                 },
                             ));
@@ -6973,6 +7272,7 @@ async fn next_forloop_status(
                     flow_jobs_duration: Some(FlowJobsDuration::new(0)),
                     flow_jobs_labels: None,
                     iteration_label: None,
+                    failure_threshold: None,
                     new_args: iter,
                     while_loop: false,
                 })
@@ -7050,6 +7350,7 @@ async fn next_forloop_status(
                 flow_jobs_duration: flow_jobs_duration.clone(),
                 flow_jobs_labels: flow_jobs_labels.clone(),
                 iteration_label: None,
+                failure_threshold: None,
                 new_args: Iter { index: index as i32, value: next.to_owned() },
                 while_loop: false,
             })
@@ -7474,6 +7775,7 @@ mod tests {
             approver: Some("ann".to_string()),
             approved: false,
             resume_id: 0,
+            created_at: chrono::Utc::now(),
         };
         assert_eq!(
             denial(json!({"reason": " too risky "})).disapproval_error(),
