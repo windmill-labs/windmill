@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO notify_event (channel, payload) VALUES ('notify_token_invalidation', $1)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "16003c729b74440f86fe511461f6c091cf865d1a6e877fe69104d59db0e13c61"
+}

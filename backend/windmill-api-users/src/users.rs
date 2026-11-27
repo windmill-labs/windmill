@@ -4457,6 +4457,14 @@ async fn update_token_limits(
     )
     .execute(&mut *tx)
     .await?;
+    // Other API servers drop their cached identity, which carries the old list, on this
+    // event; `invalidate_token_from_cache` below only reaches this process.
+    sqlx::query!(
+        "INSERT INTO notify_event (channel, payload) VALUES ('notify_token_invalidation', $1)",
+        &token_prefix,
+    )
+    .execute(&mut *tx)
+    .await?;
     if expiration != token.expiration {
         windmill_api_auth::reset_token_expiry_notification(
             &mut *tx,

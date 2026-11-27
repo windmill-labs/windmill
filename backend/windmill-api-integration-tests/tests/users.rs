@@ -1771,6 +1771,15 @@ async fn test_token_edits_widen_only_as_far_as_the_caller_could_mint(
     )
     .await?;
     assert_eq!(s, 200, "{body}");
+    // Other API servers evict their cached copy of the edited token.
+    let evicted: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM notify_event
+          WHERE channel = 'notify_token_invalidation' AND payload = $1)",
+    )
+    .bind(&target)
+    .fetch_one(&db)
+    .await?;
+    assert!(evicted);
 
     // Widening the scopes of a superadmin token needs a caller that could mint superadmin.
     let sa = prefix(
