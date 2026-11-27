@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE token SET scopes = $1\n           WHERE email = $2 AND token_prefix = $3\n             AND (label IS NULL OR label <> 'guest_session')\n           RETURNING token_prefix",
+  "query": "DELETE FROM token WHERE email = $1 AND token_prefix = $2 RETURNING token_prefix",
   "describe": {
     "columns": [
       {
@@ -11,7 +11,6 @@
     ],
     "parameters": {
       "Left": [
-        "TextArray",
         "Text",
         "Text"
       ]
@@ -20,5 +19,5 @@
       false
     ]
   },
-  "hash": "d17645b5001d7f8da1dc451c5d35ea3c9346271b8404863256071cfdf884036a"
+  "hash": "9f1e9d7657c78e014792be95b6bf3d12945450fdfbd9f52e59617660ea20c4c3"
 }

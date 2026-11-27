@@ -142,10 +142,27 @@ pub fn global_service() -> Router {
             post(update_token_scopes),
         )
         .route(
+            "/tokens/update_limits/{token_prefix}",
+            post(update_token_limits),
+        )
+        .route(
             "/tokens/update_label/{token_prefix}",
             post(update_token_label),
         )
         .route("/tokens/list", get(list_tokens))
+        .route("/tokens/risk_counts", get(token_risk_counts))
+        .route(
+            "/tokens/risk_counts_as_super_admin",
+            get(token_risk_counts_as_super_admin),
+        )
+        .route(
+            "/tokens/list_as_super_admin",
+            get(list_tokens_as_super_admin),
+        )
+        .route(
+            "/tokens/delete_as_super_admin/{email}/{token_prefix}",
+            delete(delete_token_as_super_admin),
+        )
         .route("/tokens/impersonate", post(impersonate))
         .route("/login_links", post(create_login_link))
         .route(
@@ -340,6 +357,7 @@ pub struct TruncatedToken {
     pub allowed_ips: Option<Vec<String>>,
     pub admin: bool,
     pub super_admin: bool,
+    pub risks: Vec<String>,
 }
 
 // NewToken is re-exported from windmill-api-auth above
@@ -3662,6 +3680,18 @@ async fn impersonate(
     )
     .await;
 
+    let mut params = windmill_api_auth::TokenAuditGrant {
+        label: new_token.label.as_deref(),
+        expiration,
+        scopes: None,
+        workspace_id: new_token.workspace_id.as_deref(),
+        read_only: false,
+        allowed_ips: allowed_ips.as_deref(),
+        admin: new_token.admin == Some(true),
+        super_admin: is_super_admin,
+    }
+    .params();
+    params.push(("impersonated", impersonated.clone()));
     audit_log(
         &mut *tx,
         &authed,
@@ -3669,7 +3699,7 @@ async fn impersonate(
         ActionKind::Delete,
         &"global",
         Some(t_prefix),
-        Some([("impersonated", &format!("{impersonated}")[..])].into()),
+        Some(windmill_api_auth::audit_params(&params)),
     )
     .instrument(tracing::info_span!("token", email = &impersonated))
     .await?;
@@ -4239,16 +4269,12 @@ async fn list_tokens(
     let rows = if query.exclude_ephemeral.unwrap_or(false) {
         sqlx::query_as!(
             TruncatedToken,
-            "SELECT t.label, t.token_prefix, t.expiration, t.created_at, t.last_used_at, t.scopes, \
-               t.workspace_id, t.read_only, t.allowed_ips::text[] AS allowed_ips, \
-               (t.admin AND EXISTS (SELECT 1 FROM usr u WHERE u.email = t.email AND u.is_admin \
-                   AND NOT u.disabled AND (t.workspace_id IS NULL OR u.workspace_id = t.workspace_id))) \
-                   AS \"admin!\", \
-               ((t.super_admin OR COALESCE(t.label = 'session', false)) \
-                   AND COALESCE((SELECT p.super_admin FROM password p WHERE p.email = t.email), false)) \
-                   AS \"super_admin!\" \
-             FROM token t WHERE t.email = $1 AND (t.label != 'ephemeral-script' OR t.label IS NULL)
-             ORDER BY t.created_at DESC LIMIT $2 OFFSET $3",
+            r#"SELECT label, token_prefix AS "token_prefix!", expiration,
+             created_at AS "created_at!", last_used_at AS "last_used_at!", scopes, workspace_id,
+             read_only AS "read_only!", allowed_ips::text[] AS allowed_ips,
+             admin AS "admin!", super_admin AS "super_admin!", risks AS "risks!"
+             FROM token_risk WHERE email = $1 AND (label != 'ephemeral-script' OR label IS NULL)
+             ORDER BY created_at DESC LIMIT $2 OFFSET $3"#,
             email,
             per_page as i64,
             offset as i64,
@@ -4258,16 +4284,12 @@ async fn list_tokens(
     } else {
         sqlx::query_as!(
             TruncatedToken,
-            "SELECT t.label, t.token_prefix, t.expiration, t.created_at, t.last_used_at, t.scopes, \
-               t.workspace_id, t.read_only, t.allowed_ips::text[] AS allowed_ips, \
-               (t.admin AND EXISTS (SELECT 1 FROM usr u WHERE u.email = t.email AND u.is_admin \
-                   AND NOT u.disabled AND (t.workspace_id IS NULL OR u.workspace_id = t.workspace_id))) \
-                   AS \"admin!\", \
-               ((t.super_admin OR COALESCE(t.label = 'session', false)) \
-                   AND COALESCE((SELECT p.super_admin FROM password p WHERE p.email = t.email), false)) \
-                   AS \"super_admin!\" \
-             FROM token t WHERE t.email = $1
-             ORDER BY t.created_at DESC LIMIT $2 OFFSET $3",
+            r#"SELECT label, token_prefix AS "token_prefix!", expiration,
+            created_at AS "created_at!", last_used_at AS "last_used_at!", scopes, workspace_id,
+            read_only AS "read_only!", allowed_ips::text[] AS allowed_ips,
+             admin AS "admin!", super_admin AS "super_admin!", risks AS "risks!"
+            FROM token_risk WHERE email = $1
+            ORDER BY created_at DESC LIMIT $2 OFFSET $3"#,
             email,
             per_page as i64,
             offset as i64,
@@ -4276,6 +4298,118 @@ async fn list_tokens(
         .await?
     };
     Ok(Json(rows))
+}
+
+/// How many tokens carry each risk of the `token_risk` view.
+#[derive(Serialize, Default)]
+pub struct TokenRiskCounts {
+    pub superadmin: i64,
+    pub admin: i64,
+    pub all_workspaces: i64,
+    pub never_expires: i64,
+    pub unused: i64,
+}
+
+impl TokenRiskCounts {
+    fn from_rows(rows: Vec<(Option<String>, Option<i64>)>) -> Self {
+        let mut c = Self::default();
+        for (risk, n) in rows {
+            let n = n.unwrap_or(0);
+            match risk.as_deref() {
+                Some("superadmin") => c.superadmin = n,
+                Some("admin") => c.admin = n,
+                Some("all_workspaces") => c.all_workspaces = n,
+                Some("never_expires") => c.never_expires = n,
+                Some("unused") => c.unused = n,
+                _ => {}
+            }
+        }
+        c
+    }
+}
+
+/// The caller's own counts, over all their tokens rather than one page of `tokens/list`.
+async fn token_risk_counts(
+    Extension(db): Extension<DB>,
+    ApiAuthed { email, .. }: ApiAuthed,
+) -> JsonResult<TokenRiskCounts> {
+    let rows = sqlx::query!(
+        "SELECT r AS risk, count(*) AS n FROM token_risk, unnest(risks) r WHERE email = $1 GROUP BY r",
+        email,
+    )
+    .fetch_all(&db)
+    .await?;
+    Ok(Json(TokenRiskCounts::from_rows(
+        rows.into_iter().map(|r| (r.risk, r.n)).collect(),
+    )))
+}
+
+/// Instance-wide counts, for the token review's summary.
+async fn token_risk_counts_as_super_admin(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+) -> JsonResult<TokenRiskCounts> {
+    require_super_admin(&db, &authed).await?;
+    let rows =
+        sqlx::query!("SELECT r AS risk, count(*) AS n FROM token_risk, unnest(risks) r GROUP BY r")
+            .fetch_all(&db)
+            .await?;
+    Ok(Json(TokenRiskCounts::from_rows(
+        rows.into_iter().map(|r| (r.risk, r.n)).collect(),
+    )))
+}
+
+#[derive(FromRow, Serialize)]
+pub struct TokenForReview {
+    pub email: Option<String>,
+    pub label: Option<String>,
+    pub token_prefix: String,
+    pub expiration: Option<chrono::DateTime<chrono::Utc>>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub last_used_at: chrono::DateTime<chrono::Utc>,
+    pub scopes: Option<Vec<String>>,
+    pub workspace_id: Option<String>,
+    pub read_only: bool,
+    pub risks: Vec<String>,
+}
+
+#[derive(Deserialize)]
+pub struct TokenReviewQuery {
+    /// A risk to narrow to, `all` for every token, or none for any risk.
+    pub flag: Option<String>,
+    pub search: Option<String>,
+    pub per_page: Option<usize>,
+    /// The last row of the previous page. A cursor rather than an offset, since the order
+    /// moves as tokens are used: an offset would skip rows that move behind it.
+    pub after_last_used_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub after_token_prefix: Option<String>,
+}
+
+pub(crate) fn token_review_requires_ee() -> Error {
+    Error::BadRequest(
+        "Listing and deleting every user's tokens requires a valid Windmill Enterprise Edition license"
+            .to_string(),
+    )
+}
+
+async fn list_tokens_as_super_admin(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+    Query(query): Query<TokenReviewQuery>,
+) -> JsonResult<Vec<TokenForReview>> {
+    require_super_admin(&db, &authed).await?;
+    Ok(Json(
+        crate::users_oss::list_tokens_as_super_admin(&db, query).await?,
+    ))
+}
+
+async fn delete_token_as_super_admin(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+    Path((email, token_prefix)): Path<(String, String)>,
+) -> Result<String> {
+    require_super_admin(&db, &authed).await?;
+    crate::users_oss::delete_token_as_super_admin(&db, &authed, &email, &token_prefix).await
 }
 
 /// Ends a user's MCP OAuth connections (only those bound to `workspace_id` when given),
@@ -4369,37 +4503,62 @@ async fn update_token_scopes(
     Path(token_prefix): Path<String>,
     Json(req): Json<UpdateTokenScopesRequest>,
 ) -> Result<String> {
-    // Widening is what makes a narrowly-scoped mint (app embed, raw-app SDK, MCP
-    // OAuth) recoverable as a general credential: a job token is unscoped, so the
-    // caller check below would let it clear the scopes of any token sharing its
-    // email (GHSA-hfh4-cx4h-3fcr).
-    forbid_elevated_job_token(&db, &authed.email, authed.job_id).await?;
+    // A job token is unscoped, so the caller checks below would let it widen any token
+    // sharing its email (GHSA-hfh4-cx4h-3fcr), and narrowing one breaks whatever holds it.
+    forbid_job_token_account_destruction(&authed)?;
     windmill_api_auth::ensure_scopes_within_caller(&authed, req.scopes.as_deref())?;
 
     let mut tx = db.begin().await?;
 
+    let token = lock_owned_token(&mut tx, &authed.email, &token_prefix).await?;
     // A guest-labelled token is never rescoped: its scopes are its whole confinement,
     // and after promotion the same email owns an account that could otherwise strip
-    // them from the still-valid guest credential. Same shape as the relabel guard.
-    let updated: Option<String> = sqlx::query_scalar!(
-        "UPDATE token SET scopes = $1
-           WHERE email = $2 AND token_prefix = $3
-             AND (label IS NULL OR label <> 'guest_session')
-           RETURNING token_prefix",
-        req.scopes.as_deref(),
-        &authed.email,
-        &token_prefix,
-    )
-    .fetch_optional(&mut *tx)
-    .await?;
-
-    let prefix = updated.ok_or_else(|| {
-        Error::NotFound(format!(
+    // them from the still-valid guest credential.
+    if windmill_common::auth::is_guest_session_label(token.label.as_deref()) {
+        return Err(Error::NotFound(format!(
             "token {token_prefix} not found, not owned by user, or not rescopable"
-        ))
-    })?;
+        )));
+    }
+    let widens =
+        windmill_api_auth::ensure_scopes_within(token.scopes.as_deref(), req.scopes.as_deref())
+            .is_err();
+    if widens {
+        // A system token is minted narrow for one purpose and handed wherever that purpose
+        // needs it (an app's viewers, the editor, a deploy), so widening it in place makes a
+        // general credential of a secret its owner never held. A sign-in the owner approved
+        // for an MCP client is theirs to widen.
+        let label = token.label.as_deref();
+        if !windmill_common::auth::is_user_token(label)
+            && !label.is_some_and(|l| l.starts_with("mcp-oauth-"))
+        {
+            return Err(Error::BadRequest(
+                "the scopes of a token the server minted can only be narrowed".to_string(),
+            ));
+        }
+        let allowed_ips =
+            windmill_api_auth::token_ip_allowlist_oss::load_allowed_ips(token.allowed_ips.clone());
+        windmill_api_auth::ensure_grant_within_caller(
+            &authed,
+            &windmill_api_auth::TokenGrant {
+                scopes: req.scopes.as_deref(),
+                super_admin: token.super_admin,
+                admin: token.admin,
+                allowed_ips: allowed_ips.as_deref(),
+            },
+        )?;
+    }
+
+    sqlx::query!(
+        "UPDATE token SET scopes = $1 WHERE token_hash = $2",
+        req.scopes.as_deref(),
+        &token.token_hash,
+    )
+    .execute(&mut *tx)
+    .await?;
+    let prefix = token_prefix;
 
     let scopes_json = serde_json::to_string(&req.scopes).unwrap_or_default();
+    let previous_json = serde_json::to_string(&token.scopes).unwrap_or_default();
     audit_log(
         &mut *tx,
         &authed,
@@ -4407,7 +4566,13 @@ async fn update_token_scopes(
         ActionKind::Update,
         &"global",
         Some(&prefix),
-        Some([("scopes", scopes_json.as_str())].into()),
+        Some(
+            [
+                ("scopes", scopes_json.as_str()),
+                ("previous_scopes", previous_json.as_str()),
+            ]
+            .into(),
+        ),
     )
     .await?;
 
@@ -4416,6 +4581,210 @@ async fn update_token_scopes(
     windmill_api_auth::invalidate_token_from_cache(&prefix);
 
     Ok(format!("updated scopes for token {prefix}"))
+}
+
+/// The grant of a token row a token edit compares the requested change against.
+struct OwnedToken {
+    token_hash: String,
+    label: Option<String>,
+    scopes: Option<Vec<String>>,
+    super_admin: bool,
+    admin: bool,
+    allowed_ips: Option<Vec<String>>,
+    expiration: Option<chrono::DateTime<chrono::Utc>>,
+    workspace_id: Option<String>,
+}
+
+async fn lock_owned_token(
+    tx: &mut Transaction<'_, Postgres>,
+    email: &str,
+    token_prefix: &str,
+) -> Result<OwnedToken> {
+    sqlx::query_as!(
+        OwnedToken,
+        r#"SELECT token_hash, label, scopes, super_admin, admin,
+                  allowed_ips::text[] AS allowed_ips, expiration, workspace_id
+             FROM token
+            WHERE email = $1 AND token_prefix = $2
+              AND (expiration IS NULL OR expiration > now())
+            FOR UPDATE"#,
+        email,
+        token_prefix,
+    )
+    .fetch_optional(&mut **tx)
+    .await?
+    .ok_or_else(|| {
+        Error::NotFound(format!(
+            "token {token_prefix} not found or not owned by user"
+        ))
+    })
+}
+
+/// Deserializes a field that is present into `Some`, so `Option<Option<T>>` tells an absent
+/// field (`None`, leave as is) from an explicit `null` (`Some(None)`, clear it).
+fn present<'de, D, T>(d: D) -> std::result::Result<Option<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    T::deserialize(d).map(Some)
+}
+
+#[derive(Deserialize)]
+struct UpdateTokenLimitsRequest {
+    #[serde(default, deserialize_with = "present")]
+    expiration: Option<Option<chrono::DateTime<chrono::Utc>>>,
+    #[serde(default, deserialize_with = "present")]
+    allowed_ips: Option<Option<Vec<String>>>,
+}
+
+/// Change when a token expires and which networks it may be used from. Tightening either is
+/// always allowed; widening only to what the caller could mint through `tokens/create` now.
+async fn update_token_limits(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+    Path(token_prefix): Path<String>,
+    Json(req): Json<UpdateTokenLimitsRequest>,
+) -> Result<String> {
+    forbid_job_token_account_destruction(&authed)?;
+    if req.expiration.is_none() && req.allowed_ips.is_none() {
+        return Err(Error::BadRequest(
+            "nothing to update: pass expiration or allowed_ips".to_string(),
+        ));
+    }
+    if let Some(Some(expiration)) = req.expiration {
+        if expiration <= chrono::Utc::now() {
+            return Err(Error::BadRequest(
+                "expiration must be in the future; delete the token to revoke it".to_string(),
+            ));
+        }
+    }
+    // Validated and normalized as on create, the caller's own networks applied below.
+    let requested_ips = match &req.allowed_ips {
+        None => None,
+        Some(None) => Some(None),
+        Some(Some(list)) => Some(windmill_api_auth::token_ip_allowlist(None, Some(list))?),
+    };
+
+    let mut tx = db.begin().await?;
+    let token = lock_owned_token(&mut tx, &authed.email, &token_prefix).await?;
+    // System tokens' lifetimes and reach are the server's to manage (sessions are refreshed,
+    // app and SDK tokens live as long as the open app, OAuth grants follow their refresh).
+    if !windmill_common::auth::is_user_token(token.label.as_deref()) {
+        return Err(Error::BadRequest(
+            "only the expiration and allowed IPs of a token you created can be changed".to_string(),
+        ));
+    }
+
+    use windmill_api_auth::token_ip_allowlist_oss::load_allowed_ips;
+    let stored_ips = load_allowed_ips(token.allowed_ips.clone());
+    let new_ips_text = match &requested_ips {
+        None => token.allowed_ips.clone(),
+        Some(ips) => ips.clone(),
+    };
+    let new_ips = load_allowed_ips(new_ips_text.clone());
+    let widens_ips = requested_ips.is_some()
+        && stored_ips
+            .as_deref()
+            .is_some_and(|old| !windmill_api_auth::ip_nets_within(old, new_ips.as_deref()));
+
+    let (expiration, widens_expiration) = match req.expiration {
+        None => (token.expiration, false),
+        Some(requested) => {
+            let widens = match (token.expiration, requested) {
+                (None, _) => false,
+                (Some(_), None) => true,
+                (Some(old), Some(new)) => new > old,
+            };
+            let expiration = if widens {
+                cap_token_expiration(&db, &authed.email, token.workspace_id.as_deref(), requested)
+                    .await?
+            } else {
+                requested
+            };
+            (expiration, widens)
+        }
+    };
+
+    if widens_ips || widens_expiration {
+        windmill_api_auth::ensure_grant_within_caller(
+            &authed,
+            &windmill_api_auth::TokenGrant {
+                scopes: token.scopes.as_deref(),
+                super_admin: token.super_admin,
+                admin: token.admin,
+                allowed_ips: new_ips.as_deref(),
+            },
+        )?;
+    }
+
+    sqlx::query!(
+        "UPDATE token SET expiration = $1, allowed_ips = $2::text[]::cidr[]
+           WHERE token_hash = $3",
+        expiration,
+        new_ips_text.as_deref(),
+        &token.token_hash,
+    )
+    .execute(&mut *tx)
+    .await?;
+    // Other API servers drop their cached identity, which carries the old list, on this
+    // event; `invalidate_token_from_cache` below only reaches this process.
+    sqlx::query!(
+        "INSERT INTO notify_event (channel, payload) VALUES ('notify_token_invalidation', $1)",
+        &token_prefix,
+    )
+    .execute(&mut *tx)
+    .await?;
+    if expiration != token.expiration {
+        windmill_api_auth::reset_token_expiry_notification(
+            &mut *tx,
+            &token.token_hash,
+            token.label.as_deref(),
+            expiration,
+        )
+        .await?;
+    }
+
+    let j = |v: serde_json::Value| v.to_string();
+    let changed: Vec<&str> = [
+        req.expiration.is_some().then_some("expiration"),
+        req.allowed_ips.is_some().then_some("allowed_ips"),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+    let mut params = vec![
+        ("changed", j(serde_json::json!(changed))),
+        ("expiration", j(serde_json::json!(expiration))),
+        (
+            "previous_expiration",
+            j(serde_json::json!(token.expiration)),
+        ),
+        ("allowed_ips", j(serde_json::json!(new_ips_text))),
+        (
+            "previous_allowed_ips",
+            j(serde_json::json!(token.allowed_ips)),
+        ),
+    ];
+    // Shortened by `max_token_expiration_days`.
+    if let Some(requested) = req.expiration.filter(|r| *r != expiration) {
+        params.push(("requested_expiration", j(serde_json::json!(requested))));
+    }
+    audit_log(
+        &mut *tx,
+        &authed,
+        "users.token.update_limits",
+        ActionKind::Update,
+        &"global",
+        Some(&token_prefix),
+        Some(windmill_api_auth::audit_params(&params)),
+    )
+    .await?;
+    tx.commit().await?;
+
+    windmill_api_auth::invalidate_token_from_cache(&token_prefix);
+
+    Ok(format!("updated limits for token {token_prefix}"))
 }
 
 #[derive(Deserialize)]
@@ -4460,34 +4829,38 @@ async fn update_token_label(
     // load-bearing labels described above. This SQL mirrors the canonical
     // `windmill_common::auth::is_user_token`; keep the two in sync (note the
     // case-insensitive `ephemeral` match).
-    let updated: Option<String> = sqlx::query_scalar!(
-        "UPDATE token SET label = $1
-           WHERE email = $2 AND token_prefix = $3
-             AND (label IS NULL OR (
-                 label <> 'session'
-                 AND label <> 'guest_session'
-                 AND lower(label) NOT LIKE 'ephemeral%'
-                 AND label <> 'debugger-token'
-                 AND label NOT LIKE 'mcp-oauth-%'
-                 AND NOT starts_with(label, 'embed_app:')
-                 AND NOT starts_with(label, 'sdk_app:')
-                 AND NOT starts_with(label, 'impersonation:')
-                 AND NOT starts_with(label, 'cli-login:')
-                 AND NOT starts_with(label, 'remote-deploy:')
+    // `old` is the row as it stood before this statement, for the audit entry.
+    let updated = sqlx::query!(
+        "UPDATE token t SET label = $1
+           FROM token old
+          WHERE old.token_hash = t.token_hash
+            AND t.email = $2 AND t.token_prefix = $3
+            AND (t.label IS NULL OR (
+                 t.label <> 'session'
+                 AND t.label <> 'guest_session'
+                 AND lower(t.label) NOT LIKE 'ephemeral%'
+                 AND t.label <> 'debugger-token'
+                 AND t.label NOT LIKE 'mcp-oauth-%'
+                 AND NOT starts_with(t.label, 'embed_app:')
+                 AND NOT starts_with(t.label, 'sdk_app:')
+                 AND NOT starts_with(t.label, 'impersonation:')
+                 AND NOT starts_with(t.label, 'cli-login:')
+                 AND NOT starts_with(t.label, 'remote-deploy:')
              ))
-           RETURNING token_prefix",
+          RETURNING t.token_prefix, old.label AS previous_label",
         req.label.as_deref(),
         &authed.email,
         &token_prefix,
     )
     .fetch_optional(&mut *tx)
-    .await?;
-
-    let prefix = updated.ok_or_else(|| {
+    .await?
+    .ok_or_else(|| {
         Error::NotFound(format!(
             "token {token_prefix} not found, not owned by user, or not editable"
         ))
     })?;
+    let prefix = updated.token_prefix;
+    let previous_label = updated.previous_label.unwrap_or_default();
 
     audit_log(
         &mut *tx,
@@ -4496,7 +4869,13 @@ async fn update_token_label(
         ActionKind::Update,
         &"global",
         Some(&prefix),
-        Some([("label", req.label.as_deref().unwrap_or(""))].into()),
+        Some(
+            [
+                ("label", req.label.as_deref().unwrap_or("")),
+                ("previous_label", previous_label.as_str()),
+            ]
+            .into(),
+        ),
     )
     .await?;
 

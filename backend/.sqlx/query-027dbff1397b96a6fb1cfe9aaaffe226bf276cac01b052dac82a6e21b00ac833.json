@@ -1,0 +1,80 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT email, label, token_prefix AS \"token_prefix!\", expiration,\n             created_at AS \"created_at!\", last_used_at AS \"last_used_at!\", scopes, workspace_id,\n             read_only AS \"read_only!\", risks AS \"risks!\"\n           FROM token_risk\n           WHERE NOT self_managed\n             AND CASE WHEN $1::text IS NULL THEN cardinality(risks) > 0\n                      WHEN $1 = 'all' THEN true\n                      ELSE $1 = ANY(risks) END\n             AND ($2::text IS NULL OR strpos(lower(email), $2) > 0\n                  OR strpos(lower(COALESCE(label, '')), $2) > 0)\n             AND ($3::timestamptz IS NULL OR (last_used_at, token_prefix) > ($3, $4::text))\n           ORDER BY last_used_at, token_prefix\n           LIMIT $5",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "email",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "label",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "token_prefix!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "expiration",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 4,
+        "name": "created_at!",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 5,
+        "name": "last_used_at!",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 6,
+        "name": "scopes",
+        "type_info": "TextArray"
+      },
+      {
+        "ordinal": 7,
+        "name": "workspace_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 8,
+        "name": "read_only!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 9,
+        "name": "risks!",
+        "type_info": "TextArray"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Timestamptz",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "027dbff1397b96a6fb1cfe9aaaffe226bf276cac01b052dac82a6e21b00ac833"
+}

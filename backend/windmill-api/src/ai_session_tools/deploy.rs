@@ -2155,20 +2155,39 @@ pub(super) async fn show_deploy_review(ctx: &Ctx<'_>, args: &Value) -> ToolResul
         .iter()
         .filter(|item| item.get("digest").is_some())
         .count();
+    // Windmill's own "Review & deploy drafts" page.
+    let review_url = ctx.page_url(&format!(
+        "/forks/compare?workspace_id={}&mode=draft",
+        enc(ctx.w_id)
+    ));
+    let item_lines: Vec<String> = items
+        .iter()
+        .map(|item| {
+            let name = item.get("name").unwrap_or(&item["path"]);
+            let what = match (&item["added"], &item["removed"]) {
+                (Value::Number(added), Value::Number(removed)) => format!("+{added} -{removed}"),
+                _ => item["note"]
+                    .as_str()
+                    .or(item["error"].as_str())
+                    .unwrap_or_default()
+                    .to_string(),
+            };
+            format!(
+                "- {} {}: {what}",
+                item["type"].as_str().unwrap_or_default(),
+                name.as_str().unwrap_or_default()
+            )
+        })
+        .collect();
     ctx.set_view(
         "windmill/review",
-        json!({
-            "workspace": ctx.w_id,
-            "items": items,
-            // Windmill's own "Review & deploy drafts" page.
-            "url": ctx.page_url(&format!("/forks/compare?workspace_id={}&mode=draft", enc(ctx.w_id))),
-        }),
+        json!({ "workspace": ctx.w_id, "items": items, "url": review_url }),
     );
     if total == 0 {
         return Ok("No drafts to review: nothing differs from the deployed state.".to_string());
     }
     let mut text = format!(
-        "Showing {} draft(s) to the user, {reviewable} with a diff they can deploy from the card. Nothing was deployed: you are told when the user deploys one.",
+        "{} draft(s) to review, {reviewable} with a diff to deploy. Nothing was deployed. Where the card is drawn, the user deploys from it and you are told when they do.",
         items.len()
     );
     if total > items.len() {
@@ -2183,10 +2202,17 @@ pub(super) async fn show_deploy_review(ctx: &Ctx<'_>, args: &Value) -> ToolResul
         .collect();
     if !rest.is_empty() {
         text.push_str(&format!(
-            " No Deploy is offered for {} (nothing to deploy, or not deployable from the card).",
+            " Nothing to deploy for {} (no change, or not deployable this way).",
             rest.join(", ")
         ));
     }
+    for line in item_lines {
+        text.push_str(&format!("\n{line}"));
+    }
+    text.push_str(&format!(
+        "\nReview and deploy in Windmill: {review_url}\n{}",
+        super::views::CARD_NOTE
+    ));
     Ok(text)
 }
 

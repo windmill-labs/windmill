@@ -18,7 +18,7 @@ use windmill_mcp::server::{
     RunOutcome, SessionAccess, Tool,
 };
 
-use crate::auth::AuthCache;
+use crate::auth::{AuthCache, Tokened};
 use crate::db::ApiAuthed;
 use crate::jobs::{
     result_to_response, run_wait_result_flow_by_path_internal,
@@ -733,6 +733,11 @@ pub async fn extract_workspace_from_token(
     next: Next,
 ) -> Response {
     if let Some(token) = extract_gateway_token(&request) {
+        // `ApiAuthed` must resolve this same token: it otherwise picks its own, preferring
+        // the `token` cookie, while the session acts as the owner of `McpToken`.
+        request
+            .extensions_mut()
+            .insert(Tokened { token: token.clone() });
         let t_hash = hash_token(&token);
         match sqlx::query!(
             "SELECT workspace_id, scopes FROM token WHERE token_hash = $1 AND (expiration > NOW() OR expiration IS NULL)",

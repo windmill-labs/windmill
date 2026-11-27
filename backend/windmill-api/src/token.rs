@@ -1,7 +1,20 @@
-use axum::{routing::get, Json, Router};
+use std::sync::Arc;
+
+use axum::{extract::Query, routing::get, Extension, Json, Router};
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
-use windmill_common::error::JsonResult;
+use windmill_api_auth::{
+    auth::{check_route_layer, maybe_get_workspace_id_from_path},
+    check_scopes, AuthCache, OptJobAuthed, Tokened,
+};
+use windmill_common::{
+    auth::{hash_token, is_session_label, is_super_admin_email, JWTAuthClaims},
+    client_ip::ClientIp,
+    error::{Error, JsonResult},
+    jwt,
+    users::SUPERADMIN_SECRET_EMAIL,
+    DB,
+};
 
 #[derive(Default, Serialize, Deserialize, Clone)]
 pub struct ScopeOption {
@@ -285,7 +298,294 @@ lazy_static! {
 }
 
 pub fn global_service() -> Router {
-    Router::new().route("/list/scopes", get(get_all_available_scopes))
+    Router::new()
+        .route("/list/scopes", get(get_all_available_scopes))
+        .route("/introspect", get(introspect_token))
+}
+
+#[derive(Deserialize)]
+struct IntrospectQuery {
+    workspace: Option<String>,
+    path: Option<String>,
+    method: Option<String>,
+}
+
+#[derive(Serialize)]
+struct TokenIntrospection {
+    kind: &'static str,
+    email: String,
+    username: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    label: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    token_prefix: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    created_at: Option<chrono::DateTime<chrono::Utc>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    expiration: Option<chrono::DateTime<chrono::Utc>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    workspace_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    workspace_ids: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    scopes: Option<Vec<String>>,
+    read_only: bool,
+    /// The token does not carry its owner's workspace admin rights.
+    admin_withheld: bool,
+    /// The token reaches superadmin routes: its owner is a superadmin and the token neither
+    /// withholds that nor is a job's.
+    super_admin: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    allowed_ips: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    job_id: Option<uuid::Uuid>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    workspace: Option<TokenWorkspaceAccess>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    route: Option<TokenRouteCheck>,
+}
+
+#[derive(Serialize)]
+struct TokenWorkspaceAccess {
+    workspace_id: String,
+    usable: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    is_admin: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    is_operator: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    groups: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    folders: Option<Vec<FolderAccess>>,
+}
+
+#[derive(Serialize)]
+struct FolderAccess {
+    name: String,
+    write: bool,
+    owner: bool,
+}
+
+#[derive(Serialize)]
+struct TokenRouteCheck {
+    method: String,
+    path: String,
+    allowed: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reason: Option<String>,
+}
+
+/// The scope a run-by-path endpoint (`windmill-api/src/jobs.rs`) requires of the runnable once
+/// the route layer has admitted the token, which only knows that it may run something. Routes
+/// added there with their own `check_scopes` belong here too, or the verdict over-reports.
+fn run_by_path_scope(path: &str) -> Option<String> {
+    let (_, suffix) = path.strip_prefix("/api/w/")?.split_once('/')?;
+    let (endpoint, rest) = suffix.strip_prefix("jobs/")?.split_once('/')?;
+    if !matches!(
+        endpoint,
+        "run" | "run_wait_result" | "run_and_stream" | "run_inline"
+    ) {
+        return None;
+    }
+    let kind = match rest.split_once('/')? {
+        ("p", runnable) => ("scripts", runnable),
+        ("f", runnable) if endpoint != "run_inline" => ("flows", runnable),
+        _ => return None,
+    };
+    Some(format!("jobs:run:{}:{}", kind.0, kind.1))
+}
+
+/// Describes only the credential presenting the request (`Tokened`), never one named in the
+/// request, so it cannot be used to look up another person's token. It resolves the token
+/// itself rather than through `ApiAuthed`: the route layer would refuse a scoped token here,
+/// and a workspace-bound token resolves on no route outside its workspace.
+async fn introspect_token(
+    Extension(db): Extension<DB>,
+    Extension(cache): Extension<Arc<AuthCache>>,
+    Tokened { token }: Tokened,
+    ClientIp(client_ip): ClientIp,
+    Query(q): Query<IntrospectQuery>,
+) -> JsonResult<TokenIntrospection> {
+    let unauthorized = || Error::NotAuthorized("Unauthorized".to_string());
+    let row = if token.starts_with("jwt_") {
+        None
+    } else {
+        sqlx::query!(
+            "SELECT owner, email, label, token_prefix, created_at, expiration, workspace_id,
+                scopes, read_only, super_admin, admin, allowed_ips::text[] AS allowed_ips
+             FROM token
+             WHERE token_hash = $1 AND (expiration > NOW() OR expiration IS NULL)",
+            hash_token(&token)
+        )
+        .fetch_optional(&db)
+        .await?
+    };
+
+    let mut out = if let Some(row) = row {
+        let allowed =
+            windmill_api_auth::token_ip_allowlist_oss::load_allowed_ips(row.allowed_ips.clone());
+        if !windmill_api_auth::client_ip_allowed(allowed.as_deref(), client_ip) {
+            return Err(unauthorized());
+        }
+        let email = row.email.ok_or_else(unauthorized)?;
+        let is_session = is_session_label(row.label.as_deref());
+        TokenIntrospection {
+            kind: if is_session { "session" } else { "api_token" },
+            username: row
+                .owner
+                .as_deref()
+                .and_then(|o| o.split_once('/'))
+                .map(|(_, name)| name.to_string())
+                .unwrap_or_else(|| email.clone()),
+            email,
+            label: row.label,
+            token_prefix: Some(row.token_prefix),
+            created_at: Some(row.created_at),
+            expiration: row.expiration,
+            workspace_id: row.workspace_id,
+            workspace_ids: None,
+            scopes: row.scopes,
+            read_only: row.read_only,
+            admin_withheld: !row.admin,
+            // Not withheld yet; whether the owner holds it is settled below. A session
+            // always stands for the account as it is.
+            super_admin: row.super_admin || is_session,
+            // What the build enforces: a CE build ignores a stored list.
+            allowed_ips: allowed.map(|nets| nets.iter().map(|n| n.to_string()).collect()),
+            job_id: None,
+            workspace: None,
+            route: None,
+        }
+    } else {
+        // A guest JWT resolves only inside its workspace.
+        let requested = q.workspace.clone().filter(|w| !w.is_empty());
+        let resolved = match cache.get_opt_job_authed(None, &token, client_ip).await {
+            Some(resolved) => Some(resolved),
+            None if requested.is_some() => {
+                cache.get_opt_job_authed(requested, &token, client_ip).await
+            }
+            None => None,
+        };
+        let OptJobAuthed { authed, job_id } = resolved.ok_or_else(unauthorized)?;
+        let mut out = TokenIntrospection {
+            kind: if authed.email == SUPERADMIN_SECRET_EMAIL {
+                "superadmin_secret"
+            } else {
+                "external"
+            },
+            email: authed.email,
+            username: authed.username,
+            label: None,
+            token_prefix: None,
+            created_at: None,
+            expiration: None,
+            workspace_id: None,
+            workspace_ids: None,
+            scopes: authed.scopes,
+            read_only: authed.read_only,
+            admin_withheld: authed.admin_withheld,
+            super_admin: !authed.super_admin_withheld,
+            allowed_ips: None,
+            job_id,
+            workspace: None,
+            route: None,
+        };
+        if let Some(jwt) = token
+            .strip_prefix("jwt_")
+            .filter(|_| !token.starts_with("jwt_ext_"))
+        {
+            out.kind = "jwt";
+            if let Ok(claims) = jwt::decode_with_internal_secret::<JWTAuthClaims>(jwt).await {
+                out.label = claims.label;
+                out.workspace_id = claims.workspace_id;
+                out.workspace_ids = claims.workspace_ids;
+                out.expiration = chrono::DateTime::from_timestamp(claims.exp as i64, 0);
+            }
+        }
+        out
+    };
+    // The same three conditions `require_super_admin` checks.
+    out.super_admin =
+        out.super_admin && out.job_id.is_none() && is_super_admin_email(&db, &out.email).await?;
+
+    if let Some(w_id) = q.workspace.as_deref().filter(|w| !w.is_empty()) {
+        let resolved = cache
+            .get_opt_job_authed(Some(w_id.to_string()), &token, client_ip)
+            .await;
+        out.workspace = Some(match resolved {
+            Some(OptJobAuthed { authed, .. }) => TokenWorkspaceAccess {
+                workspace_id: w_id.to_string(),
+                usable: true,
+                is_admin: Some(authed.is_admin),
+                is_operator: Some(authed.is_operator),
+                groups: Some(authed.groups),
+                folders: Some(
+                    authed
+                        .folders
+                        .into_iter()
+                        .map(|(name, write, owner)| FolderAccess { name, write, owner })
+                        .collect(),
+                ),
+            },
+            None => TokenWorkspaceAccess {
+                workspace_id: w_id.to_string(),
+                usable: false,
+                is_admin: None,
+                is_operator: None,
+                groups: None,
+                folders: None,
+            },
+        });
+    }
+
+    if let Some(path) = q.path.as_deref().map(str::trim).filter(|p| !p.is_empty()) {
+        let path = if path.starts_with("/api/") {
+            path.to_string()
+        } else if let Some(w_id) = q.workspace.as_deref().filter(|w| !w.is_empty()) {
+            format!("/api/w/{w_id}/{}", path.trim_start_matches('/'))
+        } else {
+            return Err(Error::BadRequest(
+                "a relative path needs a workspace; pass a full /api/... path".to_string(),
+            ));
+        };
+        let path = path
+            .split(['?', '#'])
+            .next()
+            .unwrap_or_default()
+            .to_string();
+        let method = q.method.as_deref().unwrap_or("GET").to_ascii_uppercase();
+        let path_vec: Vec<&str> = path.split('/').collect();
+        let route_workspace = maybe_get_workspace_id_from_path(&path_vec);
+        let resolved = cache
+            .get_opt_job_authed(route_workspace.clone(), &token, client_ip)
+            .await;
+        let verdict = match resolved {
+            None => Err(match route_workspace.as_deref() {
+                Some(w_id) => format!("The token cannot be used in workspace {w_id}."),
+                None => "The token cannot be used outside a workspace.".to_string(),
+            }),
+            Some(mut opt_job_authed) => async {
+                check_route_layer(
+                    &db,
+                    &mut opt_job_authed,
+                    route_workspace.as_deref(),
+                    &path,
+                    &method,
+                )
+                .await?;
+                if let Some(scope) = run_by_path_scope(&path) {
+                    check_scopes(&opt_job_authed.authed, || scope)?;
+                }
+                Ok::<_, Error>(())
+            }
+            .await
+            .map_err(|e| e.to_string()),
+        };
+        out.route =
+            Some(TokenRouteCheck { method, path, allowed: verdict.is_ok(), reason: verdict.err() });
+    }
+
+    Ok(Json(out))
 }
 
 async fn get_all_available_scopes() -> JsonResult<Vec<ScopeDomain>> {
@@ -295,6 +595,22 @@ async fn get_all_available_scopes() -> JsonResult<Vec<ScopeDomain>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn run_by_path_scope_names_the_runnable() {
+        let scope = |p: &str| run_by_path_scope(p);
+        assert_eq!(
+            scope("/api/w/ws/jobs/run_wait_result/p/f/ci/build").as_deref(),
+            Some("jobs:run:scripts:f/ci/build")
+        );
+        assert_eq!(
+            scope("/api/w/ws/jobs/run/f/u/me/flow").as_deref(),
+            Some("jobs:run:flows:u/me/flow")
+        );
+        assert_eq!(scope("/api/w/ws/jobs/run/h/abc"), None);
+        assert_eq!(scope("/api/w/ws/jobs/run_inline/f/u/me/flow"), None);
+        assert_eq!(scope("/api/w/ws/scripts/list"), None);
+    }
 
     /// The token-scope picker is driven by this catalog, so a scope that is
     /// enforced but absent here can't be granted through the supported UI.

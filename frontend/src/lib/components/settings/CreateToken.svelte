@@ -15,6 +15,8 @@
 	import { listEveryWorkspace, mcpTokenUrlDisabled } from '$lib/mcpAuth'
 	import { apiBaseUrl } from '$lib/apiBaseUrl.svelte'
 	import TokenDisplay from './TokenDisplay.svelte'
+	import TokenInspector from './TokenInspector.svelte'
+	import CollapseLink from '../CollapseLink.svelte'
 	import ScopesPicker from './ScopesPicker.svelte'
 	import { parseMaxTokenExpirationDays } from '$lib/tokenExpiration'
 
@@ -57,6 +59,8 @@
 	}: Props = $props()
 
 	let newToken = $state<string | undefined>(undefined)
+	let newTokenTestWorkspace = $state<string | undefined>(undefined)
+	let newTokenTestOpen = $state(false)
 	let newMcpToken = $state<string | undefined>(undefined)
 	let newMcpTokenUrl = $state('')
 	// What an MCP token may do, as the access picker sets it.
@@ -274,6 +278,8 @@
 			} else {
 				newMcpToken = undefined
 				newToken = `${createdToken}`
+				newTokenTestWorkspace = tokenWorkspaceId ?? $operatingWorkspace
+				newTokenTestOpen = false
 			}
 
 			onTokenCreated(`${createdToken}`)
@@ -727,6 +733,13 @@
 
 	{#if newToken && displayCreateToken}
 		<TokenDisplay token={newToken} />
+		<div class="-mt-4 mb-6">
+			<CollapseLink text="Check what this token can do" bind:open={newTokenTestOpen}>
+				{#key newToken}
+					<TokenInspector token={newToken} workspace={newTokenTestWorkspace} />
+				{/key}
+			</CollapseLink>
+		</div>
 	{/if}
 
 	{#if newMcpToken && displayCreateToken}

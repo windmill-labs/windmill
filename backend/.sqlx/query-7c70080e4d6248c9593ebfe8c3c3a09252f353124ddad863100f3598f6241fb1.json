@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT t.label, t.token_prefix, t.expiration, t.created_at, t.last_used_at, t.scopes, t.workspace_id, t.read_only, t.allowed_ips::text[] AS allowed_ips, (t.admin AND EXISTS (SELECT 1 FROM usr u WHERE u.email = t.email AND u.is_admin AND NOT u.disabled AND (t.workspace_id IS NULL OR u.workspace_id = t.workspace_id))) AS \"admin!\", ((t.super_admin OR COALESCE(t.label = 'session', false)) AND COALESCE((SELECT p.super_admin FROM password p WHERE p.email = t.email), false)) AS \"super_admin!\" FROM token t WHERE t.email = $1 AND (t.label != 'ephemeral-script' OR t.label IS NULL)\n             ORDER BY t.created_at DESC LIMIT $2 OFFSET $3",
+  "query": "SELECT label, token_prefix AS \"token_prefix!\", expiration,\n             created_at AS \"created_at!\", last_used_at AS \"last_used_at!\", scopes, workspace_id,\n             read_only AS \"read_only!\", allowed_ips::text[] AS allowed_ips,\n             admin AS \"admin!\", super_admin AS \"super_admin!\", risks AS \"risks!\"\n             FROM token_risk WHERE email = $1 AND (label != 'ephemeral-script' OR label IS NULL)\n             ORDER BY created_at DESC LIMIT $2 OFFSET $3",
   "describe": {
     "columns": [
       {
@@ -10,7 +10,7 @@
       },
       {
         "ordinal": 1,
-        "name": "token_prefix",
+        "name": "token_prefix!",
         "type_info": "Varchar"
       },
       {
@@ -20,12 +20,12 @@
       },
       {
         "ordinal": 3,
-        "name": "created_at",
+        "name": "created_at!",
         "type_info": "Timestamptz"
       },
       {
         "ordinal": 4,
-        "name": "last_used_at",
+        "name": "last_used_at!",
         "type_info": "Timestamptz"
       },
       {
@@ -40,7 +40,7 @@
       },
       {
         "ordinal": 7,
-        "name": "read_only",
+        "name": "read_only!",
         "type_info": "Bool"
       },
       {
@@ -57,6 +57,11 @@
         "ordinal": 10,
         "name": "super_admin!",
         "type_info": "Bool"
+      },
+      {
+        "ordinal": 11,
+        "name": "risks!",
+        "type_info": "TextArray"
       }
     ],
     "parameters": {
@@ -68,17 +73,18 @@
     },
     "nullable": [
       true,
-      false,
-      true,
-      false,
-      false,
       true,
       true,
-      false,
+      true,
+      true,
+      true,
+      true,
+      true,
       null,
-      null,
-      null
+      true,
+      true,
+      true
     ]
   },
-  "hash": "441afa3ca7cd24ac9239b05fadb9ac74f53ba3c4077d67cf1d912062b95a4b85"
+  "hash": "7c70080e4d6248c9593ebfe8c3c3a09252f353124ddad863100f3598f6241fb1"
 }

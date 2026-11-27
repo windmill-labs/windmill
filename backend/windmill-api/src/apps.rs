@@ -1604,8 +1604,8 @@ async fn mint_raw_app_sdk_token(
 ) -> Result<(String, chrono::DateTime<chrono::Utc>)> {
     // This credential outlives the request, so an ephemeral job token must not be
     // able to launder itself into one — the reason `users/tokens/create` refuses.
-    // The minted scopes do not contain it: `users/tokens/update_scopes` can widen
-    // any token of the same email.
+    // The minted scopes do not contain it: they only bound what the token reaches,
+    // not the identity it carries without the job's provenance.
     forbid_elevated_job_token(db, &authed.email, job_id).await?;
     // An embed token represents untrusted app JS; it must not bootstrap a
     // broader SDK credential (same guard as `mint_app_embed_token`).
@@ -1877,9 +1877,9 @@ pub async fn mint_app_embed_token(
     job_id: Option<uuid::Uuid>,
 ) -> Result<EmbedTokenResponse> {
     let token_and_exp = if let Some(authed) = opt_authed {
-        // This credential outlives the request and its narrow scopes are not the
-        // boundary — `users/tokens/update_scopes` can widen any same-email token —
-        // so an elevated job token must not mint one (GHSA-hfh4-cx4h-3fcr).
+        // This credential outlives the request and carries the job's identity without
+        // the job's provenance, so an elevated job token must not mint one, whatever
+        // its scopes (GHSA-hfh4-cx4h-3fcr).
         forbid_elevated_job_token(db, &authed.email, job_id).await?;
         // An app embed token represents untrusted app JS in the sandboxed iframe; it
         // must never reach this mint path to renew itself. The 12h expiry is the

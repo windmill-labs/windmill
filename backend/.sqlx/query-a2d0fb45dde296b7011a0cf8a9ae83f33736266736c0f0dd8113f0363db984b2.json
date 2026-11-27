@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE token SET expiration = $1, allowed_ips = $2::text[]::cidr[]\n           WHERE token_hash = $3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Timestamptz",
+        "TextArray",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "a2d0fb45dde296b7011a0cf8a9ae83f33736266736c0f0dd8113f0363db984b2"
+}

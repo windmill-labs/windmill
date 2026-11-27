@@ -30,6 +30,8 @@ use crate::{
 /// - the `update_token_label` editability guard (SQL `WHERE`) in
 ///   windmill-api-users/src/users.rs
 /// - `isUserToken` in frontend/src/lib/components/settings/TokensTable.svelte
+/// - `self_managed` in the `token_risk` view (a migration), for a label the server also expires or
+///   renews on its own
 pub fn is_user_token(label: Option<&str>) -> bool {
     match label {
         None => true,

@@ -1702,19 +1702,37 @@ pub(super) async fn show_item(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
         };
         super::deploy::deployed_page(kind, target, &Value::Null)
     }));
+    let page_url = url(page);
+    let kind = match (item_type, opt_str_arg(args, "trigger_kind")) {
+        ("trigger", Some(kind)) => format!("{kind} trigger"),
+        _ => item_type.to_string(),
+    };
+    let mut text = format!("{kind} \"{path}\"");
+    let summary = item["summary"]
+        .as_str()
+        .or(item["value"]["summary"].as_str());
+    if let Some(summary) = summary.filter(|s| !s.is_empty()) {
+        text.push_str(&format!(": {summary}"));
+    }
+    text.push('.');
+    if let Some(page_url) = &page_url {
+        text.push_str(&format!("\nOpen: {page_url}"));
+    }
+    if let Some(edit_url) = edit_url.as_ref().filter(|e| Some(*e) != page_url.as_ref()) {
+        text.push_str(&format!("\nEdit: {edit_url}"));
+    }
+    text.push_str(&format!("\n{}", super::views::CARD_NOTE));
     ctx.set_view(
         "windmill/item",
         json!({
             "workspace": ctx.w_id,
             "item": item,
-            "url": url(page),
+            "url": page_url,
             "edit_url": edit_url,
             "runs_url": runs_url,
         }),
     );
-    Ok(format!(
-        "Showing {item_type} \"{path}\" to the user as a card."
-    ))
+    Ok(text)
 }
 
 /// The editor an item's draft opens in. An app's is its own editor: its page shows only the

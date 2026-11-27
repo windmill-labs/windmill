@@ -8,7 +8,8 @@
   The MCP Apps view the session's show tools draw (`CARD_URI` in `mod.rs`, `views.rs`): a
   run, a table of runs, drafts to review before deploying, or a workspace item, from
   whichever of `_meta["windmill/run" | "windmill/runs" | "windmill/review" | "windmill/item"]`
-  the result carries. It holds no credential: it acts by calling tools
+  the result carries, or else from `load_card` with the call the result's `structuredContent`
+  names (Claude hands a view no `_meta`). It holds no credential: it acts by calling tools
   through the host, as the user the connection belongs to. Everything it shows is set as
   text, never as markup: a run's result is whatever its script returned.
 -->
@@ -377,6 +378,21 @@
   }
   function textOf(result) {
     return (result?.content ?? []).filter((c) => c.type === 'text').map((c) => c.text).join('\n');
+  }
+  // A show tool's `structuredContent` only names its call (`tool`): Claude hands the card no
+  // `_meta`, so the card loads what the call shows through `load_card`, which returns it in both.
+  function cardData(result) {
+    const named = result?.structuredContent?.tool;
+    return { ...(named ? {} : result?.structuredContent), ...result?._meta };
+  }
+  // A host that refuses a card's call to an app-only tool still answers the show tool, whose
+  // `_meta` carries the same data.
+  async function load(tool, { workspace_id, ...args }) {
+    try {
+      return await callTool('load_card', { workspace_id, tool, arguments: args });
+    } catch {
+      return callTool(tool, { workspace_id, ...args });
+    }
   }
   function el(tag, props = {}, ...children) {
     const node = document.createElement(tag);
@@ -1010,9 +1026,9 @@
     redraw();
     if (!node.job_id) return;
     try {
-      const result = await callTool('show_run', { workspace_id: run.workspace, id: node.job_id });
+      const result = await load('show_run', { workspace_id: run.workspace, id: node.job_id });
       if (selected?.token !== token) return;
-      selected.run = result?._meta?.['windmill/run'] ?? { status: 'error', result: textOf(result) };
+      selected.run = cardData(result)['windmill/run'] ?? { status: 'error', result: textOf(result) };
     } catch (e) {
       if (selected?.token !== token) return;
       selected.run = { status: 'error', result: e?.message ?? 'The step could not be read.' };
@@ -1211,7 +1227,7 @@
     const id = run?.id;
     if (!id) return;
     try {
-      const result = await callTool('show_run', { workspace_id: run.workspace, id });
+      const result = await load('show_run', { workspace_id: run.workspace, id });
       if (run?.id === id) onResult(result);
     } catch {
       if (run?.id === id) refreshFailed();
@@ -1414,8 +1430,8 @@
     const address = { type, path, ...(trigger_kind ? { trigger_kind } : {}) };
     // The draft may have changed since it was shown: what would be deployed is read again,
     // and a different diff is shown in place of deploying it.
-    const check = await callTool('show_deploy_review', { workspace_id: workspace, items: [address] });
-    const current = check?._meta?.['windmill/review']?.items?.[0];
+    const check = await load('show_deploy_review', { workspace_id: workspace, items: [address] });
+    const current = cardData(check)['windmill/review']?.items?.[0];
     if (!current || current.digest !== item.digest) {
       Object.assign(item, { patch: undefined, note: undefined, error: undefined, digest: undefined, too_large: undefined }, current ?? { error: 'The draft could not be read again.' });
       openDiffs.add(itemKey(item));
@@ -1693,8 +1709,17 @@
 
   // ---------------------------------------------------------------- dispatch
 
-  function onResult(result) {
-    const meta = result?._meta ?? {};
+  async function onResult(result) {
+    let meta = cardData(result);
+    const call = result?.structuredContent;
+    if (!Object.keys(meta).some((k) => k.startsWith('windmill/')) && call?.tool) {
+      try {
+        result = await load(call.tool, { workspace_id: call.workspace_id, ...call.arguments });
+      } catch (e) {
+        result = { isError: true, content: [{ type: 'text', text: e?.message ?? 'The card could not be loaded.' }] };
+      }
+      meta = cardData(result);
+    }
     if (meta['windmill/review']) return renderReview(meta['windmill/review']);
     if (meta['windmill/runs']) return renderRuns(meta['windmill/runs']);
     if (meta['windmill/item']) return renderItem(meta['windmill/item']);

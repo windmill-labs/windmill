@@ -70,6 +70,19 @@ Symbols, not line numbers, are cited: they drift less.
   expiry or another login changes or drops it. A session revoked server-side keeps its hint,
   so until `whoami` answers that browser still renders as its own last user.
 - **`tokens/impersonate`** (superadmin) returns a multi-use token and sets no cookie.
+- **Token risk flags** (rights the token was minted with and no scope narrows, not bound to a
+  workspace, no expiration, unused 90 days) are computed once, by the `token_risk` view, which also
+  marks the tokens the server expires or renews on its own (`self_managed`, no flags). The user's
+  `tokens/list` and `tokens/risk_counts` and the superadmin review read it: its counts
+  (`tokens/risk_counts_as_super_admin`) in CE, its list (`tokens/list_as_super_admin`, cursor-paged
+  on `(last_used_at, token_prefix)`) and `tokens/delete_as_super_admin/{email}/{prefix}` in EE
+  (`users_ee.rs`); `frontend/src/lib/components/settings/tokenRisks.ts` only words the flags.
+- **`GET /api/tokens/introspect`** describes the credential presenting it, never one named in
+  the request, and resolves it in the handler rather than through `ApiAuthed`: the route layer
+  would refuse a scoped token there, and a workspace-bound one resolves on no global route. Its
+  route verdict is `check_route_layer` (`windmill-api-auth/src/auth.rs`), the function the auth
+  extractor runs, plus the runnable scope of the run-by-path endpoints (`run_by_path_scope`); a
+  handler that checks a scope of its own and is missing there gets an over-reported "allowed".
 - **`max_token_expiration_days`** caps `POST /users/tokens/create` and `tokens/impersonate`, by
   shortening the stored expiration (`cap_token_expiration`), never by refusing: `wmill user
   create-token` and the editor's language-server token pick a lifetime without reading the
@@ -126,6 +139,21 @@ Symbols, not line numbers, are cited: they drift less.
   stores the `super_admin` request on its code and refresh rows, and each exchange re-checks
   `password`. A new path minting a token must ask the same questions, or it reaches a different
   set of workspaces than the others.
+- **Editing a token widens it only as far as the caller could mint it**
+  (`tokens/update_scopes`, `tokens/update_limits` for expiration and `allowed_ips`). Narrowing is
+  always allowed; a change that widens any of them (scopes outside the stored ones, a later or
+  removed expiration, networks outside the stored list or none) must leave a token
+  `ensure_grant_within_caller` accepts: scopes within the caller's, no superadmin unless the caller
+  is unscoped and carries it, no admin the caller withholds, networks within the caller's. A later
+  expiration goes through `cap_token_expiration`, and changing it re-registers the expiry warning.
+  Only user tokens (`is_user_token`) take limit edits, and only they or an MCP OAuth sign-in widen
+  scopes: a system token is minted narrow for wherever it is handed. Every job token is refused,
+  since `$WM_TOKEN` is unscoped and narrowing breaks whatever holds the token.
+- **A token's history replays from the audit log.** `users.token.create` and `users.impersonate`
+  record everything the row holds (`TokenAuditGrant`), and each edit records its fields before and
+  after (`update_limits` also which fields were asked for, and the requested expiration when the
+  ceiling shortened it). A new token path or column must keep both, or the chain breaks. Not
+  audited: the superadmin-demotion trigger, the expired-token sweep, and refused edits.
 - **Every superadmin route refuses a job token**: `require_super_admin`
   (`windmill-api-auth/src/lib.rs`) errors on `authed.job_id.is_some()`. A script that needs
   `users/create`, `tokens/impersonate`, `set_login_type`, … must use a dedicated superadmin user
