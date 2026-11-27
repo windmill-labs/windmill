@@ -72,7 +72,7 @@
 	}
 
 	// Copies what the block shows: the error replaces the content on screen.
-	const canCopy = $derived(!!error || hasContent)
+	const canCopy = $derived(!!error || (hasContent && content !== ''))
 
 	async function copyToClipboard() {
 		if (!canCopy) return
