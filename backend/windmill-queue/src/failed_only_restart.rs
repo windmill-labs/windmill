@@ -139,7 +139,12 @@ pub(crate) async fn create_failed_only_module(
     Ok(FlowStatusModule::InProgress {
         id: module.id(),
         job: Uuid::nil(),
-        iterator: is_loop.then(|| FlowIterator { index: kept, itered, itered_len: Some(n) }),
+        iterator: is_loop.then(|| FlowIterator {
+            index: kept,
+            itered,
+            itered_len: Some(n),
+            failure_threshold: None,
+        }),
         flow_jobs_success: Some(
             flow_jobs
                 .iter()

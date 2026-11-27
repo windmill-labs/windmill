@@ -16,6 +16,7 @@
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import { SecondsInput } from '$lib/components/common'
 	import { slideDynamic } from '$lib/transitions'
+	import FailureThresholdSetting from './FailureThresholdSetting.svelte'
 
 	const { flowStateStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -189,17 +190,33 @@
 							{/if}
 						</div>
 
-						<Toggle
-							size="xs"
-							textClass="text-xs font-normal text-primary"
-							bind:checked={mod.value.skip_failures}
-							options={{
-								right: 'Skip failures',
-								rightTooltip:
-									'If disabled, the flow will fail as soon as one of the iteration fail. Otherwise, the error will be collected as the result of the iteration. Regardless of this setting, if a flow level error handler is defined, it will process the error. (Workspace error handlers will NOT be used to process errors if enabled.)',
-								rightDocumentationLink: 'https://www.windmill.dev/docs/flows/while_loops'
-							}}
-						/>
+						<div class="flex flex-col gap-2">
+							<Toggle
+								size="xs"
+								textClass="text-xs font-normal text-primary"
+								bind:checked={mod.value.skip_failures}
+								on:change={({ detail }) => {
+									if (!detail) (mod.value as WhileloopFlow).failure_threshold = undefined
+								}}
+								options={{
+									right: 'Skip failures',
+									rightTooltip:
+										'If disabled, the flow will fail as soon as one of the iteration fail. Otherwise, the error will be collected as the result of the iteration. Regardless of this setting, if a flow level error handler is defined, it will process the error. (Workspace error handlers will NOT be used to process errors if enabled.)',
+									rightDocumentationLink: 'https://www.windmill.dev/docs/flows/while_loops'
+								}}
+							/>
+							{#if mod.value.skip_failures}
+								<div class="pl-9" transition:slideDynamic>
+									<FailureThresholdSetting
+										bind:mod
+										{parentModule}
+										{previousModule}
+										tooltip="Fail the loop, and the flow with it, once this many iterations have failed. A number, or an expression evaluated when the loop starts."
+										documentationLink="https://www.windmill.dev/docs/flows/while_loops"
+									/>
+								</div>
+							{/if}
+						</div>
 						<Toggle
 							size="xs"
 							textClass="text-xs font-normal text-primary"
