@@ -48,7 +48,7 @@
 			? FileImage
 			: ['csv', 'parquet'].includes(extension ?? '')
 				? FileSpreadsheet
-				: ['pdf', 'txt', 'md', 'json'].includes(extension ?? '')
+				: ['pdf', 'txt', 'log', 'md', 'markdown', 'json'].includes(extension ?? '')
 					? FileText
 					: File
 	)

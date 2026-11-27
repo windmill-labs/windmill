@@ -27,7 +27,7 @@
 		</span>
 	</div>
 	{#if actions}
-		<div class="flex flex-row items-center gap-1 shrink-0 ml-auto">
+		<div class="flex flex-row flex-wrap justify-end items-center gap-1 min-w-0 ml-auto">
 			{@render actions()}
 		</div>
 	{/if}

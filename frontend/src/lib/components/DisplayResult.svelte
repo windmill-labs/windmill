@@ -46,6 +46,7 @@
 	import S3TextPreview from './common/fileDownload/S3TextPreview.svelte'
 
 	import S3ObjectTable from './common/fileDownload/S3ObjectTable.svelte'
+	import { S3TableView } from './common/fileDownload/s3TableView.svelte'
 	import { serverTableFormat } from './s3TableOps'
 	import { isMarkdownFile } from './common/fileDownload/FileTextPreview.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
@@ -215,10 +216,13 @@
 		key: unknown
 	): 'table' | 'image' | 'pdf' | 'text' | 'markdown' | undefined {
 		if (typeof key !== 'string') return undefined
+		// Previews read the file with the viewer's rights: a logged-out viewer outside an app (a
+		// public run page) has none, and gets the download only.
+		if (!$userStore && !appPath) return undefined
 		if (serverTableFormat(key)) return 'table'
 		if (['.png', '.jpeg', '.jpg', '.webp'].some((ext) => key.endsWith(ext))) return 'image'
 		if (key.endsWith('.pdf')) return 'pdf'
-		if (key.endsWith('.txt') || key.endsWith('.log')) return 'text'
+		if (/\.(txt|log)$/i.test(key)) return 'text'
 		if (isMarkdownFile(key)) return 'markdown'
 		return undefined
 	}
@@ -497,7 +501,8 @@
 	let loadedResultBytes = $state(0)
 	let download_as_csv = $state(false)
 	function inferResultKind(result: any) {
-		if (typeof result === 'string' && result.match(/s3:\/\/[^/]*\/.+/)) {
+		// The whole string, on one line: text that mentions an `s3://` URI is a plain string.
+		if (typeof result === 'string' && result.match(/^s3:\/\/[^/]*\/.+$/)) {
 			largeObject = false
 			return 's3object'
 		}
@@ -678,6 +683,8 @@
 
 	let jsonViewer: Drawer | undefined = $state()
 	let s3FileViewer: S3FilePicker | undefined = $state()
+	// The file browser is only mounted with the result's controls.
+	let canExplore = $derived(!!$userStore && !disableExpand && !noControls)
 
 	function checkIfHasBigInt(result: any) {
 		if (typeof result === 'number' && Number.isInteger(result) && !Number.isSafeInteger(result)) {
@@ -824,6 +831,13 @@
 	let seeS3PreviewFileFromList = $state('')
 	/** Keys of the markdown files shown as their source rather than rendered. */
 	let markdownSourceKeys: string[] = $state([])
+	// Not reactive: filled while rendering, each entry holding its own state.
+	const s3TableViews = new Map<string, S3TableView>()
+	function s3TableView(key: string) {
+		let view = s3TableViews.get(key)
+		if (!view) s3TableViews.set(key, (view = new S3TableView()))
+		return view
+	}
 	function setMarkdownSource(key: string, source: boolean) {
 		markdownSourceKeys = source
 			? [...markdownSourceKeys, key]
@@ -982,7 +996,7 @@
 })}
 	{@const kind = s3PreviewKind(s3object?.s3)}
 	{#if kind === 'table'}
-		<S3ObjectTable {s3object} {workspaceId} {appPath} />
+		<S3ObjectTable {s3object} {workspaceId} {appPath} view={s3TableView(s3object.s3)} />
 	{:else if kind === 'image'}
 		<div class="h-full p-3">
 			<ExpandableImage
@@ -1045,8 +1059,8 @@
 					}}
 				>
 					{#snippet children({ item })}
-						<ToggleButton size="xs" value="pretty" label="Pretty" icon={Highlighter} {item} />
-						<ToggleButton size="xs" value="json" label="JSON" icon={Braces} {item} />
+						<ToggleButton value="pretty" label="Pretty" icon={Highlighter} {item} />
+						<ToggleButton value="json" label="JSON" icon={Braces} {item} />
 					{/snippet}
 				</ToggleButtonGroup>
 			</div>
@@ -1093,11 +1107,11 @@
 						>
 							{#snippet children({ item })}
 								{#if ['table-col', 'table-row', 'table-row-object'].includes(resultKind ?? '')}
-									<ToggleButton size="xs" value="table" label="Table" icon={Table2} {item} />
+									<ToggleButton size="sm" value="table" label="Table" icon={Table2} {item} />
 								{:else}
-									<ToggleButton size="xs" value="pretty" label="Pretty" icon={Highlighter} {item} />
+									<ToggleButton size="sm" value="pretty" label="Pretty" icon={Highlighter} {item} />
 								{/if}
-								<ToggleButton size="xs" value="json" label="JSON" icon={Braces} {item} />
+								<ToggleButton size="sm" value="json" label="JSON" icon={Braces} {item} />
 							{/snippet}
 						</ToggleButtonGroup>
 					{/if}
@@ -1389,7 +1403,7 @@
 										{s3object}
 										{workspaceId}
 										{appPath}
-										onExplore={$userStore ? () => s3FileViewer?.open?.(s3object) : undefined}
+										onExplore={canExplore ? () => s3FileViewer?.open?.(s3object) : undefined}
 										markdownSource={s3PreviewKind(s3object.s3) === 'markdown'
 											? markdownSourceKeys.includes(s3object.s3)
 											: undefined}
@@ -1421,7 +1435,7 @@
 												{s3object}
 												{workspaceId}
 												{appPath}
-												onExplore={$userStore ? () => s3FileViewer?.open?.(s3object) : undefined}
+												onExplore={canExplore ? () => s3FileViewer?.open?.(s3object) : undefined}
 												previewOpen={collapsible ? previewOpen : undefined}
 												onTogglePreview={() => {
 													seeS3PreviewFileFromList = previewOpen ? '' : s3object?.s3

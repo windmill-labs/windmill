@@ -26,9 +26,14 @@
 
 	const MAX_BYTES = 64 * 1024
 
-	function load(key: string, storage: string | undefined, presigned: string | undefined) {
+	function request(
+		key: string,
+		storage: string | undefined,
+		presigned: string | undefined,
+		length: number
+	) {
 		const workspace = workspaceId ?? $operatingWorkspace!
-		const range = { readBytesFrom: 0, readBytesLength: MAX_BYTES }
+		const range = { readBytesFrom: 0, readBytesLength: length }
 		if (appPath) {
 			const p = new URLSearchParams(presigned ?? '')
 			return AppService.appLoadFilePreview({
@@ -44,6 +49,19 @@
 		return HelpersService.loadFilePreview({ workspace, fileKey: key, storage, ...range })
 	}
 
+	// One byte past the limit tells a file of exactly MAX_BYTES from a longer one. The server
+	// refuses a read that ends inside a UTF-8 character (up to 4 bytes), answering with no
+	// content and this message: each retry reads one byte less. `readLimit` is the length read.
+	const CUT_CHARACTER = /File encoding is not supported/
+	async function load(key: string, storage: string | undefined, presigned: string | undefined) {
+		for (let length = MAX_BYTES + 1; ; length--) {
+			const res = await request(key, storage, presigned, length)
+			if (res.content || !CUT_CHARACTER.test(res.msg ?? '') || length <= MAX_BYTES - 2) {
+				return { res, readLimit: length }
+			}
+		}
+	}
+
 	let preview = $derived(load(s3object.s3, s3object.storage, s3object.presigned))
 </script>
 
@@ -51,11 +69,11 @@
 	<div class="flex items-center gap-1 px-3 py-2 text-2xs text-secondary">
 		<Loader2 size={12} class="animate-spin" /> Loading preview
 	</div>
-{:then res}
+{:then { res, readLimit }}
 	{#if res.content_type === 'Unknown' || !res.content}
 		<div class="px-3 py-2 text-2xs text-secondary">{res.msg || 'No preview available.'}</div>
 	{:else}
-		<FileTextPreview content={res.content} readLimit={MAX_BYTES} {markdown} {markdownSource} />
+		<FileTextPreview content={res.content} {readLimit} {markdown} {markdownSource} />
 	{/if}
 {:catch e}
 	<div class="px-3 py-2 text-2xs text-red-500 break-all">
