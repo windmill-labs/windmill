@@ -69,6 +69,12 @@
 		}
 	}
 
+	/** Whether the server read the token's expiry and workspace bounds: it does for its own rows
+	 * and signed tokens, not for an external issuer's or a guest's, whose absence means nothing. */
+	function metadataKnown(r: TokenIntrospection): boolean {
+		return r.kind === 'api_token' || r.kind === 'session' || r.expiration != undefined
+	}
+
 	function expiryText(expiration: string | undefined): string {
 		return expiration ? displayDate(expiration) : 'Never'
 	}
@@ -136,13 +142,19 @@
 					<span class="text-primary">{result.token_prefix}****</span>
 				{/if}
 				<span class="text-secondary">Expires</span>
-				<span class="text-primary">{expiryText(result.expiration)}</span>
+				<span class="text-primary">
+					{metadataKnown(result) ? expiryText(result.expiration) : 'Not reported'}
+				</span>
 				<span class="text-secondary">Workspaces</span>
 				<span class="text-primary">
 					{#if result.workspace_ids?.length}
 						{result.workspace_ids.join(', ')}
+					{:else if result.workspace_id}
+						{result.workspace_id}
+					{:else if metadataKnown(result)}
+						Every workspace the owner is a member of
 					{:else}
-						{result.workspace_id ?? 'Every workspace the owner is a member of'}
+						Not reported
 					{/if}
 				</span>
 				<span class="text-secondary">Rights</span>

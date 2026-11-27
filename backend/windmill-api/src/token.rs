@@ -457,10 +457,16 @@ async fn introspect_token(
             route: None,
         }
     } else {
-        let OptJobAuthed { authed, job_id } = cache
-            .get_opt_job_authed(None, &token, client_ip)
-            .await
-            .ok_or_else(unauthorized)?;
+        // A guest JWT resolves only inside its workspace.
+        let requested = q.workspace.clone().filter(|w| !w.is_empty());
+        let resolved = match cache.get_opt_job_authed(None, &token, client_ip).await {
+            Some(resolved) => Some(resolved),
+            None if requested.is_some() => {
+                cache.get_opt_job_authed(requested, &token, client_ip).await
+            }
+            None => None,
+        };
+        let OptJobAuthed { authed, job_id } = resolved.ok_or_else(unauthorized)?;
         let mut out = TokenIntrospection {
             kind: if authed.email == SUPERADMIN_SECRET_EMAIL {
                 "superadmin_secret"

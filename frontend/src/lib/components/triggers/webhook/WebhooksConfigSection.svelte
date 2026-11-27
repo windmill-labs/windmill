@@ -87,8 +87,16 @@
 		}
 	})
 
-	/** The route the examples call, as the token test checks it. */
-	const webhookRoutePath = $derived(baseWebhookUrl.slice(apiBaseUrl('webhooks').length))
+	/** The route the token test checks: the by-path form of the one the examples call. A by-hash
+	 * or by-version route is gated by the same runnable scope, which the check only resolves
+	 * from a path. */
+	const webhookRoutePath = $derived.by(() => {
+		const base = `/api/w/${wsId}/jobs`
+		if (agent) return `${base}/run/agent/${path}`
+		const endpoint =
+			requestType == 'async' ? 'run' : requestType == 'sync' ? 'run_wait_result' : 'run_and_stream'
+		return `${base}/${endpoint}/${isFlow ? 'f' : 'p'}/${path}`
+	})
 	let tokenTestOpen = $state(false)
 
 	let surface = $state('http') as 'http' | 'sdk'
