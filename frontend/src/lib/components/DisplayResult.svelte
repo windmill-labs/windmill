@@ -337,10 +337,17 @@
 		{ apiPath: string; length: number; parts: TooBigPart[]; moreCount: number } | undefined
 	>(undefined)
 	// An image is read only on a click: a view is mounted for every loop iteration stepped
-	// through and every run card of a chat, and each would download it. One is kept at a time,
-	// keyed by the result it was read from so a new result never shows the previous one's.
-	let openTooBigPart = $state<{ apiPath: string; path: string; src: string } | undefined>(undefined)
-	let loadingTooBigPart = $state<string | undefined>(undefined)
+	// through and every run card of a chat, and each would download it. A hidden image is kept,
+	// as a hidden S3 preview stays mounted. Tied to the result it was read from, so a new
+	// result never shows the previous one's.
+	let tooBigPreviews = $state<{ apiPath?: string; open: string[]; srcs: Record<string, string> }>({
+		open: [],
+		srcs: {}
+	})
+	let loadingTooBigParts = $state<string[]>([])
+	function tooBigPreviewsOf(apiPath: string) {
+		return tooBigPreviews.apiPath === apiPath ? tooBigPreviews : { apiPath, open: [], srcs: {} }
+	}
 	function imageKindOf(keys: string[] | undefined): string | undefined {
 		return keys?.length === 1 && IMG_KINDS.includes(keys[0]) ? keys[0] : undefined
 	}
@@ -413,11 +420,16 @@
 		return field
 	}
 	async function toggleTooBigPart(apiPath: string, part: TooBigPart) {
-		if (openTooBigPart?.apiPath === apiPath && openTooBigPart.path === part.path) {
-			openTooBigPart = undefined
+		const current = tooBigPreviewsOf(apiPath)
+		if (current.open.includes(part.path)) {
+			tooBigPreviews = { ...current, open: current.open.filter((p) => p !== part.path) }
 			return
 		}
-		loadingTooBigPart = part.path
+		if (current.srcs[part.path]) {
+			tooBigPreviews = { ...current, open: [...current.open, part.path] }
+			return
+		}
+		loadingTooBigParts = [...loadingTooBigParts, part.path]
 		try {
 			const field = await readTooBigImage(apiPath, part)
 			// Sanitized whatever `markupTrust` says: the image viewer's "Open in new tab"
@@ -428,11 +440,17 @@
 							DOMPurify.sanitize(field, { USE_PROFILES: { svg: true, svgFilters: true } })
 						)}`
 					: `data:image/${part.imageKind};base64,${field}`
-			openTooBigPart = { apiPath, path: part.path, src }
+			if (resultApiPath !== apiPath) return
+			const now = tooBigPreviewsOf(apiPath)
+			tooBigPreviews = {
+				apiPath,
+				open: [...now.open, part.path],
+				srcs: { ...now.srcs, [part.path]: src }
+			}
 		} catch (e) {
 			sendUserToast(`Could not show the image: ${e instanceof Error ? e.message : e}`, true)
 		} finally {
-			loadingTooBigPart = undefined
+			loadingTooBigParts = loadingTooBigParts.filter((p) => p !== part.path)
 		}
 	}
 	async function downloadTooBigPart(apiPath: string, part: TooBigPart) {
@@ -1509,8 +1527,8 @@
 						{#if largeObject}
 							{@const notSent = result === 'WINDMILL_TOO_BIG'}
 							{@const info = tooBigInfo?.apiPath === resultApiPath ? tooBigInfo : undefined}
-							{@const openPart =
-								openTooBigPart?.apiPath === resultApiPath ? openTooBigPart : undefined}
+							{@const previews =
+								tooBigPreviews.apiPath === resultApiPath ? tooBigPreviews : undefined}
 							{@const size = notSent ? info?.length : loadedResultBytes / 2}
 							{@const hasOtherAction = !!info?.parts.length || !!tooBigFilename || download_as_csv}
 							<div
@@ -1590,8 +1608,9 @@
 								<!-- One row per part, as the S3 object list draws one per object. -->
 								<div class="mb-2 rounded-md border bg-surface divide-y overflow-hidden">
 									{#each info.parts as part (part.path)}
-										{@const open = openPart?.path === part.path}
-										{@const loading = loadingTooBigPart === part.path}
+										{@const open = !!previews?.open.includes(part.path)}
+										{@const src = previews?.srcs[part.path]}
+										{@const loading = loadingTooBigParts.includes(part.path)}
 										<div class="flex flex-col">
 											<div class="px-3 py-2">
 												<ResultItemHeader
@@ -1626,12 +1645,12 @@
 													{/snippet}
 												</ResultItemHeader>
 											</div>
-											{#if open && openPart}
-												<div class="border-t h-full p-3">
+											{#if src}
+												<div class="border-t h-full p-3" class:hidden={!open}>
 													<ExpandableImage
 														alt="{part.imageKind} rendered"
 														class="w-auto h-full"
-														src={openPart.src}
+														{src}
 													/>
 												</div>
 											{/if}
