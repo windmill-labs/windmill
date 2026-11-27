@@ -70,7 +70,7 @@
 				<div class="text-red-600 text-2xs">{passwordError}</div>
 			{/if}
 		</label>
-	{:else if login_type != 'none' && login_type != 'pending_oauth'}
+	{:else if !['none', 'pending_oauth', 'service_account'].includes(login_type)}
 		<div class="flex flex-col gap-1">
 			<div class="text-xs text-emphasis font-semibold">Sign-in</div>
 			<span class="text-xs font-normal text-primary">
