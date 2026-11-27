@@ -150,6 +150,19 @@ pub fn global_service() -> Router {
             post(update_token_label),
         )
         .route("/tokens/list", get(list_tokens))
+        .route("/tokens/risk_counts", get(token_risk_counts))
+        .route(
+            "/tokens/risk_counts_as_super_admin",
+            get(token_risk_counts_as_super_admin),
+        )
+        .route(
+            "/tokens/list_as_super_admin",
+            get(list_tokens_as_super_admin),
+        )
+        .route(
+            "/tokens/delete_as_super_admin/{email}/{token_prefix}",
+            delete(delete_token_as_super_admin),
+        )
         .route("/tokens/impersonate", post(impersonate))
         .route("/login_links", post(create_login_link))
         .route(
@@ -342,6 +355,7 @@ pub struct TruncatedToken {
     pub allowed_ips: Option<Vec<String>>,
     pub admin: bool,
     pub super_admin: bool,
+    pub risks: Vec<String>,
 }
 
 // NewToken is re-exported from windmill-api-auth above
@@ -4149,16 +4163,12 @@ async fn list_tokens(
     let rows = if query.exclude_ephemeral.unwrap_or(false) {
         sqlx::query_as!(
             TruncatedToken,
-            "SELECT t.label, t.token_prefix, t.expiration, t.created_at, t.last_used_at, t.scopes, \
-               t.workspace_id, t.read_only, t.allowed_ips::text[] AS allowed_ips, \
-               (t.admin AND EXISTS (SELECT 1 FROM usr u WHERE u.email = t.email AND u.is_admin \
-                   AND NOT u.disabled AND (t.workspace_id IS NULL OR u.workspace_id = t.workspace_id))) \
-                   AS \"admin!\", \
-               ((t.super_admin OR COALESCE(t.label = 'session', false)) \
-                   AND COALESCE((SELECT p.super_admin FROM password p WHERE p.email = t.email), false)) \
-                   AS \"super_admin!\" \
-             FROM token t WHERE t.email = $1 AND (t.label != 'ephemeral-script' OR t.label IS NULL)
-             ORDER BY t.created_at DESC LIMIT $2 OFFSET $3",
+            r#"SELECT label, token_prefix AS "token_prefix!", expiration,
+             created_at AS "created_at!", last_used_at AS "last_used_at!", scopes, workspace_id,
+             read_only AS "read_only!", allowed_ips::text[] AS allowed_ips,
+             admin AS "admin!", super_admin AS "super_admin!", risks AS "risks!"
+             FROM token_risk WHERE email = $1 AND (label != 'ephemeral-script' OR label IS NULL)
+             ORDER BY created_at DESC LIMIT $2 OFFSET $3"#,
             email,
             per_page as i64,
             offset as i64,
@@ -4168,16 +4178,12 @@ async fn list_tokens(
     } else {
         sqlx::query_as!(
             TruncatedToken,
-            "SELECT t.label, t.token_prefix, t.expiration, t.created_at, t.last_used_at, t.scopes, \
-               t.workspace_id, t.read_only, t.allowed_ips::text[] AS allowed_ips, \
-               (t.admin AND EXISTS (SELECT 1 FROM usr u WHERE u.email = t.email AND u.is_admin \
-                   AND NOT u.disabled AND (t.workspace_id IS NULL OR u.workspace_id = t.workspace_id))) \
-                   AS \"admin!\", \
-               ((t.super_admin OR COALESCE(t.label = 'session', false)) \
-                   AND COALESCE((SELECT p.super_admin FROM password p WHERE p.email = t.email), false)) \
-                   AS \"super_admin!\" \
-             FROM token t WHERE t.email = $1
-             ORDER BY t.created_at DESC LIMIT $2 OFFSET $3",
+            r#"SELECT label, token_prefix AS "token_prefix!", expiration,
+            created_at AS "created_at!", last_used_at AS "last_used_at!", scopes, workspace_id,
+            read_only AS "read_only!", allowed_ips::text[] AS allowed_ips,
+             admin AS "admin!", super_admin AS "super_admin!", risks AS "risks!"
+            FROM token_risk WHERE email = $1
+            ORDER BY created_at DESC LIMIT $2 OFFSET $3"#,
             email,
             per_page as i64,
             offset as i64,
@@ -4186,6 +4192,118 @@ async fn list_tokens(
         .await?
     };
     Ok(Json(rows))
+}
+
+/// How many tokens carry each risk of the `token_risk` view.
+#[derive(Serialize, Default)]
+pub struct TokenRiskCounts {
+    pub superadmin: i64,
+    pub admin: i64,
+    pub all_workspaces: i64,
+    pub never_expires: i64,
+    pub unused: i64,
+}
+
+impl TokenRiskCounts {
+    fn from_rows(rows: Vec<(Option<String>, Option<i64>)>) -> Self {
+        let mut c = Self::default();
+        for (risk, n) in rows {
+            let n = n.unwrap_or(0);
+            match risk.as_deref() {
+                Some("superadmin") => c.superadmin = n,
+                Some("admin") => c.admin = n,
+                Some("all_workspaces") => c.all_workspaces = n,
+                Some("never_expires") => c.never_expires = n,
+                Some("unused") => c.unused = n,
+                _ => {}
+            }
+        }
+        c
+    }
+}
+
+/// The caller's own counts, over all their tokens rather than one page of `tokens/list`.
+async fn token_risk_counts(
+    Extension(db): Extension<DB>,
+    ApiAuthed { email, .. }: ApiAuthed,
+) -> JsonResult<TokenRiskCounts> {
+    let rows = sqlx::query!(
+        "SELECT r AS risk, count(*) AS n FROM token_risk, unnest(risks) r WHERE email = $1 GROUP BY r",
+        email,
+    )
+    .fetch_all(&db)
+    .await?;
+    Ok(Json(TokenRiskCounts::from_rows(
+        rows.into_iter().map(|r| (r.risk, r.n)).collect(),
+    )))
+}
+
+/// Instance-wide counts, for the token review's summary.
+async fn token_risk_counts_as_super_admin(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+) -> JsonResult<TokenRiskCounts> {
+    require_super_admin(&db, &authed).await?;
+    let rows =
+        sqlx::query!("SELECT r AS risk, count(*) AS n FROM token_risk, unnest(risks) r GROUP BY r")
+            .fetch_all(&db)
+            .await?;
+    Ok(Json(TokenRiskCounts::from_rows(
+        rows.into_iter().map(|r| (r.risk, r.n)).collect(),
+    )))
+}
+
+#[derive(FromRow, Serialize)]
+pub struct TokenForReview {
+    pub email: Option<String>,
+    pub label: Option<String>,
+    pub token_prefix: String,
+    pub expiration: Option<chrono::DateTime<chrono::Utc>>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub last_used_at: chrono::DateTime<chrono::Utc>,
+    pub scopes: Option<Vec<String>>,
+    pub workspace_id: Option<String>,
+    pub read_only: bool,
+    pub risks: Vec<String>,
+}
+
+#[derive(Deserialize)]
+pub struct TokenReviewQuery {
+    /// A risk to narrow to, `all` for every token, or none for any risk.
+    pub flag: Option<String>,
+    pub search: Option<String>,
+    pub per_page: Option<usize>,
+    /// The last row of the previous page. A cursor rather than an offset, since the order
+    /// moves as tokens are used: an offset would skip rows that move behind it.
+    pub after_last_used_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub after_token_prefix: Option<String>,
+}
+
+pub(crate) fn token_review_requires_ee() -> Error {
+    Error::BadRequest(
+        "Listing and deleting every user's tokens requires a valid Windmill Enterprise Edition license"
+            .to_string(),
+    )
+}
+
+async fn list_tokens_as_super_admin(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+    Query(query): Query<TokenReviewQuery>,
+) -> JsonResult<Vec<TokenForReview>> {
+    require_super_admin(&db, &authed).await?;
+    Ok(Json(
+        crate::users_oss::list_tokens_as_super_admin(&db, query).await?,
+    ))
+}
+
+async fn delete_token_as_super_admin(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+    Path((email, token_prefix)): Path<(String, String)>,
+) -> Result<String> {
+    require_super_admin(&db, &authed).await?;
+    crate::users_oss::delete_token_as_super_admin(&db, &authed, &email, &token_prefix).await
 }
 
 /// Ends a user's MCP OAuth connections (only those bound to `workspace_id` when given),

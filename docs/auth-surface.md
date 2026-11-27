@@ -54,6 +54,13 @@ Symbols, not line numbers, are cited: they drift less.
   expiry or another login changes or drops it. A session revoked server-side keeps its hint,
   so until `whoami` answers that browser still renders as its own last user.
 - **`tokens/impersonate`** (superadmin) returns a multi-use token and sets no cookie.
+- **Token risk flags** (rights the token was minted with and no scope narrows, not bound to a
+  workspace, no expiration, unused 90 days) are computed once, by the `token_risk` view, which also
+  marks the tokens the server expires or renews on its own (`self_managed`, no flags). The user's
+  `tokens/list` and `tokens/risk_counts` and the superadmin review read it: its counts
+  (`tokens/risk_counts_as_super_admin`) in CE, its list (`tokens/list_as_super_admin`, cursor-paged
+  on `(last_used_at, token_prefix)`) and `tokens/delete_as_super_admin/{email}/{prefix}` in EE
+  (`users_ee.rs`); `frontend/src/lib/components/settings/tokenRisks.ts` only words the flags.
 - **`GET /api/tokens/introspect`** describes the credential presenting it, never one named in
   the request, and resolves it in the handler rather than through `ApiAuthed`: the route layer
   would refuse a scoped token there, and a workspace-bound one resolves on no global route. Its

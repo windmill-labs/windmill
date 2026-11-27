@@ -57,6 +57,7 @@
 	import InstanceAISettings from './instanceSettings/InstanceAISettings.svelte'
 	import ExternalJwtTokens from './instanceSettings/ExternalJwtTokens.svelte'
 	import GuestActivityList from './instanceSettings/GuestActivityList.svelte'
+	import TokenReview from './instanceSettings/TokenReview.svelte'
 	import { Alert, Skeleton } from '$lib/components/common'
 
 	let filter = $state('')
@@ -106,7 +107,7 @@
 		listUsers(activeOnly)
 	})
 
-	let usersSubTab: 'users' | 'ext_jwt' | 'guests' = $state('users')
+	let usersSubTab: 'users' | 'ext_jwt' | 'guests' | 'tokens' = $state('users')
 	let guestList: GuestList | undefined = $state(undefined)
 	let guestHasMore = $state(true)
 	let guestLoading = $state(false)
@@ -382,6 +383,7 @@
 									<Tab value="ext_jwt" label="External JWTs" />
 								{/if}
 								<Tab value="guests" label="Guests" />
+								<Tab value="tokens" label="Token review" />
 							</Tabs>
 
 							{#if usersListShown}
@@ -800,6 +802,8 @@
 										loadExtJwtPage(1)
 									}}
 								/>
+							{:else if usersSubTab === 'tokens'}
+								<TokenReview />
 							{:else if usersSubTab === 'guests' && !guestList}
 								{#if guestLoading}
 									<Skeleton layout={[[2], 1, [8]]} />
