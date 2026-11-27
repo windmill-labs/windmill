@@ -22,6 +22,7 @@
 	import { onDestroy, tick } from 'svelte'
 	import { SettingService, UserService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
+	import { loginErrorDetail, TOTP_SETUP_REQUIRED } from '$lib/loginError'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import SettingsPageHeader from '$lib/components/settings/SettingsPageHeader.svelte'
@@ -294,13 +295,22 @@
 				}
 			})
 
-			const token = await UserService.login({
-				requestBody: { email: newEmail, password: newPassword }
-			})
+			let token: string | undefined
+			try {
+				token = await UserService.login({
+					requestBody: { email: newEmail, password: newPassword }
+				})
+			} catch (e) {
+				// The instance requires two-factor authentication: the password matched, and the new
+				// account sets it up at the login page. The current session removes the old account.
+				if (loginErrorDetail(e) !== TOTP_SETUP_REQUIRED) throw e
+			}
 
-			// Update the client token for subsequent requests
-			const { OpenAPI } = await import('$lib/gen')
-			OpenAPI.TOKEN = token
+			if (token) {
+				// Update the client token for subsequent requests
+				const { OpenAPI } = await import('$lib/gen')
+				OpenAPI.TOKEN = token
+			}
 
 			try {
 				await UserService.globalUserDelete({ email: oldEmail })
