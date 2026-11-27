@@ -340,8 +340,8 @@ pub struct TruncatedToken {
     pub read_only: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub allowed_ips: Option<Vec<String>>,
-    pub owner_super_admin: bool,
-    pub owner_workspace_admin: bool,
+    pub super_admin: bool,
+    pub workspace_admin: bool,
 }
 
 // NewToken is re-exported from windmill-api-auth above
@@ -4110,9 +4110,9 @@ async fn list_tokens(
             TruncatedToken,
             r#"SELECT label, token_prefix, expiration, created_at,
              last_used_at, scopes, workspace_id, read_only, allowed_ips::text[] AS allowed_ips,
-             COALESCE((SELECT super_admin FROM password WHERE password.email = token.email), false) AS "owner_super_admin!",
-             EXISTS (SELECT 1 FROM usr WHERE usr.email = token.email AND usr.is_admin
-                 AND (token.workspace_id IS NULL OR usr.workspace_id = token.workspace_id)) AS "owner_workspace_admin!"
+             super_admin,
+             (admin AND EXISTS (SELECT 1 FROM usr WHERE usr.email = token.email AND usr.is_admin
+                 AND (token.workspace_id IS NULL OR usr.workspace_id = token.workspace_id))) AS "workspace_admin!"
              FROM token WHERE email = $1 AND (label != 'ephemeral-script' OR label IS NULL)
              ORDER BY created_at DESC LIMIT $2 OFFSET $3"#,
             email,
@@ -4126,9 +4126,9 @@ async fn list_tokens(
             TruncatedToken,
             r#"SELECT label, token_prefix, expiration, created_at,
             last_used_at, scopes, workspace_id, read_only, allowed_ips::text[] AS allowed_ips,
-            COALESCE((SELECT super_admin FROM password WHERE password.email = token.email), false) AS "owner_super_admin!",
-            EXISTS (SELECT 1 FROM usr WHERE usr.email = token.email AND usr.is_admin
-                AND (token.workspace_id IS NULL OR usr.workspace_id = token.workspace_id)) AS "owner_workspace_admin!"
+            super_admin,
+            (admin AND EXISTS (SELECT 1 FROM usr WHERE usr.email = token.email AND usr.is_admin
+                AND (token.workspace_id IS NULL OR usr.workspace_id = token.workspace_id))) AS "workspace_admin!"
             FROM token WHERE email = $1
             ORDER BY created_at DESC LIMIT $2 OFFSET $3"#,
             email,
@@ -4152,8 +4152,8 @@ pub struct TokenForReview {
     pub scopes: Option<Vec<String>>,
     pub workspace_id: Option<String>,
     pub read_only: bool,
-    pub owner_super_admin: bool,
-    pub owner_workspace_admin: bool,
+    pub super_admin: bool,
+    pub workspace_admin: bool,
 }
 
 /// Every user's long-lived tokens, stalest first. Login sessions and ephemeral job tokens
@@ -4169,9 +4169,9 @@ async fn list_tokens_as_super_admin(
         TokenForReview,
         r#"SELECT email, label, token_prefix, expiration, created_at, last_used_at, scopes,
              workspace_id, read_only,
-             COALESCE((SELECT super_admin FROM password WHERE password.email = token.email), false) AS "owner_super_admin!",
-             EXISTS (SELECT 1 FROM usr WHERE usr.email = token.email AND usr.is_admin
-                 AND (token.workspace_id IS NULL OR usr.workspace_id = token.workspace_id)) AS "owner_workspace_admin!"
+             super_admin,
+             (admin AND EXISTS (SELECT 1 FROM usr WHERE usr.email = token.email AND usr.is_admin
+                 AND (token.workspace_id IS NULL OR usr.workspace_id = token.workspace_id))) AS "workspace_admin!"
            FROM token
            WHERE job IS NULL
              AND (label IS NULL OR (label NOT IN ('session', 'guest_session')

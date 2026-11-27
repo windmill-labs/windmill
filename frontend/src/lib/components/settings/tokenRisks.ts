@@ -8,8 +8,8 @@ export interface TokenRiskFields {
 	last_used_at: string
 	scopes?: string[]
 	read_only: boolean
-	owner_super_admin: boolean
-	owner_workspace_admin: boolean
+	super_admin: boolean
+	workspace_admin: boolean
 }
 
 export const TOKEN_RISK_INFO: Record<
@@ -24,14 +24,14 @@ export const TOKEN_RISK_INFO: Record<
 	superadmin: {
 		badge: 'Superadmin',
 		color: 'red',
-		tooltip: 'Unscoped token of a superadmin: it carries full control of the instance',
+		tooltip: 'Minted with superadmin rights and not narrowed by scopes: it carries full control of the instance',
 		summary: (n) =>
 			n === 1 ? '1 token carries superadmin rights' : `${n} tokens carry superadmin rights`
 	},
 	admin: {
 		badge: 'Admin',
 		color: 'orange',
-		tooltip: "Unscoped token of a workspace admin: it carries the admin's full rights",
+		tooltip: 'Minted with admin rights and not narrowed by scopes: it carries full control of the workspace',
 		summary: (n) => (n === 1 ? '1 token carries admin rights' : `${n} tokens carry admin rights`)
 	},
 	never_expires: {
@@ -69,8 +69,8 @@ export function tokenRisks(t: TokenRiskFields, now: Date = new Date()): TokenRis
 	if (isSession(t.label)) return []
 	const risks: TokenRisk[] = []
 	if (isUnrestricted(t)) {
-		if (t.owner_super_admin) risks.push('superadmin')
-		else if (t.owner_workspace_admin) risks.push('admin')
+		if (t.super_admin) risks.push('superadmin')
+		else if (t.workspace_admin) risks.push('admin')
 	}
 	if (!t.expiration) risks.push('never_expires')
 	const unusedMs = now.getTime() - new Date(t.last_used_at).getTime()

@@ -34148,19 +34148,19 @@ components:
           description: IPs or CIDRs the token may be used from; absent when it may be used from anywhere.
           items:
             type: string
-        owner_super_admin:
+        super_admin:
           type: boolean
-          description: the token's owner is a superadmin
-        owner_workspace_admin:
+          description: the token was minted with its owner's superadmin rights
+        workspace_admin:
           type: boolean
-          description: the token's owner is an admin of its workspace, or of any workspace when it is not bound to one
+          description: the token was minted with workspace admin rights and its owner is an admin of its workspace, or of any workspace when it is not bound to one
       required:
         - token_prefix
         - created_at
         - last_used_at
         - read_only
-        - owner_super_admin
-        - owner_workspace_admin
+        - super_admin
+        - workspace_admin
 
     TokenForReview:
       type: object
@@ -34188,17 +34188,17 @@ components:
           type: string
         read_only:
           type: boolean
-        owner_super_admin:
+        super_admin:
           type: boolean
-        owner_workspace_admin:
+        workspace_admin:
           type: boolean
       required:
         - token_prefix
         - created_at
         - last_used_at
         - read_only
-        - owner_super_admin
-        - owner_workspace_admin
+        - super_admin
+        - workspace_admin
 
     ExternalJwtToken:
       type: object

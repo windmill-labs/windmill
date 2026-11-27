@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT label, token_prefix, expiration, created_at,\n             last_used_at, scopes, workspace_id, read_only, allowed_ips::text[] AS allowed_ips,\n             COALESCE((SELECT super_admin FROM password WHERE password.email = token.email), false) AS \"owner_super_admin!\",\n             EXISTS (SELECT 1 FROM usr WHERE usr.email = token.email AND usr.is_admin\n                 AND (token.workspace_id IS NULL OR usr.workspace_id = token.workspace_id)) AS \"owner_workspace_admin!\"\n             FROM token WHERE email = $1 AND (label != 'ephemeral-script' OR label IS NULL)\n             ORDER BY created_at DESC LIMIT $2 OFFSET $3",
+  "query": "SELECT label, token_prefix, expiration, created_at,\n            last_used_at, scopes, workspace_id, read_only, allowed_ips::text[] AS allowed_ips,\n            super_admin,\n            (admin AND EXISTS (SELECT 1 FROM usr WHERE usr.email = token.email AND usr.is_admin\n                AND (token.workspace_id IS NULL OR usr.workspace_id = token.workspace_id))) AS \"workspace_admin!\"\n            FROM token WHERE email = $1\n            ORDER BY created_at DESC LIMIT $2 OFFSET $3",
   "describe": {
     "columns": [
       {
@@ -50,12 +50,12 @@
       },
       {
         "ordinal": 9,
-        "name": "owner_super_admin!",
+        "name": "super_admin",
         "type_info": "Bool"
       },
       {
         "ordinal": 10,
-        "name": "owner_workspace_admin!",
+        "name": "workspace_admin!",
         "type_info": "Bool"
       }
     ],
@@ -76,9 +76,9 @@
       true,
       false,
       null,
-      null,
+      false,
       null
     ]
   },
-  "hash": "0a9d7fde86fb1a8dec943c973b555d8cff480eab6d9a95beb1fd4ebff1733f23"
+  "hash": "c939a50932fc417e7308f90634ee246858d8f49d516bef38a17d603f22418de7"
 }

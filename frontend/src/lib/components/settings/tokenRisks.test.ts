@@ -10,8 +10,8 @@ const base: TokenRiskFields = {
 	last_used_at: daysAgo(1),
 	scopes: undefined,
 	read_only: false,
-	owner_super_admin: false,
-	owner_workspace_admin: false
+	super_admin: false,
+	workspace_admin: false
 }
 
 describe('tokenRisks', () => {
@@ -21,13 +21,13 @@ describe('tokenRisks', () => {
 		expect(tokenRisks({ ...base, last_used_at: daysAgo(91) }, now)).toEqual(['unused'])
 		expect(tokenRisks({ ...base, last_used_at: daysAgo(89) }, now)).toEqual([])
 		expect(
-			tokenRisks({ ...base, owner_super_admin: true, owner_workspace_admin: true }, now)
+			tokenRisks({ ...base, super_admin: true, workspace_admin: true }, now)
 		).toEqual(['superadmin'])
-		expect(tokenRisks({ ...base, owner_workspace_admin: true }, now)).toEqual(['admin'])
+		expect(tokenRisks({ ...base, workspace_admin: true }, now)).toEqual(['admin'])
 	})
 
 	it('does not treat a narrowed token as carrying its owner rights', () => {
-		const owner = { owner_super_admin: true, owner_workspace_admin: true }
+		const owner = { super_admin: true, workspace_admin: true }
 		expect(tokenRisks({ ...base, ...owner, scopes: ['jobs:read'] }, now)).toEqual([])
 		expect(tokenRisks({ ...base, ...owner, read_only: true }, now)).toEqual([])
 		expect(tokenRisks({ ...base, ...owner, scopes: ['if_jobs:filter_tags:prod'] }, now)).toEqual([
@@ -36,7 +36,7 @@ describe('tokenRisks', () => {
 	})
 
 	it('leaves login sessions out', () => {
-		const t = { ...base, expiration: undefined, owner_super_admin: true }
+		const t = { ...base, expiration: undefined, super_admin: true }
 		expect(tokenRisks({ ...t, label: 'session' }, now)).toEqual([])
 		expect(tokenRisks({ ...t, label: 'guest_session' }, now)).toEqual([])
 	})

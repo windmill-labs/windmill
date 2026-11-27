@@ -166,7 +166,8 @@
 					{/each}
 				</ul>
 				A leaked token keeps working until it expires or is deleted. Delete tokens you no longer use,
-				and give the ones you keep an expiration and the narrowest scopes they need.
+				and give the ones you keep an expiration, the narrowest scopes they need and no admin rights
+				unless they require them.
 			</Alert>
 		</div>
 	{/if}

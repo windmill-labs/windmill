@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT email, label, token_prefix, expiration, created_at, last_used_at, scopes,\n             workspace_id, read_only,\n             COALESCE((SELECT super_admin FROM password WHERE password.email = token.email), false) AS \"owner_super_admin!\",\n             EXISTS (SELECT 1 FROM usr WHERE usr.email = token.email AND usr.is_admin\n                 AND (token.workspace_id IS NULL OR usr.workspace_id = token.workspace_id)) AS \"owner_workspace_admin!\"\n           FROM token\n           WHERE job IS NULL\n             AND (label IS NULL OR (label NOT IN ('session', 'guest_session')\n                  AND label NOT ILIKE 'ephemeral%'))\n           ORDER BY last_used_at ASC, token_prefix\n           LIMIT $1 OFFSET $2",
+  "query": "SELECT email, label, token_prefix, expiration, created_at, last_used_at, scopes,\n             workspace_id, read_only,\n             super_admin,\n             (admin AND EXISTS (SELECT 1 FROM usr WHERE usr.email = token.email AND usr.is_admin\n                 AND (token.workspace_id IS NULL OR usr.workspace_id = token.workspace_id))) AS \"workspace_admin!\"\n           FROM token\n           WHERE job IS NULL\n             AND (label IS NULL OR (label NOT IN ('session', 'guest_session')\n                  AND label NOT ILIKE 'ephemeral%'))\n           ORDER BY last_used_at ASC, token_prefix\n           LIMIT $1 OFFSET $2",
   "describe": {
     "columns": [
       {
@@ -50,12 +50,12 @@
       },
       {
         "ordinal": 9,
-        "name": "owner_super_admin!",
+        "name": "super_admin",
         "type_info": "Bool"
       },
       {
         "ordinal": 10,
-        "name": "owner_workspace_admin!",
+        "name": "workspace_admin!",
         "type_info": "Bool"
       }
     ],
@@ -75,9 +75,9 @@
       true,
       true,
       false,
-      null,
+      false,
       null
     ]
   },
-  "hash": "a5a2274ae271ec73da93526ecd2f793172a12eb23da5944de4626926f31b01ed"
+  "hash": "eb448d41ac061ddcdcbdefbc5042f8c087a73eb9be315045f896cdd093d63449"
 }
