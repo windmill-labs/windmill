@@ -2155,14 +2155,33 @@ pub(super) async fn show_deploy_review(ctx: &Ctx<'_>, args: &Value) -> ToolResul
         .iter()
         .filter(|item| item.get("digest").is_some())
         .count();
+    // Windmill's own "Review & deploy drafts" page.
+    let review_url = ctx.page_url(&format!(
+        "/forks/compare?workspace_id={}&mode=draft",
+        enc(ctx.w_id)
+    ));
+    let item_lines: Vec<String> = items
+        .iter()
+        .map(|item| {
+            let name = item.get("name").unwrap_or(&item["path"]);
+            let what = match (&item["added"], &item["removed"]) {
+                (Value::Number(added), Value::Number(removed)) => format!("+{added} -{removed}"),
+                _ => item["note"]
+                    .as_str()
+                    .or(item["error"].as_str())
+                    .unwrap_or_default()
+                    .to_string(),
+            };
+            format!(
+                "- {} {}: {what}",
+                item["type"].as_str().unwrap_or_default(),
+                name.as_str().unwrap_or_default()
+            )
+        })
+        .collect();
     ctx.set_view(
         "windmill/review",
-        json!({
-            "workspace": ctx.w_id,
-            "items": items,
-            // Windmill's own "Review & deploy drafts" page.
-            "url": ctx.page_url(&format!("/forks/compare?workspace_id={}&mode=draft", enc(ctx.w_id))),
-        }),
+        json!({ "workspace": ctx.w_id, "items": items, "url": review_url }),
     );
     if total == 0 {
         return Ok("No drafts to review: nothing differs from the deployed state.".to_string());
@@ -2187,6 +2206,13 @@ pub(super) async fn show_deploy_review(ctx: &Ctx<'_>, args: &Value) -> ToolResul
             rest.join(", ")
         ));
     }
+    for line in item_lines {
+        text.push_str(&format!("\n{line}"));
+    }
+    text.push_str(&format!(
+        "\nReview and deploy in Windmill: {review_url}\n{}",
+        super::views::CARD_NOTE
+    ));
     Ok(text)
 }
 
