@@ -4,7 +4,7 @@
 	import { Alert, Button } from '$lib/components/common'
 	import { UserService } from '$lib/gen'
 	import { CALLBACK_PATH } from '$lib/remoteDeploy'
-	import { usersWorkspaceStore } from '$lib/stores'
+	import { needsSuperAdminFor, usersWorkspaceStore } from '$lib/stores'
 
 	// Another Windmill instance asks for a token to deploy into one workspace here as the signed-in
 	// user. It gets the token only if they authorize, and only at `callback`, whose origin they are
@@ -58,7 +58,11 @@
 					// renewed by connecting again from the deploying instance, not managed here.
 					label: `remote-deploy:${callback!.host}`,
 					workspace_id: workspace,
-					expiration: new Date(Date.now() + TOKEN_LIFETIME_MS).toISOString()
+					expiration: new Date(Date.now() + TOKEN_LIFETIME_MS).toISOString(),
+					// Deploying as the user means with their admin rights there; superadmin rights
+					// only stand in for a membership the user does not have.
+					admin: true,
+					super_admin: needsSuperAdminFor(workspace)
 				}
 			})
 			sendBack({ token })

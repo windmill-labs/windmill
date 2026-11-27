@@ -368,6 +368,7 @@ async fn get_http_route_trigger(
     route_path: &str,
     auth_cache: &Arc<AuthCache>,
     token: Option<&String>,
+    client_ip: Option<std::net::IpAddr>,
     db: &DB,
     user_db: UserDB,
     method: &http::Method,
@@ -408,12 +409,19 @@ async fn get_http_route_trigger(
     let username_override = if let AuthenticationMethod::Windmill = trigger.authentication_method {
         let opt_authed = if let Some(token) = token {
             auth_cache
-                .get_authed(Some(trigger.workspace_id.clone()), token)
+                .get_authed(Some(trigger.workspace_id.clone()), token, client_ip)
                 .await
         } else {
             None
         };
         if let Some(authed) = opt_authed {
+            // `/r/*` bypasses the `ApiAuthed` read-only check, and a route without static
+            // assets runs its runnable whatever the method, so a read-only token is refused.
+            if authed.read_only && trigger.static_asset_config.is_none() {
+                return Err(Error::PermissionDenied(
+                    "Token is read-only. Triggering HTTP routes is not allowed.".to_string(),
+                ));
+            }
             check_scopes(&authed, || format!("http_triggers:read:{}", &trigger.path))?;
 
             // check that the user has access to the trigger
@@ -496,6 +504,7 @@ async fn route_job(
     Extension(auth_cache): Extension<Arc<AuthCache>>,
     Extension(cors_policy): Extension<ResolvedCorsPolicy>,
     OptTokened { token }: OptTokened,
+    windmill_common::client_ip::ClientIp(client_ip): windmill_common::client_ip::ClientIp,
     Path(route_path): Path<StripPath>,
     headers: HeaderMap,
     args: RawHttpTriggerArgs,
@@ -506,6 +515,7 @@ async fn route_job(
         route_path,
         &auth_cache,
         token.as_ref(),
+        client_ip,
         &db,
         user_db.clone(),
         &args.0.metadata.method,

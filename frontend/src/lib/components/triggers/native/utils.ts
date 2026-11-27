@@ -17,22 +17,8 @@ export function useNativeConnection(): () => string | undefined {
 	return getContext<(() => string | undefined) | undefined>(CONNECTION_CONTEXT) ?? (() => undefined)
 }
 
-const CONNECT_MESSAGE = 'native_trigger_oauth'
-
-/** Turns the resource connect drawer into the connect step of a native trigger account. */
-export type NativeConnect = {
-	title: string
-	defaultName: string
-	/** Rejects when the connection was not saved; the drawer then stays open on the path. */
-	connect: (path: string) => Promise<void>
-}
-
-export type NativeOAuthMessage =
-	| { type: typeof CONNECT_MESSAGE; ok: true; path: string }
-	| { type: typeof CONNECT_MESSAGE; ok: false; error: string }
-
-/** The workspace and service a native trigger connect state was signed for. A login state has no
- * `:`, so this is undefined for one. */
+/** The workspace and service a connect made with a workspace OAuth app was signed for. A login
+ * state has no `:`, so this is undefined for one. */
 export function decodeNativeOAuthState(
 	state: string
 ): { workspace: string; service: NativeServiceName } | undefined {
@@ -62,56 +48,11 @@ export function workspaceAppRedirectUri(
 	return `${origin}/oauth/callback/${NATIVE_TRIGGER_SERVICES[service].resourceType}`
 }
 
-/** Hands the outcome of a connect popup back to the page that opened it. */
-export function postNativeOAuthResult(
-	result: { ok: true; path: string } | { ok: false; error: string }
-) {
-	const message = { type: CONNECT_MESSAGE, ...result } as NativeOAuthMessage
-	window.opener?.postMessage(message, window.location.origin)
-}
-
-/**
- * Connect an account in a popup and resolve with the path of the saved connection. The
- * connection is saved at `resourcePath`, or at the caller's default path when omitted.
- */
-export async function connectNativeAccount(
-	workspace: string,
-	service: NativeServiceName,
-	resourcePath?: string
-): Promise<string> {
-	const authUrl = await WorkspaceIntegrationService.generateNativeTriggerServiceConnectUrl({
-		workspace,
-		serviceName: service,
-		requestBody: { resource_path: resourcePath }
-	})
-	const popup = window.open(authUrl, '_blank', 'popup,width=600,height=750')
-	if (!popup) {
-		throw new Error('The connection window was blocked. Allow popups for this site and retry.')
-	}
-	return new Promise((resolve, reject) => {
-		const onMessage = (event: MessageEvent<NativeOAuthMessage>) => {
-			if (event.origin !== window.location.origin || event.data?.type !== CONNECT_MESSAGE) return
-			cleanup()
-			if (event.data.ok) resolve(event.data.path)
-			else reject(new Error(event.data.error))
-		}
-		// The callback page posts its result and then closes itself, so a closed window may still
-		// have a message in flight: give it a moment before treating the close as a cancel.
-		const closedPoll = setInterval(() => {
-			if (popup.closed) {
-				clearInterval(closedPoll)
-				setTimeout(() => {
-					cleanup()
-					reject(new Error('The connection window was closed before finishing'))
-				}, 1000)
-			}
-		}, 500)
-		function cleanup() {
-			window.removeEventListener('message', onMessage)
-			clearInterval(closedPoll)
-		}
-		window.addEventListener('message', onMessage)
-	})
+/** The service whose workspace OAuth app can connect resources of this type, if any. */
+export function serviceForResourceType(resourceType: string): NativeServiceName | undefined {
+	return (Object.keys(NATIVE_TRIGGER_SERVICES) as NativeServiceName[]).find(
+		(s) => NATIVE_TRIGGER_SERVICES[s].resourceType === resourceType
+	)
 }
 
 export interface NativeTriggerConfig {

@@ -354,6 +354,26 @@ export function formatTimestamp(ts: string): string {
   return new Date(ts).toISOString().replace("T", " ").substring(0, 19);
 }
 
+/** Whether the server refused the request's credential (HTTP 401). */
+export function isUnauthorized(e: unknown): boolean {
+  return (
+    !!e &&
+    typeof e === "object" &&
+    "name" in e &&
+    e.name === "ApiError" &&
+    (e as { status?: number }).status === 401
+  );
+}
+
+/**
+ * The server does not say why it refused a token, so this only names the likely cause for a
+ * token that worked before: one bound to a single workspace is refused everywhere else.
+ */
+export const BOUND_TOKEN_HINT =
+  "If this token was created for a single workspace, other workspaces and instance-level " +
+  "commands refuse it: log in again and pick 'All workspaces' on the login page, or create " +
+  "one with `wmill token create --all-workspaces`.";
+
 /**
  * "<status text>: <body>" for an error thrown by the generated API client,
  * undefined for anything else. Backend source references such as

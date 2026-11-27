@@ -22,10 +22,12 @@
 
 	let loading = $state(false)
 	interface Props {
+		/** Id of the branching step, which isn't the selected id when a branch node is selected. */
+		moduleId: string
 		pickableProperties?: PickableProperties | undefined
 	}
 
-	let { pickableProperties = undefined }: Props = $props()
+	let { moduleId, pickableProperties = undefined }: Props = $props()
 
 	let instructions = $state('')
 	let instructionsField: HTMLInputElement | undefined = $state(undefined)
@@ -34,31 +36,32 @@
 	})
 
 	let abortController = $state(new AbortController())
-	const { flowStore, selectionManager } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	const dispatch = createEventDispatcher()
 
 	async function generatePredicate() {
 		abortController = new AbortController()
 		loading = true
-		const flow: Flow = JSON.parse(JSON.stringify(flowStore.val))
-		const idOrders = dfs(flow.value.modules, (x) => x.id)
-		const upToIndex = idOrders.indexOf(selectionManager.getSelectedId())
-		if (upToIndex === -1) {
-			throw new Error('Could not find the selected id in the flow')
-		}
-
-		const flowDetails =
-			'Take into account the following information for never tested results:\n<flowDetails>\n' +
-			yamlStringifyExceptKeys(sliceModules(flow.value.modules, upToIndex, idOrders), ['lock']) +
-			'</flowDetails>'
 		try {
+			const flow: Flow = JSON.parse(JSON.stringify(flowStore.val))
+			const idOrders = dfs(flow.value.modules, (x) => x.id)
+			const upToIndex = idOrders.indexOf(moduleId)
+			if (upToIndex === -1) {
+				throw new Error('Could not find the branching step in the flow')
+			}
+
+			const flowDetails =
+				'Take into account the following information for never tested results:\n<flowDetails>\n' +
+				yamlStringifyExceptKeys(sliceModules(flow.value.modules, upToIndex, idOrders), ['lock']) +
+				'</flowDetails>'
+
 			const availableData = {
 				results: pickableProperties?.priorIds,
 				flow_input: pickableProperties?.flow_input
 			}
 			const user = `I'm building a workflow which is a DAG of script steps.
-The current step is ${selectionManager.getSelectedId()} and is a branching step (if-else). 
+The current step is ${moduleId} and is a branching step (if-else). 
 The user wants to generate a predicate for the branching condition.
 Here's the user's request: ${instructions}
 You can find the details of all the steps below:

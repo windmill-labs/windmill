@@ -37,7 +37,7 @@
 	let preventEscape = $state(false)
 	let selectedJobStep: string | undefined = $state(undefined)
 	let selectedJobStepIsTopLevel: boolean | undefined = $state(undefined)
-	let selectedJobStepType: 'single' | 'forloop' | 'branchall' = $state('single')
+	let selectedJobStepType: 'single' | 'forloop' | 'branchall' | 'parallel' = $state('single')
 	let branchOrIterationN: number = $state(0)
 	let scrollTop: number = $state(0)
 	let previewMode: 'upTo' | 'whole' = $state('whole')

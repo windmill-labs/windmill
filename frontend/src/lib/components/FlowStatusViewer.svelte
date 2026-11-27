@@ -97,13 +97,11 @@
 
 	let lastJobId: string = untrack(() => jobId)
 
-	let retryStatus = $state({ val: {} })
 	let globalRefreshes: Record<string, ((clear, root) => Promise<void>)[]> = $state({})
 
 	setContext<FlowStatusViewerContext>('FlowStatusViewer', {
 		flowState,
 		suspendStatus,
-		retryStatus,
 		hideDownloadInGraph: untrack(() => hideDownloadInGraph),
 		hideNodeDefinition: untrack(() => hideNodeDefinition),
 		hideTimeline: untrack(() => hideTimeline),
@@ -119,7 +117,6 @@
 		if (jobId !== lastJobId) {
 			console.log('updateJobId 3', jobId)
 			lastJobId = jobId
-			retryStatus.val = {}
 			suspendStatus.val = {}
 			globalRefreshes = {}
 			for (let key in localModuleStates) delete flowState[key]
@@ -152,10 +149,17 @@
 
 	let storedToolCallJobs: Record<string, Job> = $state({})
 	let toolCallIndicesToLoad: string[] = $state([])
+
+	let inner: FlowStatusViewerInner | undefined = $state(undefined)
+	/** Selects a step in the graph, as a click on its node does. */
+	export function selectStep(id: string) {
+		inner?.selectStep(id)
+	}
 </script>
 
 {#key jobId}
 	<FlowStatusViewerInner
+		bind:this={inner}
 		onJobsLoaded={({ job, force }) => {
 			if (job.script_path != lastScriptPath && job.script_path) {
 				lastScriptPath = job.script_path

@@ -159,9 +159,19 @@ pub(crate) async fn list_recent_runs(
              ORDER BY c.completed_at DESC
              LIMIT $4)
             UNION ALL
-            (SELECT q.id, NULL, q.started_at, NULL, NULL
+            (SELECT q.id,
+                    -- `suspend` also parks a workflow as code on its children or a sleep: only
+                    -- a wait on an approval is one.
+                    CASE WHEN q.suspend > 0 AND (
+                        s.flow_status->'modules'->((s.flow_status->>'step')::int)->>'type'
+                            = 'WaitingForEvents'
+                        OR s.workflow_as_code_status->'_checkpoint'->'pending_steps'->>'mode'
+                            = 'approval'
+                    ) THEN 'suspended' END,
+                    q.started_at, NULL, NULL
              FROM v2_job_queue q
              JOIN v2_job j ON j.id = q.id
+             LEFT JOIN v2_job_status s ON s.id = q.id
              WHERE q.workspace_id = $1 AND q.running AND {LISTED_ROOT_RUN}
                AND NOT EXISTS (SELECT 1 FROM v2_job_completed c WHERE c.id = q.id))
          )
@@ -176,6 +186,7 @@ pub(crate) async fn list_recent_runs(
                         'script') = 'flow' THEN 'flow'
                  ELSE 'script' END AS kind,
             CASE WHEN r.status IS NULL THEN 'running'
+                 WHEN r.status = 'suspended' THEN 'suspended'
                  WHEN r.status IN ('success', 'skipped') THEN 'success'
                  WHEN r.status = 'canceled' THEN 'canceled'
                  WHEN EXISTS (SELECT 1 FROM job_resolution jr WHERE jr.job_id = r.id) THEN 'resolved'

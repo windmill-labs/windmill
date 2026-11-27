@@ -291,7 +291,8 @@
 	const isAiEnabled = $derived(!!aiInfo?.enabled)
 
 	$effect(() => {
-		if (open && opWs && $copilotWorkspace !== opWs) {
+		// A session's config comes from `aiChat.aiInfo`; loading here would rewrite the tab's copy.
+		if (open && opWs && !aiChat.isSessionChat && $copilotWorkspace !== opWs) {
 			loadCopilot(opWs)
 		}
 	})

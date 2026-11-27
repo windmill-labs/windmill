@@ -55,11 +55,14 @@ Symbols, not line numbers, are cited: they drift less.
   so until `whoami` answers that browser still renders as its own last user.
 - **`tokens/impersonate`** (superadmin) returns a multi-use token and sets no cookie.
 - **`max_token_expiration_days`** caps `POST /users/tokens/create` and `tokens/impersonate`, by
-  shortening the stored expiration (`cap_token_expiration`), never by refusing: the CLI
-  authorization page, `wmill user create-token` and the editor's language-server token all pick a
-  lifetime without reading the setting, and CLIs already installed never will. The CLI signs in
-  again on its own when its token expires, which is why the authorization page labels it
-  `cli-login:<username>`, reserved in `is_user_token` so its expiry does not email the user. A token
+  shortening the stored expiration (`cap_token_expiration`), never by refusing: `wmill user
+  create-token` and the editor's language-server token pick a lifetime without reading the
+  setting, and CLIs already installed never will. The CLI authorization page (`/user/cli`) reads
+  it only to offer the lifetimes that would be kept (30 days by default). The CLI signs in again
+  on its own when its token expires, which is why the authorization page labels it
+  `cli-login:<username>`, reserved in `is_user_token` so its expiry does not email the user.
+  `wmill workspace login` replaces a profile's token before it expires, and revokes the previous
+  one only when that label shows the browser login minted it. A token
   owned by a service account is exempt: one in the workspace the token names, or in any workspace
   for a workspace-less token (for `tokens/impersonate`, the impersonated account). Any workspace
   admin can therefore create and impersonate a service account to hold an uncapped token, so the
@@ -84,12 +87,29 @@ Symbols, not line numbers, are cited: they drift less.
   `ephemeral-` prefix needs no other change (keep it clear of `is_server_minted_label` if minted
   through `tokens/create`); a new prefix also goes into the SQL and Svelte mirrors that function's
   doc lists.
-- **A token's `super_admin` column is what lets it into a workspace its owner is not a member
-  of**, and makes a workspace-less MCP token list every workspace. `create_token_internal` copies
-  it from `password` for every token except an MCP one (an `mcp:` scope), which carries it only
-  when the request sets `super_admin`; the MCP OAuth approve stores the same request on its code
-  and refresh rows, and each exchange re-checks `password`. A new path minting an MCP token must
-  ask the same question, or it reaches a different set of workspaces than the other two.
+- **A token carries its owner's superadmin and workspace admin rights only when minted with
+  them** (`token.super_admin`, `token.admin`). `super_admin` lets a token into a workspace its
+  owner is not a member of and makes a workspace-less MCP token list every workspace; on any row
+  but a session it also decides the superadmin routes, which otherwise key off the account's
+  email: the auth lookup sets `ApiAuthed::super_admin_withheld`, read by `require_super_admin`,
+  `is_super_admin_authed` and `require_devops_role`, and `admin = false` caps `is_admin` there
+  (`admin_withheld`, also read by the cross-workspace `usr.is_admin` checks). `POST
+  /users/tokens/create` and `tokens/impersonate` withhold both unless the request sets them;
+  `create_token_internal` called directly (server-side mints) inherits them from the owner,
+  except for an MCP token's superadmin. Either way a token never gets rights the minting
+  credential withholds, and `GET /users/refresh_token` refuses one that withholds rights the
+  account holds, since a session carries them all. A job started by such a token runs with its
+  capped `is_admin` (and a `$WM_TOKEN` cannot reach `tokens/create`); but what the token deploys
+  or schedules runs later as its owner (`fetch_authed_from_permissioned_as`), with every right of
+  the account, as with scoped tokens. Losing superadmin follows the owner without
+  help from the caller: the deferred trigger `password_superadmin_demote_tokens` clears the column
+  on every token of an address that, at commit, no longer has a superadmin `password` row
+  (demotion, deletion, an import's delete-and-reinsert), and evicts each through
+  `notify_token_invalidation`. An email change does not fire it, since SCIM's rename leaves the
+  tokens under the old address. A promotion grants it to no existing token. The MCP OAuth approve
+  stores the `super_admin` request on its code and refresh rows, and each exchange re-checks
+  `password`. A new path minting a token must ask the same questions, or it reaches a different
+  set of workspaces than the others.
 - **Every superadmin route refuses a job token**: `require_super_admin`
   (`windmill-api-auth/src/lib.rs`) errors on `authed.job_id.is_some()`. A script that needs
   `users/create`, `tokens/impersonate`, `set_login_type`, … must use a dedicated superadmin user
@@ -179,6 +199,18 @@ Symbols, not line numbers, are cited: they drift less.
   reset require `login_type = 'password'`; `set_password` also accepts `pending_oauth` and turns
   the account into a `password` one in the same statement (an account created ahead of its owner
   gets its first credential that way, or through the OAuth claim below).
+- **`RequireSso` protection rule** (workspace-level, `check_new_member_sso` /
+  `check_password_login_allowed` in `windmill-common/src/workspaces.rs`): a `password` account
+  held by it (not a service account, not a bypasser by username or group, admins included) cannot
+  join the workspace, and no member it holds can become a `password` account. It gates both
+  transitions, never sign-in: password members already in the workspace keep logging in, which only
+  the instance's `disable_password_login` stops. A new path that seats a member or writes
+  `login_type = 'password'` (or a password on a `pending_oauth` account) must call the matching
+  check in the transaction that writes. The two checks take no lock, so a join and a password
+  switch of the same account at the same instant can both pass; the automatic joins (domain auto-add and auto-invite,
+  instance groups) skip the user instead of failing, and a git sync pull into a fork fails rather
+  than seat a held sync identity. The
+  superadmin instance import (`POST /users/overwrite`) restores accounts as given, unchecked.
 - **Login links** (`login_link` table, `POST /users/login_links` superadmin-only,
   `GET /auth/login_link/{token}` unauthenticated): single-use, ≤15 min, a session cookie and a
   302 to a same-origin `rd`. `require_login_type` on the mint refuses (409) an account whose
@@ -235,3 +267,34 @@ Symbols, not line numbers, are cited: they drift less.
   profile routes are cloud-gated; for the rest, cloud only adds quotas.
 - **`CREATE_WORKSPACE_REQUIRE_SUPERADMIN`** defaults to `true` when unset; only the literal
   `"true"` enables it when set.
+- **The client IP** (`windmill-common/src/client_ip.rs`, the `ClientIp` extractor) is the TCP
+  peer unless that peer is in `TRUSTED_PROXIES` (comma-separated CIDRs; unset means loopback,
+  plus the private ranges on cloud; empty or `none` trusts nothing). Audit entries record the
+  same address (`request_origin.rs` calls it), so a login refusal and its audit row agree. A
+  self-hosted instance behind a reverse proxy on a private address must list that proxy, or
+  the proxy is every request's client: trusting private ranges by default would let anyone on
+  the network in front name any address. Behind a trusted peer, `X-Forwarded-For`
+  is read from the right up to the first untrusted hop, or, with `CLIENT_IP_HEADER` set, only that
+  header (`CloudFront-Viewer-Address`, `CF-Connecting-IP`, an nginx `X-Real-IP`). `X-Real-IP` is
+  never read implicitly: Caddy and most ingresses pass a client's own through. A CDN in front of
+  the load balancer (CloudFront on app.windmill.dev) needs `CLIENT_IP_HEADER` or its ranges in
+  `TRUSTED_PROXIES`, or its edge address is the client. On cloud, the private-range default
+  also trusts job containers that can reach the server directly. Only the main API server carries the peer: a router called without connect
+  info (tests, internal dispatch) sees `None`, and per-IP decisions skip or refuse it.
+- **`token.allowed_ips`** is EE. A CE build drops a stored list when it loads the token, so it
+  neither checks the list nor passes it on, and refuses a request that sets one. An EE build
+  keeps enforcing stored lists when its license lapses; only setting a new one needs a valid
+  license. The rest of this bullet describes an EE build. The column (`cidr[]`, `NULL` =
+  anywhere) restricts where a token row may be
+  used. `AuthCache::get_opt_job_authed` takes the request's client IP and refuses the token
+  outside its networks, or when the IP is unknown, so every path that resolves a request's
+  token passes that request's `ClientIp` (MCP's multi-workspace mode carries it in
+  `McpToken`). The list rides on the cached `ApiAuthed`, checked per request, never folded
+  into the cache entry. A restricted token cannot lift its restriction: every mint from the
+  caller's identity holds the new row within the caller's networks (the caller's list when
+  none is asked for). That is `create_token_internal` (`tokens/create`, app SDK and embed
+  tokens, native trigger webhook tokens, which then only work from those networks),
+  `tokens/impersonate` and service-account impersonation. `refresh_token`, the MCP OAuth
+  approve and `login_links` refuse a restricted caller, since what they lead to is a session
+  with no restriction. Not inherited, by design: a job's `WM_TOKEN` (a JWT; starting the job
+  already passed the check) and JWTs the server mints for its own loopback calls.

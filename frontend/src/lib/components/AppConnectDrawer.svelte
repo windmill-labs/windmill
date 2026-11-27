@@ -9,19 +9,19 @@
 	import GoogleSigninButton from './GoogleSigninButton.svelte'
 	import IconedResourceType from './IconedResourceType.svelte'
 	import { addResourceTitle } from './resourceTypeDisplay'
-	import type { NativeConnect } from './triggers/native/utils'
 
 	interface Props {
 		expressOAuthSetup?: boolean
 		workspace?: string
-		native?: NativeConnect
 	}
 
-	let { expressOAuthSetup = false, workspace = undefined, native = undefined }: Props = $props()
+	let { expressOAuthSetup = false, workspace = undefined }: Props = $props()
 
-	/** Set by `open(rt, fillPath)`, not by the parent: which resource this run fills is a
-	 *  property of the click, and a prop would go stale between two different rows. */
+	/** Set by `open(rt, fillPath, requiredScopes)`, not by the parent: which resource this run
+	 *  fills is a property of the click, and a prop would go stale between two different rows. */
 	let fillPath: string | undefined = $state(undefined)
+	let requiredScopes: string[] = $state([])
+	let viaWorkspaceApp = $state(false)
 
 	let drawer: Drawer | undefined = $state()
 	let resourceType = $state('')
@@ -29,13 +29,24 @@
 	let disabled = $state(false)
 	let isGoogleSignin = $state(false)
 	let manual = $state(true)
+	let actionLabel: string | undefined = $state(undefined)
+	let canGoBack: boolean | undefined = $state(undefined)
 
 	let appConnectInner: AppConnectInner | undefined = $state(undefined)
 
 	let rtToLoad: string | undefined = $state('')
-	/** `fill` connects into a resource that already exists, instead of creating one. */
-	export async function open(rt?: string, fill?: string) {
+	/** `fill` connects into a resource that already exists, instead of creating one; filling an
+	 *  OAuth resource reconnects it in place. `scopes` replace the provider's defaults.
+	 *  `workspaceApp` connects through the workspace's OAuth app when it has one, as triggers do. */
+	export async function open(
+		rt?: string,
+		fill?: string,
+		scopes: string[] = [],
+		workspaceApp = false
+	) {
 		fillPath = fill
+		requiredScopes = scopes
+		viaWorkspaceApp = workspaceApp
 		handedOff = false
 		rtToLoad = rt
 		drawer?.openDrawer?.()
@@ -78,7 +89,7 @@
 	size="700px"
 >
 	<DrawerContent
-		title={native?.title ?? addResourceTitle(step > 1 ? resourceType : undefined)}
+		title={addResourceTitle(step > 1 ? resourceType : undefined)}
 		id="add-resource-drawer"
 		on:close={drawer?.closeDrawer}
 		tooltip="Resources represent connections to third party systems. Learn more on how to integrate external APIs."
@@ -96,18 +107,19 @@
 			bind:isGoogleSignin
 			bind:disabled
 			bind:manual
+			bind:actionLabel
+			bind:canGoBack
 			on:close={drawer?.closeDrawer}
 			on:refresh
 			express={expressOAuthSetup}
 			{workspace}
 			{fillPath}
-			{native}
+			{requiredScopes}
+			{viaWorkspaceApp}
 		/>
 		{#snippet actions()}
 			<div class="flex gap-1">
-				<!-- Only when the user came through the type picker: opening the drawer for one
-				     resource type skips step 1, so Back would land on a list they never chose from. -->
-				{#if step > 1 && !rtToLoad}
+				{#if canGoBack}
 					<Button variant="default" unifiedSize="md" onClick={() => appConnectInner?.back()}>
 						Back
 					</Button>
@@ -121,13 +133,7 @@
 						{disabled}
 						onClick={() => appConnectInner?.next()}
 					>
-						{#if (step == 2 && !manual) || native}
-							Connect
-						{:else if step == 1}
-							Next
-						{:else}
-							Save
-						{/if}
+						{actionLabel ?? 'Next'}
 					</Button>
 				{/if}
 			</div>

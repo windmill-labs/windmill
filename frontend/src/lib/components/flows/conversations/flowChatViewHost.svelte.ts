@@ -25,6 +25,7 @@ import type {
 	WebSearchResult
 } from '$lib/components/copilot/chat/shared'
 import type { AIAutonomyMode } from '$lib/components/copilot/chat/AIChatManager.svelte'
+import type { GroupingTools } from '$lib/components/copilot/chat/toolGroups'
 import { AIWorkMode } from '$lib/components/copilot/chat/workMode'
 import { isPlanCardTool } from '$lib/components/copilot/chat/planMode'
 import { AttachedFilesStore } from '$lib/components/copilot/chat/files/attachedFiles.svelte'
@@ -945,8 +946,8 @@ export class FlowChatViewHost implements ChatViewHost, DraftSender<ComposerAttac
 	attachmentAccept = 'image/*,application/pdf,.pdf'
 	tools = []
 	// The agent's tools are the flow author's, named as they chose: a name that matches a
-	// copilot lookup says nothing about what the tool does.
-	lookupTools = new Set<string>()
+	// copilot lookup, test run or draft write says nothing about what the tool does.
+	groupingTools: GroupingTools = { lookups: new Set(), testRuns: new Map(), draftWrites: new Map() }
 	// The enum's value, written out so this module never imports the copilot manager at
 	// runtime: its unit test would otherwise load the manager and the editor it pulls in.
 	autonomyMode = 'default' as AIAutonomyMode.DEFAULT

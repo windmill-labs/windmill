@@ -195,8 +195,8 @@
 	)
 	const instanceConnects = $derived(new Set(oauthConnects.current ?? []))
 	/**
-	 * Matches what the dialog itself decides (`AppConnectInner.open`: `manual = !inConnects &&
-	 * !registryCcCapable()`). An instance client is the usual route, but a provider the
+	 * The types worth offering Connect for: an instance OAuth entry, or a provider the
+	 * registry marks client-credentials-capable. An instance client is the usual route, but a provider the
 	 * registry marks client-credentials-capable is connectable without one, because those
 	 * credentials are entered per resource rather than held by a superadmin. Test only the
 	 * first half and Connect disappears on the eight such providers, where it would work.

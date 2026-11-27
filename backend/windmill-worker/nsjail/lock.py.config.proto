@@ -106,15 +106,8 @@ mount {
     rw: true
 }
 
-# shared uv cache: resolution metadata + where sdist build backends run
-# (builds-v0/). Writable, as the install jail's target already is; a poisoned
-# shared cache is the known residual, not a new one.
-mount {
-    src: "{UV_CACHE_DIR}"
-    dst: "{UV_CACHE_DIR}"
-    is_bind: true
-    rw: true
-}
+# No uv cache mount: the worker-wide cache stays out of jailed resolutions.
+# uv runs with --no-cache and keeps a throwaway cache in this jail's /tmp.
 
 mount {
     src: "{PY_INSTALL_DIR}"

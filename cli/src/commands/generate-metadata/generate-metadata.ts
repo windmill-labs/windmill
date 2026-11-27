@@ -1,7 +1,8 @@
 import { Command } from "@cliffy/command";
 import { Confirm } from "@cliffy/prompt/confirm";
 import { colors } from "@cliffy/ansi/colors";
-import { sep as SEP } from "node:path";
+import { readdir, stat } from "node:fs/promises";
+import { join, sep as SEP } from "node:path";
 import { GlobalOptions, isDatatableMigrationPath } from "../../types.ts";
 import { isFileResource, isFilesetResource } from "../../utils/utils.ts";
 import { SyncOptions, mergeConfigWithConfigFile } from "../../core/conf.ts";
@@ -413,6 +414,29 @@ export async function rehashOnly(
 }
 
 /**
+ * Whether `target` (a file, or any file under a folder) is dropped by the
+ * includes/excludes alone: `ignore` also drops every file that is not a
+ * Windmill item, which `unfiltered` (built without those rules) drops too.
+ */
+async function isFilteredByIncludes(
+  target: string,
+  ignore: (p: string, isD: boolean) => boolean,
+  unfiltered: (p: string, isD: boolean) => boolean,
+): Promise<boolean> {
+  const native = target.replaceAll("/", SEP);
+  const filtered = (p: string) => ignore(p, false) && !unfiltered(p, false);
+  let info;
+  try {
+    info = await stat(native);
+  } catch {
+    return false;
+  }
+  if (!info.isDirectory()) return filtered(native);
+  const entries = await readdir(native, { recursive: true, withFileTypes: true });
+  return entries.some((e) => e.isFile() && filtered(join(e.parentPath, e.name)));
+}
+
+/**
  * Normalize the tree's shared lockfiles, unless the run asked to stay inside one
  * folder: shared lockfiles are workspace-wide, so the pass reads and rewrites
  * metadata outside it, which `--strict-folder-boundaries` promises not to do.
@@ -473,6 +497,18 @@ export async function generateMetadata(
   if (folder === "") {
     folder = undefined;
   }
+  // Normalize to forward slashes (Windows users may use backslashes) and strip
+  // a trailing slash to match deprecated flow/app handler behavior
+  folder = folder?.replaceAll("\\", "/").replace(/\/$/, "");
+  // Strip file extension if user passed a specific file path (e.g. f/test/script.ts)
+  const folderNoExt = folder?.replace(/\.[^/.]+$/, "");
+  const isPathInFolder = (p: string) =>
+    folder !== undefined &&
+    (p.startsWith(folder + "/") || p === folder || p === folderNoExt);
+  let walkedInFolder = false;
+  const noteWalked = (p: string) => {
+    if (isPathInFolder(p.replaceAll("\\", "/"))) walkedInFolder = true;
+  };
 
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
@@ -506,6 +542,10 @@ export async function generateMetadata(
   // === Collect stale scripts ===
   if (!skipScripts) {
     for (const e of await walkLocalScripts(codebases, ignore)) {
+      // A file target (`f/x/task.deno.ts`, `f/x/task__mod/script.ts`) matches the
+      // local path, a folder target the remote one.
+      noteWalked(e);
+      noteWalked(scriptPathToRemotePath(e));
       await generateScriptMetadataInternal(
         e,
         workspace,
@@ -523,6 +563,7 @@ export async function generateMetadata(
   // === Collect stale flows ===
   if (!skipFlows) {
     for (const flowFolder of await walkLocalFlowFolders(ignore)) {
+      noteWalked(flowFolder);
       await generateFlowLockInternal(
         flowFolder,
         true, // dryRun - populate tree
@@ -538,6 +579,7 @@ export async function generateMetadata(
   // === Collect stale apps ===
   if (!skipApps) {
     for (const { folder: appFolder, rawApp } of await walkLocalAppItems(ignore)) {
+      noteWalked(appFolder);
       await generateAppLocksInternal(
         appFolder,
         rawApp,
@@ -549,6 +591,27 @@ export async function generateMetadata(
         tree
       );
     }
+  }
+
+  // Tree nodes also cover workspace dependency files, which the walk never lists.
+  if (folder && !walkedInFolder && ![...tree.allPaths()].some(isPathInFolder)) {
+    const unfiltered = await ignoreF({
+      ...opts, includes: undefined, excludes: undefined, extraIncludes: undefined,
+    });
+    if (await isFilteredByIncludes(folder, ignore, unfiltered)) {
+      const pattern = (await stat(folder.replaceAll("/", SEP))).isDirectory()
+        ? `${folder}/**`
+        : folder;
+      log.warn(colors.yellow(
+        `Nothing under "${folder}" was checked: the includes/excludes in effect (wmill.yaml or -i/-e) filter it out. ` +
+        `Pass --includes "${pattern}" to check it, after removing any excludes that match it.`
+      ));
+    } else {
+      log.warn(colors.yellow(`No scripts, flows or apps to check under "${folder}".`));
+    }
+    // Same reason as the up-to-date path below: the conversion still applies.
+    await maybeDedupeLockfiles(opts, workspace, codebases, ignore, rawWorkspaceDependencies, tree, folder);
+    return;
   }
 
   // === Propagate staleness through imports ===
@@ -597,14 +660,6 @@ export async function generateMetadata(
   // === Filter by folder if specified ===
   let filteredItems = staleItems;
   if (folder) {
-    // Normalize to forward slashes (Windows users may use backslashes)
-    folder = folder.replaceAll("\\", "/");
-    // Strip trailing slash to match deprecated flow/app handler behavior
-    if (folder.endsWith("/")) {
-      folder = folder.substring(0, folder.length - 1);
-    }
-    // Strip file extension if user passed a specific file path (e.g. f/test/script.ts)
-    const folderNoExt = folder.replace(/\.[^/.]+$/, "");
     // Check if an item is inside the specified folder
     const isInsideFolder = (item: StaleItem) => {
       const normalizedFolder = item.folder.replaceAll("\\", "/");
@@ -612,7 +667,6 @@ export async function generateMetadata(
       return normalizedFolder === folder || normalizedFolder.startsWith(folder + "/")
         || normalizedPath === folder || normalizedPath === folderNoExt;
     };
-    const isPathInFolder = (p: string) => p.startsWith(folder + "/") || p === folder || p === folderNoExt;
     // Check if a tree path or any of its transitive deps is inside the folder
     const touchesFolder = (treePath: string) => {
       if (isPathInFolder(treePath)) return true;

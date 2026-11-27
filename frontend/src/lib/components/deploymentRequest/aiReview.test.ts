@@ -5,20 +5,22 @@ const h = vi.hoisted(() => ({
 	prompt: '',
 	system: '',
 	workspace: '' as string | undefined,
+	reasoningEffort: undefined as string | undefined,
 	reads: 0,
 	instructionReads: [] as string[],
 	listed: [] as string[]
 }))
 
 vi.mock('$lib/components/copilot/lib', () => ({
-	getNonStreamingCompletion: async (
+	getStreamedCompletionText: async (
 		messages: { content: string }[],
 		_abort: AbortController,
-		options?: { workspace?: string }
+		options?: { workspace?: string; reasoningEffort?: string }
 	) => {
 		h.system = messages[0].content
 		h.prompt = messages[1].content
 		h.workspace = options?.workspace
+		h.reasoningEffort = options?.reasoningEffort
 		return '{"summary":"s","findings":[]}'
 	}
 }))
@@ -149,5 +151,20 @@ describe('drafts review', () => {
 		expect(h.listed).toEqual(['parent'])
 		expect(h.workspace).toBe('parent')
 		expect(h.system).toContain('You review drafts in a Windmill workspace')
+	})
+
+	it('sends the effort picked with the model', async () => {
+		await reviewChanges(
+			{
+				kind: 'drafts',
+				workspaceId: 'parent',
+				items: [
+					{ kind: 'script', path: 'f/a/b', change: 'added', load: async () => ({ after: 'x' }) }
+				]
+			},
+			new AbortController(),
+			{ model: { provider: 'anthropic', model: 'claude-sonnet-4-6', reasoning: 'low' } }
+		)
+		expect(h.reasoningEffort).toBe('low')
 	})
 })

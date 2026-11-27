@@ -1639,3 +1639,73 @@ async fn test_generated_username_skips_anonymous(db: Pool<Postgres>) -> anyhow::
     assert_eq!(username, "anonymous2");
     Ok(())
 }
+
+/// The `admin` column defaults to true, so the list must report the rights the owner holds,
+/// not the opt-in alone.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_list_tokens_reports_carried_rights(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let url = format!(
+        "http://localhost:{}/api/users/tokens/list",
+        server.addr.port()
+    );
+
+    let rights = |token: &'static str| {
+        let url = url.clone();
+        async move {
+            let tokens = client()
+                .get(url)
+                .header("Authorization", format!("Bearer {token}"))
+                .send()
+                .await?
+                .json::<serde_json::Value>()
+                .await?;
+            let t = tokens
+                .as_array()
+                .and_then(|a| {
+                    a.iter()
+                        .find(|t| t["label"].as_str().unwrap_or("").starts_with("test token"))
+                })
+                .cloned()
+                .ok_or_else(|| anyhow::anyhow!("fixture token not listed: {tokens}"))?;
+            anyhow::Ok((t["admin"].as_bool(), t["super_admin"].as_bool()))
+        }
+    };
+
+    // test@: workspace admin and superadmin, token opted in to both.
+    assert_eq!(rights("SECRET_TOKEN").await?, (Some(true), Some(true)));
+    // test2@: a plain member, whose token carries the column's default `admin = true`.
+    assert_eq!(rights("SECRET_TOKEN_2").await?, (Some(false), Some(false)));
+
+    // An unlabeled token of a superadmin owner, minted without superadmin rights: it must
+    // list as such rather than break the list.
+    sqlx::query(
+        "INSERT INTO token (token_hash, token_prefix, email, label, super_admin)
+         VALUES (encode(sha256('UNLABELED'::bytea), 'hex'), 'UNLABELED0', 'test@windmill.dev', NULL, false)",
+    )
+    .execute(&db)
+    .await?;
+    let tokens = client()
+        .get(&url)
+        .header("Authorization", "Bearer SECRET_TOKEN")
+        .send()
+        .await?
+        .error_for_status()?
+        .json::<serde_json::Value>()
+        .await?;
+    let unlabeled = tokens
+        .as_array()
+        .and_then(|a| a.iter().find(|t| t["token_prefix"] == "UNLABELED0"))
+        .ok_or_else(|| anyhow::anyhow!("unlabeled token not listed: {tokens}"))?;
+    assert_eq!(unlabeled["super_admin"], false);
+
+    // Withheld admin is reported as such even for an admin owner.
+    sqlx::query(
+        "UPDATE token SET admin = false, super_admin = false WHERE email = 'test@windmill.dev'",
+    )
+    .execute(&db)
+    .await?;
+    assert_eq!(rights("SECRET_TOKEN").await?, (Some(false), Some(false)));
+    Ok(())
+}

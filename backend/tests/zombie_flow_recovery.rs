@@ -161,6 +161,8 @@ async fn test_between_steps_zombie_restart_reuses_all_children(
         flow_version: None,
         branch_chosen: None,
         nested: None,
+        failed_only: false,
+        from_failed_step: false,
     })
     .run_until_complete(&db, false, port)
     .await;
@@ -282,6 +284,8 @@ async fn test_mid_iteration_zombie_not_reused(db: Pool<Postgres>) -> anyhow::Res
         flow_version: None,
         branch_chosen: None,
         nested: None,
+        failed_only: false,
+        from_failed_step: false,
     })
     .run_until_complete(&db, false, port)
     .await;
@@ -417,7 +421,11 @@ async fn test_nested_restart_not_swallowed_by_zombie_reuse(
             flow_version: None,
             branch_chosen: None,
             nested: None,
+            failed_only: false,
+            from_failed_step: false,
         })),
+        failed_only: false,
+        from_failed_step: false,
     })
     .run_until_complete(&db, false, port)
     .await;
@@ -535,6 +543,8 @@ async fn test_raw_flow_restart_does_not_reuse_edited_step(
             flow_version: None,
             branch_chosen: None,
             nested: None,
+            failed_only: false,
+            from_failed_step: false,
         }),
     })
     .run_until_complete(&db, false, port)
@@ -646,6 +656,8 @@ async fn test_non_monitor_cancel_is_not_reused(db: Pool<Postgres>) -> anyhow::Re
         flow_version: None,
         branch_chosen: None,
         nested: None,
+        failed_only: false,
+        from_failed_step: false,
     })
     .run_until_complete(&db, false, port)
     .await;

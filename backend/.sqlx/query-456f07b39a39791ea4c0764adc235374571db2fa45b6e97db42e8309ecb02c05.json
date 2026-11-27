@@ -1,0 +1,41 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT resume_id, approver, created_at, approved FROM resume_job\n         WHERE flow = $1 AND ($2::uuid IS NULL OR job IN ($1, $2))",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "resume_id",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 1,
+        "name": "approver",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 3,
+        "name": "approved",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "456f07b39a39791ea4c0764adc235374571db2fa45b6e97db42e8309ecb02c05"
+}

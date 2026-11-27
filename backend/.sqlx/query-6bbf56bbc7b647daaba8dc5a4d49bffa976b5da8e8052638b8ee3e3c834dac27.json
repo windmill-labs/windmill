@@ -1,0 +1,52 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT email, workspace_id, super_admin, owner, allowed_ips::text[] AS allowed_ips, admin\n         FROM token WHERE token_hash = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "email",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "workspace_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "super_admin",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 3,
+        "name": "owner",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 4,
+        "name": "allowed_ips",
+        "type_info": "TextArray"
+      },
+      {
+        "ordinal": 5,
+        "name": "admin",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      true,
+      true,
+      false,
+      true,
+      null,
+      false
+    ]
+  },
+  "hash": "6bbf56bbc7b647daaba8dc5a4d49bffa976b5da8e8052638b8ee3e3c834dac27"
+}

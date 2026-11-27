@@ -10,7 +10,8 @@ use serde_json::Value;
 use std::collections::HashMap;
 
 use crate::common::types::{
-    FlowInfo, HubScriptInfo, ResourceInfo, ResourceType, SchemaType, ScriptInfo, WorkspaceInfo,
+    FlowInfo, HubScriptInfo, McpToken, ResourceInfo, ResourceType, SchemaType, ScriptInfo,
+    WorkspaceInfo,
 };
 use crate::server::endpoints::EndpointTool;
 
@@ -255,7 +256,7 @@ pub trait McpBackend: Send + Sync + Clone + 'static {
     /// calls (the base auth carries no workspace-specific permissions).
     async fn resolve_workspace_auth(
         &self,
-        token: &str,
+        token: &McpToken,
         workspace_id: &str,
     ) -> BackendResult<Self::Auth>;
 

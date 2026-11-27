@@ -59,8 +59,7 @@
 	if ($workspaceStore) prefetchComposerSignals($workspaceStore)
 
 	// Whether Home's own workspace hides the assistant, read for that workspace rather than from
-	// the shared copilot config, which still describes the last session's workspace for a moment
-	// after leaving its page.
+	// the shared copilot config, which describes the previous workspace while a switch loads.
 	const homeAiHidden = useWorkspaceAiHidden(() => $workspaceStore ?? undefined)
 
 	// The composer hands off to /sessions, which refuses to render inside a session's own preview

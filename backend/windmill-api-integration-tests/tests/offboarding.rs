@@ -482,8 +482,126 @@ async fn test_offboard_conflicts(db: Pool<Postgres>) -> anyhow::Result<()> {
             .any(|c| c.as_str().unwrap().contains("conflict_script")),
         "conflict should mention conflict_script"
     );
+    // The UI resolves each conflict by deleting one side, so both paths must be reported.
+    let items = body["conflict_items"]
+        .as_array()
+        .expect("conflict_items should be array");
+    assert_eq!(items.len(), conflicts.len());
+    let item = items
+        .iter()
+        .find(|c| c["source_path"] == "u/test-user-2/conflict_script")
+        .expect("conflict_items should include conflict_script");
+    assert_eq!(item["kind"], "script");
+    assert_eq!(item["target_path"], "u/test-user/conflict_script");
+    assert_eq!(item["workspace_id"], "test-workspace");
     // No summary when conflicts exist
     assert!(body["summary"].is_null());
+
+    Ok(())
+}
+
+/// Usernames may hold `_`, a LIKE wildcard: another user's item matched by it maps to itself, so
+/// it must be neither reported as a conflict (which offers to delete it) nor cleaned up as stale.
+#[sqlx::test(migrations = "../migrations", fixtures("base", "offboarding_test"))]
+async fn test_offboard_conflicts_underscore_username(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    sqlx::query(
+        "INSERT INTO usr (workspace_id, email, username, is_admin, role)
+         VALUES ('test-workspace', 'underscore@windmill.dev', 'test_user', false, 'User')",
+    )
+    .execute(&db)
+    .await?;
+    sqlx::query(
+        "INSERT INTO variable (workspace_id, path, value, is_secret, description)
+         VALUES ('test-workspace', 'u/testxuser/var', 'v', false, '')",
+    )
+    .execute(&db)
+    .await?;
+    sqlx::query(
+        "INSERT INTO asset (workspace_id, path, kind, usage_path, usage_kind)
+         VALUES ('test-workspace', 'main', 'datatable', 'u/testxuser/s', 'script')",
+    )
+    .execute(&db)
+    .await?;
+    sqlx::query(
+        "INSERT INTO dependency_map (workspace_id, importer_path, importer_kind, imported_path)
+         VALUES ('test-workspace', 'u/testxuser/s', 'script', 'f/shared/lib')",
+    )
+    .execute(&db)
+    .await?;
+
+    let resp = authed(client().post(ws_url(port, "offboard/test_user")))
+        .json(&json!({ "reassign_to": "u/test-user", "delete_user": false }))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 200);
+    let body: serde_json::Value = resp.json().await?;
+    assert!(body["conflict_items"].is_null(), "{body}");
+    let untouched: i64 = sqlx::query_scalar(
+        "SELECT (SELECT COUNT(*) FROM asset WHERE usage_path = 'u/testxuser/s')
+              + (SELECT COUNT(*) FROM dependency_map WHERE importer_path = 'u/testxuser/s')
+              + (SELECT COUNT(*) FROM variable WHERE path = 'u/testxuser/var')",
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(untouched, 3, "another user's rows must survive the reassignment");
+
+    Ok(())
+}
+
+/// Resolving a conflict by deleting the target leaves that script's `dependency_map` and `asset`
+/// rows behind, on the keys the departing user's rows are renamed onto.
+#[sqlx::test(migrations = "../migrations", fixtures("base", "offboarding_test"))]
+async fn test_offboard_over_deleted_target(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    sqlx::query(
+        "INSERT INTO dependency_map (workspace_id, importer_path, importer_kind, imported_path)
+         VALUES ('test-workspace', 'u/test-user/conflict_script', 'script', 'f/shared/lib'),
+                ('test-workspace', 'u/test-user-2/conflict_script', 'script', 'f/shared/lib')",
+    )
+    .execute(&db)
+    .await?;
+    sqlx::query(
+        "INSERT INTO asset (workspace_id, path, kind, usage_path, usage_kind)
+         VALUES ('test-workspace', 'main', 'datatable', 'u/test-user/conflict_script', 'script'),
+                ('test-workspace', 'main', 'datatable', 'u/test-user-2/conflict_script', 'script')",
+    )
+    .execute(&db)
+    .await?;
+    let resp = authed(client().post(format!(
+        "http://localhost:{port}/api/w/test-workspace/scripts/delete/p/u/test-user/conflict_script"
+    )))
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+
+    let resp = authed(client().post(ws_url(port, "offboard/test-user-2")))
+        .json(&json!({ "reassign_to": "u/test-user", "delete_user": false }))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 200);
+    let body: serde_json::Value = resp.json().await?;
+    assert!(body["summary"].is_object(), "{body}");
+
+    let importers: Vec<String> = sqlx::query_scalar(
+        "SELECT importer_path FROM dependency_map
+         WHERE workspace_id = 'test-workspace' AND imported_path = 'f/shared/lib'",
+    )
+    .fetch_all(&db)
+    .await?;
+    assert_eq!(importers, vec!["u/test-user/conflict_script".to_string()]);
+    let users: Vec<String> = sqlx::query_scalar(
+        "SELECT usage_path FROM asset WHERE workspace_id = 'test-workspace' AND path = 'main'",
+    )
+    .fetch_all(&db)
+    .await?;
+    assert_eq!(users, vec!["u/test-user/conflict_script".to_string()]);
 
     Ok(())
 }

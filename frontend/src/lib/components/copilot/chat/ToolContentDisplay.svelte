@@ -2,6 +2,8 @@
 	import { Loader2, Copy, Check } from 'lucide-svelte'
 	import { TOOL_PRETTIFY_MAP } from './shared'
 	import { scrollFades } from './scrollFades.svelte'
+	import { copyToClipboard as writeClipboard } from '$lib/utils'
+	import { sendUserToast } from '$lib/toast'
 
 	interface Props {
 		title: string
@@ -69,14 +71,23 @@
 		}
 	}
 
+	// `formatJson` assigns into the object it formats, so it gets a snapshot, never the prop.
+	const formatted = $derived(hasContent ? formatJson($state.snapshot(content)) : '')
+	// Copies what the block shows: the error replaces the content on screen. Empty text gets
+	// no button, since the helper refuses it and that would read as a failed copy.
+	const copyText = $derived(error ? String(error) : formatted)
+
 	async function copyToClipboard() {
-		if (!hasContent) return
-		try {
-			await navigator.clipboard.writeText(formatJson(content))
+		const text = copyText
+		if (!text) return
+		// The shared helper falls back to execCommand where `navigator.clipboard` is missing
+		// (plain-HTTP hosts other than localhost). Its success toast is off: the check icon says it.
+		const ok = await writeClipboard(text, false)
+		if (ok) {
 			copied = true
 			setTimeout(() => (copied = false), 1500)
-		} catch (err) {
-			console.error('Failed to copy:', err)
+		} else {
+			sendUserToast("Couldn't copy to clipboard", true)
 		}
 	}
 
@@ -100,7 +111,7 @@
 			<span class="text-2xs text-hint">
 				{title}:
 			</span>
-			{#if showCopy && hasContent && !streaming}
+			{#if showCopy && copyText && !streaming}
 				<button
 					class="p-1 rounded hover:bg-surface-secondary text-primary hover:text-secondary transition-opacity duration-200 opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
 					onclick={copyToClipboard}
@@ -132,9 +143,7 @@
 					onscroll={measureFades}
 					class="overflow-x-auto max-h-28 overflow-y-auto"
 				>
-					<pre use:fadeContent class="text-2xs text-primary whitespace-pre-wrap"
-						>{formatJson($state.snapshot(content))}</pre
-					>
+					<pre use:fadeContent class="text-2xs text-primary whitespace-pre-wrap">{formatted}</pre>
 				</div>
 				{#if showFade && fades.bottom}
 					<div

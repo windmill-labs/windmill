@@ -325,7 +325,8 @@
 			loadFilePreviewRequest={HelpersService.loadGitRepoFilePreview}
 			testConnectionRequest={(async (_d) => {
 				const bucketConfig: any = await SettingService.getGlobal({
-					key: 'object_store_cache_config'
+					key: 'object_store_cache_config',
+					dangerouslyRevealSecrets: true
 				})
 				return SettingService.testObjectStorageConfig({
 					requestBody: bucketConfig

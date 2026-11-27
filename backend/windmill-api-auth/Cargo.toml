@@ -39,3 +39,6 @@ time.workspace = true
 anyhow.workspace = true
 jsonwebtoken = { workspace = true, optional = true }
 reqwest = { workspace = true, optional = true }
+
+[dev-dependencies]
+semver.workspace = true

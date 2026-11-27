@@ -20,13 +20,14 @@ fn authed(builder: reqwest::RequestBuilder, token: &str) -> reqwest::RequestBuil
     builder.header("Authorization", format!("Bearer {}", token))
 }
 
-/// Mint an API token for test-user (a workspace admin) restricted to `scopes`.
+/// Mint an API token for test-user (a workspace admin and superadmin), carrying those rights,
+/// restricted to `scopes`.
 async fn mint_scoped_token(port: u16, scopes: Vec<&str>) -> anyhow::Result<String> {
     let resp = authed(
         client().post(format!("http://localhost:{port}/api/users/tokens/create")),
         ADMIN_TOKEN,
     )
-    .json(&json!({ "label": "scoped", "scopes": scopes, "workspace_id": "test-workspace" }))
+    .json(&json!({ "label": "scoped", "scopes": scopes, "workspace_id": "test-workspace", "admin": true, "super_admin": true }))
     .send()
     .await?;
     assert_eq!(resp.status(), 201, "mint scoped token");

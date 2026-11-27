@@ -229,12 +229,15 @@ export async function generateScriptMetadataInternal(
   // the metadata sync actually reads untouched.
   const metadataInFolder = isFolderLayout && language !== "dbt";
 
-  // For folder layout, parseMetadataFile is called with remotePath which
-  // will find __mod/script.yaml via the folder layout fallback
-  const metadataWithType = await parseMetadataFile(
-    remotePath,
-    undefined,
-  );
+  // A tree run's dry pass only detects staleness; it must not create missing
+  // metadata, or a folder-scoped run writes files for every script it walks.
+  // A script without metadata is stale, and the generation pass creates it.
+  const detectOnly = tree !== undefined && dryRun && !opts.rehashOnly;
+  // For folder layout, the lookup uses remotePath, which finds
+  // __mod/script.yaml via the folder layout fallback
+  const existingMetadata = detectOnly
+    ? await findMetadataFile(remotePath)
+    : await parseMetadataFile(remotePath, undefined);
 
   // read script content — a dbt project's descriptor is optional, and absent
   // means an empty descriptor rather than a script that cannot be pushed.
@@ -242,7 +245,9 @@ export async function generateScriptMetadataInternal(
     if (isMissingDbtDescriptor(scriptPath, e)) return "";
     throw e;
   });
-  const metadataContent = await readTextFile(metadataWithType.path);
+  const metadataContent = existingMetadata
+    ? await readTextFile(existingMetadata.path)
+    : "";
 
   const filteredRawWorkspaceDependencies = filterWorkspaceDependencies(
     rawWorkspaceDependencies,
@@ -306,7 +311,8 @@ export async function generateScriptMetadataInternal(
   }
 
   // Use checkHash (includes module hashes) so module changes are detected as stale
-  const isDirectlyStale = !(await checkifMetadataUptodate(remotePath, checkHash, conf, checkSubpath));
+  const isDirectlyStale = !existingMetadata ||
+    !(await checkifMetadataUptodate(remotePath, checkHash, conf, checkSubpath));
 
   // Tree-based dependency tracking
   if (tree) {
@@ -346,6 +352,9 @@ export async function generateScriptMetadataInternal(
   if (!justUpdateMetadataLock && !noStaleMessage) {
     log.info(colors.gray(`Generating metadata for ${scriptPath}`));
   }
+
+  const metadataWithType = existingMetadata ??
+    (await parseMetadataFile(remotePath, undefined));
 
   const metadataParsedContent = metadataWithType?.payload as Record<
     string,
@@ -1088,18 +1097,10 @@ export async function parseMetadataFileIfExists(
   }
 }
 
-export async function parseMetadataFile(
-  scriptPath: string,
-  generateMetadataIfMissing:
-    | (GlobalOptions & {
-      path: string;
-      workspaceRemote: Workspace;
-      schemaOnly?: boolean;
-      rawWorkspaceDependencies: Record<string, string>;
-      codebases: SyncCodebase[]
-    })
-    | undefined
-): Promise<{ isJson: boolean; payload: any; path: string }> {
+/** The script's metadata file, flat or folder layout, or undefined when it has none. */
+async function findMetadataFile(
+  scriptPath: string
+): Promise<{ isJson: boolean; payload: any; path: string } | undefined> {
   let metadataFilePath = scriptPath + ".script.json";
   try {
     await stat(metadataFilePath);
@@ -1143,13 +1144,29 @@ export async function parseMetadataFile(
             isJson: false,
           };
         } catch {
-          // fall through to create metadata
+          return undefined;
         }
       }
     }
   }
+}
+
+export async function parseMetadataFile(
+  scriptPath: string,
+  generateMetadataIfMissing:
+    | (GlobalOptions & {
+      path: string;
+      workspaceRemote: Workspace;
+      schemaOnly?: boolean;
+      rawWorkspaceDependencies: Record<string, string>;
+      codebases: SyncCodebase[]
+    })
+    | undefined
+): Promise<{ isJson: boolean; payload: any; path: string }> {
+  const existing = await findMetadataFile(scriptPath);
+  if (existing) return existing;
   // no metadata file at all. Create it
-  metadataFilePath = scriptPath + ".script.yaml";
+  const metadataFilePath = scriptPath + ".script.yaml";
   log.info(
     (await blueColor())(
       `Creating script metadata file for ${metadataFilePath}`

@@ -336,6 +336,7 @@ import TufinIcon from './TufinIcon.svelte'
 import ZabbixIcon from './ZabbixIcon.svelte'
 import EricssonIcon from './EricssonIcon.svelte'
 import LinkupIcon from './LinkupIcon.svelte'
+import SapIcon from './SapIcon.svelte'
 import type { Component } from 'svelte'
 /**
  * ./triggers/ holds desaturated variants of some marks in this folder, used by the four
@@ -722,6 +723,7 @@ export const APP_TO_ICON_COMPONENT = {
 	zabbix: ZabbixIcon,
 	ericsson_ep5g: EricssonIcon,
 	linkup: LinkupIcon,
+	sap: SapIcon,
 	oauth_client_credentials: OauthIcon
 } as unknown as Record<string, Component> // to generate correct svelte package types
 
@@ -1057,5 +1059,6 @@ export {
 	ZabbixIcon,
 	EricssonIcon,
 	LinkupIcon,
+	SapIcon,
 	OauthIcon
 }

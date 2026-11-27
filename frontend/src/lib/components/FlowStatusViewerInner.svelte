@@ -13,8 +13,10 @@
 		type CompletedJob,
 		type WorkflowStatus,
 		type FlowNote,
-		type FlowValue
+		type FlowValue,
+		ConcurrencyGroupsService
 	} from '$lib/gen'
+	import { getDbClockNow } from '$lib/forLater'
 	import FlowJobResult from './FlowJobResult.svelte'
 	import WorkflowTimeline from './WorkflowTimeline.svelte'
 	import DisplayResult from './DisplayResult.svelte'
@@ -84,7 +86,6 @@
 
 	let {
 		flowState: flowStateStore,
-		retryStatus,
 		suspendStatus,
 		hideDownloadInGraph,
 		hideTimeline,
@@ -348,6 +349,49 @@
 
 	let selectionManager = new SelectionManager()
 
+	function onGraphSelect(e: string | FlowModule) {
+		subflowPathChain = undefined
+		if (rightColumnSelect != 'node_definition' && rightColumnSelect != 'tracing') {
+			rightColumnSelect = 'node_status'
+		}
+		if (typeof e == 'string') {
+			if (e == 'Input') {
+				selectedNode = 'start'
+				stepDetail = undefined
+			} else if (e == 'Result') {
+				selectedNode = 'end'
+				stepDetail = 'end'
+			} else {
+				const id = e.startsWith(AI_TOOL_CALL_PREFIX) ? e.split('-').pop() : e
+				const resolved = resolveLoadedExpandedSubflowStep(
+					e,
+					job?.raw_flow?.modules ?? [],
+					expandedSubflows ?? {}
+				)
+				stepDetail =
+					resolved?.module ?? dfs(job?.raw_flow?.modules ?? [], (m) => m).find((m) => m?.id === id)
+				subflowPathChain = resolved?.pathChain
+				selectedNode = e
+				if (e.startsWith(AI_TOOL_CALL_PREFIX)) {
+					const [_prefix, agentModuleId, j, _toolModuleId] = e.split('-')
+					const parentLoopsPrefix = getParentLoopsPrefix(agentModuleId)
+					const jIdx = Number(j)
+					const storeKey = parentLoopsPrefix + agentModuleId + '-' + jIdx
+					toolCallStore?.addToolCallToLoad(storeKey)
+				}
+			}
+		} else {
+			stepDetail = e
+			selectedNode = e.id
+		}
+	}
+
+	/** Selects a step from outside the graph, as a click on its node does. */
+	export function selectStep(id: string) {
+		selectionManager.selectId(id)
+		onGraphSelect(id)
+	}
+
 	function onFlowModuleId() {
 		let modId = flowJobIds?.moduleId
 		if (modId) {
@@ -588,21 +632,10 @@
 		}
 		updateInnerModules(status)
 
-		// The preprocessor (step -1) and the error handler (past the steps) retry outside `modules`.
-		const outsideSteps = status.step < 0 || status.step >= status.modules.length
-		let count =
-			job?.type === 'CompletedJob' || (retryingStepId == undefined && !outsideSteps)
-				? undefined
-				: status.retry?.fail_count
-		if (count) {
-			retryStatus.val[jobId ?? ''] = count
-		} else if (retryStatus.val[jobId ?? ''] != undefined) {
-			delete retryStatus.val[jobId ?? '']
-		}
 		let jobStatus = job?.flow_status?.modules?.[job?.flow_status.step]
 
 		if (jobStatus && jobStatus.count != undefined) {
-			suspendStatus.val[jobId ?? ''] = { nb: jobStatus.count, job: job! }
+			suspendStatus.val[jobId ?? ''] = { nb: jobStatus.count, job: job!, prefix }
 		} else if (suspendStatus.val[jobId ?? ''] != undefined) {
 			delete suspendStatus.val[jobId ?? '']
 		}
@@ -682,6 +715,94 @@
 
 	/** The step waiting for or running its next attempt, if any. */
 	let retryingStepId: string | undefined = undefined
+
+	// A concurrency limit moves a waiting step's due time each time it holds it back, often by
+	// only a few seconds, so a step still waiting once that time has passed is read again, at
+	// most every 5s. The parent flow does not change meanwhile, hence the timer below.
+	const waitingStepChecks = new Map<string, number>()
+	// A step's concurrency key is written as it is queued: one without can never be held, so
+	// past the end of its sleep only a change of the parent flow can change what it waits for.
+	const unlimitedSteps = new Set<string>()
+	function waitingStepDue(mod: FlowStatusModule): boolean {
+		const last = waitingStepChecks.get(mod.job ?? '')
+		if (last != undefined && Date.now() - last < 5000) return false
+		const scheduledFor = localModuleStates[mod.id ?? '']?.scheduled_for
+		return scheduledFor == undefined || new Date(scheduledFor) <= getDbClockNow()
+	}
+
+	function loadWaitingStep(mod: FlowStatusModule, retrying: boolean) {
+		waitingStepChecks.set(mod.job ?? '', Date.now())
+		const workspace = workspaceId ?? $operatingWorkspace ?? ''
+		Promise.all([
+			JobService.getJob({ workspace, id: mod.job ?? '', noLogs: true, noCode: true }),
+			ConcurrencyGroupsService.getConcurrencyKeyStatus({ id: mod.job ?? '' }).catch(() => undefined)
+		])
+			.then(([job, held]) => {
+				// The step may have started or ended while this was in flight.
+				const now = innerModules?.find((m) => m.id === mod.id)
+				if (now?.type !== 'WaitingForExecutor' || now.job !== mod.job) return
+				if (held === null) unlimitedSteps.add(mod.job ?? '')
+				const scheduledFor: string | undefined = job?.['scheduled_for']
+				// Once let in, a held job only waits for a worker.
+				const waiting_reason: GraphModuleState['waiting_reason'] =
+					held?.deferred_from && !held.released_at
+						? 'concurrency'
+						: scheduledFor &&
+							  new Date(scheduledFor) > getDbClockNow() &&
+							  !retrying &&
+							  sleepsBefore(mod.id)
+							? 'sleep'
+							: undefined
+				setModuleState(mod.id ?? '', {
+					type: mod.type,
+					scheduled_for: job?.['scheduled_for'],
+					waiting_reason,
+					concurrency_key: waiting_reason === 'concurrency' ? held?.key : undefined,
+					held_since:
+						waiting_reason === 'concurrency' ? (held?.deferred_from ?? undefined) : undefined,
+					job_id: job?.id,
+					parent_module: failedStepOf(mod),
+					args: job?.args,
+					tag: job?.tag,
+					script_hash: job?.script_hash
+				})
+				// So the timeline draws the wait while it lasts.
+				if (waiting_reason && job?.created_at)
+					setDurationStatusByJob(
+						mod.id ?? '',
+						job.id,
+						{ created_at: new Date(job.created_at).getTime() },
+						true
+					)
+			})
+			.catch((e) => {
+				console.error(`Could not load inner module for job ${mod.job}`, e)
+			})
+	}
+
+	$effect(() => {
+		if (job?.type !== 'QueuedJob' || isReplay) return
+		const id = setInterval(() => {
+			innerModules?.forEach((mod) => {
+				if (
+					mod.type === 'WaitingForExecutor' &&
+					(!unlimitedSteps.has(mod.job ?? '') ||
+						localModuleStates[mod.id ?? '']?.waiting_reason === 'sleep') &&
+					waitingStepDue(mod)
+				) {
+					loadWaitingStep(mod, mod.id === retryingStepId)
+				}
+			})
+		}, 5000)
+		return () => clearInterval(id)
+	})
+
+	/** Whether the step before `id` sleeps once done, which pushes `id` back by that long. */
+	function sleepsBefore(id: string | undefined): boolean {
+		const raw = job?.raw_flow?.modules ?? []
+		const i = raw.findIndex((m) => m.id === id)
+		return i > 0 && !!raw[i - 1].sleep
+	}
 	function updateInnerModules(status: FlowStatus) {
 		const found = findDeniedApproval(status)
 		const denied = found?.approval
@@ -707,6 +828,24 @@
 				if (mod.type === 'Failure' && localModuleStates[mod.id ?? '']?.type === 'Success') {
 					setModuleState(mod.id ?? '', { type: 'Failure' })
 				}
+				// The step after an approval step is the one that waits for it.
+				const approvalStep = innerModules?.[i - 1]
+				const approvalWait =
+					mod.id &&
+					job?.id &&
+					approvalStep?.id &&
+					approvalStep.type === 'Success' &&
+					mod.type === 'WaitingForEvents'
+						? {
+								job: job.id,
+								workspace: job.workspace_id,
+								step: approvalStep.id,
+								required: mod.count ?? 1
+							}
+						: undefined
+				if (mod.id && !deepEqual(approvalWait, localModuleStates[mod.id]?.approval_wait)) {
+					setModuleState(mod.id, { approval_wait: approvalWait })
+				}
 				if (mod.type === 'WaitingForEvents' && innerModules?.[i - 1]?.type === 'Success') {
 					setModuleState(mod.id ?? '', {
 						type: mod.type,
@@ -714,33 +853,9 @@
 						tag: job?.tag,
 						script_hash: job?.script_hash
 					})
-				} else if (
-					mod.type === 'WaitingForExecutor' &&
-					localModuleStates[mod.id ?? '']?.scheduled_for == undefined
-				) {
+				} else if (mod.type === 'WaitingForExecutor' && waitingStepDue(mod)) {
 					if (!isReplay) {
-						JobService.getJob({
-							workspace: workspaceId ?? $operatingWorkspace ?? '',
-							id: mod.job ?? '',
-							noLogs: true,
-							noCode: true
-						})
-							.then((job) => {
-								const newState = {
-									type: mod.type,
-									scheduled_for: job?.['scheduled_for'],
-									job_id: job?.id,
-									parent_module: failedStepOf(mod),
-									args: job?.args,
-									tag: job?.tag,
-									script_hash: job?.script_hash
-								}
-
-								setModuleState(mod.id ?? '', newState)
-							})
-							.catch((e) => {
-								console.error(`Could not load inner module for job ${mod.job}`, e)
-							})
+						loadWaitingStep(mod, mod.id === retryingId)
 					}
 				} else if (
 					(mod.flow_jobs || mod.branch_chosen) &&
@@ -1372,8 +1487,6 @@
 
 	let wrapperHeight: number = $state(0)
 
-	let retryStatusHeight: number = $state(0)
-
 	function removeFailureNode(id: string, parent_module: any) {
 		if (id?.startsWith('failure-') && parent_module) {
 			;[...globalModuleStates, localModuleStates].forEach((stateMap) => {
@@ -1394,12 +1507,33 @@
 		suspend?: boolean
 		/** Shown in place of the id. */
 		label?: string
+		/** The fixed sleep of the step before it, in seconds. */
+		sleepBefore?: number
+		/** An inline script with a concurrency limit, which can be held back. */
+		limited?: boolean
+	}
+
+	// Sleeps in branches and loop bodies are not looked at.
+	function timelineExtras(
+		modules: FlowModule[]
+	): Map<string, { sleepBefore?: number; limited?: boolean }> {
+		const extras = new Map<string, { sleepBefore?: number; limited?: boolean }>()
+		modules.forEach((m, i) => {
+			const sleep = modules[i - 1]?.sleep
+			const v = m.value
+			extras.set(m.id, {
+				sleepBefore: sleep?.type === 'static' ? Number(sleep.value) || undefined : undefined,
+				limited: v.type === 'rawscript' && (v.concurrent_limit ?? 0) > 0
+			})
+		})
+		return extras
 	}
 
 	function allModulesForTimeline(
 		modules: FlowModule[],
 		expandedSubflows: Record<string, { modules: FlowModule[]; groups?: any[] }>
 	): FlowModuleForTimeline[] {
+		const topExtras = timelineExtras(modules)
 		const ids = dfs(
 			modules,
 			(x) =>
@@ -1407,7 +1541,8 @@
 					id: x.id,
 					type: x.value.type,
 					suspend: x.suspend != undefined,
-					label: x.id === AGENT_STEP_ID ? agentStepLabel(job?.script_path) : undefined
+					label: x.id === AGENT_STEP_ID ? agentStepLabel(job?.script_path) : undefined,
+					...topExtras.get(x.id)
 				}) as FlowModuleForTimeline,
 			{
 				skipToolNodes: true
@@ -1426,6 +1561,7 @@
 						return []
 					}
 					let nprefix = buildPrefix(prefix, oid)
+					const extras = fms ? timelineExtras(fms) : undefined
 					return fms
 						? rec(
 								dfs(
@@ -1433,7 +1569,8 @@
 									(x) => ({
 										id: x.id.startsWith('subflow:') ? x.id : buildSubflowKey(x.id, nprefix),
 										type: x.value.type,
-										suspend: x.suspend != undefined
+										suspend: x.suspend != undefined,
+										...extras?.get(x.id)
 									}),
 									{ skipToolNodes: true }
 								),
@@ -1610,10 +1747,6 @@
 			tabsHeight.assetsHeight,
 			tabsHeight.graphHeight
 		)
-	)
-
-	let totalEventsWaiting = $derived(
-		Object.values(suspendStatus?.val ?? {}).reduce((a, b) => a + (b?.nb ?? 0), 0)
 	)
 
 	let continuedOnError = $derived(job?.flow_status?.continued_on_error ?? [])
@@ -2094,6 +2227,10 @@
 								<ModuleStatus
 									type={mod.type}
 									scheduled_for={localModuleStates?.[mod.id ?? '']?.scheduled_for}
+									waiting_reason={localModuleStates?.[mod.id ?? '']?.waiting_reason}
+									concurrency_key={localModuleStates?.[mod.id ?? '']?.concurrency_key}
+									held_since={localModuleStates?.[mod.id ?? '']?.held_since}
+									approval_wait={localModuleStates?.[mod.id ?? '']?.approval_wait}
 								/>
 							{/if}
 						</li>
@@ -2167,69 +2304,19 @@
 					<Splitpanes>
 						<Pane bind:size={graphPaneSize} minSize={30}>
 							<div class="bg-surface-secondary h-full {fillHeight ? '' : 'max-h-[1200px]'}">
-								<div class="flex flex-col" bind:clientHeight={retryStatusHeight}>
-									{#each Object.values(retryStatus?.val ?? {}) as count}
-										{#if count}
-											<span class="text-sm">
-												Retry in progress, # of failed attempts: {count}
-											</span>
-										{/if}
-									{/each}
-									{#if totalEventsWaiting}
-										<span class="text-sm">
-											Flow suspended, waiting for {totalEventsWaiting} events
-										</span>
-									{/if}
-								</div>
 								<FlowGraphV2
 									{selectionManager}
 									triggerNode={true}
 									download={!hideDownloadInGraph}
-									minHeight={wrapperHeight - retryStatusHeight}
-									maxHeight={fillHeight ? wrapperHeight - retryStatusHeight : undefined}
+									minHeight={wrapperHeight}
+									maxHeight={fillHeight ? wrapperHeight : undefined}
 									fitOnLoad={fillHeight}
 									outerDivClass={fillHeight ? '' : 'max-h-[1200px]'}
 									success={jobId != undefined && isSuccess(job?.['success'])}
 									flowModuleStates={localModuleStates}
 									runDone={job?.type === 'CompletedJob'}
 									bind:expandedSubflows
-									onSelect={(e) => {
-										subflowPathChain = undefined
-										if (rightColumnSelect != 'node_definition' && rightColumnSelect != 'tracing') {
-											rightColumnSelect = 'node_status'
-										}
-										if (typeof e == 'string') {
-											if (e == 'Input') {
-												selectedNode = 'start'
-												stepDetail = undefined
-											} else if (e == 'Result') {
-												selectedNode = 'end'
-												stepDetail = 'end'
-											} else {
-												const id = e.startsWith(AI_TOOL_CALL_PREFIX) ? e.split('-').pop() : e
-												const resolved = resolveLoadedExpandedSubflowStep(
-													e,
-													job?.raw_flow?.modules ?? [],
-													expandedSubflows ?? {}
-												)
-												stepDetail =
-													resolved?.module ??
-													dfs(job?.raw_flow?.modules ?? [], (m) => m).find((m) => m?.id === id)
-												subflowPathChain = resolved?.pathChain
-												selectedNode = e
-												if (e.startsWith(AI_TOOL_CALL_PREFIX)) {
-													const [_prefix, agentModuleId, j, _toolModuleId] = e.split('-')
-													const parentLoopsPrefix = getParentLoopsPrefix(agentModuleId)
-													const jIdx = Number(j)
-													const storeKey = parentLoopsPrefix + agentModuleId + '-' + jIdx
-													toolCallStore?.addToolCallToLoad(storeKey)
-												}
-											}
-										} else {
-											stepDetail = e
-											selectedNode = e.id
-										}
-									}}
+									onSelect={onGraphSelect}
 									{onSelectedIteration}
 									earlyStop={job.raw_flow?.skip_expr !== undefined}
 									cache={job.raw_flow?.cache_ttl !== undefined}
@@ -2443,6 +2530,10 @@
 																		<ModuleStatus
 																			type={node.type}
 																			scheduled_for={node.scheduled_for}
+																			waiting_reason={node.waiting_reason}
+																			concurrency_key={node.concurrency_key}
+																			held_since={node.held_since}
+																			approval_wait={node.approval_wait}
 																			skipped={node.skipped}
 																		/>
 																		{#if node.duration_ms}

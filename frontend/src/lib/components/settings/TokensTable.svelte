@@ -2,6 +2,7 @@
 	import { untrack } from 'svelte'
 	import TableCustom from '$lib/components/TableCustom.svelte'
 	import { displayDate } from '$lib/utils'
+	import { enterpriseLicense } from '$lib/stores'
 	import { UserService, type TruncatedToken } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import CreateToken from './CreateToken.svelte'
@@ -14,22 +15,13 @@
 
 	// --- Props ---
 	interface Props {
-		showMcpMode?: boolean
-		openWithMcpMode?: boolean
 		defaultNewTokenLabel?: string
 		defaultNewTokenWorkspace?: string
 		scopes?: string[]
 		onTokenCreated: (token: string) => void
 	}
 
-	let {
-		showMcpMode = false,
-		openWithMcpMode = false,
-		defaultNewTokenLabel,
-		defaultNewTokenWorkspace,
-		scopes,
-		onTokenCreated
-	}: Props = $props()
+	let { defaultNewTokenLabel, defaultNewTokenWorkspace, scopes, onTokenCreated }: Props = $props()
 
 	// --- Local State ---
 	let tokens = $state<TruncatedToken[]>([])
@@ -153,8 +145,7 @@
 	}
 </script>
 
-<div class="flex flex-col p-4 border border-border-light rounded-md">
-	<h2 class="text-emphasis text-sm font-semibold mb-1">Tokens</h2>
+<div class="flex flex-col">
 	<div class="text-xs text-secondary mb-2">
 		Authenticate to the Windmill API with access tokens.
 	</div>
@@ -168,8 +159,6 @@
 		</div>
 	{/if}
 	<CreateToken
-		{showMcpMode}
-		{openWithMcpMode}
 		bind:newTokenLabel
 		{defaultNewTokenWorkspace}
 		{scopes}
@@ -182,6 +171,7 @@
 					<th>Prefix</th>
 					<th>Label</th>
 					<th>Expiration</th>
+					<th>Access</th>
 					<th>Scopes</th>
 					<th></th>
 				</tr>
@@ -189,7 +179,7 @@
 			{#snippet body()}
 				<tbody>
 					{#if tokens && tokens.length > 0}
-						{#each tokens as { token_prefix, expiration, label, scopes, workspace_id, read_only } (token_prefix)}
+						{#each tokens as { token_prefix, expiration, label, scopes, workspace_id, read_only, allowed_ips, admin, super_admin } (token_prefix)}
 							{@const badge = expirationBadge(expiration, label)}
 							<tr>
 								<td class="w-32 text-xs text-primary">{token_prefix}****</td>
@@ -202,6 +192,22 @@
 										{/if}
 									</div>
 								</td>
+								<td class="whitespace-nowrap text-xs text-secondary">
+									<div class="flex items-center gap-1.5">
+										<span
+											title={workspace_id
+												? `Usable only in workspace ${workspace_id}`
+												: 'Usable in every workspace you are a member of'}
+										>
+											{workspace_id ?? 'All workspaces'}
+										</span>
+										{#if super_admin}
+											<Badge color="red" small>Superadmin</Badge>
+										{:else if admin}
+											<Badge color="indigo" small>Admin</Badge>
+										{/if}
+									</div>
+								</td>
 								<td
 									class="min-w-0 max-w-48 truncate text-xs text-secondary"
 									title={shownScopes(scopes)}
@@ -209,6 +215,15 @@
 									<div class="flex items-center gap-1.5 truncate">
 										{#if read_only}
 											<Badge color="blue" small>Read-only</Badge>
+										{/if}
+										{#if $enterpriseLicense && allowed_ips && allowed_ips.length > 0}
+											<span title="Usable only from {allowed_ips.join(', ')}">
+												<Badge color="gray" small>
+													{allowed_ips.length === 1
+														? allowed_ips[0]
+														: `${allowed_ips.length} IP ranges`}
+												</Badge>
+											</span>
 										{/if}
 										<span class="truncate">{shownScopes(scopes)}</span>
 									</div>

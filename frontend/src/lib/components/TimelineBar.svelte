@@ -4,7 +4,8 @@
 	import Popover from './Popover.svelte'
 
 	interface Props {
-		position?: 'center' | 'left' | 'right'
+		/** `none`: a middle piece of a bar split in several. */
+		position?: 'center' | 'left' | 'right' | 'none'
 		total: number
 		min: number | undefined
 		started_at: number | undefined
@@ -61,7 +62,9 @@
 			? 'rounded-l-md'
 			: position == 'right'
 				? 'rounded-r-md'
-				: 'rounded-md'} center-center text-white text-2xs whitespace-nowrap hover:outline outline-1 outline-black"
+				: position == 'none'
+					? ''
+					: 'rounded-md'} center-center text-white text-2xs whitespace-nowrap hover:outline outline-1 outline-black"
 	>
 		{#snippet text()}
 			{#if tooltip}

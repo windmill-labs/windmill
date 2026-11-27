@@ -239,6 +239,7 @@ pub fn workspaced_service() -> Router {
             "/protection_rules/{rule_name}",
             post(update_protection_rule).delete(delete_protection_rule),
         )
+        .route("/password_login_members", get(list_password_login_members))
         .route("/log_feature_usage", post(log_feature_usage))
         .route("/cloud_quotas", get(get_cloud_quotas))
         .route("/prune_versions", post(prune_versions))
@@ -680,6 +681,9 @@ pub struct EditErrorHandlerNew {
     pub muted_on_cancel: bool,
     #[serde(default)]
     pub muted_on_user_path: bool,
+    /// Skip runs whose `trigger_kind` is `ui`. `None` keeps the stored value, for the same
+    /// reason as `fallback_to_instance_alerts`.
+    pub muted_on_ui_runs: Option<bool>,
     /// Left as `None` by clients that predate the setting (the CLI among them), which must
     /// keep the stored value rather than silently reset it on every settings push.
     pub fallback_to_instance_alerts: Option<bool>,
@@ -711,6 +715,7 @@ impl EditErrorHandler {
                 extra_args: legacy.error_handler_extra_args,
                 muted_on_cancel: legacy.error_handler_muted_on_cancel,
                 muted_on_user_path: false, // Old format doesn't have this field
+                muted_on_ui_runs: None,
                 fallback_to_instance_alerts: None,
             },
         }
@@ -6367,6 +6372,22 @@ async fn edit_error_handler(
         if let Some(extra_args) = &ee.extra_args {
             error_handler["extra_args"] = extra_args.clone();
         }
+        // Written only when set, so the blob of every workspace that never turns it on, and
+        // its `settings.yaml`, stays as it was before the flag existed.
+        let muted_on_ui_runs = match ee.muted_on_ui_runs {
+            Some(muted) => muted,
+            None => sqlx::query_scalar!(
+                "SELECT COALESCE((error_handler->>'muted_on_ui_runs')::boolean, false) AS \"muted!\"
+                 FROM workspace_settings WHERE workspace_id = $1",
+                &w_id
+            )
+            .fetch_optional(&mut *tx)
+            .await?
+            .unwrap_or(false),
+        };
+        if muted_on_ui_runs {
+            error_handler["muted_on_ui_runs"] = serde_json::Value::Bool(true);
+        }
 
         sqlx::query!(
             "UPDATE workspace_settings SET error_handler = $1 WHERE workspace_id = $2",
@@ -11309,7 +11330,8 @@ async fn attach_dev_workspace(
     )
     .fetch_optional(&db)
     .await?
-    .unwrap_or(false);
+    .unwrap_or(false)
+        && !authed.admin_withheld;
     if !is_admin_of_dev && !windmill_api_auth::is_super_admin_authed(&db, &authed).await? {
         return Err(Error::PermissionDenied(format!(
             "Attaching workspace '{dev_w_id}' as a dev requires being an admin of it (or a superadmin)"
@@ -11837,7 +11859,8 @@ async fn archive_workspace(
         )
         .fetch_optional(&db)
         .await?
-        .unwrap_or(false);
+        .unwrap_or(false)
+        && !authed.admin_withheld;
         if !is_prod_admin && !windmill_api_auth::is_super_admin_authed(&db, &authed).await? {
             return Err(Error::PermissionDenied(format!(
                 "Archiving dev workspace '{w_id}' requires being an admin of its parent prod workspace '{prod}' (or a superadmin)"
@@ -12077,6 +12100,8 @@ async fn invite_user(
         )));
     }
 
+    windmill_common::workspaces::check_new_member_sso(&mut *tx, &w_id, &nu.email, None).await?;
+
     sqlx::query!(
         "INSERT INTO workspace_invite
             (workspace_id, email, is_admin, operator, workspace_role)
@@ -12287,6 +12312,9 @@ async fn add_user(
 
         username
     };
+
+    windmill_common::workspaces::check_new_member_sso(&mut *tx, &w_id, &nu.email, Some(&username))
+        .await?;
 
     sqlx::query!(
         "INSERT INTO usr
@@ -12872,6 +12900,38 @@ async fn list_protection_rules(
             .map(ProtectionRulesetResponse::from)
             .collect(),
     ))
+}
+
+#[derive(Serialize)]
+struct PasswordLoginMember {
+    username: String,
+    email: String,
+    groups: Vec<String>,
+}
+
+/// Members other than service accounts whose account signs in with a password, with their groups
+/// so the caller can leave out a rule's bypassers. A `RequireSso` rule does not remove them.
+async fn list_password_login_members(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+) -> JsonResult<Vec<PasswordLoginMember>> {
+    require_admin(authed.is_admin, &authed.username)?;
+    let members = sqlx::query_as!(
+        PasswordLoginMember,
+        r#"SELECT u.username, u.email,
+                  COALESCE(array_agg(g.group_) FILTER (WHERE g.group_ IS NOT NULL), '{}') AS "groups!"
+           FROM usr u
+           JOIN password p ON p.email = u.email AND p.login_type = 'password'
+           LEFT JOIN usr_to_group g ON g.workspace_id = u.workspace_id AND g.usr = u.username
+           WHERE u.workspace_id = $1 AND NOT u.is_service_account
+           GROUP BY u.username, u.email
+           ORDER BY u.username"#,
+        &w_id,
+    )
+    .fetch_all(&db)
+    .await?;
+    Ok(Json(members))
 }
 
 /// Insert or replace a protection ruleset within an existing transaction. Unlike the
@@ -14453,6 +14513,9 @@ async fn load_workspace_authed(
             credential_expiry: base_authed.credential_expiry,
             mcp_client: base_authed.mcp_client.clone(),
             capabilities: None,
+            allowed_ips: None,
+            admin_withheld: base_authed.admin_withheld,
+            super_admin_withheld: base_authed.super_admin_withheld,
         });
     };
 
@@ -14474,7 +14537,7 @@ async fn load_workspace_authed(
     Ok(ApiAuthed {
         email: base_authed.email.clone(),
         username: user_row.username,
-        is_admin: is_super_admin || user_row.is_admin,
+        is_admin: is_super_admin || (user_row.is_admin && !base_authed.admin_withheld),
         is_operator: !user_row.is_admin
             && windmill_common::roles::member_is_restricted(
                 &mut conn,
@@ -14495,6 +14558,9 @@ async fn load_workspace_authed(
         credential_expiry: base_authed.credential_expiry,
         mcp_client: base_authed.mcp_client.clone(),
         capabilities: None,
+        allowed_ips: None,
+        admin_withheld: base_authed.admin_withheld,
+        super_admin_withheld: base_authed.super_admin_withheld,
     })
 }
 

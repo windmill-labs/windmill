@@ -14,6 +14,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::sync::LazyLock;
 use std::time::Duration;
+use windmill_common::client_ip::ClientIp;
 
 use windmill_api_auth::ApiAuthed;
 
@@ -333,6 +334,10 @@ pub struct TruncatedToken {
     pub scopes: Option<Vec<String>>,
     pub workspace_id: Option<String>,
     pub read_only: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub allowed_ips: Option<Vec<String>>,
+    pub admin: bool,
+    pub super_admin: bool,
 }
 
 // NewToken is re-exported from windmill-api-auth above
@@ -777,8 +782,17 @@ async fn whoami(
     authed: ApiAuthed,
 ) -> JsonResult<UserInfo> {
     let is_guest = windmill_api_auth::scopes::has_guest_sentinel(authed.scopes.as_deref());
-    let ApiAuthed { username, email, is_admin, is_operator, groups, folders, mcp_client, .. } =
-        authed;
+    let ApiAuthed {
+        username,
+        email,
+        is_admin,
+        is_operator,
+        groups,
+        folders,
+        mcp_client,
+        super_admin_withheld,
+        ..
+    } = authed;
     // A guest would otherwise fall through to the non-member branch below and be
     // handed a `superadmin` role. Answer it here, as the operator-shaped identity it is.
     if is_guest {
@@ -809,8 +823,14 @@ async fn whoami(
     if let Some(user) = user.filter(|u| u.email == email) {
         // The frontend gates pages on `operator`, so it reports what `caller_capabilities`
         // decides rather than the raw column: an admin (or superadmin) whose row still carries
-        // `operator` holds everything.
-        let user = UserInfo { operator: is_operator && !is_admin, ..user };
+        // `operator` holds everything. Admin and superadmin are the credential's, which a token
+        // may withhold.
+        let user = UserInfo {
+            operator: is_operator && !is_admin,
+            is_admin,
+            is_super_admin: user.is_super_admin && !super_admin_withheld,
+            ..user
+        };
         // An external MCP token brings its own groups, which the request and the jobs it starts
         // act with, so report those rather than the stored memberships.
         if mcp_client.is_some() {
@@ -858,7 +878,7 @@ async fn whoami(
 
 async fn global_whoami(
     Extension(db): Extension<DB>,
-    ApiAuthed { email, .. }: ApiAuthed,
+    ApiAuthed { email, super_admin_withheld, .. }: ApiAuthed,
     Tokened { token }: Tokened,
 ) -> JsonResult<GlobalUserInfo> {
     let user = sqlx::query_as!(
@@ -872,7 +892,11 @@ async fn global_whoami(
     .map_err(|e| Error::internal_err(format!("fetching global identity: {e:#}")))?;
 
     if let Some(user) = user {
-        Ok(Json(user))
+        // The credential's rights, which a token may withhold.
+        Ok(Json(GlobalUserInfo {
+            super_admin: user.super_admin && !super_admin_withheld,
+            ..user
+        }))
     } else if std::env::var("SUPERADMIN_SECRET").ok() == Some(token) {
         Ok(Json(GlobalUserInfo {
             email: email.clone(),
@@ -1281,6 +1305,14 @@ async fn join_workspace<'c>(
         )));
     }
 
+    windmill_common::workspaces::check_new_member_sso(
+        &mut *tx,
+        &w_id,
+        &authed.email,
+        Some(&username),
+    )
+    .await?;
+
     sqlx::query!(
         "INSERT INTO usr
             (workspace_id, email, username, is_admin, operator)
@@ -1597,10 +1629,10 @@ async fn update_user(
         )
         .execute(&mut *tx)
         .await?;
-        // Update super_admin flag on non-session tokens (webhooks, API tokens, etc.)
+        // A demotion strips superadmin from every other token; a promotion grants it to none,
+        // since a token carries superadmin rights only when it was minted asking for them.
         sqlx::query!(
-            "UPDATE token SET super_admin = $1 WHERE email = $2 AND label != 'session'
-                 AND (NOT $1 OR NOT EXISTS (SELECT 1 FROM unnest(scopes) s WHERE s LIKE 'mcp:%'))",
+            "UPDATE token SET super_admin = false WHERE email = $2 AND label != 'session' AND NOT $1",
             sa,
             &email_to_update
         )
@@ -1665,8 +1697,7 @@ async fn update_user(
                     .execute(&mut *tx)
                     .await?;
                     sqlx::query!(
-                        "UPDATE token SET super_admin = $1 WHERE email = $2 AND label != 'session'
-                 AND (NOT $1 OR NOT EXISTS (SELECT 1 FROM unnest(scopes) s WHERE s LIKE 'mcp:%'))",
+                        "UPDATE token SET super_admin = false WHERE email = $2 AND label != 'session' AND NOT $1",
                         sa,
                         &email_to_update
                     )
@@ -2849,6 +2880,10 @@ async fn set_login_type(
     .execute(&mut *tx)
     .await?;
 
+    if et.login_type == "password" {
+        windmill_common::workspaces::check_password_login_allowed(&mut *tx, &email).await?;
+    }
+
     audit_log(
         &mut *tx,
         &authed,
@@ -2869,7 +2904,7 @@ async fn set_login_type(
 
 #[allow(unreachable_code, unused_variables)]
 async fn login(
-    headers: axum::http::HeaderMap,
+    ClientIp(client_ip): ClientIp,
     cookies: Cookies,
     Extension(db): Extension<DB>,
     Extension(argon2): Extension<Arc<Argon2<'_>>>,
@@ -2892,7 +2927,7 @@ async fn login(
         ));
     }
 
-    windmill_common::login_rate_limit::check_and_increment_login_attempt(&headers, &email)?;
+    windmill_common::login_rate_limit::check_and_increment_login_attempt(client_ip, &email)?;
 
     let mut tx = db.begin().await?;
     let audit_author = AuditAuthor {
@@ -3013,6 +3048,33 @@ async fn refresh_token(
              token explicitly instead of $WM_TOKEN."
                 .to_string(),
         ));
+    }
+    // A session carries no IP restriction, so exchanging for one would lift it.
+    if authed.allowed_ips.is_some() {
+        return Err(Error::NotAuthorized(
+            "A token restricted to IP addresses cannot be exchanged for a session".to_string(),
+        ));
+    }
+    // A session carries every right of the account, so a token withholding some may not be
+    // exchanged for one while the account holds them.
+    if authed.admin_withheld || authed.super_admin_withheld {
+        let lifts_withheld = sqlx::query_scalar!(
+            "SELECT ($2 AND EXISTS(SELECT 1 FROM usr WHERE email = $1 AND is_admin))
+                OR ($3 AND COALESCE((SELECT super_admin FROM password WHERE email = $1), false))",
+            &authed.email,
+            authed.admin_withheld,
+            authed.super_admin_withheld,
+        )
+        .fetch_one(&db)
+        .await?
+        .unwrap_or(true);
+        if lifts_withheld {
+            return Err(Error::NotAuthorized(
+                "A token without its owner's admin or superadmin rights cannot be exchanged for \
+                 a session"
+                    .to_string(),
+            ));
+        }
     }
     let t_hash = windmill_common::auth::hash_token(&token);
     // Only a live, non-impersonation row may be exchanged for a session: an impersonation must
@@ -3136,8 +3198,8 @@ pub async fn create_session_token<'c>(
 
     sqlx::query!(
         "INSERT INTO token
-            (token_hash, token_prefix, token, email, label, expiration, super_admin, scopes, read_only)
-            VALUES ($1, $2, $3, $4, $5, now() + ($6 || ' seconds')::interval, $7, $8, $9)",
+            (token_hash, token_prefix, token, email, label, expiration, super_admin, scopes, read_only, admin)
+            VALUES ($1, $2, $3, $4, $5, now() + ($6 || ' seconds')::interval, $7, $8, $9, true)",
         t_hash,
         t_prefix,
         plaintext as Option<&str>,
@@ -3231,8 +3293,8 @@ pub async fn create_guest_session_token<'c>(
 
     sqlx::query!(
         "INSERT INTO token
-            (token_hash, token_prefix, token, email, label, expiration, super_admin, scopes, workspace_id)
-            VALUES ($1, $2, $3, $4, $5, now() + ($6 || ' seconds')::interval, false, $7, $8)",
+            (token_hash, token_prefix, token, email, label, expiration, super_admin, scopes, workspace_id, admin)
+            VALUES ($1, $2, $3, $4, $5, now() + ($6 || ' seconds')::interval, false, $7, $8, false)",
         t_hash,
         t_prefix,
         plaintext as Option<&str>,
@@ -3362,6 +3424,11 @@ async fn create_token(
         ));
     }
 
+    // A token asked for here carries its owner's admin and superadmin rights only when the
+    // request says so; server-side mints call `create_token_internal`, where `None` inherits.
+    token_config.super_admin = Some(token_config.super_admin.unwrap_or(false));
+    token_config.admin = Some(token_config.admin.unwrap_or(false));
+
     windmill_api_auth::ensure_scopes_within_caller(&authed, token_config.scopes.as_deref())?;
     // Mirrors the MCP OAuth approve: a scoped token cannot mint superadmin access it may lack.
     if token_config.super_admin == Some(true)
@@ -3430,6 +3497,10 @@ async fn impersonate(
         ));
     }
 
+    let allowed_ips = windmill_api_auth::token_ip_allowlist(
+        authed.allowed_ips.as_deref(),
+        new_token.allowed_ips.as_deref(),
+    )?;
     let impersonated = new_token.impersonate_email.unwrap();
 
     let is_super_admin = sqlx::query_scalar!(
@@ -3439,23 +3510,43 @@ async fn impersonate(
     .fetch_optional(&db)
     .await?
     .unwrap_or(false);
-    let expiration = cap_token_expiration(&db, &impersonated, None, new_token.expiration).await?;
+    // As on `tokens/create`: the impersonated account's rights are carried only when asked.
+    let is_super_admin = is_super_admin && new_token.super_admin == Some(true);
+    let expiration = cap_token_expiration(
+        &db,
+        &impersonated,
+        new_token.workspace_id.as_deref(),
+        new_token.expiration,
+    )
+    .await?;
     let mut tx = db.begin().await?;
 
-    sqlx::query!(
+    let rows = sqlx::query!(
         "INSERT INTO token
-            (token_hash, token_prefix, token, email, label, expiration, super_admin)
-            VALUES ($1, $2, $3, $4, $5, $6, $7)",
+            (token_hash, token_prefix, token, email, label, expiration, super_admin, allowed_ips,
+             workspace_id, admin)
+            SELECT $1, $2, $3, $4, $5, $6, $7, $8::text[]::cidr[], $9, $10
+            WHERE $9::varchar IS NULL OR NOT EXISTS(
+                SELECT 1 FROM workspace WHERE id = $9 AND deleted = true
+            )",
         t_hash,
         t_prefix,
         plaintext as Option<&str>,
         impersonated,
         new_token.label,
         expiration,
-        is_super_admin
+        is_super_admin,
+        allowed_ips.as_deref(),
+        new_token.workspace_id,
+        new_token.admin == Some(true),
     )
     .execute(&mut *tx)
     .await?;
+    if rows.rows_affected() == 0 {
+        return Err(Error::BadRequest(
+            "Cannot create a token for an archived workspace".to_string(),
+        ));
+    }
 
     windmill_api_auth::register_token_expiry_notification(
         &mut *tx,
@@ -3576,6 +3667,12 @@ async fn create_login_link(
 ) -> Result<(StatusCode, Json<LoginLink>)> {
     require_super_admin(&db, &authed).await?;
     forbid_superadmin_job_token(&db, &authed.email, job_id).await?;
+    // The link opens into a session that carries no IP restriction.
+    if authed.allowed_ips.is_some() {
+        return Err(Error::NotAuthorized(
+            "A token restricted to IP addresses cannot create login links".to_string(),
+        ));
+    }
 
     let email = nl.email.to_lowercase();
     let rd = match nl.rd {
@@ -3888,7 +3985,7 @@ struct LoginLinkQuery {
 }
 
 async fn consume_login_link(
-    headers: axum::http::HeaderMap,
+    ClientIp(client_ip): ClientIp,
     cookies: Cookies,
     Extension(db): Extension<DB>,
     Path(token): Path<String>,
@@ -3906,7 +4003,7 @@ async fn consume_login_link(
     // The account is unknown until the row is read, so only the global and per-IP tiers
     // apply here; a 32-char random token leaves nothing for the per-account tier to guard.
     windmill_common::login_rate_limit::check_and_increment_login_attempt(
-        &headers,
+        client_ip,
         &t_hash[..TOKEN_PREFIX_LEN],
     )?;
 
@@ -4023,6 +4120,9 @@ struct ListTokenQuery {
     exclude_ephemeral: Option<bool>,
 }
 
+/// `admin` and `super_admin` report the rights a token carries: its opt-in flag (a session
+/// always opts in to superadmin) and what its owner holds, so a member's token is never
+/// listed as admin because of the column's default.
 async fn list_tokens(
     Extension(db): Extension<DB>,
     ApiAuthed { email, .. }: ApiAuthed,
@@ -4033,9 +4133,16 @@ async fn list_tokens(
     let rows = if query.exclude_ephemeral.unwrap_or(false) {
         sqlx::query_as!(
             TruncatedToken,
-            "SELECT label, token_prefix, expiration, created_at, \
-             last_used_at, scopes, workspace_id, read_only FROM token WHERE email = $1 AND (label != 'ephemeral-script' OR label IS NULL)
-             ORDER BY created_at DESC LIMIT $2 OFFSET $3",
+            "SELECT t.label, t.token_prefix, t.expiration, t.created_at, t.last_used_at, t.scopes, \
+               t.workspace_id, t.read_only, t.allowed_ips::text[] AS allowed_ips, \
+               (t.admin AND EXISTS (SELECT 1 FROM usr u WHERE u.email = t.email AND u.is_admin \
+                   AND NOT u.disabled AND (t.workspace_id IS NULL OR u.workspace_id = t.workspace_id))) \
+                   AS \"admin!\", \
+               ((t.super_admin OR COALESCE(t.label = 'session', false)) \
+                   AND COALESCE((SELECT p.super_admin FROM password p WHERE p.email = t.email), false)) \
+                   AS \"super_admin!\" \
+             FROM token t WHERE t.email = $1 AND (t.label != 'ephemeral-script' OR t.label IS NULL)
+             ORDER BY t.created_at DESC LIMIT $2 OFFSET $3",
             email,
             per_page as i64,
             offset as i64,
@@ -4045,9 +4152,16 @@ async fn list_tokens(
     } else {
         sqlx::query_as!(
             TruncatedToken,
-            "SELECT label, token_prefix, expiration, created_at, \
-            last_used_at, scopes, workspace_id, read_only FROM token WHERE email = $1
-            ORDER BY created_at DESC LIMIT $2 OFFSET $3",
+            "SELECT t.label, t.token_prefix, t.expiration, t.created_at, t.last_used_at, t.scopes, \
+               t.workspace_id, t.read_only, t.allowed_ips::text[] AS allowed_ips, \
+               (t.admin AND EXISTS (SELECT 1 FROM usr u WHERE u.email = t.email AND u.is_admin \
+                   AND NOT u.disabled AND (t.workspace_id IS NULL OR u.workspace_id = t.workspace_id))) \
+                   AS \"admin!\", \
+               ((t.super_admin OR COALESCE(t.label = 'session', false)) \
+                   AND COALESCE((SELECT p.super_admin FROM password p WHERE p.email = t.email), false)) \
+                   AS \"super_admin!\" \
+             FROM token t WHERE t.email = $1
+             ORDER BY t.created_at DESC LIMIT $2 OFFSET $3",
             email,
             per_page as i64,
             offset as i64,
@@ -4351,6 +4465,7 @@ async fn get_all_runnables(
     Extension(db): Extension<UserDB>,
     authed: ApiAuthed,
     Tokened { token }: Tokened,
+    ClientIp(client_ip): ClientIp,
     Extension(cache): Extension<Arc<windmill_api_auth::AuthCache>>,
 ) -> JsonResult<Vec<Runnable>> {
     let mut tx = db.clone().begin(&authed).await?;
@@ -4366,7 +4481,7 @@ async fn get_all_runnables(
 
     for workspace in workspaces {
         let nauthed = cache
-            .get_authed(Some(workspace.clone()), &token)
+            .get_authed(Some(workspace.clone()), &token, client_ip)
             .await
             .ok_or_else(|| {
                 Error::BadRequest(format!("not authorized to access workspace: {workspace}"))

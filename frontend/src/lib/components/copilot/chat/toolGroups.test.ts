@@ -4,28 +4,44 @@ import {
 	createChatItemGrouper,
 	groupHeader,
 	groupToolRuns,
+	type GroupingTools,
 	type GroupState,
 	type ToolGroup
 } from './toolGroups'
 
-// What the chat's tool definitions mark `lookup`, for the calls these cases make.
-const LOOKUPS = new Set([
-	'read_workspace_item',
-	'list_workspace_items',
-	'search_workspace',
-	'search_docs',
-	'list_runs',
-	'list_workers',
-	'read_flow_module_code',
-	'inspect_inline_script',
-	'get_lint_errors',
-	'read_app_file',
-	'search_app',
-	'search_mcp_tools',
-	'call_mcp_read_tool',
-	'get_db_schema',
-	'search_hub_scripts'
-])
+// What the chat's tool definitions mark `lookup`, `testRun` and `draftWrite`, for the calls these
+// cases make.
+const TOOLS: GroupingTools = {
+	lookups: new Set([
+		'read_workspace_item',
+		'list_workspace_items',
+		'search_workspace',
+		'search_docs',
+		'list_runs',
+		'list_workers',
+		'read_flow_module_code',
+		'inspect_inline_script',
+		'get_lint_errors',
+		'read_app_file',
+		'search_app',
+		'search_mcp_tools',
+		'call_mcp_read_tool',
+		'get_db_schema',
+		'search_hub_scripts'
+	]),
+	testRuns: new Map([
+		['test_run_script', 'script'],
+		['test_run_flow', 'flow'],
+		['test_run_app_runnable', 'app'],
+		['test_run_agent', 'agent']
+	]),
+	draftWrites: new Map([
+		['write_schedule', 'schedule'],
+		['write_trigger', 'trigger'],
+		['write_resource', 'resource'],
+		['write_variable', 'variable']
+	])
+}
 
 let nextId = 0
 function tool(
@@ -47,13 +63,13 @@ function assistant(content: string, extra = {}): DisplayMessage {
 }
 
 function shape(messages: DisplayMessage[]) {
-	return groupToolRuns(messages, LOOKUPS).map((item) =>
+	return groupToolRuns(messages, TOOLS).map((item) =>
 		item.kind === 'group' ? { [item.groupKind]: item.entries.map((e) => e.index) } : item.index
 	)
 }
 
 function header(messages: DisplayMessage[], state: GroupState = 'settled') {
-	const group = groupToolRuns(messages, LOOKUPS).find((item) => item.kind === 'group') as ToolGroup
+	const group = groupToolRuns(messages, TOOLS).find((item) => item.kind === 'group') as ToolGroup
 	const { prefix, label } = groupHeader(group, state)
 	return prefix ? `${prefix} ${label}` : label
 }
@@ -98,6 +114,10 @@ describe('groupToolRuns', () => {
 				tool('read_flow_module_code', flow)
 			])
 		).toEqual([0, 1, { explore: [2, 3] }])
+		// Arguments of JSON `null` reach the row as they are.
+		expect(shape([tool('search_docs', { query: 'a' }), tool('search_docs', null as any)])).toEqual([
+			{ explore: [0, 1] }
+		])
 		expect(
 			shape([
 				tool('patch_flow_json', flow),
@@ -247,6 +267,27 @@ describe('groupToolRuns', () => {
 		).toEqual([{ explore: [0, 1] }, { edit: [2, 3] }])
 	})
 
+	it('folds draft writes of any item kind, leaving out one awaiting approval and an agent', () => {
+		const run = [
+			tool('write_schedule', { path: 'f/a/daily' }),
+			assistant('', { reasoning: 'next' }),
+			tool('write_schedule', { path: 'f/a/hourly' }),
+			tool('write_trigger', { kind: 'http', config: { path: 'f/a/hook' } }),
+			tool('write_variable', { path: 'f/a/token' }, { error: 'invalid value' }),
+			tool('write_resource', { path: 'f/a/pg', resource_type: 'postgresql' }),
+			// Its `resource_type` has not streamed in yet: it may still turn out to be an agent.
+			tool(
+				'write_resource',
+				{},
+				{ parameters: '{"path":"f/a/bot","value":{"model"', isStreamingArguments: true }
+			),
+			tool('write_resource', { path: 'f/a/db' }, { needsConfirmation: true, isLoading: true }),
+			tool('write_resource', { path: 'f/a/bot', resource_type: 'ai_agent' })
+		]
+		expect(shape(run)).toEqual([{ draft: [0, 1, 2, 3, 4, 5] }, 6, 7, 8])
+		expect(header(run)).toBe('Drafted 2 schedules, 1 trigger, 1 resource')
+	})
+
 	it('folds consecutive lookups of any tool, split by a write or a row with its own card', () => {
 		expect(
 			shape([
@@ -260,6 +301,59 @@ describe('groupToolRuns', () => {
 				tool('search_workspace')
 			])
 		).toEqual([{ explore: [0, 1, 2] }, 3, { explore: [4, 5] }, 6, 7])
+	})
+
+	it('folds test runs of one item and the edits between them, leaving a form awaiting input out', () => {
+		const a = { path: 'f/a/script' }
+		// A run form's row carries the run's arguments as `parameters`, and its path on the form.
+		const run = (path = a.path, extra = {}) =>
+			tool('test_run_script', { x: 1 }, { runForm: { path, args: { x: 1 } }, ...extra })
+		const messages = [
+			run(a.path, { error: 'boom' }),
+			tool('edit_script', a, { codeDiff: { before: '1', after: '2' } }),
+			run(),
+			tool('edit_script', a),
+			run('f/b/script'),
+			run(),
+			// Still preparing: its form has not opened yet.
+			tool('test_run_script', a, { isLoading: true }),
+			run(a.path, { isLoading: true })
+		]
+		expect(shape(messages)).toEqual([{ test: [0, 1, 2] }, 3, 4, 5, 6, 7])
+		expect(header(messages)).toBe('Tested f/a/script · 2 runs · 1 change')
+	})
+
+	it("folds the flow editor's test runs, whose `path` is the flow's own input, but not runs refused before starting", () => {
+		const messages = [
+			tool('test_run_flow', { path: '/tmp/a' }),
+			tool('set_flow_json', {}),
+			// A failed job still ran: its row carries the job's result.
+			tool('test_run_flow', { path: '/tmp/b' }, { error: 'boom', result: { error: 'boom' } }),
+			// Refused before any job: an error and no result, whatever path it was given.
+			tool('test_run_flow', { path: 'f/missing/one' }, { error: 'Flow not found' }),
+			tool('test_run_flow', { path: 'f/missing/two' }, { error: 'Flow not found' }),
+			// An app runnable has no form either, and its path is the app's: still not a run.
+			tool('test_run_app_runnable', { path: 'f/a/app' }, { error: 'No runnable "x"' }),
+			tool('test_run_app_runnable', { path: 'f/a/app' }, { error: 'No runnable "x"' })
+		]
+		expect(shape(messages)).toEqual([{ test: [0, 1, 2] }, 3, 4, 5, 6])
+		expect(header(messages)).toBe('Tested the flow · 2 runs · 1 change')
+	})
+
+	it("folds an agent's runs with the resource writes and reads between them", () => {
+		const path = 'f/a/agent'
+		const run = () => tool('test_run_agent', {}, { runForm: { path, args: {} } })
+		const messages = [
+			run(),
+			tool('read_workspace_item', { path, type: 'resource' }, { readsAgent: true }),
+			tool('write_resource', { path, resource_type: 'ai_agent', value: {} }),
+			run(),
+			// Another resource at the same path is not the agent.
+			tool('write_resource', { path, resource_type: 'postgresql', value: {} }),
+			run()
+		]
+		expect(shape(messages)).toEqual([{ test: [0, 1, 2, 3] }, 4, 5])
+		expect(header(messages)).toBe('Tested f/a/agent · 2 runs · 1 change')
 	})
 
 	it('names what a group did', () => {
@@ -331,7 +425,7 @@ describe('groupToolRuns', () => {
 				tool('search_workspace'),
 				tool('list_workers')
 			],
-			LOOKUPS
+			TOOLS
 		).find((item) => item.kind === 'group') as ToolGroup
 		expect(groupHeader(group, 'settled')).toEqual({
 			prefix: '',
@@ -350,8 +444,8 @@ describe('createChatItemGrouper', () => {
 			tool('list_runs'),
 			assistant('more')
 		]
-		const first = group([...history, assistant('a', { streaming: true })], LOOKUPS)
-		const second = group([...history, assistant('ab', { streaming: true })], LOOKUPS)
+		const first = group([...history, assistant('a', { streaming: true })], TOOLS)
+		const second = group([...history, assistant('ab', { streaming: true })], TOOLS)
 		expect(second).toHaveLength(first.length)
 		second.slice(0, -1).forEach((item, i) => expect(item).toBe(first[i]))
 		expect(second.at(-1)).toMatchObject({ kind: 'message', index: 4, message: { content: 'ab' } })
@@ -365,9 +459,9 @@ describe('createChatItemGrouper', () => {
 	it('keeps every row but the one a tool status change replaced', () => {
 		const group = createChatItemGrouper()
 		const history = [assistant('done'), tool('run_script'), assistant('more')]
-		const first = group(history, LOOKUPS)
+		const first = group(history, TOOLS)
 		const updated = [history[0], { ...history[1], isLoading: false }, history[2]]
-		const second = group(updated, LOOKUPS)
+		const second = group(updated, TOOLS)
 		expect(second[0]).toBe(first[0])
 		expect(second[1]).not.toBe(first[1])
 		expect(second[1]).toMatchObject({ message: updated[1] })

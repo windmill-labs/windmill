@@ -1,0 +1,84 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT t.label, t.token_prefix, t.expiration, t.created_at, t.last_used_at, t.scopes, t.workspace_id, t.read_only, t.allowed_ips::text[] AS allowed_ips, (t.admin AND EXISTS (SELECT 1 FROM usr u WHERE u.email = t.email AND u.is_admin AND NOT u.disabled AND (t.workspace_id IS NULL OR u.workspace_id = t.workspace_id))) AS \"admin!\", ((t.super_admin OR COALESCE(t.label = 'session', false)) AND COALESCE((SELECT p.super_admin FROM password p WHERE p.email = t.email), false)) AS \"super_admin!\" FROM token t WHERE t.email = $1 AND (t.label != 'ephemeral-script' OR t.label IS NULL)\n             ORDER BY t.created_at DESC LIMIT $2 OFFSET $3",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "label",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "token_prefix",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "expiration",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 3,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 4,
+        "name": "last_used_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 5,
+        "name": "scopes",
+        "type_info": "TextArray"
+      },
+      {
+        "ordinal": 6,
+        "name": "workspace_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 7,
+        "name": "read_only",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 8,
+        "name": "allowed_ips",
+        "type_info": "TextArray"
+      },
+      {
+        "ordinal": 9,
+        "name": "admin!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 10,
+        "name": "super_admin!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      true,
+      false,
+      true,
+      false,
+      false,
+      true,
+      true,
+      false,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "441afa3ca7cd24ac9239b05fadb9ac74f53ba3c4077d67cf1d912062b95a4b85"
+}

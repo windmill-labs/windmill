@@ -41,6 +41,11 @@
 		}
 	}
 
+	// A test group's latest run is what the loop got to, so its card stays shown under the
+	// header while the earlier runs fold.
+	const shownLast = $derived(group.groupKind === 'test' ? group.entries.at(-1) : undefined)
+	const folded = $derived(shownLast ? group.entries.slice(0, -1) : group.entries)
+
 	const calls = $derived(
 		group.entries.map((e) => e.message).filter((m): m is ToolDisplayMessage => m.role === 'tool')
 	)
@@ -63,8 +68,9 @@
 			: undefined
 	)
 	// What the group is doing right now, so a collapsed run still names its current step.
+	// A test group's live call is its shown run, whose card already says so.
 	const liveLine = $derived(
-		running
+		running && !shownLast
 			? (
 					calls.findLast((m) => m.isLoading || m.isStreamingArguments) ??
 					calls.find((m) => m.isQueued)
@@ -125,9 +131,14 @@
 	headerLeft={mcpServer ? serverMark : undefined}
 	contentClass="border-0 border-l rounded-none bg-transparent p-0 pl-2 ml-1.5 mt-0.5"
 >
-	{#each group.entries as { message, index } (index)}
+	{#each folded as { message, index } (index)}
 		<div bind:this={rows[index]}>
 			{@render entry(message, index)}
 		</div>
 	{/each}
 </ChatCollapsibleCard>
+{#if shownLast}
+	<div class="mt-1" bind:this={rows[shownLast.index]}>
+		{@render entry(shownLast.message, shownLast.index)}
+	</div>
+{/if}

@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT flow_status AS \"flow_status: Json<FlowStatus>\"\n             FROM v2_job_completed WHERE id = $1 AND workspace_id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "flow_status: Json<FlowStatus>",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "7255360f4b5c4fd9e1b4f1fd08d3e242854c715fc2f393b84e31ac36ce9fa997"
+}

@@ -142,6 +142,22 @@ pub async fn build_args_values(
     }
 }
 
+/// The job's args exactly as submitted, for a query annotated `-- literal_args`: unlike
+/// [`build_args_values`], no `$var:`/`$res:`/`$encrypted:` reference and no `$`-prefixed
+/// reserved variable in them is resolved.
+pub fn build_literal_args_values(job: &MiniPulledJob) -> HashMap<String, serde_json::Value> {
+    job.args
+        .iter()
+        .flat_map(|args| args.0.iter())
+        .map(|(k, v)| {
+            (
+                k.to_string(),
+                serde_json::from_str(v.get()).unwrap_or_else(|_| serde_json::Value::Null),
+            )
+        })
+        .collect()
+}
+
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn create_args_and_out_file(
     client: &AuthedClient,
@@ -379,7 +395,8 @@ pub async fn transform_json_value(
             // let path = y.strip_prefix("$res:").unwrap();
         }
         Value::String(y) if y.starts_with("$") => {
-            let variables = get_reserved_variables(job, &client.token, conn, None).await?;
+            let variables =
+                get_reserved_and_workspace_variables(job, &client.token, conn, None).await?;
 
             let name = y.strip_prefix("$").unwrap();
 
@@ -543,12 +560,40 @@ pub async fn parent_flow_path(
     }
 }
 
+/// The variables an executor sets on the process it starts for a job.
+///
+/// With sandboxing on, that process (nsjail, or deno and javac, which are never jailed)
+/// starts outside the jail, so the workspace's env vars are left out:
+/// `run_language_executor` adds them to the script's env, which reaches the jailed child
+/// only, through [`script_envars`].
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn get_reserved_variables(
     job: &MiniPulledJob,
     token: &str,
     db: &Connection,
     parent_runnable_path: Option<String>,
+) -> Result<HashMap<String, String>, Error> {
+    let workspace_envs = !crate::is_sandboxing_enabled();
+    get_job_variables(job, token, db, parent_runnable_path, workspace_envs).await
+}
+
+/// [`get_reserved_variables`] with the workspace's env vars whatever the isolation, for
+/// what the worker evaluates itself and never sets on a process it starts.
+pub async fn get_reserved_and_workspace_variables(
+    job: &MiniPulledJob,
+    token: &str,
+    db: &Connection,
+    parent_runnable_path: Option<String>,
+) -> Result<HashMap<String, String>, Error> {
+    get_job_variables(job, token, db, parent_runnable_path, true).await
+}
+
+async fn get_job_variables(
+    job: &MiniPulledJob,
+    token: &str,
+    db: &Connection,
+    parent_runnable_path: Option<String>,
+    workspace_envs: bool,
 ) -> Result<HashMap<String, String>, Error> {
     let flow_path = if parent_runnable_path.is_some() {
         parent_runnable_path
@@ -586,6 +631,9 @@ pub async fn get_reserved_variables(
     .await
     .to_vec();
     let mut variables = variables;
+    if !workspace_envs {
+        variables.retain(|v| !v.is_custom);
+    }
     if let Some(client) = &job.mcp_client {
         variables.push(variables::ContextualVariable {
             name: "WM_MCP_CLIENT".to_string(),
@@ -3002,6 +3050,16 @@ mod tests {
             ("java", include_str!("../nsjail/run.java.config.proto")),
             ("ruby", include_str!("../nsjail/run.ruby.config.proto")),
             ("r", include_str!("../nsjail/run.r.config.proto")),
+            ("bash", include_str!("../nsjail/run.bash.config.proto")),
+            ("python", include_str!("../nsjail/run.python3.config.proto")),
+            (
+                "powershell",
+                include_str!("../nsjail/run.powershell.config.proto"),
+            ),
+            (
+                "ansible",
+                include_str!("../nsjail/run.ansible.config.proto"),
+            ),
             (
                 "gem install",
                 include_str!("../nsjail/download.ruby.config.proto"),

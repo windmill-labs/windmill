@@ -52,71 +52,70 @@
 	}
 </script>
 
-<div class="border border-border-light rounded-md p-4 h-full">
-	<h2 class="text-emphasis text-sm font-semibold mb-2">User info</h2>
+<form class="flex flex-col gap-6">
+	<div class="w-full text-primary flex flex-col gap-1">
+		<div class="text-xs text-emphasis font-semibold">Email</div>
+		<span class="text-xs font-normal text-primary">
+			{$usersWorkspaceStore?.email}
+		</span>
+	</div>
 
-	<form class="flex flex-col gap-6">
-		<div class="w-full text-primary flex flex-col gap-1">
-			<div class="text-xs text-emphasis font-semibold">Email</div>
-			<span class="text-xs font-normal text-primary">
-				{$usersWorkspaceStore?.email}
-			</span>
-		</div>
-
+	{#if login_type == 'password' || (login_type == 'pending_oauth' && passwordAllowed)}
 		<label class="flex flex-col gap-1 w-120">
 			<span class="text-xs text-emphasis font-semibold">Password</span>
-			{#if login_type == 'password' || (login_type == 'pending_oauth' && passwordAllowed)}
-				<div class="flex flex-row gap-1 items-center">
-					<TextInput
-						inputProps={{ autocomplete: 'new-password', type: 'password' }}
-						bind:value={newPassword}
-						error={passwordError}
-					/>
-					<Button
-						size="sm"
-						variant="default"
-						btnClasses="w-min whitespace-nowrap"
-						on:click={setPassword}>Set password</Button
-					>
-				</div>
-				{#if passwordError}
-					<div class="text-red-600 text-2xs">{passwordError}</div>
-				{/if}
-			{:else if login_type == 'github'}
-				<span class="text-xs text-primary font-normal"
-					>Authenticated through Github OAuth2. Cannot set a password.</span
+			<div class="flex flex-row gap-1 items-center">
+				<TextInput
+					inputProps={{ autocomplete: 'new-password', type: 'password' }}
+					bind:value={newPassword}
+					error={passwordError}
+				/>
+				<Button
+					size="sm"
+					variant="default"
+					btnClasses="w-min whitespace-nowrap"
+					on:click={setPassword}>Set password</Button
 				>
+			</div>
+			{#if passwordError}
+				<div class="text-red-600 text-2xs">{passwordError}</div>
 			{/if}
 		</label>
+	{:else if !['none', 'pending_oauth', 'service_account'].includes(login_type)}
+		<div class="flex flex-col gap-1">
+			<div class="text-xs text-emphasis font-semibold">Sign-in</div>
+			<span class="text-xs font-normal text-primary">
+				Through <span class="capitalize">{login_type}</span> single sign-on
+			</span>
+		</div>
+	{/if}
 
-		{#if login_type == 'password' && totpEnabled != undefined}
-			<div class="flex flex-col gap-1 w-120">
-				<span class="text-xs text-emphasis font-semibold">Two-factor authentication</span>
-				<span class="text-xs text-secondary font-normal">
-					{totpEnabled
-						? 'On. Logging in with your password also asks for a code from your authenticator app.'
-						: 'Ask for a code from an authenticator app each time you log in with your password.'}
-				</span>
-				<div class="flex flex-row gap-1">
-					{#if totpEnabled}
-						<Button
-							unifiedSize="sm"
-							variant="default"
-							onClick={() => (totpAction = 'recovery_codes')}
-						>
-							New recovery codes
-						</Button>
-						<Button unifiedSize="sm" variant="default" onClick={() => (totpAction = 'disable')}>
-							Turn off
-						</Button>
-					{:else}
-						<Button unifiedSize="sm" variant="default" onClick={() => (totpAction = 'setup')}>
-							Set up two-factor authentication
-						</Button>
-					{/if}
-				</div>
+	{#if login_type == 'password' && totpEnabled != undefined}
+		<div class="flex flex-col gap-1 w-120">
+			<span class="text-xs text-emphasis font-semibold">Two-factor authentication</span>
+			<span class="text-xs text-secondary font-normal">
+				{totpEnabled
+					? 'On. Logging in with your password also asks for a code from your authenticator app.'
+					: 'Ask for a code from an authenticator app each time you log in with your password.'}
+			</span>
+			<div class="flex flex-row gap-1">
+				{#if totpEnabled}
+					<Button
+						unifiedSize="sm"
+						variant="default"
+						onClick={() => (totpAction = 'recovery_codes')}
+					>
+						New recovery codes
+					</Button>
+					<Button unifiedSize="sm" variant="default" onClick={() => (totpAction = 'disable')}>
+						Turn off
+					</Button>
+				{:else}
+					<Button unifiedSize="sm" variant="default" onClick={() => (totpAction = 'setup')}>
+						Set up two-factor authentication
+					</Button>
+				{/if}
 			</div>
-		{/if}
-	</form>
-	<TotpModal bind:action={totpAction} onClose={loadTotp} />
-</div>
+		</div>
+	{/if}
+</form>
+<TotpModal bind:action={totpAction} onClose={loadTotp} />
