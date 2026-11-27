@@ -43,7 +43,6 @@
 	import { markdownProse } from './markdownProse'
 	import Toggle from './Toggle.svelte'
 	import S3ObjectHeader from './common/fileDownload/S3ObjectHeader.svelte'
-	import ResultItemHeader from './common/fileDownload/ResultItemHeader.svelte'
 	import S3TextPreview from './common/fileDownload/S3TextPreview.svelte'
 
 	import S3ObjectTable from './common/fileDownload/S3ObjectTable.svelte'
@@ -342,6 +341,7 @@
 	}
 	/** `render_all` elements read per click, and listed before the rest are counted */
 	const TOO_BIG_PAGE_SIZE = 10
+	const TOO_BIG_LISTED = 5
 	type TooBigShape = {
 		length: number
 		/** The image of an image result, or the `render_all` elements the shape lists (the first 100) */
@@ -513,6 +513,10 @@
 	let loadedResultBytes = $state(0)
 	let download_as_csv = $state(false)
 	function inferResultKind(result: any) {
+		// Reset first: the same view is reused across results (the runs page's preview), and the
+		// early returns below would keep a previous `render_all` or table's flags.
+		is_render_all = false
+		download_as_csv = false
 		// The whole string, on one line: text that mentions an `s3://` URI is a plain string.
 		if (typeof result === 'string' && result.match(/^s3:\/\/[^/]*\/.+$/)) {
 			largeObject = false
@@ -1110,7 +1114,7 @@
 		<div class="flex flex-col w-full gap-3">
 			{#each result['render_all'] as res}
 				<!-- Drops the 160px floor a result pane keeps, so a short element hugs its content -->
-				<div class="rounded-md border p-3 min-w-0 overflow-x-auto [&>div]:min-h-0">
+				<div class="rounded-md border p-3 min-w-0 [&>div]:min-h-0 [&>div>div.grow]:overflow-x-auto [&>div>div.grow]:pb-2">
 					<DisplayResult
 						{noControls}
 						result={res}
@@ -1598,7 +1602,7 @@
 									{#snippet partRows(rows: TooBigPart[])}
 										{#each rows as part (part.path)}
 											{@const Icon = part.imageKind ? FileImage : Braces}
-											<li class="flex flex-row items-center gap-2 text-xs">
+											<li class="flex flex-row items-center gap-2 text-xs whitespace-nowrap">
 												<Icon size={16} class="shrink-0 text-secondary" />
 												<span class="font-medium text-emphasis"
 													>{part.imageKind ? `${part.imageKind.toUpperCase()} image` : 'JSON'}</span
@@ -1609,21 +1613,24 @@
 									{/snippet}
 									<ul class="flex flex-col gap-1.5">
 										{#if parts.length}
-											{@render partRows(parts.slice(0, TOO_BIG_PAGE_SIZE))}
-											{#if Math.max(parts.length, count) > TOO_BIG_PAGE_SIZE}
-												{@const rest = parts.slice(TOO_BIG_PAGE_SIZE)}
+											{@render partRows(parts.slice(0, TOO_BIG_LISTED))}
+											{#if Math.max(parts.length, count) > TOO_BIG_LISTED}
+												{@const rest = parts.slice(TOO_BIG_LISTED)}
 												{@const images = rest.filter((p) => p.imageKind).length}
 												{@const json = rest.length - images}
 												<!-- The shape lists the first 100 elements: the rest are only counted -->
 												{@const unlisted = Math.max(
 													0,
-													count - Math.max(parts.length, TOO_BIG_PAGE_SIZE)
+													count - Math.max(parts.length, TOO_BIG_LISTED)
 												)}
 												<li class="text-xs text-secondary pl-6">
 													<MeltTooltip
 														placement="bottom-start"
 														class="underline decoration-dotted cursor-default"
+														customBgClass="bg-surface-secondary w-56"
 													>
+														<!-- A fixed width: a box sized to its rows leaves no room for a scrollbar that
+														takes width, which then wraps or scrolls them sideways -->
 														+{[
 															images ? `${images} ${images === 1 ? 'image' : 'images'}` : '',
 															json ? `${json} JSON` : '',
@@ -1645,7 +1652,7 @@
 												: info?.itemCount !== undefined
 													? Brackets
 													: Braces}
-											<li class="flex flex-row items-center gap-2 text-xs">
+											<li class="flex flex-row items-center gap-2 text-xs whitespace-nowrap">
 												<Icon size={16} class="shrink-0 text-secondary" />
 												<span class="font-medium text-emphasis"
 													>{tooBigFilename ??
@@ -1697,43 +1704,37 @@
 											small
 											documentationLink="https://www.windmill.dev/docs/core_concepts/persistent_storage#object-storage-for-large-data-s3-r2-minio-azure-blob"
 										>
-											This result is over the 90 KB display limit: it is stored with the job but not
-											sent with it. Write large outputs to object storage and return
-											<code>{'{ "s3": "path/to/key" }'}</code>: the job then keeps only the path,
-											and the file is previewed by type.
+											Results over 90 KB are kept with the job but not loaded with it, so they
+											appear here only after you click Load.
+											<br /><br />
+											For large outputs such as images, files or big tables, we recommend workspace object
+											storage (S3): write the file there and return
+											<code>{'{ "s3": "path/to/key" }'}</code>. The job then stores only the path,
+											and the file is previewed right away, by type, with no Load step.
 										</Tooltip>
 									</span>
 								</div>
-							{:else}
-								<div class="mt-2 mb-2 rounded-md border overflow-hidden">
-									<div class="px-3 py-2 bg-surface">
-										<ResultItemHeader icon={Braces} title={download_as_csv ? 'Table' : 'JSON'}>
-											{#snippet subtitle()}
-												{size ? formatSize(size) : ''}
-											{/snippet}
-											{#snippet actions()}
-												{#if download_as_csv}
-													<Button
-														onclick={() =>
-															downloadBlob(
-																new Blob([convertJsonToCsv(result)], {
-																	type: 'text/csv;charset=utf-8;'
-																}),
-																'data.csv'
-															)}
-														startIcon={{ icon: Download }}
-														variant="default"
-														unifiedSize="sm"
-													>
-														Download CSV
-													</Button>
-												{/if}
-												{#if !toolbarDownloads}
-													{@render downloadJson(download_as_csv ? 'subtle' : 'default')}
-												{/if}
-											{/snippet}
-										</ResultItemHeader>
-									</div>
+							{:else if download_as_csv || !toolbarDownloads}
+								<div class="flex flex-row gap-2 mb-2">
+									{#if download_as_csv}
+										<Button
+											onclick={() =>
+												downloadBlob(
+													new Blob([convertJsonToCsv(result)], {
+														type: 'text/csv;charset=utf-8;'
+													}),
+													'data.csv'
+												)}
+											startIcon={{ icon: Download }}
+											variant="default"
+											unifiedSize="sm"
+										>
+											Download CSV
+										</Button>
+									{/if}
+									{#if !toolbarDownloads}
+										{@render downloadJson('subtle')}
+									{/if}
 								</div>
 							{/if}
 						{/if}

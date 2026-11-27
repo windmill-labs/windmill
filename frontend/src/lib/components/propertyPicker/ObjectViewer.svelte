@@ -281,42 +281,47 @@
 	{/if}
 
 	{#if level == 0}
-		<div class="float-right">
-			{#if searchOpen}
-				<div class="px-1 relative">
-					<input
-						onkeydown={(event) => {
-							if ((event as KeyboardEvent)?.key === 'Escape') {
+		<!-- Sticky, so it stays at the right edge when a wide value scrolls the viewer sideways. No
+		height, so it overlays the first line rather than taking room on it, which pushed a long
+		first value onto the next line. -->
+		<div class="float-right sticky right-0 z-[1] h-0 overflow-visible">
+			<div class="bg-surface rounded-md">
+				{#if searchOpen}
+					<div class="px-1 relative">
+						<input
+							onkeydown={(event) => {
+								if ((event as KeyboardEvent)?.key === 'Escape') {
+									clearSearch()
+								}
+								event.stopPropagation()
+							}}
+							type="text"
+							class="!h-6 !text-2xs mt-0.5"
+							bind:value={search}
+							placeholder="Search..."
+							bind:this={searchInput}
+						/>
+						<button
+							class="absolute right-2 top-1 rounded-full hover:bg-surface-hover focus:bg-surface-hover text-secondary p-0.5"
+							onclick={() => {
 								clearSearch()
-							}
-							event.stopPropagation()
+							}}><X size={12} /></button
+						>
+					</div>
+				{:else}
+					<Button
+						color="light"
+						size="xs3"
+						iconOnly
+						btnClasses="text-primary hover:text-primary"
+						startIcon={{ icon: Search }}
+						on:click={() => {
+							searchOpen = true
+							tick().then(() => searchInput?.focus())
 						}}
-						type="text"
-						class="!h-6 !text-2xs mt-0.5"
-						bind:value={search}
-						placeholder="Search..."
-						bind:this={searchInput}
-					/>
-					<button
-						class="absolute right-2 top-1 rounded-full hover:bg-surface-hover focus:bg-surface-hover text-secondary p-0.5"
-						onclick={() => {
-							clearSearch()
-						}}><X size={12} /></button
-					>
-				</div>
-			{:else}
-				<Button
-					color="light"
-					size="xs3"
-					iconOnly
-					btnClasses="text-primary hover:text-primary"
-					startIcon={{ icon: Search }}
-					on:click={() => {
-						searchOpen = true
-						tick().then(() => searchInput?.focus())
-					}}
-				></Button>
-			{/if}
+					></Button>
+				{/if}
+			</div>
 		</div>
 	{/if}
 
@@ -475,7 +480,11 @@
 
 {#if level === 0}
 	<ContextMenu items={menuItems}>
-		{@render viewerContent()}
+		<!-- As wide as the widest row, so a long value widens every row (and its hover) instead of
+		running past it, and the sticky search button has the full width to stay in -->
+		<div class="w-max min-w-full">
+			{@render viewerContent()}
+		</div>
 	</ContextMenu>
 {:else}
 	{@render viewerContent()}
