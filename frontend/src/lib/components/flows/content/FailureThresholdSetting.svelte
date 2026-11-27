@@ -99,6 +99,7 @@
 			{header}
 			{schema}
 			argExtra={{ min: 1, step: 1 }}
+			extraLib={stepPropPicker.extraLib}
 			animateAppear
 			previousModuleId={previousModule?.id}
 			bind:editor

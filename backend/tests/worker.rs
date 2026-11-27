@@ -5494,6 +5494,7 @@ async fn test_loop_failure_threshold(db: Pool<Postgres>) -> anyhow::Result<()> {
     let parallel = run(true, false).await;
     let parallel_iterations = iteration_statuses(parallel.id).await?;
     let recovered = run(true, true).await;
+    let recovered_iterations = iteration_statuses(recovered.id).await?;
     // A while loop with no stop condition ends only on its threshold, here an expression.
     let while_flow: FlowValue = serde_json::from_value(json!({
         "modules": [{
@@ -5554,6 +5555,8 @@ async fn test_loop_failure_threshold(db: Pool<Postgres>) -> anyhow::Result<()> {
         parallel_iterations,
         ["canceled", "canceled", "canceled", "failure", "failure"]
     );
+    // Both iterations and the handler of the threshold error.
+    assert_eq!(recovered_iterations, ["success", "success", "success"]);
     assert!(!recovered.success, "recovered iterations still count");
     assert_eq!(
         recovered.json_result().unwrap()["handled"],
