@@ -27,11 +27,14 @@
 	}
 
 	let totpEnabled = $state<boolean | undefined>(undefined)
+	let totpRequired = $state(false)
 	let totpAction = $state<TotpAction | undefined>(undefined)
 
 	async function loadTotp(): Promise<void> {
 		// Builds without two-factor support do not serve the route: the section stays hidden.
-		totpEnabled = (await UserService.getTotpStatus().catch(() => undefined))?.enabled
+		const status = await UserService.getTotpStatus().catch(() => undefined)
+		totpEnabled = status?.enabled
+		totpRequired = status?.required ?? false
 	}
 
 	async function setPassword(): Promise<void> {
@@ -94,7 +97,9 @@
 				<span class="text-xs text-emphasis font-semibold">Two-factor authentication</span>
 				<span class="text-xs text-secondary font-normal">
 					{totpEnabled
-						? 'On. Logging in with your password also asks for a code from your authenticator app.'
+						? totpRequired
+							? 'On, as this instance requires. Logging in with your password also asks for a code from your authenticator app.'
+							: 'On. Logging in with your password also asks for a code from your authenticator app.'
 						: 'Ask for a code from an authenticator app each time you log in with your password.'}
 				</span>
 				<div class="flex flex-row gap-1">
@@ -106,9 +111,11 @@
 						>
 							New recovery codes
 						</Button>
-						<Button unifiedSize="sm" variant="default" onClick={() => (totpAction = 'disable')}>
-							Turn off
-						</Button>
+						{#if !totpRequired}
+							<Button unifiedSize="sm" variant="default" onClick={() => (totpAction = 'disable')}>
+								Turn off
+							</Button>
+						{/if}
 					{:else}
 						<Button unifiedSize="sm" variant="default" onClick={() => (totpAction = 'setup')}>
 							Set up two-factor authentication

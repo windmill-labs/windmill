@@ -46,8 +46,11 @@
 		loginErrorDetail,
 		loginErrorMessage,
 		TOTP_INVALID_MESSAGE,
-		TOTP_REQUIRED
+		TOTP_REQUIRED,
+		TOTP_SETUP_REQUIRED
 	} from '$lib/loginError'
+	import TotpAuthenticator from './settings/TotpAuthenticator.svelte'
+	import TotpRecoveryCodes from './settings/TotpRecoveryCodes.svelte'
 	import Badge from './common/badge/Badge.svelte'
 	import {
 		getLastLoginMethod,
@@ -188,16 +191,34 @@
 
 	let showPassword = $state(false)
 	let passwordField = $state<Password | undefined>(undefined)
-	// The account the server asked an authenticator code for. The code step replaces the form
-	// and resends the password kept here, so the server needs no half-logged-in state.
+	// The account the server asked an authenticator code for, or asked to set up two-factor
+	// authentication when the instance requires it. These steps replace the form and resend the
+	// password kept here, so the server needs no half-logged-in state.
 	let totpFor = $state<string | undefined>(undefined)
 	let totpCode = $state('')
 	let totpField = $state<TextInput | undefined>(undefined)
 	let showTotp = $derived(totpFor !== undefined && totpFor === email)
+	let enrollSetup = $state<{ secret: string; otpauth_url: string } | undefined>(undefined)
+	// Kept across Back: asking the server again replaces the pending secret, and the QR code the
+	// user already scanned would stop working.
+	let issuedSetup: { email: string; setup: { secret: string; otpauth_url: string } } | undefined
+	let enrollCodes = $state<string[] | undefined>(undefined)
+	let enrollSaved = $state(false)
+
+	async function openTotpStep(forEmail: string, setup?: { secret: string; otpauth_url: string }) {
+		formError = undefined
+		shake = false
+		totpFor = forEmail
+		totpCode = ''
+		enrollSetup = setup
+		await tick()
+		totpField?.focus()
+	}
 
 	async function leaveTotp() {
 		totpFor = undefined
 		totpCode = ''
+		enrollSetup = undefined
 		formError = undefined
 		// The swapped-in markup would otherwise replay a shake left on from a failed attempt.
 		shake = false
@@ -284,6 +305,11 @@
 			return
 		}
 
+		if (showTotp && enrollSetup) {
+			await enableTotpAtLogin()
+			return
+		}
+
 		const requestBody = {
 			email,
 			password,
@@ -301,13 +327,24 @@
 			// previous account must not be served to this one.
 			noteSessionEmail(email)
 		} catch (err) {
-			if (loginErrorDetail(err) === TOTP_REQUIRED) {
-				formError = undefined
-				shake = false
-				totpFor = requestBody.email
-				totpCode = ''
-				await tick()
-				totpField?.focus()
+			const detail = loginErrorDetail(err)
+			if (detail === TOTP_REQUIRED) {
+				await openTotpStep(requestBody.email)
+				return
+			}
+			if (detail === TOTP_SETUP_REQUIRED) {
+				try {
+					const setup =
+						issuedSetup?.email === requestBody.email
+							? issuedSetup.setup
+							: await UserService.loginTotpSetup({
+									requestBody: { email: requestBody.email, password: requestBody.password }
+								})
+					issuedSetup = { email: requestBody.email, setup }
+					await openTotpStep(requestBody.email, setup)
+				} catch (setupErr) {
+					failLogin(loginErrorMessage(setupErr), 'both', requestBody)
+				}
 				return
 			}
 			const message = loginErrorMessage(err)
@@ -315,6 +352,26 @@
 			return
 		}
 
+		await finishLogin()
+	}
+
+	// Turns the second factor on and starts the session in one request; the recovery codes it
+	// returns are shown before leaving the page.
+	async function enableTotpAtLogin(): Promise<void> {
+		const requestBody = { email: email!, password: password!, code: totpCode }
+		try {
+			const { recovery_codes } = await UserService.loginTotpEnable({ requestBody })
+			noteSessionEmail(requestBody.email)
+			formError = undefined
+			enrollSetup = undefined
+			enrollCodes = recovery_codes
+		} catch (err) {
+			const message = loginErrorMessage(err)
+			failLogin(message, message === TOTP_INVALID_MESSAGE ? 'totp' : 'both', requestBody)
+		}
+	}
+
+	async function finishLogin(): Promise<void> {
 		formError = undefined
 		rememberLoginMethod({ kind: 'password' })
 
@@ -797,17 +854,41 @@
 		<p class="text-sm text-center text-secondary py-4">Signing you in…</p>
 	{/if}
 
-	{#if showTotp}
+	{#if enrollCodes}
 		<div class="space-y-4">
 			<div class="space-y-1">
-				<h2 class="text-sm font-semibold text-emphasis">Two-factor authentication</h2>
+				<h2 class="text-sm font-semibold text-emphasis">Two-factor authentication is on</h2>
 				<p class="text-xs text-secondary">
-					Enter the code from your authenticator app for {email}, or one of your recovery codes.
+					Logging in with your password now also asks for a code from your authenticator app.
 				</p>
 			</div>
+			<TotpRecoveryCodes codes={enrollCodes} bind:saved={enrollSaved} />
+			<Button onClick={finishLogin} variant="accent" unifiedSize="lg" disabled={!enrollSaved}>
+				Continue
+			</Button>
+		</div>
+	{:else if showTotp}
+		<div class="space-y-4">
+			<div class="space-y-1">
+				{#if enrollSetup}
+					<h2 class="text-sm font-semibold text-emphasis">Set up two-factor authentication</h2>
+					<p class="text-xs text-secondary">
+						This instance asks for a code from an authenticator app at each password login. Add
+						{email} to your app to continue.
+					</p>
+				{:else}
+					<h2 class="text-sm font-semibold text-emphasis">Two-factor authentication</h2>
+					<p class="text-xs text-secondary">
+						Enter the code from your authenticator app for {email}, or one of your recovery codes.
+					</p>
+				{/if}
+			</div>
+			{#if enrollSetup}
+				<TotpAuthenticator setup={enrollSetup} />
+			{/if}
 			<div bind:this={fieldsEl} class="space-y-1 {shake ? 'motion-safe:animate-shake' : ''}">
 				<label for={totpId} class="block text-xs font-semibold text-emphasis">
-					Authentication code
+					{enrollSetup ? 'The 6-digit code your app shows' : 'Authentication code'}
 				</label>
 				<TextInput
 					bind:this={totpField}
@@ -827,7 +908,7 @@
 			</div>
 			<div class="space-y-2">
 				<Button onClick={login} variant="accent" unifiedSize="lg" disabled={!totpCode.trim()}>
-					Verify
+					{enrollSetup ? 'Turn on and log in' : 'Verify'}
 				</Button>
 				<div class="center-center">
 					<Button unifiedSize="sm" variant="subtle" onClick={leaveTotp}>Back</Button>
