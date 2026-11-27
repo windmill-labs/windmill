@@ -6,6 +6,8 @@
 	import { Button } from '$lib/components/common'
 	import Select from '$lib/components/select/Select.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
+	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import { superadmin, userStore, usersWorkspaceStore, workspaceStore } from '$lib/stores'
 	import { parseMaxTokenExpirationDays } from '$lib/tokenExpiration'
 
@@ -55,8 +57,14 @@
 		return picked === 0 || picked > ceilingDays ? ceilingDays : picked
 	})
 
-	// The CLI works across workspaces and instance-level endpoints, so its token is not bound to
-	// one; the owner's admin and superadmin rights are carried only when asked for.
+	// Instance-wide by default: `wmill workspace add`, `workspace list/fork` and `instance`
+	// commands call instance-level endpoints, which a workspace-bound token is refused on. The
+	// owner's admin and superadmin rights are carried only when asked for.
+	let reach = $state<'workspace' | 'all'>('all')
+	let boundWorkspace = $state<string | undefined>(untrack(() => $workspaceStore))
+	const workspaceItems = $derived(
+		($usersWorkspaceStore?.workspaces ?? []).map((w) => ({ label: w.name, value: w.id }))
+	)
 	let carryAdmin = $state(false)
 	let carrySuperAdmin = $state(false)
 	const isAdminSomewhere = $derived(!!$userStore?.is_admin || !!$superadmin)
@@ -74,6 +82,7 @@
 			requestBody: {
 				label,
 				expiration,
+				workspace_id: reach === 'workspace' ? boundWorkspace : undefined,
 				admin: carryAdmin,
 				super_admin: carrySuperAdmin
 			}
@@ -101,6 +110,36 @@
 				This instance limits tokens to {daysLabel(ceilingDays)}.
 			{/if}
 			Once it expires, the CLI asks you to sign in again.
+		</p>
+	</div>
+	<div class="flex flex-col gap-1 pt-4">
+		<span class="text-xs font-semibold text-emphasis">Works in</span>
+		<div class="flex flex-row flex-wrap items-center gap-2">
+			<ToggleButtonGroup bind:selected={reach} allowEmpty={false}>
+				{#snippet children({ item })}
+					<ToggleButton {item} value="all" label="All workspaces (instance-wide)" />
+					<ToggleButton {item} value="workspace" label="One workspace" />
+				{/snippet}
+			</ToggleButtonGroup>
+			{#if reach === 'workspace'}
+				<div class="min-w-48">
+					<Select
+						bind:value={boundWorkspace}
+						placeholder="Pick a workspace"
+						inputClass="w-full"
+						items={workspaceItems}
+					/>
+				</div>
+			{/if}
+		</div>
+		<p class="text-2xs text-hint">
+			{#if reach === 'all'}
+				Needed for <code>wmill workspace add</code>, <code>workspace list</code>/<code>fork</code>
+				and <code>instance</code> commands.
+			{:else}
+				Enough to sync this one workspace; commands that reach other workspaces or the instance
+				are refused.
+			{/if}
 		</p>
 	</div>
 	{#if (isAdminSomewhere && !carrySuperAdmin) || $superadmin}
@@ -131,6 +170,11 @@
 	{/if}
 	<div class="flex flex-row justify-around pt-4 gap-x-1">
 		<Button variant="default" destructive unifiedSize="lg" href="/">Decline</Button>
-		<Button variant="accent" unifiedSize="lg" onClick={authorizeToken}>Authorize</Button>
+		<Button
+			variant="accent"
+			unifiedSize="lg"
+			onClick={authorizeToken}
+			disabled={reach === 'workspace' && !boundWorkspace}>Authorize</Button
+		>
 	</div>
 </CenteredModal>
