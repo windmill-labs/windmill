@@ -1045,9 +1045,10 @@
 />
 
 <div class="h-full relative flex flex-col">
-	<div class="flex justify-between items-center bg-surface-input pr-2">
+	<!-- Wraps the toolbar under the search once both no longer fit on one line. -->
+	<div class="flex flex-wrap justify-between items-center bg-surface-input pr-2">
 		<FilterSearchbar
-			class="grow min-w-0 rounded-none !border-0"
+			class="grow basis-40 min-w-0 rounded-none !border-0"
 			size="lg"
 			searchIconPosition="left"
 			dropdownMaxWidth={480}
@@ -1056,7 +1057,7 @@
 			bind:value={filters}
 			placeholder={compact ? 'Search' : 'Search, or filter by column...'}
 		/>
-		<div class="flex shrink-0 items-center gap-2 text-xs text-secondary">
+		<div class="flex shrink-0 items-center gap-2 ml-auto text-xs text-secondary">
 			{@render toolbar?.()}
 			{#if totalRows > 0 && endRow !== 0}
 				{#if compact}

@@ -1,10 +1,14 @@
 <script lang="ts">
+	import { untrack } from 'svelte'
 	import { ChevronDown, FileDown, Loader2, PanelTop } from 'lucide-svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import { Button } from '$lib/components/common'
 	import type { IDbTableOps } from '$lib/components/dbOps'
 	import { s3TableOps, serverTableFormat } from '$lib/components/s3TableOps'
-	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import {
+		setOperatingWorkspace,
+		useOperatingWorkspace
+	} from '$lib/components/operatingWorkspace.svelte'
 	import { downloadViaClient, shouldDownloadViaClient } from '$lib/utils/downloadFile'
 
 	interface Props {
@@ -17,6 +21,8 @@
 	let { s3object, workspaceId = undefined, appPath = undefined }: Props = $props()
 
 	const operatingWorkspace = useOperatingWorkspace()
+	// DBTable loads no rows without an operating workspace, and a public app sets none.
+	setOperatingWorkspace(() => workspaceId)
 
 	const CSV_SEPARATORS = [
 		{ value: ',', short: ',', name: 'Comma' },
@@ -34,6 +40,16 @@
 
 	let csvSeparator: string | undefined = $state(undefined)
 	let csvHasHeader = $state(true)
+	/** The control that changed the table: the reloaded table remounts it, and it takes the
+	 * focus back. */
+	let refocus: 'separator' | 'header' | undefined = $state(undefined)
+	function takesFocusBack(control: 'separator' | 'header') {
+		return (el: HTMLElement) => {
+			if (untrack(() => refocus) !== control) return
+			refocus = undefined
+			el.querySelector('button')?.focus()
+		}
+	}
 	/** The separator the server guessed while none is picked. */
 	let detectedSeparator: string | undefined = $state(undefined)
 	// JSON lines are read through the CSV route too, but have no separator or header row.
@@ -54,10 +70,21 @@
 	let separatorItems = $derived([
 		...CSV_SEPARATORS.map((s) => ({
 			displayName: s.short === s.name ? s.name : `${s.name} ${s.short}`,
-			action: () => (csvSeparator = s.value)
+			action: () => {
+				refocus = 'separator'
+				csvSeparator = s.value
+			}
 		})),
 		...(csvSeparator !== undefined
-			? [{ displayName: 'Detect automatically', action: () => (csvSeparator = undefined) }]
+			? [
+					{
+						displayName: 'Detect automatically',
+						action: () => {
+							refocus = 'separator'
+							csvSeparator = undefined
+						}
+					}
+				]
 			: [])
 	])
 
@@ -87,8 +114,8 @@
 	// Lazy: DBTable reaches Monaco, and every page that shows a job result imports this card.
 	const dbTable = import('$lib/components/DBTable.svelte')
 
-	let table = $derived(
-		s3TableOps({
+	let table = $derived.by(() => {
+		const pending = s3TableOps({
 			workspace,
 			fileKey: s3object.s3,
 			storage: s3object.storage,
@@ -96,38 +123,48 @@
 			csvHasHeader,
 			app: appPath ? { path: appPath, presigned: s3object.presigned } : undefined
 		}).then((t) => {
+			// A table superseded while loading must not label the current one.
+			if (table !== pending) return t as never
 			detectedSeparator = t.csvSeparator
 			return dbTable.then((m) => ({ ...t, ops: recordingTotal(t.ops), DBTable: m.default }))
 		})
-	)
+		return pending
+	})
 </script>
 
 {#snippet csvControls()}
-	<DropdownV2
-		items={separatorItems}
-		placement="bottom-end"
-		fixedHeight={false}
-		triggerLabel={separator
-			? `Separator: ${separator.name}${csvSeparator === undefined ? ' (detected)' : ''}`
-			: 'Separator: detect automatically'}
-		class="h-7 px-2 gap-1 rounded-md text-xs text-primary hover:bg-surface-hover"
-	>
-		{#snippet buttonReplacement()}
-			<span class={separator ? 'font-mono' : ''}>{separator?.short ?? 'Auto'}</span>
-			<ChevronDown size={14} />
-		{/snippet}
-	</DropdownV2>
+	<span class="contents" {@attach takesFocusBack('separator')}>
+		<DropdownV2
+			items={separatorItems}
+			placement="bottom-end"
+			fixedHeight={false}
+			triggerLabel={separator
+				? `Separator: ${separator.name}${csvSeparator === undefined ? ' (detected)' : ''}`
+				: 'Separator: detect automatically'}
+			class="h-7 px-2 gap-1 rounded-md text-xs text-primary hover:bg-surface-hover"
+		>
+			{#snippet buttonReplacement()}
+				<span class={separator ? 'font-mono' : ''}>{separator?.short ?? 'Auto'}</span>
+				<ChevronDown size={14} />
+			{/snippet}
+		</DropdownV2>
+	</span>
 	<!-- The app-scoped routes always read the first row as the header. -->
 	{#if !appPath}
-		<Button
-			variant="subtle"
-			unifiedSize="sm"
-			iconOnly
-			startIcon={{ icon: PanelTop }}
-			selected={csvHasHeader}
-			title={csvHasHeader ? 'First row is the header' : 'First row is data'}
-			onClick={() => (csvHasHeader = !csvHasHeader)}
-		/>
+		<span class="contents" {@attach takesFocusBack('header')}>
+			<Button
+				variant="subtle"
+				unifiedSize="sm"
+				iconOnly
+				startIcon={{ icon: PanelTop }}
+				selected={csvHasHeader}
+				title={csvHasHeader ? 'First row is the header' : 'First row is data'}
+				onClick={() => {
+					refocus = 'header'
+					csvHasHeader = !csvHasHeader
+				}}
+			/>
+		</span>
 	{/if}
 	<div class="w-px h-5 border-l"></div>
 {/snippet}

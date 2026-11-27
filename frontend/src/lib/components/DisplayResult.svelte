@@ -210,12 +210,12 @@
 		key: unknown
 	): 'table' | 'image' | 'pdf' | 'text' | 'markdown' | undefined {
 		if (typeof key !== 'string') return undefined
+		// Previews read the file with the viewer's rights: a logged-out viewer outside an app (a
+		// public run page) has none, and gets the download only.
+		if (!$userStore && !appPath) return undefined
 		if (serverTableFormat(key)) return 'table'
 		if (['.png', '.jpeg', '.jpg', '.webp'].some((ext) => key.endsWith(ext))) return 'image'
 		if (key.endsWith('.pdf')) return 'pdf'
-		// Fetched on display, unlike an image, so not for a viewer who cannot read the file (a
-		// logged-out public page).
-		if (!$userStore && !appPath) return undefined
 		if (/\.(txt|log)$/i.test(key)) return 'text'
 		if (isMarkdownFile(key)) return 'markdown'
 		return undefined
@@ -354,8 +354,8 @@
 	let is_render_all = $state(false)
 	let download_as_csv = $state(false)
 	function inferResultKind(result: any) {
-		// Anchored: a sentence that mentions an `s3://` URI is a plain string.
-		if (typeof result === 'string' && result.match(/^s3:\/\/[^/]*\/.+/)) {
+		// The whole string, on one line: text that mentions an `s3://` URI is a plain string.
+		if (typeof result === 'string' && result.match(/^s3:\/\/[^/]*\/.+$/)) {
 			largeObject = false
 			return 's3object'
 		}
