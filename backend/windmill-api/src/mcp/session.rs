@@ -52,10 +52,10 @@ fn tool_title(name: &str) -> String {
 }
 
 /// The MCP Apps view a client that renders them draws these tools' results in. It draws
-/// what the tool put in its result's `_meta` (`Ctx::view`), and acts by calling tools.
-/// Hosts cache a view by its URI: bump the version when a change breaks the `_meta` shape
-/// the deployed card reads.
-pub(super) const CARD_URI: &str = "ui://windmill/card-v1";
+/// what the tool put in its result's `_meta` (`Ctx::view`), or loads it with `load_card`
+/// from the call named in `structuredContent`, and acts by calling tools. Hosts cache a
+/// view by its URI: bump the version when a change breaks what the deployed card reads.
+pub(super) const CARD_URI: &str = "ui://windmill/card-v2";
 const CARD_HTML: &str = include_str!("card.html");
 
 /// The `ui://` views the session's tools render in, as `(uri, html)`.
@@ -89,8 +89,12 @@ pub(super) fn session_tools(session_access: SessionAccess) -> Vec<Tool> {
                 .filter(|(name, ..)| tools::view_allowed(name, access))
                 .map(|(name, description, schema)| {
                     let mut meta = result_size_meta();
-                    meta.0
-                        .insert("ui".into(), json!({ "resourceUri": CARD_URI }));
+                    let ui = if name == tools::LOAD_CARD {
+                        json!({ "resourceUri": CARD_URI, "visibility": ["app"] })
+                    } else {
+                        json!({ "resourceUri": CARD_URI })
+                    };
+                    meta.0.insert("ui".into(), ui);
                     let Value::Object(schema) = schema else {
                         unreachable!("a view tool's schema is an object")
                     };
@@ -114,6 +118,7 @@ pub(super) async fn call_session_tool(
     name: &str,
     args: Value,
 ) -> BackendResult<CallToolResult> {
+    let call = json!({ "tool": name, "workspace_id": ctx.w_id, "arguments": args.clone() });
     let outcome =
         tools::call_session_tool(ctx, name, args)
             .await
@@ -131,9 +136,20 @@ pub(super) async fn call_session_tool(
         CallToolResult::success(content)
     };
     if let Some((key, view)) = ctx.view.lock().unwrap().take() {
+        result.structured_content = Some(structured_content(name, call, key, &view));
         result.meta = Some(MetaObject(Map::from_iter([(key.to_string(), view)])));
     }
     Ok(result)
+}
+
+/// Codex's and ChatGPT's models read `structuredContent`, so a show tool's names only its
+/// call. `load_card`'s holds the card data: only the card calls it.
+fn structured_content(name: &str, call: Value, key: &str, view: &Value) -> Value {
+    if name == tools::LOAD_CARD {
+        json!({ key: view })
+    } else {
+        call
+    }
 }
 
 #[cfg(test)]
@@ -155,6 +171,35 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// The card loads its data through `load_card`; a model that could call it would read
+    /// every card's data, which the show tools keep out of its context.
+    #[test]
+    fn only_load_card_is_hidden_from_the_model() {
+        let app_only: Vec<String> = session_tools(SessionAccess::Full)
+            .into_iter()
+            .filter(|tool| {
+                let ui = tool.meta.as_ref().and_then(|m| m.0.get("ui"));
+                ui.and_then(|ui| ui.get("visibility")) == Some(&json!(["app"]))
+            })
+            .map(|tool| tool.name.to_string())
+            .collect();
+        assert_eq!(app_only, [tools::LOAD_CARD]);
+    }
+
+    #[test]
+    fn only_load_card_puts_card_data_in_structured_content() {
+        let call = json!({ "tool": "show_run", "workspace_id": "w", "arguments": { "id": "1" } });
+        let view = json!({ "status": "success", "logs": "tick" });
+        assert_eq!(
+            structured_content("show_run", call.clone(), "windmill/run", &view),
+            call
+        );
+        assert_eq!(
+            structured_content(tools::LOAD_CARD, call, "windmill/run", &view),
+            json!({ "windmill/run": view })
+        );
     }
 
     /// The ChatGPT directory wants every hint explicit, and Claude's a title on every tool.
