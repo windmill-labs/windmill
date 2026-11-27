@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.888.0](https://github.com/windmill-labs/windmill/compare/v1.887.0...v1.888.0) (2026-11-27)
+
+
+### Features
+
+* open images in the session preview panel ([#12602](https://github.com/windmill-labs/windmill/issues/12602)) ([0c63dfe](https://github.com/windmill-labs/windmill/commit/0c63dfe18cdcd86cd34cc51907ceef2118e80e2f))
+* require two-factor authentication for password logins ([#12704](https://github.com/windmill-labs/windmill/issues/12704)) ([8ec6bee](https://github.com/windmill-labs/windmill/commit/8ec6beed3a4ef550ecd86991122b8a8757ef7021))
+
+
+### Bug Fixes
+
+* give mcp show tools a text fallback for clients without cards ([#12707](https://github.com/windmill-labs/windmill/issues/12707)) ([84e9038](https://github.com/windmill-labs/windmill/commit/84e903848af65ca049d8059c9627a859220052b2))
+* **mcp:** hold each MCP call to its own token, workspace and route ([#12709](https://github.com/windmill-labs/windmill/issues/12709)) ([cb5d6a9](https://github.com/windmill-labs/windmill/commit/cb5d6a92c22bdb606c23266a7370d726ef9eb16e))
+* opt the audit probe token into superadmin ([#12710](https://github.com/windmill-labs/windmill/issues/12710)) ([3ad867e](https://github.com/windmill-labs/windmill/commit/3ad867ee658a9bf9aa7c587d4e61724915841683))
+* tidy the mcp show tool text fallbacks ([#12713](https://github.com/windmill-labs/windmill/issues/12713)) ([a32ae57](https://github.com/windmill-labs/windmill/commit/a32ae571ca3bdae708f8018abd193d45de69241d))
+
 ## [1.887.0](https://github.com/windmill-labs/windmill/compare/v1.886.0...v1.887.0) (2026-11-27)
 
 
