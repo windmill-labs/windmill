@@ -50,6 +50,9 @@ Symbols, not line numbers, are cited: they drift less.
   factor on and mints the session in one transaction, so no session exists without it. While
   required, `disable` is refused; a superadmin `reset` is not, and sends the user back through
   enrollment. Sessions minted before the setting was turned on stay valid until they expire.
+  Until an account enrolls, its password is its only factor: whoever logs in with it first
+  enrolls their own authenticator, so a password already stolen is not protected, and the owner
+  needs a superadmin `reset` to recover.
 - **Sessions** are `token` rows with `label='session'` plus the HttpOnly `token` cookie, minted only
   by `create_session_token` (`windmill-api-users/src/users.rs`). `GET /api/users/refresh_token`
   mints one for any non-job token but returns plain text, no redirect.
