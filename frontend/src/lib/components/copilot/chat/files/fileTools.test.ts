@@ -177,6 +177,13 @@ describe('imagesAtPath', () => {
 		expect(imagesAtPath(result, ['files', 0])).toEqual([{ s3: { s3: 'c.png', storage: 'x' } }])
 	})
 
+	it('opens the format a path names when the object holds several', () => {
+		expect(imagesAtPath({ png: 'AAA', jpeg: 'BBB' }, ['jpeg'])).toEqual([
+			{ format: 'jpeg', path: [] }
+		])
+		expect(imagesAtPath({ png: 'AAA' }, ['jpeg'])).toEqual([])
+	})
+
 	it('finds nothing where the path leads off the result', () => {
 		expect(imagesAtPath(result, ['charts', 5])).toEqual([])
 		expect(imagesAtPath(result, ['charts', 0, 'png', 'deeper'])).toEqual([])

@@ -300,14 +300,19 @@ export function resultImages(value: unknown, path: ResultPath = []): ResultImage
  * (`[0, "png"]`), which names the same image as the object holding it. */
 export function imagesAtPath(result: unknown, path: ResultPath): ResultImage[] {
 	const last = path.at(-1)
-	const at =
-		typeof last === 'string' && (RESULT_IMAGE_FORMATS as string[]).includes(last)
-			? path.slice(0, -1)
-			: path
+	const format = RESULT_IMAGE_FORMATS.find((f) => f === last)
+	const at = format ? path.slice(0, -1) : path
 	let value = result
 	for (const key of at) {
 		if (!value || typeof value !== 'object') return []
 		value = (value as Record<string | number, unknown>)[key]
+	}
+	if (format) {
+		// The named field, not the first image field of the object holding it.
+		const v = (value as Record<string, unknown> | undefined)?.[format]
+		const isImage =
+			typeof v === 'string' || typeof (v as { content?: unknown })?.content === 'string'
+		return isImage ? [{ format, path: at }] : []
 	}
 	return resultImages(value, at)
 }
