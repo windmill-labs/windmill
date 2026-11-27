@@ -47,5 +47,5 @@ EXECUTE FUNCTION demote_tokens_of_demoted_owner();
 UPDATE token t SET super_admin = false
  WHERE t.super_admin
    AND NOT EXISTS (SELECT 1 FROM password p WHERE p.email = t.email AND p.super_admin)
-   AND NOT (t.label IN ('dedicated_worker', 'runner_group')
-            AND t.email = t.label || '@windmill.dev');
+   AND NOT COALESCE(t.label IN ('dedicated_worker', 'runner_group')
+                    AND t.email = t.label || '@windmill.dev', false);
