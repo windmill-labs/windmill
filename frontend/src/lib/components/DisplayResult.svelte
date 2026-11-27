@@ -706,7 +706,9 @@
 	let markdownSourceKeys: string[] = $state([])
 	// Not reactive: filled while rendering, each entry holding its own state.
 	const s3TableViews = new Map<string, S3TableView>()
-	function s3TableView(key: string) {
+	// Keyed by storage too: the same key in two storages is two files.
+	function s3TableView(s3object: { s3: string; storage?: string }) {
+		const key = `${s3object.storage ?? ''}\u0000${s3object.s3}`
 		let view = s3TableViews.get(key)
 		if (!view) s3TableViews.set(key, (view = new S3TableView()))
 		return view
@@ -869,7 +871,7 @@
 })}
 	{@const kind = s3PreviewKind(s3object?.s3)}
 	{#if kind === 'table'}
-		<S3ObjectTable {s3object} {workspaceId} {appPath} view={s3TableView(s3object.s3)} />
+		<S3ObjectTable {s3object} {workspaceId} {appPath} view={s3TableView(s3object)} />
 	{:else if kind === 'image'}
 		<div class="h-full p-3">
 			<ExpandableImage
