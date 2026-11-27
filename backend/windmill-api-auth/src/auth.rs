@@ -1530,18 +1530,6 @@ pub async fn resolve_opt_job_authed(
     Err((Error::NotAuthorized("Unauthorized".to_string()), parts))
 }
 
-/// Returns the override and whether it names the token's *label* rather than the entity that
-/// fired the request. Callers must not re-derive the second element from the first: the
-/// `ephemeral-script-end-user-` arm forwards a `created_by` verbatim, and `created_by` is
-/// unconstrained, so it may itself look like any of these shapes.
-///
-/// Only namespaces `create_token` rejects (`is_server_minted_label`) are trusted to name the
-/// entity acting, so the label can only have come from a server-side mint. Tokens minted
-/// before that guard existed are the remaining hole; closing it needs the token row to record
-/// who minted it rather than inferring it from the label.
-///
-/// Note that a trigger whose identity is set server-side — the SMTP one builds an `email-*`
-/// override directly — does not rely on this at all, so its prefix must not be trusted here.
 /// The route checks every request passes before its handler runs: job-token confinement,
 /// scopes and `read_only`. `workspace_id` is the request's workspace, `None` on a global route.
 /// Normalizes `opt_job_authed`'s scopes in place, as handlers then read them. Token
@@ -1598,6 +1586,18 @@ pub async fn check_route_layer(
     Ok(())
 }
 
+/// Returns the override and whether it names the token's *label* rather than the entity that
+/// fired the request. Callers must not re-derive the second element from the first: the
+/// `ephemeral-script-end-user-` arm forwards a `created_by` verbatim, and `created_by` is
+/// unconstrained, so it may itself look like any of these shapes.
+///
+/// Only namespaces `create_token` rejects (`is_server_minted_label`) are trusted to name the
+/// entity acting, so the label can only have come from a server-side mint. Tokens minted
+/// before that guard existed are the remaining hole; closing it needs the token row to record
+/// who minted it rather than inferring it from the label.
+///
+/// Note that a trigger whose identity is set server-side — the SMTP one builds an `email-*`
+/// override directly — does not rely on this at all, so its prefix must not be trusted here.
 pub(crate) fn username_override_from_label(label: Option<String>) -> (Option<String>, bool) {
     match label {
         Some(label) if label.starts_with("ephemeral-webhook-") => (Some(label), false),

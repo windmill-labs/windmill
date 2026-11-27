@@ -39776,11 +39776,15 @@ components:
             type: string
         read_only:
           type: boolean
-        admin:
-          description: whether the token carries its owner's workspace admin rights
+        admin_withheld:
+          description: |
+            the token does not carry its owner's workspace admin rights; the rights it does hold
+            in a workspace are in `workspace`
           type: boolean
         super_admin:
-          description: whether the token carries its owner's superadmin rights
+          description: |
+            whether the token reaches superadmin routes: its owner is a superadmin, and it is
+            neither a job token nor one that withholds those rights
           type: boolean
         allowed_ips:
           type: array
@@ -39798,7 +39802,7 @@ components:
         - email
         - username
         - read_only
-        - admin
+        - admin_withheld
         - super_admin
 
     TokenWorkspaceAccess:

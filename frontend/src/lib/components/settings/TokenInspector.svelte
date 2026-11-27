@@ -150,8 +150,8 @@
 					{#if result.super_admin}
 						<Badge color="red" small>Superadmin</Badge>
 					{/if}
-					{#if result.admin}
-						<Badge color="indigo" small>Workspace admin</Badge>
+					{#if result.admin_withheld}
+						<Badge color="gray" small>Admin rights withheld</Badge>
 					{/if}
 					{#if result.read_only}
 						<Badge color="blue" small>Read-only</Badge>
@@ -159,7 +159,7 @@
 					{#if result.job_id}
 						<Badge color="gray" small>Job {result.job_id}</Badge>
 					{/if}
-					{#if !result.super_admin && !result.admin && !result.read_only && !result.job_id}
+					{#if !result.super_admin && !result.admin_withheld && !result.read_only && !result.job_id}
 						<span class="text-primary">Owner's member rights</span>
 					{/if}
 				</div>

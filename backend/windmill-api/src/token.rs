@@ -8,7 +8,7 @@ use windmill_api_auth::{
     check_scopes, AuthCache, OptJobAuthed, Tokened,
 };
 use windmill_common::{
-    auth::{hash_token, is_session_label, JWTAuthClaims},
+    auth::{hash_token, is_session_label, is_super_admin_email, JWTAuthClaims},
     client_ip::ClientIp,
     error::{Error, JsonResult},
     jwt,
@@ -330,7 +330,10 @@ struct TokenIntrospection {
     #[serde(skip_serializing_if = "Option::is_none")]
     scopes: Option<Vec<String>>,
     read_only: bool,
-    admin: bool,
+    /// The token does not carry its owner's workspace admin rights.
+    admin_withheld: bool,
+    /// The token reaches superadmin routes: its owner is a superadmin and the token neither
+    /// withholds that nor is a job's.
     super_admin: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     allowed_ips: Option<Vec<String>>,
@@ -425,12 +428,9 @@ async fn introspect_token(
             return Err(unauthorized());
         }
         let email = row.email.ok_or_else(unauthorized)?;
+        let is_session = is_session_label(row.label.as_deref());
         TokenIntrospection {
-            kind: if is_session_label(row.label.as_deref()) {
-                "session"
-            } else {
-                "api_token"
-            },
+            kind: if is_session { "session" } else { "api_token" },
             username: row
                 .owner
                 .as_deref()
@@ -446,8 +446,10 @@ async fn introspect_token(
             workspace_ids: None,
             scopes: row.scopes,
             read_only: row.read_only,
-            admin: row.admin,
-            super_admin: row.super_admin,
+            admin_withheld: !row.admin,
+            // Not withheld yet; whether the owner holds it is settled below. A session
+            // always stands for the account as it is.
+            super_admin: row.super_admin || is_session,
             // What the build enforces: a CE build ignores a stored list.
             allowed_ips: allowed.map(|nets| nets.iter().map(|n| n.to_string()).collect()),
             job_id: None,
@@ -475,7 +477,7 @@ async fn introspect_token(
             workspace_ids: None,
             scopes: authed.scopes,
             read_only: authed.read_only,
-            admin: !authed.admin_withheld,
+            admin_withheld: authed.admin_withheld,
             super_admin: !authed.super_admin_withheld,
             allowed_ips: None,
             job_id,
@@ -496,6 +498,9 @@ async fn introspect_token(
         }
         out
     };
+    // The same three conditions `require_super_admin` checks.
+    out.super_admin =
+        out.super_admin && out.job_id.is_none() && is_super_admin_email(&db, &out.email).await?;
 
     if let Some(w_id) = q.workspace.as_deref().filter(|w| !w.is_empty()) {
         let resolved = cache
