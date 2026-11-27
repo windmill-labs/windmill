@@ -145,6 +145,7 @@ pub fn global_service() -> Router {
             post(update_token_label),
         )
         .route("/tokens/list", get(list_tokens))
+        .route("/tokens/risk_counts", get(token_risk_counts))
         .route(
             "/tokens/list_as_super_admin",
             get(list_tokens_as_super_admin),
@@ -343,8 +344,7 @@ pub struct TruncatedToken {
     pub read_only: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub allowed_ips: Option<Vec<String>>,
-    pub super_admin: bool,
-    pub workspace_admin: bool,
+    pub risks: Vec<String>,
 }
 
 // NewToken is re-exported from windmill-api-auth above
@@ -4111,12 +4111,10 @@ async fn list_tokens(
     let rows = if query.exclude_ephemeral.unwrap_or(false) {
         sqlx::query_as!(
             TruncatedToken,
-            r#"SELECT label, token_prefix, expiration, created_at,
-             last_used_at, scopes, workspace_id, read_only, allowed_ips::text[] AS allowed_ips,
-             super_admin,
-             (admin AND EXISTS (SELECT 1 FROM usr WHERE usr.email = token.email AND usr.is_admin
-                 AND (token.workspace_id IS NULL OR usr.workspace_id = token.workspace_id))) AS "workspace_admin!"
-             FROM token WHERE email = $1 AND (label != 'ephemeral-script' OR label IS NULL)
+            r#"SELECT label, token_prefix AS "token_prefix!", expiration,
+             created_at AS "created_at!", last_used_at AS "last_used_at!", scopes, workspace_id,
+             read_only AS "read_only!", allowed_ips::text[] AS allowed_ips, risks AS "risks!"
+             FROM token_risk WHERE email = $1 AND (label != 'ephemeral-script' OR label IS NULL)
              ORDER BY created_at DESC LIMIT $2 OFFSET $3"#,
             email,
             per_page as i64,
@@ -4127,12 +4125,10 @@ async fn list_tokens(
     } else {
         sqlx::query_as!(
             TruncatedToken,
-            r#"SELECT label, token_prefix, expiration, created_at,
-            last_used_at, scopes, workspace_id, read_only, allowed_ips::text[] AS allowed_ips,
-            super_admin,
-            (admin AND EXISTS (SELECT 1 FROM usr WHERE usr.email = token.email AND usr.is_admin
-                AND (token.workspace_id IS NULL OR usr.workspace_id = token.workspace_id))) AS "workspace_admin!"
-            FROM token WHERE email = $1
+            r#"SELECT label, token_prefix AS "token_prefix!", expiration,
+            created_at AS "created_at!", last_used_at AS "last_used_at!", scopes, workspace_id,
+            read_only AS "read_only!", allowed_ips::text[] AS allowed_ips, risks AS "risks!"
+            FROM token_risk WHERE email = $1
             ORDER BY created_at DESC LIMIT $2 OFFSET $3"#,
             email,
             per_page as i64,
@@ -4142,6 +4138,50 @@ async fn list_tokens(
         .await?
     };
     Ok(Json(rows))
+}
+
+/// How many tokens carry each risk of the `token_risk` view.
+#[derive(Serialize, Default)]
+pub struct TokenRiskCounts {
+    pub superadmin: i64,
+    pub admin: i64,
+    pub all_workspaces: i64,
+    pub never_expires: i64,
+    pub unused: i64,
+}
+
+impl TokenRiskCounts {
+    fn from_rows(rows: Vec<(Option<String>, Option<i64>)>) -> Self {
+        let mut c = Self::default();
+        for (risk, n) in rows {
+            let n = n.unwrap_or(0);
+            match risk.as_deref() {
+                Some("superadmin") => c.superadmin = n,
+                Some("admin") => c.admin = n,
+                Some("all_workspaces") => c.all_workspaces = n,
+                Some("never_expires") => c.never_expires = n,
+                Some("unused") => c.unused = n,
+                _ => {}
+            }
+        }
+        c
+    }
+}
+
+/// The caller's own counts, over all their tokens rather than one page of `tokens/list`.
+async fn token_risk_counts(
+    Extension(db): Extension<DB>,
+    ApiAuthed { email, .. }: ApiAuthed,
+) -> JsonResult<TokenRiskCounts> {
+    let rows = sqlx::query!(
+        "SELECT r AS risk, count(*) AS n FROM token_risk, unnest(risks) r WHERE email = $1 GROUP BY r",
+        email,
+    )
+    .fetch_all(&db)
+    .await?;
+    Ok(Json(TokenRiskCounts::from_rows(
+        rows.into_iter().map(|r| (r.risk, r.n)).collect(),
+    )))
 }
 
 #[derive(FromRow, Serialize)]
@@ -4155,43 +4195,87 @@ pub struct TokenForReview {
     pub scopes: Option<Vec<String>>,
     pub workspace_id: Option<String>,
     pub read_only: bool,
-    pub super_admin: bool,
-    pub workspace_admin: bool,
+    pub risks: Vec<String>,
 }
 
-/// Every user's long-lived tokens, stalest first. Tokens the server mints and expires or renews
-/// on its own (sessions, job, app, MCP OAuth, impersonation) are left out: they would drown the
-/// tokens worth reviewing. The label list mirrors `isSelfManagedToken` in `tokenRisks.ts`.
+#[derive(Serialize)]
+pub struct TokenReviewPage {
+    /// Instance-wide, on the first page only (no cursor).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub counts: Option<TokenRiskCounts>,
+    pub tokens: Vec<TokenForReview>,
+}
+
+#[derive(Deserialize)]
+struct TokenReviewQuery {
+    /// A risk to narrow to, `all` for every token, or none for any risk.
+    flag: Option<String>,
+    search: Option<String>,
+    per_page: Option<usize>,
+    /// The last row of the previous page. A cursor rather than an offset, since the order
+    /// moves as tokens are used: an offset would skip rows that move behind it.
+    after_last_used_at: Option<chrono::DateTime<chrono::Utc>>,
+    after_token_prefix: Option<String>,
+}
+
+/// Every user's tokens, stalest first, except those the server manages on its own
+/// (`token_risk.self_managed`).
 async fn list_tokens_as_super_admin(
     Extension(db): Extension<DB>,
     authed: ApiAuthed,
-    Query(pagination): Query<Pagination>,
-) -> JsonResult<Vec<TokenForReview>> {
+    Query(query): Query<TokenReviewQuery>,
+) -> JsonResult<TokenReviewPage> {
     require_super_admin(&db, &authed).await?;
-    let (per_page, offset) = paginate(pagination);
-    let rows = sqlx::query_as!(
+    let per_page = query.per_page.unwrap_or(100).clamp(1, 1000) as i64;
+    let search = query
+        .search
+        .filter(|s| !s.trim().is_empty())
+        .map(|s| s.trim().to_lowercase());
+    let cursor = match (query.after_last_used_at, query.after_token_prefix) {
+        (Some(at), Some(prefix)) => Some((at, prefix)),
+        (None, None) => None,
+        _ => {
+            return Err(Error::BadRequest(
+                "after_last_used_at and after_token_prefix go together".to_string(),
+            ))
+        }
+    };
+    let tokens = sqlx::query_as!(
         TokenForReview,
-        r#"SELECT email, label, token_prefix, expiration, created_at, last_used_at, scopes,
-             workspace_id, read_only,
-             super_admin,
-             (admin AND EXISTS (SELECT 1 FROM usr WHERE usr.email = token.email AND usr.is_admin
-                 AND (token.workspace_id IS NULL OR usr.workspace_id = token.workspace_id))) AS "workspace_admin!"
-           FROM token
-           WHERE job IS NULL
-             AND (label IS NULL OR (label NOT IN ('session', 'guest_session', 'debugger-token')
-                  AND lower(label) NOT LIKE 'ephemeral%'
-                  AND NOT starts_with(label, 'mcp-oauth-')
-                  AND NOT starts_with(label, 'embed_app:')
-                  AND NOT starts_with(label, 'sdk_app:')
-                  AND NOT starts_with(label, 'impersonation:')))
-           ORDER BY last_used_at ASC, token_prefix
-           LIMIT $1 OFFSET $2"#,
-        per_page as i64,
-        offset as i64,
+        r#"SELECT email, label, token_prefix AS "token_prefix!", expiration,
+             created_at AS "created_at!", last_used_at AS "last_used_at!", scopes, workspace_id,
+             read_only AS "read_only!", risks AS "risks!"
+           FROM token_risk
+           WHERE NOT self_managed
+             AND CASE WHEN $1::text IS NULL THEN cardinality(risks) > 0
+                      WHEN $1 = 'all' THEN true
+                      ELSE $1 = ANY(risks) END
+             AND ($2::text IS NULL OR strpos(lower(email), $2) > 0
+                  OR strpos(lower(COALESCE(label, '')), $2) > 0)
+             AND ($3::timestamptz IS NULL OR (last_used_at, token_prefix) > ($3, $4::text))
+           ORDER BY last_used_at, token_prefix
+           LIMIT $5"#,
+        query.flag,
+        search,
+        cursor.as_ref().map(|c| c.0),
+        cursor.as_ref().map(|c| c.1.clone()),
+        per_page,
     )
     .fetch_all(&db)
     .await?;
-    Ok(Json(rows))
+    let counts = if cursor.is_none() {
+        let rows = sqlx::query!(
+            "SELECT r AS risk, count(*) AS n FROM token_risk, unnest(risks) r GROUP BY r"
+        )
+        .fetch_all(&db)
+        .await?;
+        Some(TokenRiskCounts::from_rows(
+            rows.into_iter().map(|r| (r.risk, r.n)).collect(),
+        ))
+    } else {
+        None
+    };
+    Ok(Json(TokenReviewPage { counts, tokens }))
 }
 
 async fn delete_token_as_super_admin(

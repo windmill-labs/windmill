@@ -3,7 +3,7 @@
 	import TableCustom from '$lib/components/TableCustom.svelte'
 	import { displayDate } from '$lib/utils'
 	import { enterpriseLicense } from '$lib/stores'
-	import { UserService, type TruncatedToken } from '$lib/gen'
+	import { UserService, type TokenRiskCounts, type TruncatedToken } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import CreateToken from './CreateToken.svelte'
 	import EditTokenScopesModal from './EditTokenScopesModal.svelte'
@@ -12,7 +12,7 @@
 	import Alert from '../common/alert/Alert.svelte'
 	import { Pen, Trash } from 'lucide-svelte'
 	import { MCP_SESSION } from '../mcp/McpAccessPicker.svelte'
-	import { countTokenRisks, tokenRisks, tokenRiskSummary, TOKEN_RISK_INFO } from './tokenRisks'
+	import { tokenRiskSummary, TOKEN_RISK_INFO } from './tokenRisks'
 
 	// --- Props ---
 	interface Props {
@@ -102,7 +102,9 @@
 		}).length
 	)
 
-	let riskSummary = $derived(tokenRiskSummary(countTokenRisks(tokens)))
+	// Over all the user's tokens, not only the page shown.
+	let riskCounts: TokenRiskCounts | undefined = $state(undefined)
+	let riskSummary = $derived(tokenRiskSummary(riskCounts))
 
 	function handleTokenCreated(token: string) {
 		onTokenCreated(token)
@@ -135,11 +137,10 @@
 	}
 
 	export async function listTokens(): Promise<void> {
-		tokens = await UserService.listTokens({
-			excludeEphemeral: true,
-			page: tokenPage,
-			perPage: 100
-		})
+		;[tokens, riskCounts] = await Promise.all([
+			UserService.listTokens({ excludeEphemeral: true, page: tokenPage, perPage: 100 }),
+			UserService.getTokenRiskCounts()
+		])
 	}
 
 	function handleNextPage() {
@@ -204,7 +205,7 @@
 							{@const { token_prefix, expiration, label, scopes, workspace_id, read_only, allowed_ips } =
 								token}
 							{@const badge = expirationBadge(expiration, label)}
-							{@const risks = tokenRisks(token)}
+							{@const risks = token.risks}
 							<tr>
 								<td class="w-32 text-xs text-primary">{token_prefix}****</td>
 								<td class="min-w-0 max-w-40 text-xs text-primary">

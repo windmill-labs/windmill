@@ -7741,24 +7741,71 @@ paths:
                 items:
                   $ref: "#/components/schemas/TruncatedToken"
 
+  /users/tokens/risk_counts:
+    get:
+      summary: count the caller's tokens carrying each risk
+      operationId: getTokenRiskCounts
+      tags:
+        - user
+      responses:
+        "200":
+          description: count per risk, over all the caller's tokens
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TokenRiskCounts"
+
   /users/tokens/list_as_super_admin:
     get:
-      summary: list every user's long-lived tokens, least recently used first (superadmin only)
+      summary: list every user's tokens, least recently used first (superadmin only)
+      description: >
+        Tokens the server expires or renews on its own are left out. Pages are read with a cursor:
+        pass the last row's `last_used_at` and `token_prefix` to get the next page.
       operationId: listTokensAsSuperAdmin
       tags:
         - user
       parameters:
-        - $ref: "#/components/parameters/Page"
-        - $ref: "#/components/parameters/PerPage"
+        - name: flag
+          description: a risk to narrow to, `all` for every token, or omitted for tokens with any risk
+          in: query
+          schema:
+            type: string
+            enum: [all, superadmin, admin, all_workspaces, never_expires, unused]
+        - name: search
+          description: case-insensitive substring of the owner's email or the token's label
+          in: query
+          schema:
+            type: string
+        - name: per_page
+          description: rows per page, 100 by default, at most 1000
+          in: query
+          schema:
+            type: integer
+        - name: after_last_used_at
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: after_token_prefix
+          in: query
+          schema:
+            type: string
       responses:
         "200":
-          description: tokens to review
+          description: one page of tokens, with the instance-wide counts on the first page
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/TokenForReview"
+                type: object
+                properties:
+                  counts:
+                    $ref: "#/components/schemas/TokenRiskCounts"
+                  tokens:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/TokenForReview"
+                required:
+                  - tokens
 
   /users/tokens/delete_as_super_admin/{email}/{token_prefix}:
     delete:
@@ -34148,19 +34195,45 @@ components:
           description: IPs or CIDRs the token may be used from; absent when it may be used from anywhere.
           items:
             type: string
-        super_admin:
-          type: boolean
-          description: the token was minted with its owner's superadmin rights
-        workspace_admin:
-          type: boolean
-          description: the token was minted with workspace admin rights and its owner is an admin of its workspace, or of any workspace when it is not bound to one
+        risks:
+          type: array
+          description: what a token review flags on this token; empty for a token the server manages on its own
+          items:
+            $ref: "#/components/schemas/TokenRisk"
       required:
         - token_prefix
         - created_at
         - last_used_at
         - read_only
-        - super_admin
-        - workspace_admin
+        - risks
+
+    TokenRisk:
+      type: string
+      description: >
+        superadmin / admin: minted with those rights (and the owner still an admin where the token
+        reaches), not narrowed by scopes or read-only mode. all_workspaces: not bound to a workspace.
+        never_expires: no expiration. unused: not used in over 90 days.
+      enum: [superadmin, admin, all_workspaces, never_expires, unused]
+
+    TokenRiskCounts:
+      type: object
+      properties:
+        superadmin:
+          type: integer
+        admin:
+          type: integer
+        all_workspaces:
+          type: integer
+        never_expires:
+          type: integer
+        unused:
+          type: integer
+      required:
+        - superadmin
+        - admin
+        - all_workspaces
+        - never_expires
+        - unused
 
     TokenForReview:
       type: object
@@ -34188,17 +34261,16 @@ components:
           type: string
         read_only:
           type: boolean
-        super_admin:
-          type: boolean
-        workspace_admin:
-          type: boolean
+        risks:
+          type: array
+          items:
+            $ref: "#/components/schemas/TokenRisk"
       required:
         - token_prefix
         - created_at
         - last_used_at
         - read_only
-        - super_admin
-        - workspace_admin
+        - risks
 
     ExternalJwtToken:
       type: object

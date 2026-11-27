@@ -7,80 +7,78 @@
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import { Alert, Badge, Button } from '$lib/components/common'
-	import { UserService, type TokenForReview } from '$lib/gen'
+	import { UserService, type TokenForReview, type TokenRisk, type TokenRiskCounts } from '$lib/gen'
 	import { displayDate } from '$lib/utils'
 	import { sendUserToast } from '$lib/toast'
 	import { Trash } from 'lucide-svelte'
+	import { Debounced, watch } from 'runed'
 	import {
-		countTokenRisks,
-		tokenRisks,
 		tokenRiskSummary,
 		TOKEN_RISK_INFO,
-		TOKEN_RISKS,
-		type TokenRisk
+		TOKEN_RISKS
 	} from '$lib/components/settings/tokenRisks'
 	import { MCP_SESSION } from '$lib/components/mcp/McpAccessPicker.svelte'
 
-	const perPage = 1000
+	const perPage = 100
 
 	let tokens: TokenForReview[] = $state([])
+	let counts: TokenRiskCounts | undefined = $state(undefined)
+	let hasMore = $state(false)
 	let loading = $state(false)
 	let loadFailed = $state(false)
 	let flagFilter: TokenRisk | 'any' | 'all' = $state('any')
-	let filter = $state('')
+	let search = $state('')
+	const debouncedSearch = new Debounced(() => search.trim(), 300)
 	let toDelete: TokenForReview | undefined = $state(undefined)
 	let deleting = $state(false)
+	// Drops a response that a newer filter or search has overtaken.
+	let requestId = 0
 
-	// The listing is ordered by last use, which moves while pages are fetched: a token used
-	// in between shows up on two pages, so rows already seen are dropped.
-	async function loadAll() {
+	async function load(more: boolean) {
+		const id = ++requestId
+		const last = more ? tokens[tokens.length - 1] : undefined
 		loading = true
 		try {
-			const seen = new Set<string>()
-			const all: TokenForReview[] = []
-			for (let page = 1; ; page++) {
-				const res = await UserService.listTokensAsSuperAdmin({ page, perPage })
-				for (const t of res) {
-					const key = `${t.email}:${t.token_prefix}`
-					if (!seen.has(key)) {
-						seen.add(key)
-						all.push(t)
-					}
-				}
-				if (res.length < perPage) break
+			const page = await UserService.listTokensAsSuperAdmin({
+				flag: flagFilter === 'any' ? undefined : flagFilter,
+				search: debouncedSearch.current || undefined,
+				perPage,
+				afterLastUsedAt: last?.last_used_at,
+				afterTokenPrefix: last?.token_prefix
+			})
+			if (id !== requestId) return
+			if (more) {
+				// A token used since the previous page moved behind the cursor and comes back.
+				const seen = new Set(tokens.map((t) => `${t.email}:${t.token_prefix}`))
+				tokens = [
+					...tokens,
+					...page.tokens.filter((t) => !seen.has(`${t.email}:${t.token_prefix}`))
+				]
+			} else {
+				tokens = page.tokens
 			}
-			tokens = all
+			if (page.counts) counts = page.counts
+			hasMore = page.tokens.length === perPage
 			loadFailed = false
 		} catch (e) {
+			if (id !== requestId) return
 			loadFailed = true
 			sendUserToast(`Failed to load tokens: ${e}`, true)
 		} finally {
-			loading = false
+			if (id === requestId) loading = false
 		}
 	}
-	loadAll()
 
-	let rows = $derived.by(() => {
-		const now = new Date()
-		const q = filter.trim().toLowerCase()
-		return tokens
-			.map((token) => ({ token, risks: tokenRisks(token, now) }))
-			.filter(
-				({ token, risks }) =>
-					(flagFilter === 'all' ||
-						(flagFilter === 'any' ? risks.length > 0 : risks.includes(flagFilter))) &&
-					(!q ||
-						(token.email ?? '').toLowerCase().includes(q) ||
-						(token.label ?? '').toLowerCase().includes(q))
-			)
+	watch([() => flagFilter, () => debouncedSearch.current], () => {
+		load(false)
 	})
-	let riskCounts = $derived(countTokenRisks(tokens))
-	let riskSummary = $derived(tokenRiskSummary(riskCounts))
+
+	let riskSummary = $derived(tokenRiskSummary(counts))
 	let flagItems = $derived([
 		{ value: 'any', label: 'Any flag' },
 		...TOKEN_RISKS.map((r) => ({
 			value: r,
-			label: `${TOKEN_RISK_INFO[r].badge} (${riskCounts[r]})`
+			label: counts ? `${TOKEN_RISK_INFO[r].badge} (${counts[r]})` : TOKEN_RISK_INFO[r].badge
 		})),
 		{ value: 'all', label: 'All tokens' }
 	])
@@ -96,6 +94,11 @@
 		try {
 			await UserService.deleteTokenAsSuperAdmin({ email: t.email, tokenPrefix: t.token_prefix })
 			tokens = tokens.filter((x) => !(x.email === t.email && x.token_prefix === t.token_prefix))
+			if (counts) {
+				const next = { ...counts }
+				for (const r of t.risks) next[r] = Math.max(0, next[r] - 1)
+				counts = next
+			}
 			sendUserToast(`Deleted token ${t.token_prefix}**** of ${t.email}`)
 			toDelete = undefined
 		} catch (e) {
@@ -103,10 +106,6 @@
 		} finally {
 			deleting = false
 		}
-	}
-
-	function riskBadges(risks: TokenRisk[]) {
-		return risks.map((r) => ({ risk: r, ...TOKEN_RISK_INFO[r] }))
 	}
 </script>
 
@@ -125,7 +124,7 @@
 			</ul>
 		</Alert>
 	</div>
-{:else if !loading && !loadFailed}
+{:else if counts && !loadFailed}
 	<div class="mb-4">
 		<Alert type="success" size="xs" title="No token needs a review" />
 	</div>
@@ -134,13 +133,13 @@
 <div class="flex flex-row gap-2 items-center mb-2">
 	<TextInput
 		inputProps={{ placeholder: 'Search by email or label' }}
-		bind:value={filter}
+		bind:value={search}
 		class="w-60"
 	/>
 	<Select items={flagItems} bind:value={flagFilter} class="w-52" />
 </div>
 
-<DataTable {loading}>
+<DataTable loading={loading && tokens.length === 0}>
 	<Head>
 		<tr>
 			<Cell head first>Owner</Cell>
@@ -154,7 +153,7 @@
 		</tr>
 	</Head>
 	<tbody>
-		{#each rows as { token, risks }, i (`${token.email}:${token.token_prefix}`)}
+		{#each tokens as token, i (`${token.email}:${token.token_prefix}`)}
 			<tr class={i % 2 === 0 ? 'bg-surface-tertiary' : 'bg-surface'}>
 				<Cell first><span class="text-xs">{token.email ?? '-'}</span></Cell>
 				<Cell>
@@ -170,8 +169,12 @@
 						{#if token.read_only}
 							<Badge color="blue" small>Read-only</Badge>
 						{/if}
-						{#each riskBadges(risks) as b (b.risk)}
-							<span title={b.tooltip}><Badge color={b.color} small>{b.badge}</Badge></span>
+						{#each token.risks as risk (risk)}
+							<span title={TOKEN_RISK_INFO[risk].tooltip}>
+								<Badge color={TOKEN_RISK_INFO[risk].color} small
+									>{TOKEN_RISK_INFO[risk].badge}</Badge
+								>
+							</span>
 						{/each}
 					</div>
 				</Cell>
@@ -214,6 +217,14 @@
 		{/each}
 	</tbody>
 </DataTable>
+
+{#if hasMore}
+	<div class="flex justify-center mt-2">
+		<Button variant="default" unifiedSize="sm" {loading} onclick={() => load(true)}>
+			Load more
+		</Button>
+	</div>
+{/if}
 
 <ConfirmationModal
 	open={toDelete !== undefined}

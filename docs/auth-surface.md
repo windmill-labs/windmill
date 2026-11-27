@@ -36,13 +36,12 @@ Symbols, not line numbers, are cited: they drift less.
   expiry or another login changes or drops it. A session revoked server-side keeps its hint,
   so until `whoami` answers that browser still renders as its own last user.
 - **`tokens/impersonate`** (superadmin) returns a multi-use token and sets no cookie.
-- **Token risk flags** (no expiration, unused 90 days, not bound to a workspace, admin or superadmin
-  rights the token was minted with and no scope narrows; tokens the server expires or renews on its
-  own are exempt, `isSelfManagedToken`) are computed in one place, `frontend/src/lib/components/settings/tokenRisks.ts`,
-  for both the user's Tokens section and the superadmin Token review tab
-  (`tokens/list_as_super_admin`, `tokens/delete_as_super_admin/{email}/{prefix}`). The server
-  only supplies the rights the token carries: `super_admin` is the token's own column, and
-  `workspace_admin` is `token.admin` with the owner still an admin where the token reaches.
+- **Token risk flags** (rights the token was minted with and no scope narrows, not bound to a
+  workspace, no expiration, unused 90 days) are computed once, by the `token_risk` view, which also
+  marks the tokens the server expires or renews on its own (`self_managed`, no flags). The user's
+  `tokens/list` and `tokens/risk_counts` and the superadmin review (`tokens/list_as_super_admin`,
+  cursor-paged on `(last_used_at, token_prefix)`, and `tokens/delete_as_super_admin/{email}/{prefix}`)
+  read it; `frontend/src/lib/components/settings/tokenRisks.ts` only words the flags.
 - **`max_token_expiration_days`** caps `POST /users/tokens/create` and `tokens/impersonate`, by
   shortening the stored expiration (`cap_token_expiration`), never by refusing: `wmill user
   create-token` and the editor's language-server token pick a lifetime without reading the
