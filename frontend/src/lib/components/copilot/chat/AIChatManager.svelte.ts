@@ -215,7 +215,7 @@ import { scopedKey, onUserChange, migrateLegacyLocalStorage } from '$lib/userSco
 import { getLocalSetting, storeLocalSetting } from '$lib/utils'
 import { AttachedFilesStore } from './files/attachedFiles.svelte'
 import { SessionArtifactsStore } from './artifacts/artifactsState.svelte'
-import type { ArtifactVersionTarget } from '$lib/components/sessions/previewRouter'
+import type { ArtifactVersionTarget, ImageSource } from '$lib/components/sessions/previewRouter'
 import { appendAttachedFilesRoster } from './files/fileTools'
 import { ENTER_PLAN_MODE_TOOL, EXIT_PLAN_MODE_TOOL } from './planMode'
 import { PlanModeController, type PlanModeHost } from './planModeController.svelte'
@@ -688,6 +688,8 @@ export class AIChatManager implements ChatViewHost {
 	 * mounts of it each reorder the schema SchemaForm edits in place. */
 	isRunFormTabOpen?: (toolCallId: string) => boolean
 	openArtifact?: (artifactId: string, name: string, version?: ArtifactVersionTarget) => void
+	/** Show an image in the session's preview panel. Set by a session runtime only. */
+	openImage?: (source: ImageSource, label: string) => void
 	closeArtifact?: (artifactId: string) => void
 	#loading = $state<boolean>(false)
 	get loading(): boolean {
@@ -3196,7 +3198,8 @@ export class AIChatManager implements ChatViewHost {
 						artifacts: this.artifacts,
 						access: this.#toolAccess,
 						getChatId: () => this.historyManager.getCurrentChatId(),
-						openArtifact: this.openArtifact
+						openArtifact: this.openArtifact,
+						openImage: this.openImage
 					}
 				: {}),
 			testActiveFlow: async (storagePath: string, args?: Record<string, any>, memoryId?: string) =>

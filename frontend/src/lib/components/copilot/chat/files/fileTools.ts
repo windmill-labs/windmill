@@ -19,10 +19,24 @@ import {
 } from './fileEngine'
 import type { AttachedFile, AttachedFilesStore } from './attachedFiles.svelte'
 import { sanitizeAttachmentName } from '../textFileUtils'
+import { isViewableImageName } from './imageFiles'
+import type {
+	ImageResultFormat,
+	ImageSource,
+	ResultPath
+} from '$lib/components/sessions/previewRouter'
+import { JobService } from '$lib/gen'
+import { workspaceStore } from '$lib/stores'
+import { get } from 'svelte/store'
+import { isS3ImageKey, parseS3Object, s3ImagePreviewUrl } from '$lib/utils'
 
 /** Slice of the GLOBAL tool helpers that exposes the attached-files store. */
 export interface AttachedFilesHelper {
 	attachedFiles?: AttachedFilesStore
+	/** Session chats only: shows an image in the side-panel preview. */
+	openImage?: (source: ImageSource, label: string) => void
+	/** The session's own (possibly forked) workspace, where its jobs run. */
+	operatingWorkspace?: string
 }
 
 function storeFrom(helpers: unknown): AttachedFilesStore | undefined {
@@ -35,9 +49,19 @@ function storeFrom(helpers: unknown): AttachedFilesStore | undefined {
  * or undefined when it's `ready`. Shared by read_file and search_files so both report the
  * same accurate status instead of search_files claiming a non-ready file isn't attached.
  */
-function notReadyMessage(store: AttachedFilesStore, file: string): string | undefined {
+function notReadyMessage(
+	store: AttachedFilesStore,
+	file: string,
+	helpers: unknown
+): string | undefined {
 	const entry = store.resolve(file)
-	if (entry?.status === 'ready') return undefined
+	if (entry?.status === 'ready') {
+		if (!entry.image) return undefined
+		// show_image exists only where an image can open: a session's preview panel.
+		return (helpers as AttachedFilesHelper | undefined)?.openImage
+			? `"${file}" is an image, which has no text to read or search. Show it to the user with show_image.`
+			: `"${file}" is an image, which has no text to read or search.`
+	}
 	if (entry?.status === 'indexing')
 		return `File "${file}" is still being indexed. Try again shortly.`
 	if (entry?.status === 'locked')
@@ -110,7 +134,7 @@ export const searchFilesTool: SessionTool<{}> = {
 		// Validate a specifically requested file against the full store first, so a non-ready
 		// target reports its real status (indexing/locked/…) instead of "not attached".
 		if (parsed.file) {
-			const notReady = notReadyMessage(store, parsed.file)
+			const notReady = notReadyMessage(store, parsed.file, helpers)
 			if (notReady) return notReady
 		}
 		// Restrict to the resolved row itself, not a name filter: display names may
@@ -178,7 +202,7 @@ export const readFileTool: SessionTool<{}> = {
 			return 'No files are attached to this conversation.'
 		}
 		const parsed = readFileSchema.parse(args)
-		const notReady = notReadyMessage(store, parsed.file)
+		const notReady = notReadyMessage(store, parsed.file, helpers)
 		if (notReady) return notReady
 		const entry = store.resolve(parsed.file)!
 		toolCallbacks.setToolStatus(toolId, { content: `Reading "${entry.name}"...` })
@@ -198,7 +222,205 @@ export const readFileTool: SessionTool<{}> = {
 	}
 }
 
-export const fileTools: SessionTool<{}>[] = [searchFilesTool, readFileTool]
+const showImageSchema = z.object({
+	file: z
+		.string()
+		.optional()
+		.describe('Exact filename of an attached image, as the roster lists it.'),
+	job_id: z
+		.string()
+		.optional()
+		.describe('A completed job whose result holds images (a run, a flow).'),
+	step_id: z
+		.string()
+		.optional()
+		.describe('With job_id on a flow: the step whose result holds the image, by its id.'),
+	path: z
+		.array(z.union([z.string(), z.number()]))
+		.optional()
+		.describe(
+			'With job_id: keys and list indexes from the root of the result (of the step, with step_id) to the image, e.g. [2] or ["charts", 0, "png"]. Without it, every image the result holds is shown.'
+		),
+	s3: z
+		.object({
+			s3: z.string().describe('The object key, e.g. "charts/plot.png".'),
+			storage: z
+				.string()
+				.optional()
+				.describe('The secondary storage holding it, when not the workspace default.')
+		})
+		.optional()
+		.describe('An S3 image object, as a result holds it: `{ s3, storage? }`.')
+})
+
+const showImageToolDef = createToolDef(
+	showImageSchema,
+	'show_image',
+	'Show an image to the user in the side-panel preview next to the chat, where they can zoom and pan it. Pass exactly one of: `file` for an image the user attached (png, jpeg, gif, webp, avif, bmp, ico or svg); `job_id` (and `step_id` for a flow step) for a job result, showing every image it holds (inline png, jpeg or gif, S3 image objects, each `render_all` item), or with `path` only the image at that place in the result, read with get_run first; or `s3` for an S3 image object. Call it again to show more images. You cannot see the image yourself: this only displays it to the user.'
+)
+
+const RESULT_IMAGE_FORMATS: ImageResultFormat[] = ['png', 'jpeg', 'gif']
+
+export type ResultImage =
+	| { format: ImageResultFormat; path: ResultPath }
+	| { s3: { s3: string; storage?: string } }
+
+function s3Image(value: unknown): ResultImage | undefined {
+	if (typeof value === 'string') {
+		if (!/^s3:\/\/[^/]*\/.+/.test(value)) return undefined
+	} else if (typeof (value as { s3?: unknown } | undefined)?.s3 !== 'string') return undefined
+	const s3 = parseS3Object(value as Parameters<typeof parseS3Object>[0])
+	return isS3ImageKey(s3.s3) ? { s3: { s3: s3.s3, storage: s3.storage } } : undefined
+}
+
+/** The images a result holds, where DisplayResult renders them: the result's own
+ * `png`/`jpeg`/`gif` key (a base64 string or `{ content }`), an S3 image object, the images
+ * among a list of S3 objects (DisplayResult lists any mix of file types), and each
+ * `render_all` item. */
+export function resultImages(value: unknown, path: ResultPath = []): ResultImage[] {
+	const s3 = s3Image(value)
+	if (s3) return [s3]
+	if (Array.isArray(value)) {
+		const isS3List = value.every((i) => typeof (i as { s3?: unknown } | null)?.s3 === 'string')
+		return isS3List ? value.flatMap((i) => s3Image(i) ?? []) : []
+	}
+	if (!value || typeof value !== 'object') return []
+	const obj = value as Record<string, unknown>
+	if (Array.isArray(obj.render_all)) {
+		return obj.render_all.flatMap((child, i) => resultImages(child, [...path, 'render_all', i]))
+	}
+	const format = RESULT_IMAGE_FORMATS.find((f) => {
+		const v = obj[f]
+		return typeof v === 'string' || typeof (v as { content?: unknown })?.content === 'string'
+	})
+	return format ? [{ format, path }] : []
+}
+
+/** The images at `path` inside a result. A path may end on the image's base64 field
+ * (`[0, "png"]`), which names the same image as the object holding it. */
+export function imagesAtPath(result: unknown, path: ResultPath): ResultImage[] {
+	const last = path.at(-1)
+	const format = RESULT_IMAGE_FORMATS.find((f) => f === last)
+	const at = format ? path.slice(0, -1) : path
+	let value = result
+	for (const key of at) {
+		if (!value || typeof value !== 'object') return []
+		value = (value as Record<string | number, unknown>)[key]
+	}
+	if (format) {
+		// The named field, not the first image field of the object holding it.
+		const v = (value as Record<string, unknown> | undefined)?.[format]
+		const isImage =
+			typeof v === 'string' || typeof (v as { content?: unknown })?.content === 'string'
+		return isImage ? [{ format, path: at }] : []
+	}
+	return resultImages(value, at)
+}
+
+async function showResultImages(
+	openImage: (source: ImageSource, label: string) => void,
+	workspace: string,
+	jobId: string,
+	stepId: string | undefined,
+	path: ResultPath | undefined
+): Promise<string> {
+	const what = `job ${jobId}${stepId ? ` step ${stepId}` : ''}`
+	let result: unknown
+	try {
+		result = stepId
+			? await JobService.resultById({ workspace, flowJobId: jobId, nodeId: stepId })
+			: await JobService.getCompletedJobResult({ workspace, id: jobId })
+	} catch (e) {
+		return `Could not load the result of ${what}: ${e instanceof Error ? e.message : String(e)}`
+	}
+	const images = path?.length ? imagesAtPath(result, path) : resultImages(result)
+	if (images.length === 0) {
+		return path?.length
+			? `Nothing at ${JSON.stringify(path)} in the result of ${what} is an image. Read the result with get_run to find the image's path.`
+			: `The result of ${what} holds no image.`
+	}
+	const base = stepId ? `${stepId} result` : `Result ${jobId.slice(-8)}`
+	for (const image of images) {
+		if ('s3' in image) {
+			openImage(
+				{ kind: 'url', url: s3ImagePreviewUrl(workspace, image.s3) },
+				image.s3.s3.split('/').pop() || image.s3.s3
+			)
+			continue
+		}
+		const { format, path } = image
+		const at = path.length ? ` #${path.filter((k) => typeof k === 'number').join('.')}` : ''
+		openImage(
+			{
+				kind: 'result',
+				workspace,
+				jobId,
+				format,
+				...(stepId ? { nodeId: stepId } : {}),
+				...(path.length ? { path } : {})
+			},
+			base + at
+		)
+	}
+	return images.length === 1
+		? 'Showing the result image in the preview panel.'
+		: `Showing the ${images.length} result images in the preview panel, one tab each.`
+}
+
+export const showImageTool: SessionTool<{}> = {
+	requires: NONE,
+	def: showImageToolDef,
+	planModeSafe: true,
+	fn: async ({ args, helpers }) => {
+		const h = helpers as AttachedFilesHelper | undefined
+		const openImage = h?.openImage
+		if (!openImage) return 'Images can only be shown inside an AI session.'
+		const parsed = showImageSchema.parse(args)
+		const given = [parsed.file, parsed.job_id, parsed.s3].filter((v) => v !== undefined).length
+		if (given !== 1) {
+			return 'Pass exactly one of `file` (an attached image), `job_id` (a job result) or `s3` (an S3 image object).'
+		}
+		if (!parsed.job_id && (parsed.step_id || parsed.path)) {
+			return '`step_id` and `path` locate an image in a job result: pass them with `job_id`.'
+		}
+		if (parsed.job_id || parsed.s3) {
+			const workspace = h?.operatingWorkspace ?? get(workspaceStore)
+			if (!workspace) return 'No workspace to load the image from.'
+			if (parsed.job_id) {
+				return showResultImages(openImage, workspace, parsed.job_id, parsed.step_id, parsed.path)
+			}
+			const s3 = parsed.s3!
+			if (!isS3ImageKey(s3.s3)) {
+				return `"${s3.s3}" is not an image the viewer can show (png, jpeg or webp).`
+			}
+			openImage(
+				{ kind: 'url', url: s3ImagePreviewUrl(workspace, s3) },
+				s3.s3.split('/').pop() || s3.s3
+			)
+			return `Showing "${s3.s3}" in the preview panel.`
+		}
+		if (!parsed.file) return 'Pass `file` for an attached image or `job_id` for a job result.'
+		const store = storeFrom(helpers)
+		if (!store) return 'No files are attached to this chat.'
+		const entry = store.resolve(parsed.file)
+		if (!entry || entry.messageScoped || entry.isFolderRoot) {
+			return (
+				notReadyMessage(store, parsed.file, helpers) ??
+				`No attached file matching "${parsed.file}".`
+			)
+		}
+		if (!isViewableImageName(entry.sourceName ?? entry.name)) {
+			return `"${entry.name}" is not an image. Read it with read_file instead.`
+		}
+		if (entry.status !== 'ready') {
+			return notReadyMessage(store, parsed.file, helpers) ?? `"${entry.name}" is not available.`
+		}
+		openImage({ kind: 'file', name: entry.name }, entry.name.split('/').pop() || entry.name)
+		return `Showing "${entry.name}" in the preview panel.`
+	}
+}
+
+export const fileTools: SessionTool<{}>[] = [searchFilesTool, readFileTool, showImageTool]
 
 function rosterLine(f: AttachedFile): string {
 	// Message rows are addressed by their stable id (names may collide); session
@@ -211,6 +433,7 @@ function rosterLine(f: AttachedFile): string {
 	if (f.status === 'locked') return `- ${ref} (locked — needs the user to restore access)`
 	if (f.status === 'unavailable') return `- ${ref} (unavailable)`
 	if (f.status === 'error') return `- ${ref} (failed to load)`
+	if (f.image) return `- ${ref} — image, ${humanSize(f.size)}`
 	return `- ${ref} — ${f.lineCount} lines, ${humanSize(f.size)}`
 }
 
@@ -253,6 +476,9 @@ export function buildAttachedFilesRoster(
 		'## Attached files',
 		'The user has attached the following files to this conversation. Their contents are NOT included here.',
 		'Use the `search_files` tool to find content with a regex, and `read_file` to read a bounded window of lines.',
+		...([...store.folders.flatMap((d) => d.files), ...store.standalone].some((f) => f.image)
+			? ['Images have no text: `show_image` displays one to the user, where it is available.']
+			: []),
 		'Reference a file by its file id when one is shown, otherwise by its filename.',
 		'',
 		lines.join('\n')

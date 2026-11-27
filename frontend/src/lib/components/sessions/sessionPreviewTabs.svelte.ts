@@ -16,6 +16,8 @@ import {
 	promptSafe,
 	parsePreviewItemRoute,
 	parseRunFormRoute,
+	parseImageRoute,
+	imageUrl,
 	previewLocationLabel,
 	resolvePreviewTab,
 	runFormUrl,
@@ -109,6 +111,7 @@ function targetUrl(target: PreviewTarget, onto?: SessionPreviewTab): string {
 		return artifactUrl(target.id, target.name, keptVersion(target, onto))
 	}
 	if (target.type === 'runform') return runFormUrl(target.toolCallId, target.label)
+	if (target.type === 'image') return imageUrl(target.source, target.label)
 	// A re-point with no mode keeps the side the tab is already on, so an AI write to
 	// an item the user left on View does not yank them back to the editor.
 	const mode = target.mode ?? (onto ? (parsePreviewItemRoute(onto.url)?.mode ?? 'edit') : 'edit')
@@ -848,6 +851,7 @@ export function describePreview(
 	const lines = tabs.map((t) => {
 		const where = whereIs(t)
 		const artifact = parseArtifactRoute(where)
+		const image = parseImageRoute(where)
 		const pageItem = parsePageItemRoute(where)
 		const page = matchPreviewPage(where)
 		const pipelineFolder = parsePipelineRoute(where)
@@ -856,17 +860,25 @@ export function describePreview(
 			? // A pinned tab is not showing what the assistant last wrote, and nothing else in this
 				// summary would tell it so.
 				`artifact "${artifact.name || 'Artifact'}"${artifact.version ? ` (pinned to v${artifact.version})` : ''}`
-			: pageItem
-				? `${pageItemKindLabel(pageItem).toLowerCase()} "${pageItem.path}"`
-				: page
-					? `page "${page.label}"${previewLocationDetail(where)}`
-					: pipelineFolder
-						? `pipeline "${pipelineFolder}"`
-						: route
-							? `${route.raw_app ? 'raw_app' : route.kind} "${route.itemPath}"`
-							: // Trigger list pages land here (they're outside PREVIEW_PAGES), and
-								// their `#<path>` is the trigger the drawer has open.
-								`${barePath(where)}${previewLocationDetail(where)}`
+			: image
+				? image.source.kind === 'file'
+					? `image file "${image.source.name}"`
+					: image.source.kind === 'message'
+						? `image "${image.label || 'Image'}" from a chat message`
+						: image.source.kind === 'result'
+							? `image result of job ${image.source.jobId}${image.source.nodeId ? ` (step ${image.source.nodeId})` : ''}`
+							: `image "${image.label || 'Image'}"`
+				: pageItem
+					? `${pageItemKindLabel(pageItem).toLowerCase()} "${pageItem.path}"`
+					: page
+						? `page "${page.label}"${previewLocationDetail(where)}`
+						: pipelineFolder
+							? `pipeline "${pipelineFolder}"`
+							: route
+								? `${route.raw_app ? 'raw_app' : route.kind} "${route.itemPath}"`
+								: // Trigger list pages land here (they're outside PREVIEW_PAGES), and
+									// their `#<path>` is the trigger the drawer has open.
+									`${barePath(where)}${previewLocationDetail(where)}`
 		const slotKind = resolvePreviewTab(t.url).kind
 		const live =
 			slotKind === 'editor' || slotKind === 'pageitem'

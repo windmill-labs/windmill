@@ -523,7 +523,7 @@
 			return
 		}
 		// Otherwise (folders / multi-select): summarize to avoid a flood of toasts. The only
-		// per-file rejection left is non-text content (binary files are skipped).
+		// per-file rejection left is binary content other than images.
 		const lead = added.length
 			? `Attached ${added.length}, skipped ${rejected.length}`
 			: `Skipped ${rejected.length} file${rejected.length === 1 ? '' : 's'}`
@@ -663,10 +663,9 @@
 			const entries = await readDroppedEntries(Array.from(dt.items ?? []))
 			const source: FileToAttach[] = entries.length > 0 ? entries : flatFiles
 			// Top-level files attach to the message (images were already reserved
-			// from dt.files before the walk). Folder children keep riding the
-			// session store as a snapshot — including nested images, which are
-			// deliberately NOT attached (the FSA path never extracts folder
-			// contents either); they are summarized as skipped there.
+			// from dt.files before the walk). Folder children ride the session store
+			// as a snapshot, nested images included: they become image rows the
+			// preview can show, never message attachments, as on the FSA path.
 			const topLevelText: File[] = []
 			const folderEntries: FileToAttach[] = []
 			for (const entry of source) {

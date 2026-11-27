@@ -12,6 +12,7 @@
 		ExternalLink,
 		BookOpen
 	} from 'lucide-svelte'
+	import { imageContentKey } from './files/imageFiles'
 	import { truncateRev } from '$lib/utils'
 	import {
 		EXIT_PLAN_MODE_TOOL,
@@ -39,6 +40,13 @@
 		type ToolDisplayMessage
 	} from './shared'
 	import SecretRequestCard from './SecretRequestCard.svelte'
+
+	// Only a loaded image: a reloaded chat holds a reference until its bytes come back.
+	function toolImageOpener(url: string): (() => void) | undefined {
+		const open = chatHost.openImage
+		if (!open || !url.startsWith('data:')) return undefined
+		return () => open({ kind: 'message', hash: imageContentKey(url) }, 'Screenshot')
+	}
 	import ChatCollapsibleCard from './ChatCollapsibleCard.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { slide } from 'svelte/transition'
@@ -405,6 +413,7 @@
 						src={message.imageUrl}
 						alt="Image returned by the tool"
 						class="max-h-48 max-w-full rounded border border-border-light"
+						onOpen={toolImageOpener(message.imageUrl)}
 					/>
 				</div>
 			{/if}

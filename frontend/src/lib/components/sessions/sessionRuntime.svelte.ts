@@ -227,6 +227,7 @@ function tabUsageKey(slot: PreviewSlot): string {
 	if (slot.kind === 'editor') return slot.editorKind
 	if (slot.kind === 'viewer') return `view_${slot.viewerKind}`
 	if (slot.kind === 'artifact') return 'artifact'
+	if (slot.kind === 'image') return 'image'
 	return slot.kind === 'runform' ? 'run_form' : 'page'
 }
 
@@ -754,6 +755,9 @@ function createRuntime(session: Session): SessionRuntime {
 		previewTabs.open({ type: 'artifact', id, name, version })
 	}
 	manager.closeArtifact = (id) => previewTabs.closeArtifact(id)
+	manager.openImage = (source, label) => {
+		previewTabs.open({ type: 'image', source, label })
+	}
 	// Key the store before any configureGlobalMode runs, so a new session's first create shows at once.
 	void manager.artifacts.setSession(session.id)
 

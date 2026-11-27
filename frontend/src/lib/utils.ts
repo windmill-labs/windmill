@@ -1943,6 +1943,23 @@ export function parseS3Object(s3Object: S3Object): { s3: string; storage?: strin
 	return { storage: match?.[1] || undefined, s3: match?.[2] ?? '' }
 }
 
+const S3_IMAGE_EXTENSIONS = ['.png', '.jpeg', '.jpg', '.webp']
+
+/** Whether a result's S3 object renders as an image. */
+export function isS3ImageKey(key: string): boolean {
+	return S3_IMAGE_EXTENSIONS.some((ext) => key.endsWith(ext))
+}
+
+/** The workspace's preview URL for an S3 image a job returned. */
+export function s3ImagePreviewUrl(
+	workspace: string,
+	s3object: { s3: string; storage?: string }
+): string {
+	let url = `/api/w/${workspace}/job_helpers/load_image_preview?file_key=${encodeURIComponent(s3object.s3)}`
+	if (s3object.storage) url += `&storage=${s3object.storage}`
+	return url
+}
+
 export function formatS3Object(s3Object: S3Object): S3Uri {
 	if (typeof s3Object === 'object') return `s3://${s3Object.storage ?? ''}/${s3Object.s3}`
 	return s3Object

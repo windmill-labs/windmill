@@ -10,6 +10,7 @@
 
 <script lang="ts">
 	import { setContext, untrack } from 'svelte'
+	import { setImageOpener } from '$lib/components/common/image/imageOpener'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import type AIChat from '$lib/components/copilot/chat/AIChat.svelte'
 	import ComposerPlaceholder from '$lib/components/copilot/chat/ComposerPlaceholder.svelte'
@@ -111,6 +112,7 @@
 
 	if (runtime) {
 		setContext<AIChatManager>('aiChatManager', runtime.manager)
+		setImageOpener((source, label) => runtime.manager.openImage?.(source, label))
 	}
 
 	// Reactive session reference (mutations to summary/target propagate via the $state proxy).

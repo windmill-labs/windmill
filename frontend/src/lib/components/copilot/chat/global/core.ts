@@ -20,7 +20,11 @@ import {
 	WorkspaceService
 } from '$lib/gen'
 import { deepEqual } from 'fast-equals'
-import { promptSafe, type ArtifactVersionTarget } from '$lib/components/sessions/previewRouter'
+import {
+	promptSafe,
+	type ArtifactVersionTarget,
+	type ImageSource
+} from '$lib/components/sessions/previewRouter'
 import { canDraftItem, roleCanDraft } from '$lib/editRights'
 import { renderPromptTemplate } from './promptTemplate'
 import { $ScriptLang } from '$lib/gen/schemas.gen'
@@ -4879,7 +4883,8 @@ export const SESSION_PREVIEW_TOOL_NAMES = new Set([
 	'update_artifact',
 	'list_artifacts',
 	'read_artifact',
-	'list_artifact_versions'
+	'list_artifact_versions',
+	'show_image'
 ])
 
 /**
@@ -4952,6 +4957,7 @@ export type GlobalToolHelpers = SessionToolHelpers & {
 	artifacts?: SessionArtifactsStore
 	getChatId?: () => string | undefined
 	openArtifact?: (artifactId: string, name: string, version?: ArtifactVersionTarget) => void
+	openImage?: (source: ImageSource, label: string) => void
 }
 
 function sessionIdFromCtx(ctx: { helpers?: unknown }): string | undefined {

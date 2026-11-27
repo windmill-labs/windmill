@@ -4,6 +4,8 @@ import {
 	describeLocation,
 	draftFriendlyLeaf,
 	drawerAnchorFor,
+	imageUrl,
+	parseImageRoute,
 	showsView,
 	itemDisplayName,
 	matchReusablePage,
@@ -530,5 +532,28 @@ describe('run form route', () => {
 		})
 		expect(parseRunFormRoute('/run/01a0')).toBeNull()
 		expect(parseRunFormRoute('artifact:abc#Plan')).toBeNull()
+	})
+})
+
+describe('image routes', () => {
+	it('round-trips every image source, slashes in a name or URL included', () => {
+		const sources = [
+			{ kind: 'file', name: 'screens/icons/logo.png' },
+			{ kind: 'message', hash: '36976501-1qvb' },
+			{ kind: 'result', workspace: 'admins', jobId: '01a2', format: 'png' },
+			{ kind: 'result', workspace: 'admins', jobId: '01a2', format: 'jpeg', nodeId: 'a' },
+			{
+				kind: 'result',
+				workspace: 'admins',
+				jobId: '01a2',
+				format: 'png',
+				path: ['render_all', 1]
+			},
+			{ kind: 'url', url: '/api/w/admins/job_helpers/load_image_preview?file_key=out/x.png' }
+		] as const
+		for (const source of sources) {
+			expect(parseImageRoute(imageUrl(source, 'My image'))).toEqual({ source, label: 'My image' })
+		}
+		expect(parseImageRoute('image:result/admins/01a2/bmp')).toBeNull()
 	})
 })

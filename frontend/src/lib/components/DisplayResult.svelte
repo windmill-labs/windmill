@@ -5,8 +5,16 @@
 	import { json } from 'svelte-highlight/languages'
 	import DbtRunResult from '$lib/components/dbt/DbtRunResult.svelte'
 	import { parseDbtRun } from '$lib/components/dbt/parseDbtRun'
-	import { copyToClipboard, parseS3Object, roughSizeOfObject } from '$lib/utils'
+	import {
+		copyToClipboard,
+		isS3ImageKey,
+		parseS3Object,
+		roughSizeOfObject,
+		s3ImagePreviewUrl
+	} from '$lib/utils'
 	import ExpandableImage from '$lib/components/common/image/ExpandableImage.svelte'
+	import { getImageOpener } from '$lib/components/common/image/imageOpener'
+	import type { ImageResultFormat, ResultPath } from '$lib/components/sessions/previewRouter'
 	import {
 		downloadBlob,
 		downloadViaClient,
@@ -132,6 +140,9 @@
 		 * run from the next, or a second one continues the first one's fold.
 		 */
 		runKey?: string | undefined
+		/** Where `result` sits inside the job's result, for a nested render; null when it
+		 * cannot be addressed from the job (an agent's structured output). */
+		resultPath?: ResultPath | null
 		workspaceId?: string | undefined
 		hideAsJson?: boolean
 		noControls?: boolean
@@ -158,6 +169,7 @@
 		disableExpand = false,
 		jobId = undefined,
 		runKey = undefined,
+		resultPath = [],
 		workspaceId = undefined,
 		hideAsJson = false,
 		noControls = false,
@@ -193,15 +205,12 @@
 	// the provenance-gated `apps_u/download_s3_file/{appPath}` endpoint; otherwise
 	// (editor/preview) it uses the viewer-scoped `job_helpers/load_image_preview`.
 	function s3DisplayUrl(s3object: { s3: string; storage?: string; presigned?: string }): string {
-		const endpoint = appPath
-			? `apps_u/download_s3_file/${appPath}`
-			: 'job_helpers/load_image_preview'
-		const keyParam = appPath ? 's3' : 'file_key'
-		let url = `/api/w/${workspaceId}/${endpoint}?${keyParam}=${encodeURIComponent(s3object.s3)}`
+		if (!appPath) return s3ImagePreviewUrl(workspaceId ?? '', s3object)
+		let url = `/api/w/${workspaceId}/apps_u/download_s3_file/${appPath}?s3=${encodeURIComponent(s3object.s3)}`
 		if (s3object.storage) {
 			url += `&storage=${s3object.storage}`
 		}
-		if (appPath && s3object.presigned) {
+		if (s3object.presigned) {
 			url += `&${s3object.presigned}`
 		}
 		return url
@@ -535,6 +544,44 @@
 		return false
 	}
 
+	const imageOpener = getImageOpener()
+
+	/** In a session, an image result opens in the preview panel. Only a result whose job is
+	 * known: the tab refetches it from there, and a result shown without one (a replay, a
+	 * value an app computed) keeps expanding in place. */
+	function openResultImage(format: ImageResultFormat): (() => void) | undefined {
+		if (!imageOpener || !jobId || !workspaceId || !resultPath) return undefined
+		const opener = imageOpener
+		const job = jobId
+		const workspace = workspaceId
+		const node = nodeId
+		const path = resultPath
+		const at = path.length ? ` #${path.filter((k) => typeof k === 'number').join('.')}` : ''
+		return () =>
+			opener(
+				{
+					kind: 'result',
+					workspace,
+					jobId: job,
+					format,
+					...(node ? { nodeId: node } : {}),
+					...(path.length ? { path } : {})
+				},
+				(node ? `${node} result` : `Result ${job.slice(-8)}`) + at
+			)
+	}
+
+	function openS3Image(s3object: {
+		s3: string
+		storage?: string
+		presigned?: string
+	}): (() => void) | undefined {
+		if (!imageOpener) return undefined
+		const opener = imageOpener
+		const url = s3DisplayUrl(s3object)
+		return () => opener({ kind: 'url', url }, s3object.s3.split('/').pop() || s3object.s3)
+	}
+
 	function contentOrRootString(obj: string | { filename: string; content: string } | undefined) {
 		if (obj == undefined || obj == null) {
 			return ''
@@ -849,10 +896,11 @@
 			</div>
 		{/if}
 		<div class="flex flex-col w-full gap-10">
-			{#each result['render_all'] as res}
+			{#each result['render_all'] as res, i}
 				<DisplayResult
 					{noControls}
 					result={res}
+					resultPath={resultPath ? [...resultPath, 'render_all', i] : null}
 					{markupTrust}
 					{filename}
 					{disableExpand}
@@ -980,6 +1028,7 @@
 						<ExpandableImage
 							alt="png rendered"
 							class="w-auto h-full"
+							onOpen={openResultImage('png')}
 							src="data:image/png;base64,{contentOrRootString(result.png)}"
 						/>
 					</div>
@@ -988,6 +1037,7 @@
 						<ExpandableImage
 							alt="jpeg rendered"
 							class="w-auto h-full"
+							onOpen={openResultImage('jpeg')}
 							src="data:image/jpeg;base64,{contentOrRootString(result.jpeg)}"
 						/>
 					</div>
@@ -1017,6 +1067,7 @@
 						<ExpandableImage
 							alt="gif rendered"
 							class="w-auto h-full"
+							onOpen={openResultImage('gif')}
 							src="data:image/gif;base64,{contentOrRootString(result.gif)}"
 						/>
 					</div>
@@ -1242,13 +1293,14 @@
 										presigned={s3object?.presigned}
 									/>
 								{/key}
-							{:else if s3object?.s3?.endsWith('.png') || s3object?.s3?.endsWith('.jpeg') || s3object?.s3?.endsWith('.jpg') || s3object?.s3?.endsWith('.webp')}
+							{:else if isS3ImageKey(s3object?.s3 ?? '')}
 								<div class="h-full mt-2">
 									<ExpandableImage
 										alt="preview rendered"
 										title={s3object?.s3}
 										class="w-auto h-full"
 										src={s3DisplayUrl(s3object)}
+										onOpen={openS3Image(s3object)}
 									/>
 								</div>
 							{:else if s3object?.s3?.endsWith('.pdf')}
@@ -1311,7 +1363,7 @@
 											>open table preview <ArrowDownFromLine />
 										</button>
 									{/if}
-								{:else if s3object?.s3?.endsWith('.png') || s3object?.s3?.endsWith('.jpeg') || s3object?.s3?.endsWith('.jpg') || s3object?.s3?.endsWith('.webp')}
+								{:else if isS3ImageKey(s3object?.s3 ?? '')}
 									{#if seeS3PreviewFileFromList == s3object?.s3}
 										<div class="h-full mt-2">
 											<ExpandableImage
@@ -1319,6 +1371,7 @@
 												title={s3object?.s3}
 												class="w-auto h-full"
 												src={s3DisplayUrl(s3object)}
+												onOpen={openS3Image(s3object)}
 											/>
 										</div>
 									{:else}
@@ -1351,6 +1404,7 @@
 									noControls
 									hideAsJson
 									result={output}
+									resultPath={null}
 									{markupTrust}
 									{filename}
 									{disableExpand}
@@ -1500,6 +1554,7 @@
 				<DisplayResult
 					{noControls}
 					{result}
+					{resultPath}
 					{markupTrust}
 					{filename}
 					{jobId}

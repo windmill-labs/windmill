@@ -6,7 +6,7 @@ vi.mock('../shared', () => ({
 	createToolDef: (_schema: unknown, name: string, description: string) => ({ name, description })
 }))
 
-import { searchFilesTool } from './fileTools'
+import { imagesAtPath, resultImages, searchFilesTool } from './fileTools'
 import type { AttachedFile, AttachedFilesStore } from './attachedFiles.svelte'
 
 /** Minimal store stub mirroring the real lookup contract (id first, then
@@ -56,6 +56,23 @@ describe('search_files — attachments present but nothing readable', () => {
 	it('tells the user to re-link when files are unavailable', async () => {
 		const msg = await runSearch(fakeStore([{ name: 'gone.txt', status: 'unavailable' }]))
 		expect(msg).toMatch(/re-link/i)
+	})
+
+	it('reports an image row by its status until it is ready', async () => {
+		const gone = await runSearch(
+			fakeStore([{ name: 'a.png', status: 'unavailable', image: true }]),
+			{
+				pattern: 'x',
+				file: 'a.png'
+			}
+		)
+		expect(gone).toMatch(/re-link/i)
+		const ready = await runSearch(fakeStore([{ name: 'a.png', status: 'ready', image: true }]), {
+			pattern: 'x',
+			file: 'a.png'
+		})
+		expect(ready).toMatch(/is an image/i)
+		expect(ready).not.toMatch(/show_image/)
 	})
 
 	it('still reports indexing while a file is genuinely indexing', async () => {
@@ -120,5 +137,56 @@ describe('search_files — colliding display names', () => {
 		const out = await runSearch(colliding(), { pattern: 'target', file: 'fBBB' })
 		expect(out).toContain('bravo target')
 		expect(out).not.toContain('alpha target')
+	})
+})
+
+describe('resultImages', () => {
+	it('finds the image a result holds and each render_all item, by its path', () => {
+		expect(resultImages({ png: 'AAA' })).toEqual([{ format: 'png', path: [] }])
+		expect(resultImages({ jpeg: { content: 'AAA' } })).toEqual([{ format: 'jpeg', path: [] }])
+		expect(
+			resultImages({ render_all: [{ markdown: '# a' }, { png: 'AAA' }, { gif: 'BBB' }] })
+		).toEqual([
+			{ format: 'png', path: ['render_all', 1] },
+			{ format: 'gif', path: ['render_all', 2] }
+		])
+		expect(resultImages({ s3: 'charts/a.png' })).toEqual([{ s3: { s3: 'charts/a.png' } }])
+		expect(resultImages('s3://secondary/b.jpg')).toEqual([
+			{ s3: { s3: 'b.jpg', storage: 'secondary' } }
+		])
+		expect(resultImages([{ s3: 'a.png' }, { s3: 'b.webp' }])).toHaveLength(2)
+		expect(resultImages([{ s3: 'plot.png' }, { s3: 'data.csv' }])).toEqual([
+			{ s3: { s3: 'plot.png' } }
+		])
+		expect(resultImages([{ s3: 'plot.png' }, 'other'])).toEqual([])
+		expect(resultImages({ s3: 'data.parquet' })).toEqual([])
+		expect(resultImages({ png: 42 })).toEqual([])
+		expect(resultImages('png')).toEqual([])
+	})
+})
+
+describe('imagesAtPath', () => {
+	// A list of inline images, which resultImages alone does not open.
+	const result = { charts: [{ png: 'AAA' }, { jpeg: { content: 'BBB' } }], files: ['s3://x/c.png'] }
+
+	it('opens the image a path points at, by its object or its base64 field', () => {
+		expect(imagesAtPath(result, ['charts', 1])).toEqual([{ format: 'jpeg', path: ['charts', 1] }])
+		expect(imagesAtPath(result, ['charts', 0, 'png'])).toEqual([
+			{ format: 'png', path: ['charts', 0] }
+		])
+		expect(imagesAtPath(result, ['files', 0])).toEqual([{ s3: { s3: 'c.png', storage: 'x' } }])
+	})
+
+	it('opens the format a path names when the object holds several', () => {
+		expect(imagesAtPath({ png: 'AAA', jpeg: 'BBB' }, ['jpeg'])).toEqual([
+			{ format: 'jpeg', path: [] }
+		])
+		expect(imagesAtPath({ png: 'AAA' }, ['jpeg'])).toEqual([])
+	})
+
+	it('finds nothing where the path leads off the result', () => {
+		expect(imagesAtPath(result, ['charts', 5])).toEqual([])
+		expect(imagesAtPath(result, ['charts', 0, 'png', 'deeper'])).toEqual([])
+		expect(imagesAtPath('text', [0])).toEqual([])
 	})
 })

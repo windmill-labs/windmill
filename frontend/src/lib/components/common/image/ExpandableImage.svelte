@@ -25,9 +25,12 @@
 		title?: string
 		/** Classes for the inline thumbnail — sizing, border, radius. */
 		class?: string
+		/** Opens the image in a viewer elsewhere (a session's preview panel), offered as a
+		 * button in the expanded view. */
+		onOpen?: () => void
 	}
 
-	let { src, alt = '', title, class: className = '' }: Props = $props()
+	let { src, alt = '', title, class: className = '', onOpen }: Props = $props()
 
 	let isOpen = $state(false)
 
@@ -69,4 +72,4 @@
 	}}
 />
 
-<ImageViewer bind:isOpen {src} {alt} {title} />
+<ImageViewer bind:isOpen {src} {alt} {title} onOpenInPreview={onOpen} />

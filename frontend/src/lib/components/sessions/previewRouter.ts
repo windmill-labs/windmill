@@ -105,6 +105,31 @@ export type PreviewTarget =
 	| { type: 'artifact'; id: string; name: string; version?: ArtifactVersionTarget }
 	| { type: 'runform'; toolCallId: string; label: string }
 	| { type: 'pageitem'; ref: PageItemRef }
+	| { type: 'image'; source: ImageSource; label: string }
+
+/** Where an image tab's bytes come from: a file the session linked (addressed by its
+ * name in the attached-files store), an image the user sent in a chat message (by a hash
+ * of its data URL, since message images carry no id), a job's inline image result (by the
+ * job, refetched rather than carried: the tab url is persisted and the bytes run to
+ * megabytes), or an image the API serves at a URL (an S3 result's preview). */
+export type ImageSource =
+	| { kind: 'file'; name: string }
+	| { kind: 'message'; hash: string }
+	| {
+			kind: 'result'
+			workspace: string
+			jobId: string
+			nodeId?: string
+			format: ImageResultFormat
+			/** Where the image sits inside the result, when it is not the result itself
+			 * (a `render_all` child). */
+			path?: ResultPath
+	  }
+	| { kind: 'url'; url: string }
+
+export type ImageResultFormat = 'png' | 'jpeg' | 'gif'
+export type ResultPath = (string | number)[]
+const IMAGE_RESULT_FORMATS: readonly string[] = ['png', 'jpeg', 'gif']
 
 /**
  * Which side of an item to open when the opener is showing the reader something
@@ -214,7 +239,13 @@ const INJECTED_PARAMS = ['nomenubar', 'workspace'] as const
 export function canonicalizeObservedLoc(loc: string): string {
 	// An artifact or a run form is a scheme, not a path — `new URL` would happily parse it
 	// and hand back a pathname with the scheme gone.
-	if (parseArtifactRoute(loc) || parseRunFormRoute(loc) || parsePageItemRoute(loc)) return loc
+	if (
+		parseArtifactRoute(loc) ||
+		parseRunFormRoute(loc) ||
+		parsePageItemRoute(loc) ||
+		parseImageRoute(loc)
+	)
+		return loc
 	try {
 		const u = new URL(loc, 'http://_')
 		for (const p of INJECTED_PARAMS) u.searchParams.delete(p)
@@ -294,6 +325,9 @@ export function describeLocation(loc: string): PreviewLocation {
 	// Identity is the call, never the label: that carries the script's summary, so folding it
 	// in would open a second tab for the same form whenever the summary differed.
 	if (runForm) return { identity: `runform:${runForm.toolCallId}`, view: '', anchor: '' }
+	// Identity is the source, never the label.
+	const image = parseImageRoute(loc)
+	if (image) return { identity: imageUrl(image.source, ''), view: '', anchor: '' }
 	const pageItem = parsePageItemRoute(loc)
 	if (pageItem) return { identity: pageItemUrl(pageItem), view: '', anchor: '' }
 	// Keyed by its hash: as a bare path it would claim the live editor's tab on the same script.
@@ -479,6 +513,8 @@ export function previewLocationLabel(url: string): string {
 	if (artifact) return artifact.name || 'Artifact'
 	const runForm = parseRunFormRoute(url)
 	if (runForm) return runForm.label || 'Run form'
+	const image = parseImageRoute(url)
+	if (image) return image.label || 'Image'
 	const pageItem = parsePageItemRoute(url)
 	if (pageItem) return pageItem.path.split('/').pop() || pageItem.path
 	const page = matchReusablePage(url)
@@ -607,6 +643,79 @@ export function parseRunRoute(
 	}
 }
 
+// An image tab: `image:file/<name>` or `image:msg/<hash>`, the label in the hash. A scheme for
+// the same reason as artifacts — the tab mounts a viewer, there is no page to frame.
+export function parseImageRoute(url: string): { source: ImageSource; label: string } | null {
+	const m = url.match(/^image:(file|msg|result|url)\/([^?#]+)(?:#(.*))?$/)
+	if (!m) return null
+	let parts: string[]
+	let label = ''
+	try {
+		parts = m[2].split('/').map(decodeURIComponent)
+		label = m[3] ? decodeURIComponent(m[3]) : ''
+	} catch {
+		return null
+	}
+	const source = imageSourceOf(m[1], parts)
+	return source ? { source, label } : null
+}
+
+function imageSourceOf(kind: string, parts: string[]): ImageSource | undefined {
+	if (kind === 'file' && parts.length === 1) return { kind: 'file', name: parts[0] }
+	if (kind === 'msg' && parts.length === 1) return { kind: 'message', hash: parts[0] }
+	if (kind === 'url' && parts.length === 1) return { kind: 'url', url: parts[0] }
+	if (kind === 'result' && parts.length >= 3 && parts.length <= 5) {
+		const [workspace, jobId, format, nodeId, pathJson] = parts
+		if (!IMAGE_RESULT_FORMATS.includes(format)) return undefined
+		const path = pathJson ? parseResultPath(pathJson) : undefined
+		if (pathJson && !path) return undefined
+		return {
+			kind: 'result',
+			workspace,
+			jobId,
+			format: format as ImageResultFormat,
+			...(nodeId ? { nodeId } : {}),
+			...(path ? { path } : {})
+		}
+	}
+	return undefined
+}
+
+function parseResultPath(json: string): ResultPath | undefined {
+	try {
+		const path: unknown = JSON.parse(json)
+		return Array.isArray(path) &&
+			path.length > 0 &&
+			path.every((k) => typeof k === 'string' || typeof k === 'number')
+			? path
+			: undefined
+	} catch {
+		return undefined
+	}
+}
+
+// Every segment is encoded on its own, so a `/` inside a file name or URL stays one segment.
+export function imageUrl(source: ImageSource, label: string): string {
+	const segments =
+		source.kind === 'file'
+			? ['file', source.name]
+			: source.kind === 'message'
+				? ['msg', source.hash]
+				: source.kind === 'url'
+					? ['url', source.url]
+					: [
+							'result',
+							source.workspace,
+							source.jobId,
+							source.format,
+							// The node segment is kept, empty, when a path follows it.
+							...(source.nodeId || source.path?.length ? [source.nodeId ?? ''] : []),
+							...(source.path?.length ? [JSON.stringify(source.path)] : [])
+						]
+	const [kind, ...rest] = segments
+	return `image:${kind}/${rest.map(encodeURIComponent).join('/')}${label ? `#${encodeURIComponent(label)}` : ''}`
+}
+
 export function runFormUrl(toolCallId: string, label: string): string {
 	return `runform:${encodeURIComponent(toolCallId)}#${encodeURIComponent(label)}`
 }
@@ -640,6 +749,7 @@ export type PreviewSlot =
 	| { kind: 'viewer'; viewerKind: SessionTargetKind | 'agent'; path: string }
 	| { kind: 'artifact'; id: string; version?: number }
 	| { kind: 'runform'; toolCallId: string }
+	| { kind: 'image'; source: ImageSource }
 	| { kind: 'pageitem'; ref: PageItemRef }
 	| { kind: 'pagelist'; path: string }
 	| { kind: 'run'; jobId: string; workspace?: string }
@@ -662,6 +772,8 @@ export function resolvePreviewTab(url: string): PreviewSlot {
 	if (artifact) return { kind: 'artifact', id: artifact.id, version: artifact.version }
 	const runForm = parseRunFormRoute(url)
 	if (runForm) return { kind: 'runform', toolCallId: runForm.toolCallId }
+	const image = parseImageRoute(url)
+	if (image) return { kind: 'image', source: image.source }
 	const pageItem = parsePageItemRoute(url)
 	if (pageItem) return { kind: 'pageitem', ref: pageItem }
 	const route = barePath(url)
@@ -702,6 +814,7 @@ export function workspacePageHref(location: string): string | undefined {
 	switch (slot.kind) {
 		case 'artifact':
 		case 'runform':
+		case 'image':
 			return undefined
 		case 'pageitem':
 			return pageItemPageHref(slot.ref)
