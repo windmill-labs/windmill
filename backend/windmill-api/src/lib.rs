@@ -489,8 +489,12 @@ pub async fn run_server(
         .allow_headers(tower_http::cors::AllowHeaders::mirror_request())
         // The 401 challenge is how a client discovers where to authorize (RFC 9728),
         // and it is not a safelisted response header, so without this a browser
-        // client sees an empty one and has no way to begin the OAuth flow.
-        .expose_headers([http::header::WWW_AUTHENTICATE])
+        // client sees an empty one and has no way to begin the OAuth flow. The session
+        // id is how a browser host that draws cards keeps being offered the card tools.
+        .expose_headers([
+            http::header::WWW_AUTHENTICATE,
+            http::HeaderName::from_static("mcp-session-id"),
+        ])
         .allow_origin(Any);
 
     let sp_extension = Arc::new(saml_oss::build_sp_extension(&db).await?);

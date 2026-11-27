@@ -52,16 +52,56 @@ const GET_WORKSPACE_CONTEXT: &str = "get_workspace_context";
 const MCP_APP_MIME_TYPE: &str = "text/html;profile=mcp-app";
 const MCP_APPS_EXTENSION: &str = "io.modelcontextprotocol/ui";
 
-/// A tool that only shows a card does nothing for a client that declares it draws none.
-/// Only a request's own capabilities count: a legacy client's are never seen (the
-/// transport keeps no session), and it keeps the tools.
-fn declines_cards(capabilities: Option<&ClientCapabilities>) -> bool {
-    capabilities.is_some_and(|caps| {
-        !caps
-            .extensions
-            .as_ref()
-            .is_some_and(|e| e.contains_key(MCP_APPS_EXTENSION))
+/// The `Mcp-Session-Id` prefix given to a connection whose `initialize` says it draws cards.
+/// The transport keeps no session, so the id itself carries what the handshake said: a
+/// legacy client sends it back on every request, and a request's own capabilities, which
+/// only `2026-07-28` clients send, never reach a legacy one.
+pub const CARD_SESSION_PREFIX: &str = "wm-ui-";
+
+fn declares_cards(capabilities: &ClientCapabilities) -> bool {
+    capabilities
+        .extensions
+        .as_ref()
+        .is_some_and(|e| e.contains_key(MCP_APPS_EXTENSION))
+}
+
+/// Codex's desktop app fetches and draws its cards over connections that declare nothing,
+/// and draws a card only for a tool those connections list, so they are indistinguishable
+/// from Codex CLI, which draws none. Both keep the card tools until Codex declares MCP Apps
+/// on those connections.
+const CODEX_CLIENT: &str = "codex-mcp-client";
+
+/// Whether a request body is an `initialize` from a client that draws cards.
+pub fn initialize_draws_cards(body: &[u8]) -> bool {
+    #[derive(serde::Deserialize)]
+    struct Initialize {
+        method: String,
+        params: InitializeParams,
+    }
+    #[derive(serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct InitializeParams {
+        capabilities: ClientCapabilities,
+        client_info: Option<ClientName>,
+    }
+    #[derive(serde::Deserialize)]
+    struct ClientName {
+        name: String,
+    }
+    serde_json::from_slice::<Initialize>(body).is_ok_and(|i| {
+        i.method == "initialize"
+            && (declares_cards(&i.params.capabilities)
+                || i.params.client_info.is_some_and(|c| c.name == CODEX_CLIENT))
     })
+}
+
+/// Only a client that draws cards is offered the tools that just show one.
+fn draws_cards(capabilities: Option<&ClientCapabilities>, headers: &http::HeaderMap) -> bool {
+    capabilities.is_some_and(declares_cards)
+        || headers
+            .get("mcp-session-id")
+            .and_then(|v| v.to_str().ok())
+            .is_some_and(|id| id.starts_with(CARD_SESSION_PREFIX))
 }
 
 /// The views load nothing from outside their own page and reach Windmill only through
@@ -106,6 +146,7 @@ struct Caller<A> {
     scope: McpScopeConfig,
     /// The scheme and host the client reached, for links to Windmill pages.
     origin: Option<String>,
+    headers: http::HeaderMap,
 }
 
 /// `x-forwarded-*` first, since a proxy in front rewrites the host the request names.
@@ -151,7 +192,7 @@ impl<B: McpBackend> SessionRunner<B> {
                 None,
             ));
         }
-        Ok(Caller { auth, mode, scope, origin: request_origin(&headers) })
+        Ok(Caller { auth, mode, scope, origin: request_origin(&headers), headers })
     }
 
     async fn workspaces(&self, caller: &Caller<B::Auth>) -> Result<Vec<WorkspaceInfo>, ErrorData> {
@@ -304,7 +345,7 @@ impl<B: McpBackend> ServerHandler for SessionRunner<B> {
                 .into_iter()
                 .map(with_workspace_id_arg),
         );
-        if declines_cards(context.meta.client_capabilities().as_ref()) {
+        if !draws_cards(context.meta.client_capabilities().as_ref(), &caller.headers) {
             tools.retain(|tool| {
                 !tool.meta.as_ref().is_some_and(|m| {
                     m.0.get("ui")
@@ -424,12 +465,40 @@ mod tests {
     use super::*;
 
     #[test]
-    fn only_a_client_declaring_no_cards_loses_the_card_tools() {
+    fn only_a_client_declaring_mcp_apps_gets_the_card_tools() {
+        let none = http::HeaderMap::new();
         let mut caps: ClientCapabilities = serde_json::from_value(serde_json::json!({})).unwrap();
-        assert!(declines_cards(Some(&caps)));
-        assert!(!declines_cards(None));
+        assert!(!draws_cards(Some(&caps), &none));
+        assert!(!draws_cards(None, &none));
         caps.extensions = Some([(MCP_APPS_EXTENSION.to_string(), Default::default())].into());
-        assert!(!declines_cards(Some(&caps)));
+        assert!(draws_cards(Some(&caps), &none));
+
+        let mut session = http::HeaderMap::new();
+        session.insert("mcp-session-id", "wm-ui-abc".parse().unwrap());
+        assert!(draws_cards(None, &session));
+        session.insert("mcp-session-id", "abc".parse().unwrap());
+        assert!(!draws_cards(None, &session));
+    }
+
+    #[test]
+    fn an_initialize_draws_cards_through_its_extensions_or_as_codex() {
+        let init = |caps: Value, client: &str| {
+            serde_json::to_vec(&serde_json::json!({
+                "jsonrpc": "2.0", "id": 0, "method": "initialize",
+                "params": { "protocolVersion": "2025-11-25", "capabilities": caps,
+                            "clientInfo": { "name": client, "version": "1" } }
+            }))
+            .unwrap()
+        };
+        let ui = serde_json::json!({ "extensions": { MCP_APPS_EXTENSION: {
+            "mimeTypes": [MCP_APP_MIME_TYPE] } } });
+        let none = serde_json::json!({ "elicitation": {} });
+        assert!(initialize_draws_cards(&init(ui, "claude-ai")));
+        assert!(!initialize_draws_cards(&init(none.clone(), "other")));
+        assert!(initialize_draws_cards(&init(none, CODEX_CLIENT)));
+        assert!(!initialize_draws_cards(
+            br#"{"jsonrpc":"2.0","id":1,"method":"tools/list"}"#
+        ));
     }
 
     #[test]

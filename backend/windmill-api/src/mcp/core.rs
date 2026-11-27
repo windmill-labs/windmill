@@ -39,8 +39,8 @@ use std::time::Duration;
 use tokio_util::sync::CancellationToken;
 use windmill_mcp::common::SESSION_SCOPE;
 use windmill_mcp::server::{
-    LocalSessionManager, McpToken, MultiWorkspaceMcp, NoEndpointTools, Runner, SessionRunner,
-    StreamableHttpServerConfig, StreamableHttpService,
+    initialize_draws_cards, LocalSessionManager, McpToken, MultiWorkspaceMcp, NoEndpointTools,
+    Runner, SessionRunner, StreamableHttpServerConfig, StreamableHttpService, CARD_SESSION_PREFIX,
 };
 use windmill_mcp::WorkspaceId;
 
@@ -856,12 +856,10 @@ pub async fn setup_mcp_server(
                     let session = request.extensions().get::<ApiAuthed>().is_some_and(|a| {
                         serves_session_toolset(a.scopes.as_deref().unwrap_or_default())
                     });
-                    let response = if session {
-                        session_service.oneshot(request).await
-                    } else {
-                        service.oneshot(request).await
-                    };
-                    match response {
+                    if session {
+                        return serve_session(session_service, request).await;
+                    }
+                    match service.oneshot(request).await {
                         Ok(response) => response.into_response(),
                         Err(never) => match never {},
                     }
@@ -878,13 +876,11 @@ pub async fn setup_mcp_server(
             let (service, session_service) = (service.clone(), session_service.clone());
             async move {
                 use tower::ServiceExt;
-                let response = if request.extensions().get::<McpSelection>().is_some() {
-                    request.extensions_mut().insert(NoEndpointTools);
-                    service.oneshot(request).await
-                } else {
-                    session_service.oneshot(request).await
-                };
-                match response {
+                if request.extensions().get::<McpSelection>().is_none() {
+                    return serve_session(session_service, request).await;
+                }
+                request.extensions_mut().insert(NoEndpointTools);
+                match service.oneshot(request).await {
                     Ok(response) => response.into_response(),
                     Err(never) => match never {},
                 }
@@ -892,6 +888,33 @@ pub async fn setup_mcp_server(
         }),
     );
     Ok((router, session_router, cancellation_token))
+}
+
+/// Serves the session's toolset, answering the `initialize` of a client that draws cards
+/// with a session id that tells its later requests so.
+async fn serve_session(
+    service: StreamableHttpService<SessionRunner<WindmillBackend>, LocalSessionManager>,
+    request: Request<axum::body::Body>,
+) -> Response {
+    use tower::ServiceExt;
+    let (parts, body) = request.into_parts();
+    let limit = *crate::REQUEST_SIZE_LIMIT.read().await;
+    let Ok(bytes) = axum::body::to_bytes(body, limit).await else {
+        return axum::http::StatusCode::PAYLOAD_TOO_LARGE.into_response();
+    };
+    let draws_cards = parts.method == axum::http::Method::POST && initialize_draws_cards(&bytes);
+    let request = Request::from_parts(parts, axum::body::Body::from(bytes));
+    let mut response = match service.oneshot(request).await {
+        Ok(response) => response.into_response(),
+        Err(never) => match never {},
+    };
+    if draws_cards && response.status().is_success() {
+        let id = format!("{CARD_SESSION_PREFIX}{}", uuid::Uuid::new_v4().simple());
+        if let Ok(value) = id.parse() {
+            response.headers_mut().insert("mcp-session-id", value);
+        }
+    }
+    response
 }
 
 /// HTTP handler to list MCP tools as JSON

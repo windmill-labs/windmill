@@ -219,3 +219,81 @@ async fn test_mcp_unsupported_version_lists_supported_ones(
 
     Ok(())
 }
+
+/// A legacy client sends its capabilities only in `initialize`, and the endpoint keeps no
+/// session: the card tools must still follow them, through the session id it answers with.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_mcp_card_tools_follow_legacy_initialize_capabilities(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    set_jwt_secret().await;
+    sqlx::query(
+        "INSERT INTO token (token_hash, token_prefix, token, email, label, super_admin, scopes)
+         VALUES (encode(sha256('MCP_SESSION'::bytea), 'hex'), 'MCP_SES', 'MCP_SESSION', 'test@windmill.dev', 'mcp session', true, ARRAY['mcp:all', 'mcp:session'])",
+    )
+    .execute(&db)
+    .await?;
+    let server = ApiServer::start_mcp(db.clone()).await?;
+    let url = format!(
+        "http://localhost:{}/api/mcp/w/test-workspace/mcp",
+        server.addr.port()
+    );
+    let send = |session_id: Option<String>, body: Value| {
+        let mut req = reqwest::Client::new()
+            .post(&url)
+            .header("Authorization", "Bearer MCP_SESSION")
+            .header("Accept", "application/json, text/event-stream")
+            .header("MCP-Protocol-Version", "2025-11-25")
+            .json(&body);
+        if let Some(id) = session_id {
+            req = req.header("Mcp-Session-Id", id);
+        }
+        async move {
+            let resp = req.send().await?;
+            let session_id = resp
+                .headers()
+                .get("mcp-session-id")
+                .and_then(|v| v.to_str().ok())
+                .map(str::to_string);
+            let text = resp.text().await?;
+            let payload = text
+                .lines()
+                .find_map(|l| l.strip_prefix("data: "))
+                .unwrap_or(text.trim());
+            anyhow::Ok((session_id, serde_json::from_str::<Value>(payload)?))
+        }
+    };
+
+    let cards = json!({ "extensions": { "io.modelcontextprotocol/ui": {
+        "mimeTypes": ["text/html;profile=mcp-app"] } } });
+    for (capabilities, offered) in [(cards, true), (json!({ "elicitation": {} }), false)] {
+        let (session_id, _) = send(
+            None,
+            json!({
+                "jsonrpc": "2.0", "id": 1, "method": "initialize",
+                "params": {
+                    "protocolVersion": "2025-11-25",
+                    "capabilities": capabilities.clone(),
+                    "clientInfo": { "name": "test-client", "version": "0.0.1" },
+                }
+            }),
+        )
+        .await?;
+        let (_, body) = send(
+            session_id,
+            json!({ "jsonrpc": "2.0", "id": 2, "method": "tools/list" }),
+        )
+        .await?;
+        let tools = body["result"]["tools"]
+            .as_array()
+            .ok_or_else(|| anyhow::anyhow!("no tool list: {body}"))?;
+        assert_eq!(
+            tools.iter().any(|t| t["name"] == "show_run"),
+            offered,
+            "show_run offered to the wrong client ({capabilities})"
+        );
+    }
+
+    Ok(())
+}

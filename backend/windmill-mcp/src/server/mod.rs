@@ -22,7 +22,7 @@ pub use endpoints::{
     list_workspaces_tool, non_empty_body_fields, with_workspace_id_arg, EndpointTool,
 };
 pub use runner::{has_endpoint_path_policy, Runner, MAX_TOOL_RESULT_BYTES};
-pub use session::SessionRunner;
+pub use session::{initialize_draws_cards, SessionRunner, CARD_SESSION_PREFIX};
 pub use tools::create_tool_from_item;
 
 // Re-export rmcp types for convenience
