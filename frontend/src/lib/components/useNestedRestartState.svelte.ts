@@ -155,8 +155,7 @@ export function useNestedRestartState(opts: {
 		const sel = restartStepId
 		const job = opts.job()
 		if (!sel || !job?.raw_flow?.modules) return false
-		const mod = job.raw_flow.modules.find((m) => m.id === sel)
-		return !!mod && !(mod.value.type === 'whileloopflow' && mod.value.parallel === true)
+		return job.raw_flow.modules.some((m) => m.id === sel)
 	})
 
 	// For a parallel container: how many of its iterations (branches) did not
