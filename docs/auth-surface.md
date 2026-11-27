@@ -43,6 +43,22 @@ Symbols, not line numbers, are cited: they drift less.
   (`set_encryption_key`); a secret left under an old key locks its user out. The global user
   export leaves it out, as its files end up in git: an overwrite keeps the second factor of every
   account it reinstates, and a push to another instance arrives without one.
+  The `require_totp` instance setting (enterprise only, `totp::required`) makes a password login
+  without a second factor answer "Two-factor setup required" once the password matched. The
+  account then enrolls before it has any session, through `POST /auth/login/totp/setup` and
+  `/auth/login/totp/enable`, which take the password again on each call; `enable` turns the
+  factor on and mints the session in one transaction, so no session exists without it. While
+  required, `disable` is refused; a superadmin `reset` is not, and sends the user back through
+  enrollment. Sessions minted before the setting was turned on stay valid until they expire,
+  but `refresh_token` no longer renews one for an account without a second factor, so it ends
+  within `MAX_SESSION_VALIDITY_SECONDS` and the next login goes through the setup. The app
+  warns in its last 30 minutes, and enrolling from the settings restores renewal.
+  Until an account enrolls, its password is its only factor: whoever logs in with it first
+  enrolls their own authenticator, so a password already stolen is not protected, and the owner
+  needs a superadmin `reset` to recover. Turning the factor on (in settings or at login), off,
+  regenerating its recovery codes and a superadmin `reset` each email the account's owner when
+  SMTP is set up (`totp_ee::notify`), after the change has committed, so a change made with a
+  stolen password or session reaches the owner.
 - **Sessions** are `token` rows with `label='session'` plus the HttpOnly `token` cookie, minted only
   by `create_session_token` (`windmill-api-users/src/users.rs`). `GET /api/users/refresh_token`
   mints one for any non-job token but returns plain text, no redirect.

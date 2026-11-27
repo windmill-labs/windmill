@@ -18,6 +18,9 @@
 		username?: string | undefined
 		automateUsernameCreation?: boolean
 		login_type: string
+		/** Whether the user has two-factor authentication; the section shows only then. */
+		totpEnabled?: boolean
+		totpRequired?: boolean
 	}
 
 	let {
@@ -25,7 +28,9 @@
 		email,
 		username = undefined,
 		automateUsernameCreation = false,
-		login_type = $bindable()
+		login_type = $bindable(),
+		totpEnabled = false,
+		totpRequired = false
 	}: Props = $props()
 
 	let password: string = $state('')
@@ -44,8 +49,9 @@
 		sendUserToast(`Password updated for ${email}`)
 	}
 
-	async function resetTotp() {
+	async function removeTotp() {
 		sendUserToast(await UserService.resetTotpOfUser({ user: email }))
+		dispatch('refresh')
 	}
 
 	async function saveLoginType() {
@@ -177,22 +183,25 @@
 					Update login type
 				</Button>
 			</label>
-			<div class="block text-primary">
-				<div class="pb-1 text-xs font-semibold text-emphasis">Two-factor authentication</div>
-				<div class="text-2xs text-secondary mb-1">
-					Removes the user's authenticator, for when they lost access to it. They can set up a new
-					one from their user settings.
+			{#if totpEnabled}
+				<div class="block text-primary">
+					<div class="pb-1 text-xs font-semibold text-emphasis">Two-factor authentication</div>
+					<div class="text-2xs text-secondary mb-1">
+						For a user who lost their authenticator and recovery codes. {totpRequired
+							? 'They set it up again at their next login.'
+							: 'They can set it up again from their user settings.'}
+					</div>
+					<Button
+						unifiedSize="md"
+						variant="default"
+						buttonType="button"
+						btnClasses="mt-2"
+						onclick={removeTotp}
+					>
+						Remove two-factor
+					</Button>
 				</div>
-				<Button
-					unifiedSize="md"
-					variant="default"
-					buttonType="button"
-					btnClasses="mt-2"
-					onclick={resetTotp}
-				>
-					Reset two-factor
-				</Button>
-			</div>
+			{/if}
 		</div>
 	{/snippet}
 </Popover>

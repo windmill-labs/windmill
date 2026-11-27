@@ -466,6 +466,89 @@ paths:
               schema:
                 type: string
 
+  /auth/login/totp/setup:
+    post:
+      security: []
+      summary: start the two-factor setup an instance requires, before a session exists
+      operationId: loginTotpSetup
+      tags:
+        - user
+      requestBody:
+        description: the credentials of a password account that has no second factor yet
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+                password:
+                  type: string
+              required:
+                - email
+                - password
+      responses:
+        "200":
+          description: the secret to register in an authenticator app
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  secret:
+                    type: string
+                  otpauth_url:
+                    type: string
+                required:
+                  - secret
+                  - otpauth_url
+
+  /auth/login/totp/enable:
+    post:
+      security: []
+      summary: turn on the second factor started by loginTotpSetup and log in
+      operationId: loginTotpEnable
+      tags:
+        - user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+                password:
+                  type: string
+                code:
+                  type: string
+              required:
+                - email
+                - password
+                - code
+      responses:
+        "200":
+          description: >
+            Two-factor authentication is on and the session cookie is set. Returns
+            the recovery codes, shown only once.
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  recovery_codes:
+                    type: array
+                    items:
+                      type: string
+                required:
+                  - recovery_codes
+
   /auth/logout:
     post:
       security: []
@@ -710,8 +793,12 @@ paths:
                 properties:
                   enabled:
                     type: boolean
+                  required:
+                    type: boolean
+                    description: whether the instance requires two-factor authentication for password logins
                 required:
                   - enabled
+                  - required
 
   /users/totp/setup:
     post:
@@ -857,6 +944,31 @@ paths:
             text/plain:
               schema:
                 type: string
+
+  /users/totp/enabled:
+    get:
+      summary: list the users who have two-factor authentication (require super admin)
+      operationId: listTotpEnabledUsers
+      tags:
+        - user
+      responses:
+        "200":
+          description: the emails of the users with two-factor authentication on
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  required:
+                    type: boolean
+                    description: whether the instance requires two-factor authentication for password logins
+                  users:
+                    type: array
+                    items:
+                      type: string
+                required:
+                  - required
+                  - users
 
   /users/set_password_of/{user}:
     post:

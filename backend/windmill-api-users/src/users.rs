@@ -189,6 +189,8 @@ pub fn global_service() -> Router {
 pub fn make_unauthed_service() -> Router {
     Router::new()
         .route("/login", post(login))
+        .route("/login/totp/setup", post(login_totp_setup))
+        .route("/login/totp/enable", post(login_totp_enable))
         .route("/logout", post(logout).get(logout))
         .route("/is_first_time_setup", get(is_first_time_setup))
         .route("/request_password_reset", post(request_password_reset))
@@ -2920,6 +2922,124 @@ async fn set_login_type(
     ))
 }
 
+struct PasswordAccount {
+    email: String,
+    super_admin: bool,
+    totp_enabled: bool,
+}
+
+fn login_audit_author(email: &str) -> AuditAuthor {
+    AuditAuthor {
+        email: email.to_string(),
+        username: email.to_string(),
+        username_override: None,
+        token_prefix: None,
+    }
+}
+
+/// The account a password login names, once its password matched, with the transaction the
+/// login continues in. A mismatch and an unknown email fail alike, and count against the login
+/// rate limit, which is checked before any connection is taken.
+async fn verify_password_login<'c>(
+    db: &DB,
+    client_ip: Option<std::net::IpAddr>,
+    argon2: &Argon2<'_>,
+    email: &str,
+    password: &str,
+) -> Result<(Transaction<'c, Postgres>, PasswordAccount)> {
+    if windmill_common::global_settings::DISABLE_PASSWORD_LOGIN
+        .load(std::sync::atomic::Ordering::Relaxed)
+    {
+        return Err(Error::BadRequest(
+            "Password login is disabled on this instance".to_string(),
+        ));
+    }
+
+    windmill_common::login_rate_limit::check_and_increment_login_attempt(client_ip, email)?;
+
+    let mut tx = db.begin().await?;
+    let row: Option<(String, String, bool, bool)> = sqlx::query_as(
+        "SELECT email, password_hash, super_admin, totp_secret IS NOT NULL FROM password \
+         WHERE email = $1 AND login_type = 'password' AND disabled = false",
+    )
+    .bind(email)
+    .fetch_optional(&mut *tx)
+    .await?;
+
+    match row {
+        Some((email, hash, super_admin, totp_enabled))
+            if argon2.verify_password(password.as_bytes(), hash.as_str()).is_ok() =>
+        {
+            Ok((tx, PasswordAccount { email, super_admin, totp_enabled }))
+        }
+        _ => {
+            audit_log(
+                &mut *tx,
+                &login_audit_author(email),
+                "users.login_failure",
+                ActionKind::Create,
+                "global",
+                None,
+                None,
+            )
+            .await?;
+            windmill_common::login_rate_limit::record_login_failure(email);
+            Err(Error::BadRequest("Invalid login".to_string()))
+        }
+    }
+}
+
+/// Audits a wrong two-factor code and commits, unlike a wrong password: the transaction holds
+/// the wrong-code count, and a guessed code must leave a trace.
+async fn reject_totp_code(mut tx: Transaction<'_, Postgres>, email: &str) -> Error {
+    let committed = async {
+        audit_log(
+            &mut *tx,
+            &login_audit_author(email),
+            "users.login_failure",
+            ActionKind::Create,
+            "global",
+            None,
+            Some([("reason", "invalid_totp_code")].into()),
+        )
+        .await?;
+        tx.commit().await?;
+        Ok::<_, Error>(())
+    }
+    .await;
+    if let Err(e) = committed {
+        return e;
+    }
+    windmill_common::login_rate_limit::record_login_failure(email);
+    Error::BadRequest(crate::totp::TOTP_INVALID.to_string())
+}
+
+async fn start_password_session(
+    mut tx: Transaction<'_, Postgres>,
+    account: &PasswordAccount,
+    cookies: Cookies,
+) -> Result<String> {
+    let token =
+        create_session_token(&account.email, account.super_admin, None, false, &mut tx, cookies)
+            .await?;
+    let audit_author = AuditAuthor {
+        token_prefix: Some(safe_token_prefix(&token)),
+        ..login_audit_author(&account.email)
+    };
+    audit_log(
+        &mut *tx,
+        &audit_author,
+        "users.login",
+        ActionKind::Create,
+        "global",
+        Some(&truncate_token(&token)),
+        None,
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(token)
+}
+
 #[allow(unreachable_code, unused_variables)]
 async fn login(
     ClientIp(client_ip): ClientIp,
@@ -2936,112 +3056,92 @@ async fn login(
     }
 
     let email = email.to_lowercase();
+    let (mut tx, account) = verify_password_login(&db, client_ip, &argon2, &email, &password).await?;
 
-    if windmill_common::global_settings::DISABLE_PASSWORD_LOGIN
-        .load(std::sync::atomic::Ordering::Relaxed)
-    {
+    // Asked only once the password matched, so whether an account has a second factor is not
+    // disclosed to someone who does not know its password.
+    if account.totp_enabled {
+        let Some(code) = totp_code.filter(|c| !c.trim().is_empty()) else {
+            return Err(Error::BadRequest(crate::totp::TOTP_REQUIRED.to_string()));
+        };
+        if !crate::totp::check_login_code(&mut tx, &db, &account.email, &code).await? {
+            return Err(reject_totp_code(tx, &account.email).await);
+        }
+    } else if crate::totp::required() {
+        return Err(Error::BadRequest(crate::totp::TOTP_SETUP_REQUIRED.to_string()));
+    }
+    start_password_session(tx, &account, cookies).await
+}
+
+/// The account a login-time enrollment is for: one without a second factor, on an instance
+/// that requires it. Anyone else enrolls from their settings, inside a session.
+async fn verify_login_enrollment<'c>(
+    db: &DB,
+    client_ip: Option<std::net::IpAddr>,
+    argon2: &Argon2<'_>,
+    email: &str,
+    password: &str,
+) -> Result<(Transaction<'c, Postgres>, PasswordAccount)> {
+    let (tx, account) = verify_password_login(db, client_ip, argon2, email, password).await?;
+    if account.totp_enabled || !crate::totp::required() {
         return Err(Error::BadRequest(
-            "Password login is disabled on this instance".to_string(),
+            "Two-factor setup at login is only for accounts that must enroll".to_string(),
         ));
     }
+    Ok((tx, account))
+}
 
-    windmill_common::login_rate_limit::check_and_increment_login_attempt(client_ip, &email)?;
+#[derive(Deserialize)]
+struct LoginTotpSetup {
+    email: String,
+    password: String,
+}
 
-    let mut tx = db.begin().await?;
-    let audit_author = AuditAuthor {
-        email: email.clone(),
-        username: email.clone(),
-        username_override: None,
-        token_prefix: None,
+async fn login_totp_setup(
+    ClientIp(client_ip): ClientIp,
+    Extension(db): Extension<DB>,
+    Extension(argon2): Extension<Arc<Argon2<'_>>>,
+    Json(LoginTotpSetup { email, password }): Json<LoginTotpSetup>,
+) -> JsonResult<crate::totp::TotpSetup> {
+    let email = email.to_lowercase();
+    let (tx, account) = verify_login_enrollment(&db, client_ip, &argon2, &email, &password).await?;
+    drop(tx);
+    Ok(Json(crate::totp::begin_setup(&db, &account.email).await?))
+}
+
+#[derive(Deserialize)]
+struct LoginTotpEnable {
+    email: String,
+    password: String,
+    code: String,
+}
+
+#[derive(Serialize)]
+struct LoginRecoveryCodes {
+    recovery_codes: Vec<String>,
+}
+
+/// Turns the second factor on and starts the session in one step, so the account is never
+/// left logged in without it.
+async fn login_totp_enable(
+    ClientIp(client_ip): ClientIp,
+    cookies: Cookies,
+    Extension(db): Extension<DB>,
+    Extension(argon2): Extension<Arc<Argon2<'_>>>,
+    Json(LoginTotpEnable { email, password, code }): Json<LoginTotpEnable>,
+) -> JsonResult<LoginRecoveryCodes> {
+    let email = email.to_lowercase();
+    let (mut tx, account) =
+        verify_login_enrollment(&db, client_ip, &argon2, &email, &password).await?;
+    let author = login_audit_author(&account.email);
+    let Some(recovery_codes) =
+        crate::totp::finish_setup(&mut tx, &db, &account.email, &code, &author).await?
+    else {
+        return Err(reject_totp_code(tx, &account.email).await);
     };
-    let email_w_h: Option<(String, String, bool, Option<String>)> = sqlx::query_as(
-        "SELECT email, password_hash, super_admin, totp_secret FROM password WHERE email = $1 \
-         AND login_type = 'password' AND disabled = false",
-    )
-    .bind(&email)
-    .fetch_optional(&mut *tx)
-    .await?;
-
-    if let Some((email, hash, super_admin, totp_secret)) = email_w_h {
-        if argon2
-            .verify_password(password.as_bytes(), hash.as_str())
-            .is_err()
-        {
-            audit_log(
-                &mut *tx,
-                &audit_author,
-                "users.login_failure",
-                ActionKind::Create,
-                "global",
-                None,
-                None,
-            )
-            .await?;
-            windmill_common::login_rate_limit::record_login_failure(&email);
-            Err(Error::BadRequest("Invalid login".to_string()))
-        } else {
-            // Asked only once the password matched, so whether an account has a second
-            // factor is not disclosed to someone who does not know its password.
-            if totp_secret.is_some() {
-                let Some(code) = totp_code.filter(|c| !c.trim().is_empty()) else {
-                    return Err(Error::BadRequest(crate::totp::TOTP_REQUIRED.to_string()));
-                };
-                if !crate::totp::check_login_code(&mut tx, &db, &email, &code).await? {
-                    // Committed, unlike a wrong password: it holds the wrong-code count, and a
-                    // guessed code must leave a trace.
-                    audit_log(
-                        &mut *tx,
-                        &audit_author,
-                        "users.login_failure",
-                        ActionKind::Create,
-                        "global",
-                        None,
-                        Some([("reason", "invalid_totp_code")].into()),
-                    )
-                    .await?;
-                    tx.commit().await?;
-                    windmill_common::login_rate_limit::record_login_failure(&email);
-                    return Err(Error::BadRequest(crate::totp::TOTP_INVALID.to_string()));
-                }
-            }
-            let token =
-                create_session_token(&email, super_admin, None, false, &mut tx, cookies).await?;
-
-            let audit_author = AuditAuthor {
-                email: email.clone(),
-                username: email.clone(),
-                username_override: None,
-                token_prefix: Some(safe_token_prefix(&token)),
-            };
-
-            audit_log(
-                &mut *tx,
-                &audit_author,
-                "users.login",
-                ActionKind::Create,
-                "global",
-                Some(&truncate_token(&token)),
-                None,
-            )
-            .await?;
-
-            tx.commit().await?;
-            Ok(token)
-        }
-    } else {
-        audit_log(
-            &mut *tx,
-            &audit_author,
-            "users.login_failure",
-            ActionKind::Create,
-            "global",
-            None,
-            None,
-        )
-        .await?;
-        windmill_common::login_rate_limit::record_login_failure(&email);
-        Err(Error::BadRequest("Invalid login".to_string()))
-    }
+    start_password_session(tx, &account, cookies).await?;
+    crate::totp::notify(&account.email, crate::totp::TotpChange::Enabled);
+    Ok(Json(LoginRecoveryCodes { recovery_codes }))
 }
 
 #[derive(Deserialize)]
@@ -3126,13 +3226,19 @@ async fn refresh_token(
 
     let mut tx = db.begin().await?;
 
-    let super_admin = sqlx::query_scalar!(
-        "SELECT super_admin FROM password WHERE email = $1 AND disabled = false",
+    let account = sqlx::query!(
+        "SELECT super_admin, login_type = 'password' AND totp_secret IS NULL AS \"lacks_totp!\"
+         FROM password WHERE email = $1 AND disabled = false",
         &authed.email
     )
     .fetch_optional(&mut *tx)
-    .await?
-    .unwrap_or(false);
+    .await?;
+    // A session from before the instance required a second factor is not renewed, so it ends
+    // within one session lifetime and the next login goes through the setup.
+    if crate::totp::required() && account.as_ref().is_some_and(|a| a.lacks_totp) {
+        return Err(Error::BadRequest(crate::totp::TOTP_SETUP_REQUIRED.to_string()));
+    }
+    let super_admin = account.is_some_and(|a| a.super_admin);
 
     let new_token = create_session_token(
         &authed.email,

@@ -6,6 +6,9 @@ const KNOWN_LOGIN_ERRORS = ['Password login is disabled on this instance']
 /** The password matched and the account asks for its authenticator code: a prompt, not a failure. */
 export const TOTP_REQUIRED = 'Two-factor code required'
 
+/** The password matched, the instance requires a second factor and the account has none yet. */
+export const TOTP_SETUP_REQUIRED = 'Two-factor setup required'
+
 export const TOTP_INVALID_MESSAGE = 'Invalid authentication code.'
 
 const GENERIC_LOGIN_ERROR = 'Could not sign you in. Please try again.'

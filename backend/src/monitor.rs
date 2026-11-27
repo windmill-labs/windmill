@@ -75,8 +75,8 @@ use windmill_common::{
         OTEL_SETTING, OTEL_TRACES_RETENTION_SECS_SETTING, OTEL_TRACING_PROXY_SETTING,
         PIP_INDEX_URL_SETTING, POWERSHELL_REPO_PAT_SETTING, POWERSHELL_REPO_URL_SETTING,
         PREVIEW_TAGS_OVERRIDE_SETTING, REQUEST_SIZE_LIMIT_SETTING,
-        REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RETENTION_PERIOD_SECS_SETTING,
-        SAML_METADATA_SETTING, SANDBOX_IMAGE_CACHE_MAX_MB_SETTING,
+        REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, REQUIRE_TOTP, REQUIRE_TOTP_SETTING,
+        RETENTION_PERIOD_SECS_SETTING, SAML_METADATA_SETTING, SANDBOX_IMAGE_CACHE_MAX_MB_SETTING,
         SANDBOX_IMAGE_DEFAULT_REGISTRY_SETTING, SANDBOX_IMAGE_MAX_SIZE_MB_SETTING,
         SANDBOX_IMAGE_PULL_POLICY_SETTING, SANDBOX_REGISTRY_AUTH_SETTING, SCIM_TOKEN_SETTING,
         SERVICE_LOG_RETENTION_SECS_SETTING, SMTP_SETTING, STORE_AUDIT_LOGS_S3_SETTING,
@@ -407,6 +407,9 @@ pub async fn initial_load(
             );
             pass.setting(DISABLE_PASSWORD_LOGIN_SETTING, false, |v| async move {
                 apply_disable_password_login(v)
+            });
+            pass.setting(REQUIRE_TOTP_SETTING, false, |v| async move {
+                apply_require_totp(v)
             });
             pass.action(async move {
                 if let Err(e) = reload_critical_alerts_on_db_oversize(db).await {
@@ -1787,6 +1790,21 @@ pub async fn load_disable_password_login(db: &DB) {
     match load_value_from_global_settings(db, DISABLE_PASSWORD_LOGIN_SETTING).await {
         Ok(v) => apply_disable_password_login(v),
         Err(e) => tracing::error!("Error loading disable_password_login setting: {e:#}"),
+    };
+}
+
+pub async fn load_require_totp(db: &DB) {
+    match load_value_from_global_settings(db, REQUIRE_TOTP_SETTING).await {
+        Ok(v) => apply_require_totp(v),
+        Err(e) => tracing::error!("Error loading require_totp setting: {e:#}"),
+    };
+}
+
+pub fn apply_require_totp(value: Option<serde_json::Value>) {
+    match value {
+        Some(serde_json::Value::Bool(t)) => REQUIRE_TOTP.store(t, Ordering::Relaxed),
+        None => REQUIRE_TOTP.store(false, Ordering::Relaxed),
+        _ => (),
     };
 }
 

@@ -4,16 +4,13 @@
 
 <script lang="ts">
 	import { UserService } from '$lib/gen'
-	import { Alert, Button, CopyButton } from '$lib/components/common'
+	import { Alert, Button } from '$lib/components/common'
 	import Modal from '../common/modal/Modal.svelte'
 	import Stepper from '../common/stepper/Stepper.svelte'
-	import Checkbox from '../common/checkbox/Checkbox.svelte'
 	import TextInput from '../text_input/TextInput.svelte'
-	import CopyableCodeBlock from '../details/CopyableCodeBlock.svelte'
-	import { plaintext } from 'svelte-highlight/languages'
 	import { sendUserToast } from '$lib/toast'
-	import { download } from '$lib/utils'
-	import { renderSVG } from 'uqr'
+	import TotpAuthenticator from './TotpAuthenticator.svelte'
+	import TotpRecoveryCodes from './TotpRecoveryCodes.svelte'
 
 	interface Props {
 		action: TotpAction | undefined
@@ -128,28 +125,7 @@
 					Logging in with your password now also asks for a code from your authenticator app.
 				</Alert>
 			{/if}
-			<div class="flex flex-col gap-1">
-				<span class="text-xs text-secondary font-normal">
-					Each code logs you in once if you lose your authenticator.
-				</span>
-				<CopyableCodeBlock code={recoveryCodes.join('\n')} language={plaintext} />
-				<div class="flex">
-					<Button
-						unifiedSize="sm"
-						variant="default"
-						onClick={() => download('windmill-recovery-codes.txt', recoveryCodes!.join('\n'))}
-					>
-						Download
-					</Button>
-				</div>
-			</div>
-			<Alert type="warning" title="Save these codes now" size="xs">
-				They are shown only once. Keep them somewhere other than this device.
-			</Alert>
-			<label class="flex flex-row gap-2 items-center text-xs text-primary font-normal">
-				<Checkbox checked={saved} onChange={() => (saved = !saved)} />
-				I saved my recovery codes
-			</label>
+			<TotpRecoveryCodes codes={recoveryCodes} bind:saved />
 			<div class="flex justify-end">
 				{@render primary()}
 			</div>
@@ -166,23 +142,7 @@
 			</label>
 		{:else}
 			{#if setup}
-				<div class="flex flex-col gap-1">
-					<span class="text-xs text-secondary font-normal">
-						Scan this QR code with an authenticator app, or open it on this device.
-					</span>
-					<a
-						href={setup.otpauth_url}
-						aria-label="Add to an authenticator app"
-						class="w-40 h-40 bg-white p-1 rounded-md"
-					>
-						{@html renderSVG(setup.otpauth_url)}
-					</a>
-					<div class="flex flex-row gap-1 items-center text-2xs text-secondary font-normal">
-						Or enter this key manually:
-						<span class="font-mono text-emphasis">{setup.secret}</span>
-						<CopyButton value={setup.secret} />
-					</div>
-				</div>
+				<TotpAuthenticator {setup} />
 			{/if}
 			<label class="flex flex-col gap-1">
 				<span class="text-xs text-emphasis font-semibold">Code</span>

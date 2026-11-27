@@ -872,6 +872,17 @@ export const settings: Record<string, Setting[]> = {
 			storage: 'setting'
 		},
 		{
+			label: 'Require two-factor authentication',
+			description:
+				'Password logins ask for a code from an authenticator app. Users without two-factor authentication set it up at their next login.',
+			tooltip:
+				'Users cannot turn it off while this is on. OAuth and SAML logins are not affected: enforce two-factor authentication at the identity provider. Sessions that already exist are no longer renewed for users without it, so they end within 3 days by default.',
+			key: 'require_totp',
+			fieldType: 'boolean',
+			storage: 'setting',
+			ee_only: ''
+		},
+		{
 			label: 'Auto-login SSO provider',
 			description: 'Send the login page straight to this provider.',
 			tooltip:

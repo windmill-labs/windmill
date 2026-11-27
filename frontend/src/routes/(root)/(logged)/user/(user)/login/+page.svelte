@@ -28,6 +28,7 @@
 	const email = page.url.searchParams.get('email') ?? ''
 	const password = page.url.searchParams.get('password') ?? ''
 	const error = page.url.searchParams.get('error') ?? undefined
+	const offerTotpSetup = page.url.searchParams.get('setup_2fa') === '1'
 	const rdFromStorage = localStorage.getItem('rd') || undefined
 	if (rdFromStorage) {
 		localStorage.removeItem('rd')
@@ -172,6 +173,7 @@
 			{error}
 			{password}
 			{email}
+			{offerTotpSetup}
 			autoRedirect={false}
 			onOptionsLoaded={(options) => (hasThirdParty = options.hasThirdParty)}
 		/>

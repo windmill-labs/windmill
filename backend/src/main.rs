@@ -61,14 +61,15 @@ use windmill_common::{
         OAUTH_SETTING, OTEL_SETTING, OTEL_TRACES_RETENTION_SECS_SETTING,
         OTEL_TRACING_PROXY_SETTING, PIP_INDEX_URL_SETTING, POWERSHELL_REPO_PAT_SETTING,
         POWERSHELL_REPO_URL_SETTING, PREVIEW_TAGS_OVERRIDE_SETTING, REQUEST_SIZE_LIMIT_SETTING,
-        REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RESTART_COORDINATION_SETTING,
-        RETENTION_PERIOD_SECS_OVERRIDES_SETTING, RETENTION_PERIOD_SECS_SETTING, RUBY_REPOS_SETTING,
-        SAML_METADATA_SETTING, SANDBOX_IMAGE_CACHE_MAX_MB_SETTING,
-        SANDBOX_IMAGE_DEFAULT_REGISTRY_SETTING, SANDBOX_IMAGE_MAX_SIZE_MB_SETTING,
-        SANDBOX_IMAGE_PULL_POLICY_SETTING, SANDBOX_REGISTRY_AUTH_SETTING, SCIM_TOKEN_SETTING,
-        SERVICE_LOG_RETENTION_SECS_SETTING, SMTP_SETTING, STORE_AUDIT_LOGS_S3_SETTING,
-        SYNC_HUB_RESOURCE_TYPES_DAILY_SETTING, TEAMS_SETTING, TIMEOUT_WAIT_RESULT_SETTING,
-        UV_EXCLUDE_NEWER_SETTING, UV_INDEX_STRATEGY_SETTING, UV_PYTHON_INSTALL_MIRROR_SETTING,
+        REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, REQUIRE_TOTP_SETTING,
+        RESTART_COORDINATION_SETTING, RETENTION_PERIOD_SECS_OVERRIDES_SETTING,
+        RETENTION_PERIOD_SECS_SETTING, RUBY_REPOS_SETTING, SAML_METADATA_SETTING,
+        SANDBOX_IMAGE_CACHE_MAX_MB_SETTING, SANDBOX_IMAGE_DEFAULT_REGISTRY_SETTING,
+        SANDBOX_IMAGE_MAX_SIZE_MB_SETTING, SANDBOX_IMAGE_PULL_POLICY_SETTING,
+        SANDBOX_REGISTRY_AUTH_SETTING, SCIM_TOKEN_SETTING, SERVICE_LOG_RETENTION_SECS_SETTING,
+        SMTP_SETTING, STORE_AUDIT_LOGS_S3_SETTING, SYNC_HUB_RESOURCE_TYPES_DAILY_SETTING,
+        TEAMS_SETTING, TIMEOUT_WAIT_RESULT_SETTING, UV_EXCLUDE_NEWER_SETTING,
+        UV_INDEX_STRATEGY_SETTING, UV_PYTHON_INSTALL_MIRROR_SETTING,
         WORKSPACE_FAIRNESS_DURATION_SECS_SETTING, WORKSPACE_FAIRNESS_ENABLED_SETTING,
         WORKSPACE_FAIRNESS_MAX_PERCENT_SETTING, WORKSPACE_FAIRNESS_MIN_TOTAL_SETTING,
         WORKSPACE_MAX_QUEUED_JOBS_SETTING, WORKSPACE_REGISTRIES_SETTING,
@@ -136,14 +137,15 @@ use crate::monitor::{
     load_dev_workspace_isolation_skip_non_dev_forks, load_dev_workspace_tag_suffix,
     load_disable_password_login, load_fork_workspace_tag_append_fork_suffix, load_keep_job_dir,
     load_mcp_disable_token_query_param, load_metrics_debug_enabled, load_preview_tags_override,
-    load_require_preexisting_user, load_retention_period_overrides, load_tag_per_workspace_enabled,
-    load_tag_per_workspace_workspaces, load_workspace_fairness_duration_secs,
-    load_workspace_fairness_enabled, load_workspace_fairness_max_percent,
-    load_workspace_fairness_min_total, load_workspace_max_queued_jobs, monitor_db,
-    reload_app_workspaced_route_setting, reload_audit_log_retention_days_setting,
-    reload_base_url_setting, reload_bun_install_min_release_age_setting,
-    reload_bunfig_install_scopes_setting, reload_cargo_registries_setting,
-    reload_critical_alert_mute_ui_setting, reload_critical_alert_mute_zombie_job_restart_setting,
+    load_require_preexisting_user, load_require_totp, load_retention_period_overrides,
+    load_tag_per_workspace_enabled, load_tag_per_workspace_workspaces,
+    load_workspace_fairness_duration_secs, load_workspace_fairness_enabled,
+    load_workspace_fairness_max_percent, load_workspace_fairness_min_total,
+    load_workspace_max_queued_jobs, monitor_db, reload_app_workspaced_route_setting,
+    reload_audit_log_retention_days_setting, reload_base_url_setting,
+    reload_bun_install_min_release_age_setting, reload_bunfig_install_scopes_setting,
+    reload_cargo_registries_setting, reload_critical_alert_mute_ui_setting,
+    reload_critical_alert_mute_zombie_job_restart_setting,
     reload_critical_alerts_on_token_expiry_setting, reload_critical_error_channels_setting,
     reload_extra_pip_index_url_setting, reload_http_route_default_allowed_origins_setting,
     reload_http_route_workspaced_route_setting, reload_hub_api_secret_setting,
@@ -2069,6 +2071,9 @@ async fn process_notify_event(
                 }
                 DISABLE_PASSWORD_LOGIN_SETTING => {
                     load_disable_password_login(db).await;
+                }
+                REQUIRE_TOTP_SETTING => {
+                    load_require_totp(db).await;
                 }
                 windmill_common::global_settings::WORKSPACE_ROLES_SETTING => {
                     windmill_common::roles::invalidate_all_roles_cache();

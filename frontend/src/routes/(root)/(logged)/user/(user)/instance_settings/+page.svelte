@@ -22,6 +22,7 @@
 	import { onDestroy, tick } from 'svelte'
 	import { SettingService, UserService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
+	import { loginErrorDetail, TOTP_SETUP_REQUIRED } from '$lib/loginError'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import SettingsPageHeader from '$lib/components/settings/SettingsPageHeader.svelte'
@@ -94,6 +95,17 @@
 	let accountSubmitting = $state(false)
 	let accountError = $state('')
 	let showOssAccountDialog = $state(false)
+	// Offered only when this build serves two-factor authentication. When the instance
+	// requires it, the new account sets it up at the login page anyway.
+	let totpAvailable = $state(false)
+	let totpRequired = $state(false)
+	let setUpTotp = $state(true)
+	UserService.getTotpStatus()
+		.then((status) => {
+			totpAvailable = true
+			totpRequired = status.required
+		})
+		.catch(() => {})
 	let ossAccountError = $state('')
 
 	// --- Resource type sync (triggered on entering account step) ---
@@ -294,13 +306,22 @@
 				}
 			})
 
-			const token = await UserService.login({
-				requestBody: { email: newEmail, password: newPassword }
-			})
+			let token: string | undefined
+			try {
+				token = await UserService.login({
+					requestBody: { email: newEmail, password: newPassword }
+				})
+			} catch (e) {
+				// The instance requires two-factor authentication: the password matched, and the new
+				// account sets it up at the login page. The current session removes the old account.
+				if (loginErrorDetail(e) !== TOTP_SETUP_REQUIRED) throw e
+			}
 
-			// Update the client token for subsequent requests
-			const { OpenAPI } = await import('$lib/gen')
-			OpenAPI.TOKEN = token
+			if (token) {
+				// Update the client token for subsequent requests
+				const { OpenAPI } = await import('$lib/gen')
+				OpenAPI.TOKEN = token
+			}
 
 			try {
 				await UserService.globalUserDelete({ email: oldEmail })
@@ -315,7 +336,8 @@
 						'/user/login?email=' +
 							encodeURIComponent(newEmail) +
 							'&password=' +
-							encodeURIComponent(newPassword)
+							encodeURIComponent(newPassword) +
+							(totpAvailable && !totpRequired && setUpTotp ? '&setup_2fa=1' : '')
 					)
 			)
 		} catch (e: any) {
@@ -367,6 +389,30 @@
 						size="md"
 					/>
 				</div>
+				{#if totpAvailable && totpRequired}
+					<Alert type="info" title="Two-factor authentication is required" size="xs">
+						This instance requires it. After Set account &amp; finish, you log in with this account
+						and set it up before getting in.
+					</Alert>
+				{:else if totpAvailable}
+					<Alert type="info" title="Recommended: two-factor authentication" size="xs">
+						A superadmin account controls the whole instance. Protect it with a code from an
+						authenticator app on top of its password.
+					</Alert>
+					<div class="flex flex-col gap-1">
+						<Toggle
+							bind:checked={setUpTotp}
+							options={{ right: 'Set up two-factor authentication next' }}
+							size="xs"
+						/>
+						{#if setUpTotp}
+							<p class="text-tertiary text-2xs">
+								After Set account &amp; finish, you log in with this account and set it up right
+								away. You can skip it.
+							</p>
+						{/if}
+					</div>
+				{/if}
 			</div>
 		</SettingCard>
 
