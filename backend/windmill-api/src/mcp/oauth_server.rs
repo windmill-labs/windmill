@@ -523,9 +523,9 @@ async fn handle_authorization_code_grant(
 
     // Create access token (rejects archived workspaces inline)
     let rows = sqlx::query!(
-        "INSERT INTO token (token_hash, token_prefix, token, email, label, expiration, scopes, workspace_id, super_admin)
+        "INSERT INTO token (token_hash, token_prefix, token, email, label, expiration, scopes, workspace_id, super_admin, admin)
          SELECT $1::varchar, $2::varchar, $3::varchar, $4::varchar, $5::varchar, now() + ($6 || ' seconds')::interval, $7::text[], $8::varchar,
-             $9::bool AND COALESCE((SELECT super_admin FROM password WHERE email = $4), false)
+             $9::bool AND COALESCE((SELECT super_admin FROM password WHERE email = $4), false), true
          WHERE NOT EXISTS(SELECT 1 FROM workspace WHERE id = $8 AND deleted = true)",
         access_token_hash,
         access_token_prefix,
@@ -684,9 +684,9 @@ async fn handle_refresh_token_grant(
 
     // Create new access token (rejects archived workspaces inline)
     let rows = sqlx::query!(
-        "INSERT INTO token (token_hash, token_prefix, token, email, label, expiration, scopes, workspace_id, super_admin)
+        "INSERT INTO token (token_hash, token_prefix, token, email, label, expiration, scopes, workspace_id, super_admin, admin)
          SELECT $1::varchar, $2::varchar, $3::varchar, $4::varchar, $5::varchar, now() + ($6 || ' seconds')::interval, $7::text[], $8::varchar,
-             $9::bool AND COALESCE((SELECT super_admin FROM password WHERE email = $4), false)
+             $9::bool AND COALESCE((SELECT super_admin FROM password WHERE email = $4), false), true
          WHERE NOT EXISTS(SELECT 1 FROM workspace WHERE id = $8 AND deleted = true)",
         new_access_token_hash,
         new_access_token_prefix,
@@ -889,6 +889,12 @@ async fn oauth_approve_inner(
     if authed.allowed_ips.is_some() {
         return Err(Error::NotAuthorized(
             "A token restricted to IP addresses cannot approve an MCP client".to_string(),
+        ));
+    }
+    // The exchanged token carries the owner's admin rights, so approving would lift the cap.
+    if authed.admin_withheld {
+        return Err(Error::NotAuthorized(
+            "A token without its owner's admin rights cannot approve an MCP client".to_string(),
         ));
     }
 

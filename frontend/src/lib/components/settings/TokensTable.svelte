@@ -15,8 +15,6 @@
 
 	// --- Props ---
 	interface Props {
-		showMcpMode?: boolean
-		openWithMcpMode?: boolean
 		defaultNewTokenLabel?: string
 		defaultNewTokenWorkspace?: string
 		scopes?: string[]
@@ -24,8 +22,6 @@
 	}
 
 	let {
-		showMcpMode = false,
-		openWithMcpMode = false,
 		defaultNewTokenLabel,
 		defaultNewTokenWorkspace,
 		scopes,
@@ -154,8 +150,7 @@
 	}
 </script>
 
-<div class="flex flex-col p-4 border border-border-light rounded-md">
-	<h2 class="text-emphasis text-sm font-semibold mb-1">Tokens</h2>
+<div class="flex flex-col">
 	<div class="text-xs text-secondary mb-2">
 		Authenticate to the Windmill API with access tokens.
 	</div>
@@ -169,8 +164,6 @@
 		</div>
 	{/if}
 	<CreateToken
-		{showMcpMode}
-		{openWithMcpMode}
 		bind:newTokenLabel
 		{defaultNewTokenWorkspace}
 		{scopes}

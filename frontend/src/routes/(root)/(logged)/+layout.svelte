@@ -72,7 +72,7 @@
 	import { afterNavigate, beforeNavigate } from '$app/navigation'
 	import { goto, isNewTabClick } from '$lib/navigation'
 	import { registerToolDisplayActionHandler } from '$lib/components/copilot/chat/createdResourceActions.svelte'
-	import type UserSettings from '$lib/components/UserSettings.svelte'
+	import type AccountSettingsDrawers from '$lib/components/account/AccountSettingsDrawers.svelte'
 	import type SuperadminSettings from '$lib/components/SuperadminSettings.svelte'
 	import WindmillIcon from '$lib/components/icons/WindmillIcon.svelte'
 	import { page } from '$app/state'
@@ -81,7 +81,10 @@
 		getFavoriteHref,
 		getFavoriteLabel
 	} from '$lib/components/sidebar/FavoriteMenu.svelte'
-	import { parseSuperadminSettingsHash, USER_SETTINGS_HASH } from '$lib/components/sidebar/settings'
+	import {
+		parseAccountSettingsHash,
+		parseSuperadminSettingsHash
+	} from '$lib/components/sidebar/settings'
 	import { isCloudHosted } from '$lib/cloud'
 	import {
 		PanelLeft,
@@ -329,7 +332,7 @@
 		})
 		return unregisterNavigate
 	})
-	let userSettings: UserSettings | undefined = $state()
+	let userSettings: AccountSettingsDrawers | undefined = $state()
 	let superadminSettings: SuperadminSettings | undefined = $state()
 	let menuHidden = $state(false)
 	let isDarkMode = useIsDarkMode()
@@ -364,10 +367,7 @@
 	}
 
 	function onQueryChangeUserSettings() {
-		if (userSettings && page.url.hash.startsWith(USER_SETTINGS_HASH)) {
-			const mcpMode = page.url.hash.includes('-mcp')
-			userSettings.openDrawer(mcpMode)
-		}
+		userSettings?.openFromHash(page.url.hash)
 	}
 
 	function onQueryChangeAdminSettings() {
@@ -1025,7 +1025,7 @@
 	let userSettingsRequested = $state(false)
 	let superadminSettingsRequested = $state(false)
 	$effect(() => {
-		if (page.url.hash.startsWith(USER_SETTINGS_HASH)) userSettingsRequested = true
+		if (parseAccountSettingsHash(page.url.hash)) userSettingsRequested = true
 		if (parseSuperadminSettingsHash(page.url.hash)) superadminSettingsRequested = true
 	})
 	let dbManagerRequested = $state(false)
@@ -1556,8 +1556,8 @@ outside this layout, and their shortcut must reopen the URL that is their creden
      wraps every workspace page, so a static import gates first paint, and a load on mount
      competes with the page for bandwidth (several of them reach monaco). -->
 {#if userSettingsRequested}
-	{#await import('$lib/components/UserSettings.svelte') then UserSettings}
-		<UserSettings.default bind:this={userSettings} showMcpMode={true} />
+	{#await import('$lib/components/account/AccountSettingsDrawers.svelte') then AccountSettingsDrawers}
+		<AccountSettingsDrawers.default bind:this={userSettings} />
 	{/await}
 {/if}
 {#if accountSetup.pending}

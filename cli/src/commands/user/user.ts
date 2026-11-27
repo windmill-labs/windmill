@@ -134,7 +134,12 @@ async function remove(opts: GlobalOptions, email: string) {
 }
 
 async function createToken(
-  opts: GlobalOptions & { email: string; password: string }
+  opts: GlobalOptions & {
+    email: string;
+    password: string;
+    admin?: boolean;
+    superadmin?: boolean;
+  }
 ) {
   await requireLogin(opts);
 
@@ -151,7 +156,15 @@ async function createToken(
     return;
   }
 
-  log.info("Token: " + (await wmill.createToken({ requestBody: {} })));
+  log.info(
+    "Token: " +
+      (await wmill.createToken({
+        requestBody: {
+          admin: opts.admin ?? false,
+          super_admin: opts.superadmin ?? false,
+        },
+      }))
+  );
 }
 
 interface SimplifiedUser {
@@ -580,6 +593,8 @@ const command = new Command()
       depends: ["email"],
     }
   )
+  .option("--admin", "Carry your workspace admin rights (off by default)")
+  .option("--superadmin", "Carry your superadmin rights (off by default)")
   .action(createToken as any);
 
 export default command;

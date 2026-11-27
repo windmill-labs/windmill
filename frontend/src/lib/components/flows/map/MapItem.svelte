@@ -216,7 +216,13 @@
 					label={`${
 						mod.summary || (mod.value.type == 'forloopflow' ? 'For loop' : 'While loop')
 					}  ${mod.value.parallel ? '(parallel)' : ''} ${
-						mod.value.skip_failures ? '(skip failures)' : ''
+						mod.value.skip_failures
+							? mod.value.failure_threshold?.type === 'static'
+								? `(skip failures, stop at ${mod.value.failure_threshold.value})`
+								: mod.value.failure_threshold
+									? '(skip failures, failure threshold)'
+									: '(skip failures)'
+							: ''
 					} ${mod.value.squash ? '(squash)' : ''}`}
 					id={mod.id}
 					on:changeId

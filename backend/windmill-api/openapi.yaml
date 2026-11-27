@@ -34276,6 +34276,9 @@ components:
             type: string
         workspace_id:
           type: string
+          description: |
+            Bind the token to this workspace: it is then refused on every other workspace and
+            on instance-level endpoints. Omit for a token that reaches every workspace.
         read_only:
           type: boolean
           description: |
@@ -34285,9 +34288,15 @@ components:
         super_admin:
           type: boolean
           description: |
-            For an MCP token (an `mcp:` scope) owned by a superadmin: carry the owner's
-            superadmin rights, reaching every workspace rather than only their
-            memberships. Ignored for other tokens, which always carry them.
+            Carry the owner's superadmin rights: admin in every workspace, including ones
+            they are not a member of, and the superadmin endpoints. Defaults to false, and
+            is ignored when the owner or the calling token does not hold them.
+        admin:
+          type: boolean
+          description: |
+            Carry the owner's workspace admin rights in the workspaces the token reaches.
+            Defaults to false: the token then acts as a regular member. Ignored when the
+            calling token does not hold them.
         allowed_ips:
           type: array
           description: |
@@ -34310,6 +34319,13 @@ components:
           type: string
         workspace_id:
           type: string
+          description: Bind the token to this workspace; omit for a token that reaches every workspace.
+        super_admin:
+          type: boolean
+          description: Carry the impersonated account's superadmin rights. Defaults to false.
+        admin:
+          type: boolean
+          description: Carry the impersonated account's workspace admin rights. Defaults to false.
         allowed_ips:
           type: array
           description: IPs or CIDRs the token may be used from; omit to allow any.

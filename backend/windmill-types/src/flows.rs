@@ -1154,6 +1154,9 @@ pub enum FlowModuleValue {
         /// viewers show for that iteration. Never fails the iteration.
         #[serde(skip_serializing_if = "Option::is_none")]
         iteration_label: Option<InputTransform>,
+        /// With `skip_failures`, the loop fails as soon as this many iterations have failed.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        failure_threshold: Option<InputTransform>,
     },
     WhileloopFlow {
         modules: Vec<FlowModule>,
@@ -1167,6 +1170,9 @@ pub enum FlowModuleValue {
         max_iterations: Option<u32>,
         #[serde(skip_serializing_if = "Option::is_none")]
         max_duration_secs: Option<u32>,
+        /// With `skip_failures`, the loop fails as soon as this many iterations have failed.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        failure_threshold: Option<InputTransform>,
     },
     BranchOne {
         branches: Vec<Branch>,
@@ -1281,6 +1287,8 @@ struct UntaggedFlowModuleValue {
     pass_flow_input_directly: Option<bool>,
     squash: Option<bool>,
     iteration_label: Option<InputTransform>,
+    #[serde(default, deserialize_with = "raw_value_to_input_transform::<_, u32>")]
+    failure_threshold: Option<InputTransform>,
     max_iterations: Option<u32>,
     max_duration_secs: Option<u32>,
     #[serde(flatten)]
@@ -1326,6 +1334,7 @@ impl<'de> Deserialize<'de> for FlowModuleValue {
                 parallelism: untagged.parallelism,
                 squash: untagged.squash,
                 iteration_label: untagged.iteration_label,
+                failure_threshold: untagged.failure_threshold,
             }),
             "whileloopflow" => Ok(FlowModuleValue::WhileloopFlow {
                 modules: untagged
@@ -1336,6 +1345,7 @@ impl<'de> Deserialize<'de> for FlowModuleValue {
                 squash: untagged.squash,
                 max_iterations: untagged.max_iterations,
                 max_duration_secs: untagged.max_duration_secs,
+                failure_threshold: untagged.failure_threshold,
             }),
             "branchone" => Ok(FlowModuleValue::BranchOne {
                 branches: untagged

@@ -10,10 +10,10 @@
 		roleCapabilities
 	} from '$lib/stores'
 	import { isRestricted } from '$lib/roleCapabilities'
-	import { USER_SETTINGS_HASH } from './settings'
+	import { ACCOUNT_SETTINGS_LINKS } from '../account/accountSettingsLinks'
 	import { isCloudHosted } from '$lib/cloud'
 	import { twMerge } from 'tailwind-merge'
-	import { Crown, KeyRound, ServerCog, LogOut, Moon, Settings, Sun, User } from 'lucide-svelte'
+	import { Crown, KeyRound, ServerCog, LogOut, Moon, Sun, User } from 'lucide-svelte'
 	import { accountSetup } from './accountSetup.svelte'
 	import DarkModeObserver from '../DarkModeObserver.svelte'
 	import MenuButton from './MenuButton.svelte'
@@ -94,10 +94,12 @@
 					Finish account setup
 				</MenuItem>
 			{/if}
-			<MenuItem href={USER_SETTINGS_HASH} class={itemClass} {item}>
-				<Settings size={16} />
-				Account settings
-			</MenuItem>
+			{#each ACCOUNT_SETTINGS_LINKS as link (link.panel)}
+				<MenuItem href={link.href} class={itemClass} {item}>
+					<link.icon size={16} />
+					{link.label}
+				</MenuItem>
+			{/each}
 
 			<MenuItem
 				onClick={() => {

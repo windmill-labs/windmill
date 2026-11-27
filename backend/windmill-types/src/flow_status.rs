@@ -114,6 +114,9 @@ pub struct Iterator {
     pub itered: Option<Vec<Box<serde_json::value::RawValue>>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub itered_len: Option<usize>,
+    /// The loop's `failure_threshold`, evaluated once when the loop starts.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub failure_threshold: Option<u32>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

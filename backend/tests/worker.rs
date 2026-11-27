@@ -285,6 +285,7 @@ async fn test_bun_flow(db: Pool<Postgres>) -> anyhow::Result<()> {
                         parallel: false,
                         squash: None,
                         iteration_label: None,
+                        failure_threshold: None,
                         parallelism: None,
                         modules: vec![FlowModule {
                             id: "c".to_string(),
@@ -642,6 +643,7 @@ async fn test_bun_flow_same_worker(db: Pool<Postgres>) -> anyhow::Result<()> {
                         parallel: false,
                         squash: None,
                         iteration_label: None,
+                        failure_threshold: None,
                         parallelism: None,
                         modules: vec![
                             FlowModule {
@@ -5411,6 +5413,155 @@ async fn test_failure_module_recover_inside_loop(db: Pool<Postgres>) -> anyhow::
             .to_string()
             .contains("ran_b"),
         "the parallel loop fails as without recovery, so the step after it must not run"
+    );
+    Ok(())
+}
+
+/// A loop skipping failures fails once `failure_threshold` iterations have failed: a sequential
+/// loop runs no further iteration, a parallel one cancels the iterations not started yet. An error
+/// handler recovering the failed iterations does not lift the threshold.
+#[cfg(feature = "deno_core")]
+#[sqlx::test(fixtures("base"))]
+async fn test_loop_failure_threshold(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let run = |parallel: bool, recovering_handler: bool| {
+        // Recovered, every iteration ends as a success job, so the loop fails on the threshold
+        // alone only if it is reached on the last iteration.
+        let items = if recovering_handler {
+            json!([1, 2])
+        } else {
+            json!([1, 2, 3, 4, 5])
+        };
+        let mut flow = json!({
+            "modules": [{
+                "id": "loop",
+                "value": {
+                    "type": "forloopflow",
+                    "iterator": { "type": "static", "value": items },
+                    "skip_failures": true,
+                    "failure_threshold": 2,
+                    "parallel": parallel,
+                    "parallelism": { "type": "static", "value": 1 },
+                    "modules": [{
+                        "id": "a",
+                        "value": {
+                            "input_transforms": {},
+                            "type": "rawscript",
+                            "language": "bun",
+                            "content": "export function main() { throw new Error('boom'); }",
+                        },
+                    }],
+                },
+            }, {
+                "id": "b",
+                "value": {
+                    "input_transforms": {},
+                    "type": "rawscript",
+                    "language": "bun",
+                    "content": "export function main() { return { ran_b: true } }",
+                },
+            }],
+        });
+        if recovering_handler {
+            flow["failure_module"] = json!({
+                "value": {
+                    "input_transforms": { "error": { "type": "javascript", "expr": "error" } },
+                    "type": "rawscript",
+                    "language": "bun",
+                    "content": "export function main(error: any) { \
+                        return { handled: error.name, recover: error.name !== 'FailureThresholdReached' } }",
+                },
+            });
+        }
+        let flow: FlowValue = serde_json::from_value(flow).unwrap();
+        RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
+            .run_until_complete(&db, false, port)
+    };
+    let iteration_statuses = |flow: Uuid| {
+        sqlx::query_scalar::<_, String>(
+            "SELECT c.status::text FROM v2_job_completed c JOIN v2_job j USING (id)
+             WHERE j.parent_job = $1 ORDER BY c.status::text",
+        )
+        .bind(flow)
+        .fetch_all(&db)
+    };
+
+    let sequential = run(false, false).await;
+    let sequential_iterations = iteration_statuses(sequential.id).await?;
+    let parallel = run(true, false).await;
+    let parallel_iterations = iteration_statuses(parallel.id).await?;
+    let recovered = run(true, true).await;
+    let recovered_iterations = iteration_statuses(recovered.id).await?;
+    // A while loop with no stop condition ends only on its threshold, here an expression.
+    let while_flow: FlowValue = serde_json::from_value(json!({
+        "modules": [{
+            "id": "loop",
+            "value": {
+                "type": "whileloopflow",
+                "skip_failures": true,
+                "failure_threshold": { "type": "javascript", "expr": "1 + 2" },
+                "modules": [{
+                    "id": "a",
+                    "value": {
+                        "input_transforms": {},
+                        "type": "rawscript",
+                        "language": "bun",
+                        "content": "export function main() { throw new Error('boom'); }",
+                    },
+                }],
+            },
+        }],
+    }))
+    .unwrap();
+    let while_loop =
+        RunJob::from(JobPayload::RawFlow { value: while_flow, path: None, restarted_from: None })
+            .run_until_complete(&db, false, port)
+            .await;
+    let while_iterations = iteration_statuses(while_loop.id).await?;
+    // A percentage of an empty list is 0, which an empty loop never evaluates.
+    let empty_flow: FlowValue = serde_json::from_value(json!({
+        "modules": [{
+            "id": "loop",
+            "value": {
+                "type": "forloopflow",
+                "iterator": { "type": "static", "value": [] },
+                "skip_failures": true,
+                "failure_threshold": { "type": "javascript", "expr": "Math.ceil([].length * 0.1)" },
+                "modules": [],
+            },
+        }],
+    }))
+    .unwrap();
+    let empty_loop =
+        RunJob::from(JobPayload::RawFlow { value: empty_flow, path: None, restarted_from: None })
+            .run_until_complete(&db, false, port)
+            .await;
+    server.close().await.unwrap();
+    assert!(empty_loop.success, "{:?}", empty_loop.json_result());
+
+    for job in [&sequential, &parallel, &while_loop] {
+        assert!(!job.success, "reaching the threshold must fail the flow");
+        assert_eq!(
+            job.json_result().unwrap()["error"]["name"],
+            "FailureThresholdReached"
+        );
+    }
+    assert_eq!(sequential_iterations, ["failure", "failure"]);
+    assert_eq!(while_iterations, ["failure", "failure", "failure"]);
+    assert_eq!(
+        parallel_iterations,
+        ["canceled", "canceled", "canceled", "failure", "failure"]
+    );
+    // Both iterations and the handler of the threshold error.
+    assert_eq!(recovered_iterations, ["success", "success", "success"]);
+    assert!(!recovered.success, "recovered iterations still count");
+    assert_eq!(
+        recovered.json_result().unwrap()["handled"],
+        "FailureThresholdReached",
+        "the handler must see the threshold error and the step after the loop must not run"
     );
     Ok(())
 }

@@ -7,7 +7,8 @@ import { Secret } from "@cliffy/prompt/secret";
 import { Select } from "@cliffy/prompt/select";
 import * as http from "node:http";
 
-export async function loginInteractive(remote: string) {
+/** `workspace` names the workspace the token is for, so the login page can offer to bind it. */
+export async function loginInteractive(remote: string, workspace?: string) {
   let token: string | undefined;
   if (!process.stdin.isTTY) {
     log.infoStderr("Not a TTY, can't login interactively.");
@@ -28,7 +29,7 @@ export async function loginInteractive(remote: string) {
       ],
     })) === "b"
   ) {
-    token = await browserLogin(remote);
+    token = await browserLogin(remote, workspace);
   } else {
     token = await Secret.prompt("Enter your token");
   }
@@ -46,7 +47,8 @@ export async function tryGetLoginInfo(
 }
 
 export async function browserLogin(
-  baseUrl: string
+  baseUrl: string,
+  workspace?: string
 ): Promise<string | undefined> {
   const env =
     process.env["TOKEN_PORT"] != undefined
@@ -78,7 +80,9 @@ export async function browserLogin(
       resolve(token ?? undefined);
     });
 
-    const url = `${baseUrl}user/cli?port=${port}`;
+    const url =
+      `${baseUrl}user/cli?port=${port}` +
+      (workspace ? `&workspace=${encodeURIComponent(workspace)}` : "");
     log.infoStderr(`Login by going to ${url}`);
 
     try {

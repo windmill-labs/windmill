@@ -2436,6 +2436,7 @@ mod tests {
                         parallelism: None,
                         squash: None,
                         iteration_label: None,
+                        failure_threshold: None,
                     }),
                     stop_after_if: Some(StopAfterIf {
                         expr: "previous.isEmpty()".to_string(),

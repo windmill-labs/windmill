@@ -5,6 +5,7 @@ import { Table } from "@cliffy/table";
 import { colors } from "@cliffy/ansi/colors";
 import * as log from "../../core/log.ts";
 import { mergeConfigWithConfigFile } from "../../core/conf.ts";
+import { resolveWorkspace } from "../../core/context.ts";
 import * as wmill from "../../../gen/services.gen.ts";
 import { formatTimestamp } from "../../utils/utils.ts";
 
@@ -45,15 +46,34 @@ async function create(
   opts: GlobalOptions & {
     label?: string;
     expiration?: string;
+    allWorkspaces?: boolean;
+    admin?: boolean;
+    superadmin?: boolean;
   }
 ) {
   opts = await mergeConfigWithConfigFile(opts);
   await requireLogin(opts);
 
+  // Bound to the current workspace unless asked otherwise: a bound token is refused on every
+  // other workspace and on instance-level endpoints.
+  const workspaceId = opts.allWorkspaces
+    ? undefined
+    : (await resolveWorkspace(opts)).workspaceId;
+  if (opts.superadmin && workspaceId) {
+    log.warn(
+      "The token is bound to workspace " +
+        workspaceId +
+        ": instance-level endpoints will refuse it. Pass --all-workspaces for instance commands."
+    );
+  }
+
   const token = await wmill.createToken({
     requestBody: {
       label: opts.label,
       expiration: opts.expiration,
+      workspace_id: workspaceId,
+      admin: opts.admin ?? false,
+      super_admin: opts.superadmin ?? false,
     },
   });
 
@@ -79,6 +99,12 @@ const command = new Command()
   .command("create", "Create a new API token")
   .option("--label <label:string>", "Token label")
   .option("--expiration <expiration:string>", "Token expiration (ISO 8601 timestamp)")
+  .option(
+    "--all-workspaces",
+    "Do not bind the token to the current workspace: it then reaches every workspace you are a member of and instance-level endpoints"
+  )
+  .option("--admin", "Carry your workspace admin rights (off by default)")
+  .option("--superadmin", "Carry your superadmin rights (off by default)")
   .action(create as any)
   .command("delete", "Delete a token by its prefix")
   .arguments("<token_prefix:string>")

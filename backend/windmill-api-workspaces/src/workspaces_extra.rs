@@ -2537,7 +2537,8 @@ async fn require_prod_admin_for_dev_workspace(
         )
         .fetch_optional(db)
         .await?
-        .unwrap_or(false);
+        .unwrap_or(false)
+        && !authed.admin_withheld;
         if !is_prod_admin && !windmill_api_auth::is_super_admin_authed(db, &authed).await? {
             return Err(Error::PermissionDenied(format!(
                 "Destroying dev workspace '{w_id}' or its data requires being an admin of its parent prod workspace '{prod}' (or a superadmin)"

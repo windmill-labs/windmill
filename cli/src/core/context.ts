@@ -166,7 +166,7 @@ async function createWorkspaceProfileInteractively(
     default: workspaceId,
   });
 
-  const token = await loginInteractive(normalizedBaseUrl);
+  const token = await loginInteractive(normalizedBaseUrl, workspaceId);
   if (!token) {
     log.error("Failed to obtain token");
     return undefined;
