@@ -733,7 +733,7 @@ pub(crate) struct ToolOutcome {
 
 /// The card tools only MCP Apps clients draw; the chat draws its own cards.
 #[cfg(feature = "mcp")]
-pub(crate) use views::{allowed as view_allowed, definitions as view_definitions, LOAD_CARD};
+pub(crate) use views::{allowed as view_allowed, definitions as view_definitions};
 
 pub(crate) async fn call_session_tool(
     ctx: &Ctx<'_>,
