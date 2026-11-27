@@ -1173,3 +1173,44 @@ pub fn parse_dedicated_worker_line(line: &str) -> DedicatedWorkerResult {
 
     DedicatedWorkerResult::Other(line.to_string())
 }
+
+/// A Hub serving `GET /scripts/access_meta` from `rows`, each a version's metadata, and for every
+/// script a bash one echoing the Hub's URL, set as the instance's Hub. Returns its URL and the
+/// number of lookups it served.
+pub async fn start_stub_hub(
+    rows: Vec<serde_json::Value>,
+) -> (String, std::sync::Arc<std::sync::atomic::AtomicUsize>) {
+    use std::sync::{atomic::AtomicUsize, Arc};
+    let calls = Arc::new(AtomicUsize::new(0));
+    let served = calls.clone();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    let script = serde_json::json!({ "content": format!("echo {url}"), "lockfile": null,
+        "language": "bash", "schema": {}, "summary": null });
+    let app = axum::Router::new()
+        .route(
+            "/scripts/access_meta",
+            axum::routing::get(
+                move |axum::extract::Query(q): axum::extract::Query<
+                    std::collections::HashMap<String, String>,
+                >| async move {
+                    served.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    let ids: Vec<i64> =
+                        q["ids"].split(',').filter_map(|s| s.parse().ok()).collect();
+                    let known: Vec<_> = rows
+                        .iter()
+                        .filter(|r| ids.contains(&r["version_id"].as_i64().unwrap()))
+                        .cloned()
+                        .collect();
+                    axum::Json(known)
+                },
+            ),
+        )
+        .route(
+            "/raw2/{id}/script",
+            axum::routing::get(move || async move { axum::Json(script) }),
+        );
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    windmill_common::HUB_BASE_URL.store(Arc::new(url.clone()));
+    (url, calls)
+}

@@ -288,7 +288,7 @@ async fn test_error_handler_triggered_on_hub_script_failure(
 
     let server = ApiServer::start(db.clone()).await?;
 
-    let version = "990000002";
+    let version = "9990002";
     let hub_dir = &*windmill_common::worker::HUB_CACHE_DIR;
     tokio::fs::create_dir_all(hub_dir).await?;
     tokio::fs::write(
@@ -386,7 +386,7 @@ async fn test_success_handler_triggered_on_hub_script_success(
 
     let server = ApiServer::start(db.clone()).await?;
 
-    let version = "990000003";
+    let version = "9990003";
     let hub_dir = &*windmill_common::worker::HUB_CACHE_DIR;
     tokio::fs::create_dir_all(hub_dir).await?;
     tokio::fs::write(

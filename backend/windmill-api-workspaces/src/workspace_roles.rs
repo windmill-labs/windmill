@@ -11,8 +11,8 @@ use windmill_audit::{audit_oss::audit_log, ActionKind};
 use windmill_common::{
     error::{Error, JsonResult, Result},
     roles::{
-        self, instance_roles, load_role_overrides, EffectiveRole, RoleCapabilities, RoleOverrides,
-        RoleSource, OPERATOR_ROLE,
+        self, instance_roles, load_role_overrides, EffectiveRole, HubAccessList, RoleCapabilities,
+        RoleOverrides, RoleSource, OPERATOR_ROLE,
     },
     utils::require_admin,
     DB,
@@ -23,12 +23,16 @@ pub fn workspaced_service() -> Router {
     Router::new()
         .route("/roles", get(list_roles))
         .route("/role_overrides", post(update_role_overrides))
+        .route("/hub_access", post(update_hub_access))
 }
 
 #[derive(Serialize)]
 struct WorkspaceRoles {
     roles: Vec<EffectiveRole>,
     overrides: RoleOverrides,
+    /// The workspace's own Hub access list, `None` while it follows `instance_hub_access`.
+    hub_access: Option<HubAccessList>,
+    instance_hub_access: HubAccessList,
     /// Whether this workspace may add roles of its own.
     custom_roles_enabled: bool,
     /// The caller's role, `None` for a caller with no membership (a superadmin, a guest).
@@ -43,6 +47,7 @@ async fn list_roles(
 ) -> JsonResult<WorkspaceRoles> {
     let roles = roles::workspace_roles(&db, &w_id).await?;
     let overrides = load_role_overrides(&db, &w_id).await?;
+    let hub = roles::load_hub_access(&mut *db.acquire().await?, &w_id).await?;
     let my_role = sqlx::query!(
         "SELECT workspace_role, operator FROM usr WHERE workspace_id = $1 AND username = $2",
         &w_id,
@@ -61,6 +66,8 @@ async fn list_roles(
     Ok(Json(WorkspaceRoles {
         roles: roles.as_ref().clone(),
         overrides,
+        hub_access: hub.workspace,
+        instance_hub_access: hub.instance,
         custom_roles_enabled: roles::custom_roles_enabled(),
         my_role,
         my_capabilities,
@@ -182,6 +189,65 @@ pub(crate) async fn write_role_overrides(
     Ok(())
 }
 
+#[derive(Deserialize)]
+pub(crate) struct UpdateHubAccess {
+    /// `null` follows the instance's list; `{}` allows nothing. `deserialize_with`: an
+    /// absent key is refused, not read as `null`, so a typo does not drop the list.
+    #[serde(deserialize_with = "Option::deserialize")]
+    hub_access: Option<serde_json::Value>,
+}
+
+pub(crate) async fn update_hub_access(
+    authed: ApiAuthed,
+    Path(w_id): Path<String>,
+    Extension(db): Extension<DB>,
+    Json(body): Json<UpdateHubAccess>,
+) -> Result<String> {
+    require_admin(authed.is_admin, &authed.username)?;
+    let hub_access = body
+        .hub_access
+        .as_ref()
+        .map(roles::parse_hub_access)
+        .transpose()?
+        .map(|list| serde_json::json!(list));
+
+    let mut tx = db.begin().await?;
+    sqlx::query!(
+        "UPDATE workspace_settings SET hub_access = $1 WHERE workspace_id = $2",
+        hub_access,
+        &w_id
+    )
+    .execute(&mut *tx)
+    .await?;
+    roles::notify_role_overrides_change(&mut tx, &w_id).await?;
+    let audited = hub_access.unwrap_or_default().to_string();
+    audit_log(
+        &mut *tx,
+        &authed,
+        "workspaces.update_hub_access",
+        ActionKind::Update,
+        &w_id,
+        None,
+        Some([("hub_access", audited.as_str())].into()),
+    )
+    .await?;
+    tx.commit().await?;
+    roles::invalidate_workspace_roles_cache(&w_id);
+
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &w_id,
+        windmill_git_sync::DeployedObject::Settings { setting_type: "hub_access".to_string() },
+        Some("Workspace Hub scripts updated".to_string()),
+        false,
+        None,
+    )
+    .await?;
+    Ok("Hub access updated".to_string())
+}
+
 /// The legacy `/operator_settings` payload. Visibility flags always serialize; the rights are
 /// `Option` because git-sync posts whole files that may predate them, and an absent key must
 /// leave the stored value alone.
@@ -241,14 +307,13 @@ pub(crate) async fn update_operator_settings(
     let base = base.capabilities;
 
     let mut overrides = load_role_overrides(&db, &w_id).await?;
-    let current = roles::workspace_roles(&db, &w_id)
+    let mut target = roles::workspace_roles(&db, &w_id)
         .await?
         .iter()
         .find(|r| r.name == OPERATOR_ROLE)
-        .map(|r| r.capabilities)
-        .unwrap_or(base);
+        .map(|r| r.capabilities.clone())
+        .unwrap_or_else(|| base.clone());
 
-    let mut target = current;
     let v = &mut target.visibility;
     (v.runs, v.schedules, v.resources, v.variables, v.assets) = (
         settings.runs,
@@ -269,8 +334,8 @@ pub(crate) async fn update_operator_settings(
         Some(false) => roles::AuthorLevel::None,
         _ => cur,
     };
-    target.flows = compose_or_keep(current.flows, settings.builder_flows);
-    target.apps = compose_or_keep(current.apps, settings.builder_apps);
+    target.flows = compose_or_keep(target.flows, settings.builder_flows);
+    target.apps = compose_or_keep(target.apps, settings.builder_apps);
     if let Some(b) = settings.manage_schedules {
         target.manage_schedules = b;
     }

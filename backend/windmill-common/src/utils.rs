@@ -629,22 +629,7 @@ pub async fn http_get_from_hub(
         None => None,
     };
 
-    let mut request = http_client.get(url).header(
-        "Accept",
-        if plain {
-            "text/plain"
-        } else {
-            "application/json"
-        },
-    );
-
-    if let Some(uid) = uid {
-        request = request.header("X-uid", uid);
-    }
-
-    if let Some(hub_api_secret) = (**HUB_API_SECRET.load()).clone() {
-        request = request.header("X-api-secret", hub_api_secret);
-    }
+    let mut request = hub_request(http_client, url, plain, uid);
 
     if let Some(query_params) = query_params {
         for (key, value) in query_params {
@@ -658,6 +643,137 @@ pub async fn http_get_from_hub(
         .context(format!("error fetching script at {url} from hub"))?;
 
     Ok(response)
+}
+
+fn hub_request(
+    http_client: &reqwest::Client,
+    url: &str,
+    plain: bool,
+    uid: Option<String>,
+) -> reqwest::RequestBuilder {
+    let mut request = http_client.get(url).header(
+        "Accept",
+        if plain {
+            "text/plain"
+        } else {
+            "application/json"
+        },
+    );
+    if let Some(uid) = uid {
+        request = request.header("X-uid", uid);
+    }
+    if let Some(hub_api_secret) = (**HUB_API_SECRET.load()).clone() {
+        request = request.header("X-api-secret", hub_api_secret);
+    }
+    request
+}
+
+/// What the Hub says about one script version, for [`crate::jobs::check_can_name_runnable`].
+#[derive(Deserialize, Clone, Debug)]
+pub struct HubScriptMeta {
+    pub version_id: i32,
+    /// The integration, as the Hub spells it ("Slack" and "slack" both occur).
+    pub app: String,
+    /// Absent on a version the Hub never flagged, which counts as able to write.
+    #[serde(default)]
+    pub read_only: bool,
+    pub script_approved: bool,
+    pub version_ever_approved: bool,
+}
+
+lazy_static::lazy_static! {
+    /// Keyed by the configured Hub too, so a changed `hub_base_url` is not answered from the old one.
+    static ref HUB_SCRIPT_META: quick_cache::sync::Cache<(String, i32), (HubScriptMeta, std::time::Instant)> =
+        quick_cache::sync::Cache::new(10_000);
+}
+
+static INSTANCE_UID: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+const HUB_SCRIPT_META_TTL: std::time::Duration = std::time::Duration::from_secs(300);
+
+/// The Hub's metadata of each known version in `ids`; unknown ones are left out. Cached per version
+/// for [`HUB_SCRIPT_META_TTL`], so an unapproval takes up to that long to be seen.
+///
+/// Takes no pool connection: it runs inside save transactions, where a second one held alongside
+/// self-deadlocks on a one-connection pool. The `X-uid` it sends is read from memory, so a server
+/// that never read its uid yet sends none.
+pub async fn hub_script_meta(ids: &[i32]) -> Result<std::collections::HashMap<i32, HubScriptMeta>> {
+    let hub = (**crate::HUB_BASE_URL.load()).clone();
+    let mut out = std::collections::HashMap::new();
+    let mut missing = vec![];
+    for &id in ids {
+        match HUB_SCRIPT_META.get(&(hub.clone(), id)) {
+            Some((m, at)) if at.elapsed() < HUB_SCRIPT_META_TTL => {
+                out.insert(id, m);
+            }
+            _ => missing.push(id),
+        }
+    }
+    if missing.is_empty() {
+        return Ok(out);
+    }
+    let mut found = fetch_hub_script_meta(&hub, &missing).await?;
+    if hub != crate::DEFAULT_HUB_BASE_URL {
+        // Same fallback as the script fetch: low ids a private Hub lacks are public Hub scripts.
+        let public: Vec<i32> = missing
+            .into_iter()
+            .filter(|id| {
+                *id < crate::PRIVATE_HUB_MIN_VERSION && !found.iter().any(|m| m.version_id == *id)
+            })
+            .collect();
+        if !public.is_empty() {
+            found.extend(fetch_hub_script_meta(crate::DEFAULT_HUB_BASE_URL, &public).await?);
+        }
+    }
+    let now = std::time::Instant::now();
+    for m in found {
+        HUB_SCRIPT_META.insert((hub.clone(), m.version_id), (m.clone(), now));
+        out.insert(m.version_id, m);
+    }
+    Ok(out)
+}
+
+/// The Hub's URL goes to the log only: a private Hub's address is not every member's business.
+fn hub_meta_err(hub: &str, what: &str, e: impl Display) -> Error {
+    tracing::warn!("hub script access lookup at {hub}: {what}: {e}");
+    Error::BadGateway(what.to_string())
+}
+
+async fn fetch_hub_script_meta(hub: &str, ids: &[i32]) -> Result<Vec<HubScriptMeta>> {
+    let uid = match (**LICENSE_KEY_ID.load()).clone() {
+        id if !id.is_empty() => Some(id),
+        _ => INSTANCE_UID.get().cloned(),
+    };
+    let mut out = vec![];
+    for chunk in ids.chunks(100) {
+        let resp = hub_request(
+            &HTTP_CLIENT,
+            &format!("{hub}/scripts/access_meta"),
+            false,
+            uid.clone(),
+        )
+        .query(&[("ids", chunk.iter().join(","))])
+        .timeout(std::time::Duration::from_secs(5))
+        .send()
+        .await
+        .map_err(|e| hub_meta_err(hub, "the Hub is unreachable", e))?;
+        if resp.status() == reqwest::StatusCode::NOT_FOUND {
+            return Err(hub_meta_err(
+                hub,
+                "the Hub cannot report script approvals and needs an update",
+                "404",
+            ));
+        }
+        let resp = resp
+            .error_for_status()
+            .map_err(|e| hub_meta_err(hub, "the Hub failed", e))?;
+        out.extend(
+            resp.json::<Vec<HubScriptMeta>>()
+                .await
+                .map_err(|e| hub_meta_err(hub, "the Hub answered badly", e))?,
+        );
+    }
+    Ok(out)
 }
 
 pub fn rd_string(len: usize) -> String {
@@ -697,6 +813,7 @@ pub async fn get_instance_uid<'c, E: sqlx::Executor<'c, Database = Postgres>>(
     .await?;
 
     let uid = serde_json::from_value::<String>(uid_value).map_err(to_anyhow)?;
+    let _ = INSTANCE_UID.set(uid.clone());
 
     Ok(uid)
 }

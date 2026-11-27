@@ -1731,6 +1731,12 @@ pub async fn sync_global_settings_declarative(
         .map_err(|e| anyhow::anyhow!("{idp_key}: {e}"))?;
 
     let mut diff = diff_global_settings(current, desired, ApplyMode::Replace);
+    let hub_key = crate::global_settings::HUB_ACCESS_SETTING;
+    if let Some((_, hub_access)) = diff.upserts.iter().find(|(k, _)| k.as_str() == hub_key) {
+        crate::roles::validate_instance_hub_access_write(db, hub_access)
+            .await
+            .map_err(|e| anyhow::anyhow!("{hub_key}: {e}"))?;
+    }
     let roles_key = crate::global_settings::WORKSPACE_ROLES_SETTING;
     let roles_written = diff.upserts.iter().any(|(k, _)| k == roles_key)
         || diff.deletes.iter().any(|k| k == roles_key);

@@ -37,7 +37,7 @@ impl Authed {
             folders: &self.folders,
             scopes: &self.scopes,
             token_prefix: &self.token_prefix,
-            capabilities: self.capabilities,
+            capabilities: self.capabilities.clone(),
         }
     }
 }
@@ -70,7 +70,7 @@ impl Authable for AuthedRef<'_> {
         *self.is_operator
     }
     fn capabilities(&self) -> Option<RoleCapabilities> {
-        self.capabilities
+        self.capabilities.clone()
     }
     fn groups(&self) -> &[String] {
         self.groups
@@ -111,7 +111,7 @@ impl Authable for Authed {
     }
 
     fn capabilities(&self) -> Option<RoleCapabilities> {
-        self.capabilities
+        self.capabilities.clone()
     }
 
     fn groups(&self) -> &[String] {

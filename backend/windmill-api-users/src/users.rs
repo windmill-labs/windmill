@@ -2585,18 +2585,18 @@ pub async fn set_workspace_role(
     username: &str,
     role: &str,
 ) -> Result<()> {
-    let caps = windmill_common::roles::workspace_roles_on(&mut **tx, w_id)
+    let code = windmill_common::roles::workspace_roles_on(&mut **tx, w_id)
         .await?
         .iter()
         .find(|r| r.name == role)
-        .map(|r| r.capabilities)
+        .map(|r| r.capabilities.code)
         .ok_or_else(|| {
             Error::BadRequest(format!("role `{role}` is not defined in workspace {w_id}"))
         })?;
     sqlx::query!(
         "UPDATE usr SET workspace_role = $1, operator = $2 WHERE username = $3 AND workspace_id = $4",
         role,
-        !caps.code,
+        !code,
         username,
         w_id
     )

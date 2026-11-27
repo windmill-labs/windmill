@@ -69,8 +69,8 @@ use windmill_common::{
         CRITICAL_ALERT_MUTE_UI_SETTING, CUSTOM_TAGS_SETTING, DEFAULT_TAGS_WORKSPACES_SETTING,
         DISABLE_HUB_SETTING, EMAIL_DOMAIN_SETTING, ENV_SETTINGS, EXTERNAL_INSTANCE_PG_SETTING,
         GITHUB_APP_WEBHOOK_BASE_URL_SETTING, HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS_SETTING,
-        HTTP_ROUTE_WORKSPACED_ROUTE_SETTING, HUB_ACCESSIBLE_URL_SETTING, HUB_BASE_URL_SETTING,
-        INSTANCE_BANNER_SETTING, MAX_RETENTION_OVERRIDE_WORKSPACES,
+        HTTP_ROUTE_WORKSPACED_ROUTE_SETTING, HUB_ACCESSIBLE_URL_SETTING, HUB_ACCESS_SETTING,
+        HUB_BASE_URL_SETTING, INSTANCE_BANNER_SETTING, MAX_RETENTION_OVERRIDE_WORKSPACES,
         MAX_TOKEN_EXPIRATION_DAYS_SETTING, MCP_DISABLE_TOKEN_QUERY_PARAM_SETTING,
         RETENTION_PERIOD_SECS_OVERRIDES_SETTING, RUFF_CONFIG_SETTING, UNIQUE_ID_SETTING,
         WORKSPACE_FAIRNESS_DURATION_SECS_SETTING, WORKSPACE_FAIRNESS_ENABLED_SETTING,
@@ -1006,6 +1006,9 @@ async fn run_setting_post_write_hook(db: &DB, key: &str) -> error::Result<()> {
     if key == WORKSPACE_ROLES_SETTING {
         windmill_common::roles::after_instance_roles_write(db).await?;
     }
+    if key == HUB_ACCESS_SETTING {
+        windmill_common::roles::invalidate_all_roles_cache();
+    }
     Ok(())
 }
 
@@ -1041,6 +1044,9 @@ async fn run_setting_pre_write_hook(
         },
         WORKSPACE_ROLES_SETTING => {
             windmill_common::roles::validate_instance_roles_write(db, Some(value)).await?;
+        }
+        HUB_ACCESS_SETTING => {
+            windmill_common::roles::validate_instance_hub_access_write(db, value).await?;
         }
         // Settings that fail validation would only surface on the next secret read, as an error
         // on every secret of every workspace.

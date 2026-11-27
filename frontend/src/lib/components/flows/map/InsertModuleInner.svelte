@@ -60,7 +60,8 @@
 		| 'failure'
 		| 'aisandbox'
 		| 'aiagent' = $state(untrack(() => kind))
-	// The server adds a hub path only for a role that has code, so without it never open on the hub.
+	// A role needs code to add any hub path, so without it never open on the hub. The Hub access list,
+	// which the server also accepts, is not offered here.
 	let preFilter: 'all' | 'workspace' | 'hub' = $state(
 		untrack(() => $roleCaps.code) ? 'all' : 'workspace'
 	)

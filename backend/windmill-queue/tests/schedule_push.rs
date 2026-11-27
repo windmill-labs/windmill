@@ -1880,7 +1880,7 @@ mod schedule_push {
     #[sqlx::test(migrations = "../migrations", fixtures("base", "schedule_push"))]
     async fn test_push_hub_script_schedule(db: Pool<Postgres>) -> anyhow::Result<()> {
         // Seed the hub cache so the push resolves the script without the network.
-        let version = "990000001";
+        let version = "9990001";
         let hub_dir = &*windmill_common::worker::HUB_CACHE_DIR;
         tokio::fs::create_dir_all(hub_dir).await?;
         tokio::fs::write(

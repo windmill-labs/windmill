@@ -6,7 +6,7 @@ use sqlx::{Postgres, Transaction};
 use windmill_common::{
     error::{self, Error},
     flows::FlowValue,
-    jobs::{check_can_name_runnable, RunOrigin},
+    jobs::{check_can_name_runnables, RunOrigin},
     roles::AuthorLevel,
     runnable_ref::RunnableRef,
     workspaces::{check_operator_can_build, BuilderKind},
@@ -15,32 +15,32 @@ use windmill_common::{
 
 use crate::{get_scope_tags, is_super_admin_authed, ApiAuthed};
 
-/// The run-time rule for naming a Hub path, applied to one a builder saves. A save can hold many
-/// Hub paths, so a refusal names the one it is about.
+/// The run-time rule for naming a Hub path, applied to those a builder saves. A refusal names the
+/// path it is about.
 pub async fn check_builder_can_name_hub(
-    runnable: &RunnableRef,
+    runnables: &[RunnableRef],
     authed: &ApiAuthed,
     db: &DB,
     w_id: &str,
 ) -> error::Result<()> {
     let origin = RunOrigin::NamedBy(authed.to_authed_ref());
-    check_can_name_runnable(&origin, runnable, db, w_id)
+    check_can_name_runnables(&origin, runnables, db, w_id)
         .await
-        .map_err(|e| name_refused_path(runnable, e))
+        .map_err(|(runnable, e)| name_refused_path(runnable, e))
 }
 
-fn name_refused_path(runnable: &RunnableRef, e: Error) -> Error {
-    match e {
-        Error::PermissionDenied(msg) => {
+fn name_refused_path(runnable: Option<&RunnableRef>, e: Error) -> Error {
+    match (runnable, e) {
+        (Some(runnable), Error::PermissionDenied(msg)) => {
             Error::PermissionDenied(format!("{}: {msg}", runnable.path()))
         }
-        e => e,
+        (_, e) => e,
     }
 }
 
-/// Refuses each of `new` that `old` does not hold and that needs `code`. A trigger or schedule
-/// save is checked on the paths it changes only, so a member without `code` can still edit one
-/// that already runs a Hub path; nothing is checked at fire. `old` must be the row locked by the
+/// Refuses `new` if it holds a path that `old` does not and that the caller may not name. A trigger
+/// or schedule save is checked on the paths it changes only, so a member can still edit one that
+/// already runs a Hub path they may not name; nothing is checked at fire. `old` must be the row locked by the
 /// save, or a concurrent edit could slip a removed Hub path back in as unchanged.
 pub async fn check_new_hub_paths(
     new: &[RunnableRef],
@@ -49,10 +49,8 @@ pub async fn check_new_hub_paths(
     db: &DB,
     w_id: &str,
 ) -> error::Result<()> {
-    for runnable in new.iter().filter(|r| !old.contains(r)) {
-        check_builder_can_name_hub(runnable, authed, db, w_id).await?;
-    }
-    Ok(())
+    let added: Vec<_> = new.iter().filter(|r| !old.contains(r)).cloned().collect();
+    check_builder_can_name_hub(&added, authed, db, w_id).await
 }
 
 /// `validate_operator_composed_flow` on a transaction the caller already holds, so a write that
@@ -67,9 +65,7 @@ pub async fn authorize_composed_flow(
     w_id: &str,
 ) -> error::Result<()> {
     let mut refs = windmill_common::flows::check_flow_is_composition_only(value)?;
-    for runnable in &refs.hub_runnables {
-        check_builder_can_name_hub(runnable, authed, db, w_id).await?;
-    }
+    check_builder_can_name_hub(&refs.hub_runnables, authed, db, w_id).await?;
 
     // A builder links only an agent it can read, and binds only the tool inputs it leaves open.
     for agent in &refs.agents {

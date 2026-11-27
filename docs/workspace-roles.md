@@ -35,6 +35,37 @@ deleting one that a member, invite, auto-invite or instance group mapping still 
 and so is deleting an instance role that a workspace still overrides (the override would fall onto
 `base_for` instead of the definition it was written against).
 
+## Hub scripts
+
+A role without `code` may not name a Hub script or flow (`check_can_name_runnable`), except the
+Hub scripts a list allows: `{ <integration>: read | write }`, the integration being the script's
+`app`. It is the same for every role without `code`. The instance has one (the `hub_access` global
+setting, EE and frozen without a license like the roles, though it can always be cleared), and a
+workspace may replace it as a whole (`workspace_settings.hub_access`): `NULL` follows the
+instance's, an own list does not merge with it, and an empty one allows nothing. Keys are
+lowercased, since the Hub has both `Slack` and `slack`, and one containing `/` is refused, as
+`<integration>/<ask_id>` is reserved for per-script entries. Forks copy the workspace's list.
+
+`workspace_roles_on` puts the list that applies on `RoleCapabilities::hub` of each role without
+`code`, so it is cached and loaded with the role and the rule reads nothing else; a per-role layer
+would go there too. It is not part of `RoleCapabilitiesPatch`, so no role setting holds it and
+`diff_capabilities` ignores it.
+
+When `hub` is non-empty, naming `hub/<id>/…` asks the Hub (`hub_script_meta`, `GET
+{hub}/scripts/access_meta`, cached 5 minutes per version, with the private Hub's fallback to the
+public one for ids below `PRIVATE_HUB_MIN_VERSION`), and allows it when the version's `app` (from
+the Hub, never the path) is listed at `write`, or at `read` and the version is read-only, and the
+script is approved and this version was ever approved. A version with no flag can write. Refused
+otherwise, saying which: integration not allowed, script can write but is allowed at read,
+version not approved or not on the Hub, or the Hub unreachable or too old to answer. An empty
+list refuses without asking. Hub flows stay code-only. The UI offers less than the server
+allows: the flow, app and schedule pickers and the AI chat (MCP instructions included) still follow
+`code` alone.
+
+The lookup takes no pool connection, since it runs inside save transactions (see
+`hub_script_meta`). The check runs when a path is chosen, never when something saved fires, so a
+saved flow, trigger or schedule keeps running after an integration is withdrawn or a script unapproved.
+
 ## Runs
 
 `run` withdrawn makes a role view-only: its members see what folder and item rights grant,

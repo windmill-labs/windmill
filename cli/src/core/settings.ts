@@ -63,6 +63,7 @@ export interface SimplifiedSettings {
   color?: string;
   operator_settings?: any;
   role_overrides?: any;
+  hub_access?: any;
   datatable?: any;
   slack_team_id?: string;
   slack_name?: string;
@@ -96,6 +97,7 @@ export const SETTINGS_MANAGED_ONLY_WHEN_PRESENT = [
   "add_admins_and_developers_to_forks",
   "variable_expiration_handler",
   "role_overrides",
+  "hub_access",
   "webhook_events",
 ] as const;
 

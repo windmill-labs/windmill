@@ -2070,7 +2070,8 @@ async fn process_notify_event(
                 DISABLE_PASSWORD_LOGIN_SETTING => {
                     load_disable_password_login(db).await;
                 }
-                windmill_common::global_settings::WORKSPACE_ROLES_SETTING => {
+                windmill_common::global_settings::WORKSPACE_ROLES_SETTING
+                | windmill_common::global_settings::HUB_ACCESS_SETTING => {
                     windmill_common::roles::invalidate_all_roles_cache();
                 }
                 MCP_DISABLE_TOKEN_QUERY_PARAM_SETTING => {
