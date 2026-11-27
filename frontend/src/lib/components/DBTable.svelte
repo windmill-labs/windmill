@@ -43,6 +43,7 @@
 		Columns3,
 		EyeOff,
 		Download,
+		Filter,
 		KeyRound,
 		Link,
 		Merge,
@@ -162,6 +163,15 @@
 	)
 	let columnFilters = $derived(columnFiltersOf(filters, filterSchema))
 	let hasFilters = $derived(!!quicksearch || !!filterWhere)
+	/** The column whose header filter is open, and the value typed there. A header filter
+	 * writes the same entry the search bar does, so each shows the other's filter. */
+	let headerFilter: { column: string; draft: string } | undefined = $state(undefined)
+	function applyHeaderFilter(key: string, boolean: boolean, draft: string) {
+		const { [key]: _, ...rest } = filters
+		const value = draft.trim()
+		filters = value ? { ...rest, [key]: boolean ? value === 'true' : value } : rest
+		headerFilter = undefined
+	}
 
 	$effect(() => {
 		const f = rowFilter
@@ -922,6 +932,94 @@
 	{/if}
 {/snippet}
 
+{#snippet headerFilterButton(col: ColumnDef, key: string)}
+	{@const boolean = dbColumnKind(col.datatype) === 'boolean'}
+	{@const number = dbColumnKind(col.datatype) === 'number'}
+	{@const active = filters[key] !== undefined && filters[key] !== ''}
+	{@const open = headerFilter?.column === col.field}
+	<Popover
+		floatingConfig={{ strategy: 'fixed', placement: 'bottom-start' }}
+		bind:isOpen={
+			() => open,
+			(isOpen) => {
+				if (isOpen) headerFilter = { column: col.field, draft: active ? String(filters[key]) : '' }
+				else if (open) headerFilter = undefined
+			}
+		}
+		class={twMerge(
+			'mr-1 flex h-5 w-5 shrink-0 items-center justify-center rounded hover:bg-surface-hover',
+			active || open
+				? 'text-accent'
+				: 'text-secondary opacity-0 group-hover/header:opacity-100 focus-visible:opacity-100'
+		)}
+		triggerAttrs={{
+			'aria-label': `Filter ${col.field}`,
+			title: active ? `Filtered: ${filters[key]}` : `Filter ${col.field}`
+		}}
+	>
+		{#snippet trigger()}
+			<Filter size={12} />
+		{/snippet}
+		{#snippet content()}
+			<div class="flex w-64 flex-col gap-2 p-3">
+				<span class="truncate text-xs font-semibold text-emphasis">Filter {col.field}</span>
+				{#if boolean}
+					<Select
+						items={[
+							{ label: 'true', value: 'true' },
+							{ label: 'false', value: 'false' }
+						]}
+						bind:value={
+							() => headerFilter?.draft || undefined,
+							(v) => headerFilter && (headerFilter.draft = v ?? '')
+						}
+						placeholder="Value"
+						size="sm"
+					/>
+				{:else}
+					<TextInput
+						bind:value={
+							() => headerFilter?.draft ?? '',
+							(v) => headerFilter && (headerFilter.draft = String(v ?? ''))
+						}
+						size="sm"
+						inputProps={{
+							placeholder: number ? '10, >10, <=5' : 'Contains',
+							'aria-label': `Filter ${col.field}`,
+							onkeydown: (e: KeyboardEvent) => {
+								if (e.key === 'Enter') applyHeaderFilter(key, false, headerFilter?.draft ?? '')
+							}
+						}}
+					/>
+					<span class="text-2xs text-secondary">
+						{number
+							? 'A number, or a comparison: =, >, >=, <, <=, !='
+							: 'Rows whose value contains this text. Start with = for an exact match.'}
+					</span>
+				{/if}
+				<div class="flex justify-end gap-2">
+					{#if active}
+						<Button
+							variant="subtle"
+							unifiedSize="sm"
+							onClick={() => applyHeaderFilter(key, boolean, '')}
+						>
+							Clear
+						</Button>
+					{/if}
+					<Button
+						variant="accent"
+						unifiedSize="sm"
+						onClick={() => applyHeaderFilter(key, boolean, headerFilter?.draft ?? '')}
+					>
+						Apply
+					</Button>
+				</div>
+			</div>
+		{/snippet}
+	</Popover>
+{/snippet}
+
 {#snippet addColumnHeader()}
 	{#if canAddColumn}
 		<div
@@ -1214,7 +1312,7 @@
 							{/if}
 							<div
 								class={twMerge(
-									'relative shrink-0 flex items-center border-r',
+									'group/header relative shrink-0 flex items-center border-r',
 									// Above the other header cells, whose resize handles sit at z-10.
 									pin ? 'sticky z-20 bg-surface-tertiary dark:bg-surface-input' : '',
 									// The pinned block's edge against the scrolling columns is a pixel thicker.
@@ -1251,6 +1349,9 @@
 										<Icon size={12} class="shrink-0 text-secondary" />
 									{/if}
 								</button>
+								{#if filterSchema.keyOfColumn[col.field]}
+									{@render headerFilterButton(col, filterSchema.keyOfColumn[col.field])}
+								{/if}
 								<!-- svelte-ignore a11y_no_static_element_interactions -->
 								<div
 									class="absolute -right-1 top-0 bottom-0 w-2 z-10 cursor-col-resize hover:bg-border-selected/50"
