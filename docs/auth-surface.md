@@ -75,6 +75,11 @@ Symbols, not line numbers, are cited: they drift less.
   when the request sets `super_admin`; the MCP OAuth approve stores the same request on its code
   and refresh rows, and each exchange re-checks `password`. A new path minting an MCP token must
   ask the same question, or it reaches a different set of workspaces than the other two.
+  Losing it follows the owner without help from the caller: the deferred trigger
+  `password_superadmin_demote_tokens` clears the column on every token of an address that, at
+  commit, no longer has a superadmin `password` row (demotion, deletion, an import's
+  delete-and-reinsert), and evicts each through `notify_token_invalidation`. Gaining it does not:
+  a promotion path updates the tokens itself, leaving MCP ones alone.
 - **Every superadmin route refuses a job token**: `require_super_admin`
   (`windmill-api-auth/src/lib.rs`) errors on `authed.job_id.is_some()`. A script that needs
   `users/create`, `tokens/impersonate`, `set_login_type`, … must use a dedicated superadmin user
