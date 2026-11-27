@@ -66,7 +66,7 @@ async fn test_job_run_is_searchable_by_token_and_by_caller(
     let port = server.addr.port();
 
     let resp = authed(client().post(format!("http://localhost:{port}/api/users/tokens/create")))
-        .json(&json!({ "label": "audit-probe" }))
+        .json(&json!({ "label": "audit-probe", "super_admin": true }))
         .send()
         .await?;
     assert_eq!(resp.status(), 201);
