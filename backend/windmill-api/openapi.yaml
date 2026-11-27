@@ -7426,6 +7426,43 @@ paths:
                 items:
                   $ref: "#/components/schemas/ScopeDomain"
 
+  /tokens/introspect:
+    get:
+      summary: describe the token presenting the request
+      description: |
+        Reports what the bearer credential of this request is: its row (label, expiry, bound
+        workspace, scopes, carried admin rights), the identity it acts as in `workspace`, and
+        whether the route layer would admit it on `method` `path`. Only the presented token is
+        ever described. Every token may call it, whatever its scopes.
+      operationId: introspectToken
+      tags:
+        - token
+      parameters:
+        - name: workspace
+          description: workspace to resolve the token's identity in
+          in: query
+          schema:
+            type: string
+        - name: path
+          description: |
+            route to check, either a full `/api/...` path or a path relative to
+            `/api/w/{workspace}/`
+          in: query
+          schema:
+            type: string
+        - name: method
+          description: HTTP method of the route to check (GET by default)
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: what the token is and may do
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TokenIntrospection"
+
   /users/tokens/create:
     post:
       summary: create token
@@ -39703,6 +39740,122 @@ components:
         - value
         - label
         - requires_resource_path
+
+    TokenIntrospection:
+      type: object
+      properties:
+        kind:
+          type: string
+          enum: [session, api_token, jwt, external, superadmin_secret]
+        email:
+          type: string
+        username:
+          type: string
+        label:
+          type: string
+        token_prefix:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        expiration:
+          type: string
+          format: date-time
+        workspace_id:
+          description: the one workspace the token is bound to; absent when it is not bound
+          type: string
+        workspace_ids:
+          description: the workspaces a signed token is bound to, when it names several
+          type: array
+          items:
+            type: string
+        scopes:
+          description: absent when the token is unrestricted
+          type: array
+          items:
+            type: string
+        read_only:
+          type: boolean
+        admin_withheld:
+          description: |
+            the token does not carry its owner's workspace admin rights; the rights it does hold
+            in a workspace are in `workspace`
+          type: boolean
+        super_admin:
+          description: |
+            whether the token reaches superadmin routes: its owner is a superadmin, and it is
+            neither a job token nor one that withholds those rights
+          type: boolean
+        allowed_ips:
+          type: array
+          items:
+            type: string
+        job_id:
+          type: string
+          format: uuid
+        workspace:
+          $ref: "#/components/schemas/TokenWorkspaceAccess"
+        route:
+          $ref: "#/components/schemas/TokenRouteCheck"
+      required:
+        - kind
+        - email
+        - username
+        - read_only
+        - admin_withheld
+        - super_admin
+
+    TokenWorkspaceAccess:
+      type: object
+      properties:
+        workspace_id:
+          type: string
+        usable:
+          description: whether the token is accepted in this workspace at all
+          type: boolean
+        is_admin:
+          type: boolean
+        is_operator:
+          type: boolean
+        groups:
+          type: array
+          items:
+            type: string
+        folders:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+              write:
+                type: boolean
+              owner:
+                type: boolean
+            required:
+              - name
+              - write
+              - owner
+      required:
+        - workspace_id
+        - usable
+
+    TokenRouteCheck:
+      type: object
+      properties:
+        method:
+          type: string
+        path:
+          type: string
+        allowed:
+          type: boolean
+        reason:
+          description: why the route layer refuses the token, when it does
+          type: string
+      required:
+        - method
+        - path
+        - allowed
 
     ScopeDomain:
       type: object
