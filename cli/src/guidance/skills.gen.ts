@@ -8766,8 +8766,8 @@ Each shape is an object with that one key (plus \`filename\` for a file, and an 
 
 A result stored above about 90 KB is not sent with the run: the run page and the editors offer it
 as a JSON download. When that result is an image (\`png\`, \`jpeg\`, \`gif\`, \`svg\`), or a list (or
-\`render_all\`) of up to 100 elements holding images, each image is listed with a Preview button that
-loads it on request. To have a large result previewed without a click, write the
+\`render_all\`) holding images, each image among its first 100 elements is listed with a Preview
+button that loads it on request. To have a large result previewed without a click, write the
 content to the workspace storage and return \`{ "s3": "path/to/key" }\`, which is previewed by type;
 for a generated image, also keep it small (a JPEG, or fewer pixels) when it only needs to be looked
 at.

@@ -348,7 +348,7 @@ fn extract_domain_from_route(
 /// exports) and credential minting (`job_view_token`) are deliberately absent — those are
 /// `jobs:read`. Keep by-id read routes here in sync as they are added, or a run token
 /// loses the ability to follow its own run through them.
-const RUN_WHITELISTED_GET_PATHS: [&'static str; 33] = [
+const RUN_WHITELISTED_GET_PATHS: [&'static str; 34] = [
     "jobs_u/get_flow/",
     "jobs_u/get_root_job_id/",
     "jobs_u/get/",
@@ -362,6 +362,7 @@ const RUN_WHITELISTED_GET_PATHS: [&'static str; 33] = [
     "jobs_u/completed/get/",
     "jobs_u/completed/get_result/",
     "jobs_u/completed/get_result_maybe/",
+    "jobs_u/completed/get_result_shape/",
     "jobs_u/completed/get_timing/",
     "jobs_u/dispatch_events/",
     "jobs_u/getupdate/",
@@ -534,7 +535,7 @@ fn app_embed_job_route_allowed(suffix: &str) -> bool {
     // `get_root_job_id` is intentionally absent: its handler has no access check at
     // all (returns any job's root id by id) and the app never calls it, so denying
     // it costs nothing and avoids leaking a foreign job's flow lineage.
-    const ALLOWED: [&str; 15] = [
+    const ALLOWED: [&str; 16] = [
         "jobs_u/get/",
         "jobs_u/getupdate/",
         "jobs_u/getupdate_sse/",
@@ -548,6 +549,7 @@ fn app_embed_job_route_allowed(suffix: &str) -> bool {
         "jobs_u/completed/get/",
         "jobs_u/completed/get_result/",
         "jobs_u/completed/get_result_maybe/",
+        "jobs_u/completed/get_result_shape/",
         "jobs_u/completed/get_timing/",
         "jobs_u/queue/cancel/",
     ];
@@ -575,7 +577,7 @@ fn resource_metadata_route_allowed(suffix: &str) -> bool {
 /// a direct `require_job_within_read_scope`. `jobs/result_by_id/` is absent because it
 /// resolves a node up through the enclosing flows, past the job the check admitted.
 /// A route added here without that check serves a path-scoped token every job.
-const READ_PATH_SCOPED_BY_ID_PATHS: [&'static str; 26] = [
+const READ_PATH_SCOPED_BY_ID_PATHS: [&'static str; 27] = [
     "jobs_u/get/",
     "jobs_u/get_logs/",
     "jobs_u/get_completed_logs_tail/",
@@ -587,6 +589,7 @@ const READ_PATH_SCOPED_BY_ID_PATHS: [&'static str; 26] = [
     "jobs_u/completed/get/",
     "jobs_u/completed/get_result/",
     "jobs_u/completed/get_result_maybe/",
+    "jobs_u/completed/get_result_shape/",
     "jobs_u/completed/get_timing/",
     "jobs_u/dispatch_events/",
     "jobs_u/getupdate/",
@@ -1343,13 +1346,17 @@ mod tests {
     #[test]
     fn jobs_run_reads_are_limited_to_the_by_id_poll_routes() {
         let job = "/api/w/test/jobs_u/completed/get_result/019ff012-6b1e-0d6b-fc0d-0c85d34d9cec";
+        let shape =
+            "/api/w/test/jobs_u/completed/get_result_shape/019ff012-6b1e-0d6b-fc0d-0c85d34d9cec";
         let list = "/api/w/test/jobs/list";
         for scope in ["jobs:run", "jobs:run:scripts:u/admin/script"] {
             // Following the run it started stays available...
-            assert!(
-                check_route_access(&[scope.to_string()], job, "GET").is_ok(),
-                "{scope} must reach the by-id job poll routes"
-            );
+            for route in [job, shape] {
+                assert!(
+                    check_route_access(&[scope.to_string()], route, "GET").is_ok(),
+                    "{scope} must reach the by-id job poll route {route}"
+                );
+            }
             // ...but a run grant is not a licence to enumerate the workspace's jobs.
             assert!(
                 check_route_access(&[scope.to_string()], list, "GET").is_err(),
@@ -1447,6 +1454,7 @@ mod tests {
         for route in [
             format!("jobs_u/get/{id}"),
             format!("jobs_u/completed/get_result/{id}"),
+            format!("jobs_u/completed/get_result_shape/{id}"),
             format!("jobs_u/getupdate_sse/{id}"),
             format!("jobs_u/flow/approval_info/{id}"),
             "jobs/list".to_string(),
