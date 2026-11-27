@@ -2,6 +2,8 @@
 	import { Loader2, Copy, Check } from 'lucide-svelte'
 	import { TOOL_PRETTIFY_MAP } from './shared'
 	import { scrollFades } from './scrollFades.svelte'
+	import { copyToClipboard as writeClipboard } from '$lib/utils'
+	import { sendUserToast } from '$lib/toast'
 
 	interface Props {
 		title: string
@@ -69,14 +71,22 @@
 		}
 	}
 
+	// Copies what the block shows: the error replaces the content on screen.
+	const canCopy = $derived(!!error || hasContent)
+
 	async function copyToClipboard() {
-		if (!hasContent) return
-		try {
-			await navigator.clipboard.writeText(formatJson(content))
+		if (!canCopy) return
+		// The shared helper falls back to execCommand where `navigator.clipboard` is missing
+		// (plain-HTTP hosts other than localhost) and toasts a failure instead of swallowing it.
+		const ok = await writeClipboard(
+			error ? String(error) : formatJson($state.snapshot(content)),
+			false
+		)
+		if (ok) {
 			copied = true
 			setTimeout(() => (copied = false), 1500)
-		} catch (err) {
-			console.error('Failed to copy:', err)
+		} else {
+			sendUserToast("Couldn't copy to clipboard", true)
 		}
 	}
 
@@ -100,7 +110,7 @@
 			<span class="text-2xs text-hint">
 				{title}:
 			</span>
-			{#if showCopy && hasContent && !streaming}
+			{#if showCopy && canCopy && !streaming}
 				<button
 					class="p-1 rounded hover:bg-surface-secondary text-primary hover:text-secondary transition-opacity duration-200 opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
 					onclick={copyToClipboard}
