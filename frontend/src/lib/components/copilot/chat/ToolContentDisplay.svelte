@@ -71,13 +71,15 @@
 		}
 	}
 
-	// Copies what the block shows: the error replaces the content on screen.
-	const canCopy = $derived(!!error || (hasContent && content !== ''))
+	// `formatJson` assigns into the object it formats, so it gets a snapshot, never the prop.
+	const formatted = $derived(hasContent ? formatJson($state.snapshot(content)) : '')
+	// Copies what the block shows: the error replaces the content on screen. Empty text gets
+	// no button, since the helper refuses it and that would read as a failed copy.
+	const copyText = $derived(error ? String(error) : formatted)
 
 	async function copyToClipboard() {
-		const text = error ? String(error) : formatJson($state.snapshot(content))
-		// The helper refuses an empty string, which would read as a failed copy.
-		if (!canCopy || !text) return
+		const text = copyText
+		if (!text) return
 		// The shared helper falls back to execCommand where `navigator.clipboard` is missing
 		// (plain-HTTP hosts other than localhost). Its success toast is off: the check icon says it.
 		const ok = await writeClipboard(text, false)
@@ -109,7 +111,7 @@
 			<span class="text-2xs text-hint">
 				{title}:
 			</span>
-			{#if showCopy && canCopy && !streaming}
+			{#if showCopy && copyText && !streaming}
 				<button
 					class="p-1 rounded hover:bg-surface-secondary text-primary hover:text-secondary transition-opacity duration-200 opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
 					onclick={copyToClipboard}
@@ -141,9 +143,7 @@
 					onscroll={measureFades}
 					class="overflow-x-auto max-h-28 overflow-y-auto"
 				>
-					<pre use:fadeContent class="text-2xs text-primary whitespace-pre-wrap"
-						>{formatJson($state.snapshot(content))}</pre
-					>
+					<pre use:fadeContent class="text-2xs text-primary whitespace-pre-wrap">{formatted}</pre>
 				</div>
 				{#if showFade && fades.bottom}
 					<div
