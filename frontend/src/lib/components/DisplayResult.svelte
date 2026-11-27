@@ -828,7 +828,24 @@
 
 	let globalForceJson: boolean = $state(false)
 
-	let seeS3PreviewFileFromList = $state('')
+	// Rows of an S3 list whose preview is open, and those opened once: a hidden preview stays
+	// mounted, so a table keeps its rows, scroll and search. By row index, since a list can
+	// repeat a key; tied to the result so another result starts closed.
+	let s3ListPreviews: { result: unknown; open: number[]; mounted: number[] } = $state({
+		result: undefined,
+		open: [],
+		mounted: []
+	})
+	let s3ListOpen = $derived(s3ListPreviews.result === result ? s3ListPreviews.open : [])
+	let s3ListMounted = $derived(s3ListPreviews.result === result ? s3ListPreviews.mounted : [])
+	function toggleS3ListPreview(index: number) {
+		const open = s3ListOpen.includes(index)
+		s3ListPreviews = {
+			result,
+			open: open ? s3ListOpen.filter((i) => i !== index) : [...s3ListOpen, index],
+			mounted: s3ListMounted.includes(index) ? s3ListMounted : [...s3ListMounted, index]
+		}
+	}
 	/** Keys of the markdown files shown as their source rather than rendered. */
 	let markdownSourceKeys: string[] = $state([])
 	// Not reactive: filled while rendering, each entry holding its own state.
@@ -1424,11 +1441,11 @@
 					<div class="h-full w-full pt-2">
 						<div class="flex flex-col gap-2">
 							<div class="rounded-md border bg-surface divide-y overflow-hidden">
-								{#each result as _s3object}
+								{#each result as _s3object, index}
 									{@const s3object = parseS3Object(_s3object) as typeof _s3object}
 									{@const kind = s3PreviewKind(s3object?.s3)}
 									{@const collapsible = kind !== undefined && kind !== 'pdf'}
-									{@const previewOpen = seeS3PreviewFileFromList == s3object?.s3}
+									{@const previewOpen = s3ListOpen.includes(index)}
 									<div class="flex flex-col">
 										<div class="px-3 py-2">
 											<S3ObjectHeader
@@ -1437,17 +1454,15 @@
 												{appPath}
 												onExplore={canExplore ? () => s3FileViewer?.open?.(s3object) : undefined}
 												previewOpen={collapsible ? previewOpen : undefined}
-												onTogglePreview={() => {
-													seeS3PreviewFileFromList = previewOpen ? '' : s3object?.s3
-												}}
+												onTogglePreview={() => toggleS3ListPreview(index)}
 												markdownSource={kind === 'markdown' && previewOpen
 													? markdownSourceKeys.includes(s3object.s3)
 													: undefined}
 												onMarkdownSource={(source) => setMarkdownSource(s3object.s3, source)}
 											/>
 										</div>
-										{#if kind !== undefined && (!collapsible || previewOpen)}
-											<div class="border-t">
+										{#if kind !== undefined && (!collapsible || s3ListMounted.includes(index))}
+											<div class="border-t" class:hidden={collapsible && !previewOpen}>
 												{@render s3Preview(s3object)}
 											</div>
 										{/if}
