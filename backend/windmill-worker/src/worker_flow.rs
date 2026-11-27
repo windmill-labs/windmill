@@ -66,10 +66,7 @@ use windmill_common::{
         Approval, BranchAllStatus, BranchChosen, FlowStatus, FlowStatusModule, RetryStatus,
         MAX_RETRY_ATTEMPTS, MAX_RETRY_INTERVAL,
     },
-    flows::{
-        FlowModule, FlowModuleValue, FlowModuleValueWithParallel, FlowValue, InputTransform, Retry,
-        Step, Suspend,
-    },
+    flows::{FlowModule, FlowModuleValue, FlowValue, InputTransform, Retry, Step, Suspend},
     min_version::MIN_VERSION_IS_AT_LEAST_1_595,
 };
 use windmill_queue::schedule::get_schedule_opt;
@@ -5132,50 +5129,6 @@ async fn push_next_flow_job(
         _ => (false, vec![]),
     };
 
-    // Evaluated when the loop starts and kept on its iterator: later iterations reuse it, and
-    // each iteration's completion reads it there.
-    let loop_failure_threshold = match (&next_status, &status_module) {
-        (
-            NextStatus::NextLoopIteration { .. }
-            | NextStatus::AllFlowJobs { iterator: Some(_), .. },
-            FlowStatusModule::InProgress {
-                iterator: Some(FlowIterator { failure_threshold: Some(t), .. }),
-                ..
-            },
-        ) => Some(*t),
-        (
-            NextStatus::NextLoopIteration { .. }
-            | NextStatus::AllFlowJobs { iterator: Some(_), .. },
-            _,
-        ) => match module.get_value_with_parallel()? {
-            FlowModuleValueWithParallel {
-                skip_failures: Some(true),
-                failure_threshold: Some(transform),
-                ..
-            } => {
-                let ctx = get_transform_context(&flow_job, &previous_id, &status);
-                let threshold = evaluate_input_transform::<u32>(
-                    &transform,
-                    arc_last_job_result.clone(),
-                    Some(arc_flow_job_args.clone()),
-                    flow_env,
-                    Some(client),
-                    Some(&ctx),
-                )
-                .await?;
-                if threshold == 0 {
-                    return Err(Error::BadRequest(format!(
-                        "failure threshold of step {} must be at least 1",
-                        module.id
-                    )));
-                }
-                Some(threshold)
-            }
-            _ => None,
-        },
-        _ => None,
-    };
-
     let mut tx = db.begin().warn_after_seconds(3).await?;
     let nargs = args.as_ref();
     for (i, mut payload_tag) in job_payloads.into_iter().enumerate() {
@@ -5824,6 +5777,7 @@ async fn push_next_flow_job(
                     mut flow_jobs_success,
                     mut flow_jobs_duration,
                     flow_jobs_labels,
+                    failure_threshold,
                     ..
                 },
             ..
@@ -5858,7 +5812,7 @@ async fn push_next_flow_job(
                     index,
                     itered: itered_for_status,
                     itered_len: Some(itered_len),
-                    failure_threshold: loop_failure_threshold,
+                    failure_threshold,
                 }),
                 flow_jobs: Some(flow_jobs),
                 flow_jobs_success,
@@ -5877,7 +5831,6 @@ async fn push_next_flow_job(
         NextStatus::AllFlowJobs { iterator, branchall, failed_only, .. } => {
             let iterator_for_status = if let Some(mut iter) = iterator {
                 iter.itered = None; // in parallel for loops, itered is only useful when starting the jobs, no need to store it in status/or the dedicated table
-                iter.failure_threshold = loop_failure_threshold;
                 Some(iter)
             } else {
                 None
@@ -6163,6 +6116,7 @@ struct ForloopNextIteration {
     flow_jobs_duration: Option<FlowJobsDuration>,
     flow_jobs_labels: Option<Vec<Option<String>>>,
     iteration_label: Option<InputTransform>,
+    failure_threshold: Option<u32>,
     new_args: Iter,
     while_loop: bool,
 }
@@ -6334,6 +6288,50 @@ pub fn get_path(flow_job: &MiniPulledJob, status: &FlowStatus, module: &FlowModu
     }
 }
 
+/// A loop's `failure_threshold`, evaluated when the loop starts and kept on its iterator, which
+/// later iterations and each iteration's completion read instead of evaluating it again.
+async fn loop_failure_threshold(
+    skip_failures: bool,
+    transform: Option<&InputTransform>,
+    status_module: &FlowStatusModule,
+    module: &FlowModule,
+    flow_job: &MiniPulledJob,
+    status: &FlowStatus,
+    previous_id: &str,
+    last_result: Arc<Box<RawValue>>,
+    flow_args: Marc<HashMap<String, Box<RawValue>>>,
+    flow_env: Option<&HashMap<String, Box<RawValue>>>,
+    client: &AuthedClient,
+) -> error::Result<Option<u32>> {
+    let Some(transform) = transform.filter(|_| skip_failures) else {
+        return Ok(None);
+    };
+    if let FlowStatusModule::InProgress {
+        iterator: Some(FlowIterator { failure_threshold: Some(t), .. }),
+        ..
+    } = status_module
+    {
+        return Ok(Some(*t));
+    }
+    let ctx = get_transform_context(flow_job, previous_id, status);
+    let threshold = evaluate_input_transform::<u32>(
+        transform,
+        last_result,
+        Some(flow_args),
+        flow_env,
+        Some(client),
+        Some(&ctx),
+    )
+    .await?;
+    if threshold == 0 {
+        return Err(Error::BadRequest(format!(
+            "failure threshold of step {} must be at least 1",
+            module.id
+        )));
+    }
+    Ok(Some(threshold))
+}
+
 async fn compute_next_flow_transform(
     arc_flow_job_args: Marc<HashMap<String, Box<RawValue>>>,
     arc_last_job_result: Arc<Box<RawValue>>,
@@ -6499,7 +6497,28 @@ async fn compute_next_flow_transform(
                 NextStatus::NextStep,
             ))
         }
-        FlowModuleValue::WhileloopFlow { modules, modules_node, squash, .. } => {
+        FlowModuleValue::WhileloopFlow {
+            modules,
+            modules_node,
+            squash,
+            skip_failures,
+            failure_threshold,
+            ..
+        } => {
+            let failure_threshold = loop_failure_threshold(
+                skip_failures,
+                failure_threshold.as_ref(),
+                status_module,
+                module,
+                flow_job,
+                status,
+                previous_id,
+                arc_last_job_result,
+                arc_flow_job_args,
+                flow_env,
+                client,
+            )
+            .await?;
             // if it's a simple single step flow, we will collapse it as an optimization and need to pass flow_input as an arg
             let is_simple = is_simple_modules(&modules, flow.failure_module.as_ref());
             let (flow_jobs, flow_jobs_success, flow_jobs_duration) = match status_module {
@@ -6530,6 +6549,7 @@ async fn compute_next_flow_transform(
                     flow_jobs_duration: flow_jobs_duration,
                     flow_jobs_labels: None,
                     iteration_label: None,
+                    failure_threshold,
                     new_args: Iter {
                         index: next_loop_idx as i32,
                         value: windmill_common::worker::to_raw_value(&next_loop_idx),
@@ -6555,6 +6575,8 @@ async fn compute_next_flow_transform(
             parallel,
             squash,
             iteration_label,
+            skip_failures,
+            failure_threshold,
             ..
         } => {
             if failed_only.is_some() && !parallel {
@@ -6578,6 +6600,20 @@ async fn compute_next_flow_transform(
             //         }
             //         _ => None,
             //     }
+            let failure_threshold = loop_failure_threshold(
+                skip_failures,
+                failure_threshold.as_ref(),
+                status_module,
+                module,
+                flow_job,
+                status,
+                previous_id,
+                arc_last_job_result.clone(),
+                arc_flow_job_args.clone(),
+                flow_env,
+                client,
+            )
+            .await?;
             // A failed-only restart reruns on the restarted run's items, never re-evaluating
             // the iterator, so each kept result stays paired with its item.
             let next_loop_status = if let Some(slots) = &failed_only {
@@ -6615,6 +6651,7 @@ async fn compute_next_flow_transform(
                 }
                 ForLoopStatus::NextIteration(mut ns) => {
                     ns.iteration_label = iteration_label;
+                    ns.failure_threshold = failure_threshold;
                     let start_runners = ns.index == 0 && squash.unwrap_or(false);
                     next_loop_iteration(
                         flow,
@@ -6683,7 +6720,7 @@ async fn compute_next_flow_transform(
                                 index: failed_only.as_ref().map_or(0, FailedOnlySlots::kept),
                                 itered_len: Some(itered_len),
                                 itered: Some(itered),
-                                failure_threshold: None,
+                                failure_threshold,
                             }),
                             iteration_label,
                             // we removed the is_simple_case for simple_input_transforms
@@ -7228,6 +7265,7 @@ async fn next_forloop_status(
                     flow_jobs_duration: Some(FlowJobsDuration::new(0)),
                     flow_jobs_labels: None,
                     iteration_label: None,
+                    failure_threshold: None,
                     new_args: iter,
                     while_loop: false,
                 })
@@ -7305,6 +7343,7 @@ async fn next_forloop_status(
                 flow_jobs_duration: flow_jobs_duration.clone(),
                 flow_jobs_labels: flow_jobs_labels.clone(),
                 iteration_label: None,
+                failure_threshold: None,
                 new_args: Iter { index: index as i32, value: next.to_owned() },
                 while_loop: false,
             })

@@ -702,9 +702,6 @@ pub struct FlowModuleValueWithParallel {
         skip_serializing_if = "Option::is_none"
     )]
     pub parallelism: Option<InputTransform>,
-    pub skip_failures: Option<bool>,
-    #[serde(default, deserialize_with = "raw_value_to_input_transform::<_, u32>")]
-    pub failure_threshold: Option<InputTransform>,
 }
 
 #[derive(Deserialize)]
