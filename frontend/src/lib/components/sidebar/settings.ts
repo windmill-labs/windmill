@@ -1,7 +1,5 @@
 export const USER_SETTINGS_HASH = '#user-settings' as const
 export const SUPERADMIN_SETTINGS_HASH = '#superadmin-settings' as const
-/** Opens the profile and starts the two-factor setup there, unless it is already on. */
-export const TWO_FACTOR_SETUP_HASH = '#user-settings-two-factor' as const
 
 export type AccountSettingsPanel = 'profile' | 'tokens' | 'ai' | 'mcp'
 

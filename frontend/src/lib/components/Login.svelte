@@ -87,6 +87,9 @@
 		 * same sign-in without this, which provisions them for real. Password login
 		 * ignores it: a guest has no stored credential to check. */
 		guestApp?: string | undefined
+		/** Once a password login succeeds, offer to set up two-factor authentication before
+		 * leaving the card, for an account that has none. The user can skip it. */
+		offerTotpSetup?: boolean
 	}
 
 	let {
@@ -101,7 +104,8 @@
 		onLoginError = undefined,
 		preview = undefined,
 		onOptionsLoaded = undefined,
-		guestApp = undefined
+		guestApp = undefined,
+		offerTotpSetup = false
 	}: Props = $props()
 
 	// The harness never takes effect in a production bundle, whatever a caller passes.
@@ -204,6 +208,9 @@
 	// user already scanned would stop working.
 	let issuedSetup: { email: string; setup: { secret: string; otpauth_url: string } } | undefined
 	let enrollCodes = $state<string[] | undefined>(undefined)
+	// The setup was offered after a successful login, rather than required before one: a
+	// session exists, so it goes through the signed-in routes and can be skipped.
+	let enrollOptional = $state(false)
 	let enrollSaved = $state(false)
 
 	async function openTotpStep(forEmail: string, setup?: { secret: string; otpauth_url: string }) {
@@ -366,15 +373,30 @@
 			return
 		}
 
+		if (offerTotpSetup && !requestBody.totp_code) {
+			// Refused when the account already has a second factor, or by a build or edition
+			// that cannot give it one: the login then simply goes on.
+			const setup = await UserService.setupTotp({
+				requestBody: { password: requestBody.password }
+			}).catch(() => undefined)
+			if (setup) {
+				enrollOptional = true
+				await openTotpStep(requestBody.email, setup)
+				return
+			}
+		}
+
 		await finishLogin()
 	}
 
-	// Turns the second factor on and starts the session in one request; the recovery codes it
-	// returns are shown before leaving the page.
+	// Turns the second factor on and, when it was required, starts the session in the same
+	// request; the recovery codes it returns are shown before leaving the page.
 	async function enableTotpAtLogin(): Promise<void> {
 		const requestBody = { email: email!, password: password!, code: totpCode }
 		try {
-			const { recovery_codes } = await UserService.loginTotpEnable({ requestBody })
+			const { recovery_codes } = enrollOptional
+				? await UserService.enableTotp({ requestBody: { code: totpCode } })
+				: await UserService.loginTotpEnable({ requestBody })
 			noteSessionEmail(requestBody.email)
 			formError = undefined
 			enrollSetup = undefined
@@ -884,7 +906,13 @@
 	{:else if showTotp}
 		<div class="space-y-4">
 			<div class="space-y-1">
-				{#if enrollSetup}
+				{#if enrollSetup && enrollOptional}
+					<h2 class="text-sm font-semibold text-emphasis">Set up two-factor authentication</h2>
+					<p class="text-xs text-secondary">
+						Protect {email} with a code from an authenticator app on top of its password. You can
+						also do this later from your user settings.
+					</p>
+				{:else if enrollSetup}
 					<h2 class="text-sm font-semibold text-emphasis">Set up two-factor authentication</h2>
 					<p class="text-xs text-secondary">
 						This instance asks for a code from an authenticator app at each password login. Add
@@ -922,10 +950,14 @@
 			</div>
 			<div class="space-y-2">
 				<Button onClick={login} variant="accent" unifiedSize="lg" disabled={!totpCode.trim()}>
-					{enrollSetup ? 'Turn on and log in' : 'Verify'}
+					{enrollOptional ? 'Turn on' : enrollSetup ? 'Turn on and log in' : 'Verify'}
 				</Button>
 				<div class="center-center">
-					<Button unifiedSize="sm" variant="subtle" onClick={leaveTotp}>Back</Button>
+					{#if enrollOptional}
+						<Button unifiedSize="sm" variant="subtle" onClick={finishLogin}>Skip for now</Button>
+					{:else}
+						<Button unifiedSize="sm" variant="subtle" onClick={leaveTotp}>Back</Button>
+					{/if}
 				</div>
 			</div>
 		</div>

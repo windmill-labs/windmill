@@ -5,7 +5,6 @@
 	import { Button } from '$lib/components/common'
 	import { sendUserToast } from '$lib/toast'
 	import TextInput from '../text_input/TextInput.svelte'
-	import { TWO_FACTOR_SETUP_HASH } from '../sidebar/settings'
 	import TotpModal, { type TotpAction } from './TotpModal.svelte'
 
 	let newPassword = $state<string | undefined>(undefined)
@@ -36,9 +35,6 @@
 		const status = await UserService.getTotpStatus().catch(() => undefined)
 		totpEnabled = status?.enabled
 		totpRequired = status?.required ?? false
-		if (totpEnabled === false && window.location.hash === TWO_FACTOR_SETUP_HASH) {
-			totpAction = 'setup'
-		}
 	}
 
 	async function setPassword(): Promise<void> {
