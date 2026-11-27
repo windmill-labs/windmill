@@ -509,6 +509,23 @@ async fn test_token_superadmin_follows_owner_demotion(db: Pool<Postgres>) {
         "re-imported superadmin keeps it"
     );
 
+    // SCIM's rename moves the account and leaves its tokens under the old address.
+    for (from, to) in [
+        ("test@windmill.dev", "renamed@windmill.dev"),
+        ("renamed@windmill.dev", "test@windmill.dev"),
+    ] {
+        sqlx::query("UPDATE password SET email = $1 WHERE email = $2")
+            .bind(to)
+            .bind(from)
+            .execute(&db)
+            .await
+            .unwrap();
+    }
+    assert!(
+        token_is_superadmin().await,
+        "an email change is no demotion"
+    );
+
     let before_id = get_latest_event_id(&db).await.unwrap();
     reinsert(false).await;
     assert!(
