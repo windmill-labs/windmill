@@ -11,14 +11,16 @@
 //! A copy is replayed as the target's own connection role, which can neither create an extension
 //! only a superuser may create nor comment on one it does not own, and `pg_dump` writes both for
 //! every extension. So the dump leaves extensions out, and the copy is given them before the
-//! replay by whoever may create them on its server ([`ExtensionPlan::prepare_target`]).
+//! replay by an [`ExtensionCreator`].
 //!
-//! TimescaleDB keeps a hypertable's rows in chunk tables under its own schemas and bookkeeping,
-//! which a replay can neither write nor reproduce. The chunks are left out of the dump, and each
-//! hypertable is made one again in the copy, its rows streamed from the source
-//! ([`ExtensionPlan::finish_target`]).
+//! TimescaleDB keeps a hypertable's rows in chunk tables and bookkeeping of its own, which a replay
+//! can neither write nor reproduce. The chunks are left out of the dump and each hypertable is made
+//! one again in the copy. Its rows are streamed from the source between the dump's data and its
+//! post-data section, where pg_dump would load them: before the triggers that would fire on them
+//! and the materialized views refreshed from them, and in the dump's own snapshot.
 
 use std::collections::BTreeSet;
+use std::io::Write;
 
 use futures::{SinkExt, StreamExt};
 use tokio_postgres::types::ToSql;
@@ -26,23 +28,25 @@ use windmill_common::error::{pg_error_message, Error, Result};
 use windmill_common::workspaces::DataTableCatalogResourceType;
 use windmill_common::{PgDatabase, DB};
 
-use crate::workspaces::DumpFile;
+use crate::workspaces::{
+    pg_dump_database, pg_import_dump, pg_restore_section, DumpFile, PgDumpOptions,
+};
 
 const TIMESCALEDB: &str = "timescaledb";
+/// Where TimescaleDB keeps the relations it makes for itself, compressed chunks among them.
+const TIMESCALEDB_INTERNAL: &str = "_timescaledb_internal";
 
 /// What a copy of one database needs done about the extensions it uses.
 #[derive(Default)]
 pub(crate) struct ExtensionPlan {
     /// In creation order, so an extension comes after those it requires.
     extensions: Vec<SourceExtension>,
-    /// Left out of the dump: every extension above.
-    pub(crate) excluded_extensions: Vec<String>,
-    /// Left out of the dump with everything in them: the schemas hypertable chunks live in.
-    pub(crate) excluded_schemas: Vec<String>,
     /// Schemas holding an extension that the dump creates too. The copy needs them before its
     /// extensions, so they are made first and the dump's `CREATE SCHEMA` is commented out.
     extension_schemas: Vec<String>,
     hypertables: Vec<Hypertable>,
+    /// Every chunk of every hypertable, `"schema"."table"` as pg_dump patterns read them.
+    chunks: Vec<String>,
 }
 
 struct SourceExtension {
@@ -124,12 +128,11 @@ async fn read_plan(
     let mut plan = ExtensionPlan::default();
     let mut extension_schemas = BTreeSet::new();
     for row in rows {
-        let extension = SourceExtension { name: row.get(0), schema: row.get(1) };
         if row.get::<_, bool>(2) {
-            extension_schemas.insert(extension.schema.clone());
+            extension_schemas.insert(row.get::<_, String>(1));
         }
-        plan.excluded_extensions.push(extension.name.clone());
-        plan.extensions.push(extension);
+        plan.extensions
+            .push(SourceExtension { name: row.get(0), schema: row.get(1) });
     }
     plan.extension_schemas = extension_schemas.into_iter().collect();
 
@@ -137,7 +140,7 @@ async fn read_plan(
         refuse_extension_rows(client, dbname).await?;
     }
     if plan.extensions.iter().any(|e| e.name == TIMESCALEDB) {
-        read_hypertables(client, dbname, schema_only, &mut plan).await?;
+        read_hypertables(client, dbname, &mut plan).await?;
     }
     Ok(plan)
 }
@@ -189,10 +192,9 @@ async fn refuse_extension_rows(client: &tokio_postgres::Client, dbname: &str) ->
 async fn read_hypertables(
     client: &tokio_postgres::Client,
     dbname: &str,
-    schema_only: bool,
     plan: &mut ExtensionPlan,
 ) -> Result<()> {
-    // A continuous aggregate's view reads a materialization hypertable among the chunks, which the
+    // A continuous aggregate's view reads a materialization hypertable among the relations the
     // dump leaves out, so its definition would fail to replay.
     let aggregates: Vec<String> = client
         .query(
@@ -213,16 +215,30 @@ async fn read_hypertables(
         )));
     }
 
-    plan.excluded_schemas = client
+    // A chunk inherits from its hypertable, internal compressed ones included, in every
+    // TimescaleDB version, while its catalog's columns differ between them.
+    plan.chunks = client
         .query(
-            "SELECT DISTINCT associated_schema_name::text FROM _timescaledb_catalog.hypertable
-             UNION SELECT '_timescaledb_internal' ORDER BY 1",
+            "SELECT n.nspname::text, c.relname::text
+             FROM pg_inherits i
+             JOIN pg_class c ON c.oid = i.inhrelid
+             JOIN pg_namespace n ON n.oid = c.relnamespace
+             WHERE i.inhparent IN (
+                 SELECT format('%I.%I', schema_name, table_name)::regclass
+                 FROM _timescaledb_catalog.hypertable)
+             ORDER BY 1, 2",
             &[],
         )
         .await
         .map_err(source_err(dbname))?
         .iter()
-        .map(|row| row.get(0))
+        .map(|row| {
+            format!(
+                "{}.{}",
+                quote_ident(row.get::<_, &str>(0)),
+                quote_ident(row.get::<_, &str>(1))
+            )
+        })
         .collect();
 
     let rows = client
@@ -271,48 +287,264 @@ async fn read_hypertables(
             .map(|row| row.get(0))
             .collect();
     }
-
-    // The rows of a hypertable reach the copy after the replay, which checks a foreign key when it
-    // adds it: one referencing a hypertable would find it empty.
-    if !schema_only && !plan.hypertables.is_empty() {
-        let relations: Vec<String> = plan.hypertables.iter().map(Hypertable::relation).collect();
-        let referencing: Vec<String> = client
-            .query(
-                "SELECT format('%s references %s', conrelid::regclass, confrelid::regclass)
-                 FROM pg_constraint
-                 WHERE contype = 'f'
-                   AND confrelid = ANY(SELECT r::regclass FROM unnest($1::text[]) r)
-                 ORDER BY 1",
-                &[&relations],
-            )
-            .await
-            .map_err(source_err(dbname))?
-            .iter()
-            .map(|row| row.get(0))
-            .collect();
-        if !referencing.is_empty() {
-            return Err(Error::BadRequest(format!(
-                "Database '{dbname}' has foreign keys to TimescaleDB hypertables ({}), which a \
-                 copy with data cannot check: copy its schema only",
-                referencing.join(", ")
-            )));
-        }
-    }
     Ok(())
 }
 
+/// Who creates the extensions a copy lacks.
+#[derive(Clone, Copy)]
+pub(crate) enum ExtensionCreator {
+    /// The target's own connection role, which may create only trusted extensions.
+    TargetRole,
+    /// The administrator of the cluster Windmill manages the target on.
+    ClusterAdmin(DataTableCatalogResourceType),
+}
+
+impl ExtensionCreator {
+    /// The source names the extensions created, so the administrator creates them only for a
+    /// fresh copy of a database on its own cluster, whose extensions an administrator there
+    /// installed: any other source could name an untrusted extension, and a live target's role
+    /// may have planted objects in the schemas an extension script runs against.
+    pub(crate) fn for_copy(
+        source: Option<DataTableCatalogResourceType>,
+        target: Option<DataTableCatalogResourceType>,
+        fresh_copy: bool,
+    ) -> Self {
+        match (source, target) {
+            (Some(source), Some(target))
+                if source == target && fresh_copy && target.is_windmill_managed() =>
+            {
+                Self::ClusterAdmin(target)
+            }
+            _ => Self::TargetRole,
+        }
+    }
+}
+
+/// A dump of a source, made by [`ExtensionPlan::dump`] and replayed by
+/// [`ExtensionPlan::restore`].
+pub(crate) enum PlannedDump {
+    Script(DumpFile),
+    /// A copy with data of hypertables, whose rows load between `data` and `post_data` through
+    /// `snapshot`, the session whose snapshot the dump was taken in.
+    Sections {
+        pre_data: DumpFile,
+        data: DumpFile,
+        post_data: DumpFile,
+        snapshot: SnapshotSession,
+    },
+}
+
+/// A session holding open the transaction whose snapshot a dump was taken in.
+pub(crate) struct SnapshotSession {
+    client: tokio_postgres::Client,
+    join_handle: tokio::task::JoinHandle<std::result::Result<(), tokio_postgres::Error>>,
+}
+
+impl SnapshotSession {
+    async fn open(db: &DB, source: &PgDatabase) -> Result<(Self, String)> {
+        let (client, connection) = source.connect(Some(db)).await?;
+        let join_handle = tokio::spawn(async move { connection.await });
+        let session = Self { client, join_handle };
+        let snapshot = async {
+            session
+                .client
+                .batch_execute("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY")
+                .await?;
+            Ok::<String, tokio_postgres::Error>(
+                session
+                    .client
+                    .query_one("SELECT pg_export_snapshot()", &[])
+                    .await?
+                    .get(0),
+            )
+        }
+        .await;
+        match snapshot {
+            Ok(snapshot) => Ok((session, snapshot)),
+            Err(e) => {
+                session.close().await;
+                Err(Error::internal_err(format!(
+                    "Failed to take a snapshot of database '{}': {}",
+                    source.dbname,
+                    pg_error_message(&e)
+                )))
+            }
+        }
+    }
+
+    async fn close(self) {
+        drop(self.client);
+        if let Err(e) = windmill_common::shutdown_pg_connection(self.join_handle).await {
+            tracing::warn!("Closing a snapshot session: {e}");
+        }
+    }
+}
+
 impl ExtensionPlan {
-    /// Give `target` the source's extensions before `dump` is replayed into it, `creator`
-    /// creating each one it lacks.
+    /// The `--filter` lines leaving out what the copy gets otherwise: every extension, and every
+    /// relation TimescaleDB makes for itself.
+    fn filter_lines(&self) -> Vec<String> {
+        let mut lines: Vec<String> = self
+            .extensions
+            .iter()
+            .map(|e| format!("exclude extension {}", quote_ident(&e.name)))
+            .collect();
+        if self.extensions.iter().any(|e| e.name == TIMESCALEDB) {
+            lines.push(format!(
+                "exclude schema {}",
+                quote_ident(TIMESCALEDB_INTERNAL)
+            ));
+        }
+        lines.extend(
+            self.chunks
+                .iter()
+                .map(|chunk| format!("exclude table {chunk}")),
+        );
+        lines
+    }
+
+    /// Dump `source` for this plan. `no_acl` as in [`PgDumpOptions`]; ownership never carries
+    /// over, as the restore runs as the target's connection user.
+    pub(crate) async fn dump(
+        &self,
+        db: &DB,
+        source: &PgDatabase,
+        schema_only: bool,
+        no_acl: bool,
+    ) -> Result<PlannedDump> {
+        let lines = self.filter_lines();
+        let filter = if lines.is_empty() {
+            None
+        } else {
+            let file = DumpFile::new()?;
+            std::fs::File::create(&file.path)
+                .and_then(|mut f| f.write_all(lines.join("\n").as_bytes()))
+                .map_err(|e| Error::internal_err(format!("Failed to write dump filter: {e}")))?;
+            Some(file)
+        };
+        let filter_path = filter.as_ref().map(|f| f.path.as_path());
+
+        if schema_only || self.hypertables.is_empty() {
+            let dump = pg_dump_database(
+                source,
+                PgDumpOptions {
+                    schema_only,
+                    no_owner: true,
+                    no_acl,
+                    filter: filter_path,
+                    ..Default::default()
+                },
+            )
+            .await?;
+            return Ok(PlannedDump::Script(dump));
+        }
+
+        let (snapshot, snapshot_id) = SnapshotSession::open(db, source).await?;
+        let sections = async {
+            let archive = pg_dump_database(
+                source,
+                PgDumpOptions {
+                    archive: true,
+                    filter: filter_path,
+                    snapshot: Some(&snapshot_id),
+                    ..Default::default()
+                },
+            )
+            .await?;
+            Ok::<_, Error>((
+                pg_restore_section(&archive, "pre-data", true, no_acl).await?,
+                pg_restore_section(&archive, "data", true, no_acl).await?,
+                pg_restore_section(&archive, "post-data", true, no_acl).await?,
+            ))
+        }
+        .await;
+        match sections {
+            Ok((pre_data, data, post_data)) => {
+                Ok(PlannedDump::Sections { pre_data, data, post_data, snapshot })
+            }
+            Err(e) => {
+                snapshot.close().await;
+                Err(e)
+            }
+        }
+    }
+
+    /// Replay `dump` into `target`: its extensions first, created by `creator`, then the dump,
+    /// with each hypertable made one again and, in a copy with data, its rows loaded where pg_dump
+    /// would load them. A copy with data of hypertables replays in several transactions, so one
+    /// that fails part way leaves `target` partly filled.
     ///
     /// Authorization: none. Callers MUST have authorized writing to `target`, and pick `creator`
     /// with [`ExtensionCreator::for_copy`].
-    pub(crate) async fn prepare_target(
+    pub(crate) async fn restore(
+        &self,
+        db: &DB,
+        dump: PlannedDump,
+        target: &PgDatabase,
+        creator: ExtensionCreator,
+    ) -> Result<()> {
+        match dump {
+            PlannedDump::Script(script) => {
+                self.prepare_target(db, target, creator, &script).await?;
+                pg_import_dump(target, &script).await?;
+                self.make_hypertables(db, target, None).await
+            }
+            PlannedDump::Sections { pre_data, data, post_data, snapshot } => {
+                let restored = async {
+                    self.prepare_target(db, target, creator, &pre_data).await?;
+                    pg_import_dump(target, &pre_data).await?;
+                    self.make_hypertables(db, target, Some(&snapshot.client))
+                        .await?;
+                    pg_import_dump(target, &data).await?;
+                    self.drop_only_on_hypertables(&post_data).await?;
+                    pg_import_dump(target, &post_data).await
+                }
+                .await;
+                snapshot.close().await;
+                restored
+            }
+        }
+    }
+
+    /// TimescaleDB refuses `ALTER TABLE ONLY` on a hypertable, which the post-data section uses to
+    /// add constraints to every table: on a hypertable the constraint goes on without `ONLY`, and
+    /// TimescaleDB gives each chunk its own.
+    async fn drop_only_on_hypertables(&self, post_data: &DumpFile) -> Result<()> {
+        let io_err =
+            |e: std::io::Error| Error::internal_err(format!("Failed to patch dump file: {e}"));
+        let script = tokio::fs::read_to_string(&post_data.path)
+            .await
+            .map_err(io_err)?;
+        let hypertables: BTreeSet<(&str, &str)> = self
+            .hypertables
+            .iter()
+            .map(|h| (h.schema.as_str(), h.name.as_str()))
+            .collect();
+        let mut patched = String::with_capacity(script.len());
+        for line in script.split_inclusive('\n') {
+            let on_hypertable = line
+                .trim_end()
+                .strip_prefix("ALTER TABLE ONLY ")
+                .and_then(parse_qualified)
+                .is_some_and(|(schema, name)| hypertables.contains(&(&schema, &name)));
+            if on_hypertable {
+                patched.push_str(&line.replacen("ALTER TABLE ONLY ", "ALTER TABLE ", 1));
+            } else {
+                patched.push_str(line);
+            }
+        }
+        tokio::fs::write(&post_data.path, patched)
+            .await
+            .map_err(io_err)
+    }
+
+    /// Give `target` the source's extensions before `script` is replayed into it.
+    async fn prepare_target(
         &self,
         db: &DB,
         target: &PgDatabase,
         creator: ExtensionCreator,
-        dump: &DumpFile,
+        script: &DumpFile,
     ) -> Result<()> {
         if self.extensions.is_empty() {
             return Ok(());
@@ -325,7 +557,7 @@ impl ExtensionPlan {
         for extension in missing? {
             create_extension(db, target, creator, extension).await?;
         }
-        comment_out_schema_creations(dump, &self.extension_schemas).await
+        comment_out_schema_creations(script, &self.extension_schemas).await
     }
 
     /// Made by the target's own role, so what the replay puts in them is its own.
@@ -366,44 +598,34 @@ impl ExtensionPlan {
             .collect())
     }
 
-    /// Make each hypertable of the source one again in `target`, after the replay, and unless
-    /// `schema_only` stream its rows over. A hypertable `target` already has is left as it is.
-    ///
-    /// Authorization: none. Callers MUST have authorized reading `source` and writing to `target`.
-    pub(crate) async fn finish_target(
+    /// Make each hypertable of the source one again in `target`, streaming its rows from `rows`
+    /// when given. A hypertable `target` already has is left as it is.
+    async fn make_hypertables(
         &self,
         db: &DB,
-        source: &PgDatabase,
         target: &PgDatabase,
-        schema_only: bool,
+        rows: Option<&tokio_postgres::Client>,
     ) -> Result<()> {
         if self.hypertables.is_empty() {
             return Ok(());
         }
-        let (source_client, source_connection) = source.connect(Some(db)).await?;
-        let source_join = tokio::spawn(async move { source_connection.await });
-        let (mut target_client, target_connection) = target.connect(Some(db)).await?;
-        let target_join = tokio::spawn(async move { target_connection.await });
-        let result = self
-            .restore_hypertables(&source_client, &mut target_client, schema_only)
-            .await;
-        drop(source_client);
-        drop(target_client);
-        windmill_common::shutdown_pg_connection(source_join).await?;
-        windmill_common::shutdown_pg_connection(target_join).await?;
+        let (mut client, connection) = target.connect(Some(db)).await?;
+        let join_handle = tokio::spawn(async move { connection.await });
+        let result = self.make_hypertables_on(&mut client, rows).await;
+        drop(client);
+        windmill_common::shutdown_pg_connection(join_handle).await?;
         result.map_err(|e| {
             Error::internal_err(format!(
-                "Failed to restore the hypertables of '{}' into '{}': {e}",
-                source.dbname, target.dbname
+                "Failed to restore the hypertables of the copy '{}': {e}",
+                target.dbname
             ))
         })
     }
 
-    async fn restore_hypertables(
+    async fn make_hypertables_on(
         &self,
-        source: &tokio_postgres::Client,
         target: &mut tokio_postgres::Client,
-        schema_only: bool,
+        rows: Option<&tokio_postgres::Client>,
     ) -> std::result::Result<(), String> {
         let pg = |e: tokio_postgres::Error| pg_error_message(&e);
         let tx = target.transaction().await.map_err(pg)?;
@@ -422,7 +644,7 @@ impl ExtensionPlan {
                 continue;
             }
             for (i, dimension) in hypertable.dimensions.iter().enumerate() {
-                // The replay already made the source's indexes, the default ones among them.
+                // The replay makes the source's indexes, the default ones among them.
                 let (function, extra) = if i == 0 {
                     ("create_hypertable", ", create_default_indexes => false")
                 } else {
@@ -457,7 +679,7 @@ impl ExtensionPlan {
                 .await
                 .map_err(|e| format!("{relation}: {}", pg_error_message(&e)))?;
             }
-            if !schema_only {
+            if let Some(source) = rows {
                 copy_rows(source, &tx, hypertable)
                     .await
                     .map_err(|e| format!("copying the rows of {relation}: {e}"))?;
@@ -468,7 +690,8 @@ impl ExtensionPlan {
 }
 
 /// Stream the rows of `hypertable` from `source` into `target`. A `COPY` of a hypertable itself
-/// reads none of its rows, which live in its chunks: the source side copies a query instead.
+/// reads none of its rows, which live in its chunks: the source side copies a query instead. Binary,
+/// so no session setting of either side (`DateStyle`, `IntervalStyle`) changes what a value reads.
 async fn copy_rows(
     source: &tokio_postgres::Client,
     target: &tokio_postgres::Transaction<'_>,
@@ -484,12 +707,14 @@ async fn copy_rows(
         .join(", ");
     let rows = source
         .copy_out(&format!(
-            "COPY (SELECT {columns} FROM {relation}) TO STDOUT"
+            "COPY (SELECT {columns} FROM {relation}) TO STDOUT (FORMAT binary)"
         ))
         .await
         .map_err(pg)?;
     let sink = target
-        .copy_in(&format!("COPY {relation} ({columns}) FROM STDIN"))
+        .copy_in(&format!(
+            "COPY {relation} ({columns}) FROM STDIN (FORMAT binary)"
+        ))
         .await
         .map_err(pg)?;
     futures::pin_mut!(rows, sink);
@@ -498,36 +723,6 @@ async fn copy_rows(
     }
     sink.finish().await.map_err(pg)?;
     Ok(())
-}
-
-/// Who creates the extensions a copy lacks.
-#[derive(Clone, Copy)]
-pub(crate) enum ExtensionCreator {
-    /// The target's own connection role, which may create only trusted extensions.
-    TargetRole,
-    /// The administrator of the cluster Windmill manages the target on.
-    ClusterAdmin(DataTableCatalogResourceType),
-}
-
-impl ExtensionCreator {
-    /// The source names the extensions created, so the administrator creates them only for a
-    /// fresh copy of a database on its own cluster, whose extensions an administrator there
-    /// installed: any other source could name an untrusted extension, and a live target's role
-    /// may have planted objects in the schemas an extension script runs against.
-    pub(crate) fn for_copy(
-        source: Option<DataTableCatalogResourceType>,
-        target: Option<DataTableCatalogResourceType>,
-        fresh_copy: bool,
-    ) -> Self {
-        match (source, target) {
-            (Some(source), Some(target))
-                if source == target && fresh_copy && target.is_windmill_managed() =>
-            {
-                Self::ClusterAdmin(target)
-            }
-            _ => Self::TargetRole,
-        }
-    }
 }
 
 async fn create_extension(
@@ -542,12 +737,8 @@ async fn create_extension(
         quote_ident(&extension.schema)
     );
     let name = &extension.name;
-    let kind = match creator {
-        ExtensionCreator::ClusterAdmin(kind) => kind,
-        ExtensionCreator::TargetRole => DataTableCatalogResourceType::Postgresql,
-    };
-    match kind {
-        DataTableCatalogResourceType::ExternalInstance => {
+    match creator {
+        ExtensionCreator::ClusterAdmin(DataTableCatalogResourceType::ExternalInstance) => {
             windmill_common::external_instance_pg::execute_as_external_instance_admin_unchecked(
                 db,
                 &target.dbname,
@@ -561,7 +752,7 @@ async fn create_extension(
                 ))
             })
         }
-        DataTableCatalogResourceType::Instance => {
+        ExtensionCreator::ClusterAdmin(DataTableCatalogResourceType::Instance) => {
             let windmill =
                 PgDatabase::parse_uri(&windmill_common::get_database_url().await?.as_str().await)?;
             let admin = PgDatabase { dbname: target.dbname.clone(), ..windmill };
@@ -572,12 +763,12 @@ async fn create_extension(
                 ))
             })
         }
-        DataTableCatalogResourceType::Postgresql => execute(db, target, &sql).await.map_err(|e| {
+        ExtensionCreator::ClusterAdmin(DataTableCatalogResourceType::Postgresql)
+        | ExtensionCreator::TargetRole => execute(db, target, &sql).await.map_err(|e| {
             Error::BadRequest(format!(
                 "The copy needs extension '{name}', which its new database does not have and \
-                     role '{}' may not create: {}. Install the extension in the server's \
-                     template1 database, which new databases are made from, or let the role \
-                     create it.",
+                 role '{}' may not create: {}. Install the extension in the server's template1 \
+                 database, which new databases are made from, or let the role create it.",
                 target.login_name(),
                 e.trim_end_matches('.')
             ))
@@ -599,6 +790,36 @@ async fn execute(db: &DB, pg: &PgDatabase, sql: &str) -> std::result::Result<(),
     result
 }
 
+/// A `schema.name` as pg_dump writes it, each part double-quoted only when it has to be, unquoted.
+fn parse_qualified(qualified: &str) -> Option<(String, String)> {
+    let (schema, rest) = parse_ident(qualified)?;
+    let (name, rest) = parse_ident(rest.strip_prefix('.')?)?;
+    rest.is_empty().then_some((schema, name))
+}
+
+fn parse_ident(s: &str) -> Option<(String, &str)> {
+    let Some(quoted) = s.strip_prefix('"') else {
+        let end = s
+            .find(|c: char| c == '.' || c.is_whitespace())
+            .unwrap_or(s.len());
+        return (end > 0).then(|| (s[..end].to_string(), &s[end..]));
+    };
+    let mut ident = String::new();
+    let mut rest = quoted;
+    loop {
+        let close = rest.find('"')?;
+        ident.push_str(&rest[..close]);
+        rest = &rest[close + 1..];
+        match rest.strip_prefix('"') {
+            Some(after) => {
+                ident.push('"');
+                rest = after;
+            }
+            None => return Some((ident, rest)),
+        }
+    }
+}
+
 /// The schema a `CREATE SCHEMA <name>;` line of a dump creates, unquoted.
 fn created_schema(line: &str) -> Option<String> {
     let name = line
@@ -611,17 +832,17 @@ fn created_schema(line: &str) -> Option<String> {
     }
 }
 
-/// Comment out the dump's `CREATE SCHEMA` of each of `schemas`, which the copy already has, in
-/// place and three bytes each so the rest of the dump stays where it is. pg_dump writes every
+/// Comment out the script's `CREATE SCHEMA` of each of `schemas`, which the copy already has, in
+/// place and three bytes each so the rest of the script stays where it is. pg_dump writes every
 /// schema before any other object, so the scan stops at the first other `CREATE` or `COPY`.
-async fn comment_out_schema_creations(dump: &DumpFile, schemas: &[String]) -> Result<()> {
+async fn comment_out_schema_creations(script: &DumpFile, schemas: &[String]) -> Result<()> {
     use tokio::io::{AsyncBufReadExt, AsyncSeekExt, AsyncWriteExt};
 
     if schemas.is_empty() {
         return Ok(());
     }
     let io_err = |e: std::io::Error| Error::internal_err(format!("Failed to patch dump file: {e}"));
-    let file = tokio::fs::File::open(&dump.path).await.map_err(io_err)?;
+    let file = tokio::fs::File::open(&script.path).await.map_err(io_err)?;
     let mut reader = tokio::io::BufReader::new(file);
     let mut offsets = vec![];
     let mut offset = 0u64;
@@ -646,7 +867,7 @@ async fn comment_out_schema_creations(dump: &DumpFile, schemas: &[String]) -> Re
     }
     let mut file = tokio::fs::OpenOptions::new()
         .write(true)
-        .open(&dump.path)
+        .open(&script.path)
         .await
         .map_err(io_err)?;
     for offset in offsets {
@@ -660,7 +881,19 @@ async fn comment_out_schema_creations(dump: &DumpFile, schemas: &[String]) -> Re
 
 #[cfg(test)]
 mod tests {
-    use super::created_schema;
+    use super::{created_schema, parse_qualified};
+
+    #[test]
+    fn parse_qualified_unquotes_what_pg_dump_quotes() {
+        let parsed = |s: &str| parse_qualified(s).map(|(a, b)| format!("{a}|{b}"));
+        assert_eq!(parsed("public.metrics").as_deref(), Some("public|metrics"));
+        assert_eq!(
+            parsed("\"My.Schema\".\"a\"\"b\"").as_deref(),
+            Some("My.Schema|a\"b")
+        );
+        assert_eq!(parsed("public.metrics ADD"), None);
+        assert_eq!(parsed("metrics"), None);
+    }
 
     #[test]
     fn created_schema_unquotes_what_pg_dump_quotes() {

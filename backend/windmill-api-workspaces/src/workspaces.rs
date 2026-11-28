@@ -3464,7 +3464,7 @@ pub(crate) struct DumpFile {
 }
 
 impl DumpFile {
-    fn new() -> Result<Self> {
+    pub(crate) fn new() -> Result<Self> {
         let dir = std::path::Path::new("/tmp/windmill");
         std::fs::create_dir_all(dir)
             .map_err(|e| Error::internal_err(format!("Failed to create /tmp/windmill: {}", e)))?;
@@ -3509,11 +3509,13 @@ impl Drop for DumpFile {
 pub(crate) struct PgDumpOptions<'a> {
     pub(crate) schema_only: bool,
     pub(crate) exclude_tables: &'a [&'a str],
-    /// Extensions whose `CREATE EXTENSION`, `COMMENT ON EXTENSION` and configuration table rows
-    /// are left out, matched by name rather than as patterns.
-    pub(crate) exclude_extensions: &'a [String],
-    /// Schemas left out with everything in them, matched by name rather than as patterns.
-    pub(crate) exclude_schemas: &'a [String],
+    /// A `--filter` file of what else to leave out (pg_dump 17+).
+    pub(crate) filter: Option<&'a std::path::Path>,
+    /// Dump as of a snapshot another session exported, rather than one of its own.
+    pub(crate) snapshot: Option<&'a str>,
+    /// Write an archive for `pg_restore` rather than a `psql` script. `no_owner` and `no_acl` then
+    /// apply when restoring it ([`pg_restore_section`]).
+    pub(crate) archive: bool,
     /// Leave out `ALTER ... OWNER TO`.
     pub(crate) no_owner: bool,
     /// Leave out `GRANT`, `REVOKE` and `ALTER DEFAULT PRIVILEGES`.
@@ -3547,7 +3549,19 @@ fn pg_dump_command(
     let user = pg_db.login_name();
 
     let mut cmd = tokio::process::Command::new("pg_dump");
-    cmd.arg("--format=plain").arg("--file").arg(dump_path);
+    cmd.arg(if opts.archive {
+        "--format=custom"
+    } else {
+        "--format=plain"
+    })
+    .arg("--file")
+    .arg(dump_path);
+    if let Some(filter) = opts.filter {
+        cmd.arg("--filter").arg(filter);
+    }
+    if let Some(snapshot) = opts.snapshot {
+        cmd.arg(format!("--snapshot={snapshot}"));
+    }
     if opts.schema_only {
         cmd.arg("--schema-only");
     }
@@ -3559,15 +3573,6 @@ fn pg_dump_command(
     }
     for table in opts.exclude_tables {
         cmd.arg(format!("--exclude-table={table}"));
-    }
-    // pg_dump reads these as patterns, where `*`, `?`, `.` and upper case mean something: a
-    // double-quoted name is taken literally.
-    let literal = |name: &str| format!("\"{}\"", name.replace('"', "\"\""));
-    for extension in opts.exclude_extensions {
-        cmd.arg(format!("--exclude-extension={}", literal(extension)));
-    }
-    for schema in opts.exclude_schemas {
-        cmd.arg(format!("--exclude-schema={}", literal(schema)));
     }
     cmd.arg("--host")
         .arg(host)
@@ -3590,8 +3595,8 @@ fn pg_dump_command(
     Ok((cmd, root_cert))
 }
 
-/// `--exclude-extension` is pg_dump 17's: an older client would refuse it as an unknown option.
-async fn ensure_pg_dump_excludes_extensions() -> Result<()> {
+/// `--filter` is pg_dump 17's: an older client would refuse it as an unknown option.
+async fn ensure_pg_dump_filters() -> Result<()> {
     let output = tokio::process::Command::new("pg_dump")
         .arg("--version")
         .output()
@@ -3618,8 +3623,8 @@ pub(crate) async fn pg_dump_database(
     pg_db: &PgDatabase,
     opts: PgDumpOptions<'_>,
 ) -> Result<DumpFile> {
-    if !opts.exclude_extensions.is_empty() {
-        ensure_pg_dump_excludes_extensions().await?;
+    if opts.filter.is_some() {
+        ensure_pg_dump_filters().await?;
     }
     let dump_file = DumpFile::new()?;
 
@@ -3636,6 +3641,40 @@ pub(crate) async fn pg_dump_database(
     }
 
     Ok(dump_file)
+}
+
+/// One section of a [`PgDumpOptions::archive`] dump (`pre-data`, `data` or `post-data`), as a
+/// script [`pg_import_dump`] replays.
+pub(crate) async fn pg_restore_section(
+    archive: &DumpFile,
+    section: &str,
+    no_owner: bool,
+    no_acl: bool,
+) -> Result<DumpFile> {
+    let script = DumpFile::new()?;
+    let mut cmd = tokio::process::Command::new("pg_restore");
+    cmd.arg(format!("--section={section}"))
+        .arg("--file")
+        .arg(&script.path);
+    if no_owner {
+        cmd.arg("--no-owner");
+    }
+    if no_acl {
+        cmd.arg("--no-privileges");
+    }
+    let output = cmd
+        .arg(&archive.path)
+        .output()
+        .await
+        .map_err(|e| Error::internal_err(format!("Failed to execute pg_restore: {}", e)))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(Error::internal_err(format!(
+            "pg_restore failed: {}",
+            stderr
+        )));
+    }
+    Ok(script)
 }
 
 /// Whether `line` still belongs to the preamble pg_dump emits before the first
@@ -4397,37 +4436,24 @@ async fn import_pg_database(
     };
     let extensions =
         crate::datatable_extensions::read_extension_plan(&db, &source_pg, schema_only).await?;
-    let dump_file = pg_dump_database(
-        &source_pg,
-        PgDumpOptions {
-            schema_only,
-            no_owner: true,
-            no_acl,
-            exclude_extensions: &extensions.excluded_extensions,
-            exclude_schemas: &extensions.excluded_schemas,
-            ..Default::default()
-        },
-    )
-    .await?;
+    let dump = extensions
+        .dump(&db, &source_pg, schema_only, no_acl)
+        .await?;
     let applied = match migrations_lock {
         Some(client) => Some(crate::datatable_migrations::read_applied_migrations(&client).await?),
         None => None,
     };
     extensions
-        .prepare_target(
+        .restore(
             &db,
+            dump,
             &target_pg,
             crate::datatable_extensions::ExtensionCreator::for_copy(
                 source_kind,
                 target_kind,
                 fresh_copy,
             ),
-            &dump_file,
         )
-        .await?;
-    pg_import_dump(&target_pg, &dump_file).await?;
-    extensions
-        .finish_target(&db, &source_pg, &target_pg, schema_only)
         .await?;
     if let Some(applied) = applied {
         crate::datatable_migrations::write_applied_migrations(&db, &target_pg, &applied).await?;
