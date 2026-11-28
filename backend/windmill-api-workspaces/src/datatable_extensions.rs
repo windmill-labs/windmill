@@ -101,14 +101,33 @@ pub(crate) async fn read_extension_plan(
 ) -> Result<ExtensionPlan> {
     let (client, connection) = source.connect(Some(db)).await?;
     let join_handle = tokio::spawn(async move { connection.await });
-    let plan = read_plan(&client, &source.dbname, schema_only).await;
+    let read = async {
+        let plan = read_plan(&client, &source.dbname, schema_only).await?;
+        let hypertables: Vec<String> = if plan.extensions.iter().any(|e| e.name == TIMESCALEDB) {
+            client
+                .query(
+                    "SELECT format('%I.%I', hypertable_schema, hypertable_name)
+                     FROM timescaledb_information.hypertables ORDER BY 1",
+                    &[],
+                )
+                .await
+                .map_err(source_err(&source.dbname))?
+                .iter()
+                .map(|row| row.get(0))
+                .collect()
+        } else {
+            vec![]
+        };
+        Ok::<_, Error>((plan, hypertables))
+    }
+    .await;
     drop(client);
     windmill_common::shutdown_pg_connection(join_handle).await?;
-    let mut plan = plan?;
+    let (mut plan, hypertables) = read?;
     // The chunks to leave out are read in the snapshot the dump is then taken in: a chunk made in
     // between would otherwise be dumped as a table of its own, inheriting from its hypertable.
     if plan.extensions.iter().any(|e| e.name == TIMESCALEDB) {
-        let (snapshot, snapshot_id) = SnapshotSession::open(db, source).await?;
+        let (snapshot, snapshot_id) = SnapshotSession::open(db, source, &hypertables).await?;
         if let Err(e) = read_hypertables(&snapshot.client, &source.dbname, &mut plan).await {
             snapshot.close().await;
             return Err(e);
@@ -346,15 +365,32 @@ pub(crate) struct SnapshotSession {
 }
 
 impl SnapshotSession {
-    async fn open(db: &DB, source: &PgDatabase) -> Result<(Self, String)> {
+    /// `hypertables` are quoted qualified names, locked with their chunks before the snapshot is
+    /// taken and until the session closes: a chunk dropped meanwhile, by a retention policy say,
+    /// takes its rows with it even from a snapshot that still sees them.
+    async fn open(db: &DB, source: &PgDatabase, hypertables: &[String]) -> Result<(Self, String)> {
         let (client, connection) = source.connect(Some(db)).await?;
         let join_handle = tokio::spawn(async move { connection.await });
         let session = Self { client, join_handle };
         let snapshot = async {
+            // The plan's intervals are read as text and handed back to TimescaleDB on the copy.
             session
                 .client
-                .batch_execute("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY")
+                .batch_execute(
+                    "BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY;
+                     SET LOCAL IntervalStyle = 'postgres'",
+                )
                 .await?;
+            if !hypertables.is_empty() {
+                // Before any query, which would take the snapshot.
+                session
+                    .client
+                    .batch_execute(&format!(
+                        "LOCK TABLE {} IN ACCESS SHARE MODE",
+                        hypertables.join(", ")
+                    ))
+                    .await?;
+            }
             Ok::<String, tokio_postgres::Error>(
                 session
                     .client
