@@ -366,7 +366,7 @@ export async function cancelJob(
 }
 
 const STRIP_COMMENTS =
-  /(\/\/.*$)|(\/\*[\s\S]*?\*\/)|(\s*=[^,\)]*(('(?:\\'|[^'\r\n])*')|("(?:\\"|[^"\r\n])*"))|(\s*=[^,\)]*))/gm;
+  /(\/\/.*$)|(\/\*[\s\S]*?\*\/)|(\s*=[^,\)]*(('(?:\\'|[^'\r\n])*')|("(?:\\"|[^"\r\n])*")))/gm;
 function getParamNames(func: Function): string[] {
   const fnStr = func.toString().replace(STRIP_COMMENTS, "");
   // Find the matching closing paren for the parameter list, handling nesting
@@ -380,13 +380,13 @@ function getParamNames(func: Function): string[] {
   }
   const paramStr = fnStr.slice(openIdx + 1, closeIdx - 1).trim();
   if (!paramStr) return [];
-  // Split on commas at depth 0 (skip nested parens, angle brackets, braces)
+  // Split on commas at depth 0 (skip nested parens, brackets, braces)
   const params: string[] = [];
   let current = "";
   let d = 0;
   for (const ch of paramStr) {
-    if ("(<{".includes(ch)) d++;
-    else if (")>}".includes(ch)) d--;
+    if ("({[".includes(ch)) d++;
+    else if (")}]".includes(ch)) d--;
     if (ch === "," && d === 0) {
       params.push(current.trim());
       current = "";
@@ -401,11 +401,12 @@ function getParamNames(func: Function): string[] {
     p = p.replace(/^\.\.\./, "");
     // For destructured params like { url, depth }: Config, use a positional fallback
     if (p.startsWith("{") || p.startsWith("[")) return "";
+    p = p.split("=")[0];
     // Strip type annotation (e.g. "x: number" -> "x", "x?: string" -> "x")
     const colonIdx = p.indexOf(":");
     if (colonIdx !== -1) p = p.slice(0, colonIdx);
     return p.replace(/\?$/, "").trim();
-  }).filter(Boolean);
+  });
 }
 
 /**
@@ -2565,7 +2566,7 @@ export function task<T extends (...args: any[]) => Promise<any>>(
       return (async () => {
         const paramNames = getParamNames(fn);
         const kwargs: Record<string, any> = {};
-        args.forEach((x, i) => (kwargs[paramNames[i]] = x));
+        args.forEach((x, i) => (kwargs[paramNames[i] || `arg${i}`] = x));
         let req = await fetch(
           `${OpenAPI.BASE}/w/${getWorkspace()}/jobs/run/workflow_as_code/${getEnv(
             "WM_JOB_ID"
