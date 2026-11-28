@@ -261,6 +261,29 @@ pub async fn external_instance_connection_unchecked(
         .await
 }
 
+/// Run `sql` on `dbname` as the external cluster's admin login, for what `custom_instance_user`
+/// may not do there itself, such as creating an extension only a superuser may create.
+///
+/// Authorization: checks nothing. Callers MUST have authorized administering `dbname`: superadmin,
+/// or making a fork copy they may fill.
+pub async fn execute_as_external_instance_admin_unchecked(
+    db: &DB,
+    dbname: &str,
+    sql: &str,
+) -> Result<()> {
+    crate::external_instance_pg_oss::with_external_instance_admin_unchecked(
+        db,
+        Some(dbname),
+        async |client| {
+            client
+                .batch_execute(sql)
+                .await
+                .map_err(|e| Error::BadRequest(crate::error::pg_error_message(&e)))
+        },
+    )
+    .await
+}
+
 /// Create `dbname` on the external cluster and register it. Refuses a name already taken there,
 /// whoever took it.
 ///

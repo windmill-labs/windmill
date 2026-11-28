@@ -3509,6 +3509,11 @@ impl Drop for DumpFile {
 pub(crate) struct PgDumpOptions<'a> {
     pub(crate) schema_only: bool,
     pub(crate) exclude_tables: &'a [&'a str],
+    /// Extensions whose `CREATE EXTENSION`, `COMMENT ON EXTENSION` and configuration table rows
+    /// are left out, matched by name rather than as patterns.
+    pub(crate) exclude_extensions: &'a [String],
+    /// Schemas left out with everything in them, matched by name rather than as patterns.
+    pub(crate) exclude_schemas: &'a [String],
     /// Leave out `ALTER ... OWNER TO`.
     pub(crate) no_owner: bool,
     /// Leave out `GRANT`, `REVOKE` and `ALTER DEFAULT PRIVILEGES`.
@@ -3554,6 +3559,15 @@ fn pg_dump_command(
     }
     for table in opts.exclude_tables {
         cmd.arg(format!("--exclude-table={table}"));
+    }
+    // pg_dump reads these as patterns, where `*`, `?`, `.` and upper case mean something: a
+    // double-quoted name is taken literally.
+    let literal = |name: &str| format!("\"{}\"", name.replace('"', "\"\""));
+    for extension in opts.exclude_extensions {
+        cmd.arg(format!("--exclude-extension={}", literal(extension)));
+    }
+    for schema in opts.exclude_schemas {
+        cmd.arg(format!("--exclude-schema={}", literal(schema)));
     }
     cmd.arg("--host")
         .arg(host)
@@ -4356,16 +4370,36 @@ async fn import_pg_database(
     } else {
         None
     };
+    let extensions =
+        crate::datatable_extensions::read_extension_plan(&db, &source_pg, schema_only).await?;
     let dump_file = pg_dump_database(
         &source_pg,
-        PgDumpOptions { schema_only, no_owner: true, no_acl, ..Default::default() },
+        PgDumpOptions {
+            schema_only,
+            no_owner: true,
+            no_acl,
+            exclude_extensions: &extensions.excluded_extensions,
+            exclude_schemas: &extensions.excluded_schemas,
+            ..Default::default()
+        },
     )
     .await?;
     let applied = match migrations_lock {
         Some(client) => Some(crate::datatable_migrations::read_applied_migrations(&client).await?),
         None => None,
     };
+    extensions
+        .prepare_target(
+            &db,
+            &target_pg,
+            target_kind.unwrap_or(DataTableCatalogResourceType::Postgresql),
+            &dump_file,
+        )
+        .await?;
     pg_import_dump(&target_pg, &dump_file).await?;
+    extensions
+        .finish_target(&db, &source_pg, &target_pg, schema_only)
+        .await?;
     if let Some(applied) = applied {
         crate::datatable_migrations::write_applied_migrations(&db, &target_pg, &applied).await?;
     }

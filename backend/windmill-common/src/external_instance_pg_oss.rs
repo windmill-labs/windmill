@@ -21,7 +21,7 @@ pub fn external_instance_pg_unavailable() -> Error {
 pub(crate) use crate::external_instance_pg_ee::{
     create_external_instance_database_unchecked, drop_external_instance_database_unchecked,
     external_instance_connection_unchecked, setup_external_instance_pg_unchecked,
-    validate_external_instance_pg_setting,
+    validate_external_instance_pg_setting, with_external_instance_admin_unchecked,
 };
 
 #[cfg(all(feature = "private", feature = "enterprise"))]
@@ -69,6 +69,14 @@ mod ce {
         _tag: &str,
         _for_workspace: Option<&str>,
     ) -> Result<()> {
+        Err(unavailable())
+    }
+
+    pub(crate) async fn with_external_instance_admin_unchecked<T>(
+        _db: &DB,
+        _dbname: Option<&str>,
+        _f: impl AsyncFnOnce(&tokio_postgres::Client) -> Result<T>,
+    ) -> Result<T> {
         Err(unavailable())
     }
 

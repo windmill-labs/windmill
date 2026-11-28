@@ -28,6 +28,7 @@ use windmill_common::workspaces::{
 use windmill_common::{PgDatabase, DB};
 
 use crate::datatable_acl::connect_with_notices;
+use crate::datatable_extensions::{read_extension_plan, ExtensionPlan};
 use crate::datatable_migrations::{
     lock_migration_runs_on, read_applied_migrations, write_applied_migrations, AppliedMigrations,
 };
@@ -468,9 +469,17 @@ async fn make_copy(
     // Ownership never carries over: the restore runs as the target's connection user. Grants do,
     // except on a cluster Windmill manages, which plants its own and where the replay below is what
     // reproduces the roles'.
+    let extensions = read_extension_plan(db, &server, schema_only).await?;
     let dump = pg_dump_database(
         &server,
-        PgDumpOptions { schema_only, no_owner: true, no_acl: managed, ..Default::default() },
+        PgDumpOptions {
+            schema_only,
+            no_owner: true,
+            no_acl: managed,
+            exclude_extensions: &extensions.excluded_extensions,
+            exclude_schemas: &extensions.excluded_schemas,
+            ..Default::default()
+        },
     )
     .await?;
     let applied = match migrations_lock {
@@ -515,6 +524,9 @@ async fn make_copy(
         &server,
         &target,
         &dump,
+        &extensions,
+        source_database.resource_type,
+        schema_only,
         applied.as_ref(),
     )
     .await;
@@ -556,9 +568,16 @@ async fn fill(
     source: &PgDatabase,
     target: &PgDatabase,
     dump: &DumpFile,
+    extensions: &ExtensionPlan,
+    kind: DataTableCatalogResourceType,
+    schema_only: bool,
     applied: Option<&AppliedMigrations>,
 ) -> Result<bool> {
+    extensions.prepare_target(db, target, kind, dump).await?;
     pg_import_dump(target, dump).await?;
+    extensions
+        .finish_target(db, source, target, schema_only)
+        .await?;
     if let Some(applied) = applied {
         write_applied_migrations(db, target, applied).await?;
     }
