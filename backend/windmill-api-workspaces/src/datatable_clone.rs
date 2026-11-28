@@ -28,7 +28,7 @@ use windmill_common::workspaces::{
 use windmill_common::{PgDatabase, DB};
 
 use crate::datatable_acl::connect_with_notices;
-use crate::datatable_extensions::{read_extension_plan, ExtensionPlan};
+use crate::datatable_extensions::{read_extension_plan, ExtensionCreator, ExtensionPlan};
 use crate::datatable_migrations::{
     lock_migration_runs_on, read_applied_migrations, write_applied_migrations, AppliedMigrations,
 };
@@ -525,7 +525,12 @@ async fn make_copy(
         &target,
         &dump,
         &extensions,
-        source_database.resource_type,
+        // The copy is a new database on the source's own cluster.
+        ExtensionCreator::for_copy(
+            Some(source_database.resource_type),
+            Some(source_database.resource_type),
+            true,
+        ),
         schema_only,
         applied.as_ref(),
     )
@@ -569,11 +574,11 @@ async fn fill(
     target: &PgDatabase,
     dump: &DumpFile,
     extensions: &ExtensionPlan,
-    kind: DataTableCatalogResourceType,
+    creator: ExtensionCreator,
     schema_only: bool,
     applied: Option<&AppliedMigrations>,
 ) -> Result<bool> {
-    extensions.prepare_target(db, target, kind, dump).await?;
+    extensions.prepare_target(db, target, creator, dump).await?;
     pg_import_dump(target, dump).await?;
     extensions
         .finish_target(db, source, target, schema_only)

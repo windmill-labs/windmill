@@ -3590,12 +3590,37 @@ fn pg_dump_command(
     Ok((cmd, root_cert))
 }
 
+/// `--exclude-extension` is pg_dump 17's: an older client would refuse it as an unknown option.
+async fn ensure_pg_dump_excludes_extensions() -> Result<()> {
+    let output = tokio::process::Command::new("pg_dump")
+        .arg("--version")
+        .output()
+        .await
+        .map_err(|e| Error::internal_err(format!("Failed to execute pg_dump: {}", e)))?;
+    let version = String::from_utf8_lossy(&output.stdout);
+    let major = version.split_whitespace().find_map(|word| {
+        let digits: String = word.chars().take_while(char::is_ascii_digit).collect();
+        digits.parse::<u32>().ok()
+    });
+    match major {
+        Some(major) if major >= 17 => Ok(()),
+        _ => Err(Error::BadRequest(format!(
+            "Copying a database that uses extensions needs pg_dump 17 or later on the Windmill \
+             server, which has {}",
+            version.trim()
+        ))),
+    }
+}
+
 /// Run pg_dump against a PgDatabase, writing output to a temp file on disk.
 /// Returns a DumpFile handle; the file is deleted when the handle is dropped.
 pub(crate) async fn pg_dump_database(
     pg_db: &PgDatabase,
     opts: PgDumpOptions<'_>,
 ) -> Result<DumpFile> {
+    if !opts.exclude_extensions.is_empty() {
+        ensure_pg_dump_excludes_extensions().await?;
+    }
     let dump_file = DumpFile::new()?;
 
     let (mut cmd, _root_cert) = pg_dump_command(pg_db, opts, &dump_file.path)?;
@@ -4392,7 +4417,11 @@ async fn import_pg_database(
         .prepare_target(
             &db,
             &target_pg,
-            target_kind.unwrap_or(DataTableCatalogResourceType::Postgresql),
+            crate::datatable_extensions::ExtensionCreator::for_copy(
+                source_kind,
+                target_kind,
+                fresh_copy,
+            ),
             &dump_file,
         )
         .await?;

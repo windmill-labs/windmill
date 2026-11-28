@@ -133,10 +133,57 @@ async fn read_plan(
     }
     plan.extension_schemas = extension_schemas.into_iter().collect();
 
+    if !schema_only {
+        refuse_extension_rows(client, dbname).await?;
+    }
     if plan.extensions.iter().any(|e| e.name == TIMESCALEDB) {
         read_hypertables(client, dbname, schema_only, &mut plan).await?;
     }
     Ok(plan)
+}
+
+/// Refuse a copy with data of a database whose extensions' configuration tables hold rows of its
+/// users, such as PostGIS's custom spatial references: leaving the extensions out of the dump
+/// leaves those rows out too, and the copy's role could not write them anyway. TimescaleDB's are
+/// its catalog, which the copy rebuilds.
+async fn refuse_extension_rows(client: &tokio_postgres::Client, dbname: &str) -> Result<()> {
+    // `extcondition` is the filter pg_dump applies to pick the rows that are the user's.
+    let tables = client
+        .query(
+            "SELECT e.extname::text, c.oid::regclass::text, COALESCE(e.extcondition[i], '')
+             FROM pg_extension e
+             CROSS JOIN LATERAL generate_subscripts(e.extconfig, 1) AS i
+             JOIN pg_class c ON c.oid = e.extconfig[i]
+             WHERE c.relkind = 'r' AND e.extname <> $1
+             ORDER BY 1, 2",
+            &[&TIMESCALEDB],
+        )
+        .await
+        .map_err(source_err(dbname))?;
+    let mut holding = vec![];
+    for table in tables {
+        let (extension, relation, condition): (String, String, String) =
+            (table.get(0), table.get(1), table.get(2));
+        let has_rows: bool = client
+            .query_one(
+                &format!("SELECT EXISTS (SELECT 1 FROM {relation} {condition})"),
+                &[],
+            )
+            .await
+            .map_err(source_err(dbname))?
+            .get(0);
+        if has_rows {
+            holding.push(format!("{relation} of {extension}"));
+        }
+    }
+    if !holding.is_empty() {
+        return Err(Error::BadRequest(format!(
+            "Database '{dbname}' has rows of its own in tables of its extensions ({}), which a \
+             copy with data cannot carry: copy its schema only",
+            holding.join(", ")
+        )));
+    }
+    Ok(())
 }
 
 async fn read_hypertables(
@@ -255,16 +302,16 @@ async fn read_hypertables(
 }
 
 impl ExtensionPlan {
-    /// Give `target` the source's extensions before `dump` is replayed into it, creating each one
-    /// it lacks as whoever may create it on its server: the cluster's administrator for a database
-    /// Windmill manages, the data table's own role otherwise.
+    /// Give `target` the source's extensions before `dump` is replayed into it, `creator`
+    /// creating each one it lacks.
     ///
-    /// Authorization: none. Callers MUST have authorized writing to `target`.
+    /// Authorization: none. Callers MUST have authorized writing to `target`, and pick `creator`
+    /// with [`ExtensionCreator::for_copy`].
     pub(crate) async fn prepare_target(
         &self,
         db: &DB,
         target: &PgDatabase,
-        kind: DataTableCatalogResourceType,
+        creator: ExtensionCreator,
         dump: &DumpFile,
     ) -> Result<()> {
         if self.extensions.is_empty() {
@@ -276,7 +323,7 @@ impl ExtensionPlan {
         drop(client);
         windmill_common::shutdown_pg_connection(join_handle).await?;
         for extension in missing? {
-            create_extension(db, target, kind, extension).await?;
+            create_extension(db, target, creator, extension).await?;
         }
         comment_out_schema_creations(dump, &self.extension_schemas).await
     }
@@ -453,10 +500,40 @@ async fn copy_rows(
     Ok(())
 }
 
+/// Who creates the extensions a copy lacks.
+#[derive(Clone, Copy)]
+pub(crate) enum ExtensionCreator {
+    /// The target's own connection role, which may create only trusted extensions.
+    TargetRole,
+    /// The administrator of the cluster Windmill manages the target on.
+    ClusterAdmin(DataTableCatalogResourceType),
+}
+
+impl ExtensionCreator {
+    /// The source names the extensions created, so the administrator creates them only for a
+    /// fresh copy of a database on its own cluster, whose extensions an administrator there
+    /// installed: any other source could name an untrusted extension, and a live target's role
+    /// may have planted objects in the schemas an extension script runs against.
+    pub(crate) fn for_copy(
+        source: Option<DataTableCatalogResourceType>,
+        target: Option<DataTableCatalogResourceType>,
+        fresh_copy: bool,
+    ) -> Self {
+        match (source, target) {
+            (Some(source), Some(target))
+                if source == target && fresh_copy && target.is_windmill_managed() =>
+            {
+                Self::ClusterAdmin(target)
+            }
+            _ => Self::TargetRole,
+        }
+    }
+}
+
 async fn create_extension(
     db: &DB,
     target: &PgDatabase,
-    kind: DataTableCatalogResourceType,
+    creator: ExtensionCreator,
     extension: &SourceExtension,
 ) -> Result<()> {
     let sql = format!(
@@ -465,6 +542,10 @@ async fn create_extension(
         quote_ident(&extension.schema)
     );
     let name = &extension.name;
+    let kind = match creator {
+        ExtensionCreator::ClusterAdmin(kind) => kind,
+        ExtensionCreator::TargetRole => DataTableCatalogResourceType::Postgresql,
+    };
     match kind {
         DataTableCatalogResourceType::ExternalInstance => {
             windmill_common::external_instance_pg::execute_as_external_instance_admin_unchecked(
