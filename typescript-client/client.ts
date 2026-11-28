@@ -2566,7 +2566,7 @@ export function task<T extends (...args: any[]) => Promise<any>>(
       return (async () => {
         const paramNames = getParamNames(fn);
         const kwargs: Record<string, any> = {};
-        args.forEach((x, i) => (kwargs[paramNames[i]] = x));
+        args.forEach((x, i) => (kwargs[paramNames[i] || `arg${i}`] = x));
         let req = await fetch(
           `${OpenAPI.BASE}/w/${getWorkspace()}/jobs/run/workflow_as_code/${getEnv(
             "WM_JOB_ID"
