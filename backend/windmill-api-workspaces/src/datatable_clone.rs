@@ -28,13 +28,15 @@ use windmill_common::workspaces::{
 use windmill_common::{PgDatabase, DB};
 
 use crate::datatable_acl::connect_with_notices;
+use crate::datatable_extensions::{
+    read_extension_plan, ExtensionCreator, ExtensionPlan, PlannedDump,
+};
 use crate::datatable_migrations::{
     lock_migration_runs_on, read_applied_migrations, write_applied_migrations, AppliedMigrations,
 };
 use crate::datatable_permissions::ensure_reaches_governing_datatable;
 use crate::workspaces::{
     copy_database_settings, create_database_on_server, ensure_datatable_is_clonable,
-    pg_dump_database, pg_import_dump, DumpFile, PgDumpOptions,
 };
 
 /// A database this request created and filled for the data tables of the fork on one source
@@ -468,11 +470,8 @@ async fn make_copy(
     // Ownership never carries over: the restore runs as the target's connection user. Grants do,
     // except on a cluster Windmill manages, which plants its own and where the replay below is what
     // reproduces the roles'.
-    let dump = pg_dump_database(
-        &server,
-        PgDumpOptions { schema_only, no_owner: true, no_acl: managed, ..Default::default() },
-    )
-    .await?;
+    let mut extensions = read_extension_plan(db, &server, schema_only).await?;
+    let dump = extensions.dump(&server, schema_only, managed).await?;
     let applied = match migrations_lock {
         Some(client) => Some(read_applied_migrations(&client).await?),
         None => None,
@@ -514,7 +513,10 @@ async fn make_copy(
         &governing,
         &server,
         &target,
-        &dump,
+        dump,
+        &extensions,
+        // Created above, on the source's own server.
+        ExtensionCreator::for_new_copy_of(source_database.resource_type),
         applied.as_ref(),
     )
     .await;
@@ -555,10 +557,12 @@ async fn fill(
     governing: &GoverningDatatable,
     source: &PgDatabase,
     target: &PgDatabase,
-    dump: &DumpFile,
+    dump: PlannedDump,
+    extensions: &ExtensionPlan,
+    creator: ExtensionCreator,
     applied: Option<&AppliedMigrations>,
 ) -> Result<bool> {
-    pg_import_dump(target, dump).await?;
+    extensions.restore(db, dump, target, creator).await?;
     if let Some(applied) = applied {
         write_applied_migrations(db, target, applied).await?;
     }

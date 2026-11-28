@@ -1946,6 +1946,7 @@ async fn generate_initial_datatable_migration(
             exclude_tables: &["_wm_migrations"],
             no_owner: true,
             no_acl,
+            ..Default::default()
         },
     )
     .await?;

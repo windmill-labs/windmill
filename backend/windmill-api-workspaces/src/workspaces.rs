@@ -3464,7 +3464,7 @@ pub(crate) struct DumpFile {
 }
 
 impl DumpFile {
-    fn new() -> Result<Self> {
+    pub(crate) fn new() -> Result<Self> {
         let dir = std::path::Path::new("/tmp/windmill");
         std::fs::create_dir_all(dir)
             .map_err(|e| Error::internal_err(format!("Failed to create /tmp/windmill: {}", e)))?;
@@ -3509,6 +3509,13 @@ impl Drop for DumpFile {
 pub(crate) struct PgDumpOptions<'a> {
     pub(crate) schema_only: bool,
     pub(crate) exclude_tables: &'a [&'a str],
+    /// A `--filter` file of what else to leave out (pg_dump 17+).
+    pub(crate) filter: Option<&'a std::path::Path>,
+    /// Dump as of a snapshot another session exported, rather than one of its own.
+    pub(crate) snapshot: Option<&'a str>,
+    /// Write an archive for `pg_restore` rather than a `psql` script. `no_owner` and `no_acl` then
+    /// apply when restoring it ([`pg_restore_section`]).
+    pub(crate) archive: bool,
     /// Leave out `ALTER ... OWNER TO`.
     pub(crate) no_owner: bool,
     /// Leave out `GRANT`, `REVOKE` and `ALTER DEFAULT PRIVILEGES`.
@@ -3542,7 +3549,19 @@ fn pg_dump_command(
     let user = pg_db.login_name();
 
     let mut cmd = tokio::process::Command::new("pg_dump");
-    cmd.arg("--format=plain").arg("--file").arg(dump_path);
+    cmd.arg(if opts.archive {
+        "--format=custom"
+    } else {
+        "--format=plain"
+    })
+    .arg("--file")
+    .arg(dump_path);
+    if let Some(filter) = opts.filter {
+        cmd.arg("--filter").arg(filter);
+    }
+    if let Some(snapshot) = opts.snapshot {
+        cmd.arg(format!("--snapshot={snapshot}"));
+    }
     if opts.schema_only {
         cmd.arg("--schema-only");
     }
@@ -3576,12 +3595,37 @@ fn pg_dump_command(
     Ok((cmd, root_cert))
 }
 
+/// `--filter` is pg_dump 17's: an older client would refuse it as an unknown option.
+async fn ensure_pg_dump_filters() -> Result<()> {
+    let output = tokio::process::Command::new("pg_dump")
+        .arg("--version")
+        .output()
+        .await
+        .map_err(|e| Error::internal_err(format!("Failed to execute pg_dump: {}", e)))?;
+    let version = String::from_utf8_lossy(&output.stdout);
+    let major = version.split_whitespace().find_map(|word| {
+        let digits: String = word.chars().take_while(char::is_ascii_digit).collect();
+        digits.parse::<u32>().ok()
+    });
+    match major {
+        Some(major) if major >= 17 => Ok(()),
+        _ => Err(Error::BadRequest(format!(
+            "Copying a database that uses extensions needs pg_dump 17 or later on the Windmill \
+             server, which has {}",
+            version.trim()
+        ))),
+    }
+}
+
 /// Run pg_dump against a PgDatabase, writing output to a temp file on disk.
 /// Returns a DumpFile handle; the file is deleted when the handle is dropped.
 pub(crate) async fn pg_dump_database(
     pg_db: &PgDatabase,
     opts: PgDumpOptions<'_>,
 ) -> Result<DumpFile> {
+    if opts.filter.is_some() {
+        ensure_pg_dump_filters().await?;
+    }
     let dump_file = DumpFile::new()?;
 
     let (mut cmd, _root_cert) = pg_dump_command(pg_db, opts, &dump_file.path)?;
@@ -3597,6 +3641,40 @@ pub(crate) async fn pg_dump_database(
     }
 
     Ok(dump_file)
+}
+
+/// One section of a [`PgDumpOptions::archive`] dump (`pre-data`, `data` or `post-data`), as a
+/// script [`pg_import_dump`] replays.
+pub(crate) async fn pg_restore_section(
+    archive: &DumpFile,
+    section: &str,
+    no_owner: bool,
+    no_acl: bool,
+) -> Result<DumpFile> {
+    let script = DumpFile::new()?;
+    let mut cmd = tokio::process::Command::new("pg_restore");
+    cmd.arg(format!("--section={section}"))
+        .arg("--file")
+        .arg(&script.path);
+    if no_owner {
+        cmd.arg("--no-owner");
+    }
+    if no_acl {
+        cmd.arg("--no-privileges");
+    }
+    let output = cmd
+        .arg(&archive.path)
+        .output()
+        .await
+        .map_err(|e| Error::internal_err(format!("Failed to execute pg_restore: {}", e)))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(Error::internal_err(format!(
+            "pg_restore failed: {}",
+            stderr
+        )));
+    }
+    Ok(script)
 }
 
 /// Whether `line` still belongs to the preamble pg_dump emits before the first
@@ -4356,16 +4434,22 @@ async fn import_pg_database(
     } else {
         None
     };
-    let dump_file = pg_dump_database(
-        &source_pg,
-        PgDumpOptions { schema_only, no_owner: true, no_acl, ..Default::default() },
-    )
-    .await?;
+    let mut extensions =
+        crate::datatable_extensions::read_extension_plan(&db, &source_pg, schema_only).await?;
+    let dump = extensions.dump(&source_pg, schema_only, no_acl).await?;
     let applied = match migrations_lock {
         Some(client) => Some(crate::datatable_migrations::read_applied_migrations(&client).await?),
         None => None,
     };
-    pg_import_dump(&target_pg, &dump_file).await?;
+    extensions
+        .restore(
+            &db,
+            dump,
+            &target_pg,
+            // The target was created by an earlier request and may have been written to since.
+            crate::datatable_extensions::ExtensionCreator::TargetRole,
+        )
+        .await?;
     if let Some(applied) = applied {
         crate::datatable_migrations::write_applied_migrations(&db, &target_pg, &applied).await?;
     }

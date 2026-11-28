@@ -20,7 +20,7 @@ private = [
 ]
 cloud = ["windmill-common/cloud"]
 no_auth = ["windmill-api-auth/no_auth"]
-parquet = ["windmill-object-store/parquet", "dep:futures"]
+parquet = ["windmill-object-store/parquet"]
 
 [dependencies]
 windmill-common = { workspace = true, default-features = false }
@@ -38,7 +38,7 @@ windmill-store.workspace = true
 axum.workspace = true
 chrono.workspace = true
 constant_time_eq.workspace = true
-futures = { workspace = true, optional = true }
+futures.workspace = true
 hex.workspace = true
 magic-crypt.workspace = true
 http.workspace = true
