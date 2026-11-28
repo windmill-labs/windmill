@@ -470,8 +470,8 @@ async fn make_copy(
     // Ownership never carries over: the restore runs as the target's connection user. Grants do,
     // except on a cluster Windmill manages, which plants its own and where the replay below is what
     // reproduces the roles'.
-    let extensions = read_extension_plan(db, &server, schema_only).await?;
-    let dump = extensions.dump(db, &server, schema_only, managed).await?;
+    let mut extensions = read_extension_plan(db, &server, schema_only).await?;
+    let dump = extensions.dump(&server, schema_only, managed).await?;
     let applied = match migrations_lock {
         Some(client) => Some(read_applied_migrations(&client).await?),
         None => None,
@@ -515,12 +515,8 @@ async fn make_copy(
         &target,
         dump,
         &extensions,
-        // The copy is a new database on the source's own cluster.
-        ExtensionCreator::for_copy(
-            Some(source_database.resource_type),
-            Some(source_database.resource_type),
-            true,
-        ),
+        // Created above, on the source's own server.
+        ExtensionCreator::for_new_copy_of(source_database.resource_type),
         applied.as_ref(),
     )
     .await;

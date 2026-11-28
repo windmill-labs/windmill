@@ -4434,11 +4434,9 @@ async fn import_pg_database(
     } else {
         None
     };
-    let extensions =
+    let mut extensions =
         crate::datatable_extensions::read_extension_plan(&db, &source_pg, schema_only).await?;
-    let dump = extensions
-        .dump(&db, &source_pg, schema_only, no_acl)
-        .await?;
+    let dump = extensions.dump(&source_pg, schema_only, no_acl).await?;
     let applied = match migrations_lock {
         Some(client) => Some(crate::datatable_migrations::read_applied_migrations(&client).await?),
         None => None,
@@ -4448,11 +4446,8 @@ async fn import_pg_database(
             &db,
             dump,
             &target_pg,
-            crate::datatable_extensions::ExtensionCreator::for_copy(
-                source_kind,
-                target_kind,
-                fresh_copy,
-            ),
+            // The target was created by an earlier request and may have been written to since.
+            crate::datatable_extensions::ExtensionCreator::TargetRole,
         )
         .await?;
     if let Some(applied) = applied {
