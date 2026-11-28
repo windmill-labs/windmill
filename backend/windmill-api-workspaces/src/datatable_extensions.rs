@@ -128,7 +128,32 @@ pub(crate) async fn read_extension_plan(
     // between would otherwise be dumped as a table of its own, inheriting from its hypertable.
     if plan.extensions.iter().any(|e| e.name == TIMESCALEDB) {
         let (snapshot, snapshot_id) = SnapshotSession::open(db, source, &hypertables).await?;
-        if let Err(e) = read_hypertables(&snapshot.client, &source.dbname, &mut plan).await {
+        let read = async {
+            read_hypertables(&snapshot.client, &source.dbname, &mut plan).await?;
+            // A chunk made between the lock `open` takes and its snapshot is in the snapshot but
+            // not locked. Locking every chunk the snapshot sees fails on one dropped since, rather
+            // than copying a hypertable without its rows.
+            if !plan.chunks.is_empty() {
+                snapshot
+                    .client
+                    .batch_execute(&format!(
+                        "LOCK TABLE {} IN ACCESS SHARE MODE",
+                        plan.chunks.join(", ")
+                    ))
+                    .await
+                    .map_err(|e| {
+                        Error::BadRequest(format!(
+                            "A chunk of database '{}' was dropped while it was being copied, \
+                             try again: {}",
+                            source.dbname,
+                            pg_error_message(&e)
+                        ))
+                    })?;
+            }
+            Ok::<_, Error>(())
+        }
+        .await;
+        if let Err(e) = read {
             snapshot.close().await;
             return Err(e);
         }
